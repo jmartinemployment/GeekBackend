@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="GeekBackend.Api/GeekBackend.Api.csproj" />
+  <Project Path="GeekBackend.Data/GeekBackend.Data.csproj" />
+</Solution>
