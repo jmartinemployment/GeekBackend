@@ -18,6 +18,12 @@ builder.Services.AddCors(options =>
 var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? throw new InvalidOperationException("DATABASE_URL environment variable is not set. Add it to .env locally or as a Railway variable in production.");
 
+// Temporary diagnostic — log which host the app resolved from DATABASE_URL
+var diagHost = connectionString.Contains("Host=")
+    ? connectionString.Split(';').FirstOrDefault(p => p.TrimStart().StartsWith("Host=")) ?? "key-value-unknown"
+    : connectionString.Contains('@') ? new Uri(connectionString.Replace("postgresql://", "http://")).Host : "url-unknown";
+Console.WriteLine($"[DIAG] DATABASE_URL host resolved to: {diagHost}");
+
 builder.Services.AddDbContext<AppDbContext>(options => options
     .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
