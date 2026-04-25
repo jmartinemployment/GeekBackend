@@ -1,4 +1,5 @@
 using GeekBackend.Api.Dtos;
+using GeekBackend.Api.Services;
 using GeekBackend.Data.Models;
 using GeekBackend.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -12,10 +13,19 @@ public class DepartmentsController : ControllerBase
     private readonly IDepartmentRepository _departments;
     private readonly IUseCaseRepository _useCases;
 
-    public DepartmentsController(IDepartmentRepository departments, IUseCaseRepository useCases)
+    private readonly DepartmentContentService _departmentService;
+
+    public DepartmentsController(IDepartmentRepository departments, IUseCaseRepository useCases, DepartmentContentService departmentService)
     {
         _departments = departments;
         _useCases = useCases;
+        _departmentService = departmentService;
+    }
+
+    [HttpGet("content")]
+    public async Task<List<DepartmentDto>> GetContent()
+    {
+        return await _departmentService.GetDepartmentContentAsync();
     }
 
     [HttpGet]

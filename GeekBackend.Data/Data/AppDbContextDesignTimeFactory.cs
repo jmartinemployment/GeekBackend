@@ -8,9 +8,9 @@ public class AppDbContextDesignTimeFactory : IDesignTimeDbContextFactory<AppDbCo
 {
     public AppDbContext CreateDbContext(string[] args)
     {
-        var connectionString = ReadEnvVar("DIRECT_URL")
-            ?? ReadEnvVar("DATABASE_URL")
-            ?? throw new InvalidOperationException("Neither DIRECT_URL nor DATABASE_URL found in .env. Add .env to the solution root.");
+        var connectionString = ReadEnvVar("DATABASE_URL")
+            ?? ReadEnvVar("DIRECT_URL")
+            ?? throw new InvalidOperationException("Neither DATABASE_URL nor DIRECT_URL found in .env. Add .env to the solution root.");
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(connectionString)

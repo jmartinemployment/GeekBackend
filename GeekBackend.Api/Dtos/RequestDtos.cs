@@ -9,7 +9,7 @@ public record DepartmentRequest(
 
 public record UseCaseRequest(
     int DepartmentId,
-    int? CaseStudyId,
+    int CaseStudyId,
     string DescriptiveName,
     string Slug,
     string Summary);
@@ -23,9 +23,9 @@ public record CaseStudyRequest(
     string Trigger,
     string ProblemChallenge,
     string Solution,
-    string? PostConditions,
-    string? Exceptions,
-    string? IndustryCitation);
+    string PostConditions,
+    string Exceptions,
+    string IndustryCitation);
 
 public record ActorRequest(string ActorName, string ActorRole, int SortOrder);
 

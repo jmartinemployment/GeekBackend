@@ -212,6 +212,19 @@ public partial class AddCaseStudies : Migration
             name: "IX_use_cases_case_study_id",
             table: "use_cases",
             column: "case_study_id");
+
+        migrationBuilder.InsertData(
+            table: "departments",
+            columns: new[] { "name", "slug", "description", "sort_order" },
+            values: new object[,]
+            {
+                { "Operations",       "operations",       "Streamline and automate operational workflows.",         1 },
+                { "Marketing",        "marketing",        "AI-powered marketing content and campaign automation.",  2 },
+                { "Sales",            "sales",            "Lead qualification, follow-up, and pipeline automation.", 3 },
+                { "Customer Service", "customer-service", "24/7 AI support, ticket routing, and response automation.", 4 },
+                { "Accounting",       "accounting",       "Automated reporting, invoicing, and financial workflows.", 5 },
+                { "Human Resources",  "human-resources",  "Hiring automation, onboarding, and employee workflows.",  6 }
+            });
     }
 
     /// <inheritdoc />

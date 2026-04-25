@@ -118,7 +118,7 @@ public partial class AppDbContext
             entity.HasOne(e => e.CaseStudy)
                 .WithMany(c => c.UseCases)
                 .HasForeignKey(e => e.CaseStudyId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

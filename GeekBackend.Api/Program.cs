@@ -1,4 +1,5 @@
 using DotNetEnv;
+using GeekBackend.Api.Services;
 using GeekBackend.Data.Data;
 using GeekBackend.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -44,6 +45,7 @@ builder.Services.AddDbContext<AppDbContext>(options => options
 builder.Services.AddScoped<IDepartmentRepository, DepartmentRepository>();
 builder.Services.AddScoped<ICaseStudyRepository, CaseStudyRepository>();
 builder.Services.AddScoped<IUseCaseRepository, UseCaseRepository>();
+builder.Services.AddScoped<DepartmentContentService>();
 
 var app = builder.Build();
 
