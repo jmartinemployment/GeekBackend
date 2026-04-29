@@ -1006,7 +1006,8 @@ namespace GeekBackend.Data.Migrations
                         .HasColumnName("status");
 
                     b.Property<string>("Subtitle")
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("subtitle");
 
                     b.Property<string>("Trigger")
                         .IsRequired()
