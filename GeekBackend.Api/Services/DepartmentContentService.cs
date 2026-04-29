@@ -33,6 +33,7 @@ public class DepartmentContentService
                             DescriptiveName = uc.CaseStudy.DescriptiveName,
                             Slug = uc.CaseStudy.Slug,
                             ExecutiveSummary = uc.CaseStudy.ExecutiveSummary,
+                            Subtitle = uc.CaseStudy.Subtitle,
                             PrimaryActor = uc.CaseStudy.PrimaryActor,
                             Trigger = uc.CaseStudy.Trigger,
                             ProblemChallenge = uc.CaseStudy.ProblemChallenge,
