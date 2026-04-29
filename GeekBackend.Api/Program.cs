@@ -32,8 +32,8 @@ if (connectionString.Contains("Host="))
         if (ipv4 != null)
         {
             parts[hostIdx] = $"Host={ipv4}";
-            connectionString = string.Join(';', parts);
-            Console.WriteLine($"[INFO] Resolved {hostname} → {ipv4} (IPv4 forced for Railway)");
+            connectionString = string.Join(';', parts) + $";Server Name={hostname}";
+            Console.WriteLine($"[INFO] Resolved {hostname} → {ipv4} (IPv4 forced for Railway, SNI={hostname})");
         }
     }
 }
