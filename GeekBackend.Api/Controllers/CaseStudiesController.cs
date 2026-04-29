@@ -61,6 +61,7 @@ public class CaseStudiesController : ControllerBase
             Slug = req.Slug,
             Status = req.Status,
             ExecutiveSummary = req.ExecutiveSummary,
+            Subtitle = req.Subtitle,
             PrimaryActor = req.PrimaryActor,
             Trigger = req.Trigger,
             ProblemChallenge = req.ProblemChallenge,
@@ -89,6 +90,7 @@ public class CaseStudiesController : ControllerBase
         caseStudy.Slug = req.Slug;
         caseStudy.Status = req.Status;
         caseStudy.ExecutiveSummary = req.ExecutiveSummary;
+        caseStudy.Subtitle = req.Subtitle;
         caseStudy.PrimaryActor = req.PrimaryActor;
         caseStudy.Trigger = req.Trigger;
         caseStudy.ProblemChallenge = req.ProblemChallenge;
@@ -265,11 +267,11 @@ public class CaseStudiesController : ControllerBase
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static CaseStudySummaryDto ToSummaryDto(CaseStudy c) =>
-        new(c.Id, c.DescriptiveName, c.Slug, c.Status, c.ExecutiveSummary, c.PrimaryActor, c.PublishedAt);
+        new(c.Id, c.DescriptiveName, c.Slug, c.Status, c.ExecutiveSummary, c.Subtitle, c.PrimaryActor, c.PublishedAt);
 
     private static CaseStudyDetailDto ToDetailDto(CaseStudy c) =>
         new(c.Id, c.DescriptiveName, c.Slug, c.Status,
-            c.ExecutiveSummary, c.PrimaryActor, c.Trigger,
+            c.ExecutiveSummary, c.Subtitle, c.PrimaryActor, c.Trigger,
             c.ProblemChallenge, c.Solution, c.PostConditions, c.Exceptions, c.IndustryCitation,
             c.CreatedAt, c.UpdatedAt, c.PublishedAt,
             c.CaseStudyActors.OrderBy(a => a.SortOrder).Select(a => new ActorDto(a.Id, a.ActorName, a.ActorRole, a.SortOrder)).ToList(),

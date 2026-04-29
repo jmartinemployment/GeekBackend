@@ -38,6 +38,7 @@ public partial class AppDbContext
             entity.Property(e => e.Slug).HasMaxLength(255).HasColumnName("slug");
             entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("draft").HasColumnName("status");
             entity.Property(e => e.ExecutiveSummary).HasColumnType("text").HasColumnName("executive_summary");
+            entity.Property(e => e.Subtitle).HasColumnType("text").HasColumnName("subtitle");
             entity.Property(e => e.PrimaryActor).HasMaxLength(150).HasColumnName("primary_actor");
             entity.Property(e => e.Trigger).HasColumnType("text").HasColumnName("trigger");
             entity.Property(e => e.ProblemChallenge).HasColumnType("text").HasColumnName("problem_challenge");

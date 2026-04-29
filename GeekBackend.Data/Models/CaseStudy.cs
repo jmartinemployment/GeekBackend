@@ -10,6 +10,7 @@ public partial class CaseStudy
     public string Slug { get; set; } = null!;
     public string Status { get; set; } = null!;
     public string ExecutiveSummary { get; set; } = null!;
+    public string? Subtitle { get; set; }
     public string PrimaryActor { get; set; } = null!;
     public string Trigger { get; set; } = null!;
     public string ProblemChallenge { get; set; } = null!;

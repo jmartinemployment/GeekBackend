@@ -19,6 +19,7 @@ public record CaseStudyRequest(
     string Slug,
     string Status,
     string ExecutiveSummary,
+    string? Subtitle,
     string PrimaryActor,
     string Trigger,
     string ProblemChallenge,

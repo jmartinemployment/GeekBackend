@@ -6,7 +6,7 @@ namespace GeekBackend.Api.Dtos;
 
 public record CaseStudyDetailDto(
     int Id, string DescriptiveName, string Slug, string Status,
-    string ExecutiveSummary, string PrimaryActor, string Trigger,
+    string ExecutiveSummary, string? Subtitle, string PrimaryActor, string Trigger,
     string ProblemChallenge, string Solution,
     string? PostConditions, string? Exceptions, string? IndustryCitation,
     DateTime? CreatedAt, DateTime? UpdatedAt, DateTime? PublishedAt,
@@ -22,13 +22,14 @@ public record EventFlowStepDto(int Id, int StepNumber, string StepDescription, s
 
 public class CaseStudySummaryDto
 {
-    public CaseStudySummaryDto(int id, string descriptiveName, string slug, string status, string executiveSummary, string primaryActor, DateTime? publishedAt)
+    public CaseStudySummaryDto(int id, string descriptiveName, string slug, string status, string executiveSummary, string? subtitle, string primaryActor, DateTime? publishedAt)
     {
         Id = id;
         DescriptiveName = descriptiveName;
         Slug = slug;
         Status = status;
         ExecutiveSummary = executiveSummary;
+        Subtitle = subtitle;
         PrimaryActor = primaryActor;
         PublishedAt = publishedAt;
     }
@@ -37,6 +38,7 @@ public class CaseStudySummaryDto
     public string Slug { get; set; }
     public string Status { get; set; }
     public string ExecutiveSummary { get; set; }
+    public string? Subtitle { get; set; }
     public string PrimaryActor { get; set; }
     public DateTime? PublishedAt { get; set; }
 }
@@ -46,6 +48,7 @@ public class CaseStudyDto
     public string DescriptiveName { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string ExecutiveSummary { get; set; } = string.Empty;
+    public string? Subtitle { get; set; }
     public string PrimaryActor { get; set; } = string.Empty;
     public string Trigger { get; set; } = string.Empty;
     public string ProblemChallenge { get; set; } = string.Empty;
