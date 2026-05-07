@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="GeekAPI/GeekAPI.csproj" />
+  <Project Path="GeekRepository/GeekRepository.csproj" />
+</Solution>

@@ -1,0 +1,15 @@
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/bin/Debug/net10.0/GeekBackend.Data.deps.json
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/bin/Debug/net10.0/GeekBackend.Data.runtimeconfig.json
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/bin/Debug/net10.0/GeekBackend.Data.dll
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/bin/Debug/net10.0/GeekBackend.Data.pdb
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.csproj.AssemblyReference.cache
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.GeneratedMSBuildEditorConfig.editorconfig
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.AssemblyInfoInputs.cache
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.AssemblyInfo.cs
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.csproj.CoreCompileInputs.cache
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.dll
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/refint/GeekBackend.Data.dll
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.pdb
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.genruntimeconfig.cache
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/ref/GeekBackend.Data.dll
+/Volumes/Seagate/development/GeekBackend/GeekBackend.Data/obj/Debug/net10.0/GeekBackend.Data.sourcelink.json

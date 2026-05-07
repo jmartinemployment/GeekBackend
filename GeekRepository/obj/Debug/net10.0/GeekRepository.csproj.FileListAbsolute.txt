@@ -1,0 +1,6 @@
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.csproj.AssemblyReference.cache
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.GeneratedMSBuildEditorConfig.editorconfig
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.AssemblyInfoInputs.cache
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.AssemblyInfo.cs
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.csproj.CoreCompileInputs.cache
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.sourcelink.json

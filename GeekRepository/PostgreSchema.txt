@@ -1,0 +1,52 @@
+Clean PostgreSQL SchemaI’ve swapped NVARCHAR for TEXT (the Postgres standard) and used SERIAL or UUID for identifiers.sql-- 1. Users & 2FA
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    subject TEXT NOT NULL UNIQUE, -- The 'sub' claim from OIDC
+    username TEXT NOT NULL UNIQUE,
+    email TEXT NULL,
+    password_hash TEXT NOT NULL,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    two_factor_secret TEXT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. OIDC Clients (OpenIddict compatible)
+CREATE TABLE openiddict_applications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id TEXT NOT NULL UNIQUE,
+    client_secret TEXT,
+    display_name TEXT,
+    redirect_uris TEXT,      -- Store as comma-separated or JSON
+    permissions TEXT,        -- Important for PKCE enforcement
+    type TEXT NOT NULL       -- 'public' or 'confidential'
+);
+
+-- 3. Registered Devices (Electron BIOS ID)
+CREATE TABLE devices (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_type TEXT NOT NULL, -- 'desktop', 'mobile'
+    device_name TEXT,
+    bios_id TEXT NOT NULL,
+    last_seen TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, bios_id)
+);
+
+-- 4. Active WebSocket Sessions (Presence)
+CREATE TABLE websocket_sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    server_node TEXT NOT NULL,
+    connected_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. Sync Queue (Multicast)
+CREATE TABLE sync_queue (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    target_device_id UUID NOT NULL REFERENCES devices(id),
+    payload JSONB NOT NULL, -- Postgres JSONB is perfect for this
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
