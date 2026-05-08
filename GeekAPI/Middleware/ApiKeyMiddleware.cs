@@ -12,7 +12,7 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var publicPaths = new[] { "/health", "/api/case-studies", "/api/departments", "/api/use-cases" };
+        var publicPaths = new[] { "/health", "/hello", "/api/case-studies", "/api/departments", "/api/use-cases" };
         if (publicPaths.Contains(context.Request.Path))
         {
             await _next(context);
