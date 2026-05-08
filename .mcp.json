@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "railway": {
-      "type": "http",
-      "url": "https://mcp.railway.com"
+    "Railway": {
+      "command": "npx",
+      "args": ["-y", "@railway/mcp-server"]
     },
     "codebase-memory-mcp": {
       "command": "codebase-memory-mcp",
