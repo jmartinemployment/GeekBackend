@@ -183,11 +183,11 @@ public partial class AppDbContext
                 .HasColumnType("timestamp with time zone")
                 .HasColumnName("assigned_at");
             entity.HasOne(e => e.User)
-                .WithMany(u => u.Roles)
+                .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Role)
-                .WithMany(r => r.Users)
+                .WithMany()
                 .HasForeignKey(e => e.RoleId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
