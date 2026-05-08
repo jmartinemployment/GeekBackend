@@ -45,9 +45,31 @@ if (app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
+await ApplyPendingMigrationsAsync(app);
+
 app.UseMiddleware<ApiKeyMiddleware>();
 app.UseCors();
 app.MapControllers();
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://0.0.0.0:{port}");
+
+static async Task ApplyPendingMigrationsAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var logger = scope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("StartupMigrations");
+
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("Database migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Failed applying database migrations at startup.");
+        throw;
+    }
+}
