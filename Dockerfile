@@ -1,22 +1,20 @@
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
-WORKDIR /app
-EXPOSE 8080
-
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy both projects
-COPY GeekBackend.Api/ ./GeekBackend.Api/
-COPY GeekBackend.Data/ ./GeekBackend.Data/
+# Copy solution and project files
+COPY GEEKBACKEND.slnx ./
+COPY GeekAPI/GeekAPI.csproj GeekAPI/
+COPY GeekApplication/GeekApplication.csproj GeekApplication/
+COPY GeekRepository/GeekRepository.csproj GeekRepository/
 
-# Restore and publish
-RUN dotnet restore "GeekBackend.Api/GeekBackend.Api.csproj"
-RUN dotnet publish "GeekBackend.Api/GeekBackend.Api.csproj" \
-    -c Release \
-    --no-restore \
-    -o /app/publish
+# Restore dependencies
+RUN dotnet restore GeekAPI/GeekAPI.csproj
 
-FROM base AS final
+# Copy everything and publish
+COPY . .
+RUN dotnet publish GeekAPI/GeekAPI.csproj -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "GeekBackend.Api.dll"]
+ENTRYPOINT ["dotnet", "GeekAPI.dll"]
