@@ -2,15 +2,28 @@
   "version": 3,
   "targets": {
     "net10.0": {
-      "Dapper/2.1.66": {
+      "BCrypt.Net-Next/4.1.0": {
         "type": "package",
         "compile": {
-          "lib/net8.0/Dapper.dll": {
+          "lib/net10.0/BCrypt.Net-Next.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/Dapper.dll": {
+          "lib/net10.0/BCrypt.Net-Next.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "Dapper/2.1.72": {
+        "type": "package",
+        "compile": {
+          "lib/net10.0/Dapper.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net10.0/Dapper.dll": {
             "related": ".xml"
           }
         }
@@ -735,6 +748,37 @@
           }
         }
       },
+      "Pipelines.Sockets.Unofficial/2.2.8": {
+        "type": "package",
+        "compile": {
+          "lib/net5.0/Pipelines.Sockets.Unofficial.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net5.0/Pipelines.Sockets.Unofficial.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "StackExchange.Redis/2.12.14": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.0",
+          "Pipelines.Sockets.Unofficial": "2.2.8",
+          "System.IO.Hashing": "10.0.2"
+        },
+        "compile": {
+          "lib/net10.0/StackExchange.Redis.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net10.0/StackExchange.Redis.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "System.CodeDom/6.0.0": {
         "type": "package",
         "compile": {
@@ -860,20 +904,77 @@
         "build": {
           "buildTransitive/net8.0/_._": {}
         }
+      },
+      "System.IO.Hashing/10.0.2": {
+        "type": "package",
+        "compile": {
+          "lib/net10.0/System.IO.Hashing.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net10.0/System.IO.Hashing.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net8.0/_._": {}
+        }
+      },
+      "GeekApplication/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "compile": {
+          "bin/placeholder/GeekApplication.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/GeekApplication.dll": {}
+        }
       }
     }
   },
   "libraries": {
-    "Dapper/2.1.66": {
-      "sha512": "/q77jUgDOS+bzkmk3Vy9SiWMaetTw+NOoPAV0xPBsGVAyljd5S6P+4RUW7R3ZUGGr9lDRyPKgAMj2UAOwvqZYw==",
+    "BCrypt.Net-Next/4.1.0": {
+      "sha512": "5YT3DKllmtkyW68PjURu/V1TOe4MKiByKwsRNVcfYE1S5KuFTeozdmKzyNzolKiQF391OXCaQtINvYT3j1ERzQ==",
       "type": "package",
-      "path": "dapper/2.1.66",
+      "path": "bcrypt.net-next/4.1.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "bcrypt.net-next.4.1.0.nupkg.sha512",
+        "bcrypt.net-next.nuspec",
+        "ico.png",
+        "lib/net10.0/BCrypt.Net-Next.dll",
+        "lib/net10.0/BCrypt.Net-Next.xml",
+        "lib/net20/BCrypt.Net-Next.dll",
+        "lib/net20/BCrypt.Net-Next.xml",
+        "lib/net35/BCrypt.Net-Next.dll",
+        "lib/net35/BCrypt.Net-Next.xml",
+        "lib/net462/BCrypt.Net-Next.dll",
+        "lib/net462/BCrypt.Net-Next.xml",
+        "lib/net472/BCrypt.Net-Next.dll",
+        "lib/net472/BCrypt.Net-Next.xml",
+        "lib/net48/BCrypt.Net-Next.dll",
+        "lib/net48/BCrypt.Net-Next.xml",
+        "lib/netstandard2.0/BCrypt.Net-Next.dll",
+        "lib/netstandard2.0/BCrypt.Net-Next.xml",
+        "lib/netstandard2.1/BCrypt.Net-Next.dll",
+        "lib/netstandard2.1/BCrypt.Net-Next.xml",
+        "readme.md"
+      ]
+    },
+    "Dapper/2.1.72": {
+      "sha512": "ns4mGqQd9a/MhP8m6w556vVlZIa0/MfUu03zrxjZC/jlr1uVCsUac8bkdB+Fs98Llbd56rRSo1eZH5VVmeGZyw==",
+      "type": "package",
+      "path": "dapper/2.1.72",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
         "Dapper.png",
-        "dapper.2.1.66.nupkg.sha512",
+        "dapper.2.1.72.nupkg.sha512",
         "dapper.nuspec",
+        "lib/net10.0/Dapper.dll",
+        "lib/net10.0/Dapper.xml",
         "lib/net461/Dapper.dll",
         "lib/net461/Dapper.xml",
         "lib/net8.0/Dapper.dll",
@@ -2551,6 +2652,53 @@
         "postgresql.png"
       ]
     },
+    "Pipelines.Sockets.Unofficial/2.2.8": {
+      "sha512": "zG2FApP5zxSx6OcdJQLbZDk2AVlN2BNQD6MorwIfV6gVj0RRxWPEp2LXAxqDGZqeNV1Zp0BNPcNaey/GXmTdvQ==",
+      "type": "package",
+      "path": "pipelines.sockets.unofficial/2.2.8",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "lib/net461/Pipelines.Sockets.Unofficial.dll",
+        "lib/net461/Pipelines.Sockets.Unofficial.xml",
+        "lib/net472/Pipelines.Sockets.Unofficial.dll",
+        "lib/net472/Pipelines.Sockets.Unofficial.xml",
+        "lib/net5.0/Pipelines.Sockets.Unofficial.dll",
+        "lib/net5.0/Pipelines.Sockets.Unofficial.xml",
+        "lib/netcoreapp3.1/Pipelines.Sockets.Unofficial.dll",
+        "lib/netcoreapp3.1/Pipelines.Sockets.Unofficial.xml",
+        "lib/netstandard2.0/Pipelines.Sockets.Unofficial.dll",
+        "lib/netstandard2.0/Pipelines.Sockets.Unofficial.xml",
+        "lib/netstandard2.1/Pipelines.Sockets.Unofficial.dll",
+        "lib/netstandard2.1/Pipelines.Sockets.Unofficial.xml",
+        "pipelines.sockets.unofficial.2.2.8.nupkg.sha512",
+        "pipelines.sockets.unofficial.nuspec"
+      ]
+    },
+    "StackExchange.Redis/2.12.14": {
+      "sha512": "QiAQg40OP4Owem6/PjIbjEKq2+uIeQYeZ1TCMUnx/QvKugOPxOfC96wjlnBjWHi4Wq9pv9+fDlXGT06XkRZ6Ig==",
+      "type": "package",
+      "path": "stackexchange.redis/2.12.14",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "lib/net10.0/StackExchange.Redis.dll",
+        "lib/net10.0/StackExchange.Redis.xml",
+        "lib/net461/StackExchange.Redis.dll",
+        "lib/net461/StackExchange.Redis.xml",
+        "lib/net472/StackExchange.Redis.dll",
+        "lib/net472/StackExchange.Redis.xml",
+        "lib/net6.0/StackExchange.Redis.dll",
+        "lib/net6.0/StackExchange.Redis.xml",
+        "lib/net8.0/StackExchange.Redis.dll",
+        "lib/net8.0/StackExchange.Redis.xml",
+        "lib/netstandard2.0/StackExchange.Redis.dll",
+        "lib/netstandard2.0/StackExchange.Redis.xml",
+        "stackexchange.redis.2.12.14.nupkg.sha512",
+        "stackexchange.redis.nuspec"
+      ]
+    },
     "System.CodeDom/6.0.0": {
       "sha512": "CPc6tWO1LAer3IzfZufDBRL+UZQcj5uS207NHALQzP84Vp/z6wF0Aa0YZImOQY8iStY0A2zI/e3ihKNPfUm8XA==",
       "type": "package",
@@ -2736,15 +2884,55 @@
         "system.composition.typedparts.nuspec",
         "useSharedDesignerContext.txt"
       ]
+    },
+    "System.IO.Hashing/10.0.2": {
+      "sha512": "AKJknIFi9O3+rGExxTry188JPvUoZAPcCtS2qdqyFhIzsxQ1Ap94BeGDG0VzVEHakhmRxmJtVih6TsHoghIt/g==",
+      "type": "package",
+      "path": "system.io.hashing/10.0.2",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "PACKAGE.md",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/System.IO.Hashing.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net8.0/_._",
+        "buildTransitive/netcoreapp2.0/System.IO.Hashing.targets",
+        "lib/net10.0/System.IO.Hashing.dll",
+        "lib/net10.0/System.IO.Hashing.xml",
+        "lib/net462/System.IO.Hashing.dll",
+        "lib/net462/System.IO.Hashing.xml",
+        "lib/net8.0/System.IO.Hashing.dll",
+        "lib/net8.0/System.IO.Hashing.xml",
+        "lib/net9.0/System.IO.Hashing.dll",
+        "lib/net9.0/System.IO.Hashing.xml",
+        "lib/netstandard2.0/System.IO.Hashing.dll",
+        "lib/netstandard2.0/System.IO.Hashing.xml",
+        "system.io.hashing.10.0.2.nupkg.sha512",
+        "system.io.hashing.nuspec",
+        "useSharedDesignerContext.txt"
+      ]
+    },
+    "GeekApplication/1.0.0": {
+      "type": "project",
+      "path": "../GeekApplication/GeekApplication.csproj",
+      "msbuildProject": "../GeekApplication/GeekApplication.csproj"
     }
   },
   "projectFileDependencyGroups": {
     "net10.0": [
-      "Dapper >= 2.1.66",
+      "BCrypt.Net-Next >= 4.1.0",
+      "Dapper >= 2.1.72",
       "EFCore.NamingConventions >= 10.0.0",
+      "GeekApplication >= 1.0.0",
       "Microsoft.EntityFrameworkCore.Design >= 10.0.7",
+      "Microsoft.EntityFrameworkCore.Relational >= 10.0.7",
       "Microsoft.EntityFrameworkCore.Tools >= 10.0.7",
-      "Npgsql.EntityFrameworkCore.PostgreSQL >= 10.0.1"
+      "Microsoft.Extensions.DependencyInjection.Abstractions >= 10.0.7",
+      "Npgsql >= 10.0.2",
+      "Npgsql.EntityFrameworkCore.PostgreSQL >= 10.0.1",
+      "StackExchange.Redis >= 2.12.14"
     ]
   },
   "packageFolders": {
@@ -2771,7 +2959,11 @@
       "frameworks": {
         "net10.0": {
           "targetAlias": "net10.0",
-          "projectReferences": {}
+          "projectReferences": {
+            "/Volumes/Seagate/development/GeekBackend/GeekApplication/GeekApplication.csproj": {
+              "projectPath": "/Volumes/Seagate/development/GeekBackend/GeekApplication/GeekApplication.csproj"
+            }
+          }
         }
       },
       "warningProperties": {
@@ -2790,9 +2982,13 @@
       "net10.0": {
         "targetAlias": "net10.0",
         "dependencies": {
+          "BCrypt.Net-Next": {
+            "target": "Package",
+            "version": "[4.1.0, )"
+          },
           "Dapper": {
             "target": "Package",
-            "version": "[2.1.66, )"
+            "version": "[2.1.72, )"
           },
           "EFCore.NamingConventions": {
             "target": "Package",
@@ -2804,15 +3000,31 @@
             "target": "Package",
             "version": "[10.0.7, )"
           },
+          "Microsoft.EntityFrameworkCore.Relational": {
+            "target": "Package",
+            "version": "[10.0.7, )"
+          },
           "Microsoft.EntityFrameworkCore.Tools": {
             "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
             "suppressParent": "All",
             "target": "Package",
             "version": "[10.0.7, )"
           },
+          "Microsoft.Extensions.DependencyInjection.Abstractions": {
+            "target": "Package",
+            "version": "[10.0.7, )"
+          },
+          "Npgsql": {
+            "target": "Package",
+            "version": "[10.0.2, )"
+          },
           "Npgsql.EntityFrameworkCore.PostgreSQL": {
             "target": "Package",
             "version": "[10.0.1, )"
+          },
+          "StackExchange.Redis": {
+            "target": "Package",
+            "version": "[2.12.14, )"
           }
         },
         "imports": [

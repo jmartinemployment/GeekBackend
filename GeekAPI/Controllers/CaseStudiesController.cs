@@ -1,7 +1,7 @@
-using GeekBackend.Api.Dtos;
+using GeekAPI.Dtos;
 using GeekRepository.Data;
-using GeekRepository.Models;
-using GeekRepository.Repositories;
+using GeekApplication.Entities;
+using GeekApplication.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -273,7 +273,7 @@ public class CaseStudiesController : ControllerBase
         new(c.Id, c.DescriptiveName, c.Slug, c.Status,
             c.ExecutiveSummary, c.Subtitle, c.PrimaryActor, c.Trigger,
             c.ProblemChallenge, c.Solution, c.PostConditions, c.Exceptions, c.IndustryCitation,
-            c.CreatedAt, c.UpdatedAt, c.PublishedAt,
+            c.CreatedAt.GetValueOrDefault(), c.UpdatedAt, c.PublishedAt,
             c.CaseStudyActors.OrderBy(a => a.SortOrder).Select(a => new ActorDto(a.Id, a.ActorName, a.ActorRole, a.SortOrder)).ToList(),
             c.CaseStudyMetrics.OrderBy(m => m.SortOrder).Select(m => new MetricDto(m.Id, m.MetricLabel, m.MetricValue, m.MetricUnit, m.SortOrder)).ToList(),
             c.CaseStudyEventFlowSteps.OrderBy(s => s.StepNumber).Select(s => new EventFlowStepDto(s.Id, s.StepNumber, s.StepDescription, s.StepActor?.ActorName)).ToList());

@@ -1,6 +1,8 @@
-using GeekRepository.Repositories;
-using GeekRepository.Results;
+using GeekApplication.Entities;
+using GeekApplication.Interfaces;
+using GeekApplication.Results;
 using Microsoft.AspNetCore.Mvc;
+using GeekAPI.Dtos;
 
 namespace GeekAPI.Controllers.Auth;
 
@@ -18,14 +20,24 @@ public class AuditController : ControllerBase
     [HttpPost("logs")]
     public async Task<IActionResult> CreateLog([FromBody] CreateAuditLogRequest req)
     {
-        var result = await _repo.CreateLogAsync(req);
+        var log = new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = req.UserId,
+            EventType = "manual_log",
+            Description = req.Details ?? "",
+            IpAddress = req.IpAddress,
+            IsSuccess = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        var result = await _repo.CreateLogAsync(log);
         return ToResponse(result);
     }
 
     [HttpPost("circuit-resets")]
     public async Task<IActionResult> CreateCircuitReset([FromBody] CreateCircuitResetRequest req)
     {
-        var result = await _repo.CreateCircuitResetAsync(req);
+        var result = await _repo.CreateCircuitResetAsync(req.UserId, req.FailureCount);
         return ToResponse(result);
     }
 

@@ -7,7 +7,11 @@
   "alwaysThinkingEnabled": true,
   "showThinkingSummaries": true,
   "autoUpdatesChannel": "stable",
-
+  
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "statusLine": {
     "type": "command",
     "command": "echo \"$(git branch --show-current 2>/dev/null || echo 'detached')\"",

@@ -1,6 +1,7 @@
-using GeekRepository.Repositories;
-using GeekRepository.Results;
+using GeekApplication.Interfaces;
+using GeekApplication.Results;
 using Microsoft.AspNetCore.Mvc;
+using GeekAPI.Dtos;
 
 namespace GeekAPI.Controllers.Auth;
 
@@ -18,7 +19,7 @@ public class PendingVerificationsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Upsert([FromBody] UpsertPendingVerificationRequest req)
     {
-        var result = await _repo.UpsertAsync(req);
+        var result = await _repo.UpsertAsync(req.VerificationCode, req.ExpiresAt);
         return ToResponse(result);
     }
 

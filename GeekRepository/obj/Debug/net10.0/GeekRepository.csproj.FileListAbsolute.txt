@@ -4,3 +4,15 @@
 /Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.AssemblyInfo.cs
 /Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.csproj.CoreCompileInputs.cache
 /Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.sourcelink.json
+/Volumes/Seagate/development/GeekBackend/GeekRepository/bin/Debug/net10.0/GeekRepository.deps.json
+/Volumes/Seagate/development/GeekBackend/GeekRepository/bin/Debug/net10.0/GeekRepository.runtimeconfig.json
+/Volumes/Seagate/development/GeekBackend/GeekRepository/bin/Debug/net10.0/GeekRepository.dll
+/Volumes/Seagate/development/GeekBackend/GeekRepository/bin/Debug/net10.0/GeekRepository.pdb
+/Volumes/Seagate/development/GeekBackend/GeekRepository/bin/Debug/net10.0/GeekApplication.dll
+/Volumes/Seagate/development/GeekBackend/GeekRepository/bin/Debug/net10.0/GeekApplication.pdb
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepo.628BAE71.Up2Date
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.dll
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/refint/GeekRepository.dll
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.pdb
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/GeekRepository.genruntimeconfig.cache
+/Volumes/Seagate/development/GeekBackend/GeekRepository/obj/Debug/net10.0/ref/GeekRepository.dll

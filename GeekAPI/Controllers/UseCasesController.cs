@@ -1,6 +1,6 @@
-using GeekBackend.Api.Dtos;
-using GeekRepository.Models;
-using GeekRepository.Repositories;
+using GeekAPI.Dtos;
+using GeekApplication.Entities;
+using GeekApplication.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers;
@@ -36,13 +36,16 @@ public class UseCasesController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<UseCaseDto>> Create(UseCaseRequest req)
     {
+        if (!req.CaseStudyId.HasValue)
+            return BadRequest("CaseStudyId is required");
+
         var dept = await _departments.GetByIdAsync(req.DepartmentId);
         if (dept is null) return BadRequest($"Department {req.DepartmentId} not found.");
 
         var useCase = new UseCase
         {
             DepartmentId = req.DepartmentId,
-            CaseStudyId = req.CaseStudyId,
+            CaseStudyId = req.CaseStudyId.Value,
             DescriptiveName = req.DescriptiveName,
             Slug = req.Slug,
             Summary = req.Summary,
@@ -58,6 +61,9 @@ public class UseCasesController : ControllerBase
     [HttpPut("{id:int}")]
     public async Task<ActionResult<UseCaseDto>> Update(int id, UseCaseRequest req)
     {
+        if (!req.CaseStudyId.HasValue)
+            return BadRequest("CaseStudyId is required");
+
         var useCase = await _useCases.GetByIdAsync(id);
         if (useCase is null) return NotFound();
 
@@ -65,7 +71,7 @@ public class UseCasesController : ControllerBase
         if (dept is null) return BadRequest($"Department {req.DepartmentId} not found.");
 
         useCase.DepartmentId = req.DepartmentId;
-        useCase.CaseStudyId = req.CaseStudyId;
+        useCase.CaseStudyId = req.CaseStudyId.Value;
         useCase.DescriptiveName = req.DescriptiveName;
         useCase.Slug = req.Slug;
         useCase.Summary = req.Summary;

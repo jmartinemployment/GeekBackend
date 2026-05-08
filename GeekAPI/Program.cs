@@ -1,11 +1,13 @@
 using DotNetEnv;
-using EFCore.NamingConventions;
-using GeekBackend.Api.Middleware;
-using GeekBackend.Api.Services;
+using GeekAPI.Middleware;
+using GeekAPI.Services;
+using GeekApplication.Interfaces;
+using GeekRepository;
 using GeekRepository.Data;
 using GeekRepository.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 Env.TraversePath().Load();
 
@@ -25,23 +27,15 @@ var connectionString = (Environment.GetEnvironmentVariable("DATABASE_URL")
 
 builder.Services.AddDbContext<AppDbContext>(options => options
     .UseNpgsql(connectionString)
-    .UseSnakeCaseNamingConventions()
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// Content repositories
 builder.Services.AddScoped<IDepartmentRepository, DepartmentRepository>();
 builder.Services.AddScoped<ICaseStudyRepository, CaseStudyRepository>();
 builder.Services.AddScoped<IUseCaseRepository, UseCaseRepository>();
 builder.Services.AddScoped<DepartmentContentService>();
 
-// Auth repositories
-builder.Services.AddScoped<IOidcStorageRepository, OidcStorageRepository>();
-builder.Services.AddScoped<IUserAuthRepository, UserAuthRepository>();
-builder.Services.AddScoped<IDeviceRepository, DeviceRepository>();
-builder.Services.AddScoped<IOAuthTokenRepository, OAuthTokenRepository>();
-builder.Services.AddScoped<IOAuthClientRepository, OAuthClientRepository>();
-builder.Services.AddScoped<IPendingVerificationRepository, PendingVerificationRepository>();
-builder.Services.AddScoped<IAuditRepository, AuditRepository>();
-builder.Services.AddScoped<IRbacRepository, RbacRepository>();
+builder.Services.AddGeekRepository(connectionString);
 
 var app = builder.Build();
 

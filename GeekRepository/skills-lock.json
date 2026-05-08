@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "caveman": {
+      "source": "juliusbrussee/caveman",
+      "sourceType": "github",
+      "skillPath": "caveman/SKILL.md",
+      "computedHash": "259cb6ef69b4e9eeb07155c925ce9895ed509b0feb6a7e29cbc9e70d3c7bcfb2"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "d606a1146be6d54fb9e73f718b5320b9acac5ff2ba2d7230a555df4b5a923b4a"
+    }
+  }
+}

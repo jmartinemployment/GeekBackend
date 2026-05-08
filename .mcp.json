@@ -3,6 +3,10 @@
     "railway": {
       "type": "http",
       "url": "https://mcp.railway.com"
+    },
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "args": []
     }
   }
 }

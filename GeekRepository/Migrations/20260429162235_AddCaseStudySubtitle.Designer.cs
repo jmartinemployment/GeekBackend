@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
-using GeekBackend.Data.Data;
+using GeekRepository.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;

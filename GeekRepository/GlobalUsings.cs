@@ -1,3 +1,1 @@
-// Resolves ambiguity between GeekBackend.Data.Models.Object (scaffolded model)
-// and System.Object brought into scope by ImplicitUsings.
-global using Object = GeekBackend.Data.Models.Object;
+// Implicit usings from .NET 10 include System namespace

@@ -1,5 +1,7 @@
-using GeekRepository.Repositories;
-using GeekRepository.Results;
+using GeekApplication.Dtos;
+using GeekApplication.Interfaces;
+using GeekApplication.Results;
+using GeekAPI.Dtos;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.Auth;
@@ -8,9 +10,9 @@ namespace GeekAPI.Controllers.Auth;
 [Route("api/auth/users")]
 public class UsersController : ControllerBase
 {
-    private readonly IUserAuthRepository _repo;
+    private readonly IUserRepository _repo;
 
-    public UsersController(IUserAuthRepository repo)
+    public UsersController(IUserRepository repo)
     {
         _repo = repo;
     }
@@ -25,7 +27,9 @@ public class UsersController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> FindById(string id)
     {
-        var result = await _repo.FindByIdAsync(id);
+        if (!Guid.TryParse(id, out var userId))
+            return BadRequest(new { error = "Invalid user ID format" });
+        var result = await _repo.FindByIdAsync(userId);
         return ToResponse(result);
     }
 
@@ -36,24 +40,38 @@ public class UsersController : ControllerBase
         return ToResponse(result);
     }
 
-    [HttpGet("by-slack/{slackUserId}")]
-    public async Task<IActionResult> FindBySlackId(string slackUserId)
+    [HttpGet("by-username/{username}")]
+    public async Task<IActionResult> FindByUsername(string username)
     {
-        var result = await _repo.FindBySlackIdAsync(slackUserId);
+        var result = await _repo.FindByUsernameAsync(username);
         return ToResponse(result);
     }
 
     [HttpPatch("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateUserRequest req)
     {
-        var result = await _repo.UpdateAsync(id, req);
+        if (!Guid.TryParse(id, out var userId))
+            return BadRequest(new { error = "Invalid user ID format" });
+        var existing = await _repo.FindByIdAsync(userId);
+        if (!existing.IsSuccess)
+            return ToResponse(existing);
+        var user = existing.Value;
+        if (req.Username != null)
+            user.Username = req.Username;
+        if (req.Email != null)
+            user.Email = req.Email;
+        if (req.TwoFactorEnabled.HasValue)
+            user.TwoFactorEnabled = req.TwoFactorEnabled.Value;
+        var result = await _repo.UpdateAsync(user);
         return ToResponse(result);
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
     {
-        var result = await _repo.DeleteAsync(id);
+        if (!Guid.TryParse(id, out var userId))
+            return BadRequest(new { error = "Invalid user ID format" });
+        var result = await _repo.DeleteAsync(userId);
         return ToResponse(result);
     }
 

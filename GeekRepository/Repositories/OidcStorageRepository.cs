@@ -1,188 +1,335 @@
+using System.Data;
 using Dapper;
-using GeekBackend.Data.Data;
-using GeekBackend.Data.Models;
-using GeekBackend.Data.Results;
+using GeekApplication.Entities;
+using GeekApplication.Interfaces;
+using GeekApplication.Results;
+using GeekRepository.Infrastructure;
 
 namespace GeekRepository.Repositories;
 
-public class OidcStorageRepository : IOidcStorageRepository
+public sealed class OidcStorageRepository : IOidcStorageRepository
 {
-    private readonly AppDbContext _context;
+	private readonly IDbConnectionFactory _db;
 
-    public OidcStorageRepository(AppDbContext context)
-    {
-        _context = context;
-    }
+	public OidcStorageRepository(IDbConnectionFactory db) => _db = db;
 
-    public async Task<Result<OidcStorage>> FindAsync(string id)
-    {
-        try
-        {
-            using var connection = _context.Database.GetDbConnection();
-            await connection.OpenAsync();
+	public async Task<Result<bool>> UpsertAsync(OidcStorage storage)
+	{
+		try
+		{
+			const string sql = """
+				INSERT INTO oidc_storage (kind, key, value, uid)
+				VALUES (@kind, @key, @value, @uid)
+				ON CONFLICT (kind, key) DO UPDATE
+				SET value = @value, uid = @uid
+				""";
 
-            var sql = """
-                SELECT id, kind, payload, expires_at, user_code, token_hash, uid, grant_id, created_at
-                FROM geek_auth.oidc_storage
-                WHERE id = @Id
-                """;
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql, new
+			{
+				storage.Kind,
+				storage.Payload,
+				storage.Uid
+			});
 
-            var result = await connection.QueryFirstOrDefaultAsync<OidcStorage>(
-                sql,
-                new { Id = id }
-            );
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Upsert failed: {ex.Message}");
+		}
+	}
 
-            return result != null ? Result<OidcStorage>.Success(result) : Result<OidcStorage>.NotFound("OidcStorage not found");
-        }
-        catch (Exception ex)
-        {
-            return Result<OidcStorage>.Failure(ex.Message);
-        }
-    }
+	public async Task<Result<OidcStorage?>> FindAsync(string kind, string key)
+	{
+		try
+		{
+			const string sql = """
+				SELECT kind, key, value, uid, created_at as CreatedAt
+				FROM oidc_storage
+				WHERE kind = @kind AND key = @key
+				""";
 
-    public async Task<Result<OidcStorage>> FindByUidAsync(string uid)
-    {
-        try
-        {
-            using var connection = _context.Database.GetDbConnection();
-            await connection.OpenAsync();
+			using var conn = _db.CreateConnection();
+			var storage = await conn.QueryFirstOrDefaultAsync<OidcStorage>(sql, new { kind, key });
 
-            var sql = """
-                SELECT id, kind, payload, expires_at, user_code, token_hash, uid, grant_id, created_at
-                FROM geek_auth.oidc_storage
-                WHERE uid = @Uid
-                """;
+			return Result<OidcStorage?>.Success(storage);
+		}
+		catch (Exception ex)
+		{
+			return Result<OidcStorage?>.Failure($"Query failed: {ex.Message}");
+		}
+	}
 
-            var result = await connection.QueryFirstOrDefaultAsync<OidcStorage>(
-                sql,
-                new { Uid = uid }
-            );
+	public async Task<Result<OidcStorage?>> FindByUidAsync(string uid)
+	{
+		try
+		{
+			const string sql = """
+				SELECT kind, key, value, uid, created_at as CreatedAt
+				FROM oidc_storage
+				WHERE uid = @uid
+				""";
 
-            return result != null ? Result<OidcStorage>.Success(result) : Result<OidcStorage>.NotFound("OidcStorage not found");
-        }
-        catch (Exception ex)
-        {
-            return Result<OidcStorage>.Failure(ex.Message);
-        }
-    }
+			using var conn = _db.CreateConnection();
+			var storage = await conn.QueryFirstOrDefaultAsync<OidcStorage>(sql, new { uid });
 
-    public async Task<Result<OidcStorage>> FindByUserCodeAsync(string userCode)
-    {
-        try
-        {
-            using var connection = _context.Database.GetDbConnection();
-            await connection.OpenAsync();
+			return Result<OidcStorage?>.Success(storage);
+		}
+		catch (Exception ex)
+		{
+			return Result<OidcStorage?>.Failure($"Query failed: {ex.Message}");
+		}
+	}
 
-            var sql = """
-                SELECT id, kind, payload, expires_at, user_code, token_hash, uid, grant_id, created_at
-                FROM geek_auth.oidc_storage
-                WHERE user_code = @UserCode
-                """;
+	public async Task<Result<OidcStorage?>> FindByUserCodeAsync(string userCode)
+	{
+		try
+		{
+			const string sql = """
+				SELECT kind, key, value, uid, created_at as CreatedAt
+				FROM oidc_storage
+				WHERE value LIKE @userCode
+				""";
 
-            var result = await connection.QueryFirstOrDefaultAsync<OidcStorage>(
-                sql,
-                new { UserCode = userCode }
-            );
+			using var conn = _db.CreateConnection();
+			var storage = await conn.QueryFirstOrDefaultAsync<OidcStorage>(sql, new { userCode = $"%{userCode}%" });
 
-            return result != null ? Result<OidcStorage>.Success(result) : Result<OidcStorage>.NotFound("OidcStorage not found");
-        }
-        catch (Exception ex)
-        {
-            return Result<OidcStorage>.Failure(ex.Message);
-        }
-    }
+			return Result<OidcStorage?>.Success(storage);
+		}
+		catch (Exception ex)
+		{
+			return Result<OidcStorage?>.Failure($"Query failed: {ex.Message}");
+		}
+	}
 
-    public async Task<Result<OidcStorage>> UpsertAsync(string id, string kind, Dictionary<string, object> payload, int? expiresIn)
-    {
-        try
-        {
-            using var connection = _context.Database.GetDbConnection();
-            await connection.OpenAsync();
+	public async Task<Result<bool>> DestroyAsync(string key)
+	{
+		try
+		{
+			const string sql = """
+				DELETE FROM oidc_storage
+				WHERE key = @key
+				""";
 
-            var payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
-            var expiresAt = expiresIn.HasValue ? DateTime.UtcNow.AddSeconds(expiresIn.Value) : (DateTime?)null;
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql, new { key });
 
-            var sql = """
-                INSERT INTO geek_auth.oidc_storage (id, kind, payload, expires_at, created_at)
-                VALUES (@Id, @Kind, @Payload, @ExpiresAt, NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                  kind = EXCLUDED.kind,
-                  payload = EXCLUDED.payload,
-                  expires_at = EXCLUDED.expires_at
-                RETURNING id, kind, payload, expires_at, user_code, token_hash, uid, grant_id, created_at
-                """;
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Destroy failed: {ex.Message}");
+		}
+	}
 
-            var result = await connection.QueryFirstOrDefaultAsync<OidcStorage>(
-                sql,
-                new { Id = id, Kind = kind, Payload = payloadJson, ExpiresAt = expiresAt }
-            );
+	public async Task<Result<bool>> ConsumeAsync(string key)
+	{
+		try
+		{
+			const string sql = """
+				UPDATE oidc_storage
+				SET consumed = true, consumed_at = CURRENT_TIMESTAMP
+				WHERE key = @key
+				""";
 
-            return result != null ? Result<OidcStorage>.Success(result) : Result<OidcStorage>.Failure("Upsert failed");
-        }
-        catch (Exception ex)
-        {
-            return Result<OidcStorage>.Failure(ex.Message);
-        }
-    }
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql, new { key });
 
-    public async Task<Result<Unit>> DestroyAsync(string id)
-    {
-        try
-        {
-            using var connection = _context.Database.GetDbConnection();
-            await connection.OpenAsync();
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Consume failed: {ex.Message}");
+		}
+	}
 
-            var sql = "DELETE FROM geek_auth.oidc_storage WHERE id = @Id";
+	public async Task<Result<bool>> RevokeByGrantIdAsync(string grantId)
+	{
+		try
+		{
+			const string sql = """
+				DELETE FROM oidc_storage
+				WHERE value LIKE @grantId
+				""";
 
-            await connection.ExecuteAsync(sql, new { Id = id });
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql, new { grantId = $"%{grantId}%" });
 
-            return Result<Unit>.Success(new Unit());
-        }
-        catch (Exception ex)
-        {
-            return Result<Unit>.Failure(ex.Message);
-        }
-    }
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Revoke failed: {ex.Message}");
+		}
+	}
 
-    public async Task<Result<Unit>> ConsumeAsync(string id)
-    {
-        try
-        {
-            using var connection = _context.Database.GetDbConnection();
-            await connection.OpenAsync();
+	public async Task<Result<bool>> StoreNonceAsync(string nonce, string clientId, DateTime expiresAt)
+	{
+		try
+		{
+			const string sql = """
+				INSERT INTO oidc_storage (kind, key, value, expires_at)
+				VALUES (@kind, @nonce, @clientId, @expiresAt)
+				ON CONFLICT (kind, key) DO NOTHING
+				""";
 
-            var sql = """
-                UPDATE geek_auth.oidc_storage
-                SET payload = payload || ('{"consumed":"' || to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') || '"}')::jsonb
-                WHERE id = @Id
-                """;
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql, new
+			{
+				kind = "nonce",
+				nonce,
+				clientId,
+				expiresAt
+			});
 
-            await connection.ExecuteAsync(sql, new { Id = id });
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Store nonce failed: {ex.Message}");
+		}
+	}
 
-            return Result<Unit>.Success(new Unit());
-        }
-        catch (Exception ex)
-        {
-            return Result<Unit>.Failure(ex.Message);
-        }
-    }
+	public async Task<Result<bool>> ValidateNonceAsync(string nonce, string clientId)
+	{
+		try
+		{
+			const string sql = """
+				SELECT EXISTS(
+					SELECT 1 FROM oidc_storage
+					WHERE kind = 'nonce' AND key = @nonce AND value = @clientId
+					AND expires_at > CURRENT_TIMESTAMP
+				)
+				""";
 
-    public async Task<Result<Unit>> RevokeByGrantIdAsync(string grantId)
-    {
-        try
-        {
-            using var connection = _context.Database.GetDbConnection();
-            await connection.OpenAsync();
+			using var conn = _db.CreateConnection();
+			var isValid = await conn.QueryFirstOrDefaultAsync<bool>(sql, new { nonce, clientId });
 
-            var sql = "DELETE FROM geek_auth.oidc_storage WHERE grant_id = @GrantId";
+			return Result<bool>.Success(isValid);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Validate nonce failed: {ex.Message}");
+		}
+	}
 
-            await connection.ExecuteAsync(sql, new { GrantId = grantId });
+	public async Task<Result<bool>> RevokeNonceAsync(string nonce)
+	{
+		try
+		{
+			const string sql = """
+				DELETE FROM oidc_storage
+				WHERE kind = 'nonce' AND key = @nonce
+				""";
 
-            return Result<Unit>.Success(new Unit());
-        }
-        catch (Exception ex)
-        {
-            return Result<Unit>.Failure(ex.Message);
-        }
-    }
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql, new { nonce });
+
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Revoke nonce failed: {ex.Message}");
+		}
+	}
+
+	public async Task<Result<bool>> StoreAuthorizationCodeAsync(string code, Guid userId, string clientId, List<string> scopes, DateTime expiresAt)
+	{
+		try
+		{
+			const string sql = """
+				INSERT INTO oidc_storage (kind, key, value, user_id, scope, expires_at)
+				VALUES (@kind, @code, @clientId, @userId, @scope, @expiresAt)
+				ON CONFLICT (kind, key) DO NOTHING
+				""";
+
+			using var conn = _db.CreateConnection();
+			var scope = string.Join(" ", scopes);
+			var rowsAffected = await conn.ExecuteAsync(sql, new
+			{
+				kind = "authorization_code",
+				code,
+				clientId,
+				userId,
+				scope,
+				expiresAt
+			});
+
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Store authorization code failed: {ex.Message}");
+		}
+	}
+
+	public async Task<Result<(Guid UserId, string ClientId, List<string> Scopes)?>> ValidateAuthorizationCodeAsync(string code)
+	{
+		try
+		{
+			const string sql = """
+				SELECT user_id as UserId, value as ClientId, scope
+				FROM oidc_storage
+				WHERE kind = 'authorization_code' AND key = @code
+				AND expires_at > CURRENT_TIMESTAMP AND consumed = false
+				""";
+
+			using var conn = _db.CreateConnection();
+			dynamic? result = await conn.QueryFirstOrDefaultAsync(sql, new { code });
+
+			if (result == null)
+				return Result<(Guid UserId, string ClientId, List<string> Scopes)?>.Success(null);
+
+			var userId = (Guid)result.UserId;
+			var clientId = (string)result.ClientId;
+			var scopes = ((string?)result.Scope ?? "").Split(' ').ToList();
+
+			return Result<(Guid UserId, string ClientId, List<string> Scopes)?>.Success((userId, clientId, scopes));
+		}
+		catch (Exception ex)
+		{
+			return Result<(Guid UserId, string ClientId, List<string> Scopes)?>.Failure($"Validate authorization code failed: {ex.Message}");
+		}
+	}
+
+	public async Task<Result<bool>> RevokeAuthorizationCodeAsync(string code)
+	{
+		try
+		{
+			const string sql = """
+				DELETE FROM oidc_storage
+				WHERE kind = 'authorization_code' AND key = @code
+				""";
+
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql, new { code });
+
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Revoke authorization code failed: {ex.Message}");
+		}
+	}
+
+	public async Task<Result<bool>> CleanupExpiredAsync()
+	{
+		try
+		{
+			const string sql = """
+				DELETE FROM oidc_storage
+				WHERE expires_at < CURRENT_TIMESTAMP
+				""";
+
+			using var conn = _db.CreateConnection();
+			var rowsAffected = await conn.ExecuteAsync(sql);
+
+			return Result<bool>.Success(rowsAffected > 0);
+		}
+		catch (Exception ex)
+		{
+			return Result<bool>.Failure($"Cleanup failed: {ex.Message}");
+		}
+	}
 }

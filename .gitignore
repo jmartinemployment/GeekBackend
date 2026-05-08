@@ -1,4 +1,23 @@
-# dependencies
+# .NET / Visual Studio
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.user
+*.suo
+*.sln.docstates
+.vs/
+.vscode/
+*.VC.db
+appsettings.*.json
+!appsettings.Development.json
+!appsettings.example.json
+
+# EF Core
+*.eflog
+
+# Node.js (legacy)
 /node_modules
 /.pnp
 .pnp.*
@@ -8,38 +27,46 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
+# Testing
 /coverage
 
-# build
+# Build
 /dist
 /build
 
-# misc
+# Misc
 .DS_Store
 *.pem
-.env*
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
 !.env.example
-.env*.local
 
 # IDE
-.vscode/
 .idea/
 .sonarlint/
+*.swp
+*.swo
 
-# debug logs
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# database
-/lib/generated/prisma
-
-# backups
+# Backups
 backup*.sql
+*.bak
 
+# Claude Code (development only)
+.claude/
+.claudeignore
+.graphifyignore
+.mcp.json
+CLAUDE.md
+CLAUDE.local.md.example
+/claude/

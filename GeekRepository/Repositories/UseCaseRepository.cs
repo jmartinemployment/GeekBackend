@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using GeekBackend.Data.Data;
-using GeekBackend.Data.Models;
+using GeekApplication.Entities;
+using GeekApplication.Interfaces;
+using GeekRepository.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Repositories;

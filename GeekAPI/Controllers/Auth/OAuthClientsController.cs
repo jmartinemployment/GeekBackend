@@ -1,6 +1,8 @@
-using GeekRepository.Repositories;
-using GeekRepository.Results;
+using GeekApplication.Dtos;
+using GeekApplication.Interfaces;
+using GeekApplication.Results;
 using Microsoft.AspNetCore.Mvc;
+using GeekAPI.Dtos;
 
 namespace GeekAPI.Controllers.Auth;
 

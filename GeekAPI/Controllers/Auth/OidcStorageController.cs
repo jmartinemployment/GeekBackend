@@ -1,6 +1,9 @@
-using GeekRepository.Repositories;
-using GeekRepository.Results;
+using System.Text.Json;
+using GeekApplication.Entities;
+using GeekApplication.Interfaces;
+using GeekApplication.Results;
 using Microsoft.AspNetCore.Mvc;
+using GeekAPI.Dtos;
 
 namespace GeekAPI.Controllers.Auth;
 
@@ -18,14 +21,26 @@ public class OidcStorageController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Upsert([FromBody] OidcStorageUpsertRequest req)
     {
-        var result = await _repo.UpsertAsync(req.Id, req.Kind, req.Payload, req.ExpiresIn);
+        var storage = new OidcStorage
+        {
+            Id = req.Id,
+            Kind = req.Kind,
+            Payload = JsonSerializer.Serialize(req.Payload),
+            ExpiresAt = req.ExpiresIn.HasValue ? DateTime.UtcNow.AddMinutes(req.ExpiresIn.Value) : DateTime.UtcNow.AddMinutes(10),
+            UserCode = req.UserCode,
+            TokenHash = req.TokenHash,
+            Uid = req.Uid,
+            GrantId = req.GrantId,
+            CreatedAt = DateTime.UtcNow
+        };
+        var result = await _repo.UpsertAsync(storage);
         return ToResponse(result);
     }
 
-    [HttpGet("{id}")]
-    public async Task<IActionResult> Find(string id)
+    [HttpGet("{kind}/{key}")]
+    public async Task<IActionResult> Find(string kind, string key)
     {
-        var result = await _repo.FindAsync(id);
+        var result = await _repo.FindAsync(kind, key);
         return ToResponse(result);
     }
 
@@ -82,4 +97,8 @@ public class OidcStorageUpsertRequest
     public string Kind { get; set; } = null!;
     public Dictionary<string, object> Payload { get; set; } = [];
     public int? ExpiresIn { get; set; }
+    public string? UserCode { get; set; }
+    public string? TokenHash { get; set; }
+    public string? Uid { get; set; }
+    public string? GrantId { get; set; }
 }

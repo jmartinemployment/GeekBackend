@@ -1,7 +1,7 @@
-using GeekBackend.Api.Dtos;
-using GeekBackend.Api.Services;
-using GeekRepository.Models;
-using GeekRepository.Repositories;
+using GeekAPI.Dtos;
+using GeekAPI.Services;
+using GeekApplication.Entities;
+using GeekApplication.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers;

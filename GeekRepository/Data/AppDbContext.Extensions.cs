@@ -1,4 +1,4 @@
-using GeekBackend.Data.Models;
+using GeekApplication.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Data;
@@ -11,21 +11,11 @@ public partial class AppDbContext
     public virtual DbSet<CaseStudyMetric> CaseStudyMetrics { get; set; }
     public virtual DbSet<CaseStudyActor> CaseStudyActors { get; set; }
     public virtual DbSet<CaseStudyEventFlowStep> CaseStudyEventFlowSteps { get; set; }
-
-    // Auth (geek_auth schema)
-    public DbSet<User> Users => Set<User>();
-    public DbSet<Role> Roles => Set<Role>();
-    public DbSet<Permission> Permissions => Set<Permission>();
-    public DbSet<UserRole> UserRoles => Set<UserRole>();
-    public DbSet<PendingVerification> PendingVerifications => Set<PendingVerification>();
-    public DbSet<Device> DevicesAuth => Set<Device>();
-    public DbSet<OauthToken> OAuthTokens => Set<OauthToken>();
-    public DbSet<OauthClient> OAuthClients => Set<OauthClient>();
-    public DbSet<OidcStorage> OidcStorages => Set<OidcStorage>();
-
-    // Audit (audit schema)
-    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
-    public DbSet<CircuitReset> CircuitResets => Set<CircuitReset>();
+    public virtual DbSet<Role> Roles { get; set; }
+    public virtual DbSet<UserRole> UserRoles { get; set; }
+    public virtual DbSet<UserClaim> UserClaims { get; set; }
+    public virtual DbSet<Permission> Permissions { get; set; }
+    public virtual DbSet<RolePermission> RolePermissions { get; set; }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
