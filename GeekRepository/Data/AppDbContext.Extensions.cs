@@ -183,10 +183,10 @@ public partial class AppDbContext
                 .HasColumnType("timestamp with time zone")
                 .HasColumnName("assigned_at");
             entity.HasOne(e => e.User)
-                .WithMany()
+                .WithMany(u => u.UserRoles)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Role)
-                .WithMany()
+                .WithMany(r => r.UserRoles)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
