@@ -11,11 +11,6 @@ public partial class AppDbContext
     public virtual DbSet<CaseStudyMetric> CaseStudyMetrics { get; set; }
     public virtual DbSet<CaseStudyActor> CaseStudyActors { get; set; }
     public virtual DbSet<CaseStudyEventFlowStep> CaseStudyEventFlowSteps { get; set; }
-    public virtual DbSet<Role> Roles { get; set; }
-    public virtual DbSet<UserRole> UserRoles { get; set; }
-    public virtual DbSet<UserClaim> UserClaims { get; set; }
-    public virtual DbSet<Permission> Permissions { get; set; }
-    public virtual DbSet<RolePermission> RolePermissions { get; set; }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -125,69 +120,6 @@ public partial class AppDbContext
                 .WithMany(c => c.UseCases)
                 .HasForeignKey(e => e.CaseStudyId)
                 .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        modelBuilder.Entity<RolePermission>(entity =>
-        {
-            entity.ToTable("role_permissions");
-            entity.HasKey(e => new { e.RoleId, e.PermissionId });
-            entity.Property(e => e.RoleId).HasColumnName("role_id");
-            entity.Property(e => e.PermissionId).HasColumnName("permission_id");
-            entity.HasOne(e => e.Role)
-                .WithMany(r => r.Permissions)
-                .HasForeignKey(e => e.RoleId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(e => e.Permission)
-                .WithMany(p => p.RolePermissions)
-                .HasForeignKey(e => e.PermissionId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<Role>(entity =>
-        {
-            entity.ToTable("roles");
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
-            entity.Property(e => e.Description).HasColumnType("text").HasColumnName("description");
-        });
-
-        modelBuilder.Entity<Permission>(entity =>
-        {
-            entity.ToTable("permissions");
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
-            entity.Property(e => e.Description).HasColumnType("text").HasColumnName("description");
-        });
-
-        modelBuilder.Entity<UserClaim>(entity =>
-        {
-            entity.ToTable("user_claims");
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.UserId).HasColumnName("user_id");
-            entity.Property(e => e.ClaimType).HasMaxLength(255).HasColumnName("claim_type");
-            entity.Property(e => e.ClaimValue).HasColumnType("text").HasColumnName("claim_value");
-            entity.HasOne(e => e.User)
-                .WithMany(u => u.UserClaims)
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<UserRole>(entity =>
-        {
-            entity.ToTable("user_roles");
-            entity.HasKey(e => new { e.UserId, e.RoleId });
-            entity.Property(e => e.UserId).HasColumnName("user_id");
-            entity.Property(e => e.RoleId).HasColumnName("role_id");
-            entity.Property(e => e.AssignedAt)
-                .HasDefaultValueSql("now()")
-                .HasColumnType("timestamp with time zone")
-                .HasColumnName("assigned_at");
-            entity.HasOne(e => e.User)
-                .WithMany(u => u.UserRoles)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(e => e.Role)
-                .WithMany(r => r.UserRoles)
-                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
