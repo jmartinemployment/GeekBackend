@@ -25,4 +25,10 @@ public class DiagnosticsController : ControllerBase
             timestamp = DateTime.UtcNow
         });
     }
+
+    [HttpGet("/favicon.ico")]
+    public IActionResult Favicon()
+    {
+        return NoContent();
+    }
 }
