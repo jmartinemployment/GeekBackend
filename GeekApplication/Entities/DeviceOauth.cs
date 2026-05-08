@@ -16,6 +16,4 @@ public class DeviceOauth
 
     // Navigation properties
     public virtual User User { get; set; } = null!;
-    public virtual ICollection<WebsocketSession> WebsocketSessions { get; set; } = [];
-    public virtual ICollection<SyncQueue> SyncQueues { get; set; } = [];
 }
