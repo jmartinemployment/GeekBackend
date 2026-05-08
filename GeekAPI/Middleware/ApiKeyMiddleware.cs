@@ -12,8 +12,8 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Skip validation for /health
-        if (context.Request.Path == "/health")
+        var publicPaths = new[] { "/health", "/api/case-studies", "/api/departments", "/api/use-cases" };
+        if (publicPaths.Contains(context.Request.Path))
         {
             await _next(context);
             return;
