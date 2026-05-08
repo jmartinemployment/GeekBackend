@@ -13,6 +13,8 @@ using Npgsql;
 Env.TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
+var startupLogger = LoggerFactory.Create(logging => logging.AddSimpleConsole())
+    .CreateLogger("Startup");
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
@@ -21,10 +23,13 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
-var rawDatabaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? throw new InvalidOperationException("DATABASE_URL environment variable is not set. Add it to .env locally or as a Railway variable in production.");
+var rawDatabaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+if (string.IsNullOrWhiteSpace(rawDatabaseUrl))
+{
+    startupLogger.LogWarning("DATABASE_URL is not set. API will start, but database-backed endpoints will fail until DATABASE_URL is configured.");
+}
 
-var connectionString = NormalizeConnectionString(rawDatabaseUrl);
+var connectionString = NormalizeConnectionString(rawDatabaseUrl ?? string.Empty);
 
 
 builder.Services.AddDbContext<AppDbContext>(options => options
@@ -71,8 +76,7 @@ static async Task ApplyPendingMigrationsAsync(WebApplication app)
     }
     catch (Exception ex)
     {
-        logger.LogCritical(ex, "Failed applying database migrations at startup.");
-        throw;
+        logger.LogError(ex, "Failed applying database migrations at startup. Continuing startup without auto-migration.");
     }
 }
 
@@ -85,36 +89,44 @@ static string NormalizeConnectionString(string rawValue)
         return value;
     }
 
-    if (!Uri.TryCreate(value, UriKind.Absolute, out var databaseUri))
+    try
     {
-        throw new InvalidOperationException("DATABASE_URL is not a valid absolute URI.");
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var databaseUri))
+        {
+            return value;
+        }
+
+        if (databaseUri.Scheme != "postgres" && databaseUri.Scheme != "postgresql")
+        {
+            return value;
+        }
+
+        var userInfo = databaseUri.UserInfo.Split(':', 2);
+        var username = Uri.UnescapeDataString(userInfo[0]);
+        var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
+        var database = databaseUri.AbsolutePath.Trim('/').Split('/', 2)[0];
+        var query = System.Web.HttpUtility.ParseQueryString(databaseUri.Query);
+        var sslMode = query["sslmode"] ?? query["ssl_mode"];
+
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = databaseUri.Host,
+            Port = databaseUri.Port > 0 ? databaseUri.Port : 5432,
+            Username = username,
+            Password = password,
+            Database = database
+        };
+
+        if (!string.IsNullOrWhiteSpace(sslMode) && Enum.TryParse<SslMode>(sslMode, true, out var parsedMode))
+        {
+            builder.SslMode = parsedMode;
+        }
+
+        return builder.ConnectionString;
     }
-
-    if (databaseUri.Scheme != "postgres" && databaseUri.Scheme != "postgresql")
+    catch
     {
-        throw new InvalidOperationException("DATABASE_URL must use postgres/postgresql scheme.");
+        // Fall back to the provided value so startup does not fail.
+        return value;
     }
-
-    var userInfo = databaseUri.UserInfo.Split(':', 2);
-    var username = Uri.UnescapeDataString(userInfo[0]);
-    var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
-    var database = databaseUri.AbsolutePath.Trim('/').Split('/', 2)[0];
-    var query = System.Web.HttpUtility.ParseQueryString(databaseUri.Query);
-    var sslMode = query["sslmode"] ?? query["ssl_mode"];
-
-    var builder = new NpgsqlConnectionStringBuilder
-    {
-        Host = databaseUri.Host,
-        Port = databaseUri.Port > 0 ? databaseUri.Port : 5432,
-        Username = username,
-        Password = password,
-        Database = database
-    };
-
-    if (!string.IsNullOrWhiteSpace(sslMode) && Enum.TryParse<SslMode>(sslMode, true, out var parsedMode))
-    {
-        builder.SslMode = parsedMode;
-    }
-
-    return builder.ConnectionString;
 }
