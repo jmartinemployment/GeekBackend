@@ -8,5 +8,6 @@ public class Role
 
     // Navigation properties
     public virtual ICollection<UserRole> UserRoles { get; set; } = [];
+    public virtual ICollection<User> Users { get; set; } = [];
     public virtual ICollection<RolePermission> Permissions { get; set; } = [];
 }

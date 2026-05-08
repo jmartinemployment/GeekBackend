@@ -13,4 +13,5 @@ public class User
     public virtual ICollection<DeviceOauth> Devices { get; set; } = [];
     public virtual ICollection<UserClaim> UserClaims { get; set; } = [];
     public virtual ICollection<UserRole> UserRoles { get; set; } = [];
+    public virtual ICollection<Role> Roles { get; set; } = [];
 }
