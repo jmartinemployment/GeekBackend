@@ -184,11 +184,9 @@ public partial class AppDbContext
                 .HasColumnName("assigned_at");
             entity.HasOne(e => e.User)
                 .WithMany()
-                .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Role)
                 .WithMany()
-                .HasForeignKey(e => e.RoleId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
