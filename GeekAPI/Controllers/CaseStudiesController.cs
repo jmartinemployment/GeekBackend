@@ -1,9 +1,7 @@
 using GeekAPI.Dtos;
-using GeekRepository.Data;
 using GeekApplication.Entities;
 using GeekApplication.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace GeekAPI.Controllers;
 
@@ -12,12 +10,10 @@ namespace GeekAPI.Controllers;
 public class CaseStudiesController : ControllerBase
 {
     private readonly ICaseStudyRepository _caseStudies;
-    private readonly AppDbContext _db;
 
-    public CaseStudiesController(ICaseStudyRepository caseStudies, AppDbContext db)
+    public CaseStudiesController(ICaseStudyRepository caseStudies)
     {
         _caseStudies = caseStudies;
-        _db = db;
     }
 
     // ── Case Studies ─────────────────────────────────────────────────────────
@@ -60,18 +56,15 @@ public class CaseStudiesController : ControllerBase
             DescriptiveName = req.DescriptiveName,
             Slug = req.Slug,
             Status = req.Status,
-            ExecutiveSummary = req.ExecutiveSummary,
+            ExecutiveSummary = req.ExecutiveSummary ?? string.Empty,
             Subtitle = req.Subtitle,
-            PrimaryActor = req.PrimaryActor,
-            Trigger = req.Trigger,
-            ProblemChallenge = req.ProblemChallenge,
-            Solution = req.Solution,
+            PrimaryActor = req.PrimaryActor ?? string.Empty,
+            Trigger = req.Trigger ?? string.Empty,
+            ProblemChallenge = req.ProblemChallenge ?? string.Empty,
+            Solution = req.Solution ?? string.Empty,
             PostConditions = req.PostConditions,
             Exceptions = req.Exceptions,
-            IndustryCitation = req.IndustryCitation,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            PublishedAt = req.Status == "published" ? DateTime.UtcNow : null
+            IndustryCitation = req.IndustryCitation
         };
 
         await _caseStudies.AddAsync(caseStudy);
@@ -84,24 +77,18 @@ public class CaseStudiesController : ControllerBase
         var caseStudy = await _caseStudies.GetByIdAsync(id);
         if (caseStudy is null) return NotFound();
 
-        var wasPublished = caseStudy.Status == "published";
-
         caseStudy.DescriptiveName = req.DescriptiveName;
         caseStudy.Slug = req.Slug;
         caseStudy.Status = req.Status;
-        caseStudy.ExecutiveSummary = req.ExecutiveSummary;
+        caseStudy.ExecutiveSummary = req.ExecutiveSummary ?? string.Empty;
         caseStudy.Subtitle = req.Subtitle;
-        caseStudy.PrimaryActor = req.PrimaryActor;
-        caseStudy.Trigger = req.Trigger;
-        caseStudy.ProblemChallenge = req.ProblemChallenge;
-        caseStudy.Solution = req.Solution;
+        caseStudy.PrimaryActor = req.PrimaryActor ?? string.Empty;
+        caseStudy.Trigger = req.Trigger ?? string.Empty;
+        caseStudy.ProblemChallenge = req.ProblemChallenge ?? string.Empty;
+        caseStudy.Solution = req.Solution ?? string.Empty;
         caseStudy.PostConditions = req.PostConditions;
         caseStudy.Exceptions = req.Exceptions;
         caseStudy.IndustryCitation = req.IndustryCitation;
-        caseStudy.UpdatedAt = DateTime.UtcNow;
-
-        if (!wasPublished && req.Status == "published")
-            caseStudy.PublishedAt = DateTime.UtcNow;
 
         await _caseStudies.UpdateAsync(caseStudy);
         return ToDetailDto(caseStudy);
@@ -112,7 +99,6 @@ public class CaseStudiesController : ControllerBase
     {
         var caseStudy = await _caseStudies.GetByIdAsync(id);
         if (caseStudy is null) return NotFound();
-
         await _caseStudies.DeleteAsync(id);
         return NoContent();
     }
@@ -133,33 +119,24 @@ public class CaseStudiesController : ControllerBase
             SortOrder = req.SortOrder
         };
 
-        await _db.CaseStudyActors.AddAsync(actor);
-        await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetById), new { id }, new ActorDto(actor.Id, actor.ActorName, actor.ActorRole, actor.SortOrder));
+        var result = await _caseStudies.AddActorAsync(id, actor);
+        return CreatedAtAction(nameof(GetById), new { id }, new ActorDto(result.Id, result.ActorName, result.ActorRole, result.SortOrder));
     }
 
     [HttpPut("{id:int}/actors/{actorId:int}")]
     public async Task<ActionResult<ActorDto>> UpdateActor(int id, int actorId, ActorRequest req)
     {
-        var actor = await _db.CaseStudyActors.FirstOrDefaultAsync(a => a.Id == actorId && a.CaseStudyId == id);
+        var actor = await _caseStudies.UpdateActorAsync(id, actorId, req.ActorName, req.ActorRole, req.SortOrder);
         if (actor is null) return NotFound();
-
-        actor.ActorName = req.ActorName;
-        actor.ActorRole = req.ActorRole;
-        actor.SortOrder = req.SortOrder;
-
-        await _db.SaveChangesAsync();
         return new ActorDto(actor.Id, actor.ActorName, actor.ActorRole, actor.SortOrder);
     }
 
     [HttpDelete("{id:int}/actors/{actorId:int}")]
     public async Task<IActionResult> DeleteActor(int id, int actorId)
     {
-        var actor = await _db.CaseStudyActors.FirstOrDefaultAsync(a => a.Id == actorId && a.CaseStudyId == id);
-        if (actor is null) return NotFound();
-
-        _db.CaseStudyActors.Remove(actor);
-        await _db.SaveChangesAsync();
+        var existing = await _caseStudies.GetActorAsync(id, actorId);
+        if (existing is null) return NotFound();
+        await _caseStudies.DeleteActorAsync(id, actorId);
         return NoContent();
     }
 
@@ -180,34 +157,24 @@ public class CaseStudiesController : ControllerBase
             SortOrder = req.SortOrder
         };
 
-        await _db.CaseStudyMetrics.AddAsync(metric);
-        await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetById), new { id }, new MetricDto(metric.Id, metric.MetricLabel, metric.MetricValue, metric.MetricUnit, metric.SortOrder));
+        var result = await _caseStudies.AddMetricAsync(id, metric);
+        return CreatedAtAction(nameof(GetById), new { id }, new MetricDto(result.Id, result.MetricLabel, result.MetricValue, result.MetricUnit, result.SortOrder));
     }
 
     [HttpPut("{id:int}/metrics/{metricId:int}")]
     public async Task<ActionResult<MetricDto>> UpdateMetric(int id, int metricId, MetricRequest req)
     {
-        var metric = await _db.CaseStudyMetrics.FirstOrDefaultAsync(m => m.Id == metricId && m.CaseStudyId == id);
+        var metric = await _caseStudies.UpdateMetricAsync(id, metricId, req.MetricLabel, req.MetricValue, req.MetricUnit, req.SortOrder);
         if (metric is null) return NotFound();
-
-        metric.MetricLabel = req.MetricLabel;
-        metric.MetricValue = req.MetricValue;
-        metric.MetricUnit = req.MetricUnit;
-        metric.SortOrder = req.SortOrder;
-
-        await _db.SaveChangesAsync();
         return new MetricDto(metric.Id, metric.MetricLabel, metric.MetricValue, metric.MetricUnit, metric.SortOrder);
     }
 
     [HttpDelete("{id:int}/metrics/{metricId:int}")]
     public async Task<IActionResult> DeleteMetric(int id, int metricId)
     {
-        var metric = await _db.CaseStudyMetrics.FirstOrDefaultAsync(m => m.Id == metricId && m.CaseStudyId == id);
-        if (metric is null) return NotFound();
-
-        _db.CaseStudyMetrics.Remove(metric);
-        await _db.SaveChangesAsync();
+        var existing = await _caseStudies.GetMetricAsync(id, metricId);
+        if (existing is null) return NotFound();
+        await _caseStudies.DeleteMetricAsync(id, metricId);
         return NoContent();
     }
 
@@ -227,40 +194,24 @@ public class CaseStudiesController : ControllerBase
             StepActorId = req.StepActorId
         };
 
-        await _db.CaseStudyEventFlowSteps.AddAsync(step);
-        await _db.SaveChangesAsync();
-
-        var actorName = req.StepActorId.HasValue
-            ? (await _db.CaseStudyActors.FindAsync(req.StepActorId.Value))?.ActorName
-            : null;
-
-        return CreatedAtAction(nameof(GetById), new { id }, new EventFlowStepDto(step.Id, step.StepNumber, step.StepDescription, actorName));
+        var result = await _caseStudies.AddEventFlowStepAsync(id, step);
+        return CreatedAtAction(nameof(GetById), new { id }, new EventFlowStepDto(result.Id, result.StepNumber, result.StepDescription, result.StepActor?.ActorName));
     }
 
     [HttpPut("{id:int}/event-flow-steps/{stepId:int}")]
     public async Task<ActionResult<EventFlowStepDto>> UpdateEventFlowStep(int id, int stepId, EventFlowStepRequest req)
     {
-        var step = await _db.CaseStudyEventFlowSteps
-            .Include(s => s.StepActor)
-            .FirstOrDefaultAsync(s => s.Id == stepId && s.CaseStudyId == id);
+        var step = await _caseStudies.UpdateEventFlowStepAsync(id, stepId, req.StepNumber, req.StepDescription, req.StepActorId);
         if (step is null) return NotFound();
-
-        step.StepNumber = req.StepNumber;
-        step.StepDescription = req.StepDescription;
-        step.StepActorId = req.StepActorId;
-
-        await _db.SaveChangesAsync();
         return new EventFlowStepDto(step.Id, step.StepNumber, step.StepDescription, step.StepActor?.ActorName);
     }
 
     [HttpDelete("{id:int}/event-flow-steps/{stepId:int}")]
     public async Task<IActionResult> DeleteEventFlowStep(int id, int stepId)
     {
-        var step = await _db.CaseStudyEventFlowSteps.FirstOrDefaultAsync(s => s.Id == stepId && s.CaseStudyId == id);
-        if (step is null) return NotFound();
-
-        _db.CaseStudyEventFlowSteps.Remove(step);
-        await _db.SaveChangesAsync();
+        var existing = await _caseStudies.GetEventFlowStepAsync(id, stepId);
+        if (existing is null) return NotFound();
+        await _caseStudies.DeleteEventFlowStepAsync(id, stepId);
         return NoContent();
     }
 

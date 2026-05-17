@@ -31,4 +31,10 @@ public class DiagnosticsController : ControllerBase
     {
         return NoContent();
     }
+
+    [HttpGet("/robots.txt")]
+    public IActionResult RobotsTxt()
+    {
+        return NoContent();
+    }
 }

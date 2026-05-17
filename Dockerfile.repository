@@ -1,0 +1,17 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+COPY GEEKBACKEND.slnx ./
+COPY GeekAPI/GeekAPI.csproj GeekAPI/
+COPY GeekApplication/GeekApplication.csproj GeekApplication/
+COPY GeekRepository/GeekRepository.csproj GeekRepository/
+
+RUN dotnet restore GeekRepository/GeekRepository.csproj
+
+COPY . .
+RUN dotnet publish GeekRepository/GeekRepository.csproj -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "GeekRepository.dll"]

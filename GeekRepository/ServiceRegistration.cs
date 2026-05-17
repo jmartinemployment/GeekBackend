@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using GeekApplication.Interfaces;
-using GeekRepository.Data;
 using GeekRepository.Infrastructure;
 using GeekRepository.Repositories;
 using GeekRepository.Repositories.JtiBlacklist;
@@ -16,8 +15,7 @@ public static class ServiceRegistration
 		services.AddSingleton<IDbConnectionFactory>(
 			_ => new NpgsqlConnectionFactory(connectionString));
 
-		services.AddDbContext<AppDbContext>();
-
+		// Auth repositories
 		services.AddScoped<IUserRepository, UserRepository>();
 		services.AddScoped<IUserClaimsRepository, UserClaimsRepository>();
 		services.AddScoped<IRoleRepository, RoleRepository>();
@@ -29,8 +27,15 @@ public static class ServiceRegistration
 		services.AddScoped<ISecurityIncidentRepository, SecurityIncidentRepository>();
 		services.AddScoped<IOAuthClientRepository, OAuthClientRepository>();
 		services.AddScoped<IOidcStorageRepository, OidcStorageRepository>();
+		services.AddScoped<IOAuthTokenRepository, OAuthTokenRepository>();
+		services.AddScoped<IPendingVerificationRepository, PendingVerificationRepository>();
 
 		services.AddSingleton<IJtiBlacklist, PostgresJtiBlacklistRepository>();
+
+		// Content repositories
+		services.AddScoped<ICaseStudyRepository, CaseStudyRepository>();
+		services.AddScoped<IDepartmentRepository, DepartmentRepository>();
+		services.AddScoped<IUseCaseRepository, UseCaseRepository>();
 
 		return services;
 	}

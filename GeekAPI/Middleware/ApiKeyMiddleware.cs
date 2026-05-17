@@ -2,6 +2,17 @@ namespace GeekAPI.Middleware;
 
 public class ApiKeyMiddleware
 {
+    private static readonly HashSet<string> PublicPaths = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "/health",
+        "/hello",
+        "/favicon.ico",
+        "/robots.txt",
+        "/api/case-studies",
+        "/api/departments",
+        "/api/use-cases"
+    };
+
     private readonly RequestDelegate _next;
     private const string ApiKeyHeader = "X-API-Key";
 
@@ -12,8 +23,8 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var publicPaths = new[] { "/health", "/hello", "/favicon.ico", "/api/case-studies", "/api/departments", "/api/use-cases" };
-        if (publicPaths.Contains(context.Request.Path))
+        var normalizedPath = NormalizePath(context.Request.Path.Value);
+        if (PublicPaths.Contains(normalizedPath))
         {
             await _next(context);
             return;
@@ -35,5 +46,22 @@ public class ApiKeyMiddleware
         }
 
         await _next(context);
+    }
+
+    // Trims trailing slashes so /favicon.ico/ matches /favicon.ico in PublicPaths.
+    private static string NormalizePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return string.Empty;
+        }
+
+        var p = path;
+        while (p.Length > 1 && p.EndsWith('/'))
+        {
+            p = p[..^1];
+        }
+
+        return p;
     }
 }

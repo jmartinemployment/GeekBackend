@@ -47,4 +47,13 @@ public class DepartmentRepository : IDepartmentRepository
             await _context.SaveChangesAsync();
         }
     }
+
+    public async Task<IReadOnlyList<Department>> GetWithUseCasesAndCaseStudiesAsync() =>
+        await _context.Departments
+            .AsNoTracking()
+            .Include(d => d.UseCases)
+                .ThenInclude(uc => uc.CaseStudy)
+            .OrderBy(d => d.SortOrder)
+            .ThenBy(d => d.Name)
+            .ToListAsync();
 }
