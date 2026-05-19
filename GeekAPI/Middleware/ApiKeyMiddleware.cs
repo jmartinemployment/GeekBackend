@@ -24,7 +24,9 @@ public class ApiKeyMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var normalizedPath = NormalizePath(context.Request.Path.Value);
-        if (PublicPaths.Contains(normalizedPath))
+        if (PublicPaths.Contains(normalizedPath)
+            || normalizedPath.StartsWith("/api/seo", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/hubs/seo-scoring", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
