@@ -1,7 +1,11 @@
 using DotNetEnv;
+using GeekApplication.Interfaces.Seo;
 using GeekRepository;
+using EFCore.NamingConventions;
 using GeekRepository.Data;
+using GeekRepository.Infrastructure;
 using GeekRepository.Middleware;
+using GeekRepository.Providers.Seo;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
@@ -23,11 +27,45 @@ builder.Services.AddDbContext<AppDbContext>(options => options
     .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// Same Supabase PostgreSQL instance as DATABASE_URL — optional separate *credentials*.
+// Production: GEEK_SEO_DATABASE_URL uses geekseo_app (schema geek_seo only).
+// Local dev: omit GEEK_SEO_DATABASE_URL to reuse DATABASE_URL (single role is fine).
+var seoConnectionString = NormalizeConnectionString(
+    Environment.GetEnvironmentVariable("GEEK_SEO_DATABASE_URL") ?? rawDatabaseUrl ?? string.Empty);
+
+builder.Services.AddDbContext<SeoDbContext>(options => options
+    .UseNpgsql(seoConnectionString)
+    .UseSnakeCaseNamingConvention()
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
+
+var disablePlaywright = string.Equals(
+    Environment.GetEnvironmentVariable("DISABLE_PLAYWRIGHT"), "true", StringComparison.OrdinalIgnoreCase);
+PlaywrightBrowserHolder? playwrightHolder = null;
+if (!disablePlaywright)
+{
+    playwrightHolder = new PlaywrightBrowserHolder();
+    await playwrightHolder.InitializeAsync();
+    builder.Services.AddSingleton(playwrightHolder);
+    builder.Services.AddSingleton<ICrawlerProvider>(sp =>
+        new PlaywrightCrawlerProvider(sp.GetRequiredService<PlaywrightBrowserHolder>().Browser!));
+}
+else
+{
+    builder.Services.AddSingleton<ICrawlerProvider, NoOpCrawlerProvider>();
+}
 
 var app = builder.Build();
 
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    if (playwrightHolder is not null)
+        _ = playwrightHolder.DisposeAsync();
+});
+
 await ApplyPendingMigrationsAsync(app, startupLogger);
+await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseMiddleware<RepoApiKeyMiddleware>();
 app.MapControllers();
@@ -47,6 +85,21 @@ static async Task ApplyPendingMigrationsAsync(WebApplication app, ILogger logger
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying database migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplySeoMigrationsAsync(WebApplication app, ILogger logger)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<SeoDbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("Geek SEO schema migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying Geek SEO migrations. Continuing startup.");
     }
 }
 

@@ -27,6 +27,7 @@
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="StackExchange.Redis" Version="2.12.14" />
     <PackageReference Include="DotNetEnv" Version="3.1.1" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.51.0" />
   </ItemGroup>
 
 </Project>

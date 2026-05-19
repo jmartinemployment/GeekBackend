@@ -1,5 +1,7 @@
 using DotNetEnv;
+using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
+using GeekAPI.Hubs;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekApplication.Interfaces;
@@ -13,7 +15,15 @@ builder.Services.AddControllers();
 
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+        policy
+            .WithOrigins(
+                "http://localhost:3000",
+                "https://seo.geekatyourspot.com")
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials()));
+
+builder.Services.AddGeekSeoApi(builder.Configuration);
 
 var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhost:5050";
 var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY") ?? string.Empty;
@@ -48,9 +58,23 @@ if (app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
-app.UseMiddleware<ApiKeyMiddleware>();
 app.UseCors();
+var jwtConfigured = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("JWT_KEY"))
+    || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTH_SERVER_URL"));
+if (jwtConfigured)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
+else
+{
+    app.UseMiddleware<DevUserMiddleware>();
+}
+app.UseMiddleware<ApiKeyMiddleware>();
+app.UseMiddleware<SeoFeatureGateMiddleware>();
+app.UseMiddleware<SeoUsageGateMiddleware>();
 app.MapControllers();
+app.MapHub<SeoContentScoringHub>("/hubs/seo-scoring");
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://0.0.0.0:{port}");
