@@ -62,11 +62,17 @@ yarn-error.log*
 backup*.sql
 *.bak
 
-# Claude Code (development only)
+# Claude Code / AI tooling (development only)
 .claude/
+.agents/
 .claudeignore
 .graphifyignore
 .mcp.json
 CLAUDE.md
 CLAUDE.local.md.example
 /claude/
+
+# Cursor (development only)
+.cursor/
+.cursorignore
+.cursorrules
