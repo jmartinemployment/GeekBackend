@@ -13,12 +13,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 
+var corsOrigins = CorsOriginParser.GetAllowedOrigins();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
         policy
-            .WithOrigins(
-                "http://localhost:3000",
-                "https://seo.geekatyourspot.com")
+            .WithOrigins(corsOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials()));
@@ -51,6 +50,8 @@ builder.Services.AddScoped<IUseCaseRepository, HttpUseCaseRepository>();
 builder.Services.AddScoped<DepartmentContentService>();
 
 var app = builder.Build();
+
+app.Logger.LogInformation("CORS origins: {Origins}", string.Join(", ", corsOrigins));
 
 if (app.Environment.IsDevelopment())
 {
