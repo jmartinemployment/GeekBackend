@@ -1,17 +1,31 @@
+# GeekRepository — Railway / Docker (Playwright + .NET 10 self-contained).
+# Build context MUST be GeekBackend repo root (contains GeekApplication/, GeekRepository/).
+#
+# Railway → Geek-Repository service:
+#   Root directory: .  (or /GeekBackend if monorepo subfolder)
+#   Dockerfile: Dockerfile.repository
+#
+#   docker build -f Dockerfile.repository -t geek-repository .
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+COPY GeekApplication/ GeekApplication/
+COPY GeekRepository/ GeekRepository/
+RUN dotnet restore GeekRepository/GeekRepository.csproj \
+    && dotnet publish GeekRepository/GeekRepository.csproj \
+        -c Release \
+        -r linux-x64 \
+        --self-contained true \
+        -o /app/publish
 
-COPY GEEKBACKEND.slnx ./
-COPY GeekAPI/GeekAPI.csproj GeekAPI/
-COPY GeekApplication/GeekApplication.csproj GeekApplication/
-COPY GeekRepository/GeekRepository.csproj GeekRepository/
-
-RUN dotnet restore GeekRepository/GeekRepository.csproj
-
-COPY . .
-RUN dotnet publish GeekRepository/GeekRepository.csproj -c Release -o /app/publish
-
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+# Tag must match Microsoft.Playwright package (1.51.0). Image ships browsers at /ms-playwright.
+FROM mcr.microsoft.com/playwright/dotnet:v1.51.0-noble
 WORKDIR /app
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "GeekRepository.dll"]
+# Without this, .NET Playwright looks in /root/.cache/ms-playwright (empty unless install succeeds at build).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN chmod +x ./GeekRepository
+ENV PORT=5050
+ENV ASPNETCORE_URLS=http://0.0.0.0:5050
+EXPOSE 5050
+ENTRYPOINT ["./GeekRepository"]
