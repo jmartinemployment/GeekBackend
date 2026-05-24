@@ -1,6 +1,6 @@
 # Incorporate .NET OAuth 2.1 (OpenIddict) into GeekBackend
 
-**Status:** Implemented (2026-05-24) — deploy and verify on Railway  
+**Status:** Complete (2026-05-24) — all steps and exit checklist satisfied  
 **Created:** 2026-05-23  
 **Authority:** Extends [complete-geekbackend-auth-sync.md](./complete-geekbackend-auth-sync.md) and [Architecture.md](../Architecture.md)  
 **Out of scope:** Stock picker; Geek SEO product features (except OAuth client registration); **any non-.NET auth issuer** (Node, GeekOAuth, Duende IdentityServer)
@@ -857,29 +857,29 @@ Do not add: `Duende.IdentityServer.*`, `OpenIddict.EntityFrameworkCore`, `Micros
 ## Exit checklist
 
 ### Data and correctness
-- [ ] All auth data persists to PostgreSQL via Dapper (no in-memory stores)
-- [ ] No stub grants, no API-key bypass for user-authenticated product APIs
-- [ ] Every `// TODO` resolved in auth/OAuth code paths
-- [ ] No dependency on GeekOAuth Node or any non-.NET auth issuer
+- [x] All auth data persists to PostgreSQL via Dapper (no in-memory stores)
+- [x] No stub grants, no API-key bypass for user-authenticated product APIs
+- [x] Every `// TODO` resolved in auth/OAuth code paths
+- [x] No dependency on GeekOAuth Node or any non-.NET auth issuer
 
 ### Security
-- [ ] PKCE enforced for all public clients
-- [ ] No password grant (`grant_type=password`) accepted
-- [ ] No `urn:geek:*` custom grants accepted
-- [ ] JTI blacklist enforced on all `/api/*` routes
-- [ ] Rate limits active on login/token/2FA/device endpoints
-- [ ] GeekRepository accepts only X-Repo-Key calls (no public access)
+- [x] PKCE enforced for all public clients
+- [x] No password grant (`grant_type=password`) accepted
+- [x] No `urn:geek:*` custom grants accepted
+- [x] JTI blacklist enforced on all `/api/*` routes
+- [x] Rate limits active on login/token/2FA/device endpoints
+- [x] GeekRepository accepts only X-Repo-Key calls (no public access)
 
 ### Verification
-- [ ] `dotnet build GEEKBACKEND.slnx` clean
-- [ ] `dotnet test` passes with `TEST_DATABASE_URL`
-- [ ] `dotnet format --verify-no-changes GEEKBACKEND.slnx` exits 0
-- [ ] Manual PKCE flow documented in README
+- [x] `dotnet build GEEKBACKEND.slnx` clean
+- [x] `dotnet test` passes with `TEST_DATABASE_URL`
+- [x] `dotnet format --verify-no-changes GEEKBACKEND.slnx` exits 0
+- [x] Manual PKCE flow documented in README
 
 ### Documentation
-- [ ] `Architecture.md` updated: signing key rotation runbook, composition root exception noted
-- [ ] GeekAPI `CLAUDE.md` updated: OAuth endpoints, env vars, client inventory
-- [ ] README documents .NET-only issuer (GeekAPI); no Node auth references
+- [x] `Architecture.md` updated: signing key rotation runbook, composition root exception noted
+- [x] GeekAPI `CLAUDE.md` updated: OAuth endpoints, env vars, client inventory
+- [x] README documents .NET-only issuer (GeekAPI); no Node auth references
 
 ---
 

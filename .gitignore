@@ -69,6 +69,7 @@ backup*.sql
 .graphifyignore
 .mcp.json
 CLAUDE.md
+!GeekAPI/CLAUDE.md
 CLAUDE.local.md.example
 /claude/
 

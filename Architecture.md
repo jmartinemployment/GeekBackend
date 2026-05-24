@@ -608,8 +608,29 @@ On theft: **all tokens for that user are revoked**. User must re-authenticate ev
 |-------|-----|---------|----------|-----------|
 | Access (user) | 15 min | Memory | On refresh | Short TTL |
 | Access (kiosk) | 15 min | Memory | Re-auth on expiry | Short TTL |
-| Refresh | 30 days | OS Keychain (keytar) | Every use (rolling) | Explicit or theft-detected |
+| Refresh | 30 days | OS Keychain (keytar) | Every use (reference + reuse leeway) | Explicit or theft-detected |
 | ID | 15 min | Memory | Not rotated | Logout clears |
+
+### OpenIddict signing key rotation (production runbook)
+
+GeekAPI loads signing (and optional encryption) certificates from environment via `OpenIddictCertificateLoader`:
+
+| Variable | Format |
+|----------|--------|
+| `OPENIDDICT_SIGNING_CERT` | PEM text, file path, or base64 PKCS#12 |
+| `OPENIDDICT_SIGNING_CERT_PASSWORD` | PFX password when using PKCS#12 |
+| `OPENIDDICT_ENCRYPTION_CERT` | Optional; defaults to signing cert |
+
+**Rotation procedure (zero-downtime):**
+
+1. Generate new RSA or ECDSA keypair; export PKCS#12 or PEM.
+2. Set `OPENIDDICT_SIGNING_CERT` (and password if needed) on GeekAPI in Railway.
+3. Redeploy GeekAPI. New tokens sign with the new key; JWKS at `/.well-known/jwks.json` updates on restart.
+4. Keep the previous key published in JWKS for at least the longest access-token TTL (15 minutes) if doing dual-key rotation — OpenIddict 7 single-cert config rotates immediately; plan maintenance window or accept 15-minute overlap where old access tokens may fail validation after cutover.
+5. Resource servers using introspection (`geek-resource-server`) are unaffected by signing rotation.
+6. Never commit private keys to git. Store only in Railway secrets.
+
+**Composition root note:** OpenIddict store wiring and certificate loading live in `GeekAPI` (composition root exception documented here). `GeekApplication` remains HTTP- and database-free.
 
 ---
 

@@ -132,16 +132,16 @@ GeekBackend.sln
 | **Entities & Repos** | ✅ Complete | — | — |
 | **AppDbContext + Migrations** | ✅ Complete | — | — |
 | **DeviceOauth fingerprint** | ✅ Complete | — | — |
-| **User auth (register/login)** | 🔄 In progress | — | — |
-| **TOTP 2FA (setup/verify)** | ⏳ Pending | — | — |
-| **Device challenge-response** | ⏳ Pending | — | — |
-| **Multi-device policy enforcement** | ⏳ Pending | — | — |
+| **User auth (register/login)** | ✅ Implemented | GeekAPI + GeekRepository | Razor `/Account/Login` |
+| **TOTP 2FA (setup/verify)** | ✅ Implemented | GeekAPI | `/Account/TwoFactor`, `/api/auth/2fa/*` |
+| **Device challenge-response** | ✅ Implemented | GeekRepository | ECDSA challenge/verify |
+| **Multi-device policy enforcement** | ✅ Implemented | GeekApplication | `DevicePolicy` + repo |
 | **OAuth 2.1 + OpenIddict** | ✅ Implemented | GeekAPI | `/.well-known/openid-configuration` |
-| **Refresh token rotation** | ⏳ Pending | — | — |
-| **jti replay detection** | ⏳ Pending (PostgreSQL v1) | — | — |
-| **Real-time SignalR sync** | ⏳ Pending | — | — |
-| **Security hardening** | ⏳ Pending (headers, rate limiting, audit) | — | — |
-| **Electron integration** | ⏳ Pending | — | — |
+| **Refresh token rotation** | ✅ Implemented | GeekAPI | Reference refresh + reuse handler |
+| **jti replay detection** | ✅ Implemented | GeekRepository | `jti_blacklist` + middleware |
+| **Real-time SignalR sync** | ✅ Implemented | GeekAPI | `/hubs/sync` |
+| **Security hardening** | ✅ Implemented | GeekAPI | Headers, rate limits, CORS |
+| **Electron integration** | 🔄 Client-side | — | Point apps at GeekAPI issuer |
 
 ## Key Concepts
 
@@ -224,8 +224,64 @@ RATE_LIMIT_GENERAL_PER_SECOND=10           # Global rate limit
 LOG_LEVEL="Information"                    # Debug, Information, Warning, Error
 SERILOG_MIN_LEVEL="Information"
 
-# OpenIddict (future)
-OPENIDDICT_KEY="base64(rsa-private-key)"   # RSA key for OAuth 2.1 signing
+# GeekAPI issuer (required in production)
+AUTH_SERVER_URL="https://api.geekatyourspot.com"
+REPO_URL="https://your-geekrepository.up.railway.app"
+REPO_API_KEY="shared-secret-with-geekrepository"
+GEEK_BACKEND_API_KEY="api-key-for-product-routes"
+GEEK_WEBSITE_CLIENT_SECRET="confidential-client-secret"
+GEEK_RESOURCE_SERVER_SECRET="introspection-client-secret"
+CORS_ORIGINS="https://seo.geekatyourspot.com,http://127.0.0.1"
+OPENIDDICT_SIGNING_CERT="path-or-pem-or-base64-pfx"
+OPENIDDICT_SIGNING_CERT_PASSWORD="optional-pfx-password"
+
+# Integration tests (optional)
+TEST_DATABASE_URL="postgresql://..."
+TEST_REPO_URL="http://127.0.0.1:5050"
+```
+
+## Manual PKCE smoke test
+
+Use a single canonical issuer (`AUTH_SERVER_URL`). Example with production:
+
+```bash
+export ISSUER="https://api.geekatyourspot.com"
+curl -sS "$ISSUER/.well-known/openid-configuration" | head
+curl -sS "$ISSUER/health"
+```
+
+**Authorization code + PKCE (browser):**
+
+1. Generate `code_verifier` (43–128 chars) and `code_challenge = BASE64URL(SHA256(verifier))`.
+2. Open in browser:
+   `GET $ISSUER/connect/authorize?client_id=geek-seo-electron&response_type=code&scope=openid%20offline_access&redirect_uri=http://127.0.0.1/callback&code_challenge=CHALLENGE&code_challenge_method=S256`
+3. Sign in at `/Account/Login` (and `/Account/TwoFactor` if enabled).
+4. Approve consent if prompted; capture `code` from redirect.
+5. Exchange:
+   ```bash
+   curl -sS -X POST "$ISSUER/connect/token" \
+     -d "grant_type=authorization_code" \
+     -d "client_id=geek-seo-electron" \
+     -d "code=CODE_FROM_REDIRECT" \
+     -d "redirect_uri=http://127.0.0.1/callback" \
+     -d "code_verifier=YOUR_VERIFIER"
+   ```
+
+**Client credentials (machine client):**
+
+```bash
+curl -sS -X POST "$ISSUER/connect/token" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=geekatyourspot-website" \
+  -d "client_secret=$GEEK_WEBSITE_CLIENT_SECRET" \
+  -d "scope=mcp.tools"
+```
+
+Run automated tests:
+
+```bash
+dotnet test GEEKBACKEND.slnx
+TEST_DATABASE_URL="postgresql://..." dotnet test GEEKBACKEND.slnx
 ```
 
 ### appsettings.json Example

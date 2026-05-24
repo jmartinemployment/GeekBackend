@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Claims;
 using GeekAPI.Auth;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
@@ -62,6 +63,32 @@ public sealed class AuthorizationController : ControllerBase
     {
         var request = HttpContext.GetOpenIddictServerRequest()
             ?? throw new InvalidOperationException("OpenIddict request cannot be resolved.");
+
+        if (request.IsPasswordGrantType()
+            || string.Equals(request.GrantType, GrantTypes.Password, StringComparison.Ordinal))
+        {
+            return Forbid(
+                authenticationSchemes: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,
+                properties: new AuthenticationProperties(new Dictionary<string, string?>
+                {
+                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.UnsupportedGrantType,
+                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] =
+                        "The password grant is not allowed."
+                }));
+        }
+
+        if (!string.IsNullOrEmpty(request.GrantType)
+            && request.GrantType.StartsWith("urn:geek:", StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid(
+                authenticationSchemes: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,
+                properties: new AuthenticationProperties(new Dictionary<string, string?>
+                {
+                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.UnsupportedGrantType,
+                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] =
+                        "Custom grants are not supported."
+                }));
+        }
 
         if (request.IsClientCredentialsGrantType())
         {
