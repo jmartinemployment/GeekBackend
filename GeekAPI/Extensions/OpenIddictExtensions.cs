@@ -7,6 +7,7 @@ using GeekAPI.HttpClients.OpenIddict;
 using GeekApplication.Entities.OpenIddict;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenIddict.Abstractions;
+using OpenIddict.Core;
 using OpenIddict.Server;
 using OpenIddict.Server.AspNetCore;
 
@@ -40,9 +41,13 @@ public static class OpenIddictExtensions
             .AddCore(options =>
             {
                 options.ReplaceApplicationStore<GeekOpenIddictApplication, HttpApplicationStore>()
+                    .ReplaceApplicationManager<GeekOpenIddictApplication, OpenIddictApplicationManager<GeekOpenIddictApplication>>()
                     .ReplaceScopeStore<GeekOpenIddictScope, HttpScopeStore>()
+                    .ReplaceScopeManager<GeekOpenIddictScope, OpenIddictScopeManager<GeekOpenIddictScope>>()
                     .ReplaceAuthorizationStore<GeekOpenIddictAuthorization, HttpAuthorizationStore>()
-                    .ReplaceTokenStore<GeekOpenIddictToken, HttpTokenStore>();
+                    .ReplaceAuthorizationManager<GeekOpenIddictAuthorization, OpenIddictAuthorizationManager<GeekOpenIddictAuthorization>>()
+                    .ReplaceTokenStore<GeekOpenIddictToken, HttpTokenStore>()
+                    .ReplaceTokenManager<GeekOpenIddictToken, OpenIddictTokenManager<GeekOpenIddictToken>>();
             })
             .AddServer(options =>
             {
@@ -120,6 +125,17 @@ public static class OpenIddictExtensions
                 options.UseLocalServer();
                 options.UseAspNetCore();
             });
+
+        // OpenIddict 7 registers untyped IOpenIddict*Manager facades that require EF/Mongo unless
+        // we forward them to the typed managers backed by our HTTP stores.
+        services.AddScoped<IOpenIddictApplicationManager>(static provider =>
+            provider.GetRequiredService<OpenIddictApplicationManager<GeekOpenIddictApplication>>());
+        services.AddScoped<IOpenIddictAuthorizationManager>(static provider =>
+            provider.GetRequiredService<OpenIddictAuthorizationManager<GeekOpenIddictAuthorization>>());
+        services.AddScoped<IOpenIddictScopeManager>(static provider =>
+            provider.GetRequiredService<OpenIddictScopeManager<GeekOpenIddictScope>>());
+        services.AddScoped<IOpenIddictTokenManager>(static provider =>
+            provider.GetRequiredService<OpenIddictTokenManager<GeekOpenIddictToken>>());
 
         return services;
     }
