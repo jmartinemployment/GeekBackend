@@ -22,7 +22,7 @@ public sealed class PostgresJtiBlacklistRepository : IJtiBlacklist
 				VALUES (@jti, @expiresAt, CURRENT_TIMESTAMP)
 				ON CONFLICT (jti) DO NOTHING
 				RETURNING jti, user_id as UserId, expires_at as ExpiresAt,
-						  blacklisted_at as BlacklistedAt, reason
+						  blacklisted_at as BlacklistedAt
 				""";
 
             using var conn = _db.CreateConnection();

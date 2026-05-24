@@ -1,12 +1,15 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenIddict.Abstractions;
+using OpenIddict.Validation.AspNetCore;
 
 namespace GeekAPI.Controllers.Admin;
 
 [ApiController]
 [Route("api/admin/clients")]
-[Authorize(Roles = "admin")]
+[Authorize(
+    AuthenticationSchemes = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme,
+    Roles = "admin")]
 public sealed class ClientsController : ControllerBase
 {
     private readonly IOpenIddictApplicationManager _applications;

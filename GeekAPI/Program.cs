@@ -144,6 +144,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+if (app.Environment.IsProduction())
+    app.UseHttpsRedirection();
+
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();

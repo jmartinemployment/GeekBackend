@@ -106,7 +106,8 @@ public static class OpenIddictExtensions
                     aspNetCore.DisableTransportSecurityRequirement();
 
                 options.AddEventHandler(AttachClaimsHandler.Descriptor)
-                    .AddEventHandler(DeviceTrustHandler.Descriptor);
+                    .AddEventHandler(DeviceTrustHandler.Descriptor)
+                    .AddEventHandler(RefreshTokenTheftHandler.Descriptor);
             })
             .AddValidation(options =>
             {
