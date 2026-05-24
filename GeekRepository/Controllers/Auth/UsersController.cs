@@ -69,6 +69,24 @@ public class UsersController : ControllerBase
         return ToResponse(result);
     }
 
+    [HttpPost("{id}/verify-password")]
+    public async Task<IActionResult> VerifyPassword(string id, [FromBody] VerifyPasswordRequest req)
+    {
+        if (!Guid.TryParse(id, out var userId))
+            return BadRequest(new { error = "Invalid user ID format" });
+        var result = await _repo.VerifyPasswordAsync(userId, req.Password);
+        return ToResponse(result);
+    }
+
+    [HttpPost("{id}/password")]
+    public async Task<IActionResult> UpdatePassword(string id, [FromBody] UpdatePasswordRequest req)
+    {
+        if (!Guid.TryParse(id, out var userId))
+            return BadRequest(new { error = "Invalid user ID format" });
+        var result = await _repo.UpdatePasswordAsync(userId, req.Password);
+        return ToResponse(result);
+    }
+
     private IActionResult ToResponse<T>(Result<T> result) => result.Status switch
     {
         ResultStatus.Ok => Ok(new { success = true, data = result.Value }),

@@ -1,0 +1,8 @@
+@page
+@model GeekAPI.Pages.Redirect.IndexModel
+<h1>Redirecting…</h1>
+<p class="muted">You can close this window when your app opens.</p>
+@if (!string.IsNullOrEmpty(Model.RedirectUri))
+{
+    <script>window.location.replace(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.RedirectUri)));</script>
+}

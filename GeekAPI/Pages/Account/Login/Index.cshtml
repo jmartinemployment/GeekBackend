@@ -1,0 +1,28 @@
+@page
+@model GeekAPI.Pages.Account.Login.IndexModel
+@{
+    ViewData["Title"] = "Sign in";
+}
+<h1>Sign in</h1>
+<p class="muted">Geek at Your Spot</p>
+<form method="post">
+    <input type="hidden" asp-for="Input.ReturnUrl" />
+    <input type="hidden" asp-for="Input.DeviceFingerprint" id="deviceFingerprint" />
+    <label asp-for="Input.Email">Email</label>
+    <input asp-for="Input.Email" autocomplete="username" autofocus />
+    <label asp-for="Input.Password">Password</label>
+    <input asp-for="Input.Password" type="password" autocomplete="current-password" />
+    <label>
+        <input asp-for="Input.RememberLogin" type="checkbox" /> Remember me
+    </label>
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <p class="error">@Model.ErrorMessage</p>
+    }
+    <button type="submit" name="Input.Button" value="login">Continue</button>
+</form>
+<script>
+  document.getElementById('deviceFingerprint').value =
+    localStorage.getItem('geek_device_fingerprint') || crypto.randomUUID();
+  localStorage.setItem('geek_device_fingerprint', document.getElementById('deviceFingerprint').value);
+</script>
