@@ -39,7 +39,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     display_name, display_names, json_web_key_set, permissions,
                     post_logout_redirect_uris, properties, redirect_uris, requirements, settings)
                 VALUES (
-                    @Id, @ApplicationType, @ClientId, @ClientSecret, @ClientType, @ConsentType,
+                    CAST(@Id AS uuid), @ApplicationType, @ClientId, @ClientSecret, @ClientType, @ConsentType,
                     @DisplayName, @DisplayNames, @JsonWebKeySet, @Permissions,
                     @PostLogoutRedirectUris, @Properties, @RedirectUris, @Requirements, @Settings)
                 RETURNING id as Id, application_type as ApplicationType, client_id as ClientId,
@@ -65,7 +65,9 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         try
         {
             using var conn = _db.CreateConnection();
-            var rows = await conn.ExecuteAsync("DELETE FROM openiddict_applications WHERE id = @id", new { id });
+            var rows = await conn.ExecuteAsync(
+                "DELETE FROM openiddict_applications WHERE id = CAST(@id AS uuid)",
+                new { id });
             return Result<bool>.Success(rows > 0);
         }
         catch (Exception ex)
@@ -82,7 +84,8 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         {
             using var conn = _db.CreateConnection();
             var row = await conn.QueryFirstOrDefaultAsync<GeekOpenIddictApplication>(
-                "SELECT * FROM openiddict_applications WHERE id = @id", new { id });
+                "SELECT * FROM openiddict_applications WHERE id = CAST(@id AS uuid)",
+                new { id });
             return Result<GeekOpenIddictApplication?>.Success(row);
         }
         catch (Exception ex)
@@ -188,7 +191,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     redirect_uris = @RedirectUris,
                     requirements = @Requirements,
                     settings = @Settings
-                WHERE id = @Id
+                WHERE id = CAST(@Id AS uuid)
                 RETURNING id as Id, application_type as ApplicationType, client_id as ClientId,
                           client_secret as ClientSecret, client_type as ClientType, consent_type as ConsentType,
                           display_name as DisplayName, display_names as DisplayNames, json_web_key_set as JsonWebKeySet,
