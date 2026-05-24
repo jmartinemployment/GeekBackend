@@ -9,6 +9,15 @@ namespace GeekRepository.Repositories.OpenIddict;
 
 public sealed class DapperApplicationRepository : IOpenIddictApplicationRepository
 {
+    private const string SelectColumns = """
+        id::text AS Id, application_type AS ApplicationType, client_id AS ClientId,
+        client_secret AS ClientSecret, client_type AS ClientType, consent_type AS ConsentType,
+        display_name AS DisplayName, display_names AS DisplayNames, json_web_key_set AS JsonWebKeySet,
+        permissions AS Permissions, post_logout_redirect_uris AS PostLogoutRedirectUris,
+        properties AS Properties, redirect_uris AS RedirectUris, requirements AS Requirements,
+        settings AS Settings
+        """;
+
     private readonly IDbConnectionFactory _db;
 
     public DapperApplicationRepository(IDbConnectionFactory db) => _db = db;
@@ -42,13 +51,8 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     CAST(@Id AS uuid), @ApplicationType, @ClientId, @ClientSecret, @ClientType, @ConsentType,
                     @DisplayName, @DisplayNames, @JsonWebKeySet, @Permissions,
                     @PostLogoutRedirectUris, @Properties, @RedirectUris, @Requirements, @Settings)
-                RETURNING id as Id, application_type as ApplicationType, client_id as ClientId,
-                          client_secret as ClientSecret, client_type as ClientType, consent_type as ConsentType,
-                          display_name as DisplayName, display_names as DisplayNames, json_web_key_set as JsonWebKeySet,
-                          permissions as Permissions, post_logout_redirect_uris as PostLogoutRedirectUris,
-                          properties as Properties, redirect_uris as RedirectUris, requirements as Requirements,
-                          settings as Settings
-                """;
+                RETURNING
+                """ + SelectColumns;
 
             using var conn = _db.CreateConnection();
             var row = await conn.QuerySingleAsync<GeekOpenIddictApplication>(sql, application);
@@ -84,7 +88,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         {
             using var conn = _db.CreateConnection();
             var row = await conn.QueryFirstOrDefaultAsync<GeekOpenIddictApplication>(
-                "SELECT * FROM openiddict_applications WHERE id = CAST(@id AS uuid)",
+                $"SELECT {SelectColumns} FROM openiddict_applications WHERE id = CAST(@id AS uuid)",
                 new { id });
             return Result<GeekOpenIddictApplication?>.Success(row);
         }
@@ -102,7 +106,8 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         {
             using var conn = _db.CreateConnection();
             var row = await conn.QueryFirstOrDefaultAsync<GeekOpenIddictApplication>(
-                "SELECT * FROM openiddict_applications WHERE client_id = @clientId", new { clientId });
+                $"SELECT {SelectColumns} FROM openiddict_applications WHERE client_id = @clientId",
+                new { clientId });
             return Result<GeekOpenIddictApplication?>.Success(row);
         }
         catch (Exception ex)
@@ -119,7 +124,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         {
             using var conn = _db.CreateConnection();
             var rows = (await conn.QueryAsync<GeekOpenIddictApplication>(
-                "SELECT * FROM openiddict_applications WHERE redirect_uris IS NOT NULL")).ToList();
+                $"SELECT {SelectColumns} FROM openiddict_applications WHERE redirect_uris IS NOT NULL")).ToList();
             var matches = rows.Where(r => OpenIddictJson.JsonArrayContains(r.RedirectUris, uri)).ToList();
             return Result<IReadOnlyList<GeekOpenIddictApplication>>.Success(matches);
         }
@@ -137,7 +142,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         {
             using var conn = _db.CreateConnection();
             var rows = (await conn.QueryAsync<GeekOpenIddictApplication>(
-                "SELECT * FROM openiddict_applications WHERE post_logout_redirect_uris IS NOT NULL")).ToList();
+                $"SELECT {SelectColumns} FROM openiddict_applications WHERE post_logout_redirect_uris IS NOT NULL")).ToList();
             var matches = rows.Where(r => OpenIddictJson.JsonArrayContains(r.PostLogoutRedirectUris, uri)).ToList();
             return Result<IReadOnlyList<GeekOpenIddictApplication>>.Success(matches);
         }
@@ -154,7 +159,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
     {
         try
         {
-            var sql = "SELECT * FROM openiddict_applications ORDER BY id";
+            var sql = $"SELECT {SelectColumns} FROM openiddict_applications ORDER BY id";
             if (count is not null)
                 sql += " LIMIT @count OFFSET @offset";
 
@@ -192,13 +197,8 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     requirements = @Requirements,
                     settings = @Settings
                 WHERE id = CAST(@Id AS uuid)
-                RETURNING id as Id, application_type as ApplicationType, client_id as ClientId,
-                          client_secret as ClientSecret, client_type as ClientType, consent_type as ConsentType,
-                          display_name as DisplayName, display_names as DisplayNames, json_web_key_set as JsonWebKeySet,
-                          permissions as Permissions, post_logout_redirect_uris as PostLogoutRedirectUris,
-                          properties as Properties, redirect_uris as RedirectUris, requirements as Requirements,
-                          settings as Settings
-                """;
+                RETURNING
+                """ + SelectColumns;
 
             using var conn = _db.CreateConnection();
             var row = await conn.QuerySingleAsync<GeekOpenIddictApplication>(sql, application);
