@@ -67,6 +67,15 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(5)
             }));
+
+    options.AddPolicy("device-challenge", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(15)
+            }));
 });
 
 builder.Services.AddAuthorization(options =>
@@ -94,7 +103,7 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddGeekSeoApi(builder.Configuration);
-builder.Services.AddGeekOpenIddict(builder.Configuration);
+builder.Services.AddGeekOpenIddict(builder.Configuration, builder.Environment);
 builder.Services.AddHostedService<GeekAPI.Infrastructure.OpenIddictClientSeeder>();
 builder.Services.AddHostedService<JtiCleanupWorker>();
 
@@ -126,6 +135,7 @@ builder.Services.AddScoped<DepartmentContentService>();
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 app.Logger.LogInformation("CORS origins: {Origins}", string.Join(", ", corsOrigins));
 
@@ -149,3 +159,5 @@ app.MapHub<SyncHub>("/hubs/sync");
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://0.0.0.0:{port}");
+
+public partial class Program;

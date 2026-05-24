@@ -80,6 +80,26 @@ public sealed class HttpDeviceRepository : IDeviceOauthRepository
         return await ReadResult<bool>(response);
     }
 
+    public async Task<Result<string>> IssueChallengeAsync(Guid deviceId, CancellationToken cancellationToken = default)
+    {
+        var response = await _http.PostAsync($"repo/auth/devices/{deviceId}/challenge", null, cancellationToken);
+        return await ReadResult<string>(response);
+    }
+
+    public async Task<Result<bool>> VerifyChallengeAsync(
+        Guid deviceId,
+        string nonce,
+        string signatureBase64,
+        string? publicKeyPem,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _http.PostAsJsonAsync(
+            $"repo/auth/devices/{deviceId}/verify",
+            new { nonce, signature = signatureBase64, publicKeyPem },
+            cancellationToken);
+        return await ReadResult<bool>(response);
+    }
+
     private static async Task<Result<T>> ReadResult<T>(HttpResponseMessage response)
     {
         if (response.StatusCode == HttpStatusCode.NotFound)

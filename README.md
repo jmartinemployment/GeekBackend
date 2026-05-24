@@ -2,7 +2,7 @@
 
 Enterprise authentication & authorization platform for Geek applications. OAuth 2.1, PKCE, TOTP 2FA, multi-device device management, real-time session sync, and zero-trust device challenge-response.
 
-**Status:** Phase 2 (Core auth services + entity models complete; OpenIddict/TOTP/device management in progress).
+**Status:** OAuth 2.1 issuer live on GeekAPI (OpenIddict 7). PostgreSQL via GeekRepository (Dapper). Deploy and verify with `/.well-known/openid-configuration`.
 
 ## Architecture
 
@@ -136,7 +136,7 @@ GeekBackend.sln
 | **TOTP 2FA (setup/verify)** | ⏳ Pending | — | — |
 | **Device challenge-response** | ⏳ Pending | — | — |
 | **Multi-device policy enforcement** | ⏳ Pending | — | — |
-| **OAuth 2.1 + OpenIddict** | ⏳ Pending | — | — |
+| **OAuth 2.1 + OpenIddict** | ✅ Implemented | GeekAPI | `/.well-known/openid-configuration` |
 | **Refresh token rotation** | ⏳ Pending | — | — |
 | **jti replay detection** | ⏳ Pending (PostgreSQL v1) | — | — |
 | **Real-time SignalR sync** | ⏳ Pending | — | — |
