@@ -10,7 +10,7 @@ namespace GeekRepository.Repositories.OpenIddict;
 public sealed class DapperApplicationRepository : IOpenIddictApplicationRepository
 {
     private const string SelectColumns = """
-        id::text AS Id, application_type AS ApplicationType, client_id AS ClientId,
+        id AS Id, application_type AS ApplicationType, client_id AS ClientId,
         client_secret AS ClientSecret, client_type AS ClientType, consent_type AS ConsentType,
         display_name AS DisplayName, display_names AS DisplayNames, json_web_key_set AS JsonWebKeySet,
         permissions AS Permissions, post_logout_redirect_uris AS PostLogoutRedirectUris,
@@ -48,7 +48,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     display_name, display_names, json_web_key_set, permissions,
                     post_logout_redirect_uris, properties, redirect_uris, requirements, settings)
                 VALUES (
-                    CAST(@Id AS uuid), @ApplicationType, @ClientId, @ClientSecret, @ClientType, @ConsentType,
+                    @Id, @ApplicationType, @ClientId, @ClientSecret, @ClientType, @ConsentType,
                     @DisplayName, @DisplayNames, @JsonWebKeySet, @Permissions,
                     @PostLogoutRedirectUris, @Properties, @RedirectUris, @Requirements, @Settings)
                 RETURNING
@@ -70,7 +70,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         {
             using var conn = _db.CreateConnection();
             var rows = await conn.ExecuteAsync(
-                "DELETE FROM openiddict_applications WHERE id = CAST(@id AS uuid)",
+                "DELETE FROM openiddict_applications WHERE id = @id",
                 new { id });
             return Result<bool>.Success(rows > 0);
         }
@@ -88,7 +88,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
         {
             using var conn = _db.CreateConnection();
             var row = await conn.QueryFirstOrDefaultAsync<GeekOpenIddictApplication>(
-                $"SELECT {SelectColumns} FROM openiddict_applications WHERE id = CAST(@id AS uuid)",
+                $"SELECT {SelectColumns} FROM openiddict_applications WHERE id = @id",
                 new { id });
             return Result<GeekOpenIddictApplication?>.Success(row);
         }
@@ -196,7 +196,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     redirect_uris = @RedirectUris,
                     requirements = @Requirements,
                     settings = @Settings
-                WHERE id = CAST(@Id AS uuid)
+                WHERE id = @Id
                 RETURNING
                 """ + SelectColumns;
 
