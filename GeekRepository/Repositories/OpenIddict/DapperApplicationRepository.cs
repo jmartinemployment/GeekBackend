@@ -9,12 +9,40 @@ namespace GeekRepository.Repositories.OpenIddict;
 
 public sealed class DapperApplicationRepository : IOpenIddictApplicationRepository
 {
+    private const string ReturningClause = """
+        RETURNING
+            id AS Id,
+            application_type AS ApplicationType,
+            client_id AS ClientId,
+            client_secret AS ClientSecret,
+            client_type AS ClientType,
+            consent_type AS ConsentType,
+            display_name AS DisplayName,
+            display_names AS DisplayNames,
+            json_web_key_set AS JsonWebKeySet,
+            permissions AS Permissions,
+            post_logout_redirect_uris AS PostLogoutRedirectUris,
+            properties AS Properties,
+            redirect_uris AS RedirectUris,
+            requirements AS Requirements,
+            settings AS Settings
+        """;
+
     private const string SelectColumns = """
-        id AS Id, application_type AS ApplicationType, client_id AS ClientId,
-        client_secret AS ClientSecret, client_type AS ClientType, consent_type AS ConsentType,
-        display_name AS DisplayName, display_names AS DisplayNames, json_web_key_set AS JsonWebKeySet,
-        permissions AS Permissions, post_logout_redirect_uris AS PostLogoutRedirectUris,
-        properties AS Properties, redirect_uris AS RedirectUris, requirements AS Requirements,
+        id AS Id,
+        application_type AS ApplicationType,
+        client_id AS ClientId,
+        client_secret AS ClientSecret,
+        client_type AS ClientType,
+        consent_type AS ConsentType,
+        display_name AS DisplayName,
+        display_names AS DisplayNames,
+        json_web_key_set AS JsonWebKeySet,
+        permissions AS Permissions,
+        post_logout_redirect_uris AS PostLogoutRedirectUris,
+        properties AS Properties,
+        redirect_uris AS RedirectUris,
+        requirements AS Requirements,
         settings AS Settings
         """;
 
@@ -51,8 +79,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     @Id, @ApplicationType, @ClientId, @ClientSecret, @ClientType, @ConsentType,
                     @DisplayName, @DisplayNames, @JsonWebKeySet, @Permissions,
                     @PostLogoutRedirectUris, @Properties, @RedirectUris, @Requirements, @Settings)
-                RETURNING
-                """ + SelectColumns;
+                """ + ReturningClause;
 
             using var conn = _db.CreateConnection();
             var row = await conn.QuerySingleAsync<GeekOpenIddictApplication>(sql, application);
@@ -197,8 +224,7 @@ public sealed class DapperApplicationRepository : IOpenIddictApplicationReposito
                     requirements = @Requirements,
                     settings = @Settings
                 WHERE id = @Id
-                RETURNING
-                """ + SelectColumns;
+                """ + ReturningClause;
 
             using var conn = _db.CreateConnection();
             var row = await conn.QuerySingleAsync<GeekOpenIddictApplication>(sql, application);

@@ -7,11 +7,16 @@ public sealed class OpenIddictClientSeeder : IHostedService
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<OpenIddictClientSeeder> _logger;
+    private readonly IHostEnvironment _environment;
 
-    public OpenIddictClientSeeder(IServiceProvider services, ILogger<OpenIddictClientSeeder> logger)
+    public OpenIddictClientSeeder(
+        IServiceProvider services,
+        ILogger<OpenIddictClientSeeder> logger,
+        IHostEnvironment environment)
     {
         _services = services;
         _logger = logger;
+        _environment = environment;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -23,14 +28,13 @@ public sealed class OpenIddictClientSeeder : IHostedService
             manager,
             clientId: "geek-seo-electron",
             displayName: "Geek SEO Electron",
-            redirectUris: ["http://127.0.0.1/callback", "geek://callback"],
             cancellationToken);
 
         await SeedConfidentialClientAsync(
             manager,
             clientId: "geekatyourspot-website",
             displayName: "Geek At Your Spot Website",
-            clientSecret: Environment.GetEnvironmentVariable("GEEK_WEBSITE_CLIENT_SECRET") ?? "dev-website-secret-change-me",
+            clientSecret: RequireSecret("GEEK_WEBSITE_CLIENT_SECRET"),
             permissions:
             [
                 OpenIddictConstants.Permissions.Endpoints.Token,
@@ -43,7 +47,7 @@ public sealed class OpenIddictClientSeeder : IHostedService
             manager,
             clientId: "geek-resource-server",
             displayName: "Geek Resource Server Introspection",
-            clientSecret: Environment.GetEnvironmentVariable("GEEK_RESOURCE_SERVER_SECRET") ?? "dev-resource-server-secret-change-me",
+            clientSecret: RequireSecret("GEEK_RESOURCE_SERVER_SECRET"),
             permissions:
             [
                 OpenIddictConstants.Permissions.Endpoints.Introspection,
@@ -56,11 +60,33 @@ public sealed class OpenIddictClientSeeder : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    private string RequireSecret(string variableName)
+    {
+        var value = Environment.GetEnvironmentVariable(variableName);
+        if (!string.IsNullOrWhiteSpace(value))
+            return value;
+
+        if (_environment.IsDevelopment())
+        {
+            _logger.LogWarning(
+                "{Variable} is not set; using development-only placeholder for local OAuth seeding.",
+                variableName);
+            return variableName switch
+            {
+                "GEEK_WEBSITE_CLIENT_SECRET" => "dev-website-secret-change-me",
+                "GEEK_RESOURCE_SERVER_SECRET" => "dev-resource-server-secret-change-me",
+                _ => throw new InvalidOperationException($"No development placeholder for {variableName}.")
+            };
+        }
+
+        throw new InvalidOperationException(
+            $"{variableName} must be set in production before GeekAPI can start.");
+    }
+
     private static async Task SeedPublicClientAsync(
         IOpenIddictApplicationManager manager,
         string clientId,
         string displayName,
-        IReadOnlyList<string> redirectUris,
         CancellationToken cancellationToken)
     {
         if (await manager.FindByClientIdAsync(clientId, cancellationToken) is not null)
@@ -72,7 +98,11 @@ public sealed class OpenIddictClientSeeder : IHostedService
             DisplayName = displayName,
             ClientType = OpenIddictConstants.ClientTypes.Public,
             ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
-            RedirectUris = { new Uri("http://127.0.0.1/callback", UriKind.Absolute), new Uri("geek://callback", UriKind.Absolute) },
+            RedirectUris =
+            {
+                new Uri("http://127.0.0.1/callback", UriKind.Absolute),
+                new Uri("geek://callback", UriKind.Absolute)
+            },
             Permissions =
             {
                 OpenIddictConstants.Permissions.Endpoints.Authorization,
