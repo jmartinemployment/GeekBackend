@@ -6,7 +6,9 @@ using GeekRepository.Infrastructure;
 using GeekRepository.Repositories;
 using GeekRepository.Repositories.JtiBlacklist;
 using GeekRepository.Providers.Seo;
+using GeekRepository.Repositories.OpenIddict;
 using GeekRepository.Repositories.Seo;
+using GeekApplication.Interfaces.OpenIddict;
 
 namespace GeekRepository;
 
@@ -21,6 +23,7 @@ public static class ServiceRegistration
 
 		// Auth repositories
 		services.AddScoped<IUserRepository, UserRepository>();
+		services.AddScoped<IUserSecretsRepository, UserSecretsRepository>();
 		services.AddScoped<IUserClaimsRepository, UserClaimsRepository>();
 		services.AddScoped<IRoleRepository, RoleRepository>();
 		services.AddScoped<IDeviceOauthRepository, DeviceOauthRepository>();
@@ -33,6 +36,11 @@ public static class ServiceRegistration
 		services.AddScoped<IOidcStorageRepository, OidcStorageRepository>();
 		services.AddScoped<IOAuthTokenRepository, OAuthTokenRepository>();
 		services.AddScoped<IPendingVerificationRepository, PendingVerificationRepository>();
+
+		services.AddScoped<IOpenIddictApplicationRepository, DapperApplicationRepository>();
+		services.AddScoped<IOpenIddictScopeRepository, DapperScopeRepository>();
+		services.AddScoped<IOpenIddictAuthorizationRepository, DapperAuthorizationRepository>();
+		services.AddScoped<IOpenIddictTokenRepository, DapperTokenRepository>();
 
 		services.AddSingleton<IJtiBlacklist, PostgresJtiBlacklistRepository>();
 

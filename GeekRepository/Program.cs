@@ -39,6 +39,7 @@ builder.Services.AddDbContext<SeoDbContext>(options => options
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
 builder.Services.AddGeekRepository(connectionString);
+builder.Services.AddHostedService<SqlMigrationRunner>();
 
 var disablePlaywright = string.Equals(
     Environment.GetEnvironmentVariable("DISABLE_PLAYWRIGHT"), "true", StringComparison.OrdinalIgnoreCase);

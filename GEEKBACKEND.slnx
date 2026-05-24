@@ -2,4 +2,5 @@
   <Project Path="GeekApplication/GeekApplication.csproj" />
   <Project Path="GeekAPI/GeekAPI.csproj" />
   <Project Path="GeekRepository/GeekRepository.csproj" />
+  <Project Path="GeekBackend.Tests/GeekBackend.Tests.csproj" />
 </Solution>

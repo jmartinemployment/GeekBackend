@@ -1,4 +1,5 @@
 using GeekApplication.Dtos;
+using GeekRepository.Dtos;
 using GeekApplication.Interfaces;
 using GeekApplication.Results;
 using Microsoft.AspNetCore.Mvc;
@@ -47,6 +48,22 @@ public class AuthTokensController : ControllerBase
         var result = await _repo.DeleteAsync(id);
         return ToResponse(result);
     }
+
+    [HttpPost("{jti}/revoke")]
+    public async Task<IActionResult> Revoke(string jti, [FromBody] RevokeTokenRequest req) =>
+        ToResponse(await _repo.RevokeTokenAsync(jti, req.Reason));
+
+    [HttpGet("{jti}/blacklisted")]
+    public async Task<IActionResult> IsBlacklisted(string jti) =>
+        ToResponse(await _repo.IsTokenBlacklistedAsync(jti));
+
+    [HttpPost("blacklist")]
+    public async Task<IActionResult> AddToBlacklist([FromBody] BlacklistTokenRequest req) =>
+        ToResponse(await _repo.AddToBlacklistAsync(req.Jti, req.UserId, req.ExpiresAt, req.Reason));
+
+    [HttpPost("blacklist/cleanup")]
+    public async Task<IActionResult> CleanupBlacklist() =>
+        ToResponse(await _repo.CleanupExpiredBlacklistEntriesAsync());
 
     private IActionResult ToResponse<T>(Result<T> result) => result.Status switch
     {

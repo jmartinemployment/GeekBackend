@@ -5,6 +5,7 @@ public class ApiKeyMiddleware
     private static readonly HashSet<string> PublicPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/health",
+        "/Health",
         "/hello",
         "/favicon.ico",
         "/robots.txt",
@@ -25,8 +26,15 @@ public class ApiKeyMiddleware
     {
         var normalizedPath = NormalizePath(context.Request.Path.Value);
         if (PublicPaths.Contains(normalizedPath)
+            || normalizedPath.StartsWith("/connect", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/.well-known", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/Account", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/Consent", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/Redirect", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/Error", StringComparison.OrdinalIgnoreCase)
             || normalizedPath.StartsWith("/api/seo", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/hubs/seo-scoring", StringComparison.OrdinalIgnoreCase))
+            || normalizedPath.StartsWith("/hubs/seo-scoring", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/hubs/sync", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
