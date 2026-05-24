@@ -2,6 +2,7 @@ using System.Data;
 using Npgsql;
 
 namespace GeekRepository.Infrastructure;
+
 public sealed class NpgsqlConnectionFactory : IDbConnectionFactory
 {
     private readonly string _connectionString;

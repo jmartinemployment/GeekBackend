@@ -13,6 +13,10 @@ public class DeviceOauth
     public DateTime CreatedAt { get; set; }
     public bool IsTrusted { get; set; }
     public bool IsRevoked { get; set; }
+    public string? PublicKey { get; set; }
+    public string? ChallengeNonce { get; set; }
+    public DateTime? ChallengeExpiresAt { get; set; }
+    public DateTime? TrustedUntil { get; set; }
 
     // Navigation properties
     public virtual User User { get; set; } = null!;

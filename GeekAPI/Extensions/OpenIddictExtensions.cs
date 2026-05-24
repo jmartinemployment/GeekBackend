@@ -3,7 +3,9 @@
 
 using System.Security.Claims;
 using GeekAPI.Auth;
+using GeekAPI.Handlers;
 using GeekAPI.HttpClients.OpenIddict;
+using GeekAPI.Infrastructure;
 using GeekApplication.Entities.OpenIddict;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenIddict.Abstractions;
@@ -17,7 +19,10 @@ public static class OpenIddictExtensions
 {
     public const string OpenIddictVersion = "7.0.0";
 
-    public static IServiceCollection AddGeekOpenIddict(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddGeekOpenIddict(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         services.TryAddScoped<IOpenIddictApplicationStore<GeekOpenIddictApplication>, HttpApplicationStore>();
         services.TryAddScoped<IOpenIddictScopeStore<GeekOpenIddictScope>, HttpScopeStore>();
@@ -84,41 +89,24 @@ public static class OpenIddictExtensions
                     "sync.read",
                     "mcp.tools");
 
-                var signingCert = configuration["OPENIDDICT_SIGNING_CERT"];
-                if (!string.IsNullOrWhiteSpace(signingCert))
-                {
-                    // Production: load X509 from env (see Step 18 hardening).
-                }
-                else
-                {
-                    options.AddDevelopmentEncryptionCertificate()
-                        .AddDevelopmentSigningCertificate();
-                }
+                OpenIddictCertificateLoader.ConfigureCertificates(
+                    options,
+                    configuration,
+                    environment,
+                    LoggerFactory.Create(b => b.AddConsole()).CreateLogger("OpenIddict"));
 
-                options.UseAspNetCore()
+                var aspNetCore = options.UseAspNetCore()
                     .EnableAuthorizationEndpointPassthrough()
                     .EnableTokenEndpointPassthrough()
                     .EnableUserInfoEndpointPassthrough()
                     .EnableEndSessionEndpointPassthrough()
                     .EnableStatusCodePagesIntegration();
 
-                options.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(builder =>
-                    builder.UseInlineHandler(context =>
-                    {
-                        if (context.Principal?.Identity is not ClaimsIdentity identity)
-                            return default;
+                if (!environment.IsProduction())
+                    aspNetCore.DisableTransportSecurityRequirement();
 
-                        if (!identity.HasClaim(c => c.Type == OpenIddictConstants.Claims.JwtId))
-                        {
-                            identity.AddClaim(new Claim(
-                                OpenIddictConstants.Claims.JwtId,
-                                Guid.NewGuid().ToString(),
-                                ClaimValueTypes.String,
-                                OpenIddictConstants.Claims.Issuer));
-                        }
-
-                        return default;
-                    }));
+                options.AddEventHandler(AttachClaimsHandler.Descriptor)
+                    .AddEventHandler(DeviceTrustHandler.Descriptor);
             })
             .AddValidation(options =>
             {

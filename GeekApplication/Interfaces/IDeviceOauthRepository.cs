@@ -15,6 +15,13 @@ public interface IDeviceOauthRepository
     Task<Result<bool>> DeleteAsync(Guid deviceId);
     Task<Result<bool>> TrustAsync(Guid deviceId, int trustDaysOrNull = 30);
     Task<Result<List<DeviceOauth>>> GetActiveDevicesAsync(Guid userId);
+    Task<Result<string>> IssueChallengeAsync(Guid deviceId, CancellationToken cancellationToken = default);
+    Task<Result<bool>> VerifyChallengeAsync(
+        Guid deviceId,
+        string nonce,
+        string signatureBase64,
+        string? publicKeyPem,
+        CancellationToken cancellationToken = default);
 }
 
 public record RegisterDeviceOauthRequest(

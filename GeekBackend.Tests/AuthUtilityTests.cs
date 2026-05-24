@@ -28,4 +28,17 @@ public sealed class AuthUtilityTests
         var b = DeviceCrypto.ComputeFingerprint("machine", "bios", "darwin");
         Assert.Equal(a, b);
     }
+
+    [Fact]
+    public void DeviceCrypto_VerifySignature_ValidEcdsaKeypair()
+    {
+        using var ecdsa = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var publicKeyPem = ecdsa.ExportSubjectPublicKeyInfoPem();
+        var nonce = "challenge-nonce-12345";
+        var signature = Convert.ToBase64String(
+            ecdsa.SignData(System.Text.Encoding.UTF8.GetBytes(nonce), System.Security.Cryptography.HashAlgorithmName.SHA256));
+
+        Assert.True(DeviceCrypto.VerifySignature(publicKeyPem, nonce, signature));
+        Assert.False(DeviceCrypto.VerifySignature(publicKeyPem, nonce, Convert.ToBase64String([1, 2, 3])));
+    }
 }

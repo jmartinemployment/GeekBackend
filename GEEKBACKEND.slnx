@@ -3,4 +3,5 @@
   <Project Path="GeekAPI/GeekAPI.csproj" />
   <Project Path="GeekRepository/GeekRepository.csproj" />
   <Project Path="GeekBackend.Tests/GeekBackend.Tests.csproj" />
+  <Project Path="GeekBackend.IntegrationTests/GeekBackend.IntegrationTests.csproj" />
 </Solution>
