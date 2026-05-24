@@ -1,4 +1,3 @@
-using GeekApplication.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers;
@@ -7,9 +6,9 @@ namespace GeekAPI.Controllers;
 [Route("health")]
 public sealed class HealthController : ControllerBase
 {
-    private readonly IUserRepository _users;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public HealthController(IUserRepository users) => _users = users;
+    public HealthController(IHttpClientFactory httpClientFactory) => _httpClientFactory = httpClientFactory;
 
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
@@ -17,8 +16,9 @@ public sealed class HealthController : ControllerBase
         var database = "ok";
         try
         {
-            var ping = await _users.FindByIdAsync(Guid.Empty);
-            if (ping.Status == GeekApplication.Results.ResultStatus.Failure)
+            var http = _httpClientFactory.CreateClient("GeekRepository");
+            using var response = await http.GetAsync("repo/openiddict/applications/count", cancellationToken);
+            if (!response.IsSuccessStatusCode)
                 database = "error";
         }
         catch

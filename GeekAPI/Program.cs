@@ -7,6 +7,7 @@ using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekAPI.Workers;
 using GeekApplication.Interfaces;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
@@ -14,6 +15,15 @@ using OpenIddict.Validation.AspNetCore;
 Env.TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedProto
+        | ForwardedHeaders.XForwardedHost;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
@@ -115,15 +125,14 @@ builder.Services.AddScoped<DepartmentContentService>();
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
+
 app.Logger.LogInformation("CORS origins: {Origins}", string.Join(", ", corsOrigins));
 
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
-if (!app.Environment.IsDevelopment())
-    app.UseHttpsRedirection();
 
 app.UseCors();
 app.UseRateLimiter();
