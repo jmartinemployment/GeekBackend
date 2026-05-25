@@ -6,14 +6,36 @@ namespace GeekAPI.Infrastructure;
 /// </summary>
 internal static class HostedServiceStartup
 {
-    public static async Task RunAfterApplicationStartedAsync(
+    /// <summary>
+    /// Must return immediately from <see cref="IHostedService.StartAsync"/> — awaiting
+    /// <see cref="IHostApplicationLifetime.ApplicationStarted"/> inside StartAsync deadlocks host startup.
+    /// </summary>
+    public static Task ScheduleAfterApplicationStartedAsync(
         IHostApplicationLifetime lifetime,
         Func<CancellationToken, Task> action,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        lifetime.ApplicationStarted.Register(() => started.TrySetResult());
-        await started.Task.WaitAsync(cancellationToken);
-        await action(cancellationToken);
+        lifetime.ApplicationStarted.Register(() =>
+        {
+            _ = RunAsync(action, logger, cancellationToken);
+        });
+
+        return Task.CompletedTask;
+    }
+
+    private static async Task RunAsync(
+        Func<CancellationToken, Task> action,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await action(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "OpenIddict startup seeding failed.");
+        }
     }
 }
