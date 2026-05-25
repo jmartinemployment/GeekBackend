@@ -18,7 +18,7 @@ sequenceDiagram
 
 | Item | Value |
 |------|--------|
-| Client ID | `geekapi` |
+| Client ID | `geekapi` (GeekAPI), `geekseo-backend` (GeekSeoBackend) |
 | Scope | `internal.api` |
 | Audience / resource | `geek-repository` |
 | Token endpoint | `{AUTH_SERVER_URL}/connect/token` |
