@@ -24,7 +24,8 @@ public sealed class OpenIddictClientSeeder : IHostedService
     }
 
     public Task StartAsync(CancellationToken cancellationToken) =>
-        HostedServiceStartup.RunAfterApplicationStartedAsync(_lifetime, SeedAsync, cancellationToken);
+        HostedServiceStartup.ScheduleAfterApplicationStartedAsync(
+            _lifetime, SeedAsync, _logger, cancellationToken);
 
     private async Task SeedAsync(CancellationToken cancellationToken)
     {
