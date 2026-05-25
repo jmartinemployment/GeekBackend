@@ -111,7 +111,8 @@ var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhos
 var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY") ?? string.Empty;
 builder.Services.AddSingleton<RepositoryAccessTokenProvider>();
 builder.Services.AddTransient<RepositoryBearerTokenHandler>();
-builder.Services.AddHttpClient("GeekRepositoryToken");
+builder.Services.AddHttpClient("GeekRepositoryToken")
+    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15));
 var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", client =>
     client.BaseAddress = new Uri(repoUrl));
 if (!string.IsNullOrWhiteSpace(repoApiKey) && builder.Environment.IsDevelopment())
