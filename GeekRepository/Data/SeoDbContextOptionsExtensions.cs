@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace GeekRepository.Data;
 
@@ -23,6 +24,9 @@ public static class SeoDbContextOptionsExtensions
     public static DbContextOptionsBuilder<SeoDbContext> UseGeekSeoDatabaseMigrations(
         this DbContextOptionsBuilder<SeoDbContext> builder,
         string connectionString) =>
-        builder.UseNpgsql(connectionString, npgsql =>
-            npgsql.MigrationsHistoryTable(MigrationsHistoryTableName, SchemaName));
+        builder
+            .UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsHistoryTable(MigrationsHistoryTableName, SchemaName))
+            // No snake_case here — keeps __EFSeoMigrationsHistory columns as MigrationId/ProductVersion.
+            .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
 }
