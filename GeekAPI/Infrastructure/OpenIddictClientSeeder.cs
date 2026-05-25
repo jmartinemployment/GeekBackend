@@ -9,18 +9,24 @@ public sealed class OpenIddictClientSeeder : IHostedService
     private readonly IServiceProvider _services;
     private readonly ILogger<OpenIddictClientSeeder> _logger;
     private readonly IHostEnvironment _environment;
+    private readonly IHostApplicationLifetime _lifetime;
 
     public OpenIddictClientSeeder(
         IServiceProvider services,
         ILogger<OpenIddictClientSeeder> logger,
-        IHostEnvironment environment)
+        IHostEnvironment environment,
+        IHostApplicationLifetime lifetime)
     {
         _services = services;
         _logger = logger;
         _environment = environment;
+        _lifetime = lifetime;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken) =>
+        HostedServiceStartup.RunAfterApplicationStartedAsync(_lifetime, SeedAsync, cancellationToken);
+
+    private async Task SeedAsync(CancellationToken cancellationToken)
     {
         using var scope = _services.CreateScope();
         var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();

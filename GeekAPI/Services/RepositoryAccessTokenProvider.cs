@@ -19,10 +19,12 @@ public sealed class RepositoryAccessTokenProvider
         _httpClientFactory = httpClientFactory;
         _clientId = GeekOAuthConstants.GeekApiClientId;
         _clientSecret = Environment.GetEnvironmentVariable("GEEK_API_CLIENT_SECRET") ?? string.Empty;
-        var issuer = Environment.GetEnvironmentVariable("AUTH_SERVER_URL") ?? string.Empty;
-        _tokenEndpoint = string.IsNullOrWhiteSpace(issuer)
+        // GeekAPI is the issuer — use loopback so startup seeders and deploy healthchecks do not
+        // call the public URL before this instance is accepting traffic (502 during rollouts).
+        var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+        _tokenEndpoint = string.IsNullOrWhiteSpace(_clientSecret)
             ? string.Empty
-            : $"{issuer.TrimEnd('/')}/connect/token";
+            : $"http://127.0.0.1:{port}/connect/token";
     }
 
     public async Task<string?> GetAccessTokenAsync(CancellationToken cancellationToken = default)

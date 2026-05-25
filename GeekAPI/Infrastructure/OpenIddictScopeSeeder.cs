@@ -7,14 +7,22 @@ public sealed class OpenIddictScopeSeeder : IHostedService
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<OpenIddictScopeSeeder> _logger;
+    private readonly IHostApplicationLifetime _lifetime;
 
-    public OpenIddictScopeSeeder(IServiceProvider services, ILogger<OpenIddictScopeSeeder> logger)
+    public OpenIddictScopeSeeder(
+        IServiceProvider services,
+        ILogger<OpenIddictScopeSeeder> logger,
+        IHostApplicationLifetime lifetime)
     {
         _services = services;
         _logger = logger;
+        _lifetime = lifetime;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken) =>
+        HostedServiceStartup.RunAfterApplicationStartedAsync(_lifetime, SeedAsync, cancellationToken);
+
+    private async Task SeedAsync(CancellationToken cancellationToken)
     {
         using var scope = _services.CreateScope();
         var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictScopeManager>();
