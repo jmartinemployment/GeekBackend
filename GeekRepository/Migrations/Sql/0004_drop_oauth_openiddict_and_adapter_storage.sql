@@ -17,14 +17,8 @@ DROP TABLE IF EXISTS geek_auth."OidcStorage" CASCADE;
 DROP TABLE IF EXISTS geek_auth."OAuthToken" CASCADE;
 DROP TABLE IF EXISTS geek_auth."OAuthClient" CASCADE;
 
--- Supabase-era OAuth client registry (auth schema)
-ALTER TABLE IF EXISTS auth.sessions
-    DROP CONSTRAINT IF EXISTS sessions_oauth_client_id_fkey;
-ALTER TABLE IF EXISTS auth.sessions
-    DROP CONSTRAINT IF EXISTS "sessions_oauth_client_id_fkey";
-
-DROP TABLE IF EXISTS auth.oauth_client_states CASCADE;
-DROP TABLE IF EXISTS auth.oauth_clients CASCADE;
+-- auth.oauth_clients / auth.sessions are owned by Supabase Auth — do not drop here
+-- (requires service_role / dashboard SQL if you need to remove them).
 
 -- Geek SEO product schema (lives in Geek-SEO repo going forward)
 DROP SCHEMA IF EXISTS geek_seo CASCADE;
