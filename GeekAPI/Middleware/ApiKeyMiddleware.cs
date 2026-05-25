@@ -32,8 +32,6 @@ public class ApiKeyMiddleware
             || normalizedPath.StartsWith("/Consent", StringComparison.OrdinalIgnoreCase)
             || normalizedPath.StartsWith("/Redirect", StringComparison.OrdinalIgnoreCase)
             || normalizedPath.StartsWith("/Error", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/api/seo", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/hubs/seo-scoring", StringComparison.OrdinalIgnoreCase)
             || normalizedPath.StartsWith("/hubs/sync", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);

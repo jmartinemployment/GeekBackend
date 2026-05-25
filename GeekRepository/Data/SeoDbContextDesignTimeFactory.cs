@@ -12,8 +12,7 @@ public sealed class SeoDbContextDesignTimeFactory : IDesignTimeDbContextFactory<
             ?? "Host=localhost;Database=postgres;Username=postgres;Password=postgres";
 
         var options = new DbContextOptionsBuilder<SeoDbContext>()
-            .UseNpgsql(connectionString)
-            .UseSnakeCaseNamingConvention()
+            .UseGeekSeoDatabaseMigrations(connectionString)
             .Options;
 
         return new SeoDbContext(options);

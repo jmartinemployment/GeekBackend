@@ -102,7 +102,6 @@ builder.Services.AddAuthorization(options =>
                     .Contains("mcp.tools", StringComparer.Ordinal))));
 });
 
-builder.Services.AddGeekSeoApi(builder.Configuration);
 builder.Services.AddGeekOpenIddict(builder.Configuration, builder.Environment);
 builder.Services.AddHostedService<GeekAPI.Infrastructure.OpenIddictScopeSeeder>();
 builder.Services.AddHostedService<GeekAPI.Infrastructure.OpenIddictClientSeeder>();
@@ -162,11 +161,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<JtiRevocationMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
-app.UseMiddleware<SeoFeatureGateMiddleware>();
-app.UseMiddleware<SeoUsageGateMiddleware>();
 app.MapControllers();
 app.MapRazorPages();
-app.MapHub<SeoContentScoringHub>("/hubs/seo-scoring");
 app.MapHub<SyncHub>("/hubs/sync");
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";

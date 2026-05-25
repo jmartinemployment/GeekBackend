@@ -1,6 +1,8 @@
 # GeekAPI — OAuth 2.1 / OIDC issuer
 
-GeekAPI is the **only** deployed identity issuer for Geek apps. It hosts OpenIddict 7, Razor login/2FA UI, and product APIs. Persistence is **never** in-process: all auth data goes to GeekRepository over HTTP with **OAuth client credentials** (`geekapi` + `internal.api` scope). See [docs/geekrepository-oauth-access.md](../docs/geekrepository-oauth-access.md).
+GeekAPI is the **only** deployed identity issuer for Geek apps. It hosts OpenIddict 7, Razor login/2FA UI, and **non-SEO** product APIs (case studies, departments, use cases, sync). **Geek SEO product routes live in `Geek-SEO/GeekSeoBackend`** — not here.
+
+Persistence is **never** in-process: auth and content data go to GeekRepository over HTTP with **OAuth client credentials** (`geekapi` + `internal.api` scope). See [docs/geekrepository-oauth-access.md](../docs/geekrepository-oauth-access.md). Geek SEO data schema: [docs/geekseo-repository-schema.md](../docs/geekseo-repository-schema.md).
 
 ## Endpoints
 
@@ -51,7 +53,8 @@ Use `POST /api/admin/clients` (admin bearer) or extend `OpenIddictClientSeeder.c
 
 | Client ID | Type | Use |
 |-----------|------|-----|
-| `geek-seo-electron` | Public + PKCE | Desktop SEO app |
+| `geek-seo-electron` | Public + PKCE | Desktop SEO app (tokens from GeekAPI only) |
+| `geekseo-backend` | Confidential | GeekSeoBackend → GeekRepository (`client_credentials`) |
 | `geekatyourspot-website` | Confidential | Website / MCP (`client_credentials`) |
 | `geek-resource-server` | Confidential | Resource server introspection |
 
@@ -62,6 +65,7 @@ Use `POST /api/admin/clients` (admin bearer) or extend `OpenIddictClientSeeder.c
 | `AUTH_SERVER_URL` | Public issuer URL (e.g. `https://api.geekatyourspot.com`) |
 | `REPO_URL` | GeekRepository base URL |
 | `GEEK_API_CLIENT_SECRET` | `geekapi` client secret for repository access tokens |
+| `GEEK_SEO_BACKEND_CLIENT_SECRET` | Seeded for `geekseo-backend` (used by GeekSeoBackend, not GeekAPI HTTP) |
 | `GEEK_WEBSITE_CLIENT_SECRET` | Seeded confidential client |
 | `GEEK_RESOURCE_SERVER_SECRET` | Introspection client |
 | `GEEK_BACKEND_API_KEY` | `X-API-Key` for non-OAuth product APIs |
