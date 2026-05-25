@@ -104,8 +104,8 @@ public static class OpenIddictExtensions
                     .EnableEndSessionEndpointPassthrough()
                     .EnableStatusCodePagesIntegration();
 
-                if (!environment.IsProduction())
-                    aspNetCore.DisableTransportSecurityRequirement();
+                // TLS terminates at Railway; loopback client_credentials uses http://127.0.0.1.
+                aspNetCore.DisableTransportSecurityRequirement();
 
                 options.AddEventHandler(AttachClaimsHandler.Descriptor)
                     .AddEventHandler(DeviceTrustHandler.Descriptor)
