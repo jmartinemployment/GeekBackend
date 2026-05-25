@@ -1,6 +1,6 @@
 # GeekAPI — OAuth 2.1 / OIDC issuer
 
-GeekAPI is the **only** deployed identity issuer for Geek apps. It hosts OpenIddict 7, Razor login/2FA UI, and product APIs. Persistence is **never** in-process: all auth data goes to GeekRepository over HTTP (`X-Repo-Key`).
+GeekAPI is the **only** deployed identity issuer for Geek apps. It hosts OpenIddict 7, Razor login/2FA UI, and product APIs. Persistence is **never** in-process: all auth data goes to GeekRepository over HTTP with **OAuth client credentials** (`geekapi` + `internal.api` scope). See [docs/geekrepository-oauth-access.md](../docs/geekrepository-oauth-access.md).
 
 ## Endpoints
 
@@ -43,6 +43,10 @@ GeekAPI is the **only** deployed identity issuer for Geek apps. It hosts OpenIdd
 |--------|------|
 | GET | `/health` |
 
+## Register a new OAuth client
+
+Use `POST /api/admin/clients` (admin bearer) or extend `OpenIddictClientSeeder.cs` for first-party apps. Full guide: [docs/oauth-new-application.md](../docs/oauth-new-application.md).
+
 ## Seeded OAuth clients
 
 | Client ID | Type | Use |
@@ -57,7 +61,7 @@ GeekAPI is the **only** deployed identity issuer for Geek apps. It hosts OpenIdd
 |----------|---------|
 | `AUTH_SERVER_URL` | Public issuer URL (e.g. `https://api.geekatyourspot.com`) |
 | `REPO_URL` | GeekRepository base URL |
-| `REPO_API_KEY` | Must match GeekRepository |
+| `GEEK_API_CLIENT_SECRET` | `geekapi` client secret for repository access tokens |
 | `GEEK_WEBSITE_CLIENT_SECRET` | Seeded confidential client |
 | `GEEK_RESOURCE_SERVER_SECRET` | Introspection client |
 | `GEEK_BACKEND_API_KEY` | `X-API-Key` for non-OAuth product APIs |

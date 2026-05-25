@@ -4,8 +4,10 @@ using GeekRepository;
 using EFCore.NamingConventions;
 using GeekRepository.Data;
 using GeekRepository.Infrastructure;
-using GeekRepository.Middleware;
+using GeekApplication.Auth;
+using GeekRepository.Extensions;
 using GeekRepository.Providers.Seo;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
@@ -39,6 +41,7 @@ builder.Services.AddDbContext<SeoDbContext>(options => options
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
 builder.Services.AddGeekRepository(connectionString);
+builder.Services.AddGeekRepositoryAuth(builder.Environment);
 builder.Services.AddHostedService<SqlMigrationRunner>();
 
 var disablePlaywright = string.Equals(
@@ -68,8 +71,9 @@ app.Lifetime.ApplicationStopping.Register(() =>
 await ApplyPendingMigrationsAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
-app.UseMiddleware<RepoApiKeyMiddleware>();
-app.MapControllers();
+app.UseGeekRepositoryAuth();
+app.MapControllers()
+    .RequireAuthorization(GeekOAuthConstants.InternalServicePolicy);
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5050";
 app.Run($"http://0.0.0.0:{port}");
@@ -138,3 +142,5 @@ static string NormalizeConnectionString(string rawValue)
         return value;
     }
 }
+
+public partial class Program;

@@ -1,3 +1,4 @@
+using GeekAPI.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenIddict.Abstractions;
@@ -20,18 +21,33 @@ public sealed class ClientsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateClientRequest request, CancellationToken cancellationToken)
     {
+        if (await _applications.FindByClientIdAsync(request.ClientId, cancellationToken) is not null)
+            return Conflict(new { success = false, error = $"Client '{request.ClientId}' already exists." });
+
         var descriptor = new OpenIddictApplicationDescriptor
         {
             ClientId = request.ClientId,
             DisplayName = request.DisplayName,
-            ClientType = request.IsPublic
-                ? OpenIddictConstants.ClientTypes.Public
-                : OpenIddictConstants.ClientTypes.Confidential,
             ClientSecret = request.ClientSecret
         };
 
-        foreach (var uri in request.RedirectUris ?? [])
-            descriptor.RedirectUris.Add(new Uri(uri, UriKind.Absolute));
+        if (request.IsPublic)
+        {
+            OpenIddictClientPermissionBuilder.ApplyPublicAuthorizationCodeClient(
+                descriptor,
+                request.RedirectUris,
+                request.Scopes);
+        }
+        else if (request.AllowIntrospection)
+        {
+            OpenIddictClientPermissionBuilder.ApplyConfidentialIntrospection(descriptor);
+        }
+        else
+        {
+            OpenIddictClientPermissionBuilder.ApplyConfidentialClientCredentials(
+                descriptor,
+                request.Scopes ?? ["mcp.tools"]);
+        }
 
         await _applications.CreateAsync(descriptor, cancellationToken);
         return Ok(new { success = true, clientId = request.ClientId });
@@ -49,9 +65,15 @@ public sealed class ClientsController : ControllerBase
     }
 }
 
+/// <summary>
+/// Register a new OAuth client. Public clients get PKCE authorization-code + refresh permissions.
+/// Confidential clients default to client_credentials unless AllowIntrospection is true.
+/// </summary>
 public sealed record CreateClientRequest(
     string ClientId,
     string DisplayName,
     bool IsPublic,
     string? ClientSecret,
-    IReadOnlyList<string>? RedirectUris);
+    IReadOnlyList<string>? RedirectUris,
+    IReadOnlyList<string>? Scopes,
+    bool AllowIntrospection = false);

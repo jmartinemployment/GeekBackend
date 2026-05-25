@@ -4,6 +4,7 @@
 using System.Security.Claims;
 using GeekAPI.Auth;
 using GeekAPI.Handlers;
+using GeekApplication.Auth;
 using GeekAPI.HttpClients.OpenIddict;
 using GeekAPI.Infrastructure;
 using GeekApplication.Entities.OpenIddict;
@@ -87,7 +88,8 @@ public static class OpenIddictExtensions
                     OpenIddictConstants.Scopes.OfflineAccess,
                     "devices.manage",
                     "sync.read",
-                    "mcp.tools");
+                    "mcp.tools",
+                    GeekOAuthConstants.InternalApiScope);
 
                 OpenIddictCertificateLoader.ConfigureCertificates(
                     options,
@@ -107,7 +109,8 @@ public static class OpenIddictExtensions
 
                 options.AddEventHandler(AttachClaimsHandler.Descriptor)
                     .AddEventHandler(DeviceTrustHandler.Descriptor)
-                    .AddEventHandler(RefreshTokenTheftHandler.Descriptor);
+                    .AddEventHandler(RefreshTokenTheftHandler.Descriptor)
+                    .AddEventHandler(ServiceTokenLifetimeHandler.Descriptor);
             })
             .AddValidation(options =>
             {
