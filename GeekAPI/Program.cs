@@ -115,15 +115,15 @@ builder.Services.AddHttpClient("GeekRepositoryToken")
     .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15));
 var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", client =>
     client.BaseAddress = new Uri(repoUrl));
-if (!string.IsNullOrWhiteSpace(repoApiKey) && builder.Environment.IsDevelopment())
+if (!string.IsNullOrWhiteSpace(repoApiKey))
 {
+    // Bootstrap + issuer: OpenIddict stores live in GeekRepository; client_credentials must read
+    // applications before a machine token exists. REPO_API_KEY satisfies InternalService in prod.
     repositoryClientBuilder.ConfigureHttpClient(client =>
         client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
 }
-else
-{
-    repositoryClientBuilder.AddHttpMessageHandler<RepositoryBearerTokenHandler>();
-}
+
+repositoryClientBuilder.AddHttpMessageHandler<RepositoryBearerTokenHandler>();
 
 builder.Services.AddScoped<IUserRepository, HttpUserRepository>();
 builder.Services.AddScoped<IUserSecretsRepository, HttpUserSecretsRepository>();
