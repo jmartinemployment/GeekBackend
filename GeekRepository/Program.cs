@@ -36,7 +36,10 @@ var seoConnectionString = NormalizeConnectionString(
     Environment.GetEnvironmentVariable("GEEK_SEO_DATABASE_URL") ?? rawDatabaseUrl ?? string.Empty);
 
 builder.Services.AddDbContext<SeoDbContext>(options => options
-    .UseNpgsql(seoConnectionString)
+    .UseNpgsql(seoConnectionString, npgsql =>
+        npgsql.MigrationsHistoryTable(
+            SeoDbContextOptionsExtensions.MigrationsHistoryTableName,
+            SeoDbContextOptionsExtensions.SchemaName))
     .UseSnakeCaseNamingConvention()
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
@@ -95,8 +98,18 @@ static async Task ApplyPendingMigrationsAsync(WebApplication app, ILogger logger
 
 static async Task ApplySeoMigrationsAsync(WebApplication app, ILogger logger)
 {
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<SeoDbContext>();
+    // Always migrate with DATABASE_URL (admin). Runtime may use GEEK_SEO_DATABASE_URL (geekseo_app).
+    var migrationUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+    if (string.IsNullOrWhiteSpace(migrationUrl))
+    {
+        logger.LogWarning("DATABASE_URL is not set; skipping Geek SEO schema migrations.");
+        return;
+    }
+
+    var optionsBuilder = new DbContextOptionsBuilder<SeoDbContext>();
+    optionsBuilder.UseGeekSeoDatabaseMigrations(NormalizeConnectionString(migrationUrl));
+
+    await using var db = new SeoDbContext(optionsBuilder.Options);
     try
     {
         await db.Database.MigrateAsync();
@@ -104,7 +117,9 @@ static async Task ApplySeoMigrationsAsync(WebApplication app, ILogger logger)
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed applying Geek SEO migrations. Continuing startup.");
+        logger.LogError(ex, "Failed applying Geek SEO migrations.");
+        if (!app.Environment.IsDevelopment())
+            throw;
     }
 }
 
