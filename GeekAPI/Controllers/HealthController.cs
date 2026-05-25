@@ -17,7 +17,7 @@ public sealed class HealthController : ControllerBase
         try
         {
             var http = _httpClientFactory.CreateClient("GeekRepository");
-            using var response = await http.GetAsync("repo/openiddict/applications/count", cancellationToken);
+            using var response = await http.GetAsync("health", cancellationToken);
             if (!response.IsSuccessStatusCode)
                 database = "error";
         }

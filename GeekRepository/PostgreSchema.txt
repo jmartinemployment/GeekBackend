@@ -1,52 +1,20 @@
-Clean PostgreSQL SchemaI’ve swapped NVARCHAR for TEXT (the Postgres standard) and used SERIAL or UUID for identifiers.sql-- 1. Users & 2FA
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    subject TEXT NOT NULL UNIQUE, -- The 'sub' claim from OIDC
-    username TEXT NOT NULL UNIQUE,
-    email TEXT NULL,
-    password_hash TEXT NOT NULL,
-    two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-    two_factor_secret TEXT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+# Platform auth tables (Dapper-managed; applied via Migrations/Sql/*.sql)
 
--- 2. OIDC Clients (OpenIddict compatible)
-CREATE TABLE openiddict_applications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    client_id TEXT NOT NULL UNIQUE,
-    client_secret TEXT,
-    display_name TEXT,
-    redirect_uris TEXT,      -- Store as comma-separated or JSON
-    permissions TEXT,        -- Important for PKCE enforcement
-    type TEXT NOT NULL       -- 'public' or 'confidential'
-);
+Core tables used by GeekBackend today:
 
--- 3. Registered Devices (Electron BIOS ID)
-CREATE TABLE devices (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    device_type TEXT NOT NULL, -- 'desktop', 'mobile'
-    device_name TEXT,
-    bios_id TEXT NOT NULL,
-    last_seen TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (user_id, bios_id)
-);
+- users, user_secrets, user_claims
+- devices_oauth (device registration and challenge-response; not OAuth protocol storage)
+- two_factor_pending_sessions, two_factor_trusted_devices
+- sync_queue, sync_conflicts, websocket_sessions
+- audit_log, security_incidents, device_reregistration_requests
+- rbac_* (roles, permissions) as present in database
 
--- 4. Active WebSocket Sessions (Presence)
-CREATE TABLE websocket_sessions (
-    session_id TEXT PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    server_node TEXT NOT NULL,
-    connected_at TIMESTAMPTZ DEFAULT NOW()
-);
+Removed by migration 0004_drop_oauth_openiddict_and_adapter_storage.sql:
 
--- 5. Sync Queue (Multicast)
-CREATE TABLE sync_queue (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id),
-    target_device_id UUID NOT NULL REFERENCES devices(id),
-    payload JSONB NOT NULL, -- Postgres JSONB is perfect for this
-    status TEXT DEFAULT 'pending',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+- openiddict_applications, openiddict_scopes, openiddict_authorizations, openiddict_tokens
+- jti_blacklist, oidc_storage
+- geek_auth.OAuthClient, geek_auth.OAuthToken, geek_auth.OidcStorage
+- auth.oauth_clients, auth.oauth_client_states
+- schema geek_seo (product schema; see Geek-SEO repo)
+
+Content tables (EF Core / AppDbContext): departments, case_studies, use_cases, etc.

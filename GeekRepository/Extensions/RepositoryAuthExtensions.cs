@@ -1,69 +1,32 @@
-using GeekApplication.Auth;
+using GeekRepository.Auth;
 using GeekRepository.Middleware;
 using Microsoft.AspNetCore.Authorization;
-using OpenIddict.Validation.AspNetCore;
 
 namespace GeekRepository.Extensions;
 
 public static class RepositoryAuthExtensions
 {
-    public static IServiceCollection AddGeekRepositoryAuth(
-        this IServiceCollection services,
-        IHostEnvironment environment)
+    public static IServiceCollection AddGeekRepositoryAuth(this IServiceCollection services)
     {
-        var issuer = Environment.GetEnvironmentVariable("AUTH_SERVER_URL");
-        if (string.IsNullOrWhiteSpace(issuer) && environment.IsProduction())
+        services.AddAuthentication(options =>
         {
-            throw new InvalidOperationException(
-                "AUTH_SERVER_URL must be set in Production so GeekRepository can validate GeekAPI OAuth tokens.");
-        }
-
-        var defaultScheme = string.IsNullOrWhiteSpace(issuer)
-            ? RepoApiKeyAuthenticationHandler.SchemeName
-            : OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
-
-        var authentication = services.AddAuthentication(options =>
-        {
-            options.DefaultAuthenticateScheme = defaultScheme;
-            options.DefaultChallengeScheme = defaultScheme;
-        });
-
-        authentication.AddScheme<RepoApiKeyAuthenticationOptions, RepoApiKeyAuthenticationHandler>(
+            options.DefaultAuthenticateScheme = RepoApiKeyAuthenticationHandler.SchemeName;
+            options.DefaultChallengeScheme = RepoApiKeyAuthenticationHandler.SchemeName;
+        })
+        .AddScheme<RepoApiKeyAuthenticationOptions, RepoApiKeyAuthenticationHandler>(
             RepoApiKeyAuthenticationHandler.SchemeName,
             _ => { });
 
-        if (!string.IsNullOrWhiteSpace(issuer))
-        {
-            services.AddOpenIddict()
-                .AddValidation(options =>
-                {
-                    options.SetIssuer(new Uri(issuer.TrimEnd('/')));
-                    options.AddAudiences(GeekOAuthConstants.GeekRepositoryAudience);
-                    options.UseSystemNetHttp();
-                    options.UseAspNetCore();
-                });
-        }
-
         services.AddAuthorizationBuilder()
-            .AddPolicy(GeekOAuthConstants.InternalServicePolicy, policy =>
+            .AddPolicy(RepositoryAuthConstants.InternalServicePolicy, policy =>
             {
-                if (!string.IsNullOrWhiteSpace(issuer))
-                {
-                    policy.AddAuthenticationSchemes(
-                        OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme,
-                        RepoApiKeyAuthenticationHandler.SchemeName);
-                }
-                else
-                {
-                    policy.AddAuthenticationSchemes(RepoApiKeyAuthenticationHandler.SchemeName);
-                }
-
+                policy.AddAuthenticationSchemes(RepoApiKeyAuthenticationHandler.SchemeName);
                 policy.RequireAuthenticatedUser();
                 policy.RequireAssertion(context =>
                     context.User.Claims.Any(static claim =>
                         (claim.Type is "scope" or "scp")
                         && claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                            .Contains(GeekOAuthConstants.InternalApiScope, StringComparer.Ordinal)));
+                            .Contains(RepositoryAuthConstants.InternalApiScope, StringComparer.Ordinal)));
             });
 
         return services;

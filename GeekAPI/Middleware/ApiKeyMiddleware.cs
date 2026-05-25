@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace GeekAPI.Middleware;
 
 public class ApiKeyMiddleware
@@ -26,12 +28,6 @@ public class ApiKeyMiddleware
     {
         var normalizedPath = NormalizePath(context.Request.Path.Value);
         if (PublicPaths.Contains(normalizedPath)
-            || normalizedPath.StartsWith("/connect", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/.well-known", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/Account", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/Consent", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/Redirect", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/Error", StringComparison.OrdinalIgnoreCase)
             || normalizedPath.StartsWith("/hubs/sync", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
@@ -51,6 +47,16 @@ public class ApiKeyMiddleware
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { success = false, error = "Invalid API key" });
             return;
+        }
+
+        if (context.Request.Headers.TryGetValue("X-Geek-User-Id", out var userIdHeader)
+            && Guid.TryParse(userIdHeader, out var userId))
+        {
+            var identity = new ClaimsIdentity("ApiKey");
+            identity.AddClaim(new Claim("sub", userId.ToString()));
+            identity.AddClaim(new Claim("geek_user_id", userId.ToString()));
+            identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId.ToString()));
+            context.User = new ClaimsPrincipal(identity);
         }
 
         await _next(context);

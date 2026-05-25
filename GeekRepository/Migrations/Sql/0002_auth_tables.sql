@@ -1,12 +1,3 @@
-CREATE TABLE IF NOT EXISTS jti_blacklist (
-    jti TEXT PRIMARY KEY,
-    user_id UUID,
-    expires_at TIMESTAMPTZ NOT NULL,
-    blacklisted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS ix_jti_blacklist_expires_at ON jti_blacklist (expires_at);
-
 CREATE TABLE IF NOT EXISTS two_factor_pending_sessions (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,

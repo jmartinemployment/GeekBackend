@@ -5,12 +5,9 @@ using GeekAPI.HttpClients;
 using GeekAPI.Hubs;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
-using GeekAPI.Workers;
 using GeekApplication.Interfaces;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
-using OpenIddict.Abstractions;
-using OpenIddict.Validation.AspNetCore;
 
 Env.TraversePath().Load();
 
@@ -27,7 +24,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-builder.Services.AddRazorPages();
 builder.Services.AddSignalR();
 
 var corsOrigins = CorsOriginParser.GetAllowedOrigins();
@@ -41,15 +37,6 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddPolicy("token", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(15)
-            }));
-
     options.AddPolicy("login", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -78,59 +65,19 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("devices", policy =>
-        policy.RequireAssertion(context =>
-            context.User.Claims.Any(c =>
-                c.Type is OpenIddictConstants.Claims.Scope or "scope"
-                && c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Contains("devices.manage", StringComparer.Ordinal))));
-
-    options.AddPolicy("sync", policy =>
-        policy.RequireAssertion(context =>
-            context.User.Claims.Any(c =>
-                c.Type is OpenIddictConstants.Claims.Scope or "scope"
-                && c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Contains("sync.read", StringComparer.Ordinal))));
-
-    options.AddPolicy("mcp", policy =>
-        policy.RequireAssertion(context =>
-            context.User.Claims.Any(c =>
-                c.Type is OpenIddictConstants.Claims.Scope or "scope"
-                && c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Contains("mcp.tools", StringComparer.Ordinal))));
-});
-
-builder.Services.AddGeekOpenIddict(builder.Configuration, builder.Environment);
-builder.Services.AddHostedService<GeekAPI.Infrastructure.OpenIddictScopeSeeder>();
-builder.Services.AddHostedService<GeekAPI.Infrastructure.OpenIddictClientSeeder>();
-builder.Services.AddHostedService<JtiCleanupWorker>();
-
 var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhost:5050";
 var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY") ?? string.Empty;
-builder.Services.AddSingleton<RepositoryAccessTokenProvider>();
-builder.Services.AddTransient<RepositoryBearerTokenHandler>();
-builder.Services.AddHttpClient("GeekRepositoryToken")
-    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15));
 var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", client =>
     client.BaseAddress = new Uri(repoUrl));
 if (!string.IsNullOrWhiteSpace(repoApiKey))
 {
-    // Bootstrap + issuer: OpenIddict stores live in GeekRepository; client_credentials must read
-    // applications before a machine token exists. REPO_API_KEY satisfies InternalService in prod.
     repositoryClientBuilder.ConfigureHttpClient(client =>
         client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
 }
 
-repositoryClientBuilder.AddHttpMessageHandler<RepositoryBearerTokenHandler>();
-
 builder.Services.AddScoped<IUserRepository, HttpUserRepository>();
 builder.Services.AddScoped<IUserSecretsRepository, HttpUserSecretsRepository>();
 builder.Services.AddScoped<IDeviceOauthRepository, HttpDeviceRepository>();
-builder.Services.AddScoped<IOAuthTokenRepository, HttpOAuthTokenRepository>();
-builder.Services.AddScoped<IOAuthClientRepository, HttpOAuthClientRepository>();
-builder.Services.AddScoped<IOidcStorageRepository, HttpOidcStorageRepository>();
 builder.Services.AddScoped<IAuditRepository, HttpAuditRepository>();
 builder.Services.AddScoped<IPendingVerificationRepository, HttpPendingVerificationRepository>();
 builder.Services.AddScoped<ISyncRepository, HttpSyncRepository>();
@@ -158,12 +105,8 @@ if (app.Environment.IsProduction())
 
 app.UseCors();
 app.UseRateLimiter();
-app.UseAuthentication();
-app.UseAuthorization();
-app.UseMiddleware<JtiRevocationMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
-app.MapRazorPages();
 app.MapHub<SyncHub>("/hubs/sync");
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";

@@ -5,7 +5,7 @@ public static class CorsOriginParser
     private static readonly string[] DefaultOrigins =
     [
         "http://localhost:3000",
-        "https://seo.geekatyourspot.com",
+        "https://www.geekatyourspot.com",
     ];
 
     /// <summary>

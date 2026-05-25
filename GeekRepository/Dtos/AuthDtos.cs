@@ -29,15 +29,3 @@ public record UpsertPendingVerificationRequest(
     string VerificationCode,
     DateTime ExpiresAt
 );
-
-public class OidcStorageUpsertRequest
-{
-    public string Id { get; set; } = null!;
-    public string Kind { get; set; } = null!;
-    public Dictionary<string, object> Payload { get; set; } = [];
-    public int? ExpiresIn { get; set; }
-    public string? UserCode { get; set; }
-    public string? TokenHash { get; set; }
-    public string? Uid { get; set; }
-    public string? GrantId { get; set; }
-}

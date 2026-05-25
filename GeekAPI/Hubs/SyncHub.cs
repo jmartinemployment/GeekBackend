@@ -1,13 +1,10 @@
 using System.Security.Claims;
 using GeekApplication.Entities;
 using GeekApplication.Interfaces;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using OpenIddict.Validation.AspNetCore;
 
 namespace GeekAPI.Hubs;
 
-[Authorize(AuthenticationSchemes = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme, Policy = "sync")]
 public sealed class SyncHub : Hub
 {
     private readonly IDeviceOauthRepository _devices;
@@ -51,6 +48,5 @@ public sealed class SyncHub : Hub
         await base.OnConnectedAsync();
     }
 
-    [Authorize(Policy = "sync")]
     public Task Acknowledge(Guid queueId) => _sync.MarkProcessedAsync(queueId);
 }

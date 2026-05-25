@@ -1,13 +1,10 @@
 using DotNetEnv;
-using GeekApplication.Interfaces.Seo;
 using GeekRepository;
 using EFCore.NamingConventions;
 using GeekRepository.Data;
-using GeekRepository.Infrastructure;
-using GeekApplication.Auth;
+using GeekRepository.Auth;
 using GeekRepository.Extensions;
-using GeekRepository.Providers.Seo;
-using Microsoft.AspNetCore.Authorization;
+using GeekRepository.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
@@ -29,54 +26,17 @@ builder.Services.AddDbContext<AppDbContext>(options => options
     .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
-// Same Supabase PostgreSQL instance as DATABASE_URL — optional separate *credentials*.
-// Production: GEEK_SEO_DATABASE_URL uses geekseo_app (schema geek_seo only).
-// Local dev: omit GEEK_SEO_DATABASE_URL to reuse DATABASE_URL (single role is fine).
-var seoConnectionString = NormalizeConnectionString(
-    Environment.GetEnvironmentVariable("GEEK_SEO_DATABASE_URL") ?? rawDatabaseUrl ?? string.Empty);
-
-builder.Services.AddDbContext<SeoDbContext>(options => options
-    .UseNpgsql(seoConnectionString, npgsql =>
-        npgsql.MigrationsHistoryTable(
-            SeoDbContextOptionsExtensions.MigrationsHistoryTableName,
-            SeoDbContextOptionsExtensions.SchemaName))
-    .UseSnakeCaseNamingConvention()
-    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
-
 builder.Services.AddGeekRepository(connectionString);
-builder.Services.AddGeekRepositoryAuth(builder.Environment);
+builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddHostedService<SqlMigrationRunner>();
-
-var disablePlaywright = string.Equals(
-    Environment.GetEnvironmentVariable("DISABLE_PLAYWRIGHT"), "true", StringComparison.OrdinalIgnoreCase);
-PlaywrightBrowserHolder? playwrightHolder = null;
-if (!disablePlaywright)
-{
-    playwrightHolder = new PlaywrightBrowserHolder();
-    await playwrightHolder.InitializeAsync();
-    builder.Services.AddSingleton(playwrightHolder);
-    builder.Services.AddSingleton<ICrawlerProvider>(sp =>
-        new PlaywrightCrawlerProvider(sp.GetRequiredService<PlaywrightBrowserHolder>().Browser!));
-}
-else
-{
-    builder.Services.AddSingleton<ICrawlerProvider, NoOpCrawlerProvider>();
-}
 
 var app = builder.Build();
 
-app.Lifetime.ApplicationStopping.Register(() =>
-{
-    if (playwrightHolder is not null)
-        _ = playwrightHolder.DisposeAsync();
-});
-
 await ApplyPendingMigrationsAsync(app, startupLogger);
-await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseGeekRepositoryAuth();
 app.MapControllers()
-    .RequireAuthorization(GeekOAuthConstants.InternalServicePolicy);
+    .RequireAuthorization(RepositoryAuthConstants.InternalServicePolicy);
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5050";
 app.Run($"http://0.0.0.0:{port}");
@@ -93,33 +53,6 @@ static async Task ApplyPendingMigrationsAsync(WebApplication app, ILogger logger
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying database migrations. Continuing startup.");
-    }
-}
-
-static async Task ApplySeoMigrationsAsync(WebApplication app, ILogger logger)
-{
-    // Always migrate with DATABASE_URL (admin). Runtime may use GEEK_SEO_DATABASE_URL (geekseo_app).
-    var migrationUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-    if (string.IsNullOrWhiteSpace(migrationUrl))
-    {
-        logger.LogWarning("DATABASE_URL is not set; skipping Geek SEO schema migrations.");
-        return;
-    }
-
-    var optionsBuilder = new DbContextOptionsBuilder<SeoDbContext>();
-    optionsBuilder.UseGeekSeoDatabaseMigrations(NormalizeConnectionString(migrationUrl));
-
-    await using var db = new SeoDbContext(optionsBuilder.Options);
-    try
-    {
-        await db.Database.MigrateAsync();
-        logger.LogInformation("Geek SEO schema migrations applied successfully.");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Failed applying Geek SEO migrations.");
-        if (!app.Environment.IsDevelopment())
-            throw;
     }
 }
 
