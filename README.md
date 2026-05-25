@@ -227,7 +227,10 @@ SERILOG_MIN_LEVEL="Information"
 # GeekAPI issuer (required in production)
 AUTH_SERVER_URL="https://api.geekatyourspot.com"
 REPO_URL="https://your-geekrepository.up.railway.app"
-REPO_API_KEY="shared-secret-with-geekrepository"
+GEEK_API_CLIENT_SECRET="geekapi-client-credentials-secret"
+AUTH_SERVER_URL="https://api.geekatyourspot.com"
+# GeekRepository also needs AUTH_SERVER_URL (same issuer) for JWT validation.
+# See docs/geekrepository-oauth-access.md
 GEEK_BACKEND_API_KEY="api-key-for-product-routes"
 GEEK_WEBSITE_CLIENT_SECRET="confidential-client-secret"
 GEEK_RESOURCE_SERVER_SECRET="introspection-client-secret"
@@ -239,6 +242,10 @@ OPENIDDICT_SIGNING_CERT_PASSWORD="optional-pfx-password"
 TEST_DATABASE_URL="postgresql://..."
 TEST_REPO_URL="http://127.0.0.1:5050"
 ```
+
+## New OAuth application
+
+Step-by-step guide to register and wire a new app: [docs/oauth-new-application.md](docs/oauth-new-application.md).
 
 ## Manual PKCE smoke test
 

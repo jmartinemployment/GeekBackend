@@ -43,10 +43,11 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
 
         builder.ConfigureServices(services =>
         {
-            var hosted = services
-                .Where(d => d.ServiceType == typeof(IHostedService))
+            var cleanupWorkers = services
+                .Where(d => d.ServiceType == typeof(IHostedService)
+                    && d.ImplementationType?.Name == "JtiCleanupWorker")
                 .ToList();
-            foreach (var descriptor in hosted)
+            foreach (var descriptor in cleanupWorkers)
                 services.Remove(descriptor);
         });
     }

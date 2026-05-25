@@ -13,7 +13,7 @@ public sealed class OAuthFlowTests : IClassFixture<GeekApiTestFactory>
     public OAuthFlowTests(GeekApiTestFactory factory) => _client = factory.CreateClient();
 
     [Fact]
-    public async Task Pkce_MissingVerifier_ReturnsBadRequest()
+    public async Task Pkce_MissingVerifier_Returns400()
     {
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {

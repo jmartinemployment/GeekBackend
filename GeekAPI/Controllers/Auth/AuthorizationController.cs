@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Claims;
 using GeekAPI.Auth;
+using GeekApplication.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
@@ -158,10 +159,13 @@ public sealed class AuthorizationController : ControllerBase
         ImmutableArray<string> scopes,
         CancellationToken cancellationToken)
     {
-        IEnumerable<string> resources = scopes.Any(static s => s == Scopes.OpenId)
-            ? ["geek-api"]
-            : Array.Empty<string>();
-        return Task.FromResult(resources);
+        if (scopes.Any(static s => s == Scopes.OpenId))
+            return Task.FromResult<IEnumerable<string>>(["geek-api"]);
+
+        if (scopes.Any(static s => s == GeekOAuthConstants.InternalApiScope))
+            return Task.FromResult<IEnumerable<string>>([GeekOAuthConstants.GeekRepositoryAudience]);
+
+        return Task.FromResult<IEnumerable<string>>(Array.Empty<string>());
     }
 
     private static IEnumerable<string> GetDestinations(Claim claim, ClaimsPrincipal principal)

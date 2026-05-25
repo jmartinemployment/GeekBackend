@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using GeekApplication.Auth;
 using OpenIddict.Abstractions;
 
 namespace GeekAPI.Infrastructure;
@@ -23,6 +24,19 @@ public sealed class OpenIddictClientSeeder : IHostedService
     {
         using var scope = _services.CreateScope();
         var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+
+        await SeedConfidentialClientAsync(
+            manager,
+            clientId: GeekOAuthConstants.GeekApiClientId,
+            displayName: "Geek API (repository access)",
+            clientSecret: RequireSecret("GEEK_API_CLIENT_SECRET"),
+            permissions:
+            [
+                OpenIddictConstants.Permissions.Endpoints.Token,
+                OpenIddictConstants.Permissions.GrantTypes.ClientCredentials,
+                OpenIddictConstants.Permissions.Prefixes.Scope + GeekOAuthConstants.InternalApiScope
+            ],
+            cancellationToken);
 
         await SeedPublicClientAsync(
             manager,
@@ -75,6 +89,7 @@ public sealed class OpenIddictClientSeeder : IHostedService
             {
                 "GEEK_WEBSITE_CLIENT_SECRET" => "dev-website-secret-change-me",
                 "GEEK_RESOURCE_SERVER_SECRET" => "dev-resource-server-secret-change-me",
+                "GEEK_API_CLIENT_SECRET" => "dev-geekapi-secret-change-me",
                 _ => throw new InvalidOperationException($"No development placeholder for {variableName}.")
             };
         }
@@ -92,30 +107,13 @@ public sealed class OpenIddictClientSeeder : IHostedService
         if (await manager.FindByClientIdAsync(clientId, cancellationToken) is not null)
             return;
 
-        await manager.CreateAsync(new OpenIddictApplicationDescriptor
+        var descriptor = new OpenIddictApplicationDescriptor
         {
             ClientId = clientId,
-            DisplayName = displayName,
-            ClientType = OpenIddictConstants.ClientTypes.Public,
-            ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
-            RedirectUris =
-            {
-                new Uri("http://127.0.0.1/callback", UriKind.Absolute),
-                new Uri("geek://callback", UriKind.Absolute)
-            },
-            Permissions =
-            {
-                OpenIddictConstants.Permissions.Endpoints.Authorization,
-                OpenIddictConstants.Permissions.Endpoints.Token,
-                OpenIddictConstants.Permissions.GrantTypes.AuthorizationCode,
-                OpenIddictConstants.Permissions.GrantTypes.RefreshToken,
-                OpenIddictConstants.Permissions.ResponseTypes.Code,
-                OpenIddictConstants.Permissions.Scopes.Email,
-                OpenIddictConstants.Permissions.Scopes.Profile,
-                OpenIddictConstants.Permissions.Prefixes.Scope + OpenIddictConstants.Scopes.OfflineAccess,
-                OpenIddictConstants.Requirements.Features.ProofKeyForCodeExchange
-            }
-        }, cancellationToken);
+            DisplayName = displayName
+        };
+        OpenIddictClientPermissionBuilder.ApplyPublicAuthorizationCodeClient(descriptor);
+        await manager.CreateAsync(descriptor, cancellationToken);
     }
 
     private static async Task SeedConfidentialClientAsync(
@@ -133,12 +131,19 @@ public sealed class OpenIddictClientSeeder : IHostedService
         {
             ClientId = clientId,
             ClientSecret = clientSecret,
-            DisplayName = displayName,
-            ClientType = OpenIddictConstants.ClientTypes.Confidential
+            DisplayName = displayName
         };
 
-        foreach (var permission in permissions)
-            descriptor.Permissions.Add(permission);
+        if (permissions.Contains(OpenIddictConstants.Permissions.Endpoints.Introspection))
+            OpenIddictClientPermissionBuilder.ApplyConfidentialIntrospection(descriptor);
+        else
+        {
+            var scopes = permissions
+                .Where(static p => p.StartsWith(OpenIddictConstants.Permissions.Prefixes.Scope, StringComparison.Ordinal))
+                .Select(static p => p[OpenIddictConstants.Permissions.Prefixes.Scope.Length..])
+                .ToArray();
+            OpenIddictClientPermissionBuilder.ApplyConfidentialClientCredentials(descriptor, scopes);
+        }
 
         await manager.CreateAsync(descriptor, cancellationToken);
     }

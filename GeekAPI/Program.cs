@@ -104,17 +104,26 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddGeekSeoApi(builder.Configuration);
 builder.Services.AddGeekOpenIddict(builder.Configuration, builder.Environment);
+builder.Services.AddHostedService<GeekAPI.Infrastructure.OpenIddictScopeSeeder>();
 builder.Services.AddHostedService<GeekAPI.Infrastructure.OpenIddictClientSeeder>();
 builder.Services.AddHostedService<JtiCleanupWorker>();
 
 var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhost:5050";
 var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY") ?? string.Empty;
-builder.Services.AddHttpClient("GeekRepository", client =>
+builder.Services.AddSingleton<RepositoryAccessTokenProvider>();
+builder.Services.AddTransient<RepositoryBearerTokenHandler>();
+builder.Services.AddHttpClient("GeekRepositoryToken");
+var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", client =>
+    client.BaseAddress = new Uri(repoUrl));
+if (!string.IsNullOrWhiteSpace(repoApiKey) && builder.Environment.IsDevelopment())
 {
-    client.BaseAddress = new Uri(repoUrl);
-    if (!string.IsNullOrWhiteSpace(repoApiKey))
-        client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey);
-});
+    repositoryClientBuilder.ConfigureHttpClient(client =>
+        client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
+}
+else
+{
+    repositoryClientBuilder.AddHttpMessageHandler<RepositoryBearerTokenHandler>();
+}
 
 builder.Services.AddScoped<IUserRepository, HttpUserRepository>();
 builder.Services.AddScoped<IUserSecretsRepository, HttpUserSecretsRepository>();
