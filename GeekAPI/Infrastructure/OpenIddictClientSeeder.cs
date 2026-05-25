@@ -38,6 +38,19 @@ public sealed class OpenIddictClientSeeder : IHostedService
             ],
             cancellationToken);
 
+        await SeedConfidentialClientAsync(
+            manager,
+            clientId: GeekOAuthConstants.GeekSeoBackendClientId,
+            displayName: "Geek SEO Backend (repository access)",
+            clientSecret: RequireSecret("GEEK_SEO_BACKEND_CLIENT_SECRET"),
+            permissions:
+            [
+                OpenIddictConstants.Permissions.Endpoints.Token,
+                OpenIddictConstants.Permissions.GrantTypes.ClientCredentials,
+                OpenIddictConstants.Permissions.Prefixes.Scope + GeekOAuthConstants.InternalApiScope
+            ],
+            cancellationToken);
+
         await SeedPublicClientAsync(
             manager,
             clientId: "geek-seo-electron",
@@ -90,6 +103,7 @@ public sealed class OpenIddictClientSeeder : IHostedService
                 "GEEK_WEBSITE_CLIENT_SECRET" => "dev-website-secret-change-me",
                 "GEEK_RESOURCE_SERVER_SECRET" => "dev-resource-server-secret-change-me",
                 "GEEK_API_CLIENT_SECRET" => "dev-geekapi-secret-change-me",
+                "GEEK_SEO_BACKEND_CLIENT_SECRET" => "dev-geekseo-backend-secret-change-me",
                 _ => throw new InvalidOperationException($"No development placeholder for {variableName}.")
             };
         }

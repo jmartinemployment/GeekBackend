@@ -7,6 +7,7 @@ namespace GeekApplication.Auth;
 public static class GeekOAuthConstants
 {
     public const string GeekApiClientId = "geekapi";
+    public const string GeekSeoBackendClientId = "geekseo-backend";
     public const string InternalApiScope = "internal.api";
     public const string GeekRepositoryAudience = "geek-repository";
     public const string InternalServicePolicy = "InternalService";
