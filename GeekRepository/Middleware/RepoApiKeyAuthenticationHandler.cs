@@ -6,8 +6,7 @@ using Microsoft.Extensions.Options;
 namespace GeekRepository.Middleware;
 
 /// <summary>
-/// Legacy bootstrap auth for local/integration tests while <c>geekapi</c> client credentials are provisioned.
-/// Remove <c>REPO_API_KEY</c> in production once OAuth is verified.
+/// Service-to-service auth: GeekAPI presents <c>REPO_API_KEY</c> as <c>X-Repo-Key</c>.
 /// </summary>
 public sealed class RepoApiKeyAuthenticationHandler : AuthenticationHandler<RepoApiKeyAuthenticationOptions>
 {

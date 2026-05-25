@@ -1,15 +1,12 @@
 using System.Security.Claims;
 using GeekApplication.Auth;
 using GeekApplication.Interfaces;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using OpenIddict.Validation.AspNetCore;
 
 namespace GeekAPI.Controllers.Auth;
 
 [ApiController]
 [Route("api/auth/2fa")]
-[Authorize(AuthenticationSchemes = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme)]
 public sealed class TwoFactorController : ControllerBase
 {
     private readonly IUserSecretsRepository _secrets;

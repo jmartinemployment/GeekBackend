@@ -2,18 +2,13 @@ using GeekApplication.Dtos;
 using GeekApplication.Interfaces;
 using GeekAPI.Dtos;
 using GeekApplication.Results;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using OpenIddict.Validation.AspNetCore;
 
 namespace GeekAPI.Controllers.Auth;
 
 [ApiController]
 [Route("api/auth/devices")]
-[Authorize(
-    AuthenticationSchemes = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme,
-    Policy = "devices")]
 public sealed class DevicesController : ControllerBase
 {
     private readonly IDeviceOauthRepository _repo;

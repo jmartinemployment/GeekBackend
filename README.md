@@ -1,8 +1,8 @@
 # GeekBackend
 
-Enterprise authentication & authorization platform for Geek applications. OAuth 2.1, PKCE, TOTP 2FA, multi-device device management, real-time session sync, and zero-trust device challenge-response.
+Platform backend for Geek applications: auth storage APIs, TOTP 2FA, multi-device management, real-time session sync, and public content APIs.
 
-**Status:** OAuth 2.1 issuer live on GeekAPI (OpenIddict 7). PostgreSQL via GeekRepository (Dapper). Deploy and verify with `/.well-known/openid-configuration`.
+**Status:** GeekAPI is the platform gateway (no authorization server in this repo). GeekRepository holds PostgreSQL data (Dapper for auth tables, EF Core for content). Authorization server is a separate .NET deployment at `auth.geekatyourspot.com` (planned).
 
 ## Architecture
 
@@ -18,7 +18,7 @@ GeekRepository           [Data access: Dapper + EF Core, in-process]
 PostgreSQL              [Auth tables via Dapper; content via EF Core]
 ```
 
-Layer boundaries enforced at `.csproj` reference level. See [Architecture.md](./Architecture.md) for complete specification (OAuth 2.1, TOTP, device fingerprinting, multi-device policy, jti replay detection, real-time sync).
+Layer boundaries enforced at `.csproj` reference level. See [Architecture.md](./Architecture.md) for platform topology, S2S auth target (JWT, not shared repo keys), and deployment rules.
 
 ## Tech Stack
 
@@ -120,7 +120,7 @@ GeekBackend.sln
     │   └── DesignTimeFactory.cs # Migrations helper
     ├── Migrations/             # EF code-first migrations
     ├── Repositories/
-    │   ├── Dapper/             # Atomic auth operations (users, devices, oauth, oidc, audit, rbac)
+    │   ├── Dapper/             # Atomic auth operations (users, devices, oidc storage, audit, rbac)
     │   └── EF/                 # Relational content (departments, case_studies, use_cases)
     └── PostgreSchema.txt       # DDL for all tables
 ```
@@ -132,25 +132,22 @@ GeekBackend.sln
 | **Entities & Repos** | ✅ Complete | — | — |
 | **AppDbContext + Migrations** | ✅ Complete | — | — |
 | **DeviceOauth fingerprint** | ✅ Complete | — | — |
-| **User auth (register/login)** | ✅ Implemented | GeekAPI + GeekRepository | Razor `/Account/Login` |
-| **TOTP 2FA (setup/verify)** | ✅ Implemented | GeekAPI | `/Account/TwoFactor`, `/api/auth/2fa/*` |
+| **User auth storage** | ✅ Implemented | GeekAPI + GeekRepository | `/api/auth/users/*` |
+| **TOTP 2FA (setup/verify)** | ✅ Implemented | GeekAPI | `/api/auth/2fa/*` |
 | **Device challenge-response** | ✅ Implemented | GeekRepository | ECDSA challenge/verify |
 | **Multi-device policy enforcement** | ✅ Implemented | GeekApplication | `DevicePolicy` + repo |
-| **OAuth 2.1 + OpenIddict** | ✅ Implemented | GeekAPI | `/.well-known/openid-configuration` |
-| **Refresh token rotation** | ✅ Implemented | GeekAPI | Reference refresh + reuse handler |
-| **jti replay detection** | ✅ Implemented | GeekRepository | `jti_blacklist` + middleware |
 | **Real-time SignalR sync** | ✅ Implemented | GeekAPI | `/hubs/sync` |
-| **Security hardening** | ✅ Implemented | GeekAPI | Headers, rate limits, CORS |
-| **Electron integration** | 🔄 Client-side | — | Point apps at GeekAPI issuer |
+| **Security hardening** | ✅ Implemented | GeekAPI | Headers, rate limits, CORS, API key |
+| **Platform authorization server** | ⏳ External | Separate .NET service | `auth.geekatyourspot.com` (planned) |
 
 ## Key Concepts
 
 ### Data Access Split
 
 **Dapper (Auth tables):**
-- `users`, `devices_oauth`, `oauth_clients`, `oauth_tokens`, `oidc_*`, `rbac_*`, `audit_log`
+- `users`, `devices_oauth`, `rbac_*`, `audit_log`, sync tables
 - Atomic operations, direct SQL, race-condition safe
-- Repositories: `UserAuthRepository`, `DeviceRepository`, `OAuthClientRepository`, etc.
+- Repositories: `UserRepository`, `DeviceOauthRepository`, `OidcStorageRepository`, etc.
 
 **EF Core (Content tables):**
 - `departments`, `case_studies`, `use_cases`, related lookup tables
@@ -176,17 +173,9 @@ Immutable. Used for device authentication challenge-response and multi-device po
 ### TOTP 2FA
 
 - **Setup:** QR code + recovery codes (10 BCrypt hashes, single-use)
-- **Login:** 6-digit TOTP code required at authorization endpoint (TwoFactorAuthorizationHandler intercept)
+- **Login:** 6-digit TOTP code verified via `/api/auth/2fa/*` (external issuer integrates)
 - **Trusted devices:** 30-day window per device (configurable); skip 2FA within window
 - **Account lockout:** 5 failed attempts → 24-hour lockout
-
-### OAuth 2.1 Compliance
-
-- **Authorization code flow:** Human clients (Electron, web)
-- **PKCE required:** All public clients
-- **Refresh token rotation:** New refresh token per use; old invalidated immediately
-- **Resource owner password credentials:** **EXPLICITLY PROHIBITED** (deprecated in OAuth 2.1)
-- **Client credentials:** Kiosk/system clients (short-lived, non-interactive)
 
 ### Real-Time Sync (SignalR)
 
@@ -224,65 +213,18 @@ RATE_LIMIT_GENERAL_PER_SECOND=10           # Global rate limit
 LOG_LEVEL="Information"                    # Debug, Information, Warning, Error
 SERILOG_MIN_LEVEL="Information"
 
-# GeekAPI issuer (required in production)
-AUTH_SERVER_URL="https://api.geekatyourspot.com"
+# GeekAPI → GeekRepository
 REPO_URL="https://your-geekrepository.up.railway.app"
-GEEK_API_CLIENT_SECRET="geekapi-client-credentials-secret"
-AUTH_SERVER_URL="https://api.geekatyourspot.com"
-# GeekRepository also needs AUTH_SERVER_URL (same issuer) for JWT validation.
-# See docs/geekrepository-oauth-access.md
-GEEK_BACKEND_API_KEY="api-key-for-product-routes"
-GEEK_WEBSITE_CLIENT_SECRET="confidential-client-secret"
-GEEK_RESOURCE_SERVER_SECRET="introspection-client-secret"
-CORS_ORIGINS="https://seo.geekatyourspot.com,http://127.0.0.1"
-OPENIDDICT_SIGNING_CERT="path-or-pem-or-base64-pfx"
-OPENIDDICT_SIGNING_CERT_PASSWORD="optional-pfx-password"
+# REPO_API_KEY — local/CI interim only; production uses geekapi client_credentials JWT (see Architecture.md)
+GEEK_BACKEND_API_KEY="api-key-for-inbound-calls"
+CORS_ORIGINS="https://www.geekatyourspot.com,http://127.0.0.1"
 
 # Integration tests (optional)
 TEST_DATABASE_URL="postgresql://..."
 TEST_REPO_URL="http://127.0.0.1:5050"
 ```
 
-## New OAuth application
-
-Step-by-step guide to register and wire a new app: [docs/oauth-new-application.md](docs/oauth-new-application.md).
-
-## Manual PKCE smoke test
-
-Use a single canonical issuer (`AUTH_SERVER_URL`). Example with production:
-
-```bash
-export ISSUER="https://api.geekatyourspot.com"
-curl -sS "$ISSUER/.well-known/openid-configuration" | head
-curl -sS "$ISSUER/health"
-```
-
-**Authorization code + PKCE (browser):**
-
-1. Generate `code_verifier` (43–128 chars) and `code_challenge = BASE64URL(SHA256(verifier))`.
-2. Open in browser:
-   `GET $ISSUER/connect/authorize?client_id=geek-seo-electron&response_type=code&scope=openid%20offline_access&redirect_uri=http://127.0.0.1/callback&code_challenge=CHALLENGE&code_challenge_method=S256`
-3. Sign in at `/Account/Login` (and `/Account/TwoFactor` if enabled).
-4. Approve consent if prompted; capture `code` from redirect.
-5. Exchange:
-   ```bash
-   curl -sS -X POST "$ISSUER/connect/token" \
-     -d "grant_type=authorization_code" \
-     -d "client_id=geek-seo-electron" \
-     -d "code=CODE_FROM_REDIRECT" \
-     -d "redirect_uri=http://127.0.0.1/callback" \
-     -d "code_verifier=YOUR_VERIFIER"
-   ```
-
-**Client credentials (machine client):**
-
-```bash
-curl -sS -X POST "$ISSUER/connect/token" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=geekatyourspot-website" \
-  -d "client_secret=$GEEK_WEBSITE_CLIENT_SECRET" \
-  -d "scope=mcp.tools"
-```
+## Tests
 
 Run automated tests:
 
@@ -484,7 +426,7 @@ docker run --name geekbackend \
 
 ## Documentation
 
-- **[Architecture.md](./Architecture.md)** — 3-tier design, OAuth 2.1, TOTP, device mgmt, real-time sync
+- **[Architecture.md](./Architecture.md)** — historical 3-tier design notes (issuer sections superseded)
 - **[COMPREHENSIVE_IMPLEMENTATION_PLAN.md](./GeekRepository/plan/COMPREHENSIVE_IMPLEMENTATION_PLAN.md)** — Authoritative specification (v3.4)
 - **[CLAUDE.md](./CLAUDE.md)** — Development guidelines, architectural decisions, session notes
 

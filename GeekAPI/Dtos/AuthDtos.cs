@@ -11,8 +11,6 @@ public record UpdateUserRequest(
     bool? TwoFactorEnabled
 );
 
-// ── OAuth Token ── (imported from GeekApplication.Dtos)
-
 // ── Device ───────────────────────────────────────────────────────────────────
 
 public record UpdateDeviceRequest(
@@ -36,8 +34,6 @@ public record CreateCircuitResetRequest(
     int FailureCount
 );
 
-// ── OAuth Client ── (imported from GeekApplication.Dtos)
-
 // ── Pending Verification ────────────────────────────────────────────────────
 
 public record UpsertPendingVerificationRequest(
@@ -47,14 +43,3 @@ public record UpsertPendingVerificationRequest(
     DateTime ExpiresAt
 );
 
-// ── OIDC Storage ─────────────────────────────────────────────────────────────
-
-public record OidcStorageUpsertRequest(
-    string Kind,
-    string Payload,
-    DateTime ExpiresAt,
-    string? UserCode = null,
-    string? TokenHash = null,
-    string? Uid = null,
-    string? GrantId = null
-);
