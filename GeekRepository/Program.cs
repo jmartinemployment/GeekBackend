@@ -78,7 +78,9 @@ static async Task ApplySeoMigrationsAsync(WebApplication app, ILogger logger)
     }
 
     var optionsBuilder = new DbContextOptionsBuilder<SeoDbContext>();
-    optionsBuilder.UseGeekSeoDatabaseMigrations(NormalizeConnectionString(migrationUrl));
+    optionsBuilder
+        .UseGeekSeoDatabaseMigrations(NormalizeConnectionString(migrationUrl))
+        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
 
     await using var db = new SeoDbContext(optionsBuilder.Options);
     try
