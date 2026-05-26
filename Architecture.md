@@ -48,7 +48,7 @@ flowchart LR
 
 1. **Only GeekAPI talks to GeekRepository** — no product service (OrderStack, RankPilot, etc.) holds `REPO_URL` or database credentials for platform auth/content.
 2. **No authorization server in GeekBackend** — no `/connect/*`, no OpenIddict issuer on GeekAPI.
-3. **Geek SEO and other product APIs live in their own repos** — not in GeekBackend.
+3. **Geek SEO product APIs** (AI, SERP, scoring, SignalR) live in **Geek-SEO / GeekSeoBackend**. **Geek SEO persistence** (`geek_seo` schema, `repo/seo/*`) lives in **GeekRepository**; GeekSeoBackend reaches it only via **GeekAPI** `api/seo/internal/*`.
 
 ---
 
@@ -159,10 +159,15 @@ GeekAPI remains the **only** path to GeekRepository for those tables.
 
 - Departments, case studies, use cases — public read via GeekAPI; writes via authenticated platform routes as products require
 
+### Geek SEO data (in GeekRepository)
+
+- Schema `geek_seo`, EF migrations, `repo/seo/*` controllers — persistence only
+- GeekSeoBackend calls GeekAPI `api/seo/internal/*` (not GeekRepository directly)
+
 ### Out of scope for GeekBackend
 
-- Geek SEO schema, crawlers, WordPress publish, SERP APIs — **`Geek-SEO` repo** and GeekSeoBackend
-- Per-product business tables (restaurant, CRM, etc.) — respective product backends via GeekAPI BFF pattern when platform auth is needed
+- Geek SEO product logic (providers, workers, `/api/seo` routes) — **Geek-SEO / GeekSeoBackend**
+- Per-product business tables (restaurant, CRM, etc.) — respective product backends
 
 ---
 
@@ -240,7 +245,7 @@ GeekAPI remains the **only** path to GeekRepository for those tables.
 
 ## Database cleanup (OAuth / OpenIddict era)
 
-On startup, `SqlMigrationRunner` applies `Migrations/Sql/0004_drop_oauth_openiddict_and_adapter_storage.sql`, which drops issuer tables, adapter storage, and `geek_seo` schema. **Greenfield:** the external authorization server owns client/token persistence; this database holds users, devices, and platform content only.
+On startup, `SqlMigrationRunner` applies `Migrations/Sql/0004_drop_oauth_openiddict_and_adapter_storage.sql` (issuer-era tables only; **not** `geek_seo`). Geek SEO tables are created by `ApplySeoMigrationsAsync`. **Greenfield:** the external authorization server owns client/token persistence; this database holds users, devices, platform content, and Geek SEO rows.
 
 ---
 
@@ -258,4 +263,4 @@ Integration tests may use `REPO_API_KEY` until the JWT client-credentials path i
 ## Related docs
 
 - [README.md](./README.md) — build, run, status table
-- [GeekAPI/CLAUDE.md](./GeekAPI/CLAUDE.md) — GeekAPI routes and env (update when JWT S2S lands)
+- [GeekAPI/README.md](./GeekAPI/README.md) — GeekAPI routes and env (update when JWT S2S lands)

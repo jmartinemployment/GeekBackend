@@ -1,5 +1,5 @@
--- Greenfield cleanup: remove OpenIddict issuer tables, OAuth adapter storage, JWT replay list,
--- legacy OAuth client registry, and Geek SEO schema from the shared platform database.
+-- Greenfield cleanup: remove OpenIddict issuer tables, OAuth adapter storage, and JWT replay list.
+-- Does not drop geek_seo (see EF migrations in GeekRepository/Migrations/Seo).
 -- Safe to re-run (IF EXISTS). Does not drop devices_oauth (device management, not OAuth protocol).
 
 -- OpenIddict (issuer on GeekAPI era)
@@ -20,5 +20,4 @@ DROP TABLE IF EXISTS geek_auth."OAuthClient" CASCADE;
 -- auth.oauth_clients / auth.sessions are owned by Supabase Auth — do not drop here
 -- (requires service_role / dashboard SQL if you need to remove them).
 
--- Geek SEO product schema (lives in Geek-SEO repo going forward)
-DROP SCHEMA IF EXISTS geek_seo CASCADE;
+-- geek_seo schema: owned by GeekRepository EF migrations (GeekApplication/Seo). Do not drop here.

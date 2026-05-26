@@ -11,6 +11,7 @@ Trusted callers use `X-API-Key` (`GEEK_BACKEND_API_KEY`); auth routes may also s
 | Area | Path prefix |
 |------|-------------|
 | Auth storage | `/api/auth/*` |
+| SEO data gateway | `/api/seo/internal/*` → GeekRepository `repo/seo/*` (`GEEK_BACKEND_API_KEY`) |
 | Content | `/api/case-studies`, `/api/departments`, `/api/use-cases` |
 | Sync | `/hubs/sync` |
 
@@ -26,4 +27,4 @@ Trusted callers use `X-API-Key` (`GEEK_BACKEND_API_KEY`); auth routes may also s
 
 ## Session notes
 
-**May 24, 2026:** Removed OpenIddict issuer and Geek SEO from GeekBackend. Platform tokens belong on external auth at `auth.geekatyourspot.com`. Repo access must move off shared `REPO_API_KEY` to client-credentials JWT.
+**May 24, 2026:** Removed OpenIddict issuer and Geek SEO product surface from GeekAPI. Platform tokens belong on external auth at `auth.geekatyourspot.com`. Repo access must move off shared `REPO_API_KEY` to client-credentials JWT.

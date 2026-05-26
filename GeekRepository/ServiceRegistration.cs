@@ -30,6 +30,8 @@ public static class ServiceRegistration
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IUseCaseRepository, UseCaseRepository>();
 
+        services.AddGeekSeoData();
+
         return services;
     }
 }

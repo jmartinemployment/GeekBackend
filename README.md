@@ -428,7 +428,8 @@ docker run --name geekbackend \
 
 - **[Architecture.md](./Architecture.md)** — historical 3-tier design notes (issuer sections superseded)
 - **[COMPREHENSIVE_IMPLEMENTATION_PLAN.md](./GeekRepository/plan/COMPREHENSIVE_IMPLEMENTATION_PLAN.md)** — Authoritative specification (v3.4)
-- **[CLAUDE.md](./CLAUDE.md)** — Development guidelines, architectural decisions, session notes
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Commit standards (no AI attribution), local tooling rules
+- **[GeekAPI/README.md](./GeekAPI/README.md)** — GeekAPI routes and environment
 
 ## License
 

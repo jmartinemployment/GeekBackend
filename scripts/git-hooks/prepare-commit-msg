@@ -1,0 +1,11 @@
+#!/bin/sh
+# Strips common AI tool attribution lines from commit messages.
+# Install: git config core.hooksPath scripts/git-hooks && chmod +x scripts/git-hooks/prepare-commit-msg
+
+MSG_FILE="$1"
+[ -f "$MSG_FILE" ] || exit 0
+
+tmp="${MSG_FILE}.attribution-strip"
+grep -viE '^(co-authored-by:|made-with:).*(cursor|claude|anthropic|copilot|openai|agent)' "$MSG_FILE" > "$tmp" 2>/dev/null || cp "$MSG_FILE" "$tmp"
+mv "$tmp" "$MSG_FILE"
+exit 0

@@ -1,0 +1,3 @@
+-- geek_seo tables are created by EF Core migration InitialSeoSchema (GeekRepository startup).
+-- If this database previously ran 0004 with "DROP SCHEMA geek_seo", restart GeekRepository
+-- so ApplySeoMigrationsAsync can recreate the schema. No SQL steps required here.
