@@ -1,0 +1,17 @@
+---
+description: Never add AI tool attribution to git commits or PRs
+alwaysApply: true
+---
+
+# No AI attribution in version control
+
+When creating commits or pull requests for this repository:
+
+- Do **not** add `Co-authored-by` lines naming Cursor, Claude, Anthropic, Copilot, or any AI product.
+- Do **not** add `Made-with: Cursor` or other commit trailers.
+- Do **not** pass `--trailer` to `git commit`.
+- Use plain commit messages; human author only.
+
+If attribution was added, amend the commit to remove those lines before finishing.
+
+Do **not** commit `.claude/`, agent transcripts, `skills-lock.json`, or root `CLAUDE.md` — see `.gitignore`.

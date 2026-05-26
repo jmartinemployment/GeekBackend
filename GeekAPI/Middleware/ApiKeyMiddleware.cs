@@ -34,6 +34,19 @@ public class ApiKeyMiddleware
             return;
         }
 
+        if (normalizedPath.StartsWith("/api/seo/internal", StringComparison.OrdinalIgnoreCase))
+        {
+            if (TryAuthenticateSeoInternal(context))
+            {
+                await _next(context);
+                return;
+            }
+
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { success = false, error = "Authentication required for SEO internal API." });
+            return;
+        }
+
         if (!context.Request.Headers.TryGetValue(ApiKeyHeader, out var extractedApiKey))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -60,6 +73,31 @@ public class ApiKeyMiddleware
         }
 
         await _next(context);
+    }
+
+    private static bool TryAuthenticateSeoInternal(HttpContext context)
+    {
+        if (!context.Request.Headers.TryGetValue(ApiKeyHeader, out var extractedApiKey))
+            return false;
+
+        var apiKey = Environment.GetEnvironmentVariable("GEEK_BACKEND_API_KEY");
+        if (apiKey is null || apiKey != extractedApiKey.ToString())
+            return false;
+
+        ApplyUserFromHeaders(context);
+        return true;
+    }
+
+    private static void ApplyUserFromHeaders(HttpContext context)
+    {
+        if (context.Request.Headers.TryGetValue("X-Geek-User-Id", out var userIdHeader)
+            && Guid.TryParse(userIdHeader, out var userId))
+        {
+            var identity = new ClaimsIdentity("SeoInternal");
+            identity.AddClaim(new Claim("sub", userId.ToString()));
+            identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId.ToString()));
+            context.User = new ClaimsPrincipal(identity);
+        }
     }
 
     // Trims trailing slashes so /favicon.ico/ matches /favicon.ico in PublicPaths.

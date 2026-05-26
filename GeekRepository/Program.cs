@@ -26,6 +26,17 @@ builder.Services.AddDbContext<AppDbContext>(options => options
     .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+var seoConnectionString = NormalizeConnectionString(
+    Environment.GetEnvironmentVariable("GEEK_SEO_DATABASE_URL") ?? rawDatabaseUrl ?? string.Empty);
+
+builder.Services.AddDbContext<SeoDbContext>(options => options
+    .UseNpgsql(seoConnectionString, npgsql =>
+        npgsql.MigrationsHistoryTable(
+            SeoDbContextOptionsExtensions.MigrationsHistoryTableName,
+            SeoDbContextOptionsExtensions.SchemaName))
+    .UseSnakeCaseNamingConvention()
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddHostedService<SqlMigrationRunner>();
@@ -33,6 +44,7 @@ builder.Services.AddHostedService<SqlMigrationRunner>();
 var app = builder.Build();
 
 await ApplyPendingMigrationsAsync(app, startupLogger);
+await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseGeekRepositoryAuth();
 app.MapControllers()
@@ -48,11 +60,37 @@ static async Task ApplyPendingMigrationsAsync(WebApplication app, ILogger logger
     try
     {
         await db.Database.MigrateAsync();
-        logger.LogInformation("Database migrations applied successfully.");
+        logger.LogInformation("Platform EF migrations applied successfully.");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed applying database migrations. Continuing startup.");
+        logger.LogError(ex, "Failed applying platform EF migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplySeoMigrationsAsync(WebApplication app, ILogger logger)
+{
+    var migrationUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+    if (string.IsNullOrWhiteSpace(migrationUrl))
+    {
+        logger.LogWarning("DATABASE_URL is not set; skipping Geek SEO schema migrations.");
+        return;
+    }
+
+    var optionsBuilder = new DbContextOptionsBuilder<SeoDbContext>();
+    optionsBuilder.UseGeekSeoDatabaseMigrations(NormalizeConnectionString(migrationUrl));
+
+    await using var db = new SeoDbContext(optionsBuilder.Options);
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("Geek SEO (geek_seo) schema migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying Geek SEO migrations.");
+        if (!app.Environment.IsDevelopment())
+            throw;
     }
 }
 
@@ -79,7 +117,7 @@ static string NormalizeConnectionString(string rawValue)
             Port = databaseUri.Port > 0 ? databaseUri.Port : 5432,
             Username = username,
             Password = password,
-            Database = database
+            Database = database,
         };
         if (!string.IsNullOrWhiteSpace(sslMode) && Enum.TryParse<SslMode>(sslMode, true, out var parsedMode))
             connBuilder.SslMode = parsedMode;
