@@ -26,6 +26,15 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
             : Result<SeoProject>.Success(project);
     }
 
+    public async Task<Result<SeoProject>> GetByIdAsync(Guid projectId, Guid userId, CancellationToken ct = default)
+    {
+        var project = await db.Projects.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, ct);
+        return project is null
+            ? Result<SeoProject>.NotFound("Project not found")
+            : Result<SeoProject>.Success(project);
+    }
+
     public async Task<Result<SeoProject>> CreateAsync(Guid userId, CreateProjectRequest request, CancellationToken ct = default)
     {
         var now = DateTimeOffset.UtcNow;
