@@ -2,7 +2,7 @@
 
 GeekBackend is the **platform data gateway and content/SEO storage layer** for Geek products. It is **not** an authorization server. User login is **GeekOAuth** (`auth.geekatyourspot.com`). This repo ships two HTTP services and one shared contracts library.
 
-**2026-05-30 (platform decoupling):** Legacy **GeekAPI `/api/auth/*`**, **SyncHub**, and **GeekRepository `repo/auth/*`** are **removed** from code. Auth **database tables** may still exist until optional phase O2. GeekAPI now exposes **SEO internal proxy** (`/api/seo/internal/*`), **content** APIs, and health. See Geek-SEO `plan-documents/PLATFORM-DECOUPLING.md`.
+**2026-05-30 (platform decoupling):** Legacy **GeekAPI `/api/auth/*`**, **SyncHub**, and **GeekRepository `repo/auth/*`** are **removed** from code; legacy **auth DB tables** dropped via migration `0006`. GeekAPI exposes **SEO internal proxy** (`/api/seo/internal/*`), **content** APIs, and health. Identity: **GeekOAuth**. See Geek-SEO `plan-documents/PLATFORM-DECOUPLING.md`.
 
 ---
 
