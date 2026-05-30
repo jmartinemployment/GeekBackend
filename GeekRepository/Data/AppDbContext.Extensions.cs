@@ -14,13 +14,6 @@ public partial class AppDbContext
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
-        // Explicitly ignore auth tables — Dapper-only, never EF Core managed
-        modelBuilder.Ignore<Role>();
-        modelBuilder.Ignore<UserRole>();
-        modelBuilder.Ignore<Permission>();
-        modelBuilder.Ignore<RolePermission>();
-        modelBuilder.Ignore<UserClaim>();
-
         modelBuilder.Entity<Department>(entity =>
         {
             entity.ToTable("departments");

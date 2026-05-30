@@ -14,18 +14,6 @@ public static class ServiceRegistration
         services.AddSingleton<IDbConnectionFactory>(
             _ => new NpgsqlConnectionFactory(connectionString));
 
-        services.AddScoped<IUserRepository, UserRepository>();
-        services.AddScoped<IUserSecretsRepository, UserSecretsRepository>();
-        services.AddScoped<IUserClaimsRepository, UserClaimsRepository>();
-        services.AddScoped<IRoleRepository, RoleRepository>();
-        services.AddScoped<IDeviceOauthRepository, DeviceOauthRepository>();
-        services.AddScoped<ITwoFactorRepository, TwoFactorRepository>();
-        services.AddScoped<IDeviceReregistrationRepository, DeviceReregistrationRepository>();
-        services.AddScoped<ISyncRepository, SyncRepository>();
-        services.AddScoped<IAuditRepository, AuditRepository>();
-        services.AddScoped<ISecurityIncidentRepository, SecurityIncidentRepository>();
-        services.AddScoped<IPendingVerificationRepository, PendingVerificationRepository>();
-
         services.AddScoped<ICaseStudyRepository, CaseStudyRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IUseCaseRepository, UseCaseRepository>();
