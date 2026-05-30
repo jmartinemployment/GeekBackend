@@ -1,4 +1,4 @@
-using GeekApplication.Entities.Seo;
+using GeekSeo.Persistence.Entities;
 using GeekApplication.Infrastructure;
 using GeekApplication.Interfaces.Seo;
 using GeekApplication.Models.Seo;

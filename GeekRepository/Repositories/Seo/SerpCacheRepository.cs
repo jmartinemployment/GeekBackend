@@ -1,9 +1,9 @@
 using System.Text.Json;
-using GeekApplication.Entities.Seo;
+using GeekSeo.Persistence.Entities;
 using GeekApplication.Interfaces.Seo;
 using GeekApplication.Models.Seo;
 using GeekApplication.Results;
-using GeekRepository.Data;
+using GeekSeo.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Repositories.Seo;

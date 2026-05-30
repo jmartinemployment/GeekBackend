@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GeekApplication\GeekApplication.csproj" />
+    <ProjectReference Include="..\..\Geek-SEO\GeekSeo.Persistence\GeekSeo.Persistence.csproj" />
   </ItemGroup>
 
   <ItemGroup>
