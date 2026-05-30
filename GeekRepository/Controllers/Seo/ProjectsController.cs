@@ -1,5 +1,5 @@
-using GeekApplication.Interfaces.Seo;
-using GeekApplication.Models.Seo;
+using GeekSeo.Application.Interfaces.Seo;
+using GeekSeo.Application.Models.Seo;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekRepository.Controllers.Seo;
