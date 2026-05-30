@@ -230,125 +230,49 @@ TEST_DATABASE_URL="postgresql://..." dotnet test GEEKBACKEND.slnx
 }
 ```
 
-## Security Notes
+## Security (current)
 
-### Passwords
-
-- **Algorithm:** BCrypt, work factor 12
-- **Minimum:** 12 chars (1 upper, 1 lower, 1 digit, 1 symbol)
-- **History:** Last 10 hashes stored (no reuse)
-- **Validation:** Constant-time comparison (prevent timing attacks)
-
-### Device Challenge-Response
-
-- **Server:** Issues 60-second nonce
-- **Client:** Signs nonce with device private key (RSA-2048)
-- **Verification:** Compare against stored public key (immutable per device)
-- **Use case:** Proves device possession; prevents device impersonation
-
-### Tokens
-
-- **Access token:** 15-minute TTL, JWT
-- **Refresh token:** 30-day TTL, opaque, rotated on use
-- **jti (JWT ID):** Unique per token; replay detection via blacklist (PostgreSQL now; Redis later)
-
-### Audit Trail
-
-- **Append-only:** audit_log table, immutable
-- **Events:** Authentication, 2FA, authorization, device mgmt, token, password, administrative
-- **Retention:** 12 months rolling; security_incidents preserved indefinitely
-- **User-facing:** Users can view their own audit log via `/api/audit/me`
+- **Identity:** GeekOAuth — passwords, TOTP, and tokens are not stored in GeekBackend Postgres.
+- **GeekAPI / GeekRepository:** `X-API-Key` / `REPO_API_KEY` for machine access; SEO internal proxy requires user id headers from GeekSeoBackend.
+- **Legacy paths:** `/api/auth/*`, `/repo/auth/*` return **410 Gone**.
 
 ## Development
 
-### Adding a New Repository
+### SEO schema (`geek_seo`)
 
-1. Create interface in `GeekApplication/Interfaces/I{Entity}Repository.cs`:
-   ```csharp
-   public interface IUserRepository
-   {
-       Task<Result<User>> FindByIdAsync(Guid userId);
-       Task<Result<User>> FindByEmailAsync(string email);
-       Task<Result<User>> CreateAsync(UserRequest request);
-   }
-   ```
-
-2. Implement in `GeekRepository/Repositories/{Entity}Repository.cs` (Dapper for auth, EF for content)
-
-3. Register in `GeekRepository/ServiceCollectionExtensions.cs`:
-   ```csharp
-   services.AddScoped<IUserRepository, UserRepository>();
-   ```
-
-4. Inject into service (not controller):
-   ```csharp
-   public class UserService(IUserRepository repo) { ... }
-   ```
-
-### Adding a New Entity
-
-1. Define in `GeekApplication/Entities/{Entity}.cs`
-2. If auth table: create Dapper repository
-3. If content table: add DbSet to AppDbContext + migration
-4. Add to Serilog audit schema if audit-relevant
-
-### Running Migrations
+Owned by **GeekSeo.Persistence** in the Geek-SEO repo:
 
 ```bash
-# Create migration
-dotnet ef migrations add AddUserTwoFactorSecret \
-  --project GeekRepository \
-  --startup-project GeekAPI \
-  --output-dir Migrations
-
-# Apply locally
-dotnet ef database update --project GeekRepository --startup-project GeekAPI
-
-# Generate SQL script (for production deploy)
-dotnet ef migrations script > migrations.sql
+cd Geek-SEO
+dotnet ef migrations add MigrationName --project GeekSeo.Persistence
+dotnet ef database update --project GeekSeo.Persistence
 ```
+
+GeekRepository applies EF migrations at startup; SQL files in `GeekRepository/Migrations/Sql/` run via `SqlMigrationRunner`.
+
+### Platform content (`AppDbContext`)
+
+```bash
+cd GeekBackend
+dotnet ef migrations add MigrationName --project GeekRepository --startup-project GeekRepository
+dotnet ef database update --project GeekRepository --startup-project GeekRepository
+```
+
+### Adding a SEO internal route
+
+1. Controller under `GeekRepository/Controllers/Seo/` with route `repo/seo/...`
+2. GeekAPI exposes it automatically via `SeoInternalProxyController` at `/api/seo/internal/...`
+3. GeekSeoBackend calls the proxy via `GeekDataGateway` HTTP client
 
 ## Testing
 
-### Unit Tests (Repository Layer)
-
-```csharp
-[Fact]
-public async Task CreateAsync_WithValidUser_ReturnsSuccess()
-{
-    var request = new CreateUserRequest { Email = "test@geek.local", Password = "..." };
-    var result = await _userRepository.CreateAsync(request);
-    
-    Assert.True(result.IsSuccess);
-    Assert.NotNull(result.Data);
-}
+```bash
+cd GeekBackend
+dotnet build GEEKBACKEND.slnx
+dotnet test GEEKBACKEND.slnx
 ```
 
-### Integration Tests (API Layer)
-
-```csharp
-[Fact]
-public async Task Post_Register_WithValidPayload_Returns201()
-{
-    var payload = new { email = "test@geek.local", password = "..." };
-    var response = await _client.PostAsJsonAsync("/api/auth/register", payload);
-    
-    Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-}
-```
-
-### Security Test Checklist
-
-- [ ] Passwords stored as BCrypt hashes (never plaintext)
-- [ ] PKCE code_challenge validated before token exchange
-- [ ] 2FA required for new devices (if enabled)
-- [ ] Device fingerprint mismatch rejects authentication
-- [ ] Rate limiting prevents brute force (login, token endpoint)
-- [ ] Audit log captures all auth events
-- [ ] Refresh token rotation invalidates old token
-- [ ] jti blacklist prevents replay attacks
-- [ ] WebSocket auth validates device fingerprint per message
-- [ ] CORS restricts origin to approved domains only
+Auth integration tests were removed with M4–M6. Add new tests against content or SEO internal routes as needed.
 
 ## Deployment
 
