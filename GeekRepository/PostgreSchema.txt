@@ -1,20 +1,27 @@
-# Platform auth tables (Dapper-managed; applied via Migrations/Sql/*.sql)
+# PostgreSQL schema (GeekRepository shared instance)
 
-Core tables used by GeekBackend today:
+## Content tables (EF Core / AppDbContext)
 
-- users, user_secrets, user_claims
-- devices_oauth (device registration and challenge-response; not OAuth protocol storage)
-- two_factor_pending_sessions, two_factor_trusted_devices
-- sync_queue, sync_conflicts, websocket_sessions
-- audit_log, security_incidents, device_reregistration_requests
-- rbac_* (roles, permissions) as present in database
+- departments, case_studies, case_study_metrics, case_study_actors, case_study_event_flow_steps, use_cases
 
-Removed by migration 0004_drop_oauth_openiddict_and_adapter_storage.sql:
+## Product SEO (EF — GeekSeo.Persistence)
 
-- openiddict_applications, openiddict_scopes, openiddict_authorizations, openiddict_tokens
-- jti_blacklist, oidc_storage
-- geek_auth.OAuthClient, geek_auth.OAuthToken, geek_auth.OidcStorage
-- auth.oauth_clients, auth.oauth_client_states
-- schema geek_seo (product schema; see Geek-SEO repo)
+- Schema `geek_seo` — owned by Geek-SEO repo; applied at GeekRepository startup via `SeoDbContext`
 
-Content tables (EF Core / AppDbContext): departments, case_studies, use_cases, etc.
+## Legacy platform auth (Dapper) — DROPPED
+
+Migration `0006_drop_legacy_platform_auth.sql` removes public tables: users, user_secrets, user_claims,
+devices_oauth, two_factor_*, sync_*, audit_log, security_incidents, device_reregistration_requests,
+pending_verifications, device_registration_codes, roles, permissions, user_roles, role_permissions,
+websocket_sessions.
+
+Identity for Geek products: **GeekOAuth** (`asp_net_users` in geek_oauth database).
+
+## Already removed (0004)
+
+OpenIddict issuer tables, jti_blacklist, oidc_storage, geek_auth adapter PascalCase tables.
+
+## Do not drop via GeekRepository
+
+- auth.oauth_clients, auth.sessions (Supabase Auth — dashboard only)
+- schema_migrations (SQL runner bookkeeping)

@@ -7,7 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Geek-SEO\GeekSeo.Persistence\GeekSeo.Persistence.csproj" />
     <ProjectReference Include="..\..\Geek-SEO\GeekSeo.Application\GeekSeo.Application.csproj" />
   </ItemGroup>
 
