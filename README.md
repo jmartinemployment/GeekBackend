@@ -139,48 +139,17 @@ GeekBackend.sln
 
 ## Key Concepts
 
-### Data Access Split
+### Data access (current)
 
-**Dapper (Auth tables):**
-- `users`, `devices_oauth`, `rbac_*`, `audit_log`, sync tables
-- Atomic operations, direct SQL, race-condition safe
-- Repositories: `UserRepository`, `DeviceOauthRepository`, `OidcStorageRepository`, etc.
+**EF Core — product SEO (`geek_seo`):** Owned by **GeekSeo.Persistence** in the Geek-SEO repo; applied at GeekRepository startup via `SeoDbContext`.
 
-**EF Core (Content tables):**
-- `departments`, `case_studies`, `use_cases`, related lookup tables
-- Relational navigation, migrations, change tracking
-- Repositories: `DepartmentRepository`, `CaseStudyRepository`, `UseCaseRepository`
+**EF Core — platform content:** `departments`, `case_studies`, `use_cases` via `AppDbContext`.
 
-### Device Fingerprinting
+**Legacy Dapper auth tables:** Dropped by SQL migration `0006_drop_legacy_platform_auth.sql` (May 2026). Login and devices live in **GeekOAuth** (`geek_oauth` / `asp_net_users`), not this Postgres instance.
 
-Composite unique identifier per user+device:
-```
-fingerprint = SHA-256(machineId || biosUuid_or_empty || platform)
-```
+### Identity
 
-Immutable. Used for device authentication challenge-response and multi-device policy enforcement.
-
-### Multi-Device Policy
-
-- **allow_multiple_devices:** boolean flag per user
-- **max_devices:** default 5 per user
-- **Single-device mode:** Registering new device revokes ALL existing devices; requires re-login on all other devices
-- **Limit exceeded:** HTTP 409 Conflict; user must revoke another device or request limit increase
-
-### TOTP 2FA
-
-- **Setup:** QR code + recovery codes (10 BCrypt hashes, single-use)
-- **Login:** 6-digit TOTP code verified via `/api/auth/2fa/*` (external issuer integrates)
-- **Trusted devices:** 30-day window per device (configurable); skip 2FA within window
-- **Account lockout:** 5 failed attempts → 24-hour lockout
-
-### Real-Time Sync (SignalR)
-
-- **Scope:** Identity/session state only (user profile, device presence, 2FA status)
-- **Not a general-purpose queue:** Dedicated sync service for auth state
-- **Conflict resolution:** Last-write-wins via `updated_at` timestamp
-- **Offline queue:** Delivery with priority ordering; 24-hour TTL
-- **Authentication:** Bearer token + device fingerprint validation
+Use **GeekOAuth** for OIDC/OAuth 2.1, PKCE, and JWT issuance. GeekAPI and GeekRepository expose **410 Gone** on retired `/api/auth/*` and `/repo/auth/*` paths.
 
 ## Configuration
 
