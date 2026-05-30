@@ -132,13 +132,10 @@ GeekBackend.sln
 | **Entities & Repos** | ✅ Complete | — | — |
 | **AppDbContext + Migrations** | ✅ Complete | — | — |
 | **DeviceOauth fingerprint** | ✅ Complete | — | — |
-| **User auth storage** | ✅ Implemented | GeekAPI + GeekRepository | `/api/auth/users/*` |
-| **TOTP 2FA (setup/verify)** | ✅ Implemented | GeekAPI | `/api/auth/2fa/*` |
-| **Device challenge-response** | ✅ Implemented | GeekRepository | ECDSA challenge/verify |
-| **Multi-device policy enforcement** | ✅ Implemented | GeekApplication | `DevicePolicy` + repo |
-| **Real-time SignalR sync** | ✅ Implemented | GeekAPI | `/hubs/sync` |
-| **Security hardening** | ✅ Implemented | GeekAPI | Headers, rate limits, CORS, API key |
-| **Platform authorization server** | ⏳ External | Separate .NET service | `auth.geekatyourspot.com` (planned) |
+| **Legacy `/api/auth/*` + SyncHub** | ❌ Retired (410) | — | Use **GeekOAuth**; removed from code May 2026 |
+| **Geek SEO internal proxy** | ✅ Implemented | GeekAPI | `/api/seo/internal/*` |
+| **Security hardening** | ✅ Implemented | GeekAPI | Headers, CORS, API key |
+| **Platform authorization server** | ✅ External | **GeekOAuth** | `auth.geekatyourspot.com` |
 
 ## Key Concepts
 

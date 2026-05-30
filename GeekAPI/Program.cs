@@ -63,6 +63,7 @@ if (app.Environment.IsProduction())
     app.UseHttpsRedirection();
 
 app.UseCors();
+app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
 
