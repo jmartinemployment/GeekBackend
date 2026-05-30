@@ -388,6 +388,15 @@ public async Task Post_Register_WithValidPayload_Returns201()
 
 ### Railway
 
+**Two Railway projects** from this repo (do not share one root `railway.toml`):
+
+| Service | Dockerfile | Config-as-code |
+|---------|------------|----------------|
+| **GeekAPI** | `./Dockerfile` | none (default) |
+| **GeekRepository** | `./Dockerfile.repository` | `railway.geekrepository.toml` (set path in service settings) |
+
+GeekRepository clones **Geek-SEO** at the SHA in `Geek-SEO.commit`.
+
 1. **Create PostgreSQL:** Railway Marketplace > PostgreSQL 16
 2. **Create service:** Railway Marketplace > .NET Runtime
 3. **Connect:** Link PostgreSQL to service; Railway auto-injects `DATABASE_URL`
