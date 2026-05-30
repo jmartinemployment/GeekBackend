@@ -1,6 +1,7 @@
 using DotNetEnv;
 using GeekRepository;
 using EFCore.NamingConventions;
+using GeekSeo.Persistence.Data;
 using GeekRepository.Data;
 using GeekRepository.Auth;
 using GeekRepository.Extensions;

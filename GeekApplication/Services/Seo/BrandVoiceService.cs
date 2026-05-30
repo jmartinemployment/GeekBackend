@@ -1,6 +1,7 @@
 using GeekApplication.Interfaces.Seo;
 using GeekApplication.Models.Seo;
 using GeekApplication.Results;
+using GeekSeo.Persistence.Entities;
 
 namespace GeekApplication.Services.Seo;
 
@@ -45,7 +46,7 @@ public sealed class BrandVoiceService(IBrandVoiceRepository repo) : IBrandVoiceS
     public async Task<Result> DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)
         => await repo.DeleteAsync(userId, id, ct);
 
-    private static BrandVoiceDto ToDto(Entities.Seo.SeoBrandVoice v) => new()
+    private static BrandVoiceDto ToDto(SeoBrandVoice v) => new()
     {
         Id = v.Id,
         Name = v.Name,

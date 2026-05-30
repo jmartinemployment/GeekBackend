@@ -1,5 +1,5 @@
-using GeekApplication.Entities.Seo;
-using GeekRepository.Data;
+using GeekSeo.Persistence.Entities;
+using GeekSeo.Persistence.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 

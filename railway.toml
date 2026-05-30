@@ -1,2 +1,8 @@
+# GeekRepository service — build via Dockerfile.repository (clones Geek-SEO at Geek-SEO.commit).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.repository"
+
 [deploy]
 restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
