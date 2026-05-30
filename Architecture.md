@@ -77,30 +77,30 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 
 ## GeekAPI (today)
 
-**Purpose:** Platform API gateway and **auth-storage façade** for the external authorization server.
+**Purpose:** Platform API **gateway** — SEO internal proxy, public content reads, health. **Not** an authorization server; **not** legacy auth storage (retired May 2026).
 
 | Surface | Auth | Notes |
 |---------|------|--------|
+| `/api/seo/internal/*` | `X-API-Key` + optional user headers | Proxies to `repo/seo/*` on GeekRepository |
 | `/api/case-studies`, `/api/departments`, `/api/use-cases` | Public read | Marketing/content |
-| `/api/auth/*` | `X-API-Key` (`GEEK_BACKEND_API_KEY`) | User/device/2FA/OIDC-storage; optional `X-Geek-User-Id` for user-scoped routes |
-| `/hubs/sync` | Open (connection hardening TBD) | Session sync hub |
+| `/api/auth/*`, `/hubs/sync` | — | **410 Gone** (use GeekOAuth) |
 
-**Outbound:** `HttpClient` named `GeekRepository` → `REPO_URL`, authenticated for service-to-service calls (see below).
+**Outbound:** `HttpClient` `GeekRepository` → `REPO_URL` with `REPO_API_KEY` (interim; JWT S2S is target).
 
-**Does not:** Host login pages, token endpoints, or product-specific domains (e.g. SEO).
+**Does not:** Issue tokens, host login UI, or run Geek SEO product logic.
 
 ---
 
 ## GeekRepository (today)
 
-**Purpose:** Single data plane for platform auth tables and shared content tables.
+**Purpose:** Data plane for **`geek_seo`** (product schema) and **shared content** tables. No legacy platform auth tables after migration `0006`.
 
 | Access style | Tables | Tooling |
 |--------------|--------|---------|
-| Dapper | `users`, `devices_oauth`, `rbac_*`, `audit_log`, sync tables, … | Atomic SQL, race-safe auth writes |
-| EF Core | `departments`, `case_studies`, `use_cases`, … | Migrations via `AppDbContext` |
+| EF (`SeoDbContext`) | `geek_seo.*` | Migrations from **GeekSeo.Persistence** (Geek-SEO repo) |
+| EF (`AppDbContext`) | `departments`, `case_studies`, `use_cases`, … | Platform content migrations |
 
-Every controller is protected by the **InternalService** policy: authenticated caller must present the `internal.api` scope (see service-to-service auth).
+Controllers use **InternalService** policy (`REPO_API_KEY` / `internal.api` scope).
 
 ---
 
@@ -138,24 +138,18 @@ GeekAPI obtains a machine token from auth, attaches `Authorization: Bearer`, and
 
 ---
 
-## External authorization server (future in platform)
+## External authorization server (GeekOAuth)
 
-Lives **outside** this repository (`.NET`, not Node). Responsibilities:
+Lives **outside** this repository (`GeekOAuth` repo). Responsibilities:
 
-- OIDC/OAuth 2.1 for all Geek apps (desktop PKCE, confidential web, machine clients)
-- User login, consent, token issuance, JWKS
-- **Adapter** to GeekAPI for persistence: users, passwords, TOTP secrets, devices, OIDC storage rows — via `GEEK_BACKEND_API_KEY`, not direct database access
+- OIDC/OAuth 2.1 for Geek apps (PKCE public clients, M2M `geekapi`, etc.)
+- User credentials in **geek_oauth** database (`asp_net_users`) — **not** platform `public.users`
 
-GeekAPI remains the **only** path to GeekRepository for those tables.
+GeekBackend **does not** store or expose login APIs after M4–M6/O2.
 
 ---
 
 ## Data boundaries
-
-### Auth storage (GeekAPI + GeekRepository)
-
-- Registration, credentials, TOTP, devices (`devices_oauth`), audit, sync queue
-- Consumed by authorization server adapter and internal platform tools — not by arbitrary product backends without `GEEK_BACKEND_API_KEY`
 
 ### Content (GeekAPI + GeekRepository)
 
@@ -170,31 +164,6 @@ GeekAPI remains the **only** path to GeekRepository for those tables.
 
 - Geek SEO product logic (providers, workers, `/api/seo` routes) — **Geek-SEO / GeekSeoBackend**
 - Per-product business tables (restaurant, CRM, etc.) — respective product backends
-
----
-
-## Multi-device and device trust
-
-- **Fingerprint:** `SHA-256(machineId || biosUuid_or_empty || platform)` per user+device (immutable)
-- **Policy:** `allow_multiple_devices`, `max_devices` (default 5); single-device mode revokes siblings
-- **Challenge-response:** ECDSA on `devices_oauth` via GeekRepository; exposed through GeekAPI `/api/auth/devices/*`
-
----
-
-## TOTP 2FA
-
-- Setup/verify/recovery via `/api/auth/2fa/*` (GeekAPI → repository)
-- RFC 6238; recovery codes stored hashed (BCrypt)
-- External authorization server invokes these routes during login; issuer name for QR may use a configurable display host (not necessarily api hostname)
-
----
-
-## Real-time sync (SignalR)
-
-- Hub: `/hubs/sync` on GeekAPI
-- Scope: identity/session state (profile, device presence) — **not** general app event bus
-- Conflict model: last-write-wins on `updated_at`
-- **Future:** hub connections authenticated with user access tokens from auth (not API keys)
 
 ---
 
