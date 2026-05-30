@@ -47,6 +47,7 @@ var app = builder.Build();
 await ApplyPendingMigrationsAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
+app.UseMiddleware<GeekRepository.Middleware.LegacyAuthRetiredMiddleware>();
 app.UseGeekRepositoryAuth();
 app.MapControllers()
     .RequireAuthorization(RepositoryAuthConstants.InternalServicePolicy);

@@ -1,30 +1,36 @@
-# GeekAPI — platform API gateway
+# GeekAPI
 
-GeekAPI is the **platform API gateway** for Geek apps. It exposes auth storage APIs (`/api/auth/*`), public content APIs, and SignalR sync. It does **not** host an authorization server.
+GeekAPI is the **platform API gateway** for Geek apps. It proxies **Geek SEO** data to GeekRepository (`/api/seo/internal/*`), exposes **public content** APIs, and health checks. It does **not** host login or legacy `/api/auth/*` (retired May 2026 — use **GeekOAuth**).
 
-Persistence goes to **GeekRepository** over HTTP (`REPO_URL`). See [Architecture.md](../Architecture.md) for S2S auth: **target = short-lived JWT** (`geekapi` + `internal.api`); **`REPO_API_KEY` is interim/dev only**, not production security.
+## Routes (current)
 
-Trusted callers use `X-API-Key` (`GEEK_BACKEND_API_KEY`); auth routes may also send `X-Geek-User-Id` for user-scoped operations.
+| Area | Path |
+|------|------|
+| SEO data pipe | `/api/seo/internal/*` → `repo/seo/*` on GeekRepository |
+| Content (public read) | `/api/case-studies`, `/api/departments`, `/api/use-cases` |
+| Health | `/health`, `/hello` |
 
-## Key routes
+## Retired (410 Gone)
 
-| Area | Path prefix |
+| Area | Former path |
 |------|-------------|
 | Auth storage | `/api/auth/*` |
-| SEO data gateway | `/api/seo/internal/*` → GeekRepository `repo/seo/*` (`GEEK_BACKEND_API_KEY`) |
-| Content | `/api/case-studies`, `/api/departments`, `/api/use-cases` |
-| Sync | `/hubs/sync` |
+| SignalR sync | `/hubs/sync` |
 
 ## Environment
 
 | Variable | Purpose |
 |----------|---------|
 | `REPO_URL` | GeekRepository base URL |
-| `GEEK_BACKEND_API_KEY` | `X-API-Key` for inbound API calls |
+| `REPO_API_KEY` | Machine auth to repository |
+| `GEEK_BACKEND_API_KEY` | Client API key + SEO internal proxy |
 | `CORS_ORIGINS` | Allowed browser origins |
 | `PORT` | Listen port (default 8080) |
-| `REPO_API_KEY` | **Interim only** — local/CI; remove when JWT S2S is wired |
 
-## Session notes
+## Build / run
 
-**May 24, 2026:** Removed OpenIddict issuer and Geek SEO product surface from GeekAPI. Platform tokens belong on external auth at `auth.geekatyourspot.com`. Repo access must move off shared `REPO_API_KEY` to client-credentials JWT.
+```bash
+dotnet run --project GeekAPI
+```
+
+**Railway:** `./Dockerfile` (not `Dockerfile.repository`).
