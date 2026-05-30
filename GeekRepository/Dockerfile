@@ -15,10 +15,10 @@ RUN set -eu; \
     git fetch --depth 1 origin "${REF}"; \
     git checkout FETCH_HEAD; \
     test -f GeekSeo.Persistence/GeekSeo.Persistence.csproj
-COPY GeekApplication/ GeekApplication/
-COPY GeekRepository/ GeekRepository/
-RUN dotnet restore GeekRepository/GeekRepository.csproj \
-    && dotnet publish GeekRepository/GeekRepository.csproj \
+COPY GeekApplication/ GeekBackend/GeekApplication/
+COPY GeekRepository/ GeekBackend/GeekRepository/
+RUN dotnet restore GeekBackend/GeekRepository/GeekRepository.csproj \
+    && dotnet publish GeekBackend/GeekRepository/GeekRepository.csproj \
         -c Release \
         -r linux-x64 \
         --self-contained true \
