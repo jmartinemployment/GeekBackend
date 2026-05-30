@@ -27,8 +27,7 @@ public class ApiKeyMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var normalizedPath = NormalizePath(context.Request.Path.Value);
-        if (PublicPaths.Contains(normalizedPath)
-            || normalizedPath.StartsWith("/hubs/sync", StringComparison.OrdinalIgnoreCase))
+        if (PublicPaths.Contains(normalizedPath))
         {
             await _next(context);
             return;
