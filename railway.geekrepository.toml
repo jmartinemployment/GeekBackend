@@ -1,0 +1,9 @@
+# GeekRepository Railway project only — set Config-as-code path to this file in service settings.
+# Do not use as repo-root railway.toml (GeekAPI must build with ./Dockerfile).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.repository"
+
+[deploy]
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
