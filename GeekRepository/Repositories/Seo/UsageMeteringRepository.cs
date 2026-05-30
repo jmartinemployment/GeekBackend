@@ -1,6 +1,6 @@
 using GeekSeo.Persistence.Entities;
-using GeekApplication.Interfaces.Seo;
-using GeekApplication.Results;
+using GeekSeo.Application.Interfaces.Seo;
+using GeekSeo.Application.Results;
 using GeekSeo.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 

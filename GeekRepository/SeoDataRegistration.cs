@@ -1,5 +1,5 @@
-using GeekApplication.Interfaces.Seo;
-using GeekApplication.Services.Seo;
+using GeekSeo.Application.Interfaces.Seo;
+using GeekSeo.Application.Services.Seo;
 using GeekRepository.Repositories.Seo;
 using Microsoft.Extensions.DependencyInjection;
 

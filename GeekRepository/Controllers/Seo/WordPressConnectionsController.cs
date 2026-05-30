@@ -1,5 +1,5 @@
 using GeekSeo.Persistence.Entities;
-using GeekApplication.Interfaces.Seo;
+using GeekSeo.Application.Interfaces.Seo;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekRepository.Controllers.Seo;
