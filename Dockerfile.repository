@@ -19,7 +19,7 @@ RUN set -eu; \
     cd Geek-SEO; \
     git fetch --depth 1 origin "${REF}"; \
     git checkout FETCH_HEAD; \
-    test -f GeekSeo.Persistence/GeekSeo.Persistence.csproj
+    test -f GeekSeo.Persistence/GeekSeo.Persistence.csproj && test -f GeekSeo.Application/GeekSeo.Application.csproj
 # Mirror local monorepo: sibling Geek-SEO + GeekBackend/* so ../../Geek-SEO resolves in csproj.
 COPY GeekApplication/ GeekBackend/GeekApplication/
 COPY GeekRepository/ GeekBackend/GeekRepository/
