@@ -1,6 +1,8 @@
 # GeekBackend Architecture
 
-GeekBackend is the **platform data and auth-storage layer** for all Geek products. It is **not** an authorization server. Tokens for users and apps are issued by a separate **.NET authorization server** (`auth.geekatyourspot.com`). This repo ships two HTTP services and one shared contracts library.
+GeekBackend is the **platform data gateway and content/SEO storage layer** for Geek products. It is **not** an authorization server. User login is **GeekOAuth** (`auth.geekatyourspot.com`). This repo ships two HTTP services and one shared contracts library.
+
+**2026-05-30 (platform decoupling):** Legacy **GeekAPI `/api/auth/*`**, **SyncHub**, and **GeekRepository `repo/auth/*`** are **removed** from code. Auth **database tables** may still exist until optional phase O2. GeekAPI now exposes **SEO internal proxy** (`/api/seo/internal/*`), **content** APIs, and health. See Geek-SEO `plan-documents/PLATFORM-DECOUPLING.md`.
 
 ---
 
@@ -40,7 +42,7 @@ flowchart LR
 | Role (OAuth vocabulary) | Deployment | Responsibility |
 |-------------------------|------------|----------------|
 | **Authorization server** | `auth.geekatyourspot.com` (separate .NET service) | Issue tokens, OIDC discovery, login UI, client registry |
-| **Resource server (platform API)** | GeekAPI | Validate user tokens (future), expose `/api/*`, SignalR sync, proxy auth-storage calls |
+| **Resource server (platform API)** | GeekAPI | API-key gate; `/api/seo/internal/*` proxy to repo; public content reads; no legacy `/api/auth/*` |
 | **Resource server (data)** | GeekRepository | All PostgreSQL reads/writes; no product-facing HTTP except from GeekAPI |
 | **Client** | Each Geek product | OIDC against auth; **never** call GeekRepository directly |
 
