@@ -1,6 +1,5 @@
 using DotNetEnv;
 using GeekRepository;
-using EFCore.NamingConventions;
 using GeekSeo.Persistence.Data;
 using GeekRepository.Data;
 using GeekRepository.Auth;
@@ -35,7 +34,6 @@ builder.Services.AddDbContext<SeoDbContext>(options => options
         npgsql.MigrationsHistoryTable(
             SeoDbContextOptionsExtensions.MigrationsHistoryTableName,
             SeoDbContextOptionsExtensions.SchemaName))
-    .UseSnakeCaseNamingConvention()
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
 builder.Services.AddGeekRepository(connectionString);
