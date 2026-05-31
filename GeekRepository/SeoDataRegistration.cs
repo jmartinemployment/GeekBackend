@@ -23,6 +23,13 @@ public static class SeoDataRegistration
         services.AddScoped<IWordPressConnectionRepository, WordPressConnectionRepository>();
         services.AddScoped<IWordPressPublishRepository, WordPressPublishRepository>();
         services.AddScoped<IBrandVoiceRepository, BrandVoiceRepository>();
+        services.AddScoped<ISiteAuditRepository, SiteAuditRepository>();
+        services.AddScoped<IPlagiarismRepository, PlagiarismRepository>();
+        services.AddScoped<ITopicalMapRepository, TopicalMapRepository>();
+        services.AddScoped<ISerpDeepCacheRepository, SerpDeepCacheRepository>();
+        services.AddScoped<IPublishedPageRepository, PublishedPageRepository>();
+        services.AddScoped<IGeoTrackingRepository, GeoTrackingRepository>();
+        services.AddScoped<IContentGuardRepository, ContentGuardRepository>();
 
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IContentDocumentService, ContentDocumentService>();
