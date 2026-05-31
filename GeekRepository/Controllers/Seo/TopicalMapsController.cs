@@ -16,7 +16,9 @@ public sealed class TopicalMapsController(ITopicalMapRepository maps, IProjectRe
             return owned;
 
         var result = await maps.GetByProjectAsync(projectId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        if (!result.IsSuccess)
+            return BadRequest(result.Error);
+        return result.Value is null ? NotFound() : Ok(result.Value);
     }
 
     [HttpPut("{projectId:guid}")]
