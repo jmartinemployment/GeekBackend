@@ -120,6 +120,30 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
+    public async Task<Result> SaveAnalysisResultsAsync(
+        Guid profileId, NicheAnalysisSaveRequest results, CancellationToken ct = default)
+    {
+        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        if (profile is null)
+            return Result.Failure("Niche profile not found");
+
+        profile.PrimaryNiche = results.PrimaryNiche;
+        profile.NicheDescription = results.NicheDescription;
+        profile.NicheTags = results.NicheTags;
+        profile.AudienceType = results.AudienceType;
+        profile.DiscoveryMethod = results.DiscoveryMethod;
+        profile.TopicalAuthorityScore = results.AuthorityScore;
+        profile.TotalPillarsIdentified = results.TotalPillarsIdentified;
+        profile.PillarsCovered = results.Covered;
+        profile.PillarsPartial = results.Partial;
+        profile.PillarsGap = results.Gap;
+        profile.AnalyzedAt = results.AnalyzedAt;
+        profile.NextAnalysisDue = results.NextAnalysisDue;
+
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
     public async Task<Result> BulkInsertPillarsAsync(
         IEnumerable<NichePillar> pillars, CancellationToken ct = default)
     {
