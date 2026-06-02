@@ -85,6 +85,12 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
         profile.Status = status;
         profile.ErrorMessage = errorMessage;
+        if (step is not null)
+            profile.AnalysisStep = step;
+        if (stepNumber > 0)
+            profile.AnalysisStepNumber = stepNumber;
+        if (totalSteps > 0)
+            profile.AnalysisTotalSteps = totalSteps;
 
         if (status is "complete")
         {
