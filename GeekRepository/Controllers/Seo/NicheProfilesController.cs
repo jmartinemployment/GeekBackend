@@ -19,6 +19,20 @@ public sealed record UpdateNicheScoresRequest(
     int Partial,
     int Gap);
 
+public sealed record SaveNicheAnalysisResultsRequest(
+    string PrimaryNiche,
+    string NicheDescription,
+    string[] NicheTags,
+    string AudienceType,
+    string DiscoveryMethod,
+    decimal AuthorityScore,
+    int TotalPillarsIdentified,
+    int Covered,
+    int Partial,
+    int Gap,
+    DateTimeOffset AnalyzedAt,
+    DateTimeOffset NextAnalysisDue);
+
 [ApiController]
 [Route("repo/seo/niche-profiles")]
 public sealed class NicheProfilesController(
@@ -124,6 +138,32 @@ public sealed class NicheProfilesController(
 
         var result = await profiles.UpdateScoresAsync(
             profileId, body.AuthorityScore, body.Covered, body.Partial, body.Gap, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpPatch("{profileId:guid}/analysis-results")]
+    public async Task<IActionResult> SaveAnalysisResults(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] SaveNicheAnalysisResultsRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.SaveAnalysisResultsAsync(profileId, new NicheAnalysisSaveRequest(
+            body.PrimaryNiche,
+            body.NicheDescription,
+            body.NicheTags,
+            body.AudienceType,
+            body.DiscoveryMethod,
+            body.AuthorityScore,
+            body.TotalPillarsIdentified,
+            body.Covered,
+            body.Partial,
+            body.Gap,
+            body.AnalyzedAt,
+            body.NextAnalysisDue), ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
