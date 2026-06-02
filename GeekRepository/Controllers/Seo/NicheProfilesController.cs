@@ -170,6 +170,15 @@ public sealed class NicheProfilesController(
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpGet("maintenance/queued")]
+    public async Task<IActionResult> ListQueued(
+        [FromQuery] int limit = 3,
+        CancellationToken ct = default)
+    {
+        var result = await profiles.ListQueuedAsync(Math.Clamp(limit, 1, 20), ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
     private async Task<IActionResult?> EnsureProjectAsync(Guid projectId, Guid userId, CancellationToken ct)
     {
         var project = await projects.GetByIdAsync(projectId, userId, ct);
