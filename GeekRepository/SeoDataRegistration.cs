@@ -30,6 +30,7 @@ public static class SeoDataRegistration
         services.AddScoped<ISerpDeepCacheRepository, SerpDeepCacheRepository>();
         services.AddScoped<IPublishedPageRepository, PublishedPageRepository>();
         services.AddScoped<IGeoTrackingRepository, GeoTrackingRepository>();
+        services.AddScoped<IRankTrackingRepository, RankTrackingRepository>();
         services.AddScoped<IContentGuardRepository, ContentGuardRepository>();
         services.AddScoped<INicheProfileRepository, NicheProfileRepository>();
         services.AddScoped<INicheAnalyticsDapperRepository, NicheAnalyticsDapperRepository>();
