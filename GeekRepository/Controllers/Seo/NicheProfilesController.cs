@@ -1,5 +1,6 @@
 using GeekSeo.Application.Interfaces;
 using GeekSeo.Application.Interfaces.Seo;
+using GeekSeo.Application.Models.Seo;
 using GeekSeo.Persistence.Entities;
 using Microsoft.AspNetCore.Mvc;
 
