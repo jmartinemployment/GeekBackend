@@ -80,7 +80,7 @@ public sealed class NicheProfilesController(
         if (owned is not null) return owned;
 
         var result = await analytics.GetAuthorityProgressAsync(projectId, Math.Clamp(months, 1, 36), ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.IsSuccess ? Ok(result.Value) : Ok(Array.Empty<AuthorityProgressPoint>());
     }
 
     [HttpGet("project/{projectId:guid}/history")]
