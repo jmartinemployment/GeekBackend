@@ -1,3 +1,4 @@
+using GeekSeo.Application.Interfaces;
 using GeekSeo.Application.Interfaces.Seo;
 using GeekSeo.Application.Services.Seo;
 using GeekRepository.Repositories.Seo;
@@ -30,6 +31,8 @@ public static class SeoDataRegistration
         services.AddScoped<IPublishedPageRepository, PublishedPageRepository>();
         services.AddScoped<IGeoTrackingRepository, GeoTrackingRepository>();
         services.AddScoped<IContentGuardRepository, ContentGuardRepository>();
+        services.AddScoped<INicheProfileRepository, NicheProfileRepository>();
+        services.AddScoped<INicheAnalyticsDapperRepository, NicheAnalyticsDapperRepository>();
 
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IContentDocumentService, ContentDocumentService>();

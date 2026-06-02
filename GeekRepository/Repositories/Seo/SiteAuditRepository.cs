@@ -21,9 +21,13 @@ public sealed class SiteAuditRepository(SeoDbContext db) : ISiteAuditRepository
         var audit = await db.SiteAudits.AsNoTracking()
             .Include(a => a.Pages)
             .FirstOrDefaultAsync(a => a.Id == auditId, ct);
-        return audit is null
-            ? Result<SeoSiteAudit>.NotFound("Site audit not found")
-            : Result<SeoSiteAudit>.Success(audit);
+        if (audit is null)
+            return Result<SeoSiteAudit>.NotFound("Site audit not found");
+
+        foreach (var page in audit.Pages)
+            page.SiteAudit = null;
+
+        return Result<SeoSiteAudit>.Success(audit);
     }
 
     public async Task<Result<IReadOnlyList<SeoSiteAudit>>> ListByProjectAsync(Guid projectId, CancellationToken ct = default)
