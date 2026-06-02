@@ -53,20 +53,6 @@ public sealed class NicheAnalyticsController(
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
-    [HttpGet("project/{projectId:guid}/progress")]
-    public async Task<IActionResult> GetProgress(
-        Guid projectId,
-        [FromQuery] Guid userId,
-        [FromQuery] int months = 12,
-        CancellationToken ct = default)
-    {
-        var owned = await EnsureProjectAsync(projectId, userId, ct);
-        if (owned is not null) return owned;
-
-        var result = await analytics.GetAuthorityProgressAsync(projectId, Math.Clamp(months, 1, 36), ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
-    }
-
     [HttpGet("{profileId:guid}/competitors")]
     public async Task<IActionResult> GetCompetitors(
         Guid profileId,
