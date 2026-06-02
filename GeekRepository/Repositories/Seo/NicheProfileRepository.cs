@@ -194,4 +194,19 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
         return Result<IReadOnlyList<NicheProfileSummary>>.Success(list);
     }
+
+    public async Task<Result<IReadOnlyList<NicheQueuedJob>>> ListQueuedAsync(
+        int limit, CancellationToken ct = default)
+    {
+        var list = await (
+            from profile in db.NicheProfiles.AsNoTracking()
+            join project in db.Projects.AsNoTracking() on profile.ProjectId equals project.Id
+            where profile.Status == "queued"
+            orderby profile.CreatedAt
+            select new NicheQueuedJob(profile.Id, profile.ProjectId, project.UserId, profile.Domain))
+            .Take(Math.Clamp(limit, 1, 20))
+            .ToListAsync(ct);
+
+        return Result<IReadOnlyList<NicheQueuedJob>>.Success(list);
+    }
 }
