@@ -1,5 +1,6 @@
 using GeekSeo.Application.Interfaces;
 using GeekSeo.Application.Interfaces.Seo;
+using GeekSeo.Application.Mapping;
 using GeekSeo.Application.Models.Seo;
 using GeekSeo.Persistence.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -170,50 +171,55 @@ public sealed class NicheProfilesController(
     [HttpPost("pillars")]
     public async Task<IActionResult> BulkInsertPillars(
         [FromQuery] Guid userId,
-        [FromBody] List<NichePillar> body,
+        [FromBody] List<NichePillarBulkInsert> body,
         CancellationToken ct)
     {
-        var result = await profiles.BulkInsertPillarsAsync(body, ct);
+        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var result = await profiles.BulkInsertPillarsAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
     [HttpPost("subtopics")]
     public async Task<IActionResult> BulkInsertSubtopics(
         [FromQuery] Guid userId,
-        [FromBody] List<NicheSubtopic> body,
+        [FromBody] List<NicheSubtopicBulkInsert> body,
         CancellationToken ct)
     {
-        var result = await profiles.BulkInsertSubtopicsAsync(body, ct);
+        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var result = await profiles.BulkInsertSubtopicsAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
     [HttpPost("competitors")]
     public async Task<IActionResult> BulkInsertCompetitors(
         [FromQuery] Guid userId,
-        [FromBody] List<NicheCompetitor> body,
+        [FromBody] List<NicheCompetitorBulkInsert> body,
         CancellationToken ct)
     {
-        var result = await profiles.BulkInsertCompetitorsAsync(body, ct);
+        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var result = await profiles.BulkInsertCompetitorsAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
     [HttpPost("entities")]
     public async Task<IActionResult> BulkInsertEntities(
         [FromQuery] Guid userId,
-        [FromBody] List<NicheEntity> body,
+        [FromBody] List<NicheEntityBulkInsert> body,
         CancellationToken ct)
     {
-        var result = await profiles.BulkInsertEntitiesAsync(body, ct);
+        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var result = await profiles.BulkInsertEntitiesAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
     [HttpPost("pillar-pages")]
     public async Task<IActionResult> BulkInsertPillarPages(
         [FromQuery] Guid userId,
-        [FromBody] List<NichePillarPage> body,
+        [FromBody] List<NichePillarPageBulkInsert> body,
         CancellationToken ct)
     {
-        var result = await profiles.BulkInsertPillarPagesAsync(body, ct);
+        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var result = await profiles.BulkInsertPillarPagesAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
