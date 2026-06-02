@@ -22,6 +22,7 @@ public sealed record UpdateNicheScoresRequest(
 [Route("repo/seo/niche-profiles")]
 public sealed class NicheProfilesController(
     INicheProfileRepository profiles,
+    INicheAnalyticsDapperRepository analytics,
     IProjectRepository projects) : ControllerBase
 {
     [HttpPost]
@@ -66,6 +67,20 @@ public sealed class NicheProfilesController(
         return result.IsSuccess
             ? (result.Value is null ? NoContent() : Ok(result.Value))
             : BadRequest(result.Error);
+    }
+
+    [HttpGet("project/{projectId:guid}/progress")]
+    public async Task<IActionResult> GetProgress(
+        Guid projectId,
+        [FromQuery] Guid userId,
+        [FromQuery] int months = 12,
+        CancellationToken ct = default)
+    {
+        var owned = await EnsureProjectAsync(projectId, userId, ct);
+        if (owned is not null) return owned;
+
+        var result = await analytics.GetAuthorityProgressAsync(projectId, Math.Clamp(months, 1, 36), ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
     [HttpGet("project/{projectId:guid}/history")]
