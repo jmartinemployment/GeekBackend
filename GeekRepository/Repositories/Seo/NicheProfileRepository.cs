@@ -21,40 +21,55 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
     public async Task<Result<NicheProfile?>> GetByIdAsync(Guid profileId, CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles
+        var profile = await ProfileWithGraph()
+            .FirstOrDefaultAsync(p => p.Id == profileId, ct);
+
+        ClearNavigationCycles(profile);
+        return Result<NicheProfile?>.Success(profile);
+    }
+
+    public async Task<Result<NicheProfile?>> GetLatestByProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        // Prefer the latest *completed* run so a newer failed/queued re-analyze does not hide pillars.
+        var profile = await ProfileWithGraph()
+            .Where(p => p.ProjectId == projectId && p.Status == "complete")
+            .OrderByDescending(p => p.AnalyzedAt ?? p.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (profile is null)
+        {
+            profile = await ProfileWithGraph()
+                .Where(p => p.ProjectId == projectId)
+                .OrderByDescending(p => p.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        ClearNavigationCycles(profile);
+        return Result<NicheProfile?>.Success(profile);
+    }
+
+    private IQueryable<NicheProfile> ProfileWithGraph() =>
+        db.NicheProfiles
             .AsNoTracking()
             .Include(p => p.Pillars)
                 .ThenInclude(pi => pi.Subtopics)
             .Include(p => p.Pillars)
                 .ThenInclude(pi => pi.ExistingPages)
             .Include(p => p.Competitors)
-            .Include(p => p.Entities)
-            .FirstOrDefaultAsync(p => p.Id == profileId, ct);
+            .Include(p => p.Entities);
 
-        if (profile is not null)
-        {
-            foreach (var pillar in profile.Pillars)
-            {
-                pillar.NicheProfile = null!;
-                foreach (var sub in pillar.Subtopics) sub.Pillar = null!;
-                foreach (var page in pillar.ExistingPages) page.Pillar = null!;
-            }
-            foreach (var c in profile.Competitors) c.NicheProfile = null!;
-            foreach (var e in profile.Entities) e.NicheProfile = null!;
-        }
-
-        return Result<NicheProfile?>.Success(profile);
-    }
-
-    public async Task<Result<NicheProfile?>> GetLatestByProjectAsync(Guid projectId, CancellationToken ct = default)
+    private static void ClearNavigationCycles(NicheProfile? profile)
     {
-        var profile = await db.NicheProfiles
-            .AsNoTracking()
-            .Where(p => p.ProjectId == projectId)
-            .OrderByDescending(p => p.CreatedAt)
-            .FirstOrDefaultAsync(ct);
+        if (profile is null) return;
 
-        return Result<NicheProfile?>.Success(profile);
+        foreach (var pillar in profile.Pillars)
+        {
+            pillar.NicheProfile = null;
+            foreach (var sub in pillar.Subtopics) sub.Pillar = null;
+            foreach (var page in pillar.ExistingPages) page.Pillar = null;
+        }
+        foreach (var c in profile.Competitors) c.NicheProfile = null;
+        foreach (var e in profile.Entities) e.NicheProfile = null;
     }
 
     public async Task<Result<IReadOnlyList<NicheProfileSummary>>> GetHistoryAsync(
