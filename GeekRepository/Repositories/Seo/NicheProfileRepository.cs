@@ -106,6 +106,8 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             profile.AnalysisStepNumber = stepNumber;
         if (totalSteps > 0)
             profile.AnalysisTotalSteps = totalSteps;
+        if (status is "processing" or "queued")
+            profile.AnalysisProgressAt = DateTimeOffset.UtcNow;
 
         if (status is "complete")
         {
@@ -253,5 +255,26 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             .ToListAsync(ct);
 
         return Result<IReadOnlyList<NicheQueuedJob>>.Success(list);
+    }
+
+    public async Task<Result<int>> FailStaleProcessingAsync(TimeSpan maxAge, CancellationToken ct = default)
+    {
+        var cutoff = DateTimeOffset.UtcNow - maxAge;
+        var stale = await db.NicheProfiles
+            .Where(p => p.Status == "processing"
+                && (p.AnalysisProgressAt ?? p.CreatedAt) < cutoff)
+            .ToListAsync(ct);
+
+        foreach (var profile in stale)
+        {
+            profile.Status = "failed";
+            profile.ErrorMessage =
+                "Analysis timed out or was interrupted (often during navigation crawl). Click Re-analyze to run again.";
+        }
+
+        if (stale.Count > 0)
+            await db.SaveChangesAsync(ct);
+
+        return Result<int>.Success(stale.Count);
     }
 }
