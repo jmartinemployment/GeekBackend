@@ -1,4 +1,5 @@
 using GeekSeo.Persistence.Entities;
+using GeekSeo.Application.Infrastructure;
 using GeekSeo.Application.Interfaces.Seo;
 using GeekSeo.Application.Models.Seo;
 using GeekSeo.Application.Results;
@@ -15,35 +16,42 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.UpdatedAt)
             .ToListAsync(ct);
+        foreach (var project in list)
+            await TryPersistUrlNormalizationAsync(project, ct);
         return Result<IReadOnlyList<SeoProject>>.Success(list);
     }
 
     public async Task<Result<SeoProject>> GetByIdAsync(Guid projectId, CancellationToken ct = default)
     {
         var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        return project is null
-            ? Result<SeoProject>.NotFound("Project not found")
-            : Result<SeoProject>.Success(project);
+        if (project is null)
+            return Result<SeoProject>.NotFound("Project not found");
+        await TryPersistUrlNormalizationAsync(project, ct);
+        return Result<SeoProject>.Success(project);
     }
 
     public async Task<Result<SeoProject>> GetByIdAsync(Guid projectId, Guid userId, CancellationToken ct = default)
     {
         var project = await db.Projects.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, ct);
-        return project is null
-            ? Result<SeoProject>.NotFound("Project not found")
-            : Result<SeoProject>.Success(project);
+        if (project is null)
+            return Result<SeoProject>.NotFound("Project not found");
+        await TryPersistUrlNormalizationAsync(project, ct);
+        return Result<SeoProject>.Success(project);
     }
 
     public async Task<Result<SeoProject>> CreateAsync(Guid userId, CreateProjectRequest request, CancellationToken ct = default)
     {
+        if (!SeoSiteUrlNormalizer.TryNormalize(request.Url, out var siteUrl, out var urlError))
+            return Result<SeoProject>.Failure(urlError);
+
         var now = DateTimeOffset.UtcNow;
         var project = new SeoProject
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             Name = request.Name,
-            Url = request.Url,
+            Url = siteUrl,
             DefaultLocation = request.DefaultLocation,
             DefaultLanguage = request.DefaultLanguage,
             CreatedAt = now,
@@ -61,7 +69,12 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
             return Result<SeoProject>.NotFound("Project not found");
 
         if (request.Name is not null) project.Name = request.Name;
-        if (request.Url is not null) project.Url = request.Url;
+        if (request.Url is not null)
+        {
+            if (!SeoSiteUrlNormalizer.TryNormalize(request.Url, out var siteUrl, out var urlError))
+                return Result<SeoProject>.Failure(urlError);
+            project.Url = siteUrl;
+        }
         if (request.DefaultLocation is not null) project.DefaultLocation = request.DefaultLocation;
         if (request.DefaultLanguage is not null) project.DefaultLanguage = request.DefaultLanguage;
         project.UpdatedAt = DateTimeOffset.UtcNow;
@@ -77,5 +90,22 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
         db.Projects.Remove(project);
         await db.SaveChangesAsync(ct);
         return Result.Success();
+    }
+
+    private async Task TryPersistUrlNormalizationAsync(SeoProject project, CancellationToken ct)
+    {
+        if (!SeoSiteUrlNormalizer.TryNormalize(project.Url, out var normalized, out _))
+            return;
+        if (string.Equals(project.Url, normalized, StringComparison.Ordinal))
+            return;
+
+        var tracked = await db.Projects.FirstOrDefaultAsync(p => p.Id == project.Id, ct);
+        if (tracked is null)
+            return;
+
+        tracked.Url = normalized;
+        tracked.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        project.Url = normalized;
     }
 }
