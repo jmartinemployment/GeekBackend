@@ -232,6 +232,16 @@ public sealed class NicheProfilesController(
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpPost("maintenance/fail-stale-processing")]
+    public async Task<IActionResult> FailStaleProcessing(
+        [FromQuery] int maxAgeMinutes = 5,
+        CancellationToken ct = default)
+    {
+        var result = await profiles.FailStaleProcessingAsync(
+            TimeSpan.FromMinutes(Math.Clamp(maxAgeMinutes, 1, 60)), ct);
+        return result.IsSuccess ? Ok(new { failedCount = result.Value }) : BadRequest(result.Error);
+    }
+
     [HttpGet("maintenance/queued")]
     public async Task<IActionResult> ListQueued(
         [FromQuery] int limit = 3,
