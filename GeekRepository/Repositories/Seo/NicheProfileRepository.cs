@@ -92,6 +92,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     public async Task<Result> UpdateStatusAsync(
         Guid profileId, string status, string? step = null,
         int stepNumber = 0, int totalSteps = 0, string? errorMessage = null,
+        NicheAnalysisStepLogEntry? stepLogEntry = null,
         CancellationToken ct = default)
     {
         var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
@@ -108,6 +109,9 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             profile.AnalysisTotalSteps = totalSteps;
         if (status is "processing" or "queued")
             profile.AnalysisProgressAt = DateTimeOffset.UtcNow;
+
+        if (stepLogEntry is not null)
+            profile.AnalysisStepLog = NicheAnalysisStepLogJson.Append(profile.AnalysisStepLog, stepLogEntry);
 
         if (status is "complete")
         {

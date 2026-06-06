@@ -12,7 +12,8 @@ public sealed record UpdateNicheStatusRequest(
     string? Step,
     int StepNumber,
     int TotalSteps,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    NicheAnalysisStepLogEntry? StepLogEntry = null);
 
 public sealed record UpdateNicheScoresRequest(
     decimal AuthorityScore,
@@ -123,7 +124,7 @@ public sealed class NicheProfilesController(
         if (denied is not null) return denied;
 
         var result = await profiles.UpdateStatusAsync(
-            profileId, body.Status, body.Step, body.StepNumber, body.TotalSteps, body.ErrorMessage, ct);
+            profileId, body.Status, body.Step, body.StepNumber, body.TotalSteps, body.ErrorMessage, body.StepLogEntry, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
