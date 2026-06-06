@@ -33,7 +33,8 @@ public sealed record SaveNicheAnalysisResultsRequest(
     int Partial,
     int Gap,
     DateTimeOffset AnalyzedAt,
-    DateTimeOffset NextAnalysisDue);
+    DateTimeOffset NextAnalysisDue,
+    string? FusionSnapshot = null);
 
 [ApiController]
 [Route("repo/seo/niche-profiles")]
@@ -165,7 +166,8 @@ public sealed class NicheProfilesController(
             body.Partial,
             body.Gap,
             body.AnalyzedAt,
-            body.NextAnalysisDue), ct);
+            body.NextAnalysisDue,
+            body.FusionSnapshot), ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
