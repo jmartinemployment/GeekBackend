@@ -160,6 +160,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         profile.PillarsGap = results.Gap;
         profile.AnalyzedAt = results.AnalyzedAt;
         profile.NextAnalysisDue = results.NextAnalysisDue;
+        profile.FusionSnapshot = results.FusionSnapshot;
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
