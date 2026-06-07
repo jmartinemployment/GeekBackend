@@ -1,3 +1,3 @@
 # Pin Geek-SEO for GeekRepository Docker build (GeekSeo.Application + Persistence).
-# Bumped 2026-06-07 — PillarSelector (sul-2.0); removed TopicCorroboration + Gate 1.
-0714badfc40512d52d6fb19986ff5c1f67d7a0ff
+# Bumped 2026-06-07 — raise job timeout to 15 min + stall threshold to 5 min.
+197c14d53b99ab6367413ce66136fe74aa07d256
