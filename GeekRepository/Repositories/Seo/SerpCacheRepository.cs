@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GeekSeo.Application.Configuration;
 using GeekSeo.Persistence.Entities;
 using GeekSeo.Application.Interfaces.Seo;
 using GeekSeo.Application.Models.Seo;
@@ -30,7 +31,7 @@ public sealed class SerpCacheRepository(SeoDbContext db) : ISerpCacheRepository
             s.Keyword == keyword && s.Location == location && s.LanguageCode == languageCode, ct);
 
         var now = DateTimeOffset.UtcNow;
-        var expires = now.AddHours(24);
+        var expires = now.AddDays(VendorPersistenceSettings.SerpRetentionDays);
 
         if (existing is null)
         {
