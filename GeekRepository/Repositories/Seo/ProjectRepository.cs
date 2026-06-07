@@ -54,6 +54,9 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
             Url = siteUrl,
             DefaultLocation = request.DefaultLocation,
             DefaultLanguage = request.DefaultLanguage,
+            BusinessAddress = NormalizeAddress(request.BusinessAddress),
+            ServiceRadiusMiles = LocalServiceAreaDefaults.ClampRadiusMiles(request.ServiceRadiusMiles),
+            LocalSeoEnabled = request.LocalSeoEnabled,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -77,6 +80,12 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
         }
         if (request.DefaultLocation is not null) project.DefaultLocation = request.DefaultLocation;
         if (request.DefaultLanguage is not null) project.DefaultLanguage = request.DefaultLanguage;
+        if (request.BusinessAddress is not null)
+            project.BusinessAddress = NormalizeAddress(request.BusinessAddress);
+        if (request.ServiceRadiusMiles is int radius)
+            project.ServiceRadiusMiles = LocalServiceAreaDefaults.ClampRadiusMiles(radius);
+        if (request.LocalSeoEnabled is bool enabled)
+            project.LocalSeoEnabled = enabled;
         project.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Result<SeoProject>.Success(project);
@@ -107,5 +116,13 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
         tracked.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         project.Url = normalized;
+    }
+
+    private static string? NormalizeAddress(string? address)
+    {
+        if (address is null)
+            return null;
+        var trimmed = address.Trim();
+        return trimmed.Length == 0 ? null : trimmed;
     }
 }
