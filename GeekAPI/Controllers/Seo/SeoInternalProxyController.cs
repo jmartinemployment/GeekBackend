@@ -38,6 +38,9 @@ public sealed class SeoInternalProxyController(IHttpClientFactory httpClientFact
                 request.Content.Headers.TryAddWithoutValidation("Content-Type", Request.ContentType);
         }
 
+        if (Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey))
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey.ToArray());
+
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
         Response.StatusCode = (int)response.StatusCode;
