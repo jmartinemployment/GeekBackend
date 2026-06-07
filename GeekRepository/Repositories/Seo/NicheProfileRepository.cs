@@ -1,9 +1,13 @@
+using System.Data;
+using System.Text.Json;
+using Dapper;
 using GeekSeo.Application.Interfaces;
 using GeekSeo.Application.Models.Seo;
 using GeekSeo.Application.Results;
 using GeekSeo.Persistence.Data;
 using GeekSeo.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GeekRepository.Repositories.Seo;
 
@@ -139,6 +143,209 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
+    }
+
+    public async Task<Result> UpdateProfileSummaryAsync(
+        Guid profileId, NicheProfileSummaryPatch summary, CancellationToken ct = default)
+    {
+        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        if (profile is null)
+            return Result.Failure("Niche profile not found");
+
+        profile.PrimaryNiche = summary.PrimaryNiche;
+        profile.NicheDescription = summary.NicheDescription;
+        profile.NicheTags = summary.NicheTags;
+        profile.AudienceType = summary.AudienceType;
+        profile.TotalPillarsIdentified = summary.TotalPillarsIdentified;
+        profile.AnalyzedAt = summary.AnalyzedAt;
+        profile.NextAnalysisDue = summary.NextAnalysisDue;
+
+        if (summary.ScanFingerprint is not null)
+            profile.ScanFingerprint = summary.ScanFingerprint;
+        if (summary.ScanChangeScore is not null)
+            profile.ScanChangeScore = summary.ScanChangeScore;
+        if (summary.PersistStage is not null)
+            profile.PersistStage = summary.PersistStage;
+        if (summary.StructureStatus is not null)
+            profile.StructureStatus = summary.StructureStatus;
+        if (summary.EnrichmentStatus is not null)
+            profile.EnrichmentStatus = summary.EnrichmentStatus;
+
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    public async Task<Result> SaveFusionSnapshotAsync(
+        Guid profileId, string fusionSnapshotJson, CancellationToken ct = default)
+    {
+        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        if (profile is null)
+            return Result.Failure("Niche profile not found");
+
+        profile.FusionSnapshot = fusionSnapshotJson;
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    public async Task<Result> UpdatePhaseStatusAsync(
+        Guid profileId, NichePhaseStatusPatch patch, CancellationToken ct = default)
+    {
+        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        if (profile is null)
+            return Result.Failure("Niche profile not found");
+
+        if (patch.StructureStatus is not null)
+            profile.StructureStatus = patch.StructureStatus;
+        if (patch.EnrichmentStatus is not null)
+            profile.EnrichmentStatus = patch.EnrichmentStatus;
+        if (patch.PersistStage is not null)
+            profile.PersistStage = patch.PersistStage;
+        if (patch.Status is not null)
+        {
+            profile.Status = patch.Status;
+            if (patch.Status is "complete" && profile.AnalyzedAt is null)
+            {
+                profile.AnalyzedAt = DateTimeOffset.UtcNow;
+                profile.NextAnalysisDue = DateTimeOffset.UtcNow.AddDays(30);
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    public async Task<Result> BulkUpsertTopicCandidatesAsync(
+        Guid profileId,
+        IReadOnlyList<NicheTopicCandidateBulkUpsert> candidates,
+        string idempotencyKey,
+        CancellationToken ct = default)
+    {
+        if (candidates.Count == 0)
+            return Result.Success();
+
+        var profileExists = await db.NicheProfiles.AnyAsync(p => p.Id == profileId, ct);
+        if (!profileExists)
+            return Result.Failure("Niche profile not found");
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var conn = db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync(ct);
+
+            const string sql = """
+                INSERT INTO geek_seo.niche_topic_candidates (
+                    "Id", "NicheProfileId", "Slug", "Name", "Confidence", "IsSelected",
+                    "ExclusionReason", "DedicatedPageUrl", "InternalLinkCount", "ContentDepthScore",
+                    "DisplayOrder", "EvidenceJson", "CreatedAt"
+                ) VALUES (
+                    COALESCE(@Id, gen_random_uuid()), @NicheProfileId, @Slug, @Name, @Confidence, @IsSelected,
+                    @ExclusionReason, @DedicatedPageUrl, @InternalLinkCount, @ContentDepthScore,
+                    @DisplayOrder, CAST(@EvidenceJson AS jsonb), @CreatedAt
+                )
+                ON CONFLICT ("NicheProfileId", "Slug") DO UPDATE SET
+                    "Name" = EXCLUDED."Name",
+                    "Confidence" = EXCLUDED."Confidence",
+                    "IsSelected" = EXCLUDED."IsSelected",
+                    "ExclusionReason" = EXCLUDED."ExclusionReason",
+                    "DedicatedPageUrl" = EXCLUDED."DedicatedPageUrl",
+                    "InternalLinkCount" = EXCLUDED."InternalLinkCount",
+                    "ContentDepthScore" = EXCLUDED."ContentDepthScore",
+                    "DisplayOrder" = EXCLUDED."DisplayOrder",
+                    "EvidenceJson" = COALESCE(EXCLUDED."EvidenceJson", geek_seo.niche_topic_candidates."EvidenceJson")
+                """;
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var c in candidates)
+            {
+                await conn.ExecuteAsync(sql, new
+                {
+                    Id = c.Id,
+                    NicheProfileId = profileId,
+                    c.Slug,
+                    c.Name,
+                    c.Confidence,
+                    c.IsSelected,
+                    c.ExclusionReason,
+                    c.DedicatedPageUrl,
+                    c.InternalLinkCount,
+                    c.ContentDepthScore,
+                    c.DisplayOrder,
+                    c.EvidenceJson,
+                    CreatedAt = now,
+                }, transaction: tx.GetDbTransaction());
+            }
+
+            await tx.CommitAsync(ct);
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync(ct);
+            return Result.Failure(ex.Message);
+        }
+    }
+
+    public async Task<Result<NicheTopicCandidateListResult>> GetTopicCandidatesAsync(
+        Guid profileId,
+        int page,
+        int pageSize,
+        bool? selectedOnly,
+        CancellationToken ct = default)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = db.NicheTopicCandidates.AsNoTracking()
+            .Where(c => c.NicheProfileId == profileId);
+
+        if (selectedOnly == true)
+            query = query.Where(c => c.IsSelected);
+        else if (selectedOnly == false)
+            query = query.Where(c => !c.IsSelected);
+
+        var total = await query.CountAsync(ct);
+        var rows = await query
+            .OrderBy(c => c.DisplayOrder)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var items = rows.Select(MapCandidatePage).ToList();
+        return Result<NicheTopicCandidateListResult>.Success(
+            new NicheTopicCandidateListResult(items, total, page, pageSize));
+    }
+
+    private static NicheTopicCandidatePage MapCandidatePage(NicheTopicCandidate row)
+    {
+        IReadOnlyList<TopicEvidence>? evidence = null;
+        if (!string.IsNullOrWhiteSpace(row.EvidenceJson))
+        {
+            try
+            {
+                evidence = JsonSerializer.Deserialize<List<TopicEvidence>>(row.EvidenceJson)
+                    ?? [];
+            }
+            catch
+            {
+                evidence = [];
+            }
+        }
+
+        return new NicheTopicCandidatePage(
+            row.Id,
+            row.NicheProfileId,
+            row.Slug,
+            row.Name,
+            row.Confidence,
+            row.IsSelected,
+            row.ExclusionReason,
+            row.DedicatedPageUrl,
+            row.InternalLinkCount,
+            row.ContentDepthScore,
+            row.DisplayOrder,
+            evidence);
     }
 
     public async Task<Result> SaveAnalysisResultsAsync(

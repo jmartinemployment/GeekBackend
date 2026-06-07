@@ -36,6 +36,8 @@ public sealed record SaveNicheAnalysisResultsRequest(
     DateTimeOffset NextAnalysisDue,
     string? FusionSnapshot = null);
 
+public sealed record SaveNicheFusionSnapshotRequest(string FusionSnapshot);
+
 [ApiController]
 [Route("repo/seo/niche-profiles")]
 public sealed class NicheProfilesController(
@@ -142,6 +144,83 @@ public sealed class NicheProfilesController(
         var result = await profiles.UpdateScoresAsync(
             profileId, body.AuthorityScore, body.Covered, body.Partial, body.Gap, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpPatch("{profileId:guid}/profile-summary")]
+    public async Task<IActionResult> UpdateProfileSummary(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] NicheProfileSummaryPatch body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.UpdateProfileSummaryAsync(profileId, body, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpPatch("{profileId:guid}/fusion-snapshot")]
+    public async Task<IActionResult> SaveFusionSnapshot(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] SaveNicheFusionSnapshotRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.SaveFusionSnapshotAsync(profileId, body.FusionSnapshot, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpPatch("{profileId:guid}/phase-status")]
+    public async Task<IActionResult> UpdatePhaseStatus(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] NichePhaseStatusPatch body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.UpdatePhaseStatusAsync(profileId, body, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpPost("{profileId:guid}/topic-candidates/bulk")]
+    public async Task<IActionResult> BulkUpsertTopicCandidates(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] List<NicheTopicCandidateBulkUpsert> body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var idempotencyKey = Request.Headers.TryGetValue("Idempotency-Key", out var key)
+            ? key.ToString()
+            : Guid.NewGuid().ToString("N");
+
+        var result = await profiles.BulkUpsertTopicCandidatesAsync(
+            profileId, body, idempotencyKey, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/topic-candidates")]
+    public async Task<IActionResult> GetTopicCandidates(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] bool? selectedOnly = null,
+        CancellationToken ct = default)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetTopicCandidatesAsync(profileId, page, pageSize, selectedOnly, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
     [HttpPatch("{profileId:guid}/analysis-results")]
