@@ -17,6 +17,7 @@ public static class SeoDataRegistration
         services.AddScoped<IContentDocumentRepository, ContentDocumentRepository>();
         services.AddScoped<IBackgroundJobRepository, BackgroundJobRepository>();
         services.AddScoped<ISerpCacheRepository, SerpCacheRepository>();
+        services.AddScoped<IKeywordVendorSnapshotRepository, KeywordVendorSnapshotRepository>();
         services.AddScoped<ICompetitorPageRepository, CompetitorPageRepository>();
         services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
         services.AddScoped<IUsageMeteringRepository, UsageMeteringRepository>();
