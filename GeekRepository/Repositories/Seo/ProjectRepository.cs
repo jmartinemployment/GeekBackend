@@ -4,6 +4,7 @@ using GeekSeo.Application.Interfaces.Seo;
 using GeekSeo.Application.Models.Seo;
 using GeekSeo.Application.Results;
 using GeekSeo.Persistence.Data;
+using GeekRepository.Services.Seo;
 using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Repositories.Seo;
@@ -18,6 +19,13 @@ public sealed class ProjectRepository(SeoDbContext db) : IProjectRepository
             .ToListAsync(ct);
         foreach (var project in list)
             await TryPersistUrlNormalizationAsync(project, ct);
+
+        var projectIds = list.Select(p => p.Id).ToList();
+        var gscConnections = await db.GscConnections.AsNoTracking()
+            .Where(c => c.UserId == userId && projectIds.Contains(c.ProjectId))
+            .ToListAsync(ct);
+        GoogleConnectionDomainService.ApplyDomainGscFlags(list, gscConnections);
+
         return Result<IReadOnlyList<SeoProject>>.Success(list);
     }
 

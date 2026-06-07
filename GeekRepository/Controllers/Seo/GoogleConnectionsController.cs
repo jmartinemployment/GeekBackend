@@ -1,5 +1,6 @@
 using GeekSeo.Persistence.Entities;
 using GeekSeo.Persistence.Data;
+using GeekRepository.Services.Seo;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,8 +16,7 @@ public sealed class GoogleConnectionsController(SeoDbContext db) : ControllerBas
         if (!await OwnsProjectAsync(projectId, userId, ct))
             return NotFound();
 
-        var row = await db.GscConnections.AsNoTracking()
-            .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.UserId == userId, ct);
+        var row = await GoogleConnectionDomainService.FindGscForProjectAsync(db, projectId, userId, ct);
         return row is null ? NotFound() : Ok(row);
     }
 
@@ -41,13 +41,11 @@ public sealed class GoogleConnectionsController(SeoDbContext db) : ControllerBas
             existing.EncryptionIv = body.EncryptionIv;
             existing.EncryptionTag = body.EncryptionTag;
             existing.ConnectedAt = body.ConnectedAt;
+            existing.UserId = body.UserId;
             body = existing;
         }
 
-        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == body.ProjectId, ct);
-        if (project is not null)
-            project.GscConnected = true;
-
+        await GoogleConnectionDomainService.SyncGscToDomainAsync(db, body, ct);
         await db.SaveChangesAsync(ct);
         return Ok(body);
     }
@@ -58,8 +56,7 @@ public sealed class GoogleConnectionsController(SeoDbContext db) : ControllerBas
         if (!await OwnsProjectAsync(projectId, userId, ct))
             return NotFound();
 
-        var row = await db.Ga4Connections.AsNoTracking()
-            .FirstOrDefaultAsync(c => c.ProjectId == projectId, ct);
+        var row = await GoogleConnectionDomainService.FindGa4ForProjectAsync(db, projectId, userId, ct);
         return row is null ? NotFound() : Ok(row);
     }
 
@@ -90,6 +87,7 @@ public sealed class GoogleConnectionsController(SeoDbContext db) : ControllerBas
             body = existing;
         }
 
+        await GoogleConnectionDomainService.SyncGa4ToDomainAsync(db, body, userId, ct);
         await db.SaveChangesAsync(ct);
         return Ok(body);
     }
@@ -100,18 +98,7 @@ public sealed class GoogleConnectionsController(SeoDbContext db) : ControllerBas
         if (!await OwnsProjectAsync(projectId, userId, ct))
             return NotFound();
 
-        var gsc = await db.GscConnections.FirstOrDefaultAsync(c => c.ProjectId == projectId, ct);
-        if (gsc is not null)
-            db.GscConnections.Remove(gsc);
-
-        var ga4 = await db.Ga4Connections.FirstOrDefaultAsync(c => c.ProjectId == projectId, ct);
-        if (ga4 is not null)
-            db.Ga4Connections.Remove(ga4);
-
-        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is not null)
-            project.GscConnected = false;
-
+        await GoogleConnectionDomainService.DisconnectDomainAsync(db, projectId, userId, ct);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
