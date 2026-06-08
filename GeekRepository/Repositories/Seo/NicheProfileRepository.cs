@@ -32,6 +32,15 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result<NicheProfile?>.Success(profile);
     }
 
+    public async Task<Result<Guid?>> GetProjectIdAsync(Guid profileId, CancellationToken ct = default)
+    {
+        var projectId = await db.NicheProfiles.AsNoTracking()
+            .Where(p => p.Id == profileId)
+            .Select(p => (Guid?)p.ProjectId)
+            .FirstOrDefaultAsync(ct);
+        return Result<Guid?>.Success(projectId);
+    }
+
     public async Task<Result<NicheProfileStatusRow?>> GetStatusRowAsync(
         Guid profileId, CancellationToken ct = default)
     {
