@@ -373,12 +373,27 @@ public sealed class NicheProfilesController(
         return null;
     }
 
+    [HttpGet("{profileId:guid}/project-id")]
+    public async Task<IActionResult> GetProjectId(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var result = await profiles.GetProjectIdAsync(profileId, ct);
+        if (!result.IsSuccess)
+            return BadRequest(result.Error);
+        if (result.Value is null)
+            return NotFound();
+        return Ok(new { projectId = result.Value });
+    }
+
     private async Task<IActionResult?> EnsureProfileOwnedAsync(Guid profileId, Guid userId, CancellationToken ct)
     {
-        var profileResult = await profiles.GetByIdAsync(profileId, ct);
-        if (!profileResult.IsSuccess || profileResult.Value is null)
-            return profileResult.Error?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true
-                ? NotFound() : BadRequest(profileResult.Error);
-        return await EnsureProjectAsync(profileResult.Value.ProjectId, userId, ct);
+        var idResult = await profiles.GetProjectIdAsync(profileId, ct);
+        if (!idResult.IsSuccess)
+            return BadRequest(idResult.Error);
+        if (idResult.Value is null)
+            return NotFound();
+        return await EnsureProjectAsync(idResult.Value.Value, userId, ct);
     }
 }
