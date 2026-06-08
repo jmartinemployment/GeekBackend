@@ -1,3 +1,3 @@
 # Pin Geek-SEO for GeekRepository Docker build (GeekSeo.Application + Persistence).
-# Bumped 2026-06-07 — raise job timeout to 15 min + stall threshold to 5 min.
-197c14d53b99ab6367413ce66136fe74aa07d256
+# Bumped 2026-06-07 — scalable persistence + lightweight read snapshots (required for Docker build).
+1b041527813590c1e923d2d4d9b3ef3f2c9242ec

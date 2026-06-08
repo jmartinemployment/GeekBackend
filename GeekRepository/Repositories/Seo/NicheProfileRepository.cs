@@ -32,6 +32,56 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result<NicheProfile?>.Success(profile);
     }
 
+    public async Task<Result<NicheProfileStatusRow?>> GetStatusRowAsync(
+        Guid profileId, CancellationToken ct = default)
+    {
+        var row = await db.NicheProfiles.AsNoTracking()
+            .Where(p => p.Id == profileId)
+            .Select(p => new NicheProfileStatusRow(
+                p.Id,
+                p.Status,
+                p.AnalysisStep,
+                p.AnalysisStepNumber,
+                p.AnalysisTotalSteps,
+                p.ErrorMessage,
+                p.CreatedAt,
+                p.AnalysisProgressAt,
+                p.StructureStatus,
+                p.EnrichmentStatus,
+                p.PersistStage))
+            .FirstOrDefaultAsync(ct);
+
+        return Result<NicheProfileStatusRow?>.Success(row);
+    }
+
+    public async Task<Result<NicheAnalysisDetailsRow?>> GetAnalysisDetailsRowAsync(
+        Guid profileId, bool includeFusion, CancellationToken ct = default)
+    {
+        if (!includeFusion)
+        {
+            var row = await db.NicheProfiles.AsNoTracking()
+                .Where(p => p.Id == profileId)
+                .Select(p => new NicheAnalysisDetailsRow(
+                    p.Status,
+                    p.AnalysisStepLogVersion,
+                    p.AnalysisStepLog,
+                    null))
+                .FirstOrDefaultAsync(ct);
+            return Result<NicheAnalysisDetailsRow?>.Success(row);
+        }
+
+        var withFusion = await db.NicheProfiles.AsNoTracking()
+            .Where(p => p.Id == profileId)
+            .Select(p => new NicheAnalysisDetailsRow(
+                p.Status,
+                p.AnalysisStepLogVersion,
+                p.AnalysisStepLog,
+                p.FusionSnapshot))
+            .FirstOrDefaultAsync(ct);
+
+        return Result<NicheAnalysisDetailsRow?>.Success(withFusion);
+    }
+
     public async Task<Result<NicheProfile?>> GetLatestByProjectAsync(Guid projectId, CancellationToken ct = default)
     {
         // Prefer the latest *completed* run so a newer failed/queued re-analyze does not hide pillars.
