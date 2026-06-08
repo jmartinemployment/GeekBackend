@@ -146,6 +146,37 @@ public sealed class NicheProfilesController(
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
+    [HttpGet("{profileId:guid}/status-snapshot")]
+    public async Task<IActionResult> GetStatusSnapshot(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetStatusRowAsync(profileId, ct);
+        return result.IsSuccess
+            ? (result.Value is null ? NotFound() : Ok(result.Value))
+            : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/analysis-details-snapshot")]
+    public async Task<IActionResult> GetAnalysisDetailsSnapshot(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromQuery] bool includeFusion = false,
+        CancellationToken ct = default)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetAnalysisDetailsRowAsync(profileId, includeFusion, ct);
+        return result.IsSuccess
+            ? (result.Value is null ? NotFound() : Ok(result.Value))
+            : BadRequest(result.Error);
+    }
+
     [HttpPatch("{profileId:guid}/profile-summary")]
     public async Task<IActionResult> UpdateProfileSummary(
         Guid profileId,
