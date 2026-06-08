@@ -1,3 +1,3 @@
 # Pin Geek-SEO for GeekRepository Docker build (GeekSeo.Application + Persistence).
-# Bumped 2026-06-07 — scalable persistence + lightweight read snapshots (required for Docker build).
-1b041527813590c1e923d2d4d9b3ef3f2c9242ec
+# Bumped 2026-06-08 — connection pool fix: GetProjectIdAsync lightweight ownership check.
+539c037d0a7a84b0b7abc7c428838a3694904e75
