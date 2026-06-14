@@ -94,26 +94,92 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     public async Task<Result<NicheProfile?>> GetLatestByProjectAsync(Guid projectId, CancellationToken ct = default)
     {
         // Prefer the latest *completed* run so a newer failed/queued re-analyze does not hide pillars.
-        var profile = await ProfileWithGraph()
+        var completeId = await db.NicheProfiles.AsNoTracking()
             .Where(p => p.ProjectId == projectId && p.Status == "complete")
             .OrderByDescending(p => p.AnalyzedAt ?? p.CreatedAt)
+            .Select(p => (Guid?)p.Id)
             .FirstOrDefaultAsync(ct);
 
-        if (profile is null)
+        if (completeId is not null)
         {
-            profile = await ProfileWithGraph()
-                .Where(p => p.ProjectId == projectId)
-                .OrderByDescending(p => p.CreatedAt)
+            var profile = await ProfileWithGraph()
+                .Where(p => p.Id == completeId.Value)
                 .FirstOrDefaultAsync(ct);
+
+            if (profile is not null)
+                StripHeavyJsonFields(profile);
+
+            ClearNavigationCycles(profile);
+            return Result<NicheProfile?>.Success(profile);
         }
 
-        ClearNavigationCycles(profile);
-        return Result<NicheProfile?>.Success(profile);
+        // No complete profile — scalar-only load (avoids JSONB blobs + empty graph during polling).
+        var fallbackId = await db.NicheProfiles.AsNoTracking()
+            .Where(p => p.ProjectId == projectId)
+            .OrderByDescending(p => p.CreatedAt)
+            .Select(p => (Guid?)p.Id)
+            .FirstOrDefaultAsync(ct);
+
+        if (fallbackId is null)
+            return Result<NicheProfile?>.Success(null);
+
+        var fallback = await LoadProfileScalarsOnly(fallbackId.Value, ct);
+        ClearNavigationCycles(fallback);
+        return Result<NicheProfile?>.Success(fallback);
+    }
+
+    private async Task<NicheProfile?> LoadProfileScalarsOnly(Guid profileId, CancellationToken ct)
+    {
+        return await db.NicheProfiles.AsNoTracking()
+            .Where(p => p.Id == profileId)
+            .Select(p => new NicheProfile
+            {
+                Id = p.Id,
+                ProjectId = p.ProjectId,
+                Domain = p.Domain,
+                PrimaryNiche = p.PrimaryNiche,
+                NicheDescription = p.NicheDescription,
+                NicheTags = p.NicheTags,
+                AudienceType = p.AudienceType,
+                CompetitionLevel = p.CompetitionLevel,
+                DiscoveryMethod = p.DiscoveryMethod,
+                TopicalAuthorityScore = p.TopicalAuthorityScore,
+                TotalPillarsIdentified = p.TotalPillarsIdentified,
+                PillarsCovered = p.PillarsCovered,
+                PillarsPartial = p.PillarsPartial,
+                PillarsGap = p.PillarsGap,
+                AnalyzedAt = p.AnalyzedAt,
+                NextAnalysisDue = p.NextAnalysisDue,
+                AnalysisVersion = p.AnalysisVersion,
+                Status = p.Status,
+                AnalysisStep = p.AnalysisStep,
+                AnalysisStepNumber = p.AnalysisStepNumber,
+                AnalysisTotalSteps = p.AnalysisTotalSteps,
+                ErrorMessage = p.ErrorMessage,
+                CreatedAt = p.CreatedAt,
+                AnalysisProgressAt = p.AnalysisProgressAt,
+                AnalysisStepLogVersion = p.AnalysisStepLogVersion,
+                StructureStatus = p.StructureStatus,
+                EnrichmentStatus = p.EnrichmentStatus,
+                ScanFingerprint = p.ScanFingerprint,
+                ScanChangeScore = p.ScanChangeScore,
+                PersistStage = p.PersistStage,
+            })
+            .FirstOrDefaultAsync(ct);
+    }
+
+    private static void StripHeavyJsonFields(NicheProfile profile)
+    {
+        profile.FusionSnapshot = null;
+        profile.AnalysisStepLog = "[]";
+        profile.CrawledUrlsJson = null;
+        profile.StepStatusesJson = "{}";
     }
 
     private IQueryable<NicheProfile> ProfileWithGraph() =>
         db.NicheProfiles
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(p => p.Pillars)
                 .ThenInclude(pi => pi.Subtopics)
             .Include(p => p.Pillars)
