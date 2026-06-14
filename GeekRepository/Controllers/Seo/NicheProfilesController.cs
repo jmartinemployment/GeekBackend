@@ -21,6 +21,17 @@ public sealed record UpdateNicheScoresRequest(
     int Partial,
     int Gap);
 
+public sealed record UpdateNicheStepStatusRequest(
+    string Slug,
+    string Status,
+    NicheAnalysisStepLogEntry? StepLogEntry = null);
+
+public sealed record InvalidateNicheStepsRequest(
+    IReadOnlyList<string> DownstreamSlugs);
+
+public sealed record UpdateCrawledUrlsRequest(
+    string CrawledUrlsJson);
+
 public sealed record SaveNicheAnalysisResultsRequest(
     string PrimaryNiche,
     string NicheDescription,
@@ -226,6 +237,66 @@ public sealed class NicheProfilesController(
         if (denied is not null) return denied;
 
         var result = await profiles.UpdateStepRunStatusAsync(profileId, stepSlug, body, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    [HttpPatch("{profileId:guid}/step-status")]
+    public async Task<IActionResult> UpdateStepStatus(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] UpdateNicheStepStatusRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.UpdateStepStatusAsync(
+            profileId, body.Slug, body.Status, body.StepLogEntry, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    [HttpGet("{profileId:guid}/step-statuses")]
+    public async Task<IActionResult> GetStepStatuses(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetStepStatusesAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    [HttpPatch("{profileId:guid}/invalidate-steps")]
+    public async Task<IActionResult> InvalidateDownstreamSteps(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] InvalidateNicheStepsRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.InvalidateDownstreamStepsAsync(profileId, body.DownstreamSlugs, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    [HttpPatch("{profileId:guid}/crawled-urls")]
+    public async Task<IActionResult> UpdateCrawledUrls(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] UpdateCrawledUrlsRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.UpdateCrawledUrlsAsync(profileId, body.CrawledUrlsJson, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 

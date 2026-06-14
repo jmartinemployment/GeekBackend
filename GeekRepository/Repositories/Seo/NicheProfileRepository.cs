@@ -320,6 +320,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         NicheProfileStepRunStatusPatch patch,
         CancellationToken ct = default)
     {
+        await EnsureStepRunsAsync(profileId, ct);
         var row = await db.NicheProfileStepRuns
             .FirstOrDefaultAsync(
                 x => x.NicheProfileId == profileId && x.StepSlug == stepSlug,
