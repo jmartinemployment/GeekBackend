@@ -37,6 +37,13 @@ public sealed record SaveNicheAnalysisResultsRequest(
     string? FusionSnapshot = null);
 
 public sealed record SaveNicheFusionSnapshotRequest(string FusionSnapshot);
+public sealed record ReplaceSchemaSignalsRequest(IReadOnlyList<NicheProfileSchemaSignalWrite> Signals);
+public sealed record ReplaceDiscoveredUrlsRequest(IReadOnlyList<NicheProfileDiscoveredUrlWrite> Urls);
+public sealed record ReplaceNavigationLinksRequest(IReadOnlyList<NicheProfileNavigationLinkWrite> Links);
+public sealed record ReplaceHeadingsRequest(IReadOnlyList<NicheProfileHeadingWrite> Headings);
+public sealed record ReplaceTopicCandidateEvidenceRequest(IReadOnlyList<NicheTopicCandidateEvidenceWrite> Evidence);
+public sealed record ReplacePageContentRequest(NicheProfilePageContentWrite Content);
+public sealed record ReplaceSiteStructureRequest(NicheProfileSiteStructureWrite Structure);
 
 [ApiController]
 [Route("repo/seo/niche-profiles")]
@@ -175,6 +182,240 @@ public sealed class NicheProfilesController(
         return result.IsSuccess
             ? (result.Value is null ? NotFound() : Ok(result.Value))
             : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/step-runs")]
+    public async Task<IActionResult> GetStepRuns(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetStepRunsAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/step-runs/{stepSlug}")]
+    public async Task<IActionResult> UpsertStepRun(
+        Guid profileId,
+        string stepSlug,
+        [FromQuery] Guid userId,
+        [FromBody] NicheProfileStepRunUpsert body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+        if (!string.Equals(stepSlug, body.StepSlug, StringComparison.OrdinalIgnoreCase))
+            return BadRequest("Route step slug must match request body.");
+
+        var result = await profiles.UpsertStepRunAsync(profileId, body, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpPatch("{profileId:guid}/step-runs/{stepSlug}/status")]
+    public async Task<IActionResult> UpdateStepRunStatus(
+        Guid profileId,
+        string stepSlug,
+        [FromQuery] Guid userId,
+        [FromBody] NicheProfileStepRunStatusPatch body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.UpdateStepRunStatusAsync(profileId, stepSlug, body, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/schema-signals")]
+    public async Task<IActionResult> ReplaceSchemaSignals(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplaceSchemaSignalsRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplaceSchemaSignalsAsync(profileId, body.Signals, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/schema-signals")]
+    public async Task<IActionResult> GetSchemaSignals(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetSchemaSignalsAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/discovered-urls")]
+    public async Task<IActionResult> ReplaceDiscoveredUrls(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplaceDiscoveredUrlsRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplaceDiscoveredUrlsAsync(profileId, body.Urls, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/discovered-urls")]
+    public async Task<IActionResult> GetDiscoveredUrls(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetDiscoveredUrlsAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/navigation-links")]
+    public async Task<IActionResult> ReplaceNavigationLinks(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplaceNavigationLinksRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplaceNavigationLinksAsync(profileId, body.Links, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/navigation-links")]
+    public async Task<IActionResult> GetNavigationLinks(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetNavigationLinksAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/headings")]
+    public async Task<IActionResult> ReplaceHeadings(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplaceHeadingsRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplaceHeadingsAsync(profileId, body.Headings, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/headings")]
+    public async Task<IActionResult> GetHeadings(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetHeadingsAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/topic-candidate-evidence")]
+    public async Task<IActionResult> ReplaceTopicCandidateEvidence(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplaceTopicCandidateEvidenceRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplaceTopicCandidateEvidenceAsync(profileId, body.Evidence, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/topic-candidate-evidence")]
+    public async Task<IActionResult> GetTopicCandidateEvidence(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetTopicCandidateEvidenceAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/page-content")]
+    public async Task<IActionResult> ReplacePageContent(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplacePageContentRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplacePageContentAsync(profileId, body.Content, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/page-content")]
+    public async Task<IActionResult> GetPageContent(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetPageContentAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/site-structure")]
+    public async Task<IActionResult> ReplaceSiteStructure(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplaceSiteStructureRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplaceSiteStructureAsync(profileId, body.Structure, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/site-structure")]
+    public async Task<IActionResult> GetSiteStructure(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetSiteStructureAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
     [HttpPatch("{profileId:guid}/profile-summary")]
