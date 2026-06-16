@@ -92,6 +92,19 @@ public sealed class NicheProfilesController(
         return result.Value is null ? NotFound() : Ok(result.Value);
     }
 
+    [HttpGet("{profileId:guid}/competitors")]
+    public async Task<IActionResult> GetCompetitors(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetCompetitorsAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
     [HttpGet("project/{projectId:guid}/latest")]
     public async Task<IActionResult> GetLatest(
         Guid projectId,

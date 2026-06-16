@@ -1055,13 +1055,38 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     public async Task<Result> BulkInsertCompetitorsAsync(
         IEnumerable<NicheCompetitor> competitors, CancellationToken ct = default)
     {
-        foreach (var c in competitors)
+        var list = competitors.ToList();
+        if (list.Count == 0) return Result.Success();
+
+        var profileId = list[0].NicheProfileId;
+        await db.NicheCompetitors
+            .Where(c => c.NicheProfileId == profileId)
+            .ExecuteDeleteAsync(ct);
+
+        foreach (var c in list)
         {
             if (c.Id == Guid.Empty) c.Id = Guid.NewGuid();
         }
-        db.NicheCompetitors.AddRange(competitors);
+        db.NicheCompetitors.AddRange(list);
         await db.SaveChangesAsync(ct);
         return Result.Success();
+    }
+
+    public async Task<Result<IReadOnlyList<NicheCompetitor>>> GetCompetitorsAsync(
+        Guid profileId, CancellationToken ct = default)
+    {
+        var list = await db.NicheCompetitors.AsNoTracking()
+            .Where(c => c.NicheProfileId == profileId)
+            .OrderByDescending(c => c.SerpPresence)
+            .ThenBy(c => c.Domain)
+            .ToListAsync(ct);
+
+        var deduped = list
+            .GroupBy(c => c.Domain, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+
+        return Result<IReadOnlyList<NicheCompetitor>>.Success(deduped);
     }
 
     public async Task<Result> UpdateCompetitorInsightsAsync(
