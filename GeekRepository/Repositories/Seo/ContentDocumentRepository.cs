@@ -38,6 +38,7 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
             Title = request.Title,
             TargetKeyword = request.TargetKeyword,
             TargetLocation = request.TargetLocation,
+            UrlResearchId = request.UrlResearchId,
             Status = "planned",
             CreatedAt = now,
             UpdatedAt = now,
@@ -81,6 +82,32 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
             doc.PublishedScore = doc.SeoScore;
             doc.PublishedWordCount = doc.WordCount;
         }
+        await db.SaveChangesAsync(ct);
+        return Result<SeoContentDocument>.Success(doc);
+    }
+
+    public async Task<Result<SeoContentDocument>> AttachUrlResearchAsync(
+        Guid documentId, Guid urlResearchId, CancellationToken ct = default)
+    {
+        var doc = await db.ContentDocuments.FirstOrDefaultAsync(d => d.Id == documentId, ct);
+        if (doc is null)
+            return Result<SeoContentDocument>.NotFound("Document not found");
+
+        doc.UrlResearchId = urlResearchId;
+        doc.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Result<SeoContentDocument>.Success(doc);
+    }
+
+    public async Task<Result<SeoContentDocument>> UpdateFeaturedImageAsync(
+        Guid documentId, string featuredImageUrl, CancellationToken ct = default)
+    {
+        var doc = await db.ContentDocuments.FirstOrDefaultAsync(d => d.Id == documentId, ct);
+        if (doc is null)
+            return Result<SeoContentDocument>.NotFound("Document not found");
+
+        doc.FeaturedImageUrl = featuredImageUrl;
+        doc.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Result<SeoContentDocument>.Success(doc);
     }

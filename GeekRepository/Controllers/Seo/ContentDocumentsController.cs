@@ -47,6 +47,27 @@ public sealed class ContentDocumentsController(IContentDocumentService content) 
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpPatch("{id:guid}/url-research")]
+    public async Task<IActionResult> AttachUrlResearch(
+        Guid id, [FromQuery] Guid userId, [FromBody] AttachUrlResearchRequest request, CancellationToken ct)
+    {
+        var result = await content.AttachUrlResearchAsync(userId, id, request.UrlResearchId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPatch("{id:guid}/featured-image")]
+    public async Task<IActionResult> UpdateFeaturedImage(
+        Guid id, [FromQuery] Guid userId, [FromBody] UpdateFeaturedImageRequest request, CancellationToken ct)
+    {
+        var access = await content.EnsureAccessAsync(userId, id, ct);
+        if (!access.IsSuccess)
+            return access.Error?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true ? NotFound() : BadRequest(access.Error);
+
+        var repo = HttpContext.RequestServices.GetRequiredService<IContentDocumentRepository>();
+        var result = await repo.UpdateFeaturedImageAsync(id, request.FeaturedImageUrl, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
     [HttpPut("{id:guid}/score")]
     public async Task<IActionResult> UpdateScore(
         Guid id,
@@ -80,4 +101,9 @@ public sealed record UpdateDocumentScoreRequest
 {
     public required int Score { get; init; }
     public required string ScoreComponentsJson { get; init; }
+}
+
+public sealed record UpdateFeaturedImageRequest
+{
+    public required string FeaturedImageUrl { get; init; }
 }

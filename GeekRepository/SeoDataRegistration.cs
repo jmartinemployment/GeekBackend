@@ -35,12 +35,14 @@ public static class SeoDataRegistration
         services.AddScoped<IContentGuardRepository, ContentGuardRepository>();
         services.AddScoped<INicheProfileRepository, NicheProfileRepository>();
         services.AddScoped<INicheAnalyticsDapperRepository, NicheAnalyticsDapperRepository>();
+        services.AddScoped<IUrlResearchRepository, UrlResearchRepository>();
 
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IContentDocumentService, ContentDocumentService>();
         services.AddScoped<IBackgroundJobService, BackgroundJobService>();
         services.AddScoped<ISubscriptionService, SubscriptionService>();
         services.AddScoped<IUsageMeteringService, UsageMeteringService>();
+        services.AddScoped<IUrlResearchService, UrlResearchService>();
 
         return services;
     }
