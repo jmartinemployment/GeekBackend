@@ -1172,6 +1172,33 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
         foreach (var profile in stale)
         {
+            var hasRunningStep = await db.NicheProfileStepRuns
+                .AnyAsync(
+                    x => x.NicheProfileId == profile.Id && x.Status == "running",
+                    ct);
+
+            if (hasRunningStep)
+                continue;
+
+            // Manual step re-runs can finish successfully but leave the profile in processing;
+            // heal instead of marking failed when the current step row is already complete.
+            if (!string.IsNullOrWhiteSpace(profile.AnalysisStep))
+            {
+                var currentStepComplete = await db.NicheProfileStepRuns
+                    .AnyAsync(
+                        x => x.NicheProfileId == profile.Id
+                            && x.StepSlug == profile.AnalysisStep
+                            && x.Status == "complete",
+                        ct);
+
+                if (currentStepComplete)
+                {
+                    profile.Status = "pending";
+                    profile.ErrorMessage = null;
+                    continue;
+                }
+            }
+
             profile.Status = "failed";
             profile.ErrorMessage =
                 "Analysis timed out or was interrupted (often during navigation crawl). Click Re-analyze to run again.";
