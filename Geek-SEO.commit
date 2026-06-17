@@ -1,3 +1,3 @@
 # Pin Geek-SEO for GeekRepository Docker build (GeekSeo.Application + Persistence).
-# Bumped 2026-06-14 — niche profile phase 1/2 relational step tables.
-1c8b28a
+# Bumped 2026-06-17 — competitor Scope on bulk insert, local SERP geocoding, HttpContext fix.
+ccdae4a
