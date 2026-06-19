@@ -36,6 +36,7 @@ public static class SeoDataRegistration
         services.AddScoped<INicheProfileRepository, NicheProfileRepository>();
         services.AddScoped<INicheAnalyticsDapperRepository, NicheAnalyticsDapperRepository>();
         services.AddScoped<IUrlResearchRepository, UrlResearchRepository>();
+        services.AddScoped<ISiteResearchRepository, SiteResearchRepository>();
 
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IContentDocumentService, ContentDocumentService>();

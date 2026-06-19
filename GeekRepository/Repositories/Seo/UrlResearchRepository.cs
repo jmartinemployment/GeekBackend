@@ -18,6 +18,11 @@ public sealed class UrlResearchRepository(SeoDbContext db) : IUrlResearchReposit
             ProjectId = request.ProjectId,
             UserId = userId,
             SourceUrl = request.SourceUrl.Trim(),
+            SiteResearchId = request.SiteResearchId,
+            DerivedKeyword = request.DerivedKeyword?.Trim() ?? string.Empty,
+            SearchLocation = string.IsNullOrWhiteSpace(request.SearchLocation)
+                ? "United States"
+                : request.SearchLocation.Trim(),
             Status = "queued",
             SupersedesResearchId = request.SupersedesResearchId,
             CreatedAt = now,
@@ -29,9 +34,20 @@ public sealed class UrlResearchRepository(SeoDbContext db) : IUrlResearchReposit
         return Result<SeoUrlResearch>.Success(row);
     }
 
+    public async Task<Result<SeoUrlResearch>> GetHeadAsync(Guid urlResearchId, CancellationToken ct = default)
+    {
+        var row = await db.UrlResearch.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == urlResearchId, ct);
+
+        return row is null
+            ? Result<SeoUrlResearch>.NotFound("Page research not found")
+            : Result<SeoUrlResearch>.Success(row);
+    }
+
     public async Task<Result<SeoUrlResearch>> GetFullAsync(Guid urlResearchId, CancellationToken ct = default)
     {
         var row = await db.UrlResearch.AsNoTracking()
+            .AsSplitQuery()
             .Include(r => r.OrganicResults.OrderBy(o => o.Position))
             .Include(r => r.PeopleAlsoAsk.OrderBy(p => p.DisplayOrder))
             .Include(r => r.RelatedSearches.OrderBy(p => p.DisplayOrder))
