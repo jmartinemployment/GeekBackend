@@ -132,6 +132,8 @@ public sealed class UrlResearchRepository(SeoDbContext db) : IUrlResearchReposit
 
         row.Status = patch.Status;
         row.ErrorMessage = patch.ErrorMessage;
+        if (!string.IsNullOrWhiteSpace(patch.DataQuality))
+            row.DataQuality = patch.DataQuality;
         if (patch.ResearchedAt.HasValue)
             row.ResearchedAt = patch.ResearchedAt;
         row.UpdatedAt = DateTimeOffset.UtcNow;
