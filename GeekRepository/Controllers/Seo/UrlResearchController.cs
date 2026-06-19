@@ -17,6 +17,15 @@ public sealed class UrlResearchController(IUrlResearchService research) : Contro
         return result.IsSuccess ? Ok(result.Value) : ForbiddenOrBadRequest(result.Error);
     }
 
+    [HttpGet("{id:guid}/head")]
+    public async Task<IActionResult> GetHead(Guid id, [FromQuery] Guid userId, CancellationToken ct)
+    {
+        var result = await research.GetHeadAsync(userId, id, ct);
+        if (!result.IsSuccess)
+            return NotFoundOrForbidden(result);
+        return Ok(result.Value);
+    }
+
     [HttpGet("{id:guid}/full")]
     public async Task<IActionResult> GetFull(Guid id, [FromQuery] Guid userId, CancellationToken ct)
     {
