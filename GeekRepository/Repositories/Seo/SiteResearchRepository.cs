@@ -137,11 +137,16 @@ public sealed class SiteResearchRepository(SeoDbContext db) : ISiteResearchRepos
         if (upsert.SiteResearchId is null && upsert.UrlResearchId is null)
             return Result.Failure("SiteResearchId or UrlResearchId is required.");
 
-        SeoSiteAnalyzerStepRun? existing = upsert.SiteResearchId is Guid siteId
+        // Pack steps (5–10) send both IDs; keyword-pack rows must key on urlResearchId.
+        SeoSiteAnalyzerStepRun? existing = upsert.UrlResearchId is Guid packId
             ? await db.SiteAnalyzerStepRuns.FirstOrDefaultAsync(
-                r => r.SiteResearchId == siteId && r.StepNumber == upsert.StepNumber, ct)
-            : await db.SiteAnalyzerStepRuns.FirstOrDefaultAsync(
-                r => r.UrlResearchId == upsert.UrlResearchId && r.StepNumber == upsert.StepNumber, ct);
+                r => r.UrlResearchId == packId && r.StepNumber == upsert.StepNumber, ct)
+            : upsert.SiteResearchId is Guid siteId
+                ? await db.SiteAnalyzerStepRuns.FirstOrDefaultAsync(
+                    r => r.SiteResearchId == siteId
+                        && r.UrlResearchId == null
+                        && r.StepNumber == upsert.StepNumber, ct)
+                : null;
 
         var now = DateTimeOffset.UtcNow;
         if (existing is null)
@@ -154,6 +159,10 @@ public sealed class SiteResearchRepository(SeoDbContext db) : ISiteResearchRepos
                 StepNumber = upsert.StepNumber,
             };
             db.SiteAnalyzerStepRuns.Add(existing);
+        }
+        else if (upsert.SiteResearchId is Guid linkedSiteId)
+        {
+            existing.SiteResearchId = linkedSiteId;
         }
 
         existing.Status = upsert.Status;
@@ -170,7 +179,7 @@ public sealed class SiteResearchRepository(SeoDbContext db) : ISiteResearchRepos
         Guid siteResearchId, CancellationToken ct = default)
     {
         var rows = await db.SiteAnalyzerStepRuns.AsNoTracking()
-            .Where(r => r.SiteResearchId == siteResearchId)
+            .Where(r => r.SiteResearchId == siteResearchId && r.UrlResearchId == null)
             .OrderBy(r => r.StepNumber)
             .Select(r => new SiteAnalyzerStepRunRow
             {
