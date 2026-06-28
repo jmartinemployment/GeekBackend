@@ -71,10 +71,6 @@ public sealed class ContentDocumentsController(IContentDocumentService content) 
             request.TargetKeyword,
             request.SerpKeyword,
             request.SiteProfileId,
-            request.SiteFocusJson,
-            request.SiteFocusCapturedAt,
-            request.KeywordBundleJson,
-            request.KeywordBundleCapturedAt,
             ct);
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
@@ -143,8 +139,4 @@ public sealed record AttachAnalysisRunPersistenceRequest
     public required string TargetKeyword { get; init; }
     public required string SerpKeyword { get; init; }
     public required Guid SiteProfileId { get; init; }
-    public string? SiteFocusJson { get; init; }
-    public DateTimeOffset? SiteFocusCapturedAt { get; init; }
-    public string? KeywordBundleJson { get; init; }
-    public DateTimeOffset? KeywordBundleCapturedAt { get; init; }
 }

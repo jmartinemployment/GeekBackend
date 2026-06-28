@@ -19,4 +19,13 @@ public sealed class SiteAnalyzerSiteProfileRepository(Sa2ContentWriterBundleRead
             ? Result<ContentWriterSiteBundle>.NotFound("Site profile not found")
             : Result<ContentWriterSiteBundle>.Success(bundle);
     }
+
+    public async Task<Result<ContentWriterSiteBundle>> GetContentWriterBundleByGeekSeoProjectIdAsync(
+        Guid geekSeoProjectId, CancellationToken ct = default)
+    {
+        var bundle = await bundleReader.GetByGeekSeoProjectIdAsync(geekSeoProjectId, ct);
+        return bundle is null
+            ? Result<ContentWriterSiteBundle>.NotFound("Site profile not found for project")
+            : Result<ContentWriterSiteBundle>.Success(bundle);
+    }
 }

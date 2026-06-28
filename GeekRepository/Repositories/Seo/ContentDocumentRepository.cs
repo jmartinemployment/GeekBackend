@@ -41,10 +41,6 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
             AnalysisRunId = request.AnalysisRunId,
             SerpKeyword = request.SerpKeyword,
             SiteProfileId = request.SiteProfileId,
-            SiteFocusJson = request.SiteFocusJson,
-            SiteFocusCapturedAt = request.SiteFocusCapturedAt,
-            KeywordBundleJson = request.KeywordBundleJson,
-            KeywordBundleCapturedAt = request.KeywordBundleCapturedAt,
             Status = "planned",
             CreatedAt = now,
             UpdatedAt = now,
@@ -111,10 +107,6 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
         string targetKeyword,
         string serpKeyword,
         Guid siteProfileId,
-        string? siteFocusJson = null,
-        DateTimeOffset? siteFocusCapturedAt = null,
-        string? keywordBundleJson = null,
-        DateTimeOffset? keywordBundleCapturedAt = null,
         CancellationToken ct = default)
     {
         var doc = await db.ContentDocuments.FirstOrDefaultAsync(d => d.Id == documentId, ct);
@@ -125,10 +117,10 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
         doc.TargetKeyword = targetKeyword;
         doc.SerpKeyword = serpKeyword;
         doc.SiteProfileId = siteProfileId;
-        doc.SiteFocusJson = siteFocusJson;
-        doc.SiteFocusCapturedAt = siteFocusCapturedAt;
-        doc.KeywordBundleJson = keywordBundleJson;
-        doc.KeywordBundleCapturedAt = keywordBundleCapturedAt;
+        doc.SiteFocusJson = null;
+        doc.SiteFocusCapturedAt = null;
+        doc.KeywordBundleJson = null;
+        doc.KeywordBundleCapturedAt = null;
         doc.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Result<SeoContentDocument>.Success(doc);
