@@ -5,6 +5,7 @@ WORKDIR /src
 COPY GEEKBACKEND.slnx ./
 COPY GeekAPI/GeekAPI.csproj GeekAPI/
 COPY GeekApplication/GeekApplication.csproj GeekApplication/
+COPY GeekSa2Read/GeekSa2Read.csproj GeekSa2Read/
 COPY GeekRepository/GeekRepository.csproj GeekRepository/
 
 # Restore dependencies

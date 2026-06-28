@@ -1,21 +1,29 @@
 using Microsoft.AspNetCore.WebUtilities;
 using Npgsql;
 
-namespace GeekAPI.Services.SiteAnalyzer2;
+namespace GeekSa2Read;
 
-internal static class SiteAnalyzer2Connection
+/// <summary>
+/// Resolves <c>SITE_ANALYZER2_DATABASE_URL</c> for read-only <c>sa2</c> access.
+/// </summary>
+public static class SiteAnalyzer2Connection
 {
-    public static string? TryResolve()
-    {
-        var raw = Environment.GetEnvironmentVariable("SITE_ANALYZER2_DATABASE_URL");
-        if (string.IsNullOrWhiteSpace(raw))
-            return null;
+    public static string? TryResolve() =>
+        Normalize(Environment.GetEnvironmentVariable("SITE_ANALYZER2_DATABASE_URL"));
 
-        return Normalize(raw);
+    public static string Require()
+    {
+        var value = TryResolve();
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException("SITE_ANALYZER2_DATABASE_URL is required for Site Analyzer handoff reads.");
+        return value;
     }
 
-    private static string Normalize(string rawValue)
+    internal static string? Normalize(string? rawValue)
     {
+        if (string.IsNullOrWhiteSpace(rawValue))
+            return null;
+
         var value = rawValue.ReplaceLineEndings("").Trim().Trim('"', '\'');
         if (!value.Contains("://", StringComparison.Ordinal))
             return value;

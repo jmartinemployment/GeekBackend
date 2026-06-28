@@ -1,54 +1,71 @@
-using System.Net.Http.Json;
-using System.Text.Json;
+using Dapper;
+using GeekSa2Read;
 using GeekSeo.Application.Models.Seo;
 using GeekSeo.Application.Results;
+using Npgsql;
 
 namespace GeekRepository.Repositories.Seo;
 
 /// <summary>
-/// Reads keyword analysis rows from SiteAnalyzer Postgres via the SiteAnalyzer Railway Api.
+/// Reads keyword analysis export from <c>sa2</c> via <c>SITE_ANALYZER2_DATABASE_URL</c>.
 /// </summary>
-public sealed class SiteAnalyzerAnalysisRunReader(IHttpClientFactory httpClientFactory)
+public sealed class SiteAnalyzerAnalysisRunReader(Sa2ContentWriterExportReader exportReader)
 {
-    private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
-
     public async Task<Result<IReadOnlyList<AnalysisRunSummary>>> ListByProjectAsync(
         Guid projectId,
         CancellationToken ct = default)
     {
-        var http = httpClientFactory.CreateClient(SiteAnalyzerApiOptions.HttpClientName);
-        var response = await http.GetAsync($"analysis-runs?projectId={projectId}", ct);
-        if (!response.IsSuccessStatusCode)
-            return Result<IReadOnlyList<AnalysisRunSummary>>.Failure(await response.Content.ReadAsStringAsync(ct));
+        var connectionString = SiteAnalyzer2Connection.TryResolve();
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return Result<IReadOnlyList<AnalysisRunSummary>>.Failure("SITE_ANALYZER2_DATABASE_URL is not configured.");
 
-        var rows = await response.Content.ReadFromJsonAsync<List<AnalysisRunSummary>>(Json, ct);
-        return Result<IReadOnlyList<AnalysisRunSummary>>.Success(rows ?? []);
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(ct);
+
+        var rows = (await conn.QueryAsync<RunSummaryRow>(
+            new CommandDefinition(
+                """
+                SELECT "Id", "ProjectId", "Keyword", "TargetSiteUrl", "Status", "CreatedAt"
+                FROM sa2.analysis_runs
+                WHERE "ProjectId" = @ProjectId
+                ORDER BY "CreatedAt" DESC
+                """,
+                new { ProjectId = projectId },
+                cancellationToken: ct))).ToList();
+
+        IReadOnlyList<AnalysisRunSummary> summaries = rows.Select(r => new AnalysisRunSummary
+        {
+            Id = r.Id,
+            ProjectId = r.ProjectId,
+            Keyword = r.Keyword,
+            TargetSiteUrl = r.TargetSiteUrl,
+            Status = r.Status,
+            CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc)),
+            SerpSeResultsCount = 0,
+            OrganicResultCount = 0,
+            ContentWritingReady = false,
+        }).ToList();
+
+        return Result<IReadOnlyList<AnalysisRunSummary>>.Success(summaries);
     }
 
     public async Task<Result<ContentWriterSerpExport>> GetContentWriterExportAsync(
         Guid runId,
         CancellationToken ct = default)
     {
-        var http = httpClientFactory.CreateClient(SiteAnalyzerApiOptions.HttpClientName);
-        var response = await http.GetAsync($"analysis-runs/{runId}/content-writer-export", ct);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return Result<ContentWriterSerpExport>.NotFound("Analysis run not found");
-
-        if (!response.IsSuccessStatusCode)
-            return Result<ContentWriterSerpExport>.Failure(await response.Content.ReadAsStringAsync(ct));
-
-        var export = await response.Content.ReadFromJsonAsync<ContentWriterSerpExport>(Json, ct);
+        var export = await exportReader.GetExportAsync(runId, ct);
         return export is null
-            ? Result<ContentWriterSerpExport>.Failure("Empty analysis run export response")
+            ? Result<ContentWriterSerpExport>.NotFound("Analysis run not found")
             : Result<ContentWriterSerpExport>.Success(export);
     }
-}
 
-public static class SiteAnalyzerApiOptions
-{
-    public const string HttpClientName = "SiteAnalyzerApi";
-
-    public static string ResolveBaseUrl() =>
-        Environment.GetEnvironmentVariable("SITE_ANALYZER2_API_URL")?.Trim().TrimEnd('/')
-        ?? "https://geek-siteanalyzer-production.up.railway.app";
+    private sealed class RunSummaryRow
+    {
+        public Guid Id { get; init; }
+        public Guid ProjectId { get; init; }
+        public string Keyword { get; init; } = string.Empty;
+        public string TargetSiteUrl { get; init; } = string.Empty;
+        public string Status { get; init; } = string.Empty;
+        public DateTime CreatedAt { get; init; }
+    }
 }

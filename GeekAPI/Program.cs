@@ -5,6 +5,7 @@ using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekAPI.Services.SiteAnalyzer2;
 using GeekApplication.Interfaces;
+using GeekSa2Read.DependencyInjection;
 using Microsoft.AspNetCore.HttpOverrides;
 
 Env.TraversePath().Load();
@@ -47,8 +48,8 @@ builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();
 builder.Services.AddScoped<IUseCaseRepository, HttpUseCaseRepository>();
 
 builder.Services.AddScoped<DepartmentContentService>();
+builder.Services.AddGeekSa2Read();
 builder.Services.AddScoped<SiteAnalyzer2SiteProfileReader>();
-builder.Services.AddScoped<SiteAnalyzer2SiteBundleClient>();
 
 var app = builder.Build();
 

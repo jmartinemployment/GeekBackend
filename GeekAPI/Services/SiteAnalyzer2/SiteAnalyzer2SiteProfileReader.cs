@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dapper;
 using GeekAPI.Models;
+using GeekSa2Read;
 using Npgsql;
 
 namespace GeekAPI.Services.SiteAnalyzer2;

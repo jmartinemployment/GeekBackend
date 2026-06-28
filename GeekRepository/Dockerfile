@@ -16,6 +16,7 @@ RUN set -eu; \
     git checkout FETCH_HEAD; \
     test -f GeekSeo.Persistence/GeekSeo.Persistence.csproj
 COPY GeekApplication/ GeekBackend/GeekApplication/
+COPY GeekSa2Read/ GeekBackend/GeekSa2Read/
 COPY GeekRepository/ GeekBackend/GeekRepository/
 RUN dotnet restore GeekBackend/GeekRepository/GeekRepository.csproj \
     && dotnet publish GeekBackend/GeekRepository/GeekRepository.csproj \

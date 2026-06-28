@@ -22,6 +22,7 @@ RUN set -eu; \
     test -f GeekSeo.Persistence/GeekSeo.Persistence.csproj && test -f GeekSeo.Application/GeekSeo.Application.csproj
 # Mirror local monorepo: sibling Geek-SEO + GeekBackend/* so ../../Geek-SEO resolves in csproj.
 COPY GeekApplication/ GeekBackend/GeekApplication/
+COPY GeekSa2Read/ GeekBackend/GeekSa2Read/
 COPY GeekRepository/ GeekBackend/GeekRepository/
 RUN dotnet restore GeekBackend/GeekRepository/GeekRepository.csproj \
     && dotnet publish GeekBackend/GeekRepository/GeekRepository.csproj \

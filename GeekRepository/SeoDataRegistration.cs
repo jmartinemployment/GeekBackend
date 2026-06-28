@@ -1,3 +1,4 @@
+using GeekSa2Read.DependencyInjection;
 using GeekSeo.Application.Interfaces;
 using GeekSeo.Application.Interfaces.Seo;
 using GeekSeo.Application.Services.Seo;
@@ -38,11 +39,7 @@ public static class SeoDataRegistration
         services.AddScoped<IUrlResearchRepository, UrlResearchRepository>();
         services.AddScoped<ISiteResearchRepository, SiteResearchRepository>();
 
-        services.AddHttpClient(SiteAnalyzerApiOptions.HttpClientName, client =>
-        {
-            client.BaseAddress = new Uri(SiteAnalyzerApiOptions.ResolveBaseUrl() + "/");
-            client.Timeout = TimeSpan.FromSeconds(60);
-        });
+        services.AddGeekSa2Read();
         services.AddScoped<SiteAnalyzerAnalysisRunReader>();
         services.AddScoped<IAnalysisRunRepository, SiteAnalyzerAnalysisRunRepository>();
         services.AddScoped<ISiteAnalyzer2SiteProfileRepository, SiteAnalyzerSiteProfileRepository>();
