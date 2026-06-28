@@ -1,3 +1,3 @@
 # Pin Geek-SEO for GeekRepository Docker build (GeekSeo.Application + Persistence).
-# Bumped 2026-06-17 — URL research persistence + content featured image column/endpoint.
-fe924ec
+# Bumped 2026-06-28 — GeekSeoProjectId on ContentWriterSerpExport for sa2 handoff.
+5b37906
