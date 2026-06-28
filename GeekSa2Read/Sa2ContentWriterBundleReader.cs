@@ -7,6 +7,51 @@ namespace GeekSa2Read;
 
 public sealed class Sa2ContentWriterBundleReader(ILogger<Sa2ContentWriterBundleReader> logger)
 {
+    public async Task<ContentWriterSiteBundle?> GetByGeekSeoProjectIdAsync(Guid geekSeoProjectId, CancellationToken ct = default)
+    {
+        var connectionString = SiteAnalyzer2Connection.TryResolve();
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            logger.LogWarning("SITE_ANALYZER2_DATABASE_URL is not configured; cannot read site bundle for project {GeekSeoProjectId}", geekSeoProjectId);
+            return null;
+        }
+
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(ct);
+
+        const string sql = """
+            SELECT
+                "Id",
+                "SiteUrl",
+                "DisplayName",
+                "GeekSeoProjectId",
+                "PrimaryNiche",
+                "NicheDescription",
+                "NicheTags",
+                "BusinessSummary",
+                "GeoAnchorNodes",
+                "ServiceAreaDescription",
+                "CompetitorDomains",
+                "AuthorityPageUrls",
+                "WritingRecommendations",
+                "BusinessType",
+                "BusinessDescription",
+                "GeneratedSchemaJson",
+                "CreatedAt",
+                "UpdatedAt",
+                "BusinessProfileAt",
+                "LastRunAt"
+            FROM sa2.site_profiles
+            WHERE "GeekSeoProjectId" = @GeekSeoProjectId
+            LIMIT 1
+            """;
+
+        var row = await conn.QuerySingleOrDefaultAsync<SiteProfileRow>(
+            new CommandDefinition(sql, new { GeekSeoProjectId = geekSeoProjectId }, cancellationToken: ct));
+
+        return row is null ? null : Map(row);
+    }
+
     public async Task<ContentWriterSiteBundle?> GetByProfileIdAsync(Guid siteProfileId, CancellationToken ct = default)
     {
         var connectionString = SiteAnalyzer2Connection.TryResolve();
