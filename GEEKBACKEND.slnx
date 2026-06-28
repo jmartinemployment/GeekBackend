@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="GeekSa2Read/GeekSa2Read.csproj" />
   <Project Path="GeekApplication/GeekApplication.csproj" />
   <Project Path="GeekAPI/GeekAPI.csproj" />
   <Project Path="GeekRepository/GeekRepository.csproj" />

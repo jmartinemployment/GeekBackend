@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GeekApplication\GeekApplication.csproj" />
+    <ProjectReference Include="..\GeekSa2Read\GeekSa2Read.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,21 +1,18 @@
-using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
-using GeekAPI.Models;
 using GeekAPI.Services.SiteAnalyzer2;
+using GeekSa2Read;
+using GeekSeo.Application.Models.Seo;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.Seo;
 
 /// <summary>
-/// Reads Site Analyzer 2 <c>sa2.site_profiles</c> directly via <c>SITE_ANALYZER2_DATABASE_URL</c>
-/// and proxies site bundles from Site Analyzer API when configured.
+/// Reads Site Analyzer 2 <c>sa2</c> via <c>SITE_ANALYZER2_DATABASE_URL</c>.
 /// </summary>
 [ApiController]
 [Route("api/seo/internal/site-profiles")]
 public sealed class SiteProfilesController(
     SiteAnalyzer2SiteProfileReader reader,
-    SiteAnalyzer2SiteBundleClient bundleClient) : ControllerBase
+    Sa2ContentWriterBundleReader bundleReader) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(
@@ -38,7 +35,7 @@ public sealed class SiteProfilesController(
         if (siteProfileId == Guid.Empty)
             return BadRequest(new { error = "siteProfileId is required." });
 
-        var bundle = await bundleClient.GetByProfileIdAsync(siteProfileId, ct);
+        var bundle = await bundleReader.GetByProfileIdAsync(siteProfileId, ct);
         return bundle is null ? NotFound() : Ok(bundle);
     }
 }
