@@ -137,7 +137,7 @@ public sealed class Sa2ContentWriterExportReader(ILogger<Sa2ContentWriterExportR
         var authorityRow = await conn.QuerySingleOrDefaultAsync<AuthorityRow>(
             new CommandDefinition(
                 """
-                SELECT "AuthorityPageUrls"
+                SELECT "AuthorityPageUrls", "GeekSeoProjectId"
                 FROM sa2.site_profiles
                 WHERE "SiteUrl" = @SiteUrl
                 LIMIT 1
@@ -146,6 +146,7 @@ public sealed class Sa2ContentWriterExportReader(ILogger<Sa2ContentWriterExportR
                 cancellationToken: ct));
 
         var authorityUrls = Sa2Json.ParseStringList(authorityRow?.AuthorityPageUrls);
+        var geekSeoProjectId = authorityRow?.GeekSeoProjectId;
 
         return Sa2ContentWriterExportBuilder.Build(
             run,
@@ -157,11 +158,13 @@ public sealed class Sa2ContentWriterExportReader(ILogger<Sa2ContentWriterExportR
             sourcePages,
             pageHeadings,
             authorityUrls,
+            geekSeoProjectId,
             DateTimeOffset.UtcNow);
     }
 
     private sealed class AuthorityRow
     {
         public string? AuthorityPageUrls { get; init; }
+        public Guid? GeekSeoProjectId { get; init; }
     }
 }

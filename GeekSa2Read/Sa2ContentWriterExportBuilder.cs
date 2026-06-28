@@ -22,6 +22,7 @@ internal static class Sa2ContentWriterExportBuilder
         IReadOnlyList<SourcePageRow> sourcePages,
         IReadOnlyList<PageHeadingRow> pageHeadings,
         IReadOnlyList<string> authorityPageUrls,
+        Guid? geekSeoProjectId,
         DateTimeOffset capturedAt)
     {
         var relatedByItem = relatedQueries
@@ -51,6 +52,7 @@ internal static class Sa2ContentWriterExportBuilder
             CapturedAt = capturedAt,
             RunId = run.Id,
             ProjectId = run.ProjectId,
+            GeekSeoProjectId = geekSeoProjectId,
             Keyword = run.Keyword,
             TargetSiteUrl = run.TargetSiteUrl,
             Status = run.Status,
