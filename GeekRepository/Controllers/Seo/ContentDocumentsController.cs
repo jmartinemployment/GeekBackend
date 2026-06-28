@@ -28,7 +28,8 @@ public sealed class ContentDocumentsController(IContentDocumentService content) 
     [HttpPost]
     public async Task<IActionResult> Create([FromQuery] Guid userId, [FromBody] CreateContentDocumentRequest request, CancellationToken ct)
     {
-        var result = await content.CreateAsync(userId, request, ct);
+        var repo = HttpContext.RequestServices.GetRequiredService<IContentDocumentRepository>();
+        var result = await repo.CreateAsync(userId, request, ct);
         return result.IsSuccess ? CreatedAtAction(nameof(Get), new { id = result.Value!.Id, userId }, result.Value) : BadRequest(result.Error);
     }
 
