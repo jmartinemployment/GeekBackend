@@ -38,7 +38,13 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
             Title = request.Title,
             TargetKeyword = request.TargetKeyword,
             TargetLocation = request.TargetLocation,
-            UrlResearchId = request.UrlResearchId,
+            AnalysisRunId = request.AnalysisRunId,
+            SerpKeyword = request.SerpKeyword,
+            SiteProfileId = request.SiteProfileId,
+            SiteFocusJson = request.SiteFocusJson,
+            SiteFocusCapturedAt = request.SiteFocusCapturedAt,
+            KeywordBundleJson = request.KeywordBundleJson,
+            KeywordBundleCapturedAt = request.KeywordBundleCapturedAt,
             Status = "planned",
             CreatedAt = now,
             UpdatedAt = now,
@@ -94,6 +100,35 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
             return Result<SeoContentDocument>.NotFound("Document not found");
 
         doc.UrlResearchId = urlResearchId;
+        doc.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Result<SeoContentDocument>.Success(doc);
+    }
+
+    public async Task<Result<SeoContentDocument>> AttachAnalysisRunAsync(
+        Guid documentId,
+        Guid analysisRunId,
+        string targetKeyword,
+        string serpKeyword,
+        Guid siteProfileId,
+        string? siteFocusJson = null,
+        DateTimeOffset? siteFocusCapturedAt = null,
+        string? keywordBundleJson = null,
+        DateTimeOffset? keywordBundleCapturedAt = null,
+        CancellationToken ct = default)
+    {
+        var doc = await db.ContentDocuments.FirstOrDefaultAsync(d => d.Id == documentId, ct);
+        if (doc is null)
+            return Result<SeoContentDocument>.NotFound("Document not found");
+
+        doc.AnalysisRunId = analysisRunId;
+        doc.TargetKeyword = targetKeyword;
+        doc.SerpKeyword = serpKeyword;
+        doc.SiteProfileId = siteProfileId;
+        doc.SiteFocusJson = siteFocusJson;
+        doc.SiteFocusCapturedAt = siteFocusCapturedAt;
+        doc.KeywordBundleJson = keywordBundleJson;
+        doc.KeywordBundleCapturedAt = keywordBundleCapturedAt;
         doc.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Result<SeoContentDocument>.Success(doc);

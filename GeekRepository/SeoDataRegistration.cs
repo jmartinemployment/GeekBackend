@@ -38,6 +38,16 @@ public static class SeoDataRegistration
         services.AddScoped<IUrlResearchRepository, UrlResearchRepository>();
         services.AddScoped<ISiteResearchRepository, SiteResearchRepository>();
 
+        services.AddHttpClient(SiteAnalyzerApiOptions.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri(SiteAnalyzerApiOptions.ResolveBaseUrl() + "/");
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
+        services.AddScoped<SiteAnalyzerAnalysisRunReader>();
+        services.AddScoped<IAnalysisRunRepository, SiteAnalyzerAnalysisRunRepository>();
+        services.AddScoped<ISiteAnalyzer2SiteProfileRepository, SiteAnalyzerSiteProfileRepository>();
+        services.AddScoped<ContentWriterHandoffService>();
+
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IContentDocumentService, ContentDocumentService>();
         services.AddScoped<IBackgroundJobService, BackgroundJobService>();
