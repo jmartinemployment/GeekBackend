@@ -1,3 +1,4 @@
+using GeekSeo.Application.Interfaces;
 using GeekSeo.Application.Interfaces.Seo;
 using GeekSeo.Application.Models.Seo;
 using Microsoft.AspNetCore.Mvc;
@@ -55,6 +56,29 @@ public sealed class ContentDocumentsController(IContentDocumentService content) 
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpPatch("{id:guid}/analysis-run")]
+    public async Task<IActionResult> AttachAnalysisRun(
+        Guid id, [FromQuery] Guid userId, [FromBody] AttachAnalysisRunPersistenceRequest request, CancellationToken ct)
+    {
+        var access = await content.EnsureAccessAsync(userId, id, ct);
+        if (!access.IsSuccess)
+            return access.Error?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true ? NotFound() : BadRequest(access.Error);
+
+        var repo = HttpContext.RequestServices.GetRequiredService<IContentDocumentRepository>();
+        var result = await repo.AttachAnalysisRunAsync(
+            id,
+            request.AnalysisRunId,
+            request.TargetKeyword,
+            request.SerpKeyword,
+            request.SiteProfileId,
+            request.SiteFocusJson,
+            request.SiteFocusCapturedAt,
+            request.KeywordBundleJson,
+            request.KeywordBundleCapturedAt,
+            ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
     [HttpPatch("{id:guid}/featured-image")]
     public async Task<IActionResult> UpdateFeaturedImage(
         Guid id, [FromQuery] Guid userId, [FromBody] UpdateFeaturedImageRequest request, CancellationToken ct)
@@ -106,4 +130,21 @@ public sealed record UpdateDocumentScoreRequest
 public sealed record UpdateFeaturedImageRequest
 {
     public required string FeaturedImageUrl { get; init; }
+}
+
+public sealed record AttachUrlResearchRequest
+{
+    public required Guid UrlResearchId { get; init; }
+}
+
+public sealed record AttachAnalysisRunPersistenceRequest
+{
+    public required Guid AnalysisRunId { get; init; }
+    public required string TargetKeyword { get; init; }
+    public required string SerpKeyword { get; init; }
+    public required Guid SiteProfileId { get; init; }
+    public string? SiteFocusJson { get; init; }
+    public DateTimeOffset? SiteFocusCapturedAt { get; init; }
+    public string? KeywordBundleJson { get; init; }
+    public DateTimeOffset? KeywordBundleCapturedAt { get; init; }
 }

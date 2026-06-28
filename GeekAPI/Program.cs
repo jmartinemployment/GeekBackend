@@ -3,6 +3,7 @@ using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
+using GeekAPI.Services.SiteAnalyzer2;
 using GeekApplication.Interfaces;
 using Microsoft.AspNetCore.HttpOverrides;
 
@@ -46,6 +47,8 @@ builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();
 builder.Services.AddScoped<IUseCaseRepository, HttpUseCaseRepository>();
 
 builder.Services.AddScoped<DepartmentContentService>();
+builder.Services.AddScoped<SiteAnalyzer2SiteProfileReader>();
+builder.Services.AddScoped<SiteAnalyzer2SiteBundleClient>();
 
 var app = builder.Build();
 
