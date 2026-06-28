@@ -38,4 +38,15 @@ public sealed class SiteProfilesController(
         var bundle = await bundleReader.GetByProfileIdAsync(siteProfileId, ct);
         return bundle is null ? NotFound() : Ok(bundle);
     }
+
+    [HttpGet("by-project/{geekSeoProjectId:guid}/content-writer-bundle")]
+    public async Task<IActionResult> GetContentWriterBundleByProject(Guid geekSeoProjectId, [FromQuery] Guid userId, CancellationToken ct)
+    {
+        _ = userId;
+        if (geekSeoProjectId == Guid.Empty)
+            return BadRequest(new { error = "geekSeoProjectId is required." });
+
+        var bundle = await bundleReader.GetByGeekSeoProjectIdAsync(geekSeoProjectId, ct);
+        return bundle is null ? NotFound() : Ok(bundle);
+    }
 }
