@@ -89,19 +89,6 @@ public sealed class ContentDocumentsController(IContentDocumentService content) 
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
-    [HttpPatch("{id:guid}/marketing-bundle")]
-    public async Task<IActionResult> UpdateMarketingBundle(
-        Guid id, [FromQuery] Guid userId, [FromBody] UpdateMarketingBundleRequest request, CancellationToken ct)
-    {
-        var access = await content.EnsureAccessAsync(userId, id, ct);
-        if (!access.IsSuccess)
-            return access.Error?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true ? NotFound() : BadRequest(access.Error);
-
-        var repo = HttpContext.RequestServices.GetRequiredService<IContentDocumentRepository>();
-        var result = await repo.UpdateMarketingBundleAsync(id, request.MarketingBundleJson, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
-    }
-
     [HttpPut("{id:guid}/score")]
     public async Task<IActionResult> UpdateScore(
         Guid id,
@@ -140,11 +127,6 @@ public sealed record UpdateDocumentScoreRequest
 public sealed record UpdateFeaturedImageRequest
 {
     public required string FeaturedImageUrl { get; init; }
-}
-
-public sealed record UpdateMarketingBundleRequest
-{
-    public required string MarketingBundleJson { get; init; }
 }
 
 public sealed record AttachUrlResearchRequest
