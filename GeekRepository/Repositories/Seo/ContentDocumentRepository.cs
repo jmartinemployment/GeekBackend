@@ -2,6 +2,7 @@ using GeekSeo.Persistence.Entities;
 using GeekSeo.Application.Interfaces.Seo;
 using GeekSeo.Application.Models.Seo;
 using GeekSeo.Application.Results;
+using GeekSeo.Application.Services.Seo;
 using GeekSeo.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,11 +31,52 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
         Guid userId, CreateContentDocumentRequest request, CancellationToken ct = default)
     {
         var now = DateTimeOffset.UtcNow;
+        var parentId = request.ParentDocumentId is Guid pid && pid != Guid.Empty ? pid : (Guid?)null;
+        var documentKind = ContentDocumentKindResolver.Resolve(request.DocumentKind, parentId);
+
+        if (parentId is Guid parentDocumentId)
+        {
+            var parent = await db.ContentDocuments.AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == parentDocumentId, ct);
+            if (parent is null)
+                return Result<SeoContentDocument>.Failure("Parent document not found");
+            if (parent.ProjectId != request.ProjectId)
+                return Result<SeoContentDocument>.Failure("Parent document must belong to the same project");
+        }
+
+        string? publishSlug = null;
+        if (!string.IsNullOrWhiteSpace(request.PublishSlug))
+        {
+            publishSlug = request.PublishSlug.Trim().ToLowerInvariant();
+            if (!ContentPublishSlug.IsValid(publishSlug))
+                return Result<SeoContentDocument>.Failure("Publish slug must be lowercase kebab-case.");
+
+            var slugTaken = await db.ContentDocuments.AsNoTracking()
+                .AnyAsync(d => d.ProjectId == request.ProjectId && d.PublishSlug == publishSlug, ct);
+            if (slugTaken)
+                return Result<SeoContentDocument>.Failure($"Publish slug \"{publishSlug}\" is already used in this project.");
+        }
+
+        string? spokeSourceType = null;
+        if (!string.IsNullOrWhiteSpace(request.SpokeSourceType))
+        {
+            spokeSourceType = request.SpokeSourceType.Trim().ToLowerInvariant();
+            if (!SpokeSourceTypes.IsKnown(spokeSourceType))
+                return Result<SeoContentDocument>.Failure($"Unknown spoke source type \"{spokeSourceType}\".");
+        }
+
         var doc = new SeoContentDocument
         {
             Id = Guid.NewGuid(),
             ProjectId = request.ProjectId,
             UserId = userId,
+            ParentDocumentId = parentId,
+            DocumentKind = documentKind,
+            PublishSlug = publishSlug,
+            SpokeSourceType = spokeSourceType,
+            SpokeSourcePhrase = string.IsNullOrWhiteSpace(request.SpokeSourcePhrase)
+                ? null
+                : request.SpokeSourcePhrase.Trim(),
             Title = request.Title,
             TargetKeyword = request.TargetKeyword,
             TargetLocation = request.TargetLocation,
