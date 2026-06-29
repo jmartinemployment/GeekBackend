@@ -211,6 +211,97 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
         return Result<SeoContentDocument>.Success(doc);
     }
 
+    public async Task<Result<SeoContentDocument>> MigrateBlogSpokeChildIfAbsentAsync(
+        Guid userId,
+        Guid pillarDocumentId,
+        MigrateBlogSpokeChildPayload payload,
+        CancellationToken ct = default)
+    {
+        if (payload is null)
+            return Result<SeoContentDocument>.Failure("Migration payload is required.");
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var lockKey = BitConverter.ToInt64(pillarDocumentId.ToByteArray(), 0);
+            await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock({0})", [lockKey], ct);
+
+            var existing = await db.ContentDocuments
+                .Where(d => d.ParentDocumentId == pillarDocumentId)
+                .OrderBy(d => d.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+            if (existing is not null)
+            {
+                await tx.CommitAsync(ct);
+                return Result<SeoContentDocument>.Success(existing);
+            }
+
+            var pillar = await db.ContentDocuments.FirstOrDefaultAsync(d => d.Id == pillarDocumentId, ct);
+            if (pillar is null)
+                return Result<SeoContentDocument>.NotFound("Document not found");
+
+            if (pillar.ProjectId != payload.Child.ProjectId)
+                return Result<SeoContentDocument>.Failure("Child project must match pillar project.");
+
+            var parentId = payload.Child.ParentDocumentId is Guid pid && pid != Guid.Empty ? pid : (Guid?)null;
+            if (parentId != pillarDocumentId)
+                return Result<SeoContentDocument>.Failure("Child parent must match pillar document.");
+
+            string? publishSlug = null;
+            if (!string.IsNullOrWhiteSpace(payload.Child.PublishSlug))
+            {
+                publishSlug = payload.Child.PublishSlug.Trim().ToLowerInvariant();
+                if (!ContentPublishSlug.IsValid(publishSlug))
+                    return Result<SeoContentDocument>.Failure("Publish slug must be lowercase kebab-case.");
+
+                var slugTaken = await db.ContentDocuments
+                    .AnyAsync(d => d.ProjectId == payload.Child.ProjectId && d.PublishSlug == publishSlug, ct);
+                if (slugTaken)
+                    return Result<SeoContentDocument>.Failure($"Publish slug \"{publishSlug}\" is already used in this project.");
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var doc = new SeoContentDocument
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = payload.Child.ProjectId,
+                UserId = userId,
+                ParentDocumentId = pillarDocumentId,
+                DocumentKind = ContentDocumentKinds.Spoke,
+                PublishSlug = publishSlug,
+                SpokeSourceType = SpokeSourceTypes.Migrated,
+                SpokeSourcePhrase = string.IsNullOrWhiteSpace(payload.Child.SpokeSourcePhrase)
+                    ? null
+                    : payload.Child.SpokeSourcePhrase.Trim(),
+                SiteFocusJson = payload.Child.SiteFocusJson,
+                SiteFocusCapturedAt = payload.Child.SiteFocusCapturedAt,
+                KeywordBundleJson = payload.Child.KeywordBundleJson,
+                KeywordBundleCapturedAt = payload.Child.KeywordBundleCapturedAt,
+                Title = payload.Child.Title,
+                TargetKeyword = payload.Child.TargetKeyword,
+                TargetLocation = payload.Child.TargetLocation,
+                AnalysisRunId = payload.Child.AnalysisRunId,
+                SerpKeyword = payload.Child.SerpKeyword,
+                SiteProfileId = payload.Child.SiteProfileId,
+                ContentHtml = payload.ContentHtml,
+                WordCount = payload.WordCount,
+                Status = payload.Status,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+
+            db.ContentDocuments.Add(doc);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return Result<SeoContentDocument>.Success(doc);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+    }
+
     public async Task<Result> UpdateScoreAsync(
         Guid documentId, int score, string scoreComponentsJson, CancellationToken ct = default)
     {
