@@ -194,6 +194,19 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
         return Result<SeoContentDocument>.Success(doc);
     }
 
+    public async Task<Result<SeoContentDocument>> UpdateLinkPlanAsync(
+        Guid documentId, string linkPlanJson, CancellationToken ct = default)
+    {
+        var doc = await db.ContentDocuments.FirstOrDefaultAsync(d => d.Id == documentId, ct);
+        if (doc is null)
+            return Result<SeoContentDocument>.NotFound("Document not found");
+
+        doc.LinkPlanJson = linkPlanJson;
+        doc.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Result<SeoContentDocument>.Success(doc);
+    }
+
     public async Task<Result> UpdateScoreAsync(
         Guid documentId, int score, string scoreComponentsJson, CancellationToken ct = default)
     {
