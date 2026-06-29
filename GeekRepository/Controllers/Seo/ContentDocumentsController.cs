@@ -115,6 +115,19 @@ public sealed class ContentDocumentsController(IContentDocumentService content) 
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpPost("{id:guid}/migrate-blog-spoke-child")]
+    public async Task<IActionResult> MigrateBlogSpokeChild(
+        Guid id, [FromQuery] Guid userId, [FromBody] MigrateBlogSpokeChildPayload payload, CancellationToken ct)
+    {
+        var access = await content.EnsureAccessAsync(userId, id, ct);
+        if (!access.IsSuccess)
+            return access.Error?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true ? NotFound() : BadRequest(access.Error);
+
+        var repo = HttpContext.RequestServices.GetRequiredService<IContentDocumentRepository>();
+        var result = await repo.MigrateBlogSpokeChildIfAbsentAsync(userId, id, payload, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
     [HttpPut("{id:guid}/score")]
     public async Task<IActionResult> UpdateScore(
         Guid id,
