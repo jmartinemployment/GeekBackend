@@ -77,6 +77,10 @@ public sealed class ContentDocumentRepository(SeoDbContext db) : IContentDocumen
             SpokeSourcePhrase = string.IsNullOrWhiteSpace(request.SpokeSourcePhrase)
                 ? null
                 : request.SpokeSourcePhrase.Trim(),
+            SiteFocusJson = request.SiteFocusJson,
+            SiteFocusCapturedAt = request.SiteFocusCapturedAt,
+            KeywordBundleJson = request.KeywordBundleJson,
+            KeywordBundleCapturedAt = request.KeywordBundleCapturedAt,
             Title = request.Title,
             TargetKeyword = request.TargetKeyword,
             TargetLocation = request.TargetLocation,
