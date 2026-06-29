@@ -102,6 +102,19 @@ public sealed class ContentDocumentsController(IContentDocumentService content) 
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpPut("{id:guid}/link-plan")]
+    public async Task<IActionResult> UpdateLinkPlan(
+        Guid id, [FromQuery] Guid userId, [FromBody] UpdateLinkPlanRequest request, CancellationToken ct)
+    {
+        var access = await content.EnsureAccessAsync(userId, id, ct);
+        if (!access.IsSuccess)
+            return access.Error?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true ? NotFound() : BadRequest(access.Error);
+
+        var repo = HttpContext.RequestServices.GetRequiredService<IContentDocumentRepository>();
+        var result = await repo.UpdateLinkPlanAsync(id, request.LinkPlanJson, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
     [HttpPut("{id:guid}/score")]
     public async Task<IActionResult> UpdateScore(
         Guid id,
@@ -145,6 +158,11 @@ public sealed record UpdateFeaturedImageRequest
 public sealed record UpdateBlogSpokeRequest
 {
     public required string BlogSpokeJson { get; init; }
+}
+
+public sealed record UpdateLinkPlanRequest
+{
+    public required string LinkPlanJson { get; init; }
 }
 
 public sealed record AttachUrlResearchRequest
