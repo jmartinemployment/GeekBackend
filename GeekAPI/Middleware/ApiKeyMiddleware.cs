@@ -33,7 +33,8 @@ public class ApiKeyMiddleware
             return;
         }
 
-        if (normalizedPath.StartsWith("/api/seo/internal", StringComparison.OrdinalIgnoreCase))
+        if (normalizedPath.StartsWith("/api/seo/internal", StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith("/api/gtm/internal", StringComparison.OrdinalIgnoreCase))
         {
             if (TryAuthenticateSeoInternal(context))
             {
@@ -42,7 +43,7 @@ public class ApiKeyMiddleware
             }
 
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { success = false, error = "Authentication required for SEO internal API." });
+            await context.Response.WriteAsJsonAsync(new { success = false, error = "Authentication required for internal API." });
             return;
         }
 
