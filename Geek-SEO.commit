@@ -1,3 +1,3 @@
 # Pin Geek-SEO for GeekRepository Docker build (GeekSeo.Application + Persistence).
-# Bumped 2026-07-01 — GTM account connections + OAuth env alias.
-37fdffc
+# Bumped 2026-07-11 — restore UrlResearch / Site Analyzer APIs on main (revert e7cc0a0 + Application deps).
+f50ef8a

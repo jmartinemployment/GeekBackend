@@ -1,4 +1,5 @@
 using DotNetEnv;
+using GeekAPI.Controllers;
 using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
@@ -46,6 +47,8 @@ if (!string.IsNullOrWhiteSpace(repoApiKey))
 builder.Services.AddScoped<ICaseStudyRepository, HttpCaseStudyRepository>();
 builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();
 builder.Services.AddScoped<IUseCaseRepository, HttpUseCaseRepository>();
+builder.Services.AddScoped<IBlogRepository, HttpBlogRepository>();
+builder.Services.AddScoped<IAssetUploadService, NoOpAssetUploadService>();
 
 builder.Services.AddScoped<DepartmentContentService>();
 builder.Services.AddGeekSa2Read();
