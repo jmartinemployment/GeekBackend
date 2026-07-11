@@ -432,7 +432,7 @@ public sealed class BlogRepository : IBlogRepository
 
     private static DateTimeOffset? ResolvePublishedAt(UpsertBlogPostCommand command) =>
         command.Status == "published"
-            ? command.PublishedAt ?? DateTimeOffset.UtcNow
+            ? (command.PublishedAt ?? DateTimeOffset.UtcNow).ToUniversalTime()
             : null;
 
     private async Task UpsertTranslationAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct)

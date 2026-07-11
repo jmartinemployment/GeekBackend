@@ -233,7 +233,7 @@ public static partial class PageParser
         };
 
         if (publishedAt is not null)
-            payload["datePublished"] = publishedAt.Value.ToString("O");
+            payload["datePublished"] = publishedAt.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
 
         return JsonSerializer.Serialize(payload);
     }

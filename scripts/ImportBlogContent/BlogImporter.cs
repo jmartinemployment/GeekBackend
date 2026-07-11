@@ -74,7 +74,7 @@ public sealed class BlogImporter(HttpClient http, string apiKey)
                     body = parsed.BodyHtml,
                     schemaMetadataJson = parsed.SchemaMetadataJson,
                     tagSlugs = new[] { entry.Department },
-                    publishedAt = parsed.PublishedAt
+                    publishedAt = parsed.PublishedAt?.ToUniversalTime()
                 };
 
                 using var request = new HttpRequestMessage(

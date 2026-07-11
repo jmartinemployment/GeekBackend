@@ -31,6 +31,23 @@ discoverCmd.SetHandler(async (baseUrl, outFile) =>
     }
 }, baseUrlOption, outOption);
 
+var parseCmd = new Command("parse", "Parse one URL and print payload stats (debug)");
+var parseUrlOption = new Option<string>("--url", "Page URL") { IsRequired = true };
+var parseTypeOption = new Option<string>("--post-type", () => "BlogPosting", "Schema.org post type");
+parseCmd.AddOption(parseUrlOption);
+parseCmd.AddOption(parseTypeOption);
+parseCmd.SetHandler(async (url, postType) =>
+{
+    using var http = CreateHttpClient();
+    var html = await http.GetStringAsync(url);
+    var parsed = PageParser.Parse(html, postType, url);
+    Console.WriteLine($"title={parsed.Title.Length} chars");
+    Console.WriteLine($"body={parsed.BodyHtml.Length} chars");
+    Console.WriteLine($"schema={parsed.SchemaMetadataJson.Length} chars");
+    Console.WriteLine($"publishedAt={parsed.PublishedAt}");
+    Console.WriteLine($"schema={parsed.SchemaMetadataJson}");
+}, parseUrlOption, parseTypeOption);
+
 var importCmd = new Command("import", "Import manifest entries into geek_blog via GeekAPI");
 importCmd.AddOption(manifestOption);
 importCmd.AddOption(apiOption);
@@ -87,6 +104,7 @@ importCmd.SetHandler(async (manifest, api, apiKey, dryRun, replace) =>
 
 var root = new RootCommand("Import live geekatyourspot.com content into geek_blog");
 root.AddCommand(discoverCmd);
+root.AddCommand(parseCmd);
 root.AddCommand(importCmd);
 
 return await root.InvokeAsync(args);
