@@ -13,6 +13,12 @@ public sealed record ParsedPage(
 
 public static partial class PageParser
 {
+    private static readonly Dictionary<string, string[]> TypeAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["TechnicalArticle"] = ["TechnicalArticle", "TechArticle"],
+        ["BlogPosting"] = ["BlogPosting"]
+    };
+
     public static ParsedPage Parse(string html, string postType, string canonicalUrl)
     {
         var doc = new HtmlDocument();
@@ -25,11 +31,11 @@ public static partial class PageParser
             .SelectSingleNode("//meta[@name='description']")?
             .GetAttributeValue("content", null);
 
-        var jsonLd = ExtractJsonLd(doc, postType);
-        var publishedAt = ExtractPublishedDate(doc, jsonLd);
+        var rawJsonLd = ExtractJsonLd(doc, postType);
+        var publishedAt = ExtractPublishedDate(doc, rawJsonLd);
         var body = ExtractBodyHtml(doc);
 
-        var schema = jsonLd ?? BuildFallbackSchema(postType, title, metaDescription, canonicalUrl, publishedAt);
+        var schema = BuildImportSchema(rawJsonLd, postType, title, metaDescription, canonicalUrl, publishedAt);
 
         return new ParsedPage(title, body, metaDescription, publishedAt, schema);
     }
@@ -44,9 +50,9 @@ public static partial class PageParser
             try
             {
                 using var json = JsonDocument.Parse(raw);
-                var type = json.RootElement.TryGetProperty("@type", out var t) ? t.GetString() : null;
-                if (string.Equals(type, postType, StringComparison.Ordinal))
-                    return raw;
+                var match = FindMatchingEntity(json.RootElement, postType);
+                if (match is not null)
+                    return match;
             }
             catch
             {
@@ -56,6 +62,105 @@ public static partial class PageParser
 
         return null;
     }
+
+    private static string? FindMatchingEntity(JsonElement root, string postType)
+    {
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in root.EnumerateArray())
+            {
+                var match = FindMatchingEntity(item, postType);
+                if (match is not null)
+                    return match;
+            }
+
+            return null;
+        }
+
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (MatchesPostType(root, postType))
+            return root.GetRawText();
+
+        if (root.TryGetProperty("@graph", out var graph) && graph.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in graph.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Object && MatchesPostType(item, postType))
+                    return item.GetRawText();
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesPostType(JsonElement entity, string postType)
+    {
+        if (!entity.TryGetProperty("@type", out var typeElement))
+            return false;
+
+        var aliases = TypeAliases.GetValueOrDefault(postType) ?? [postType];
+
+        if (typeElement.ValueKind == JsonValueKind.String)
+            return aliases.Contains(typeElement.GetString(), StringComparer.OrdinalIgnoreCase);
+
+        if (typeElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in typeElement.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String
+                    && aliases.Contains(item.GetString(), StringComparer.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string BuildImportSchema(
+        string? rawJsonLd,
+        string postType,
+        string title,
+        string? description,
+        string canonicalUrl,
+        DateTimeOffset? publishedAt)
+    {
+        string? headline = null;
+        string? metaDescription = description;
+
+        if (rawJsonLd is not null)
+        {
+            try
+            {
+                using var json = JsonDocument.Parse(rawJsonLd);
+                var root = json.RootElement;
+
+                if (root.TryGetProperty("headline", out var headlineElement))
+                    headline = headlineElement.GetString();
+
+                if (root.TryGetProperty("description", out var descriptionElement))
+                    metaDescription = descriptionElement.GetString();
+
+                if (publishedAt is null
+                    && root.TryGetProperty("datePublished", out var datePublishedElement)
+                    && DateTimeOffset.TryParse(datePublishedElement.GetString(), out var parsed))
+                    publishedAt = parsed;
+            }
+            catch
+            {
+                // fall through to fallback schema
+            }
+        }
+
+        return BuildFallbackSchema(
+            postType,
+            headline ?? title,
+            metaDescription,
+            canonicalUrl,
+            publishedAt);
+    }
+
 
     private static DateTimeOffset? ExtractPublishedDate(HtmlDocument doc, string? jsonLd)
     {
