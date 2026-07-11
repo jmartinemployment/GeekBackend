@@ -105,7 +105,14 @@ public class ApiKeyMiddleware
         if (!HttpMethods.IsGet(context.Request.Method)) return false;
         var path = NormalizePath(context.Request.Path.Value);
         if (!path.StartsWith("/api/blog/", StringComparison.OrdinalIgnoreCase)) return false;
-        if (path.Equals("/api/blog/all", StringComparison.OrdinalIgnoreCase)) return false;
+        if (path.Equals("/api/blog/all", StringComparison.OrdinalIgnoreCase))
+        {
+            // Published catalog only — used by geekatyourspot SSG/ISR at build and runtime.
+            return string.Equals(
+                context.Request.Query["status"],
+                "published",
+                StringComparison.OrdinalIgnoreCase);
+        }
         if (path.StartsWith("/api/blog/by-id/", StringComparison.OrdinalIgnoreCase)) return false;
         return true;
     }
