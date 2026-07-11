@@ -7,8 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace GeekAPI.Controllers;
 
 /// <summary>
-/// API layer sample: deserializes geek_blog schema_metadata into typed JSON-LD models.
-/// Slow uploads finish before the repository host opens its resilient transaction.
+/// Blog content API: public reads and admin CRUD (writes require X-API-Key).
 /// </summary>
 [ApiController]
 [Route("api/blog")]
@@ -29,7 +28,57 @@ public sealed class BlogPostsController : ControllerBase
         _assetUploads = assetUploads;
     }
 
-    [HttpGet("{lang}/{slug}")]
+    [HttpGet("all")]
+    public async Task<ActionResult<IReadOnlyList<BlogPostAdminResponse>>> GetAll(
+        [FromQuery] string? lang,
+        [FromQuery] string? status,
+        [FromQuery] string? postType,
+        CancellationToken ct = default)
+    {
+        var posts = await _blog.GetAllPostsAsync(lang, status, postType, ct);
+        return Ok(posts.Select(MapToAdminResponse).ToList());
+    }
+
+    [HttpGet("by-id/{id:int}")]
+    public async Task<ActionResult<BlogPostAdminResponse>> GetById(
+        int id,
+        [FromQuery] string? lang,
+        CancellationToken ct = default)
+    {
+        var post = await _blog.GetPostByIdAsync(id, lang, ct);
+        return post is null ? NotFound() : Ok(MapToAdminResponse(post));
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<BlogPostAdminResponse>> Create(
+        [FromBody] BlogPostRequest request,
+        CancellationToken ct = default)
+    {
+        var postId = await _blog.CreatePostAsync(ToCommand(request), ct);
+        var created = await _blog.GetPostByIdAsync(postId, request.LanguageCode, ct);
+        return CreatedAtAction(nameof(GetById), new { id = postId }, MapToAdminResponse(created!));
+    }
+
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<BlogPostAdminResponse>> Update(
+        int id,
+        [FromBody] BlogPostRequest request,
+        CancellationToken ct = default)
+    {
+        if (!await _blog.UpdatePostAsync(id, ToCommand(request), ct))
+            return NotFound();
+
+        var updated = await _blog.GetPostByIdAsync(id, request.LanguageCode, ct);
+        return Ok(MapToAdminResponse(updated!));
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
+    {
+        return await _blog.DeletePostAsync(id, ct) ? NoContent() : NotFound();
+    }
+
+    [HttpGet("{lang}/{**slug}")]
     public async Task<ActionResult<BlogPostResponse>> GetPost(
         string lang,
         string slug,
@@ -49,7 +98,6 @@ public sealed class BlogPostsController : ControllerBase
         [FromForm] CommentReplyFormRequest request,
         CancellationToken ct = default)
     {
-        // Slow cloud asset uploads complete BEFORE the repository opens its resilient transaction.
         string? attachmentUrl = null;
         if (request.Attachment is not null)
             attachmentUrl = await _assetUploads.UploadAsync(request.Attachment, ct);
@@ -74,6 +122,21 @@ public sealed class BlogPostsController : ControllerBase
         return CreatedAtAction(nameof(GetPost), new { lang = request.LanguageCode, slug = request.PostSlug }, MapComment(created));
     }
 
+    private static UpsertBlogPostCommand ToCommand(BlogPostRequest request) =>
+        new()
+        {
+            PostType = request.PostType,
+            Status = request.Status,
+            LanguageCode = request.LanguageCode,
+            Slug = request.Slug,
+            Title = request.Title,
+            Body = request.Body,
+            SchemaMetadataJson = request.SchemaMetadataJson,
+            TagSlugs = request.TagSlugs,
+            AuthorId = request.AuthorId,
+            PublishedAt = request.PublishedAt
+        };
+
     private static BlogPostResponse MapToResponse(BlogPostFlatDto flat) =>
         new()
         {
@@ -86,6 +149,24 @@ public sealed class BlogPostsController : ControllerBase
             PublishedAt = flat.PublishedAt,
             LocalizedTagsJson = flat.LocalizedTagsJson,
             JsonLd = DeserializeSchemaMetadata(flat.PostType, flat.SchemaMetadataJson)
+        };
+
+    private static BlogPostAdminResponse MapToAdminResponse(BlogPostFlatDto flat) =>
+        new()
+        {
+            PostId = flat.PostId,
+            PostType = flat.PostType,
+            LanguageCode = flat.LanguageCode,
+            Slug = flat.Slug,
+            Title = flat.Title,
+            Body = flat.Body,
+            PublishedAt = flat.PublishedAt,
+            LocalizedTagsJson = flat.LocalizedTagsJson,
+            JsonLd = DeserializeSchemaMetadata(flat.PostType, flat.SchemaMetadataJson),
+            Status = flat.Status,
+            CreatedAt = flat.CreatedAt,
+            UpdatedAt = flat.UpdatedAt,
+            SchemaMetadataJson = flat.SchemaMetadataJson
         };
 
     private static ArticleMetadata? DeserializeSchemaMetadata(string postType, string schemaMetadataJson)

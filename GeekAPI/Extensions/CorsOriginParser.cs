@@ -6,6 +6,7 @@ public static class CorsOriginParser
     [
         "http://localhost:3000",
         "https://www.geekatyourspot.com",
+        "https://admin.geekatyourspot.com",
     ];
 
     /// <summary>

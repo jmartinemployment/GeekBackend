@@ -43,3 +43,36 @@ public sealed record CommentResponse(
     string Path,
     int Depth,
     DateTimeOffset CreatedAt);
+
+public sealed class BlogPostRequest
+{
+    public string PostType { get; init; } = "BlogPosting";
+    public string Status { get; init; } = "draft";
+    public string LanguageCode { get; init; } = "en";
+    public string Slug { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string Body { get; init; } = string.Empty;
+    public string SchemaMetadataJson { get; init; } = "{}";
+    public IReadOnlyList<string> TagSlugs { get; init; } = [];
+    public int? AuthorId { get; init; }
+    public DateTimeOffset? PublishedAt { get; init; }
+}
+
+public sealed class BlogPostAdminResponse
+{
+    public int PostId { get; init; }
+    public string PostType { get; init; } = string.Empty;
+    public string LanguageCode { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string Body { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
+    public DateTimeOffset? PublishedAt { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset UpdatedAt { get; init; }
+    public string LocalizedTagsJson { get; init; } = "[]";
+    public string SchemaMetadataJson { get; init; } = "{}";
+
+    [JsonPropertyName("jsonLd")]
+    public ArticleMetadata? JsonLd { get; init; }
+}

@@ -15,6 +15,35 @@ public sealed class HttpBlogRepository : IBlogRepository
     public Task<bool> UserHasPermissionAsync(int userId, string permissionName, CancellationToken ct = default) =>
         throw new NotSupportedException("RBAC checks are evaluated on the repository host.");
 
+    public async Task<IReadOnlyList<BlogPostFlatDto>> GetAllPostsAsync(
+        string? languageCode = null,
+        string? status = null,
+        string? postType = null,
+        CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (languageCode is not null) query.Add($"lang={Uri.EscapeDataString(languageCode)}");
+        if (status is not null) query.Add($"status={Uri.EscapeDataString(status)}");
+        if (postType is not null) query.Add($"postType={Uri.EscapeDataString(postType)}");
+        var qs = query.Count > 0 ? "?" + string.Join('&', query) : string.Empty;
+
+        var response = await _http.GetAsync($"repo/content/blog/all{qs}", ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<BlogPostFlatDto>>(ct) ?? [];
+    }
+
+    public async Task<BlogPostFlatDto?> GetPostByIdAsync(
+        int postId,
+        string? languageCode = null,
+        CancellationToken ct = default)
+    {
+        var qs = languageCode is not null ? $"?lang={Uri.EscapeDataString(languageCode)}" : string.Empty;
+        var response = await _http.GetAsync($"repo/content/blog/by-id/{postId}{qs}", ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<BlogPostFlatDto>(ct);
+    }
+
     public async Task<IReadOnlyList<BlogPostFlatDto>> SearchPostsWithOptimizedPlanAsync(
         string searchTerm,
         string languageCode,
@@ -32,9 +61,8 @@ public sealed class HttpBlogRepository : IBlogRepository
         string languageCode,
         CancellationToken ct = default)
     {
-        var response = await _http.GetAsync(
-            $"repo/content/blog/{Uri.EscapeDataString(languageCode)}/{Uri.EscapeDataString(slug)}",
-            ct);
+        var encodedSlug = EncodeSlugPath(slug);
+        var response = await _http.GetAsync($"repo/content/blog/{Uri.EscapeDataString(languageCode)}/{encodedSlug}", ct);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<BlogPostFlatDto>(ct);
@@ -49,6 +77,30 @@ public sealed class HttpBlogRepository : IBlogRepository
             ct);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<List<BlogPostFlatDto>>(ct) ?? [];
+    }
+
+    public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("repo/content/blog", command, ct);
+        response.EnsureSuccessStatusCode();
+        var created = await response.Content.ReadFromJsonAsync<BlogPostFlatDto>(ct);
+        return created?.PostId ?? 0;
+    }
+
+    public async Task<bool> UpdatePostAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct = default)
+    {
+        var response = await _http.PutAsJsonAsync($"repo/content/blog/{postId}", command, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return false;
+        response.EnsureSuccessStatusCode();
+        return true;
+    }
+
+    public async Task<bool> DeletePostAsync(int postId, CancellationToken ct = default)
+    {
+        var response = await _http.DeleteAsync($"repo/content/blog/{postId}", ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return false;
+        response.EnsureSuccessStatusCode();
+        return true;
     }
 
     public async Task<IReadOnlyList<CommentDto>> GetThreadedCommentsAsync(
@@ -82,4 +134,8 @@ public sealed class HttpBlogRepository : IBlogRepository
         var payload = await response.Content.ReadFromJsonAsync<Dictionary<string, int>>(ct);
         return payload?["id"] ?? 0;
     }
+
+    private static string EncodeSlugPath(string slug) =>
+        string.Join('/', slug.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.EscapeDataString));
 }
+
