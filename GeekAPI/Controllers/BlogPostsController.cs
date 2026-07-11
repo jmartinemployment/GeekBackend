@@ -174,12 +174,19 @@ public sealed class BlogPostsController : ControllerBase
         if (string.IsNullOrWhiteSpace(schemaMetadataJson) || schemaMetadataJson == "{}")
             return null;
 
-        return postType switch
+        try
         {
-            "TechnicalArticle" => JsonSerializer.Deserialize<TechnicalArticleMetadata>(schemaMetadataJson, JsonLdOptions),
-            "BlogPosting" => JsonSerializer.Deserialize<BlogPostingMetadata>(schemaMetadataJson, JsonLdOptions),
-            _ => null
-        };
+            return postType switch
+            {
+                "TechnicalArticle" => JsonSerializer.Deserialize<TechnicalArticleMetadata>(schemaMetadataJson, JsonLdOptions),
+                "BlogPosting" => JsonSerializer.Deserialize<BlogPostingMetadata>(schemaMetadataJson, JsonLdOptions),
+                _ => null
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static CommentResponse MapComment(CommentDto comment) =>
