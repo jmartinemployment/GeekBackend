@@ -183,7 +183,7 @@ public sealed class BlogPostsController : ControllerBase
                 _ => null
             };
         }
-        catch (JsonException)
+        catch (Exception)
         {
             return null;
         }
