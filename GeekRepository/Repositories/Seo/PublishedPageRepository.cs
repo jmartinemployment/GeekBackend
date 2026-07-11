@@ -41,7 +41,7 @@ public sealed class PublishedPageRepository(SeoDbContext db) : IPublishedPageRep
                 Date = s.Date.ToString("yyyy-MM-dd"),
                 Clicks = s.Clicks,
                 Impressions = s.Impressions,
-                Position = s.Position,
+                Position = (double?)s.Position,
             })
             .ToListAsync(ct);
 
