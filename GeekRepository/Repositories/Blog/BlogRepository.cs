@@ -265,4 +265,256 @@ public sealed class BlogRepository : IBlogRepository
 
         return await _ambient.Connection.ExecuteScalarAsync<int>(insertCommand);
     }
+
+    public async Task<IReadOnlyList<BlogPostFlatDto>> GetAllPostsAsync(
+        string? languageCode = null,
+        string? status = null,
+        string? postType = null,
+        CancellationToken ct = default)
+    {
+        var sql = $"""
+            SELECT
+                p.id              AS PostId,
+                p.post_type       AS PostType,
+                pt.language_code  AS LanguageCode,
+                pt.slug::text     AS Slug,
+                pt.title          AS Title,
+                pt.body           AS Body,
+                p.status          AS Status,
+                p.published_at    AS PublishedAt,
+                p.created_at      AS CreatedAt,
+                p.updated_at      AS UpdatedAt,
+                COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
+                pt.schema_metadata::text AS SchemaMetadataJson
+            FROM geek_blog.posts p
+            INNER JOIN geek_blog.post_translations pt ON pt.post_id = p.id
+            LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object('slug', t.slug::text, 'name', tt.name)
+                    ORDER BY tt.name
+                )::text AS localized_tags_json
+                FROM geek_blog.post_tags ptg
+                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
+                INNER JOIN geek_blog.tag_translations tt
+                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
+                WHERE ptg.post_id = p.id
+            ) tags ON TRUE
+            WHERE 1=1
+            {(languageCode is not null ? "AND pt.language_code = @LanguageCode" : "")}
+            {(status is not null ? "AND p.status = @Status" : "")}
+            {(postType is not null ? "AND p.post_type = @PostType" : "")}
+            ORDER BY p.updated_at DESC, p.id DESC
+            """;
+
+        var parameters = new DynamicParameters();
+        if (languageCode is not null) parameters.Add("LanguageCode", languageCode);
+        if (status is not null) parameters.Add("Status", status);
+        if (postType is not null) parameters.Add("PostType", postType);
+
+        var command = new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct);
+        var rows = await _ambient.Connection.QueryAsync<BlogPostFlatDto>(command);
+        return rows.ToList();
+    }
+
+    public async Task<BlogPostFlatDto?> GetPostByIdAsync(
+        int postId,
+        string? languageCode = null,
+        CancellationToken ct = default)
+    {
+        var sql = """
+            SELECT
+                p.id              AS PostId,
+                p.post_type       AS PostType,
+                pt.language_code  AS LanguageCode,
+                pt.slug::text     AS Slug,
+                pt.title          AS Title,
+                pt.body           AS Body,
+                p.status          AS Status,
+                p.published_at    AS PublishedAt,
+                p.created_at      AS CreatedAt,
+                p.updated_at      AS UpdatedAt,
+                COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
+                pt.schema_metadata::text AS SchemaMetadataJson
+            FROM geek_blog.posts p
+            INNER JOIN geek_blog.post_translations pt ON pt.post_id = p.id
+            LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object('slug', t.slug::text, 'name', tt.name)
+                    ORDER BY tt.name
+                )::text AS localized_tags_json
+                FROM geek_blog.post_tags ptg
+                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
+                INNER JOIN geek_blog.tag_translations tt
+                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
+                WHERE ptg.post_id = p.id
+            ) tags ON TRUE
+            WHERE p.id = @PostId
+            """ + (languageCode is not null ? " AND pt.language_code = @LanguageCode" : "") + """
+             ORDER BY pt.language_code
+             LIMIT 1
+            """;
+
+        var parameters = new DynamicParameters();
+        parameters.Add("PostId", postId);
+        if (languageCode is not null) parameters.Add("LanguageCode", languageCode);
+
+        var command = new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct);
+        return await _ambient.Connection.QueryFirstOrDefaultAsync<BlogPostFlatDto>(command);
+    }
+
+    public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
+    {
+        var publishedAt = ResolvePublishedAt(command);
+
+        const string insertPostSql = """
+            INSERT INTO geek_blog.posts (post_type, author_id, status, published_at)
+            VALUES (@PostType, @AuthorId, @Status, @PublishedAt)
+            RETURNING id
+            """;
+
+        var postParams = new DynamicParameters();
+        postParams.Add("PostType", command.PostType);
+        postParams.Add("AuthorId", command.AuthorId);
+        postParams.Add("Status", command.Status);
+        postParams.Add("PublishedAt", publishedAt);
+
+        var postId = await _ambient.Connection.ExecuteScalarAsync<int>(
+            new CommandDefinition(insertPostSql, postParams, _ambient.Transaction, cancellationToken: ct));
+
+        await UpsertTranslationAsync(postId, command, ct);
+        await ReplacePostTagsAsync(postId, command.LanguageCode, command.TagSlugs, ct);
+
+        return postId;
+    }
+
+    public async Task<bool> UpdatePostAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct = default)
+    {
+        const string existsSql = "SELECT EXISTS(SELECT 1 FROM geek_blog.posts WHERE id = @PostId)";
+        var exists = await _ambient.Connection.ExecuteScalarAsync<bool>(
+            new CommandDefinition(existsSql, new { PostId = postId }, _ambient.Transaction, cancellationToken: ct));
+        if (!exists) return false;
+
+        var publishedAt = ResolvePublishedAt(command);
+
+        const string updatePostSql = """
+            UPDATE geek_blog.posts
+            SET post_type = @PostType,
+                author_id = @AuthorId,
+                status = @Status,
+                published_at = @PublishedAt,
+                updated_at = NOW()
+            WHERE id = @PostId
+            """;
+
+        var postParams = new DynamicParameters();
+        postParams.Add("PostId", postId);
+        postParams.Add("PostType", command.PostType);
+        postParams.Add("AuthorId", command.AuthorId);
+        postParams.Add("Status", command.Status);
+        postParams.Add("PublishedAt", publishedAt);
+
+        await _ambient.Connection.ExecuteAsync(
+            new CommandDefinition(updatePostSql, postParams, _ambient.Transaction, cancellationToken: ct));
+
+        await UpsertTranslationAsync(postId, command, ct);
+        await ReplacePostTagsAsync(postId, command.LanguageCode, command.TagSlugs, ct);
+
+        return true;
+    }
+
+    public async Task<bool> DeletePostAsync(int postId, CancellationToken ct = default)
+    {
+        const string sql = "DELETE FROM geek_blog.posts WHERE id = @PostId";
+        var affected = await _ambient.Connection.ExecuteAsync(
+            new CommandDefinition(sql, new { PostId = postId }, _ambient.Transaction, cancellationToken: ct));
+        return affected > 0;
+    }
+
+    private static DateTimeOffset? ResolvePublishedAt(UpsertBlogPostCommand command) =>
+        command.Status == "published"
+            ? command.PublishedAt ?? DateTimeOffset.UtcNow
+            : null;
+
+    private async Task UpsertTranslationAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct)
+    {
+        const string sql = """
+            INSERT INTO geek_blog.post_translations
+                (post_id, language_code, slug, title, body, post_type, schema_metadata)
+            VALUES
+                (@PostId, @LanguageCode, @Slug, @Title, @Body, @PostType, @SchemaMetadata::jsonb)
+            ON CONFLICT (post_id, language_code) DO UPDATE SET
+                slug = EXCLUDED.slug,
+                title = EXCLUDED.title,
+                body = EXCLUDED.body,
+                post_type = EXCLUDED.post_type,
+                schema_metadata = EXCLUDED.schema_metadata,
+                updated_at = NOW()
+            """;
+
+        var parameters = new DynamicParameters();
+        parameters.Add("PostId", postId);
+        parameters.Add("LanguageCode", command.LanguageCode);
+        parameters.Add("Slug", command.Slug);
+        parameters.Add("Title", command.Title);
+        parameters.Add("Body", command.Body);
+        parameters.Add("PostType", command.PostType);
+        parameters.Add("SchemaMetadata", command.SchemaMetadataJson);
+
+        await _ambient.Connection.ExecuteAsync(
+            new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct));
+    }
+
+    private async Task ReplacePostTagsAsync(
+        int postId,
+        string languageCode,
+        IReadOnlyList<string> tagSlugs,
+        CancellationToken ct)
+    {
+        await _ambient.Connection.ExecuteAsync(
+            new CommandDefinition(
+                "DELETE FROM geek_blog.post_tags WHERE post_id = @PostId",
+                new { PostId = postId },
+                _ambient.Transaction,
+                cancellationToken: ct));
+
+        foreach (var tagSlug in tagSlugs.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            const string upsertTagSql = """
+                INSERT INTO geek_blog.tags (slug)
+                VALUES (@Slug)
+                ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
+                RETURNING id
+                """;
+
+            var tagId = await _ambient.Connection.ExecuteScalarAsync<int>(
+                new CommandDefinition(
+                    upsertTagSql,
+                    new { Slug = tagSlug },
+                    _ambient.Transaction,
+                    cancellationToken: ct));
+
+            const string upsertTranslationSql = """
+                INSERT INTO geek_blog.tag_translations (tag_id, language_code, name)
+                VALUES (@TagId, @LanguageCode, @Name)
+                ON CONFLICT (tag_id, language_code) DO UPDATE SET name = EXCLUDED.name
+                """;
+
+            await _ambient.Connection.ExecuteAsync(
+                new CommandDefinition(
+                    upsertTranslationSql,
+                    new { TagId = tagId, LanguageCode = languageCode, Name = HumanizeTagSlug(tagSlug) },
+                    _ambient.Transaction,
+                    cancellationToken: ct));
+
+            await _ambient.Connection.ExecuteAsync(
+                new CommandDefinition(
+                    "INSERT INTO geek_blog.post_tags (post_id, tag_id) VALUES (@PostId, @TagId) ON CONFLICT DO NOTHING",
+                    new { PostId = postId, TagId = tagId },
+                    _ambient.Transaction,
+                    cancellationToken: ct));
+        }
+    }
+
+    private static string HumanizeTagSlug(string slug) =>
+        string.Join(' ', slug.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 }

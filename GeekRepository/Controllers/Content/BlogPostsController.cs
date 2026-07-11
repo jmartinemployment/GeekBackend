@@ -34,17 +34,34 @@ public sealed class BlogPostsController : ControllerBase
         return Ok(results);
     }
 
-    [HttpGet("{lang}/{slug}")]
-    public async Task<ActionResult<BlogPostFlatDto>> GetBySlug(
-        string lang,
-        string slug,
+    [HttpGet("all")]
+    public async Task<ActionResult<IReadOnlyList<BlogPostFlatDto>>> GetAll(
+        [FromQuery] string? lang,
+        [FromQuery] string? status,
+        [FromQuery] string? postType,
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<BlogPostFlatDto> results = [];
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            results = await _blog.GetAllPostsAsync(lang, status, postType, ct);
+        }, ct);
+
+        return Ok(results);
+    }
+
+    [HttpGet("by-id/{postId:int}")]
+    public async Task<ActionResult<BlogPostFlatDto>> GetById(
+        int postId,
+        [FromQuery] string? lang,
         CancellationToken ct = default)
     {
         BlogPostFlatDto? post = null;
 
         await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
         {
-            post = await _blog.GetPostBySlugAsync(slug, lang, ct);
+            post = await _blog.GetPostByIdAsync(postId, lang, ct);
         }, ct);
 
         return post is null ? NotFound() : Ok(post);
@@ -63,6 +80,66 @@ public sealed class BlogPostsController : ControllerBase
         }, ct);
 
         return Ok(articles);
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<BlogPostFlatDto>> Create(
+        [FromBody] UpsertBlogPostCommand command,
+        CancellationToken ct = default)
+    {
+        int postId = 0;
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            postId = await _blog.CreatePostAsync(command, ct);
+        }, ct);
+
+        BlogPostFlatDto? created = null;
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            created = await _blog.GetPostByIdAsync(postId, command.LanguageCode, ct);
+        }, ct);
+
+        return CreatedAtAction(nameof(GetById), new { postId }, created);
+    }
+
+    [HttpPut("{postId:int}")]
+    public async Task<ActionResult<BlogPostFlatDto>> Update(
+        int postId,
+        [FromBody] UpsertBlogPostCommand command,
+        CancellationToken ct = default)
+    {
+        bool updated = false;
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            updated = await _blog.UpdatePostAsync(postId, command, ct);
+        }, ct);
+
+        if (!updated) return NotFound();
+
+        BlogPostFlatDto? post = null;
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            post = await _blog.GetPostByIdAsync(postId, command.LanguageCode, ct);
+        }, ct);
+
+        return Ok(post);
+    }
+
+    [HttpDelete("{postId:int}")]
+    public async Task<IActionResult> Delete(int postId, CancellationToken ct = default)
+    {
+        bool deleted = false;
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            deleted = await _blog.DeletePostAsync(postId, ct);
+        }, ct);
+
+        return deleted ? NoContent() : NotFound();
     }
 
     [HttpGet("{postId:int}/comments")]
@@ -112,6 +189,22 @@ public sealed class BlogPostsController : ControllerBase
         return created is null
             ? StatusCode(StatusCodes.Status201Created, new { id = commentId })
             : CreatedAtAction(nameof(GetComments), new { postId }, created);
+    }
+
+    [HttpGet("{lang}/{**slug}")]
+    public async Task<ActionResult<BlogPostFlatDto>> GetBySlug(
+        string lang,
+        string slug,
+        CancellationToken ct = default)
+    {
+        BlogPostFlatDto? post = null;
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            post = await _blog.GetPostBySlugAsync(slug, lang, ct);
+        }, ct);
+
+        return post is null ? NotFound() : Ok(post);
     }
 
     private async Task<bool> UserHasPermissionAsync(int userId, string permission, CancellationToken ct)

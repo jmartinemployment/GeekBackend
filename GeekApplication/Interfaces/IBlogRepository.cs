@@ -6,6 +6,17 @@ public interface IBlogRepository
 {
     Task<bool> UserHasPermissionAsync(int userId, string permissionName, CancellationToken ct = default);
 
+    Task<IReadOnlyList<BlogPostFlatDto>> GetAllPostsAsync(
+        string? languageCode = null,
+        string? status = null,
+        string? postType = null,
+        CancellationToken ct = default);
+
+    Task<BlogPostFlatDto?> GetPostByIdAsync(
+        int postId,
+        string? languageCode = null,
+        CancellationToken ct = default);
+
     Task<IReadOnlyList<BlogPostFlatDto>> SearchPostsWithOptimizedPlanAsync(
         string searchTerm,
         string languageCode,
@@ -19,6 +30,12 @@ public interface IBlogRepository
     Task<IReadOnlyList<BlogPostFlatDto>> GetTechnicalArticlesOnlyAsync(
         string languageCode,
         CancellationToken ct = default);
+
+    Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default);
+
+    Task<bool> UpdatePostAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct = default);
+
+    Task<bool> DeletePostAsync(int postId, CancellationToken ct = default);
 
     Task<IReadOnlyList<CommentDto>> GetThreadedCommentsAsync(
         int postId,
