@@ -2,9 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace GeekApplication.Models.Blog;
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "@type")]
-[JsonDerivedType(typeof(BlogPostingMetadata), "BlogPosting")]
-[JsonDerivedType(typeof(TechnicalArticleMetadata), "TechnicalArticle")]
 public abstract record ArticleMetadata
 {
     [JsonPropertyName("@context")]
