@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.Dtos;
+using GeekApplication.Blog;
 using GeekApplication.Interfaces;
 using GeekApplication.Models.Blog;
 using Microsoft.AspNetCore.Mvc;
@@ -122,8 +123,9 @@ public sealed class BlogPostsController : ControllerBase
         return CreatedAtAction(nameof(GetPost), new { lang = request.LanguageCode, slug = request.PostSlug }, MapComment(created));
     }
 
-    private static UpsertBlogPostCommand ToCommand(BlogPostRequest request) =>
-        new()
+    private static UpsertBlogPostCommand ToCommand(BlogPostRequest request)
+    {
+        var command = new UpsertBlogPostCommand
         {
             PostType = request.PostType,
             Status = request.Status,
@@ -136,6 +138,26 @@ public sealed class BlogPostsController : ControllerBase
             AuthorId = request.AuthorId,
             PublishedAt = request.PublishedAt
         };
+
+        var (title, schema) = UseCasePostNormalizer.Normalize(
+            command.Slug,
+            command.Title,
+            command.SchemaMetadataJson);
+
+        return new UpsertBlogPostCommand
+        {
+            PostType = command.PostType,
+            Status = command.Status,
+            LanguageCode = command.LanguageCode,
+            Slug = command.Slug,
+            Title = title,
+            Body = command.Body,
+            SchemaMetadataJson = schema,
+            TagSlugs = command.TagSlugs,
+            AuthorId = command.AuthorId,
+            PublishedAt = command.PublishedAt
+        };
+    }
 
     private static BlogPostResponse MapToResponse(BlogPostFlatDto flat) =>
         new()

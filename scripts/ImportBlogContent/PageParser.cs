@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using GeekApplication.Blog;
 using HtmlAgilityPack;
 
 namespace ImportBlogContent;
@@ -24,8 +26,14 @@ public static partial class PageParser
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
 
-        var title = doc.DocumentNode.SelectSingleNode("//title")?.InnerText?.Trim() ?? "Untitled";
-        title = TitleRegex().Replace(title, string.Empty).Trim();
+        var slug = ExtractSlug(canonicalUrl);
+        var titleFromDocument = doc.DocumentNode.SelectSingleNode("//title")?.InnerText?.Trim() ?? "Untitled";
+        titleFromDocument = SiteTitleSuffixRegex().Replace(titleFromDocument, string.Empty).Trim();
+
+        var h1Title = ExtractPrimaryHeading(doc);
+        var title = !string.IsNullOrWhiteSpace(h1Title) && UseCasePostNormalizer.IsUseCaseSlug(slug)
+            ? UseCasePostNormalizer.ToDisplayTitle(h1Title)
+            : UseCasePostNormalizer.ToDisplayTitle(titleFromDocument);
 
         var metaDescription = doc.DocumentNode
             .SelectSingleNode("//meta[@name='description']")?
@@ -126,26 +134,37 @@ public static partial class PageParser
         string canonicalUrl,
         DateTimeOffset? publishedAt)
     {
-        string? headline = null;
-        string? metaDescription = description;
-
         if (rawJsonLd is not null)
         {
             try
             {
-                using var json = JsonDocument.Parse(rawJsonLd);
-                var root = json.RootElement;
+                var node = JsonNode.Parse(rawJsonLd);
+                if (node is JsonObject obj)
+                {
+                    obj["@context"] ??= "https://schema.org";
+                    obj["@type"] = postType;
 
-                if (root.TryGetProperty("headline", out var headlineElement))
-                    headline = headlineElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(title))
+                        obj["headline"] = title;
 
-                if (root.TryGetProperty("description", out var descriptionElement))
-                    metaDescription = descriptionElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(description))
+                        obj["description"] = description;
 
-                if (publishedAt is null
-                    && root.TryGetProperty("datePublished", out var datePublishedElement)
-                    && DateTimeOffset.TryParse(datePublishedElement.GetString(), out var parsed))
-                    publishedAt = parsed;
+                    obj["mainEntityOfPage"] = new JsonObject
+                    {
+                        ["@type"] = "WebPage",
+                        ["@id"] = canonicalUrl
+                    };
+
+                    if (publishedAt is not null)
+                    {
+                        var iso = publishedAt.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+                        obj["datePublished"] ??= iso;
+                        obj["dateModified"] ??= iso;
+                    }
+
+                    return obj.ToJsonString();
+                }
             }
             catch
             {
@@ -155,8 +174,8 @@ public static partial class PageParser
 
         return BuildFallbackSchema(
             postType,
-            headline ?? title,
-            metaDescription,
+            title,
+            description,
             canonicalUrl,
             publishedAt);
     }
@@ -186,15 +205,23 @@ public static partial class PageParser
 
     private static string ExtractBodyHtml(HtmlDocument doc)
     {
-        var article = doc.DocumentNode.SelectSingleNode("//article")
+        var content = doc.DocumentNode.SelectSingleNode("//*[contains(@class,'prose')]")
+            ?? doc.DocumentNode.SelectSingleNode("//article")
             ?? doc.DocumentNode.SelectSingleNode("//main")
             ?? doc.DocumentNode.SelectSingleNode("//body");
 
-        if (article is null) return string.Empty;
+        if (content is null) return string.Empty;
 
-        var clone = article.Clone();
+        var clone = content.Clone();
         RemoveNoise(clone);
+        RemoveLeadingHeading(clone);
         return clone.InnerHtml.Trim();
+    }
+
+    private static void RemoveLeadingHeading(HtmlNode node)
+    {
+        var firstHeading = node.SelectSingleNode(".//h1");
+        firstHeading?.Remove();
     }
 
     private static void RemoveNoise(HtmlNode node)
@@ -202,7 +229,9 @@ public static partial class PageParser
         var removeSelectors = new[]
         {
             "//nav", "//header", "//footer", "//script", "//style", "//noscript",
-            "//*[contains(@class,'breadcrumb')]", "//*[contains(@class,'related')]"
+            "//*[contains(@class,'breadcrumb')]", "//*[contains(@class,'related')]",
+            "//*[contains(@class,'author')]", "//time", "//*[contains(@class,'byline')]",
+            "//*[contains(@class,'meta')]", "//aside"
         };
 
         foreach (var selector in removeSelectors)
@@ -238,6 +267,25 @@ public static partial class PageParser
         return JsonSerializer.Serialize(payload);
     }
 
+    private static string ExtractSlug(string canonicalUrl)
+    {
+        if (!Uri.TryCreate(canonicalUrl, UriKind.Absolute, out var uri))
+            return canonicalUrl.Trim('/');
+
+        return uri.AbsolutePath.Trim('/');
+    }
+
+    private static string? ExtractPrimaryHeading(HtmlDocument doc)
+    {
+        var h1 = doc.DocumentNode.SelectSingleNode("//*[contains(@class,'prose')]//h1")
+            ?? doc.DocumentNode.SelectSingleNode("//article//h1")
+            ?? doc.DocumentNode.SelectSingleNode("//main//h1")
+            ?? doc.DocumentNode.SelectSingleNode("//h1");
+
+        var text = h1?.InnerText?.Trim();
+        return string.IsNullOrWhiteSpace(text) ? null : text;
+    }
+
     [GeneratedRegex(@"\s*\|\s*Geek.*$", RegexOptions.IgnoreCase)]
-    private static partial Regex TitleRegex();
+    private static partial Regex SiteTitleSuffixRegex();
 }
