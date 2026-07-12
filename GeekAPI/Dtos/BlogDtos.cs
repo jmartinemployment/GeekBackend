@@ -16,6 +16,15 @@ public sealed class BlogPostResponse
 
     [JsonPropertyName("jsonLd")]
     public ArticleMetadata? JsonLd { get; init; }
+
+    public string? BlogExcerpt { get; init; }
+    public string? TechnicalArticleExcerpt { get; init; }
+    public string? ToolExcerpt { get; init; }
+    public string? AdvertisingExcerpt { get; init; }
+    public string? HeroImageUrl { get; init; }
+    public Guid? SourceProjectId { get; init; }
+    public string? ContentRole { get; init; }
+    public string? SourcePillarSlug { get; init; }
 }
 
 public sealed record CommentReplyRequest(
@@ -56,6 +65,14 @@ public sealed class BlogPostRequest
     public IReadOnlyList<string> TagSlugs { get; init; } = [];
     public int? AuthorId { get; init; }
     public DateTimeOffset? PublishedAt { get; init; }
+    public string? BlogExcerpt { get; init; }
+    public string? TechnicalArticleExcerpt { get; init; }
+    public string? ToolExcerpt { get; init; }
+    public string? AdvertisingExcerpt { get; init; }
+    public string? HeroImageUrl { get; init; }
+    public Guid? SourceProjectId { get; init; }
+    public string? ContentRole { get; init; }
+    public string? SourcePillarSlug { get; init; }
 }
 
 public sealed class BlogPostAdminResponse
@@ -75,4 +92,13 @@ public sealed class BlogPostAdminResponse
 
     [JsonPropertyName("jsonLd")]
     public ArticleMetadata? JsonLd { get; init; }
+
+    public string? BlogExcerpt { get; init; }
+    public string? TechnicalArticleExcerpt { get; init; }
+    public string? ToolExcerpt { get; init; }
+    public string? AdvertisingExcerpt { get; init; }
+    public string? HeroImageUrl { get; init; }
+    public Guid? SourceProjectId { get; init; }
+    public string? ContentRole { get; init; }
+    public string? SourcePillarSlug { get; init; }
 }
