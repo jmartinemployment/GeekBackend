@@ -102,10 +102,40 @@ importCmd.SetHandler(async (manifest, api, apiKey, dryRun, replace) =>
     Environment.ExitCode = result.Errors.Count > 0 ? 1 : 0;
 }, manifestOption, apiOption, apiKeyOption, dryRunOption, replaceOption);
 
+var fixUseCaseTitlesCmd = new Command("fix-use-case-titles", "Normalize use-case display titles and JSON-LD headlines in geek_blog");
+fixUseCaseTitlesCmd.AddOption(apiOption);
+fixUseCaseTitlesCmd.AddOption(apiKeyOption);
+fixUseCaseTitlesCmd.AddOption(dryRunOption);
+fixUseCaseTitlesCmd.SetHandler(async (api, apiKey, dryRun) =>
+{
+    var key = apiKey ?? Environment.GetEnvironmentVariable("GEEK_BACKEND_API_KEY");
+    if (string.IsNullOrWhiteSpace(key))
+    {
+        Console.Error.WriteLine("API key required: --api-key or GEEK_BACKEND_API_KEY");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    using var http = CreateHttpClient(api);
+    var migrator = new UseCaseTitleMigrator(http, key);
+    var result = await migrator.MigrateAsync(dryRun);
+
+    if (dryRun)
+        Console.WriteLine($"Dry-run complete: {result.DryRun} would update, {result.Skipped} already correct.");
+    else
+        Console.WriteLine($"Done: {result.Updated} updated, {result.Skipped} skipped, {result.Errors.Count} errors.");
+
+    foreach (var error in result.Errors)
+        Console.Error.WriteLine(error);
+
+    Environment.ExitCode = result.Errors.Count > 0 ? 1 : 0;
+}, apiOption, apiKeyOption, dryRunOption);
+
 var root = new RootCommand("Import live geekatyourspot.com content into geek_blog");
 root.AddCommand(discoverCmd);
 root.AddCommand(parseCmd);
 root.AddCommand(importCmd);
+root.AddCommand(fixUseCaseTitlesCmd);
 
 return await root.InvokeAsync(args);
 
