@@ -1,0 +1,408 @@
+[
+  {
+    "Url": "https://www.geekatyourspot.com/blog/accounting/5-essential-steps-to-enhance-your-predictive-cash-flow-forecasting",
+    "PostType": "BlogPosting",
+    "Slug": "blog/accounting/5-essential-steps-to-enhance-your-predictive-cash-flow-forecasting",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/accounting/5-key-benefits-of-automated-fraud-detection-you-cant-ignore",
+    "PostType": "BlogPosting",
+    "Slug": "blog/accounting/5-key-benefits-of-automated-fraud-detection-you-cant-ignore",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/accounting/5-key-benefits-of-automating-invoice-processing-in-accounts-payable",
+    "PostType": "BlogPosting",
+    "Slug": "blog/accounting/5-key-benefits-of-automating-invoice-processing-in-accounts-payable",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/accounting/5-smart-strategies-for-effortless-bank-reconciliation-and-ledger-coding",
+    "PostType": "BlogPosting",
+    "Slug": "blog/accounting/5-smart-strategies-for-effortless-bank-reconciliation-and-ledger-coding",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/accounting/5-smart-strategies-for-mastering-expense-management-with-ai",
+    "PostType": "BlogPosting",
+    "Slug": "blog/accounting/5-smart-strategies-for-mastering-expense-management-with-ai",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/accounting/expense-management-and-invoicing",
+    "PostType": "BlogPosting",
+    "Slug": "blog/accounting/expense-management-and-invoicing",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/accounting/tax-preparation-and-advisory",
+    "PostType": "BlogPosting",
+    "Slug": "blog/accounting/tax-preparation-and-advisory",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/5-key-benefits-of-personalized-email-marketing-with-dynamic-content",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/5-key-benefits-of-personalized-email-marketing-with-dynamic-content",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/5-key-strategies-for-effective-seo-programmatic-keyword-research",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/5-key-strategies-for-effective-seo-programmatic-keyword-research",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/5-surprising-benefits-of-automated-creative-asset-production",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/5-surprising-benefits-of-automated-creative-asset-production",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/5-surprising-benefits-of-predictive-audience-segmentation-you-didnt-know-about",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/5-surprising-benefits-of-predictive-audience-segmentation-you-didnt-know-about",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/5-ways-ai-is-revolutionizing-multi-channel-content-creation",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/5-ways-ai-is-revolutionizing-multi-channel-content-creation",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/ai-content-marketing-publish-faster-without-losing-your-voice",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/ai-content-marketing-publish-faster-without-losing-your-voice",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/ai-content-operations-run-the-lifecycle-not-the-spreadsheet",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/ai-content-operations-run-the-lifecycle-not-the-spreadsheet",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/ai-customer-journey-map-yours-and-wire-the-bots",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/ai-customer-journey-map-yours-and-wire-the-bots",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/ai-customer-journey-tools-mapping-personalization",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/ai-customer-journey-tools-mapping-personalization",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/ai-market-intelligence-analytics-know-before-they-move",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/ai-market-intelligence-analytics-know-before-they-move",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/ai-precision-advertising-spend-where-revenue-shows-up",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/ai-precision-advertising-spend-where-revenue-shows-up",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/unleashing-ai-in-hubspot",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/unleashing-ai-in-hubspot",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/marketing/unlocking-customer-insights-5-key-benefits-of-social-listening-and-sentiment-analysis",
+    "PostType": "BlogPosting",
+    "Slug": "blog/marketing/unlocking-customer-insights-5-key-benefits-of-social-listening-and-sentiment-analysis",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/5-smart-strategies-for-mastering-automated-follow-up-and-inbox-triage",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/5-smart-strategies-for-mastering-automated-follow-up-and-inbox-triage",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/5-surprising-ways-ai-can-supercharge-your-sales-pipeline-forecasting",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/5-surprising-ways-ai-can-supercharge-your-sales-pipeline-forecasting",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/5-ways-ai-can-transform-your-outbound-marketing",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/5-ways-ai-can-transform-your-outbound-marketing",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/how-ai-transforms-prospecting-lead-intelligence",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/how-ai-transforms-prospecting-lead-intelligence",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/unlocking-sales-success-5-ways-ai-can-coach-your-conversations-in-real-time",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/unlocking-sales-success-5-ways-ai-can-coach-your-conversations-in-real-time",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/unlocking-sales-success-5-ways-ai-can-transform-your-lead-scoring",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/unlocking-sales-success-5-ways-ai-can-transform-your-lead-scoring",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/why-ai-is-your-meeting-assistant",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/why-ai-is-your-meeting-assistant",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/blog/sales/why-consider-salesforce-einstein-ai",
+    "PostType": "BlogPosting",
+    "Slug": "blog/sales/why-consider-salesforce-einstein-ai",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/tools/marketing/hubspot-ai-capabilities",
+    "PostType": "TechnicalArticle",
+    "Slug": "tools/marketing/hubspot-ai-capabilities",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/tools/sales/salesforce-einstein-ai-capabilities",
+    "PostType": "TechnicalArticle",
+    "Slug": "tools/sales/salesforce-einstein-ai-capabilities",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/accounting/automated-fraud-detection-and-risk-assessment",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/accounting/automated-fraud-detection-and-risk-assessment",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/accounting/automated-invoice-processing-accounts-payable",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/accounting/automated-invoice-processing-accounts-payable",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/accounting/emergence-of-agentic-ai",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/accounting/emergence-of-agentic-ai",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/accounting/expense-management-and-receipt-auditing",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/accounting/expense-management-and-receipt-auditing",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/accounting/financial-forecasting-and-reporting",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/accounting/financial-forecasting-and-reporting",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/accounting/predictive-cash-flow-forecasting",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/accounting/predictive-cash-flow-forecasting",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/accounting/smart-bank-reconciliation-and-ledger-coding",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/accounting/smart-bank-reconciliation-and-ledger-coding",
+    "Department": "accounting",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/customer-service/agent-assist-tools",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/customer-service/agent-assist-tools",
+    "Department": "customer-service",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/customer-service/ai-for-customer-support-and-automation",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/customer-service/ai-for-customer-support-and-automation",
+    "Department": "customer-service",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/customer-service/automated-ticket-tagging-and-routing",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/customer-service/automated-ticket-tagging-and-routing",
+    "Department": "customer-service",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/customer-service/enhanced-customer-satisfaction-csat",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/customer-service/enhanced-customer-satisfaction-csat",
+    "Department": "customer-service",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/customer-service/multilingual-support",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/customer-service/multilingual-support",
+    "Department": "customer-service",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/human-resources/career-development",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/human-resources/career-development",
+    "Department": "human-resources",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/human-resources/employee-self-service",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/human-resources/employee-self-service",
+    "Department": "human-resources",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/human-resources/operations-management",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/human-resources/operations-management",
+    "Department": "human-resources",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/marketing/ai-for-multi-channel-content-generation",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/marketing/ai-for-multi-channel-content-generation",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/marketing/automated-creative-asset-production",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/marketing/automated-creative-asset-production",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/marketing/personalized-email-marketing-and-dynamic-content",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/marketing/personalized-email-marketing-and-dynamic-content",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/marketing/predictive-audience-segmentation-and-targeting",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/marketing/predictive-audience-segmentation-and-targeting",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/marketing/seo-and-programmatic-keyword-research",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/marketing/seo-and-programmatic-keyword-research",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/marketing/social-listening-and-real-time-sentiment-analysis",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/marketing/social-listening-and-real-time-sentiment-analysis",
+    "Department": "marketing",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/sales/ai-for-personalized-outbound",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/sales/ai-for-personalized-outbound",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/sales/ai-for-sales-pipeline-forecasting",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/sales/ai-for-sales-pipeline-forecasting",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/sales/automated-follow-up-and-inbox-triage",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/sales/automated-follow-up-and-inbox-triage",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/sales/meeting-summarization-and-crm-auto-logging",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/sales/meeting-summarization-and-crm-auto-logging",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/sales/predictive-lead-scoring-and-prioritization",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/sales/predictive-lead-scoring-and-prioritization",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/sales/prospecting-and-lead-intelligence",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/sales/prospecting-and-lead-intelligence",
+    "Department": "sales",
+    "LanguageCode": "en"
+  },
+  {
+    "Url": "https://www.geekatyourspot.com/use-cases/sales/real-time-conversation-coaching",
+    "PostType": "TechnicalArticle",
+    "Slug": "use-cases/sales/real-time-conversation-coaching",
+    "Department": "sales",
+    "LanguageCode": "en"
+  }
+]

@@ -62,6 +62,14 @@ public sealed class BlogRepository : IBlogRepository
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
                 pt.schema_metadata::text AS SchemaMetadataJson,
+                pt.blog_excerpt AS BlogExcerpt,
+                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
+                pt.tool_excerpt AS ToolExcerpt,
+                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.hero_image_url AS HeroImageUrl,
+                pt.source_project_id AS SourceProjectId,
+                pt.content_role AS ContentRole,
+                pt.source_pillar_slug AS SourcePillarSlug,
                 ts_rank(pt.search_vector, websearch_to_tsquery(geek_blog.resolve_ts_config(@LanguageCode), @SearchTerm)) AS SearchRank
             FROM geek_blog.post_translations pt
             INNER JOIN geek_blog.posts p ON p.id = pt.post_id
@@ -114,7 +122,15 @@ public sealed class BlogRepository : IBlogRepository
                 p.created_at      AS CreatedAt,
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson
+                pt.schema_metadata::text AS SchemaMetadataJson,
+                pt.blog_excerpt AS BlogExcerpt,
+                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
+                pt.tool_excerpt AS ToolExcerpt,
+                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.hero_image_url AS HeroImageUrl,
+                pt.source_project_id AS SourceProjectId,
+                pt.content_role AS ContentRole,
+                pt.source_pillar_slug AS SourcePillarSlug
             FROM geek_blog.post_translations pt
             INNER JOIN geek_blog.posts p ON p.id = pt.post_id
             LEFT JOIN LATERAL (
@@ -162,7 +178,15 @@ public sealed class BlogRepository : IBlogRepository
                 p.created_at      AS CreatedAt,
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson
+                pt.schema_metadata::text AS SchemaMetadataJson,
+                pt.blog_excerpt AS BlogExcerpt,
+                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
+                pt.tool_excerpt AS ToolExcerpt,
+                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.hero_image_url AS HeroImageUrl,
+                pt.source_project_id AS SourceProjectId,
+                pt.content_role AS ContentRole,
+                pt.source_pillar_slug AS SourcePillarSlug
             FROM geek_blog.posts p
             INNER JOIN geek_blog.post_translations pt
                 ON pt.post_id = p.id AND pt.language_code = @LanguageCode
@@ -285,7 +309,15 @@ public sealed class BlogRepository : IBlogRepository
                 p.created_at      AS CreatedAt,
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson
+                pt.schema_metadata::text AS SchemaMetadataJson,
+                pt.blog_excerpt AS BlogExcerpt,
+                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
+                pt.tool_excerpt AS ToolExcerpt,
+                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.hero_image_url AS HeroImageUrl,
+                pt.source_project_id AS SourceProjectId,
+                pt.content_role AS ContentRole,
+                pt.source_pillar_slug AS SourcePillarSlug
             FROM geek_blog.posts p
             INNER JOIN geek_blog.post_translations pt ON pt.post_id = p.id
             LEFT JOIN LATERAL (
@@ -334,7 +366,15 @@ public sealed class BlogRepository : IBlogRepository
                 p.created_at      AS CreatedAt,
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson
+                pt.schema_metadata::text AS SchemaMetadataJson,
+                pt.blog_excerpt AS BlogExcerpt,
+                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
+                pt.tool_excerpt AS ToolExcerpt,
+                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.hero_image_url AS HeroImageUrl,
+                pt.source_project_id AS SourceProjectId,
+                pt.content_role AS ContentRole,
+                pt.source_pillar_slug AS SourcePillarSlug
             FROM geek_blog.posts p
             INNER JOIN geek_blog.post_translations pt ON pt.post_id = p.id
             LEFT JOIN LATERAL (
@@ -439,15 +479,27 @@ public sealed class BlogRepository : IBlogRepository
     {
         const string sql = """
             INSERT INTO geek_blog.post_translations
-                (post_id, language_code, slug, title, body, post_type, schema_metadata)
+                (post_id, language_code, slug, title, body, post_type, schema_metadata,
+                 blog_excerpt, technical_article_excerpt, tool_excerpt, advertising_excerpt, hero_image_url,
+                 source_project_id, content_role, source_pillar_slug)
             VALUES
-                (@PostId, @LanguageCode, @Slug, @Title, @Body, @PostType, @SchemaMetadata::jsonb)
+                (@PostId, @LanguageCode, @Slug, @Title, @Body, @PostType, @SchemaMetadata::jsonb,
+                 @BlogExcerpt, @TechnicalArticleExcerpt, @ToolExcerpt, @AdvertisingExcerpt, @HeroImageUrl,
+                 @SourceProjectId, @ContentRole, @SourcePillarSlug)
             ON CONFLICT (post_id, language_code) DO UPDATE SET
                 slug = EXCLUDED.slug,
                 title = EXCLUDED.title,
                 body = EXCLUDED.body,
                 post_type = EXCLUDED.post_type,
                 schema_metadata = EXCLUDED.schema_metadata,
+                blog_excerpt = EXCLUDED.blog_excerpt,
+                technical_article_excerpt = EXCLUDED.technical_article_excerpt,
+                tool_excerpt = EXCLUDED.tool_excerpt,
+                advertising_excerpt = EXCLUDED.advertising_excerpt,
+                hero_image_url = EXCLUDED.hero_image_url,
+                source_project_id = EXCLUDED.source_project_id,
+                content_role = EXCLUDED.content_role,
+                source_pillar_slug = EXCLUDED.source_pillar_slug,
                 updated_at = NOW()
             """;
 
@@ -459,6 +511,14 @@ public sealed class BlogRepository : IBlogRepository
         parameters.Add("Body", command.Body);
         parameters.Add("PostType", command.PostType);
         parameters.Add("SchemaMetadata", command.SchemaMetadataJson);
+        parameters.Add("BlogExcerpt", command.BlogExcerpt);
+        parameters.Add("TechnicalArticleExcerpt", command.TechnicalArticleExcerpt);
+        parameters.Add("ToolExcerpt", command.ToolExcerpt);
+        parameters.Add("AdvertisingExcerpt", command.AdvertisingExcerpt);
+        parameters.Add("HeroImageUrl", command.HeroImageUrl);
+        parameters.Add("SourceProjectId", command.SourceProjectId);
+        parameters.Add("ContentRole", command.ContentRole);
+        parameters.Add("SourcePillarSlug", command.SourcePillarSlug);
 
         await _ambient.Connection.ExecuteAsync(
             new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct));

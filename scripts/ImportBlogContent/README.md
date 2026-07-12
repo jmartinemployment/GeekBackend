@@ -34,3 +34,5 @@ Always run `--dry-run` first. The preflight line reports how many entries are ne
 ```
 Preflight: 42 new, 16 already in geek_blog (58 total).
 ```
+
+Legacy pillar scrubbing (`clean-bodies`) was removed. Pillar content is corrected at the source in Content-Writer and validated at publish time.

@@ -19,5 +19,14 @@ public sealed class BlogPostFlatDto
   /// <summary>Raw JSONB payload from geek_blog.post_translations.schema_metadata.</summary>
     public string SchemaMetadataJson { get; init; } = "{}";
 
+    public string? BlogExcerpt { get; init; }
+    public string? TechnicalArticleExcerpt { get; init; }
+    public string? ToolExcerpt { get; init; }
+    public string? AdvertisingExcerpt { get; init; }
+    public string? HeroImageUrl { get; init; }
+    public Guid? SourceProjectId { get; init; }
+    public string? ContentRole { get; init; }
+    public string? SourcePillarSlug { get; init; }
+
     public float? SearchRank { get; init; }
 }

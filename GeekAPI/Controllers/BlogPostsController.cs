@@ -136,7 +136,15 @@ public sealed class BlogPostsController : ControllerBase
             SchemaMetadataJson = request.SchemaMetadataJson,
             TagSlugs = request.TagSlugs,
             AuthorId = request.AuthorId,
-            PublishedAt = request.PublishedAt
+            PublishedAt = request.PublishedAt,
+            BlogExcerpt = request.BlogExcerpt,
+            TechnicalArticleExcerpt = request.TechnicalArticleExcerpt,
+            ToolExcerpt = request.ToolExcerpt,
+            AdvertisingExcerpt = request.AdvertisingExcerpt,
+            HeroImageUrl = request.HeroImageUrl,
+            SourceProjectId = request.SourceProjectId,
+            ContentRole = request.ContentRole,
+            SourcePillarSlug = request.SourcePillarSlug,
         };
 
         var (title, schema) = UseCasePostNormalizer.Normalize(
@@ -155,7 +163,15 @@ public sealed class BlogPostsController : ControllerBase
             SchemaMetadataJson = schema,
             TagSlugs = command.TagSlugs,
             AuthorId = command.AuthorId,
-            PublishedAt = command.PublishedAt
+            PublishedAt = command.PublishedAt,
+            BlogExcerpt = command.BlogExcerpt,
+            TechnicalArticleExcerpt = command.TechnicalArticleExcerpt,
+            ToolExcerpt = command.ToolExcerpt,
+            AdvertisingExcerpt = command.AdvertisingExcerpt,
+            HeroImageUrl = command.HeroImageUrl,
+            SourceProjectId = command.SourceProjectId,
+            ContentRole = command.ContentRole,
+            SourcePillarSlug = command.SourcePillarSlug,
         };
     }
 
@@ -170,7 +186,15 @@ public sealed class BlogPostsController : ControllerBase
             Body = flat.Body,
             PublishedAt = flat.PublishedAt,
             LocalizedTagsJson = flat.LocalizedTagsJson,
-            JsonLd = DeserializeSchemaMetadata(flat.PostType, flat.SchemaMetadataJson)
+            JsonLd = DeserializeSchemaMetadata(flat.PostType, flat.SchemaMetadataJson),
+            BlogExcerpt = flat.BlogExcerpt,
+            TechnicalArticleExcerpt = flat.TechnicalArticleExcerpt,
+            ToolExcerpt = flat.ToolExcerpt,
+            AdvertisingExcerpt = flat.AdvertisingExcerpt,
+            HeroImageUrl = flat.HeroImageUrl,
+            SourceProjectId = flat.SourceProjectId,
+            ContentRole = flat.ContentRole,
+            SourcePillarSlug = flat.SourcePillarSlug,
         };
 
     private static BlogPostAdminResponse MapToAdminResponse(BlogPostFlatDto flat) =>
@@ -188,7 +212,15 @@ public sealed class BlogPostsController : ControllerBase
             Status = flat.Status,
             CreatedAt = flat.CreatedAt,
             UpdatedAt = flat.UpdatedAt,
-            SchemaMetadataJson = flat.SchemaMetadataJson
+            SchemaMetadataJson = flat.SchemaMetadataJson,
+            BlogExcerpt = flat.BlogExcerpt,
+            TechnicalArticleExcerpt = flat.TechnicalArticleExcerpt,
+            ToolExcerpt = flat.ToolExcerpt,
+            AdvertisingExcerpt = flat.AdvertisingExcerpt,
+            HeroImageUrl = flat.HeroImageUrl,
+            SourceProjectId = flat.SourceProjectId,
+            ContentRole = flat.ContentRole,
+            SourcePillarSlug = flat.SourcePillarSlug,
         };
 
     private static ArticleMetadata? DeserializeSchemaMetadata(string postType, string schemaMetadataJson)
