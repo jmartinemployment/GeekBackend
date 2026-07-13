@@ -8,5 +8,6 @@ public static class PresentationSurfaces
     public const string Hero = "hero";
     public const string NewspaperWire = "newspaper_wire";
     public const string PillarPageContent = "pillar_page_content";
+    public const string ToolPageContent = "tool_page_content";
     public const string Advertisement = "advertisement";
 }
