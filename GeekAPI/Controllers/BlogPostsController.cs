@@ -14,12 +14,6 @@ namespace GeekAPI.Controllers;
 [Route("api/blog")]
 public sealed class BlogPostsController : ControllerBase
 {
-    private static readonly JsonSerializerOptions JsonLdOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
-    };
-
     private readonly IBlogRepository _blog;
     private readonly IAssetUploadService _assetUploads;
 
@@ -137,10 +131,8 @@ public sealed class BlogPostsController : ControllerBase
             TagSlugs = request.TagSlugs,
             AuthorId = request.AuthorId,
             PublishedAt = request.PublishedAt,
-            BlogExcerpt = request.BlogExcerpt,
-            TechnicalArticleExcerpt = request.TechnicalArticleExcerpt,
-            ToolExcerpt = request.ToolExcerpt,
-            AdvertisingExcerpt = request.AdvertisingExcerpt,
+            DepartmentSlug = request.DepartmentSlug,
+            Presentation = PostPresentationFields.Normalize(request.Presentation),
             HeroImageUrl = request.HeroImageUrl,
             SourceProjectId = request.SourceProjectId,
             ContentRole = request.ContentRole,
@@ -164,15 +156,22 @@ public sealed class BlogPostsController : ControllerBase
             TagSlugs = command.TagSlugs,
             AuthorId = command.AuthorId,
             PublishedAt = command.PublishedAt,
-            BlogExcerpt = command.BlogExcerpt,
-            TechnicalArticleExcerpt = command.TechnicalArticleExcerpt,
-            ToolExcerpt = command.ToolExcerpt,
-            AdvertisingExcerpt = command.AdvertisingExcerpt,
+            DepartmentSlug = command.DepartmentSlug,
+            Presentation = command.Presentation,
             HeroImageUrl = command.HeroImageUrl,
             SourceProjectId = command.SourceProjectId,
             ContentRole = command.ContentRole,
             SourcePillarSlug = command.SourcePillarSlug,
         };
+    }
+
+    private static Dictionary<string, string> ParsePresentation(string? presentationJson)
+    {
+        if (string.IsNullOrWhiteSpace(presentationJson))
+            return new Dictionary<string, string>();
+
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(presentationJson)
+               ?? new Dictionary<string, string>();
     }
 
     private static BlogPostResponse MapToResponse(BlogPostFlatDto flat) =>
@@ -186,11 +185,11 @@ public sealed class BlogPostsController : ControllerBase
             Body = flat.Body,
             PublishedAt = flat.PublishedAt,
             LocalizedTagsJson = flat.LocalizedTagsJson,
-            JsonLd = DeserializeSchemaMetadata(flat.PostType, flat.SchemaMetadataJson),
-            BlogExcerpt = flat.BlogExcerpt,
-            TechnicalArticleExcerpt = flat.TechnicalArticleExcerpt,
-            ToolExcerpt = flat.ToolExcerpt,
-            AdvertisingExcerpt = flat.AdvertisingExcerpt,
+            JsonLd = SchemaMetadataParser.Parse(flat.PostType, flat.SchemaMetadataJson),
+            SchemaMetadataJson = flat.SchemaMetadataJson,
+            DepartmentId = flat.DepartmentId,
+            DepartmentSlug = flat.DepartmentSlug,
+            Presentation = ParsePresentation(flat.PresentationJson),
             HeroImageUrl = flat.HeroImageUrl,
             SourceProjectId = flat.SourceProjectId,
             ContentRole = flat.ContentRole,
@@ -208,40 +207,19 @@ public sealed class BlogPostsController : ControllerBase
             Body = flat.Body,
             PublishedAt = flat.PublishedAt,
             LocalizedTagsJson = flat.LocalizedTagsJson,
-            JsonLd = DeserializeSchemaMetadata(flat.PostType, flat.SchemaMetadataJson),
+            JsonLd = SchemaMetadataParser.Parse(flat.PostType, flat.SchemaMetadataJson),
+            SchemaMetadataJson = flat.SchemaMetadataJson,
             Status = flat.Status,
             CreatedAt = flat.CreatedAt,
             UpdatedAt = flat.UpdatedAt,
-            SchemaMetadataJson = flat.SchemaMetadataJson,
-            BlogExcerpt = flat.BlogExcerpt,
-            TechnicalArticleExcerpt = flat.TechnicalArticleExcerpt,
-            ToolExcerpt = flat.ToolExcerpt,
-            AdvertisingExcerpt = flat.AdvertisingExcerpt,
+            DepartmentId = flat.DepartmentId,
+            DepartmentSlug = flat.DepartmentSlug,
+            Presentation = ParsePresentation(flat.PresentationJson),
             HeroImageUrl = flat.HeroImageUrl,
             SourceProjectId = flat.SourceProjectId,
             ContentRole = flat.ContentRole,
             SourcePillarSlug = flat.SourcePillarSlug,
         };
-
-    private static ArticleMetadata? DeserializeSchemaMetadata(string postType, string schemaMetadataJson)
-    {
-        if (string.IsNullOrWhiteSpace(schemaMetadataJson) || schemaMetadataJson == "{}")
-            return null;
-
-        try
-        {
-            return postType switch
-            {
-                "TechnicalArticle" => JsonSerializer.Deserialize<TechnicalArticleMetadata>(schemaMetadataJson, JsonLdOptions),
-                "BlogPosting" => JsonSerializer.Deserialize<BlogPostingMetadata>(schemaMetadataJson, JsonLdOptions),
-                _ => null
-            };
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
 
     private static CommentResponse MapComment(CommentDto comment) =>
         new(comment.Id, comment.PostId, comment.UserId, comment.Content, comment.Path, comment.Depth, comment.CreatedAt);

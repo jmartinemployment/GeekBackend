@@ -17,10 +17,12 @@ public sealed class BlogPostResponse
     [JsonPropertyName("jsonLd")]
     public ArticleMetadata? JsonLd { get; init; }
 
-    public string? BlogExcerpt { get; init; }
-    public string? TechnicalArticleExcerpt { get; init; }
-    public string? ToolExcerpt { get; init; }
-    public string? AdvertisingExcerpt { get; init; }
+    /// <summary>Stored schema.org JSON+LD (flat or @graph) for script emission.</summary>
+    public string SchemaMetadataJson { get; init; } = "{}";
+
+    public int? DepartmentId { get; init; }
+    public string? DepartmentSlug { get; init; }
+    public Dictionary<string, string> Presentation { get; init; } = new();
     public string? HeroImageUrl { get; init; }
     public Guid? SourceProjectId { get; init; }
     public string? ContentRole { get; init; }
@@ -65,10 +67,8 @@ public sealed class BlogPostRequest
     public IReadOnlyList<string> TagSlugs { get; init; } = [];
     public int? AuthorId { get; init; }
     public DateTimeOffset? PublishedAt { get; init; }
-    public string? BlogExcerpt { get; init; }
-    public string? TechnicalArticleExcerpt { get; init; }
-    public string? ToolExcerpt { get; init; }
-    public string? AdvertisingExcerpt { get; init; }
+    public string? DepartmentSlug { get; init; }
+    public Dictionary<string, string>? Presentation { get; init; }
     public string? HeroImageUrl { get; init; }
     public Guid? SourceProjectId { get; init; }
     public string? ContentRole { get; init; }
@@ -93,10 +93,9 @@ public sealed class BlogPostAdminResponse
     [JsonPropertyName("jsonLd")]
     public ArticleMetadata? JsonLd { get; init; }
 
-    public string? BlogExcerpt { get; init; }
-    public string? TechnicalArticleExcerpt { get; init; }
-    public string? ToolExcerpt { get; init; }
-    public string? AdvertisingExcerpt { get; init; }
+    public int? DepartmentId { get; init; }
+    public string? DepartmentSlug { get; init; }
+    public Dictionary<string, string> Presentation { get; init; } = new();
     public string? HeroImageUrl { get; init; }
     public Guid? SourceProjectId { get; init; }
     public string? ContentRole { get; init; }

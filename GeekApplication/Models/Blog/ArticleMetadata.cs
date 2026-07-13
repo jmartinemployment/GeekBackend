@@ -54,6 +54,14 @@ public sealed record TechnicalArticleMetadata : ArticleMetadata
     public string[]? ProgrammingLanguage { get; init; }
 }
 
+public sealed record NewsArticleMetadata : ArticleMetadata
+{
+    public override string Type => "NewsArticle";
+
+    [JsonPropertyName("keywords")]
+    public string? Keywords { get; init; }
+}
+
 public sealed record SchemaPerson
 {
     [JsonPropertyName("@type")]
