@@ -1,4 +1,5 @@
 using Dapper;
+using GeekApplication.Blog;
 using GeekApplication.Interfaces;
 using GeekApplication.Models.Blog;
 using GeekRepository.Infrastructure;
@@ -62,10 +63,9 @@ public sealed class BlogRepository : IBlogRepository
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
                 pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.blog_excerpt AS BlogExcerpt,
-                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
-                pt.tool_excerpt AS ToolExcerpt,
-                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.department_id AS DepartmentId,
+                d.slug AS DepartmentSlug,
+                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
                 pt.hero_image_url AS HeroImageUrl,
                 pt.source_project_id AS SourceProjectId,
                 pt.content_role AS ContentRole,
@@ -84,6 +84,15 @@ public sealed class BlogRepository : IBlogRepository
                     ON tt.tag_id = t.id AND tt.language_code = pt.language_code
                 WHERE ptg.post_id = p.id
             ) tags ON TRUE
+            LEFT JOIN public.departments d ON d.id = pt.department_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
+                    '{}'
+                )::text AS presentation_json
+                FROM geek_blog.post_presentation pp
+                WHERE pp.post_translation_id = pt.id
+            ) pres ON TRUE
             WHERE pt.language_code = @LanguageCode
               AND p.status = 'published'
               AND pt.search_vector @@ websearch_to_tsquery(geek_blog.resolve_ts_config(@LanguageCode), @SearchTerm)
@@ -123,10 +132,9 @@ public sealed class BlogRepository : IBlogRepository
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
                 pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.blog_excerpt AS BlogExcerpt,
-                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
-                pt.tool_excerpt AS ToolExcerpt,
-                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.department_id AS DepartmentId,
+                d.slug AS DepartmentSlug,
+                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
                 pt.hero_image_url AS HeroImageUrl,
                 pt.source_project_id AS SourceProjectId,
                 pt.content_role AS ContentRole,
@@ -144,6 +152,15 @@ public sealed class BlogRepository : IBlogRepository
                     ON tt.tag_id = t.id AND tt.language_code = pt.language_code
                 WHERE ptg.post_id = p.id
             ) tags ON TRUE
+            LEFT JOIN public.departments d ON d.id = pt.department_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
+                    '{}'
+                )::text AS presentation_json
+                FROM geek_blog.post_presentation pp
+                WHERE pp.post_translation_id = pt.id
+            ) pres ON TRUE
             WHERE pt.slug = @Slug
               AND pt.language_code = @LanguageCode
             """;
@@ -179,10 +196,9 @@ public sealed class BlogRepository : IBlogRepository
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
                 pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.blog_excerpt AS BlogExcerpt,
-                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
-                pt.tool_excerpt AS ToolExcerpt,
-                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.department_id AS DepartmentId,
+                d.slug AS DepartmentSlug,
+                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
                 pt.hero_image_url AS HeroImageUrl,
                 pt.source_project_id AS SourceProjectId,
                 pt.content_role AS ContentRole,
@@ -201,6 +217,15 @@ public sealed class BlogRepository : IBlogRepository
                     ON tt.tag_id = t.id AND tt.language_code = pt.language_code
                 WHERE ptg.post_id = p.id
             ) tags ON TRUE
+            LEFT JOIN public.departments d ON d.id = pt.department_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
+                    '{}'
+                )::text AS presentation_json
+                FROM geek_blog.post_presentation pp
+                WHERE pp.post_translation_id = pt.id
+            ) pres ON TRUE
             WHERE p.post_type = 'TechnicalArticle'
               AND p.status = 'published'
             ORDER BY p.published_at DESC NULLS LAST, p.id DESC
@@ -296,7 +321,7 @@ public sealed class BlogRepository : IBlogRepository
         string? postType = null,
         CancellationToken ct = default)
     {
-        var sql = $"""
+        var sql = """
             SELECT
                 p.id              AS PostId,
                 p.post_type       AS PostType,
@@ -310,10 +335,9 @@ public sealed class BlogRepository : IBlogRepository
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
                 pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.blog_excerpt AS BlogExcerpt,
-                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
-                pt.tool_excerpt AS ToolExcerpt,
-                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.department_id AS DepartmentId,
+                d.slug AS DepartmentSlug,
+                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
                 pt.hero_image_url AS HeroImageUrl,
                 pt.source_project_id AS SourceProjectId,
                 pt.content_role AS ContentRole,
@@ -331,12 +355,26 @@ public sealed class BlogRepository : IBlogRepository
                     ON tt.tag_id = t.id AND tt.language_code = pt.language_code
                 WHERE ptg.post_id = p.id
             ) tags ON TRUE
+            LEFT JOIN public.departments d ON d.id = pt.department_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
+                    '{}'
+                )::text AS presentation_json
+                FROM geek_blog.post_presentation pp
+                WHERE pp.post_translation_id = pt.id
+            ) pres ON TRUE
             WHERE 1=1
-            {(languageCode is not null ? "AND pt.language_code = @LanguageCode" : "")}
-            {(status is not null ? "AND p.status = @Status" : "")}
-            {(postType is not null ? "AND p.post_type = @PostType" : "")}
-            ORDER BY p.updated_at DESC, p.id DESC
             """;
+
+        if (languageCode is not null)
+            sql += " AND pt.language_code = @LanguageCode";
+        if (status is not null)
+            sql += " AND p.status = @Status";
+        if (postType is not null)
+            sql += " AND p.post_type = @PostType";
+
+        sql += " ORDER BY p.updated_at DESC, p.id DESC";
 
         var parameters = new DynamicParameters();
         if (languageCode is not null) parameters.Add("LanguageCode", languageCode);
@@ -367,10 +405,9 @@ public sealed class BlogRepository : IBlogRepository
                 p.updated_at      AS UpdatedAt,
                 COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
                 pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.blog_excerpt AS BlogExcerpt,
-                pt.technical_article_excerpt AS TechnicalArticleExcerpt,
-                pt.tool_excerpt AS ToolExcerpt,
-                pt.advertising_excerpt AS AdvertisingExcerpt,
+                pt.department_id AS DepartmentId,
+                d.slug AS DepartmentSlug,
+                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
                 pt.hero_image_url AS HeroImageUrl,
                 pt.source_project_id AS SourceProjectId,
                 pt.content_role AS ContentRole,
@@ -388,6 +425,15 @@ public sealed class BlogRepository : IBlogRepository
                     ON tt.tag_id = t.id AND tt.language_code = pt.language_code
                 WHERE ptg.post_id = p.id
             ) tags ON TRUE
+            LEFT JOIN public.departments d ON d.id = pt.department_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
+                    '{}'
+                )::text AS presentation_json
+                FROM geek_blog.post_presentation pp
+                WHERE pp.post_translation_id = pt.id
+            ) pres ON TRUE
             WHERE p.id = @PostId
             """ + (languageCode is not null ? " AND pt.language_code = @LanguageCode" : "") + """
              ORDER BY pt.language_code
@@ -477,14 +523,16 @@ public sealed class BlogRepository : IBlogRepository
 
     private async Task UpsertTranslationAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct)
     {
+        var departmentId = await ResolveDepartmentIdAsync(command, ct);
+
         const string sql = """
             INSERT INTO geek_blog.post_translations
                 (post_id, language_code, slug, title, body, post_type, schema_metadata,
-                 blog_excerpt, technical_article_excerpt, tool_excerpt, advertising_excerpt, hero_image_url,
+                 department_id, hero_image_url,
                  source_project_id, content_role, source_pillar_slug)
             VALUES
                 (@PostId, @LanguageCode, @Slug, @Title, @Body, @PostType, @SchemaMetadata::jsonb,
-                 @BlogExcerpt, @TechnicalArticleExcerpt, @ToolExcerpt, @AdvertisingExcerpt, @HeroImageUrl,
+                 @DepartmentId, @HeroImageUrl,
                  @SourceProjectId, @ContentRole, @SourcePillarSlug)
             ON CONFLICT (post_id, language_code) DO UPDATE SET
                 slug = EXCLUDED.slug,
@@ -492,15 +540,13 @@ public sealed class BlogRepository : IBlogRepository
                 body = EXCLUDED.body,
                 post_type = EXCLUDED.post_type,
                 schema_metadata = EXCLUDED.schema_metadata,
-                blog_excerpt = EXCLUDED.blog_excerpt,
-                technical_article_excerpt = EXCLUDED.technical_article_excerpt,
-                tool_excerpt = EXCLUDED.tool_excerpt,
-                advertising_excerpt = EXCLUDED.advertising_excerpt,
+                department_id = EXCLUDED.department_id,
                 hero_image_url = EXCLUDED.hero_image_url,
                 source_project_id = EXCLUDED.source_project_id,
                 content_role = EXCLUDED.content_role,
                 source_pillar_slug = EXCLUDED.source_pillar_slug,
                 updated_at = NOW()
+            RETURNING id
             """;
 
         var parameters = new DynamicParameters();
@@ -511,17 +557,73 @@ public sealed class BlogRepository : IBlogRepository
         parameters.Add("Body", command.Body);
         parameters.Add("PostType", command.PostType);
         parameters.Add("SchemaMetadata", command.SchemaMetadataJson);
-        parameters.Add("BlogExcerpt", command.BlogExcerpt);
-        parameters.Add("TechnicalArticleExcerpt", command.TechnicalArticleExcerpt);
-        parameters.Add("ToolExcerpt", command.ToolExcerpt);
-        parameters.Add("AdvertisingExcerpt", command.AdvertisingExcerpt);
+        parameters.Add("DepartmentId", departmentId);
         parameters.Add("HeroImageUrl", command.HeroImageUrl);
         parameters.Add("SourceProjectId", command.SourceProjectId);
         parameters.Add("ContentRole", command.ContentRole);
         parameters.Add("SourcePillarSlug", command.SourcePillarSlug);
 
-        await _ambient.Connection.ExecuteAsync(
+        var translationId = await _ambient.Connection.ExecuteScalarAsync<int>(
             new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct));
+
+        await ReplacePresentationAsync(translationId, command.Presentation, ct);
+    }
+
+    private async Task<int?> ResolveDepartmentIdAsync(UpsertBlogPostCommand command, CancellationToken ct)
+    {
+        var departmentSlug = command.DepartmentSlug?.Trim();
+        if (string.IsNullOrEmpty(departmentSlug))
+        {
+            var parts = command.Slug.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length >= 2)
+                departmentSlug = parts[1];
+        }
+
+        if (string.IsNullOrEmpty(departmentSlug))
+            return null;
+
+        const string sql = """
+            SELECT id
+            FROM public.departments
+            WHERE slug = @Slug
+            LIMIT 1
+            """;
+
+        return await _ambient.Connection.ExecuteScalarAsync<int?>(
+            new CommandDefinition(
+                sql,
+                new { Slug = departmentSlug },
+                _ambient.Transaction,
+                cancellationToken: ct));
+    }
+
+    private async Task ReplacePresentationAsync(
+        int translationId,
+        IReadOnlyDictionary<string, string>? presentation,
+        CancellationToken ct)
+    {
+        await _ambient.Connection.ExecuteAsync(
+            new CommandDefinition(
+                "DELETE FROM geek_blog.post_presentation WHERE post_translation_id = @TranslationId",
+                new { TranslationId = translationId },
+                _ambient.Transaction,
+                cancellationToken: ct));
+
+        var normalized = PostPresentationFields.Normalize(presentation);
+        foreach (var (surface, copy) in normalized)
+        {
+            const string insertSql = """
+                INSERT INTO geek_blog.post_presentation (post_translation_id, surface, copy)
+                VALUES (@TranslationId, @Surface, @Copy)
+                """;
+
+            await _ambient.Connection.ExecuteAsync(
+                new CommandDefinition(
+                    insertSql,
+                    new { TranslationId = translationId, Surface = surface, Copy = copy },
+                    _ambient.Transaction,
+                    cancellationToken: ct));
+        }
     }
 
     private async Task ReplacePostTagsAsync(

@@ -13,16 +13,18 @@ public sealed class BlogPostFlatDto
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 
-  /// <summary>JSON array of localized tag objects: [{ "slug": "...", "name": "..." }]</summary>
+    /// <summary>JSON array of localized tag objects: [{ "slug": "...", "name": "..." }]</summary>
     public string LocalizedTagsJson { get; init; } = "[]";
 
-  /// <summary>Raw JSONB payload from geek_blog.post_translations.schema_metadata.</summary>
+    /// <summary>Raw JSONB payload from geek_blog.post_translations.schema_metadata.</summary>
     public string SchemaMetadataJson { get; init; } = "{}";
 
-    public string? BlogExcerpt { get; init; }
-    public string? TechnicalArticleExcerpt { get; init; }
-    public string? ToolExcerpt { get; init; }
-    public string? AdvertisingExcerpt { get; init; }
+    public int? DepartmentId { get; init; }
+    public string? DepartmentSlug { get; init; }
+
+    /// <summary>JSON object of surface → copy from geek_blog.post_presentation.</summary>
+    public string PresentationJson { get; init; } = "{}";
+
     public string? HeroImageUrl { get; init; }
     public Guid? SourceProjectId { get; init; }
     public string? ContentRole { get; init; }
