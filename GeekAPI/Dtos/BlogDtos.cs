@@ -3,30 +3,38 @@ using GeekApplication.Models.Blog;
 
 namespace GeekAPI.Dtos;
 
+public sealed record PostSectionDto(
+    int SortOrder,
+    string? HeadingTag,
+    string? HeadingText,
+    string BodyContent,
+    string? MediaUrl,
+    string? MediaAlt);
+
 public sealed class BlogPostResponse
 {
     public int PostId { get; init; }
     public string PostType { get; init; } = string.Empty;
+    public string SchemaType { get; init; } = string.Empty;
     public string LanguageCode { get; init; } = string.Empty;
     public string Slug { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
-    public string Body { get; init; } = string.Empty;
+    public string Summary { get; init; } = string.Empty;
+    public string? MetaDescription { get; init; }
+    public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
     public DateTimeOffset? PublishedAt { get; init; }
     public string LocalizedTagsJson { get; init; } = "[]";
 
     [JsonPropertyName("jsonLd")]
     public ArticleMetadata? JsonLd { get; init; }
 
-    /// <summary>Stored schema.org JSON+LD (flat or @graph) for script emission.</summary>
-    public string SchemaMetadataJson { get; init; } = "{}";
+    /// <summary>Stored schema.org JSON-LD override (flat or @graph) for script emission.</summary>
+    public string? JsonLdOverride { get; init; }
 
-    public int? DepartmentId { get; init; }
-    public string? DepartmentSlug { get; init; }
+    public int CategoryId { get; init; }
+    public string CategorySlug { get; init; } = string.Empty;
     public Dictionary<string, string> Presentation { get; init; } = new();
-    public string? HeroImageUrl { get; init; }
-    public Guid? SourceProjectId { get; init; }
-    public string? ContentRole { get; init; }
-    public string? SourcePillarSlug { get; init; }
+    public string? CwJobId { get; init; }
 }
 
 public sealed record CommentReplyRequest(
@@ -51,53 +59,54 @@ public sealed record CommentResponse(
     int PostId,
     int? UserId,
     string Content,
+    string? AttachmentUrl,
     string Path,
     int Depth,
     DateTimeOffset CreatedAt);
 
 public sealed class BlogPostRequest
 {
-    public string PostType { get; init; } = "BlogPosting";
-    public string Status { get; init; } = "draft";
+    public string PostType { get; init; } = "Blog";
+    public string SchemaType { get; init; } = "BlogPosting";
+    public bool IsPublished { get; init; }
     public string LanguageCode { get; init; } = "en";
     public string Slug { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
-    public string Body { get; init; } = string.Empty;
-    public string SchemaMetadataJson { get; init; } = "{}";
+    public string Summary { get; init; } = string.Empty;
+    public string? MetaDescription { get; init; }
+    public string? JsonLdOverride { get; init; }
+    public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
     public IReadOnlyList<string> TagSlugs { get; init; } = [];
     public int? AuthorId { get; init; }
     public DateTimeOffset? PublishedAt { get; init; }
-    public string? DepartmentSlug { get; init; }
+    public string CategorySlug { get; init; } = string.Empty;
     public Dictionary<string, string>? Presentation { get; init; }
-    public string? HeroImageUrl { get; init; }
-    public Guid? SourceProjectId { get; init; }
-    public string? ContentRole { get; init; }
-    public string? SourcePillarSlug { get; init; }
+    public string? CwJobId { get; init; }
 }
 
 public sealed class BlogPostAdminResponse
 {
     public int PostId { get; init; }
     public string PostType { get; init; } = string.Empty;
+    public string SchemaType { get; init; } = string.Empty;
     public string LanguageCode { get; init; } = string.Empty;
     public string Slug { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
-    public string Body { get; init; } = string.Empty;
-    public string Status { get; init; } = string.Empty;
+    public string Summary { get; init; } = string.Empty;
+    public string? MetaDescription { get; init; }
+    public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
+    public bool IsPublished { get; init; }
     public DateTimeOffset? PublishedAt { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
     public string LocalizedTagsJson { get; init; } = "[]";
-    public string SchemaMetadataJson { get; init; } = "{}";
+    public string? JsonLdOverride { get; init; }
 
     [JsonPropertyName("jsonLd")]
     public ArticleMetadata? JsonLd { get; init; }
 
-    public int? DepartmentId { get; init; }
-    public string? DepartmentSlug { get; init; }
+    public int CategoryId { get; init; }
+    public string CategorySlug { get; init; } = string.Empty;
     public Dictionary<string, string> Presentation { get; init; } = new();
-    public string? HeroImageUrl { get; init; }
-    public Guid? SourceProjectId { get; init; }
-    public string? ContentRole { get; init; }
-    public string? SourcePillarSlug { get; init; }
+    public string? CwJobId { get; init; }
 }

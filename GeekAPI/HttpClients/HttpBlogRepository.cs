@@ -12,7 +12,7 @@ public sealed class HttpBlogRepository : IBlogRepository
     public HttpBlogRepository(IHttpClientFactory factory) =>
         _http = factory.CreateClient("GeekRepository");
 
-    public Task<bool> UserHasPermissionAsync(int userId, string permissionName, CancellationToken ct = default) =>
+    public Task<bool> UserHasRoleAsync(int userId, string roleName, CancellationToken ct = default) =>
         throw new NotSupportedException("RBAC checks are evaluated on the repository host.");
 
     public async Task<IReadOnlyList<BlogPostFlatDto>> GetAllPostsAsync(
@@ -117,11 +117,12 @@ public sealed class HttpBlogRepository : IBlogRepository
         int? userId,
         string content,
         string? parentPath,
+        string? attachmentUrl,
         CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync(
             $"repo/content/blog/{postId}/comments",
-            new { userId, content, parentPath },
+            new { userId, content, parentPath, attachmentUrl },
             ct);
         response.EnsureSuccessStatusCode();
 

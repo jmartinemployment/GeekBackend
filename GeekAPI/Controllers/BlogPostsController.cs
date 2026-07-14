@@ -17,6 +17,12 @@ public sealed class BlogPostsController : ControllerBase
     private readonly IBlogRepository _blog;
     private readonly IAssetUploadService _assetUploads;
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
     public BlogPostsController(IBlogRepository blog, IAssetUploadService assetUploads)
     {
         _blog = blog;
@@ -97,15 +103,12 @@ public sealed class BlogPostsController : ControllerBase
         if (request.Attachment is not null)
             attachmentUrl = await _assetUploads.UploadAsync(request.Attachment, ct);
 
-        var content = attachmentUrl is null
-            ? request.Content
-            : $"{request.Content}\n\n![attachment]({attachmentUrl})";
-
         var commentId = await _blog.InsertCommentReplyWithoutLocalTransactionAsync(
             postId,
             request.UserId,
-            content,
+            request.Content,
             request.ParentPath,
+            attachmentUrl,
             ct);
 
         var thread = await _blog.GetThreadedCommentsAsync(postId, ct);
@@ -119,50 +122,42 @@ public sealed class BlogPostsController : ControllerBase
 
     private static UpsertBlogPostCommand ToCommand(BlogPostRequest request)
     {
-        var command = new UpsertBlogPostCommand
-        {
-            PostType = request.PostType,
-            Status = request.Status,
-            LanguageCode = request.LanguageCode,
-            Slug = request.Slug,
-            Title = request.Title,
-            Body = request.Body,
-            SchemaMetadataJson = request.SchemaMetadataJson,
-            TagSlugs = request.TagSlugs,
-            AuthorId = request.AuthorId,
-            PublishedAt = request.PublishedAt,
-            DepartmentSlug = request.DepartmentSlug,
-            Presentation = PostPresentationFields.Normalize(request.Presentation),
-            HeroImageUrl = request.HeroImageUrl,
-            SourceProjectId = request.SourceProjectId,
-            ContentRole = request.ContentRole,
-            SourcePillarSlug = request.SourcePillarSlug,
-        };
-
-        var (title, schema) = UseCasePostNormalizer.Normalize(
-            command.Slug,
-            command.Title,
-            command.SchemaMetadataJson);
+        var (title, jsonLdOverride) = NormalizeUseCaseTitle(request.Slug, request.Title, request.JsonLdOverride);
 
         return new UpsertBlogPostCommand
         {
-            PostType = command.PostType,
-            Status = command.Status,
-            LanguageCode = command.LanguageCode,
-            Slug = command.Slug,
+            PostType = request.PostType,
+            SchemaType = request.SchemaType,
+            IsPublished = request.IsPublished,
+            LanguageCode = request.LanguageCode,
+            Slug = request.Slug,
             Title = title,
-            Body = command.Body,
-            SchemaMetadataJson = schema,
-            TagSlugs = command.TagSlugs,
-            AuthorId = command.AuthorId,
-            PublishedAt = command.PublishedAt,
-            DepartmentSlug = command.DepartmentSlug,
-            Presentation = command.Presentation,
-            HeroImageUrl = command.HeroImageUrl,
-            SourceProjectId = command.SourceProjectId,
-            ContentRole = command.ContentRole,
-            SourcePillarSlug = command.SourcePillarSlug,
+            Summary = request.Summary,
+            MetaDescription = request.MetaDescription,
+            JsonLdOverride = jsonLdOverride,
+            Sections = request.Sections
+                .Select(s => new PostSectionInput(s.SortOrder, s.HeadingTag, s.HeadingText, s.BodyContent, s.MediaUrl, s.MediaAlt))
+                .ToList(),
+            TagSlugs = request.TagSlugs,
+            AuthorId = request.AuthorId,
+            PublishedAt = request.PublishedAt,
+            CategorySlug = request.CategorySlug,
+            Presentation = PostPresentationFields.Normalize(request.Presentation),
+            CwJobId = request.CwJobId,
         };
+    }
+
+    private static (string Title, string? JsonLdOverride) NormalizeUseCaseTitle(
+        string slug,
+        string title,
+        string? jsonLdOverride)
+    {
+        if (!UseCasePostNormalizer.IsUseCaseSlug(slug))
+            return (title, jsonLdOverride);
+
+        var (normalizedTitle, schema) = UseCasePostNormalizer.Normalize(slug, title, jsonLdOverride ?? "{}");
+        var normalizedJsonLd = jsonLdOverride is null && schema == "{}" ? null : schema;
+        return (normalizedTitle, normalizedJsonLd);
     }
 
     private static Dictionary<string, string> ParsePresentation(string? presentationJson)
@@ -174,26 +169,34 @@ public sealed class BlogPostsController : ControllerBase
                ?? new Dictionary<string, string>();
     }
 
+    private static IReadOnlyList<PostSectionDto> ParseSections(string sectionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(sectionsJson))
+            return [];
+
+        return JsonSerializer.Deserialize<List<PostSectionDto>>(sectionsJson, JsonOptions) ?? [];
+    }
+
     private static BlogPostResponse MapToResponse(BlogPostFlatDto flat) =>
         new()
         {
             PostId = flat.PostId,
             PostType = flat.PostType,
+            SchemaType = flat.SchemaType,
             LanguageCode = flat.LanguageCode,
             Slug = flat.Slug,
             Title = flat.Title,
-            Body = flat.Body,
+            Summary = flat.Summary,
+            MetaDescription = flat.MetaDescription,
+            Sections = ParseSections(flat.SectionsJson),
             PublishedAt = flat.PublishedAt,
             LocalizedTagsJson = flat.LocalizedTagsJson,
-            JsonLd = SchemaMetadataParser.Parse(flat.PostType, flat.SchemaMetadataJson),
-            SchemaMetadataJson = flat.SchemaMetadataJson,
-            DepartmentId = flat.DepartmentId,
-            DepartmentSlug = flat.DepartmentSlug,
+            JsonLd = SchemaMetadataParser.Parse(flat.SchemaType, flat.JsonLdOverride ?? "{}"),
+            JsonLdOverride = flat.JsonLdOverride,
+            CategoryId = flat.CategoryId,
+            CategorySlug = flat.CategorySlug,
             Presentation = ParsePresentation(flat.PresentationJson),
-            HeroImageUrl = flat.HeroImageUrl,
-            SourceProjectId = flat.SourceProjectId,
-            ContentRole = flat.ContentRole,
-            SourcePillarSlug = flat.SourcePillarSlug,
+            CwJobId = flat.CwJobId,
         };
 
     private static BlogPostAdminResponse MapToAdminResponse(BlogPostFlatDto flat) =>
@@ -201,28 +204,28 @@ public sealed class BlogPostsController : ControllerBase
         {
             PostId = flat.PostId,
             PostType = flat.PostType,
+            SchemaType = flat.SchemaType,
             LanguageCode = flat.LanguageCode,
             Slug = flat.Slug,
             Title = flat.Title,
-            Body = flat.Body,
+            Summary = flat.Summary,
+            MetaDescription = flat.MetaDescription,
+            Sections = ParseSections(flat.SectionsJson),
+            IsPublished = flat.IsPublished,
             PublishedAt = flat.PublishedAt,
-            LocalizedTagsJson = flat.LocalizedTagsJson,
-            JsonLd = SchemaMetadataParser.Parse(flat.PostType, flat.SchemaMetadataJson),
-            SchemaMetadataJson = flat.SchemaMetadataJson,
-            Status = flat.Status,
             CreatedAt = flat.CreatedAt,
             UpdatedAt = flat.UpdatedAt,
-            DepartmentId = flat.DepartmentId,
-            DepartmentSlug = flat.DepartmentSlug,
+            LocalizedTagsJson = flat.LocalizedTagsJson,
+            JsonLd = SchemaMetadataParser.Parse(flat.SchemaType, flat.JsonLdOverride ?? "{}"),
+            JsonLdOverride = flat.JsonLdOverride,
+            CategoryId = flat.CategoryId,
+            CategorySlug = flat.CategorySlug,
             Presentation = ParsePresentation(flat.PresentationJson),
-            HeroImageUrl = flat.HeroImageUrl,
-            SourceProjectId = flat.SourceProjectId,
-            ContentRole = flat.ContentRole,
-            SourcePillarSlug = flat.SourcePillarSlug,
+            CwJobId = flat.CwJobId,
         };
 
     private static CommentResponse MapComment(CommentDto comment) =>
-        new(comment.Id, comment.PostId, comment.UserId, comment.Content, comment.Path, comment.Depth, comment.CreatedAt);
+        new(comment.Id, comment.PostId, comment.UserId, comment.Content, comment.AttachmentUrl, comment.Path, comment.Depth, comment.CreatedAt);
 }
 
 public interface IAssetUploadService

@@ -4,7 +4,7 @@ namespace GeekApplication.Interfaces;
 
 public interface IBlogRepository
 {
-    Task<bool> UserHasPermissionAsync(int userId, string permissionName, CancellationToken ct = default);
+    Task<bool> UserHasRoleAsync(int userId, string roleName, CancellationToken ct = default);
 
     Task<IReadOnlyList<BlogPostFlatDto>> GetAllPostsAsync(
         string? languageCode = null,
@@ -46,5 +46,6 @@ public interface IBlogRepository
         int? userId,
         string content,
         string? parentPath,
+        string? attachmentUrl,
         CancellationToken ct = default);
 }
