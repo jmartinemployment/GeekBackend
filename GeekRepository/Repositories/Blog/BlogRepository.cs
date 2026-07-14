@@ -470,21 +470,18 @@ public sealed class BlogRepository : IBlogRepository
             throw new InvalidOperationException("CategorySlug is required to create or update a blog post.");
 
         const string sql = """
-            SELECT id
-            FROM geek_blog.categories
-            WHERE slug = @Slug
-            LIMIT 1
+            INSERT INTO geek_blog.categories (slug)
+            VALUES (@Slug)
+            ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
+            RETURNING id
             """;
 
-        var categoryId = await _ambient.Connection.ExecuteScalarAsync<int?>(
+        return await _ambient.Connection.ExecuteScalarAsync<int>(
             new CommandDefinition(
                 sql,
                 new { Slug = slug },
                 _ambient.Transaction,
                 cancellationToken: ct));
-
-        return categoryId
-            ?? throw new InvalidOperationException($"No geek_blog.categories row found for slug '{slug}'.");
     }
 
     private async Task ReplaceSectionsAsync(
