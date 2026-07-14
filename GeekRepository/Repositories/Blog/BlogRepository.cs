@@ -19,7 +19,7 @@ public sealed class BlogRepository : IBlogRepository
             p.id              AS PostId,
             p.post_type       AS PostType,
             pt.language_code  AS LanguageCode,
-            pt.slug::text     AS Slug,
+            p.slug::text      AS Slug,
             pt.title          AS Title,
             p.is_published    AS IsPublished,
             p.schema_type     AS SchemaType,
@@ -145,7 +145,7 @@ public sealed class BlogRepository : IBlogRepository
             FROM geek_blog.post_translations pt
             INNER JOIN geek_blog.posts p ON p.id = pt.post_id
             {JoinClauses}
-            WHERE pt.slug = @Slug
+            WHERE p.slug = @Slug
               AND pt.language_code = @LanguageCode
             """;
 
@@ -338,8 +338,9 @@ public sealed class BlogRepository : IBlogRepository
         var publishedAt = ResolvePublishedAt(command);
 
         const string insertPostSql = """
-            INSERT INTO geek_blog.posts (post_type, schema_type, category_id, author_id, cw_job_id, is_published, published_at)
+            INSERT INTO geek_blog.posts (slug, post_type, schema_type, category_id, author_id, cw_job_id, is_published, published_at)
             VALUES (
+                @Slug,
                 @PostType::geek_blog.post_type_enum,
                 @SchemaType::geek_blog.schema_type_enum,
                 @CategoryId,
@@ -351,6 +352,7 @@ public sealed class BlogRepository : IBlogRepository
             """;
 
         var postParams = new DynamicParameters();
+        postParams.Add("Slug", command.Slug);
         postParams.Add("PostType", command.PostType);
         postParams.Add("SchemaType", command.SchemaType);
         postParams.Add("CategoryId", categoryId);
@@ -381,7 +383,8 @@ public sealed class BlogRepository : IBlogRepository
 
         const string updatePostSql = """
             UPDATE geek_blog.posts
-            SET post_type = @PostType::geek_blog.post_type_enum,
+            SET slug = @Slug,
+                post_type = @PostType::geek_blog.post_type_enum,
                 schema_type = @SchemaType::geek_blog.schema_type_enum,
                 category_id = @CategoryId,
                 author_id = @AuthorId,
@@ -393,6 +396,7 @@ public sealed class BlogRepository : IBlogRepository
 
         var postParams = new DynamicParameters();
         postParams.Add("PostId", postId);
+        postParams.Add("Slug", command.Slug);
         postParams.Add("PostType", command.PostType);
         postParams.Add("SchemaType", command.SchemaType);
         postParams.Add("CategoryId", categoryId);
@@ -432,11 +436,10 @@ public sealed class BlogRepository : IBlogRepository
     {
         const string sql = """
             INSERT INTO geek_blog.post_translations
-                (post_id, language_code, slug, title, summary, meta_description, json_ld_override)
+                (post_id, language_code, title, summary, meta_description, json_ld_override)
             VALUES
-                (@PostId, @LanguageCode, @Slug, @Title, @Summary, @MetaDescription, @JsonLdOverride)
+                (@PostId, @LanguageCode, @Title, @Summary, @MetaDescription, @JsonLdOverride)
             ON CONFLICT (post_id, language_code) DO UPDATE SET
-                slug = EXCLUDED.slug,
                 title = EXCLUDED.title,
                 summary = EXCLUDED.summary,
                 meta_description = EXCLUDED.meta_description,
@@ -447,7 +450,6 @@ public sealed class BlogRepository : IBlogRepository
         var parameters = new DynamicParameters();
         parameters.Add("PostId", postId);
         parameters.Add("LanguageCode", command.LanguageCode);
-        parameters.Add("Slug", command.Slug);
         parameters.Add("Title", command.Title);
         parameters.Add("Summary", command.Summary);
         parameters.Add("MetaDescription", command.MetaDescription);
