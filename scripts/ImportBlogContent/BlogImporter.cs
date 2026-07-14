@@ -66,14 +66,26 @@ public sealed class BlogImporter(HttpClient http, string apiKey)
 
                 var payload = new
                 {
-                    postType = entry.PostType,
-                    status = "published",
+                    postType = MapPostTypeEnum(entry.PostType),
+                    schemaType = entry.PostType,
+                    isPublished = true,
                     languageCode = entry.LanguageCode,
                     slug = entry.Slug,
                     title = parsed.Title,
-                    body = parsed.BodyHtml,
-                    schemaMetadataJson = parsed.SchemaMetadataJson,
+                    summary = parsed.MetaDescription ?? string.Empty,
+                    metaDescription = parsed.MetaDescription,
+                    jsonLdOverride = parsed.SchemaMetadataJson,
+                    categorySlug = entry.Department,
                     tagSlugs = new[] { entry.Department },
+                    sections = parsed.Sections.Select(s => new
+                    {
+                        sortOrder = s.SortOrder,
+                        headingTag = s.HeadingTag,
+                        headingText = s.HeadingText,
+                        bodyContent = s.BodyContent,
+                        mediaUrl = s.MediaUrl,
+                        mediaAlt = s.MediaAlt
+                    }),
                     publishedAt = parsed.PublishedAt?.ToUniversalTime()
                 };
 
@@ -145,6 +157,14 @@ public sealed class BlogImporter(HttpClient http, string apiKey)
     }
 
     private static string SlugKey(string slug, string lang) => $"{lang}:{slug}";
+
+    /// <summary>
+    /// Maps the legacy schema.org-shaped import postType ("BlogPosting"/"TechnicalArticle") onto
+    /// geek_blog.post_type_enum ("Blog"/"Pillar"/"Tool"). Schema.org typing is preserved separately
+    /// via the schemaType field.
+    /// </summary>
+    private static string MapPostTypeEnum(string postType) =>
+        string.Equals(postType, "BlogPosting", StringComparison.OrdinalIgnoreCase) ? "Blog" : "Tool";
 }
 
 public sealed class ImportPreflight

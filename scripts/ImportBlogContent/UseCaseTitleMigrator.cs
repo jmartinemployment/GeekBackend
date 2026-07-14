@@ -27,7 +27,7 @@ public sealed class UseCaseTitleMigrator(HttpClient http, string apiKey)
                 continue;
             }
 
-            if (!UseCasePostNormalizer.NeedsNormalization(post.Slug, post.Title, post.SchemaMetadataJson))
+            if (!UseCasePostNormalizer.NeedsNormalization(post.Slug, post.Title, post.JsonLdOverride ?? "{}"))
             {
                 result.Skipped++;
                 continue;
@@ -36,7 +36,7 @@ public sealed class UseCaseTitleMigrator(HttpClient http, string apiKey)
             var (displayTitle, schema) = UseCasePostNormalizer.Normalize(
                 post.Slug,
                 post.Title,
-                post.SchemaMetadataJson);
+                post.JsonLdOverride ?? "{}");
 
             if (dryRun)
             {
@@ -51,13 +51,19 @@ public sealed class UseCaseTitleMigrator(HttpClient http, string apiKey)
             var payload = new
             {
                 postType = post.PostType,
-                status = post.Status,
+                schemaType = post.SchemaType,
+                isPublished = post.IsPublished,
                 languageCode = post.LanguageCode,
                 slug = post.Slug,
                 title = displayTitle,
-                body = post.Body,
-                schemaMetadataJson = schema,
+                summary = post.Summary,
+                metaDescription = post.MetaDescription,
+                jsonLdOverride = schema,
+                sections = post.Sections,
                 tagSlugs,
+                categorySlug = post.CategorySlug,
+                presentation = post.Presentation,
+                cwJobId = post.CwJobId,
                 publishedAt = post.PublishedAt?.ToUniversalTime(),
             };
 
@@ -117,14 +123,30 @@ public sealed class UseCaseTitleMigrator(HttpClient http, string apiKey)
     {
         public int PostId { get; init; }
         public string PostType { get; init; } = string.Empty;
-        public string Status { get; init; } = string.Empty;
+        public string SchemaType { get; init; } = string.Empty;
+        public bool IsPublished { get; init; }
         public string LanguageCode { get; init; } = string.Empty;
         public string Slug { get; init; } = string.Empty;
         public string Title { get; init; } = string.Empty;
-        public string Body { get; init; } = string.Empty;
-        public string SchemaMetadataJson { get; init; } = "{}";
+        public string Summary { get; init; } = string.Empty;
+        public string? MetaDescription { get; init; }
+        public string? JsonLdOverride { get; init; }
+        public IReadOnlyList<AdminPostSection> Sections { get; init; } = [];
         public string LocalizedTagsJson { get; init; } = "[]";
+        public string CategorySlug { get; init; } = string.Empty;
+        public Dictionary<string, string> Presentation { get; init; } = new();
+        public string? CwJobId { get; init; }
         public DateTimeOffset? PublishedAt { get; init; }
+    }
+
+    private sealed class AdminPostSection
+    {
+        public int SortOrder { get; init; }
+        public string? HeadingTag { get; init; }
+        public string? HeadingText { get; init; }
+        public string BodyContent { get; init; } = string.Empty;
+        public string? MediaUrl { get; init; }
+        public string? MediaAlt { get; init; }
     }
 }
 

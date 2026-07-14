@@ -15,25 +15,83 @@ public sealed class BlogRepository : IBlogRepository
 
     public BlogRepository(IAmbientDbContext ambient) => _ambient = ambient;
 
-    public async Task<bool> UserHasPermissionAsync(
+    private const string SelectColumns = """
+            p.id              AS PostId,
+            p.post_type       AS PostType,
+            pt.language_code  AS LanguageCode,
+            pt.slug::text     AS Slug,
+            pt.title          AS Title,
+            p.is_published    AS IsPublished,
+            p.schema_type     AS SchemaType,
+            p.published_at    AS PublishedAt,
+            p.created_at      AS CreatedAt,
+            p.updated_at      AS UpdatedAt,
+            COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
+            p.category_id     AS CategoryId,
+            c.slug            AS CategorySlug,
+            pt.summary        AS Summary,
+            pt.meta_description AS MetaDescription,
+            pt.json_ld_override AS JsonLdOverride,
+            p.cw_job_id       AS CwJobId,
+            COALESCE(sections.sections_json, '[]') AS SectionsJson,
+            COALESCE(pres.presentation_json, '{}') AS PresentationJson
+        """;
+
+    private const string JoinClauses = """
+            LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object('slug', t.slug::text, 'name', tt.name)
+                    ORDER BY tt.name
+                )::text AS localized_tags_json
+                FROM geek_blog.post_tags ptg
+                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
+                INNER JOIN geek_blog.tag_translations tt
+                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
+                WHERE ptg.post_id = p.id
+            ) tags ON TRUE
+            LEFT JOIN geek_blog.categories c ON c.id = p.category_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(json_agg(
+                    json_build_object(
+                        'sortOrder', ps.sort_order,
+                        'headingTag', ps.heading_tag,
+                        'headingText', ps.heading_text,
+                        'bodyContent', ps.body_content,
+                        'mediaUrl', ps.media_url,
+                        'mediaAlt', ps.media_alt
+                    ) ORDER BY ps.sort_order
+                ), '[]')::text AS sections_json
+                FROM geek_blog.post_sections ps
+                WHERE ps.post_translation_id = pt.id
+            ) sections ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    json_object_agg(ppa.attribute_key, ppa.attribute_value) FILTER (WHERE ppa.attribute_key IS NOT NULL),
+                    '{}'
+                )::text AS presentation_json
+                FROM geek_blog.post_presentation_attributes ppa
+                WHERE ppa.post_translation_id = pt.id
+            ) pres ON TRUE
+        """;
+
+    public async Task<bool> UserHasRoleAsync(
         int userId,
-        string permissionName,
+        string roleName,
         CancellationToken ct = default)
     {
         const string sql = """
             SELECT EXISTS (
                 SELECT 1
                 FROM geek_blog.user_roles ur
-                INNER JOIN geek_blog.role_permissions rp ON rp.role_id = ur.role_id
-                INNER JOIN geek_blog.permissions p ON p.id = rp.permission_id
+                INNER JOIN geek_blog.roles r ON r.id = ur.role_id
                 WHERE ur.user_id = @UserId
-                  AND p.name = @PermissionName
+                  AND r.name = @RoleName
             )
             """;
 
         var parameters = new DynamicParameters();
         parameters.Add("UserId", userId);
-        parameters.Add("PermissionName", permissionName);
+        parameters.Add("RoleName", roleName);
 
         var command = new CommandDefinition(
             sql,
@@ -49,52 +107,15 @@ public sealed class BlogRepository : IBlogRepository
         string languageCode,
         CancellationToken ct = default)
     {
-        const string sql = """
+        var sql = $"""
             SELECT
-                p.id              AS PostId,
-                p.post_type       AS PostType,
-                pt.language_code  AS LanguageCode,
-                pt.slug::text     AS Slug,
-                pt.title          AS Title,
-                pt.body           AS Body,
-                p.status          AS Status,
-                p.published_at    AS PublishedAt,
-                p.created_at      AS CreatedAt,
-                p.updated_at      AS UpdatedAt,
-                COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.department_id AS DepartmentId,
-                d.slug AS DepartmentSlug,
-                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
-                pt.hero_image_url AS HeroImageUrl,
-                pt.source_project_id AS SourceProjectId,
-                pt.content_role AS ContentRole,
-                pt.source_pillar_slug AS SourcePillarSlug,
+                {SelectColumns},
                 ts_rank(pt.search_vector, websearch_to_tsquery(geek_blog.resolve_ts_config(@LanguageCode), @SearchTerm)) AS SearchRank
             FROM geek_blog.post_translations pt
             INNER JOIN geek_blog.posts p ON p.id = pt.post_id
-            LEFT JOIN LATERAL (
-                SELECT json_agg(
-                    json_build_object('slug', t.slug::text, 'name', tt.name)
-                    ORDER BY tt.name
-                )::text AS localized_tags_json
-                FROM geek_blog.post_tags ptg
-                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
-                INNER JOIN geek_blog.tag_translations tt
-                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
-                WHERE ptg.post_id = p.id
-            ) tags ON TRUE
-            LEFT JOIN public.departments d ON d.id = pt.department_id
-            LEFT JOIN LATERAL (
-                SELECT COALESCE(
-                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
-                    '{}'
-                )::text AS presentation_json
-                FROM geek_blog.post_presentation pp
-                WHERE pp.post_translation_id = pt.id
-            ) pres ON TRUE
+            {JoinClauses}
             WHERE pt.language_code = @LanguageCode
-              AND p.status = 'published'
+              AND p.is_published = TRUE
               AND pt.search_vector @@ websearch_to_tsquery(geek_blog.resolve_ts_config(@LanguageCode), @SearchTerm)
             ORDER BY SearchRank DESC, p.published_at DESC NULLS LAST
             """;
@@ -118,49 +139,12 @@ public sealed class BlogRepository : IBlogRepository
         string languageCode,
         CancellationToken ct = default)
     {
-        const string sql = """
+        var sql = $"""
             SELECT
-                p.id              AS PostId,
-                p.post_type       AS PostType,
-                pt.language_code  AS LanguageCode,
-                pt.slug::text     AS Slug,
-                pt.title          AS Title,
-                pt.body           AS Body,
-                p.status          AS Status,
-                p.published_at    AS PublishedAt,
-                p.created_at      AS CreatedAt,
-                p.updated_at      AS UpdatedAt,
-                COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.department_id AS DepartmentId,
-                d.slug AS DepartmentSlug,
-                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
-                pt.hero_image_url AS HeroImageUrl,
-                pt.source_project_id AS SourceProjectId,
-                pt.content_role AS ContentRole,
-                pt.source_pillar_slug AS SourcePillarSlug
+                {SelectColumns}
             FROM geek_blog.post_translations pt
             INNER JOIN geek_blog.posts p ON p.id = pt.post_id
-            LEFT JOIN LATERAL (
-                SELECT json_agg(
-                    json_build_object('slug', t.slug::text, 'name', tt.name)
-                    ORDER BY tt.name
-                )::text AS localized_tags_json
-                FROM geek_blog.post_tags ptg
-                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
-                INNER JOIN geek_blog.tag_translations tt
-                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
-                WHERE ptg.post_id = p.id
-            ) tags ON TRUE
-            LEFT JOIN public.departments d ON d.id = pt.department_id
-            LEFT JOIN LATERAL (
-                SELECT COALESCE(
-                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
-                    '{}'
-                )::text AS presentation_json
-                FROM geek_blog.post_presentation pp
-                WHERE pp.post_translation_id = pt.id
-            ) pres ON TRUE
+            {JoinClauses}
             WHERE pt.slug = @Slug
               AND pt.language_code = @LanguageCode
             """;
@@ -182,52 +166,15 @@ public sealed class BlogRepository : IBlogRepository
         string languageCode,
         CancellationToken ct = default)
     {
-        const string sql = """
+        var sql = $"""
             SELECT
-                p.id              AS PostId,
-                p.post_type       AS PostType,
-                pt.language_code  AS LanguageCode,
-                pt.slug::text     AS Slug,
-                pt.title          AS Title,
-                pt.body           AS Body,
-                p.status          AS Status,
-                p.published_at    AS PublishedAt,
-                p.created_at      AS CreatedAt,
-                p.updated_at      AS UpdatedAt,
-                COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.department_id AS DepartmentId,
-                d.slug AS DepartmentSlug,
-                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
-                pt.hero_image_url AS HeroImageUrl,
-                pt.source_project_id AS SourceProjectId,
-                pt.content_role AS ContentRole,
-                pt.source_pillar_slug AS SourcePillarSlug
+                {SelectColumns}
             FROM geek_blog.posts p
             INNER JOIN geek_blog.post_translations pt
                 ON pt.post_id = p.id AND pt.language_code = @LanguageCode
-            LEFT JOIN LATERAL (
-                SELECT json_agg(
-                    json_build_object('slug', t.slug::text, 'name', tt.name)
-                    ORDER BY tt.name
-                )::text AS localized_tags_json
-                FROM geek_blog.post_tags ptg
-                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
-                INNER JOIN geek_blog.tag_translations tt
-                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
-                WHERE ptg.post_id = p.id
-            ) tags ON TRUE
-            LEFT JOIN public.departments d ON d.id = pt.department_id
-            LEFT JOIN LATERAL (
-                SELECT COALESCE(
-                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
-                    '{}'
-                )::text AS presentation_json
-                FROM geek_blog.post_presentation pp
-                WHERE pp.post_translation_id = pt.id
-            ) pres ON TRUE
-            WHERE p.post_type = 'TechnicalArticle'
-              AND p.status = 'published'
+            {JoinClauses}
+            WHERE p.schema_type = 'TechnicalArticle'
+              AND p.is_published = TRUE
             ORDER BY p.published_at DESC NULLS LAST, p.id DESC
             """;
 
@@ -250,14 +197,15 @@ public sealed class BlogRepository : IBlogRepository
     {
         const string sql = """
             SELECT
-                c.id         AS Id,
-                c.post_id    AS PostId,
-                c.user_id    AS UserId,
-                c.content    AS Content,
-                c.path::text AS Path,
-                nlevel(c.path) AS Depth,
-                c.created_at AS CreatedAt
-            FROM geek_blog.comments c
+                c.id             AS Id,
+                c.post_id        AS PostId,
+                c.user_id        AS UserId,
+                c.content        AS Content,
+                c.attachment_url AS AttachmentUrl,
+                c.path::text     AS Path,
+                nlevel(c.path)   AS Depth,
+                c.created_at     AS CreatedAt
+            FROM geek_blog.post_comments c
             WHERE c.post_id = @PostId
             ORDER BY c.path
             """;
@@ -280,18 +228,20 @@ public sealed class BlogRepository : IBlogRepository
         int? userId,
         string content,
         string? parentPath,
+        string? attachmentUrl,
         CancellationToken ct = default)
     {
         const string insertSql = """
             WITH new_id AS (
-                SELECT nextval(pg_get_serial_sequence('geek_blog.comments', 'id')) AS id
+                SELECT nextval(pg_get_serial_sequence('geek_blog.post_comments', 'id')) AS id
             )
-            INSERT INTO geek_blog.comments (id, post_id, user_id, content, path)
+            INSERT INTO geek_blog.post_comments (id, post_id, user_id, content, attachment_url, path)
             SELECT
                 new_id.id,
                 @PostId,
                 @UserId,
                 @Content,
+                @AttachmentUrl,
                 CASE
                     WHEN @ParentPath IS NULL THEN text2ltree(new_id.id::text)
                     ELSE text2ltree(@ParentPath) || text2ltree(new_id.id::text)
@@ -304,6 +254,7 @@ public sealed class BlogRepository : IBlogRepository
         parameters.Add("PostId", postId);
         parameters.Add("UserId", userId);
         parameters.Add("Content", content);
+        parameters.Add("AttachmentUrl", attachmentUrl);
         parameters.Add("ParentPath", parentPath);
 
         var insertCommand = new CommandDefinition(
@@ -321,64 +272,34 @@ public sealed class BlogRepository : IBlogRepository
         string? postType = null,
         CancellationToken ct = default)
     {
-        var sql = """
+        var sql = $"""
             SELECT
-                p.id              AS PostId,
-                p.post_type       AS PostType,
-                pt.language_code  AS LanguageCode,
-                pt.slug::text     AS Slug,
-                pt.title          AS Title,
-                pt.body           AS Body,
-                p.status          AS Status,
-                p.published_at    AS PublishedAt,
-                p.created_at      AS CreatedAt,
-                p.updated_at      AS UpdatedAt,
-                COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.department_id AS DepartmentId,
-                d.slug AS DepartmentSlug,
-                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
-                pt.hero_image_url AS HeroImageUrl,
-                pt.source_project_id AS SourceProjectId,
-                pt.content_role AS ContentRole,
-                pt.source_pillar_slug AS SourcePillarSlug
+                {SelectColumns}
             FROM geek_blog.posts p
             INNER JOIN geek_blog.post_translations pt ON pt.post_id = p.id
-            LEFT JOIN LATERAL (
-                SELECT json_agg(
-                    json_build_object('slug', t.slug::text, 'name', tt.name)
-                    ORDER BY tt.name
-                )::text AS localized_tags_json
-                FROM geek_blog.post_tags ptg
-                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
-                INNER JOIN geek_blog.tag_translations tt
-                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
-                WHERE ptg.post_id = p.id
-            ) tags ON TRUE
-            LEFT JOIN public.departments d ON d.id = pt.department_id
-            LEFT JOIN LATERAL (
-                SELECT COALESCE(
-                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
-                    '{}'
-                )::text AS presentation_json
-                FROM geek_blog.post_presentation pp
-                WHERE pp.post_translation_id = pt.id
-            ) pres ON TRUE
+            {JoinClauses}
             WHERE 1=1
             """;
 
+        bool? isPublished = status?.Trim().ToLowerInvariant() switch
+        {
+            "published" => true,
+            "draft" => false,
+            _ => null,
+        };
+
         if (languageCode is not null)
             sql += " AND pt.language_code = @LanguageCode";
-        if (status is not null)
-            sql += " AND p.status = @Status";
+        if (isPublished is not null)
+            sql += " AND p.is_published = @IsPublished";
         if (postType is not null)
-            sql += " AND p.post_type = @PostType";
+            sql += " AND p.post_type = @PostType::geek_blog.post_type_enum";
 
         sql += " ORDER BY p.updated_at DESC, p.id DESC";
 
         var parameters = new DynamicParameters();
         if (languageCode is not null) parameters.Add("LanguageCode", languageCode);
-        if (status is not null) parameters.Add("Status", status);
+        if (isPublished is not null) parameters.Add("IsPublished", isPublished);
         if (postType is not null) parameters.Add("PostType", postType);
 
         var command = new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct);
@@ -391,49 +312,12 @@ public sealed class BlogRepository : IBlogRepository
         string? languageCode = null,
         CancellationToken ct = default)
     {
-        var sql = """
+        var sql = $"""
             SELECT
-                p.id              AS PostId,
-                p.post_type       AS PostType,
-                pt.language_code  AS LanguageCode,
-                pt.slug::text     AS Slug,
-                pt.title          AS Title,
-                pt.body           AS Body,
-                p.status          AS Status,
-                p.published_at    AS PublishedAt,
-                p.created_at      AS CreatedAt,
-                p.updated_at      AS UpdatedAt,
-                COALESCE(tags.localized_tags_json, '[]') AS LocalizedTagsJson,
-                pt.schema_metadata::text AS SchemaMetadataJson,
-                pt.department_id AS DepartmentId,
-                d.slug AS DepartmentSlug,
-                COALESCE(pres.presentation_json, '{}') AS PresentationJson,
-                pt.hero_image_url AS HeroImageUrl,
-                pt.source_project_id AS SourceProjectId,
-                pt.content_role AS ContentRole,
-                pt.source_pillar_slug AS SourcePillarSlug
+                {SelectColumns}
             FROM geek_blog.posts p
             INNER JOIN geek_blog.post_translations pt ON pt.post_id = p.id
-            LEFT JOIN LATERAL (
-                SELECT json_agg(
-                    json_build_object('slug', t.slug::text, 'name', tt.name)
-                    ORDER BY tt.name
-                )::text AS localized_tags_json
-                FROM geek_blog.post_tags ptg
-                INNER JOIN geek_blog.tags t ON t.id = ptg.tag_id
-                INNER JOIN geek_blog.tag_translations tt
-                    ON tt.tag_id = t.id AND tt.language_code = pt.language_code
-                WHERE ptg.post_id = p.id
-            ) tags ON TRUE
-            LEFT JOIN public.departments d ON d.id = pt.department_id
-            LEFT JOIN LATERAL (
-                SELECT COALESCE(
-                    json_object_agg(pp.surface, pp.copy) FILTER (WHERE pp.surface IS NOT NULL),
-                    '{}'
-                )::text AS presentation_json
-                FROM geek_blog.post_presentation pp
-                WHERE pp.post_translation_id = pt.id
-            ) pres ON TRUE
+            {JoinClauses}
             WHERE p.id = @PostId
             """ + (languageCode is not null ? " AND pt.language_code = @LanguageCode" : "") + """
              ORDER BY pt.language_code
@@ -450,24 +334,36 @@ public sealed class BlogRepository : IBlogRepository
 
     public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
     {
+        var categoryId = await ResolveCategoryIdAsync(command.CategorySlug, ct);
         var publishedAt = ResolvePublishedAt(command);
 
         const string insertPostSql = """
-            INSERT INTO geek_blog.posts (post_type, author_id, status, published_at)
-            VALUES (@PostType, @AuthorId, @Status, @PublishedAt)
+            INSERT INTO geek_blog.posts (post_type, schema_type, category_id, author_id, cw_job_id, is_published, published_at)
+            VALUES (
+                @PostType::geek_blog.post_type_enum,
+                @SchemaType::geek_blog.schema_type_enum,
+                @CategoryId,
+                @AuthorId,
+                @CwJobId,
+                @IsPublished,
+                @PublishedAt)
             RETURNING id
             """;
 
         var postParams = new DynamicParameters();
         postParams.Add("PostType", command.PostType);
+        postParams.Add("SchemaType", command.SchemaType);
+        postParams.Add("CategoryId", categoryId);
         postParams.Add("AuthorId", command.AuthorId);
-        postParams.Add("Status", command.Status);
+        postParams.Add("CwJobId", command.CwJobId);
+        postParams.Add("IsPublished", command.IsPublished);
         postParams.Add("PublishedAt", publishedAt);
 
         var postId = await _ambient.Connection.ExecuteScalarAsync<int>(
             new CommandDefinition(insertPostSql, postParams, _ambient.Transaction, cancellationToken: ct));
 
-        await UpsertTranslationAsync(postId, command, ct);
+        var translationId = await UpsertTranslationAsync(postId, categoryId, command, ct);
+        await ReplaceSectionsAsync(translationId, command.Sections, ct);
         await ReplacePostTagsAsync(postId, command.LanguageCode, command.TagSlugs, ct);
 
         return postId;
@@ -480,29 +376,36 @@ public sealed class BlogRepository : IBlogRepository
             new CommandDefinition(existsSql, new { PostId = postId }, _ambient.Transaction, cancellationToken: ct));
         if (!exists) return false;
 
+        var categoryId = await ResolveCategoryIdAsync(command.CategorySlug, ct);
         var publishedAt = ResolvePublishedAt(command);
 
         const string updatePostSql = """
             UPDATE geek_blog.posts
-            SET post_type = @PostType,
+            SET post_type = @PostType::geek_blog.post_type_enum,
+                schema_type = @SchemaType::geek_blog.schema_type_enum,
+                category_id = @CategoryId,
                 author_id = @AuthorId,
-                status = @Status,
-                published_at = @PublishedAt,
-                updated_at = NOW()
+                cw_job_id = @CwJobId,
+                is_published = @IsPublished,
+                published_at = @PublishedAt
             WHERE id = @PostId
             """;
 
         var postParams = new DynamicParameters();
         postParams.Add("PostId", postId);
         postParams.Add("PostType", command.PostType);
+        postParams.Add("SchemaType", command.SchemaType);
+        postParams.Add("CategoryId", categoryId);
         postParams.Add("AuthorId", command.AuthorId);
-        postParams.Add("Status", command.Status);
+        postParams.Add("CwJobId", command.CwJobId);
+        postParams.Add("IsPublished", command.IsPublished);
         postParams.Add("PublishedAt", publishedAt);
 
         await _ambient.Connection.ExecuteAsync(
             new CommandDefinition(updatePostSql, postParams, _ambient.Transaction, cancellationToken: ct));
 
-        await UpsertTranslationAsync(postId, command, ct);
+        var translationId = await UpsertTranslationAsync(postId, categoryId, command, ct);
+        await ReplaceSectionsAsync(translationId, command.Sections, ct);
         await ReplacePostTagsAsync(postId, command.LanguageCode, command.TagSlugs, ct);
 
         return true;
@@ -517,35 +420,27 @@ public sealed class BlogRepository : IBlogRepository
     }
 
     private static DateTimeOffset? ResolvePublishedAt(UpsertBlogPostCommand command) =>
-        command.Status == "published"
+        command.IsPublished
             ? (command.PublishedAt ?? DateTimeOffset.UtcNow).ToUniversalTime()
             : null;
 
-    private async Task UpsertTranslationAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct)
+    private async Task<int> UpsertTranslationAsync(
+        int postId,
+        int categoryId,
+        UpsertBlogPostCommand command,
+        CancellationToken ct)
     {
-        var departmentId = await ResolveDepartmentIdAsync(command, ct);
-
         const string sql = """
             INSERT INTO geek_blog.post_translations
-                (post_id, language_code, slug, title, body, post_type, schema_metadata,
-                 department_id, hero_image_url,
-                 source_project_id, content_role, source_pillar_slug)
+                (post_id, language_code, slug, title, summary, meta_description, json_ld_override)
             VALUES
-                (@PostId, @LanguageCode, @Slug, @Title, @Body, @PostType, @SchemaMetadata::jsonb,
-                 @DepartmentId, @HeroImageUrl,
-                 @SourceProjectId, @ContentRole, @SourcePillarSlug)
+                (@PostId, @LanguageCode, @Slug, @Title, @Summary, @MetaDescription, @JsonLdOverride)
             ON CONFLICT (post_id, language_code) DO UPDATE SET
                 slug = EXCLUDED.slug,
                 title = EXCLUDED.title,
-                body = EXCLUDED.body,
-                post_type = EXCLUDED.post_type,
-                schema_metadata = EXCLUDED.schema_metadata,
-                department_id = EXCLUDED.department_id,
-                hero_image_url = EXCLUDED.hero_image_url,
-                source_project_id = EXCLUDED.source_project_id,
-                content_role = EXCLUDED.content_role,
-                source_pillar_slug = EXCLUDED.source_pillar_slug,
-                updated_at = NOW()
+                summary = EXCLUDED.summary,
+                meta_description = EXCLUDED.meta_description,
+                json_ld_override = EXCLUDED.json_ld_override
             RETURNING id
             """;
 
@@ -554,47 +449,79 @@ public sealed class BlogRepository : IBlogRepository
         parameters.Add("LanguageCode", command.LanguageCode);
         parameters.Add("Slug", command.Slug);
         parameters.Add("Title", command.Title);
-        parameters.Add("Body", command.Body);
-        parameters.Add("PostType", command.PostType);
-        parameters.Add("SchemaMetadata", command.SchemaMetadataJson);
-        parameters.Add("DepartmentId", departmentId);
-        parameters.Add("HeroImageUrl", command.HeroImageUrl);
-        parameters.Add("SourceProjectId", command.SourceProjectId);
-        parameters.Add("ContentRole", command.ContentRole);
-        parameters.Add("SourcePillarSlug", command.SourcePillarSlug);
+        parameters.Add("Summary", command.Summary);
+        parameters.Add("MetaDescription", command.MetaDescription);
+        parameters.Add("JsonLdOverride", command.JsonLdOverride);
 
         var translationId = await _ambient.Connection.ExecuteScalarAsync<int>(
             new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct));
 
         await ReplacePresentationAsync(translationId, command.Presentation, ct);
+
+        return translationId;
     }
 
-    private async Task<int?> ResolveDepartmentIdAsync(UpsertBlogPostCommand command, CancellationToken ct)
+    private async Task<int> ResolveCategoryIdAsync(string categorySlug, CancellationToken ct)
     {
-        var departmentSlug = command.DepartmentSlug?.Trim();
-        if (string.IsNullOrEmpty(departmentSlug))
-        {
-            var parts = command.Slug.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (parts.Length >= 2)
-                departmentSlug = parts[1];
-        }
-
-        if (string.IsNullOrEmpty(departmentSlug))
-            return null;
+        var slug = categorySlug?.Trim();
+        if (string.IsNullOrEmpty(slug))
+            throw new InvalidOperationException("CategorySlug is required to create or update a blog post.");
 
         const string sql = """
             SELECT id
-            FROM public.departments
+            FROM geek_blog.categories
             WHERE slug = @Slug
             LIMIT 1
             """;
 
-        return await _ambient.Connection.ExecuteScalarAsync<int?>(
+        var categoryId = await _ambient.Connection.ExecuteScalarAsync<int?>(
             new CommandDefinition(
                 sql,
-                new { Slug = departmentSlug },
+                new { Slug = slug },
                 _ambient.Transaction,
                 cancellationToken: ct));
+
+        return categoryId
+            ?? throw new InvalidOperationException($"No geek_blog.categories row found for slug '{slug}'.");
+    }
+
+    private async Task ReplaceSectionsAsync(
+        int translationId,
+        IReadOnlyList<PostSectionInput> sections,
+        CancellationToken ct)
+    {
+        await _ambient.Connection.ExecuteAsync(
+            new CommandDefinition(
+                "DELETE FROM geek_blog.post_sections WHERE post_translation_id = @TranslationId",
+                new { TranslationId = translationId },
+                _ambient.Transaction,
+                cancellationToken: ct));
+
+        foreach (var section in sections)
+        {
+            const string insertSql = """
+                INSERT INTO geek_blog.post_sections
+                    (post_translation_id, sort_order, heading_tag, heading_text, body_content, media_url, media_alt)
+                VALUES
+                    (@TranslationId, @SortOrder, @HeadingTag, @HeadingText, @BodyContent, @MediaUrl, @MediaAlt)
+                """;
+
+            await _ambient.Connection.ExecuteAsync(
+                new CommandDefinition(
+                    insertSql,
+                    new
+                    {
+                        TranslationId = translationId,
+                        section.SortOrder,
+                        section.HeadingTag,
+                        section.HeadingText,
+                        section.BodyContent,
+                        section.MediaUrl,
+                        section.MediaAlt,
+                    },
+                    _ambient.Transaction,
+                    cancellationToken: ct));
+        }
     }
 
     private async Task ReplacePresentationAsync(
@@ -604,23 +531,23 @@ public sealed class BlogRepository : IBlogRepository
     {
         await _ambient.Connection.ExecuteAsync(
             new CommandDefinition(
-                "DELETE FROM geek_blog.post_presentation WHERE post_translation_id = @TranslationId",
+                "DELETE FROM geek_blog.post_presentation_attributes WHERE post_translation_id = @TranslationId",
                 new { TranslationId = translationId },
                 _ambient.Transaction,
                 cancellationToken: ct));
 
         var normalized = PostPresentationFields.Normalize(presentation);
-        foreach (var (surface, copy) in normalized)
+        foreach (var (key, value) in normalized)
         {
             const string insertSql = """
-                INSERT INTO geek_blog.post_presentation (post_translation_id, surface, copy)
-                VALUES (@TranslationId, @Surface, @Copy)
+                INSERT INTO geek_blog.post_presentation_attributes (post_translation_id, attribute_key, attribute_value)
+                VALUES (@TranslationId, @AttributeKey, @AttributeValue)
                 """;
 
             await _ambient.Connection.ExecuteAsync(
                 new CommandDefinition(
                     insertSql,
-                    new { TranslationId = translationId, Surface = surface, Copy = copy },
+                    new { TranslationId = translationId, AttributeKey = key, AttributeValue = value },
                     _ambient.Transaction,
                     cancellationToken: ct));
         }

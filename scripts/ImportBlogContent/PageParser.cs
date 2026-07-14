@@ -8,7 +8,7 @@ namespace ImportBlogContent;
 
 public sealed record ParsedPage(
     string Title,
-    string BodyHtml,
+    IReadOnlyList<HtmlSection> Sections,
     string? MetaDescription,
     DateTimeOffset? PublishedAt,
     string SchemaMetadataJson);
@@ -41,11 +41,12 @@ public static partial class PageParser
 
         var rawJsonLd = ExtractJsonLd(doc, postType);
         var publishedAt = ExtractPublishedDate(doc, rawJsonLd);
-        var body = ExtractBodyHtml(doc);
+        var bodyHtml = ExtractBodyHtml(doc);
+        var sections = HtmlSectionSplitter.Split(bodyHtml);
 
         var schema = BuildImportSchema(rawJsonLd, postType, title, metaDescription, canonicalUrl, publishedAt);
 
-        return new ParsedPage(title, body, metaDescription, publishedAt, schema);
+        return new ParsedPage(title, sections, metaDescription, publishedAt, schema);
     }
 
     private static string? ExtractJsonLd(HtmlDocument doc, string postType)

@@ -163,7 +163,7 @@ public sealed class BlogPostsController : ControllerBase
         [FromBody] AddCommentRequest request,
         CancellationToken ct = default)
     {
-        if (!await UserHasPermissionAsync(request.UserId, "blog:comment", ct))
+        if (!await UserHasRoleAsync(request.UserId, "reader", ct))
             return Forbid();
 
         int commentId = 0;
@@ -175,6 +175,7 @@ public sealed class BlogPostsController : ControllerBase
                 request.UserId,
                 request.Content,
                 request.ParentPath,
+                request.AttachmentUrl,
                 ct);
         }, ct);
 
@@ -207,13 +208,13 @@ public sealed class BlogPostsController : ControllerBase
         return post is null ? NotFound() : Ok(post);
     }
 
-    private async Task<bool> UserHasPermissionAsync(int userId, string permission, CancellationToken ct)
+    private async Task<bool> UserHasRoleAsync(int userId, string roleName, CancellationToken ct)
     {
         var allowed = false;
 
         await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
         {
-            allowed = await _blog.UserHasPermissionAsync(userId, permission, ct);
+            allowed = await _blog.UserHasRoleAsync(userId, roleName, ct);
         }, ct);
 
         return allowed;
@@ -223,4 +224,5 @@ public sealed class BlogPostsController : ControllerBase
 public sealed record AddCommentRequest(
     int UserId,
     string Content,
-    string? ParentPath);
+    string? ParentPath,
+    string? AttachmentUrl = null);
