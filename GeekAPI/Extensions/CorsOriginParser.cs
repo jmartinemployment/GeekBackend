@@ -7,6 +7,8 @@ public static class CorsOriginParser
         "http://localhost:3000",
         "https://www.geekatyourspot.com",
         "https://admin.geekatyourspot.com",
+        "https://content-writer-eta.vercel.app",
+        "https://content-writer-jeff-martins-projects-66716453.vercel.app",
     ];
 
     /// <summary>
