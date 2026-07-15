@@ -21,6 +21,9 @@ public sealed class BlogPostResponse
     public string Title { get; init; } = string.Empty;
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
+    public string MainSummary { get; init; } = string.Empty;
+    public string BlogSummary { get; init; } = string.Empty;
+    public string AdvertisingSummary { get; init; } = string.Empty;
     public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
     public DateTimeOffset? PublishedAt { get; init; }
     public string LocalizedTagsJson { get; init; } = "[]";
@@ -74,6 +77,9 @@ public sealed class BlogPostRequest
     public string Title { get; init; } = string.Empty;
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
+    public string MainSummary { get; init; } = string.Empty;
+    public string BlogSummary { get; init; } = string.Empty;
+    public string AdvertisingSummary { get; init; } = string.Empty;
     public string? JsonLdOverride { get; init; }
     public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
     public IReadOnlyList<string> TagSlugs { get; init; } = [];
@@ -94,6 +100,9 @@ public sealed class BlogPostAdminResponse
     public string Title { get; init; } = string.Empty;
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
+    public string MainSummary { get; init; } = string.Empty;
+    public string BlogSummary { get; init; } = string.Empty;
+    public string AdvertisingSummary { get; init; } = string.Empty;
     public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
     public bool IsPublished { get; init; }
     public DateTimeOffset? PublishedAt { get; init; }

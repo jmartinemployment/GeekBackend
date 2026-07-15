@@ -31,6 +31,9 @@ public sealed class BlogRepository : IBlogRepository
             c.slug            AS CategorySlug,
             pt.summary        AS Summary,
             pt.meta_description AS MetaDescription,
+            pt.main_summary   AS MainSummary,
+            pt.blog_summary   AS BlogSummary,
+            pt.advertising_summary AS AdvertisingSummary,
             pt.json_ld_override AS JsonLdOverride,
             p.cw_job_id       AS CwJobId,
             COALESCE(sections.sections_json, '[]') AS SectionsJson,
@@ -461,14 +464,19 @@ public sealed class BlogRepository : IBlogRepository
     {
         const string sql = """
             INSERT INTO geek_blog.post_translations
-                (post_id, language_code, title, summary, meta_description, json_ld_override)
+                (post_id, language_code, title, summary, meta_description, json_ld_override,
+                 main_summary, blog_summary, advertising_summary)
             VALUES
-                (@PostId, @LanguageCode, @Title, @Summary, @MetaDescription, @JsonLdOverride)
+                (@PostId, @LanguageCode, @Title, @Summary, @MetaDescription, @JsonLdOverride,
+                 @MainSummary, @BlogSummary, @AdvertisingSummary)
             ON CONFLICT (post_id, language_code) DO UPDATE SET
                 title = EXCLUDED.title,
                 summary = EXCLUDED.summary,
                 meta_description = EXCLUDED.meta_description,
-                json_ld_override = EXCLUDED.json_ld_override
+                json_ld_override = EXCLUDED.json_ld_override,
+                main_summary = EXCLUDED.main_summary,
+                blog_summary = EXCLUDED.blog_summary,
+                advertising_summary = EXCLUDED.advertising_summary
             RETURNING id
             """;
 
@@ -479,6 +487,9 @@ public sealed class BlogRepository : IBlogRepository
         parameters.Add("Summary", command.Summary);
         parameters.Add("MetaDescription", command.MetaDescription);
         parameters.Add("JsonLdOverride", command.JsonLdOverride);
+        parameters.Add("MainSummary", command.MainSummary);
+        parameters.Add("BlogSummary", command.BlogSummary);
+        parameters.Add("AdvertisingSummary", command.AdvertisingSummary);
 
         var translationId = await _ambient.Connection.ExecuteScalarAsync<int>(
             new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct));
