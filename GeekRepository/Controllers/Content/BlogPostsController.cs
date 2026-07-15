@@ -51,6 +51,21 @@ public sealed class BlogPostsController : ControllerBase
         return Ok(results);
     }
 
+    [HttpGet("categories")]
+    public async Task<ActionResult<IReadOnlyList<CategoryDto>>> GetCategories(
+        [FromQuery] string? lang,
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<CategoryDto> results = [];
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            results = await _blog.GetCategoriesAsync(lang, ct);
+        }, ct);
+
+        return Ok(results);
+    }
+
     [HttpGet("by-id/{postId:int}")]
     public async Task<ActionResult<BlogPostFlatDto>> GetById(
         int postId,

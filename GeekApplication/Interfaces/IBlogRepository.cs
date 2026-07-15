@@ -31,6 +31,10 @@ public interface IBlogRepository
         string languageCode,
         CancellationToken ct = default);
 
+    Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync(
+        string? languageCode = null,
+        CancellationToken ct = default);
+
     Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default);
 
     Task<bool> UpdatePostAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct = default);

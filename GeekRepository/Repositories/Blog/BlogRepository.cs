@@ -332,6 +332,31 @@ public sealed class BlogRepository : IBlogRepository
         return await _ambient.Connection.QueryFirstOrDefaultAsync<BlogPostFlatDto>(command);
     }
 
+    public async Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync(
+        string? languageCode = null,
+        CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT
+                c.id   AS Id,
+                c.slug AS Slug,
+                ct.name AS Name
+            FROM geek_blog.categories c
+            LEFT JOIN geek_blog.category_translations ct
+                ON ct.category_id = c.id AND ct.language_code = @LanguageCode
+            ORDER BY c.slug
+            """;
+
+        var command = new CommandDefinition(
+            sql,
+            new { LanguageCode = languageCode ?? "en" },
+            _ambient.Transaction,
+            cancellationToken: ct);
+
+        var rows = await _ambient.Connection.QueryAsync<CategoryDto>(command);
+        return rows.ToList();
+    }
+
     public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
     {
         var categoryId = await ResolveCategoryIdAsync(command.CategorySlug, ct);
@@ -366,7 +391,7 @@ public sealed class BlogRepository : IBlogRepository
 
         var translationId = await UpsertTranslationAsync(postId, categoryId, command, ct);
         await ReplaceSectionsAsync(translationId, command.Sections, ct);
-        await ReplacePostTagsAsync(postId, command.LanguageCode, command.TagSlugs, ct);
+        await ReplacePostTagsAsync(postId, command.TagSlugs, ct);
 
         return postId;
     }
@@ -410,7 +435,7 @@ public sealed class BlogRepository : IBlogRepository
 
         var translationId = await UpsertTranslationAsync(postId, categoryId, command, ct);
         await ReplaceSectionsAsync(translationId, command.Sections, ct);
-        await ReplacePostTagsAsync(postId, command.LanguageCode, command.TagSlugs, ct);
+        await ReplacePostTagsAsync(postId, command.TagSlugs, ct);
 
         return true;
     }
@@ -469,19 +494,18 @@ public sealed class BlogRepository : IBlogRepository
         if (string.IsNullOrEmpty(slug))
             throw new InvalidOperationException("CategorySlug is required to create or update a blog post.");
 
-        const string sql = """
-            INSERT INTO geek_blog.categories (slug)
-            VALUES (@Slug)
-            ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
-            RETURNING id
-            """;
+        const string sql = "SELECT id FROM geek_blog.categories WHERE slug = @Slug";
 
-        return await _ambient.Connection.ExecuteScalarAsync<int>(
+        var categoryId = await _ambient.Connection.ExecuteScalarAsync<int?>(
             new CommandDefinition(
                 sql,
                 new { Slug = slug },
                 _ambient.Transaction,
                 cancellationToken: ct));
+
+        return categoryId ?? throw new InvalidOperationException(
+            $"Unknown category slug '{slug}' — no matching row in geek_blog.categories. " +
+            "Categories are a fixed taxonomy; add it there first if it's meant to be a real category.");
     }
 
     private async Task ReplaceSectionsAsync(
@@ -554,7 +578,6 @@ public sealed class BlogRepository : IBlogRepository
 
     private async Task ReplacePostTagsAsync(
         int postId,
-        string languageCode,
         IReadOnlyList<string> tagSlugs,
         CancellationToken ct)
     {
@@ -565,44 +588,27 @@ public sealed class BlogRepository : IBlogRepository
                 _ambient.Transaction,
                 cancellationToken: ct));
 
+        const string lookupTagSql = "SELECT id FROM geek_blog.tags WHERE slug = @Slug";
+
         foreach (var tagSlug in tagSlugs.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            const string upsertTagSql = """
-                INSERT INTO geek_blog.tags (slug)
-                VALUES (@Slug)
-                ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
-                RETURNING id
-                """;
-
-            var tagId = await _ambient.Connection.ExecuteScalarAsync<int>(
+            var tagId = await _ambient.Connection.ExecuteScalarAsync<int?>(
                 new CommandDefinition(
-                    upsertTagSql,
+                    lookupTagSql,
                     new { Slug = tagSlug },
                     _ambient.Transaction,
                     cancellationToken: ct));
 
-            const string upsertTranslationSql = """
-                INSERT INTO geek_blog.tag_translations (tag_id, language_code, name)
-                VALUES (@TagId, @LanguageCode, @Name)
-                ON CONFLICT (tag_id, language_code) DO UPDATE SET name = EXCLUDED.name
-                """;
-
-            await _ambient.Connection.ExecuteAsync(
-                new CommandDefinition(
-                    upsertTranslationSql,
-                    new { TagId = tagId, LanguageCode = languageCode, Name = HumanizeTagSlug(tagSlug) },
-                    _ambient.Transaction,
-                    cancellationToken: ct));
+            // Unrecognized tags are skipped, not auto-created — geek_blog.tags is curated by hand.
+            if (tagId is null)
+                continue;
 
             await _ambient.Connection.ExecuteAsync(
                 new CommandDefinition(
                     "INSERT INTO geek_blog.post_tags (post_id, tag_id) VALUES (@PostId, @TagId) ON CONFLICT DO NOTHING",
-                    new { PostId = postId, TagId = tagId },
+                    new { PostId = postId, TagId = tagId.Value },
                     _ambient.Transaction,
                     cancellationToken: ct));
         }
     }
-
-    private static string HumanizeTagSlug(string slug) =>
-        string.Join(' ', slug.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 }

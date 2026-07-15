@@ -40,6 +40,15 @@ public sealed class BlogPostsController : ControllerBase
         return Ok(posts.Select(MapToAdminResponse).ToList());
     }
 
+    [HttpGet("categories")]
+    public async Task<ActionResult<IReadOnlyList<CategoryDto>>> GetCategories(
+        [FromQuery] string? lang,
+        CancellationToken ct = default)
+    {
+        var categories = await _blog.GetCategoriesAsync(lang, ct);
+        return Ok(categories);
+    }
+
     [HttpGet("by-id/{id:int}")]
     public async Task<ActionResult<BlogPostAdminResponse>> GetById(
         int id,
