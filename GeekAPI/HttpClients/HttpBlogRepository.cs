@@ -79,6 +79,16 @@ public sealed class HttpBlogRepository : IBlogRepository
         return await response.Content.ReadFromJsonAsync<List<BlogPostFlatDto>>(ct) ?? [];
     }
 
+    public async Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync(
+        string? languageCode = null,
+        CancellationToken ct = default)
+    {
+        var qs = languageCode is not null ? $"?lang={Uri.EscapeDataString(languageCode)}" : string.Empty;
+        var response = await _http.GetAsync($"repo/content/blog/categories{qs}", ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<CategoryDto>>(ct) ?? [];
+    }
+
     public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("repo/content/blog", command, ct);
