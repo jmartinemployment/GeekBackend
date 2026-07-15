@@ -65,6 +65,7 @@ public static class SchemaMetadataParser
             "TechnicalArticle" => HasType(node, "TechnicalArticle", "TechArticle"),
             "BlogPosting" => HasType(node, "BlogPosting"),
             "NewsArticle" => HasType(node, "NewsArticle"),
+            "SoftwareApplication" => HasType(node, "SoftwareApplication"),
             _ => false,
         };
 
@@ -89,6 +90,7 @@ public static class SchemaMetadataParser
             "TechnicalArticle" => JsonSerializer.Deserialize<TechnicalArticleMetadata>(node, JsonOptions),
             "BlogPosting" => JsonSerializer.Deserialize<BlogPostingMetadata>(node, JsonOptions),
             "NewsArticle" => JsonSerializer.Deserialize<NewsArticleMetadata>(node, JsonOptions),
+            "SoftwareApplication" => JsonSerializer.Deserialize<SoftwareApplicationMetadata>(node, JsonOptions),
             _ => null,
         };
 }
