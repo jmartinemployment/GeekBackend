@@ -18,6 +18,9 @@ public sealed class UpsertBlogPostCommand
     public string Title { get; init; } = string.Empty;
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
+    public string MainSummary { get; init; } = string.Empty;
+    public string BlogSummary { get; init; } = string.Empty;
+    public string AdvertisingSummary { get; init; } = string.Empty;
     public string? JsonLdOverride { get; init; }
     public IReadOnlyList<string> TagSlugs { get; init; } = [];
     public int? AuthorId { get; init; }

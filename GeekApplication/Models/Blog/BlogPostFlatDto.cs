@@ -21,6 +21,9 @@ public sealed class BlogPostFlatDto
 
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
+    public string MainSummary { get; init; } = string.Empty;
+    public string BlogSummary { get; init; } = string.Empty;
+    public string AdvertisingSummary { get; init; } = string.Empty;
 
     /// <summary>Raw JSON-LD payload from geek_blog.post_translations.json_ld_override (flat or @graph).</summary>
     public string? JsonLdOverride { get; init; }
