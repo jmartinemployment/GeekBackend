@@ -22,6 +22,7 @@ public sealed class BlogPostResponse
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
     public string MainSummary { get; init; } = string.Empty;
+    public string HeroSummary { get; init; } = string.Empty;
     public string BlogSummary { get; init; } = string.Empty;
     public string AdvertisingSummary { get; init; } = string.Empty;
     public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
@@ -78,6 +79,7 @@ public sealed class BlogPostRequest
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
     public string MainSummary { get; init; } = string.Empty;
+    public string HeroSummary { get; init; } = string.Empty;
     public string BlogSummary { get; init; } = string.Empty;
     public string AdvertisingSummary { get; init; } = string.Empty;
     public string? JsonLdOverride { get; init; }
@@ -101,6 +103,7 @@ public sealed class BlogPostAdminResponse
     public string Summary { get; init; } = string.Empty;
     public string? MetaDescription { get; init; }
     public string MainSummary { get; init; } = string.Empty;
+    public string HeroSummary { get; init; } = string.Empty;
     public string BlogSummary { get; init; } = string.Empty;
     public string AdvertisingSummary { get; init; } = string.Empty;
     public IReadOnlyList<PostSectionDto> Sections { get; init; } = [];
