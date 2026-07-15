@@ -62,6 +62,23 @@ public sealed record NewsArticleMetadata : ArticleMetadata
     public string? Keywords { get; init; }
 }
 
+public sealed record SoftwareApplicationMetadata : ArticleMetadata
+{
+    public override string Type => "SoftwareApplication";
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("applicationCategory")]
+    public string? ApplicationCategory { get; init; }
+
+    [JsonPropertyName("operatingSystem")]
+    public string? OperatingSystem { get; init; }
+
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+}
+
 public sealed record SchemaPerson
 {
     [JsonPropertyName("@type")]
