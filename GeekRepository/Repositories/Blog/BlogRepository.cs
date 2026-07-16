@@ -362,6 +362,35 @@ public sealed class BlogRepository : IBlogRepository
         return rows.ToList();
     }
 
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetHomePagePillarsAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryFunctionAsync("geek_blog.get_home_page_pillars", languageCode, ct);
+
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetPillarSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryFunctionAsync("geek_blog.get_pillar_summary_page", languageCode, ct);
+
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetToolsSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryFunctionAsync("geek_blog.get_tools_summary_page", languageCode, ct);
+
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetBlogSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryFunctionAsync("geek_blog.get_blog_summary_page", languageCode, ct);
+
+    private async Task<IReadOnlyList<CategoryPostSummaryDto>> QueryCategorySummaryFunctionAsync(
+        string functionName, string languageCode, CancellationToken ct)
+    {
+        var command = new CommandDefinition(
+            $"SELECT * FROM {functionName}(@LanguageCode)",
+            new { LanguageCode = languageCode },
+            _ambient.Transaction,
+            cancellationToken: ct);
+
+        var rows = await _ambient.Connection.QueryAsync<CategoryPostSummaryDto>(command);
+        return rows.ToList();
+    }
+
     public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
     {
         var categoryId = await ResolveCategoryIdAsync(command.CategorySlug, ct);

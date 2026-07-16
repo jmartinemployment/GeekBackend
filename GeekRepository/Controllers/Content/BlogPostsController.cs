@@ -66,6 +66,66 @@ public sealed class BlogPostsController : ControllerBase
         return Ok(results);
     }
 
+    [HttpGet("home-page-pillars")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetHomePagePillars(
+        [FromQuery] string lang = "en",
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<CategoryPostSummaryDto> results = [];
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            results = await _blog.GetHomePagePillarsAsync(lang, ct);
+        }, ct);
+
+        return Ok(results);
+    }
+
+    [HttpGet("pillar-summary-page")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetPillarSummaryPage(
+        [FromQuery] string lang = "en",
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<CategoryPostSummaryDto> results = [];
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            results = await _blog.GetPillarSummaryPageAsync(lang, ct);
+        }, ct);
+
+        return Ok(results);
+    }
+
+    [HttpGet("tools-summary-page")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetToolsSummaryPage(
+        [FromQuery] string lang = "en",
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<CategoryPostSummaryDto> results = [];
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            results = await _blog.GetToolsSummaryPageAsync(lang, ct);
+        }, ct);
+
+        return Ok(results);
+    }
+
+    [HttpGet("blog-summary-page")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetBlogSummaryPage(
+        [FromQuery] string lang = "en",
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<CategoryPostSummaryDto> results = [];
+
+        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        {
+            results = await _blog.GetBlogSummaryPageAsync(lang, ct);
+        }, ct);
+
+        return Ok(results);
+    }
+
     [HttpGet("by-id/{postId:int}")]
     public async Task<ActionResult<BlogPostFlatDto>> GetById(
         int postId,

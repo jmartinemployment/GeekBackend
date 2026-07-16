@@ -35,6 +35,22 @@ public interface IBlogRepository
         string? languageCode = null,
         CancellationToken ct = default);
 
+    Task<IReadOnlyList<CategoryPostSummaryDto>> GetHomePagePillarsAsync(
+        string languageCode = "en",
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<CategoryPostSummaryDto>> GetPillarSummaryPageAsync(
+        string languageCode = "en",
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<CategoryPostSummaryDto>> GetToolsSummaryPageAsync(
+        string languageCode = "en",
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<CategoryPostSummaryDto>> GetBlogSummaryPageAsync(
+        string languageCode = "en",
+        CancellationToken ct = default);
+
     Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default);
 
     Task<bool> UpdatePostAsync(int postId, UpsertBlogPostCommand command, CancellationToken ct = default);

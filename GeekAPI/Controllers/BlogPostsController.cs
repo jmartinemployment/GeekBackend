@@ -49,6 +49,38 @@ public sealed class BlogPostsController : ControllerBase
         return Ok(categories);
     }
 
+    [HttpGet("home-page-pillars")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetHomePagePillars(
+        [FromQuery] string? lang,
+        CancellationToken ct = default)
+    {
+        return Ok(await _blog.GetHomePagePillarsAsync(string.IsNullOrWhiteSpace(lang) ? "en" : lang, ct));
+    }
+
+    [HttpGet("pillar-summary-page")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetPillarSummaryPage(
+        [FromQuery] string? lang,
+        CancellationToken ct = default)
+    {
+        return Ok(await _blog.GetPillarSummaryPageAsync(string.IsNullOrWhiteSpace(lang) ? "en" : lang, ct));
+    }
+
+    [HttpGet("tools-summary-page")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetToolsSummaryPage(
+        [FromQuery] string? lang,
+        CancellationToken ct = default)
+    {
+        return Ok(await _blog.GetToolsSummaryPageAsync(string.IsNullOrWhiteSpace(lang) ? "en" : lang, ct));
+    }
+
+    [HttpGet("blog-summary-page")]
+    public async Task<ActionResult<IReadOnlyList<CategoryPostSummaryDto>>> GetBlogSummaryPage(
+        [FromQuery] string? lang,
+        CancellationToken ct = default)
+    {
+        return Ok(await _blog.GetBlogSummaryPageAsync(string.IsNullOrWhiteSpace(lang) ? "en" : lang, ct));
+    }
+
     [HttpGet("by-id/{id:int}")]
     public async Task<ActionResult<BlogPostAdminResponse>> GetById(
         int id,
