@@ -33,6 +33,7 @@ public sealed class BlogRepository : IBlogRepository
             pt.meta_description AS MetaDescription,
             pt.main_summary   AS MainSummary,
             pt.hero_summary   AS HeroSummary,
+            pt.home_summary   AS HomeSummary,
             pt.blog_summary   AS BlogSummary,
             pt.advertising_summary AS AdvertisingSummary,
             pt.json_ld_override AS JsonLdOverride,
@@ -466,10 +467,10 @@ public sealed class BlogRepository : IBlogRepository
         const string sql = """
             INSERT INTO geek_blog.post_translations
                 (post_id, language_code, title, summary, meta_description, json_ld_override,
-                 main_summary, hero_summary, blog_summary, advertising_summary)
+                 main_summary, hero_summary, home_summary, blog_summary, advertising_summary)
             VALUES
                 (@PostId, @LanguageCode, @Title, @Summary, @MetaDescription, @JsonLdOverride,
-                 @MainSummary, @HeroSummary, @BlogSummary, @AdvertisingSummary)
+                 @MainSummary, @HeroSummary, @HomeSummary, @BlogSummary, @AdvertisingSummary)
             ON CONFLICT (post_id, language_code) DO UPDATE SET
                 title = EXCLUDED.title,
                 summary = EXCLUDED.summary,
@@ -477,6 +478,7 @@ public sealed class BlogRepository : IBlogRepository
                 json_ld_override = EXCLUDED.json_ld_override,
                 main_summary = EXCLUDED.main_summary,
                 hero_summary = EXCLUDED.hero_summary,
+                home_summary = EXCLUDED.home_summary,
                 blog_summary = EXCLUDED.blog_summary,
                 advertising_summary = EXCLUDED.advertising_summary
             RETURNING id
@@ -491,6 +493,7 @@ public sealed class BlogRepository : IBlogRepository
         parameters.Add("JsonLdOverride", command.JsonLdOverride);
         parameters.Add("MainSummary", command.MainSummary);
         parameters.Add("HeroSummary", command.HeroSummary);
+        parameters.Add("HomeSummary", command.HomeSummary);
         parameters.Add("BlogSummary", command.BlogSummary);
         parameters.Add("AdvertisingSummary", command.AdvertisingSummary);
 
