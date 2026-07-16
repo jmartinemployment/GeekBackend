@@ -89,6 +89,31 @@ public sealed class HttpBlogRepository : IBlogRepository
         return await response.Content.ReadFromJsonAsync<List<CategoryDto>>(ct) ?? [];
     }
 
+    public async Task<IReadOnlyList<CategoryPostSummaryDto>> GetHomePagePillarsAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        await GetCategorySummaryAsync("home-page-pillars", languageCode, ct);
+
+    public async Task<IReadOnlyList<CategoryPostSummaryDto>> GetPillarSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        await GetCategorySummaryAsync("pillar-summary-page", languageCode, ct);
+
+    public async Task<IReadOnlyList<CategoryPostSummaryDto>> GetToolsSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        await GetCategorySummaryAsync("tools-summary-page", languageCode, ct);
+
+    public async Task<IReadOnlyList<CategoryPostSummaryDto>> GetBlogSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        await GetCategorySummaryAsync("blog-summary-page", languageCode, ct);
+
+    private async Task<IReadOnlyList<CategoryPostSummaryDto>> GetCategorySummaryAsync(
+        string route, string languageCode, CancellationToken ct)
+    {
+        var response = await _http.GetAsync(
+            $"repo/content/blog/{route}?lang={Uri.EscapeDataString(languageCode)}", ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<CategoryPostSummaryDto>>(ct) ?? [];
+    }
+
     public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("repo/content/blog", command, ct);
