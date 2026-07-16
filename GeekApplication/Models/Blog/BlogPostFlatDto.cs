@@ -23,6 +23,7 @@ public sealed class BlogPostFlatDto
     public string? MetaDescription { get; init; }
     public string MainSummary { get; init; } = string.Empty;
     public string HeroSummary { get; init; } = string.Empty;
+    public string HomeSummary { get; init; } = string.Empty;
     public string BlogSummary { get; init; } = string.Empty;
     public string AdvertisingSummary { get; init; } = string.Empty;
 
