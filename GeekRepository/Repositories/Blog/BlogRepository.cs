@@ -381,8 +381,18 @@ public sealed class BlogRepository : IBlogRepository
     private async Task<IReadOnlyList<CategoryPostSummaryDto>> QueryCategorySummaryFunctionAsync(
         string functionName, string languageCode, CancellationToken ct)
     {
+        // Dapper's default mapping is case-insensitive but doesn't strip underscores, so the
+        // function's snake_case output (category_slug, category_name) needs explicit aliasing
+        // to match the PascalCase DTO properties — same convention as SelectColumns above.
         var command = new CommandDefinition(
-            $"SELECT * FROM {functionName}(@LanguageCode)",
+            $"""
+            SELECT
+                category_slug AS "CategorySlug",
+                category_name AS "CategoryName",
+                title          AS "Title",
+                summary        AS "Summary"
+            FROM {functionName}(@LanguageCode)
+            """,
             new { LanguageCode = languageCode },
             _ambient.Transaction,
             cancellationToken: ct);
