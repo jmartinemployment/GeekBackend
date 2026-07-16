@@ -387,8 +387,10 @@ public sealed class BlogRepository : IBlogRepository
         var command = new CommandDefinition(
             $"""
             SELECT
-                category_slug AS "CategorySlug",
-                category_name AS "CategoryName",
+                post_id        AS "PostId",
+                category_id    AS "CategoryId",
+                category_slug  AS "CategorySlug",
+                category_name  AS "CategoryName",
                 title          AS "Title",
                 summary        AS "Summary"
             FROM {functionName}(@LanguageCode)
