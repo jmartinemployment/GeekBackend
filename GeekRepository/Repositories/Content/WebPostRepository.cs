@@ -1,3 +1,5 @@
+using System.Data;
+using Dapper;
 using GeekApplication.Interfaces;
 using GeekApplication.Models.WebPost;
 using GeekRepository.Data;
@@ -12,6 +14,32 @@ public sealed class WebPostRepository : IWebPostRepository
     public WebPostRepository(ContentWriterDbContext context)
     {
         _context = context;
+    }
+
+    public async Task<WebPostSectionRawDto?> GetSectionRawAsync(
+        string slug,
+        int sectionIndex,
+        CancellationToken ct = default)
+    {
+        var connection = _context.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync(ct);
+
+        const string sql = """
+            SELECT
+                content_structure -> 'sections' -> @SectionIndex ->> 'headingText' AS "HeadingText",
+                content_structure -> 'sections' -> @SectionIndex ->> 'bodyContent' AS "BodyContent",
+                content_structure -> 'sections' -> @SectionIndex ->> 'mediaUrl'    AS "MediaUrl",
+                content_structure -> 'sections' -> @SectionIndex ->> 'mediaAlt'    AS "MediaAlt"
+            FROM public.web_posts
+            WHERE slug = @Slug
+            """;
+
+        return await connection.QuerySingleOrDefaultAsync<WebPostSectionRawDto>(
+            new CommandDefinition(
+                sql,
+                new { Slug = slug, SectionIndex = sectionIndex },
+                cancellationToken: ct));
     }
 
     public async Task<WebPostFlatDto?> GetBySlugAsync(string slug, CancellationToken ct = default)

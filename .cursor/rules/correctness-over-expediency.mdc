@@ -1,0 +1,34 @@
+---
+description: Correctness over expediency — presentation fields and publish (always)
+alwaysApply: true
+---
+
+# Correctness over expediency
+
+**Always. No exceptions.**
+
+When schema or API shape conflicts with a quick fix, implement the correct model fully.
+
+## GeekAPI `post_translations` presentation columns
+
+| Column | API field | Use |
+|--------|-----------|-----|
+| `home_use_case_excerpt` | `homeUseCaseExcerpt` | Home + dept use-case lists |
+| `hero_excerpt` | `heroExcerpt` | Pillar, tool, blog hero under title |
+| `newspaper_excerpt` | `newspaperExcerpt` | Pillar, tool, blog newspaper wire |
+| `pillar_page_use_case_excerpt` | `pillarPageUseCaseExcerpt` | Pillar page content |
+| `advertisement` | `advertisement` | NewsArticle / sponsored ad (not an excerpt) |
+
+**One column, one surface.** Publish API accepts and returns all fields; callers populate only what applies per post row.
+
+## Vetoed
+
+- Type-named columns (`blog_excerpt`, `technical_article_excerpt`, `tool_excerpt`, `advertising_excerpt`)
+- Merging multiple surfaces into one stored field
+- “Map slug prefix → pick one excerpt column” in publish helpers
+
+## Body
+
+Published markdown bodies have **no preamble** — content starts at the first `##`.
+
+See `AGENTS.md` at repo root.

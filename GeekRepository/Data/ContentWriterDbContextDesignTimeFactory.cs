@@ -20,18 +20,14 @@ public class ContentWriterDbContextDesignTimeFactory : IDesignTimeDbContextFacto
         return new ContentWriterDbContext(options);
     }
 
-    private static readonly string[] EnvFileNames = [".env", ".env.local"];
-
     private static string? ReadEnvVar(string name)
     {
         var dir = Directory.GetCurrentDirectory();
         for (var i = 0; i < 4; i++)
         {
-            foreach (var fileName in EnvFileNames)
+            var envFile = Path.Combine(dir, ".env");
+            if (File.Exists(envFile))
             {
-                var envFile = Path.Combine(dir, fileName);
-                if (!File.Exists(envFile)) continue;
-
                 foreach (var line in File.ReadAllLines(envFile))
                 {
                     var trimmed = line.Trim();
