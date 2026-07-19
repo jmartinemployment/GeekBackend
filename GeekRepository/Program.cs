@@ -42,6 +42,12 @@ builder.Services.AddDbContext<SeoDbContext>(options => options
             SeoDbContextOptionsExtensions.SchemaName))
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// Standalone context for WebPost content — entirely separate from AppDbContext/geek_blog,
+// maps only to public.web_posts. Same physical database, isolated schema/table.
+builder.Services.AddDbContext<GeekRepository.Data.ContentWriterDbContext>(options => options
+    .UseNpgsql(connectionString)
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddHostedService<SqlMigrationRunner>();
@@ -49,6 +55,7 @@ builder.Services.AddHostedService<SqlMigrationRunner>();
 var app = builder.Build();
 
 await ApplyPendingMigrationsAsync(app, startupLogger);
+await ApplyContentWriterMigrationsAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseMiddleware<GeekRepository.Middleware.LegacyAuthRetiredMiddleware>();
@@ -71,6 +78,21 @@ static async Task ApplyPendingMigrationsAsync(WebApplication app, ILogger logger
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying platform EF migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplyContentWriterMigrationsAsync(WebApplication app, ILogger logger)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<GeekRepository.Data.ContentWriterDbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("ContentWriter (public.web_posts) EF migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying ContentWriter EF migrations. Continuing startup.");
     }
 }
 
