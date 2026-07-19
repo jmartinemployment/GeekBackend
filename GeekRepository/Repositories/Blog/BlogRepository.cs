@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Dapper;
 using GeekApplication.Blog;
 using GeekApplication.Interfaces;
@@ -39,7 +38,7 @@ public sealed class BlogRepository : IBlogRepository
             pt.advertising_summary AS AdvertisingSummary,
             pt.json_ld_override AS JsonLdOverride,
             p.cw_job_id       AS CwJobId,
-            COALESCE((pt.content_structure -> 'sections')::text, '[]') AS SectionsJson,
+            COALESCE(sections.sections_json, '[]') AS SectionsJson,
             COALESCE(pres.presentation_json, '{}') AS PresentationJson
         """;
 
@@ -56,6 +55,20 @@ public sealed class BlogRepository : IBlogRepository
                 WHERE ptg.post_id = p.id
             ) tags ON TRUE
             LEFT JOIN geek_blog.categories c ON c.id = p.category_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(json_agg(
+                    json_build_object(
+                        'sortOrder', ps.sort_order,
+                        'headingTag', ps.heading_tag,
+                        'headingText', ps.heading_text,
+                        'bodyContent', ps.body_content,
+                        'mediaUrl', ps.media_url,
+                        'mediaAlt', ps.media_alt
+                    ) ORDER BY ps.sort_order
+                ), '[]')::text AS sections_json
+                FROM geek_blog.post_sections ps
+                WHERE ps.post_translation_id = pt.id
+            ) sections ON TRUE
             LEFT JOIN LATERAL (
                 SELECT COALESCE(
                     json_object_agg(ppa.attribute_key, ppa.attribute_value) FILTER (WHERE ppa.attribute_key IS NOT NULL),
@@ -553,49 +566,43 @@ public sealed class BlogRepository : IBlogRepository
             "Categories are a fixed taxonomy; add it there first if it's meant to be a real category.");
     }
 
-    private static readonly JsonSerializerOptions SectionsJsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
-    /// <summary>
-    /// Writes sections into content_structure.sections via jsonb_set, preserving whatever
-    /// content_structure.mainBody already holds. post_sections is no longer written — reads were
-    /// cut over to content_structure (2026-07-19); the table is kept only until it's dropped.
-    /// </summary>
     private async Task ReplaceSectionsAsync(
         int translationId,
         IReadOnlyList<PostSectionInput> sections,
         CancellationToken ct)
     {
-        var sectionsJson = JsonSerializer.Serialize(
-            sections.Select(s => new
-            {
-                sortOrder = s.SortOrder,
-                headingTag = s.HeadingTag,
-                headingText = s.HeadingText,
-                bodyContent = s.BodyContent,
-                mediaUrl = s.MediaUrl,
-                mediaAlt = s.MediaAlt,
-            }),
-            SectionsJsonOptions);
-
-        const string updateSql = """
-            UPDATE geek_blog.post_translations
-            SET content_structure = jsonb_set(
-                COALESCE(content_structure, '{"sections": [], "mainBody": null}'::jsonb),
-                '{sections}',
-                @SectionsJson::jsonb,
-                true)
-            WHERE id = @TranslationId
-            """;
-
         await _ambient.Connection.ExecuteAsync(
             new CommandDefinition(
-                updateSql,
-                new { TranslationId = translationId, SectionsJson = sectionsJson },
+                "DELETE FROM geek_blog.post_sections WHERE post_translation_id = @TranslationId",
+                new { TranslationId = translationId },
                 _ambient.Transaction,
                 cancellationToken: ct));
+
+        foreach (var section in sections)
+        {
+            const string insertSql = """
+                INSERT INTO geek_blog.post_sections
+                    (post_translation_id, sort_order, heading_tag, heading_text, body_content, media_url, media_alt)
+                VALUES
+                    (@TranslationId, @SortOrder, @HeadingTag, @HeadingText, @BodyContent, @MediaUrl, @MediaAlt)
+                """;
+
+            await _ambient.Connection.ExecuteAsync(
+                new CommandDefinition(
+                    insertSql,
+                    new
+                    {
+                        TranslationId = translationId,
+                        section.SortOrder,
+                        section.HeadingTag,
+                        section.HeadingText,
+                        section.BodyContent,
+                        section.MediaUrl,
+                        section.MediaAlt,
+                    },
+                    _ambient.Transaction,
+                    cancellationToken: ct));
+        }
     }
 
     private async Task ReplacePresentationAsync(
