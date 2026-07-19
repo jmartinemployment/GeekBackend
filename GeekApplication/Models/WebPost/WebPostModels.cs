@@ -33,3 +33,10 @@ public sealed record WebPostFlatDto(
     ContentStructureDto ContentStructure,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);
+
+/// <summary>Lightweight projection of a single content_structure section, read via raw jsonb SQL.</summary>
+public sealed record WebPostSectionRawDto(
+    string? HeadingText,
+    string? BodyContent,
+    string? MediaUrl,
+    string? MediaAlt);
