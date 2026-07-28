@@ -382,6 +382,190 @@ public class HttpContentWriterV3Repository
         }
     }
 
+    // Keywords
+    public async Task<KeywordCandidateDto?> GetKeywordByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/keywords/{id}", ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching keyword {KeywordId}", id);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<KeywordCandidateDto>> GetKeywordsByClientIdAsync(Guid clientId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/keywords?clientId={clientId}", ct);
+            if (!response.IsSuccessStatusCode)
+                return new List<KeywordCandidateDto>().AsReadOnly();
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<KeywordCandidateDto>>(content);
+            return (dtos ?? new()).AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching keywords for client {ClientId}", clientId);
+            throw;
+        }
+    }
+
+    public async Task<KeywordCandidateDto> CreateKeywordAsync(CreateKeywordCandidateCommand command, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync("repo/content-writer-v3/keywords", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize keyword response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating keyword");
+            throw;
+        }
+    }
+
+    public async Task<KeywordCandidateDto> UpdateKeywordStatusAsync(Guid id, string status, CancellationToken ct = default)
+    {
+        try
+        {
+            var command = new { status };
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PatchAsync($"repo/content-writer-v3/keywords/{id}/status", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize keyword response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating keyword {KeywordId} status", id);
+            throw;
+        }
+    }
+
+    // Reconciliation
+    public async Task<ReconciliationProposalDto?> GetReconciliationProposalByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/reconciliation/{id}", ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching reconciliation proposal {ProposalId}", id);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<ReconciliationProposalDto>> GetReconciliationProposalsByResearchRunIdAsync(Guid researchRunId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/reconciliation?researchRunId={researchRunId}", ct);
+            if (!response.IsSuccessStatusCode)
+                return new List<ReconciliationProposalDto>().AsReadOnly();
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ReconciliationProposalDto>>(content);
+            return (dtos ?? new()).AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching reconciliation proposals for research run {ResearchRunId}", researchRunId);
+            throw;
+        }
+    }
+
+    public async Task<ReconciliationProposalDto> CreateReconciliationProposalAsync(CreateReconciliationProposalCommand command, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync("repo/content-writer-v3/reconciliation", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize reconciliation proposal response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating reconciliation proposal");
+            throw;
+        }
+    }
+
+    public async Task<ReconciliationProposalDto> ApproveReconciliationProposalAsync(Guid id, Guid userId, CancellationToken ct = default)
+    {
+        try
+        {
+            var command = new { userId };
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PatchAsync($"repo/content-writer-v3/reconciliation/{id}/approve", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize reconciliation proposal response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error approving reconciliation proposal {ProposalId}", id);
+            throw;
+        }
+    }
+
+    public async Task<ReconciliationProposalDto> DismissReconciliationProposalAsync(Guid id, Guid userId, CancellationToken ct = default)
+    {
+        try
+        {
+            var command = new { userId };
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PatchAsync($"repo/content-writer-v3/reconciliation/{id}/dismiss", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize reconciliation proposal response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error dismissing reconciliation proposal {ProposalId}", id);
+            throw;
+        }
+    }
+
     // Publications
     public async Task<PublicationDto?> GetPublicationByIdAsync(Guid id, CancellationToken ct = default)
     {
