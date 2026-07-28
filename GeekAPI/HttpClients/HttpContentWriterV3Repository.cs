@@ -46,7 +46,7 @@ public class HttpContentWriterV3Repository
                 return new List<ContentCampaignDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ContentCampaignDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ContentCampaignDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -188,7 +188,7 @@ public class HttpContentWriterV3Repository
                 return new List<PainPointDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<PainPointDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<PainPointDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -247,7 +247,7 @@ public class HttpContentWriterV3Repository
                 return new List<StrategyBriefDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<StrategyBriefDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<StrategyBriefDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -342,7 +342,7 @@ public class HttpContentWriterV3Repository
                 return new List<ContentAssetDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ContentAssetDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ContentAssetDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -415,7 +415,7 @@ public class HttpContentWriterV3Repository
                 return new List<KeywordCandidateDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<KeywordCandidateDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<KeywordCandidateDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -496,7 +496,7 @@ public class HttpContentWriterV3Repository
                 return new List<ReconciliationProposalDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ReconciliationProposalDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ReconciliationProposalDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -599,7 +599,7 @@ public class HttpContentWriterV3Repository
                 return new List<ResearchRunDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchRunDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchRunDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -680,7 +680,7 @@ public class HttpContentWriterV3Repository
                 return new List<ResearchSourceDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchSourceDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchSourceDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -739,7 +739,7 @@ public class HttpContentWriterV3Repository
                 return new List<ResearchEvidenceDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchEvidenceDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchEvidenceDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -816,7 +816,7 @@ public class HttpContentWriterV3Repository
                 return new List<ContentAssetVersionDto>().AsReadOnly();
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ContentAssetVersionDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ContentAssetVersionDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex)
@@ -914,7 +914,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/clients?workspaceId={workspaceId}", ct);
             if (!response.IsSuccessStatusCode) return new List<ClientDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ClientDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ClientDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching clients for workspace {WorkspaceId}", workspaceId); throw; }
@@ -953,7 +953,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/review-comments?assetVersionId={assetVersionId}", ct);
             if (!response.IsSuccessStatusCode) return new List<ReviewCommentDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ReviewCommentDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ReviewCommentDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching review comments for asset version {AssetVersionId}", assetVersionId); throw; }
@@ -992,7 +992,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/approval-events?assetVersionId={assetVersionId}", ct);
             if (!response.IsSuccessStatusCode) return new List<ApprovalEventDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ApprovalEventDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ApprovalEventDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching approval events for asset version {AssetVersionId}", assetVersionId); throw; }
@@ -1031,7 +1031,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/publication-events?publicationId={publicationId}", ct);
             if (!response.IsSuccessStatusCode) return new List<PublicationEventDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<PublicationEventDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<PublicationEventDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching publication events for publication {PublicationId}", publicationId); throw; }
@@ -1120,7 +1120,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/jobs/by-status/{status}?limit={limit}", ct);
             if (!response.IsSuccessStatusCode) return new List<JobDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<JobDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<JobDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching jobs by status {Status}", status); throw; }
@@ -1172,7 +1172,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/pain-point-evidence-links?painPointId={painPointId}", ct);
             if (!response.IsSuccessStatusCode) return new List<PainPointEvidenceLinkDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<PainPointEvidenceLinkDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<PainPointEvidenceLinkDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching pain point evidence links for pain point {PainPointId}", painPointId); throw; }
@@ -1249,7 +1249,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/client-profile-versions?profileId={profileId}", ct);
             if (!response.IsSuccessStatusCode) return new List<ClientProfileVersionDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ClientProfileVersionDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ClientProfileVersionDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching client profile versions for profile {ProfileId}", profileId); throw; }
@@ -1288,7 +1288,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/client-brand-voice-links?profileVersionId={profileVersionId}", ct);
             if (!response.IsSuccessStatusCode) return new List<ClientBrandVoiceLinkDto>().AsReadOnly();
             var content = await response.Content.ReadAsStringAsync(ct);
-            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ClientBrandVoiceLinkDto>>(content);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ClientBrandVoiceLinkDto>>(content, JsonOpts);
             return (dtos ?? new()).AsReadOnly();
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching client brand voice links for profile version {ProfileVersionId}", profileVersionId); throw; }
