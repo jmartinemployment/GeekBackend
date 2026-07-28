@@ -7,7 +7,8 @@ public sealed record WorkspaceDto(
     DateTime UpdatedAtUtc);
 
 public sealed record CreateWorkspaceCommand(
-    string Name);
+    string Name,
+    Guid? Id = null);
 
 public sealed record UpdateWorkspaceCommand(
     Guid Id,
