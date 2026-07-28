@@ -1,8 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using GeekApplication.Interfaces;
+using GeekApplication.Interfaces.ContentWriterV3;
 using GeekRepository.Infrastructure;
 using GeekRepository.Repositories;
+using GeekRepository.Repositories.Blog;
 using GeekRepository.Repositories.Content;
+using GeekRepository.Repositories.ContentWriterV3;
 
 namespace GeekRepository;
 
@@ -19,7 +22,28 @@ public static class ServiceRegistration
         services.AddScoped<IAmbientDbContext>(sp => sp.GetRequiredService<AmbientDbContext>());
         services.AddScoped<IUnitOfWork, SqlUnitOfWork>();
 
+        services.AddScoped<ICaseStudyRepository, CaseStudyRepository>();
+        services.AddScoped<IDepartmentRepository, DepartmentRepository>();
+        services.AddScoped<IUseCaseRepository, UseCaseRepository>();
+        services.AddScoped<IBlogRepository, BlogRepository>();
         services.AddScoped<IWebPostRepository, WebPostRepository>();
+
+        // Content Writer V3 Repositories
+        services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+        services.AddScoped<IClientRepository, ClientRepository>();
+        services.AddScoped<IContentCampaignRepository, ContentCampaignRepository>();
+        services.AddScoped<IContentAssetRepository, ContentAssetRepository>();
+        services.AddScoped<IContentAssetVersionRepository, ContentAssetVersionRepository>();
+        services.AddScoped<IStrategyBriefRepository, StrategyBriefRepository>();
+        services.AddScoped<IPublicationRepository, PublicationRepository>();
+        services.AddScoped<IPainPointRepository, PainPointRepository>();
+        services.AddScoped<IPainPointEvidenceLinkRepository, PainPointEvidenceLinkRepository>();
+        services.AddScoped<IResearchRunRepository, ResearchRunRepository>();
+        services.AddScoped<IResearchSourceRepository, ResearchSourceRepository>();
+        services.AddScoped<IResearchEvidenceRepository, ResearchEvidenceRepository>();
+        services.AddScoped<IReconciliationProposalRepository, ReconciliationProposalRepository>();
+        services.AddScoped<IKeywordCandidateRepository, KeywordCandidateRepository>();
+        services.AddScoped<IJobRepository, JobRepository>();
 
         services.AddGeekSeoData();
 

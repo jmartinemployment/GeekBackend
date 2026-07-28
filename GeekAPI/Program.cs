@@ -1,11 +1,14 @@
 using DotNetEnv;
+using GeekAPI.Auth;
 using GeekAPI.Controllers;
 using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
+using GeekAPI.Services.ContentWriterV3;
 using GeekAPI.Services.SiteAnalyzer2;
 using GeekApplication.Interfaces;
+using GeekApplication.Interfaces.ContentWriterV3;
 using GeekSa2Read.DependencyInjection;
 using Microsoft.AspNetCore.HttpOverrides;
 
@@ -24,6 +27,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserContext, CurrentUserContext>();
 
 var corsOrigins = CorsOriginParser.GetAllowedOrigins();
 builder.Services.AddCors(options =>
@@ -50,6 +55,21 @@ builder.Services.AddScoped<IUseCaseRepository, HttpUseCaseRepository>();
 builder.Services.AddScoped<IBlogRepository, HttpBlogRepository>();
 builder.Services.AddScoped<IWebPostRepository, HttpWebPostRepository>();
 builder.Services.AddScoped<IAssetUploadService, NoOpAssetUploadService>();
+
+// Content Writer V3: HTTP client proxy to GeekRepository
+builder.Services.AddScoped(sp =>
+{
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var httpClient = httpClientFactory.CreateClient("GeekRepository");
+    var logger = sp.GetRequiredService<ILogger<HttpContentWriterV3Repository>>();
+    return new HttpContentWriterV3Repository(httpClient, logger);
+});
+
+// Content Writer V3: Services
+builder.Services.AddScoped<IContentGenerator, ClaudeContentGenerator>();
+builder.Services.AddScoped<IAnalyticsAdapter, GoogleAnalyticsAdapter>();
+builder.Services.AddScoped<IPublishAdapter, WordPressPublishAdapter>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 
 builder.Services.AddScoped<DepartmentContentService>();
 builder.Services.AddGeekSa2Read();

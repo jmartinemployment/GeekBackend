@@ -47,6 +47,22 @@ public class ApiKeyMiddleware
             return;
         }
 
+        // Try Bearer token authentication first (for NextJS frontend)
+        if (context.Request.Headers.TryGetValue("Authorization", out var authHeader))
+        {
+            var authValue = authHeader.ToString();
+            if (authValue.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                var token = authValue["Bearer ".Length..].Trim();
+                if (TryAuthenticateBearer(context, token))
+                {
+                    await _next(context);
+                    return;
+                }
+            }
+        }
+
+        // Fall back to X-API-Key authentication (for internal services)
         if (!context.Request.Headers.TryGetValue(ApiKeyHeader, out var extractedApiKey))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -73,6 +89,71 @@ public class ApiKeyMiddleware
         }
 
         await _next(context);
+    }
+
+    private static bool TryAuthenticateBearer(HttpContext context, string token)
+    {
+        try
+        {
+            // For development: accept any non-empty token as valid
+            // In production, validate JWT signature using a key
+            if (string.IsNullOrWhiteSpace(token))
+                return false;
+
+            // Try to parse as direct UUID first (for testing)
+            if (Guid.TryParse(token, out var directUserId))
+            {
+                ApplyBearerAuth(context, directUserId);
+                return true;
+            }
+
+            // Try to parse JWT to extract claims
+            var parts = token.Split('.');
+            if (parts.Length != 3)
+            {
+                return false;
+            }
+
+            // For simplicity in dev, extract sub claim from JWT payload
+            // This is NOT secure for production - you need proper JWT validation
+            try
+            {
+                var payload = parts[1];
+                // Add padding if needed
+                var paddedPayload = payload.Length % 4 == 0 ? payload : payload + new string('=', 4 - payload.Length % 4);
+                var decodedBytes = Convert.FromBase64String(paddedPayload);
+                var json = System.Text.Encoding.UTF8.GetString(decodedBytes);
+
+                // Simple JSON parsing to extract sub
+                if (json.Contains("\"sub\""))
+                {
+                    var subMatch = System.Text.RegularExpressions.Regex.Match(json, @"""sub""\s*:\s*""([^""]+)""");
+                    if (subMatch.Success && Guid.TryParse(subMatch.Groups[1].Value, out var userId))
+                    {
+                        ApplyBearerAuth(context, userId);
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall through
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void ApplyBearerAuth(HttpContext context, Guid userId)
+    {
+        var identity = new ClaimsIdentity("Bearer");
+        identity.AddClaim(new Claim("sub", userId.ToString()));
+        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId.ToString()));
+        context.User = new ClaimsPrincipal(identity);
     }
 
     private static bool TryAuthenticateSeoInternal(HttpContext context)
