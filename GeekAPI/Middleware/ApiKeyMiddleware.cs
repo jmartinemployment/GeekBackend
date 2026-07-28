@@ -119,8 +119,11 @@ public class ApiKeyMiddleware
             try
             {
                 var payload = parts[1];
-                // Add padding if needed
-                var paddedPayload = payload.Length % 4 == 0 ? payload : payload + new string('=', 4 - payload.Length % 4);
+                // JWT uses base64url (-/_); Convert.FromBase64String needs standard base64
+                var stdPayload = payload.Replace('-', '+').Replace('_', '/');
+                var paddedPayload = stdPayload.Length % 4 == 0
+                    ? stdPayload
+                    : stdPayload + new string('=', 4 - stdPayload.Length % 4);
                 var decodedBytes = Convert.FromBase64String(paddedPayload);
                 var json = System.Text.Encoding.UTF8.GetString(decodedBytes);
 
