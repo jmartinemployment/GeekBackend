@@ -34,7 +34,7 @@ var corsOrigins = CorsOriginParser.GetAllowedOrigins();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
         policy
-            .WithOrigins(corsOrigins)
+            .SetIsOriginAllowed(CorsOriginParser.IsOriginAllowed)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials()));
