@@ -48,6 +48,14 @@ builder.Services.AddDbContext<GeekRepository.Data.ContentWriterDbContext>(option
     .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// ContentWriterV3: Templates and Documents
+builder.Services.AddDbContext<GeekRepository.Data.ContentWriterV3DbContext>(options => options
+    .UseNpgsql(connectionString, npgsql =>
+        npgsql.MigrationsHistoryTable(
+            "content_writer_v3_ef_migrations_history",
+            "content_writer_v3"))
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddHostedService<SqlMigrationRunner>();
@@ -56,6 +64,7 @@ var app = builder.Build();
 
 await ApplyPendingMigrationsAsync(app, startupLogger);
 await ApplyContentWriterMigrationsAsync(app, startupLogger);
+await ApplyContentWriterV3MigrationsAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseMiddleware<GeekRepository.Middleware.LegacyAuthRetiredMiddleware>();
@@ -93,6 +102,21 @@ static async Task ApplyContentWriterMigrationsAsync(WebApplication app, ILogger 
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying ContentWriter EF migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplyContentWriterV3MigrationsAsync(WebApplication app, ILogger logger)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<GeekRepository.Data.ContentWriterV3DbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("ContentWriterV3 (content_writer_v3 schema) EF migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying ContentWriterV3 EF migrations. Continuing startup.");
     }
 }
 
