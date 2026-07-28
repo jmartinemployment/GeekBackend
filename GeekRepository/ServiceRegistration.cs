@@ -44,6 +44,12 @@ public static class ServiceRegistration
         services.AddScoped<IReconciliationProposalRepository, ReconciliationProposalRepository>();
         services.AddScoped<IKeywordCandidateRepository, KeywordCandidateRepository>();
         services.AddScoped<IJobRepository, JobRepository>();
+        services.AddScoped<IReviewCommentRepository, ReviewCommentRepository>();
+        services.AddScoped<IApprovalEventRepository, ApprovalEventRepository>();
+        services.AddScoped<IPublicationEventRepository, PublicationEventRepository>();
+        services.AddScoped<IClientProfileRepository, ClientProfileRepository>();
+        services.AddScoped<IClientProfileVersionRepository, ClientProfileVersionRepository>();
+        services.AddScoped<IClientBrandVoiceLinkRepository, ClientBrandVoiceLinkRepository>();
 
         services.AddGeekSeoData();
 
