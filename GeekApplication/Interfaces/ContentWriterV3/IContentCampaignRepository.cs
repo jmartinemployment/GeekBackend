@@ -114,3 +114,46 @@ public interface IKeywordCandidateRepository
     Task<KeywordCandidateDto> CreateAsync(CreateKeywordCandidateCommand command, CancellationToken ct = default);
     Task<KeywordCandidateDto> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default);
 }
+
+public interface IReviewCommentRepository
+{
+    Task<ReviewCommentDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<ReviewCommentDto>> GetByAssetVersionIdAsync(Guid assetVersionId, CancellationToken ct = default);
+    Task<ReviewCommentDto> CreateAsync(CreateReviewCommentCommand command, CancellationToken ct = default);
+    Task<ReviewCommentDto> ResolveAsync(ResolveReviewCommentCommand command, CancellationToken ct = default);
+}
+
+public interface IApprovalEventRepository
+{
+    Task<ApprovalEventDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<ApprovalEventDto>> GetByAssetVersionIdAsync(Guid assetVersionId, CancellationToken ct = default);
+    Task<ApprovalEventDto> CreateAsync(CreateApprovalEventCommand command, CancellationToken ct = default);
+}
+
+public interface IPublicationEventRepository
+{
+    Task<PublicationEventDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<PublicationEventDto>> GetByPublicationIdAsync(Guid publicationId, CancellationToken ct = default);
+    Task<PublicationEventDto> CreateAsync(CreatePublicationEventCommand command, CancellationToken ct = default);
+}
+
+public interface IClientProfileRepository
+{
+    Task<ClientProfileDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<ClientProfileDto?> GetByClientIdAsync(Guid clientId, CancellationToken ct = default);
+    Task<ClientProfileDto> CreateAsync(CreateClientProfileCommand command, CancellationToken ct = default);
+}
+
+public interface IClientProfileVersionRepository
+{
+    Task<ClientProfileVersionDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<ClientProfileVersionDto>> GetByProfileIdAsync(Guid profileId, CancellationToken ct = default);
+    Task<ClientProfileVersionDto> CreateAsync(CreateClientProfileVersionCommand command, CancellationToken ct = default);
+}
+
+public interface IClientBrandVoiceLinkRepository
+{
+    Task<ClientBrandVoiceLinkDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<ClientBrandVoiceLinkDto>> GetByProfileVersionIdAsync(Guid profileVersionId, CancellationToken ct = default);
+    Task<ClientBrandVoiceLinkDto> CreateAsync(CreateClientBrandVoiceLinkCommand command, CancellationToken ct = default);
+}
