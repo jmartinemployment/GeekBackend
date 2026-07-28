@@ -22,6 +22,7 @@ public class WorkspaceRepository : IWorkspaceRepository
     {
         var entity = new Workspace
         {
+            Id = command.Id ?? Guid.NewGuid(),
             Name = command.Name,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow
