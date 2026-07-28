@@ -566,6 +566,223 @@ public class HttpContentWriterV3Repository
         }
     }
 
+    // Research Runs
+    public async Task<ResearchRunDto?> GetResearchRunByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/research-runs/{id}", ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching research run {ResearchRunId}", id);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<ResearchRunDto>> GetResearchRunsByCampaignIdAsync(Guid campaignId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/research-runs?campaignId={campaignId}", ct);
+            if (!response.IsSuccessStatusCode)
+                return new List<ResearchRunDto>().AsReadOnly();
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchRunDto>>(content);
+            return (dtos ?? new()).AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching research runs for campaign {CampaignId}", campaignId);
+            throw;
+        }
+    }
+
+    public async Task<ResearchRunDto> CreateResearchRunAsync(CreateResearchRunCommand command, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync("repo/content-writer-v3/research-runs", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize research run response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating research run");
+            throw;
+        }
+    }
+
+    public async Task<ResearchRunDto> UpdateResearchRunStatusAsync(Guid id, string status, int discoveredSourceCount, decimal spentBudget, string? errorMessage, CancellationToken ct = default)
+    {
+        try
+        {
+            var command = new { status, discoveredSourceCount, spentBudget, errorMessage };
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PatchAsync($"repo/content-writer-v3/research-runs/{id}/status", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize research run response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating research run {ResearchRunId} status", id);
+            throw;
+        }
+    }
+
+    // Research Sources
+    public async Task<ResearchSourceDto?> GetResearchSourceByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/research-sources/{id}", ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchSourceDto>(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching research source {SourceId}", id);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<ResearchSourceDto>> GetResearchSourcesByRunIdAsync(Guid researchRunId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/research-sources?researchRunId={researchRunId}", ct);
+            if (!response.IsSuccessStatusCode)
+                return new List<ResearchSourceDto>().AsReadOnly();
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchSourceDto>>(content);
+            return (dtos ?? new()).AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching research sources for run {ResearchRunId}", researchRunId);
+            throw;
+        }
+    }
+
+    public async Task<ResearchSourceDto> CreateResearchSourceAsync(CreateResearchSourceCommand command, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync("repo/content-writer-v3/research-sources", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchSourceDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize research source response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating research source");
+            throw;
+        }
+    }
+
+    // Research Evidence
+    public async Task<ResearchEvidenceDto?> GetResearchEvidenceByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/research-evidence/{id}", ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching research evidence {EvidenceId}", id);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<ResearchEvidenceDto>> GetResearchEvidenceBySourceIdAsync(Guid sourceId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/research-evidence?sourceId={sourceId}", ct);
+            if (!response.IsSuccessStatusCode)
+                return new List<ResearchEvidenceDto>().AsReadOnly();
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<ResearchEvidenceDto>>(content);
+            return (dtos ?? new()).AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching research evidence for source {SourceId}", sourceId);
+            throw;
+        }
+    }
+
+    public async Task<ResearchEvidenceDto> CreateResearchEvidenceAsync(CreateResearchEvidenceCommand command, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync("repo/content-writer-v3/research-evidence", content, ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize research evidence response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating research evidence");
+            throw;
+        }
+    }
+
+    public async Task<ResearchEvidenceDto> ApproveResearchEvidenceAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.PatchAsync($"repo/content-writer-v3/research-evidence/{id}/approve", new StringContent(""), ct);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(responseContent)
+                ?? throw new InvalidOperationException("Failed to deserialize research evidence response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error approving research evidence {EvidenceId}", id);
+            throw;
+        }
+    }
+
     // Publications
     public async Task<PublicationDto?> GetPublicationByIdAsync(Guid id, CancellationToken ct = default)
     {
