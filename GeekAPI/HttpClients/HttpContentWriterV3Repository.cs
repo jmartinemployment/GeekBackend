@@ -4,6 +4,11 @@ namespace GeekAPI.HttpClients;
 
 public class HttpContentWriterV3Repository
 {
+    private static readonly System.Text.Json.JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
+
     private readonly HttpClient _httpClient;
     private readonly ILogger<HttpContentWriterV3Repository> _logger;
 
@@ -23,7 +28,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentCampaignDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ContentCampaignDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -62,7 +67,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentCampaignDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ContentCampaignDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize campaign response");
         }
         catch (Exception ex)
@@ -84,7 +89,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentCampaignDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ContentCampaignDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize campaign response");
         }
         catch (Exception ex)
@@ -104,7 +109,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -124,7 +129,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize job response");
         }
         catch (Exception ex)
@@ -145,7 +150,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize job response");
         }
         catch (Exception ex)
@@ -165,7 +170,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PainPointDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<PainPointDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -204,7 +209,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PainPointDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<PainPointDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize pain point response");
         }
         catch (Exception ex)
@@ -224,7 +229,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -263,7 +268,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize strategy brief response");
         }
         catch (Exception ex)
@@ -281,7 +286,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize strategy brief response");
         }
         catch (Exception ex)
@@ -299,7 +304,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize strategy brief response");
         }
         catch (Exception ex)
@@ -319,7 +324,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -358,7 +363,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize asset response");
         }
         catch (Exception ex)
@@ -392,7 +397,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -431,7 +436,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize keyword response");
         }
         catch (Exception ex)
@@ -453,7 +458,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<KeywordCandidateDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize keyword response");
         }
         catch (Exception ex)
@@ -473,7 +478,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -512,7 +517,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize reconciliation proposal response");
         }
         catch (Exception ex)
@@ -534,7 +539,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize reconciliation proposal response");
         }
         catch (Exception ex)
@@ -556,7 +561,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ReconciliationProposalDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize reconciliation proposal response");
         }
         catch (Exception ex)
@@ -576,7 +581,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -615,7 +620,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize research run response");
         }
         catch (Exception ex)
@@ -637,7 +642,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchRunDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize research run response");
         }
         catch (Exception ex)
@@ -657,7 +662,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchSourceDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchSourceDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -696,7 +701,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchSourceDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchSourceDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize research source response");
         }
         catch (Exception ex)
@@ -716,7 +721,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -755,7 +760,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize research evidence response");
         }
         catch (Exception ex)
@@ -773,7 +778,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ResearchEvidenceDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize research evidence response");
         }
         catch (Exception ex)
@@ -793,7 +798,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetVersionDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetVersionDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -832,7 +837,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetVersionDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetVersionDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize asset version response");
         }
         catch (Exception ex)
@@ -853,7 +858,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetVersionDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetVersionDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize asset version response");
         }
         catch (Exception ex)
@@ -871,7 +876,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/workspaces/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<WorkspaceDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<WorkspaceDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching workspace {WorkspaceId}", id); throw; }
     }
@@ -884,7 +889,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/workspaces", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<WorkspaceDto>(content) ?? throw new InvalidOperationException("Failed to deserialize workspace response");
+            return System.Text.Json.JsonSerializer.Deserialize<WorkspaceDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize workspace response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating workspace"); throw; }
     }
@@ -897,7 +902,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/clients/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ClientDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching client {ClientId}", id); throw; }
     }
@@ -923,7 +928,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/clients", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientDto>(content) ?? throw new InvalidOperationException("Failed to deserialize client response");
+            return System.Text.Json.JsonSerializer.Deserialize<ClientDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize client response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating client"); throw; }
     }
@@ -936,7 +941,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/review-comments/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ReviewCommentDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ReviewCommentDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching review comment {CommentId}", id); throw; }
     }
@@ -962,7 +967,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/review-comments", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ReviewCommentDto>(content) ?? throw new InvalidOperationException("Failed to deserialize review comment response");
+            return System.Text.Json.JsonSerializer.Deserialize<ReviewCommentDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize review comment response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating review comment"); throw; }
     }
@@ -975,7 +980,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/approval-events/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ApprovalEventDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ApprovalEventDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching approval event {EventId}", id); throw; }
     }
@@ -1001,7 +1006,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/approval-events", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ApprovalEventDto>(content) ?? throw new InvalidOperationException("Failed to deserialize approval event response");
+            return System.Text.Json.JsonSerializer.Deserialize<ApprovalEventDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize approval event response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating approval event"); throw; }
     }
@@ -1014,7 +1019,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/publication-events/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PublicationEventDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<PublicationEventDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching publication event {EventId}", id); throw; }
     }
@@ -1040,7 +1045,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/publication-events", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PublicationEventDto>(content) ?? throw new InvalidOperationException("Failed to deserialize publication event response");
+            return System.Text.Json.JsonSerializer.Deserialize<PublicationEventDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize publication event response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating publication event"); throw; }
     }
@@ -1055,7 +1060,7 @@ public class HttpContentWriterV3Repository
                 return null;
 
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PublicationDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<PublicationDto>(content, JsonOpts);
         }
         catch (Exception ex)
         {
@@ -1075,7 +1080,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PublicationDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<PublicationDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize publication response");
         }
         catch (Exception ex)
@@ -1097,7 +1102,7 @@ public class HttpContentWriterV3Repository
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PublicationDto>(responseContent)
+            return System.Text.Json.JsonSerializer.Deserialize<PublicationDto>(responseContent, JsonOpts)
                 ?? throw new InvalidOperationException("Failed to deserialize publication response");
         }
         catch (Exception ex)
@@ -1130,7 +1135,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync($"repo/content-writer-v3/jobs/{jobId}/lease", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(content) ?? throw new InvalidOperationException("Failed to deserialize job response");
+            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize job response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error leasing job {JobId}", jobId); throw; }
     }
@@ -1142,7 +1147,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync($"repo/content-writer-v3/jobs/{jobId}/release-lease", null, ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(content) ?? throw new InvalidOperationException("Failed to deserialize job response");
+            return System.Text.Json.JsonSerializer.Deserialize<JobDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize job response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error releasing job lease {JobId}", jobId); throw; }
     }
@@ -1155,7 +1160,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/pain-point-evidence-links/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PainPointEvidenceLinkDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<PainPointEvidenceLinkDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching pain point evidence link {LinkId}", id); throw; }
     }
@@ -1181,7 +1186,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/pain-point-evidence-links", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<PainPointEvidenceLinkDto>(content) ?? throw new InvalidOperationException("Failed to deserialize pain point evidence link response");
+            return System.Text.Json.JsonSerializer.Deserialize<PainPointEvidenceLinkDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize pain point evidence link response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating pain point evidence link"); throw; }
     }
@@ -1194,7 +1199,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/client-profiles/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching client profile {ProfileId}", id); throw; }
     }
@@ -1206,7 +1211,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/client-profiles/by-client/{clientId}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching client profile for client {ClientId}", clientId); throw; }
     }
@@ -1219,7 +1224,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/client-profiles", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileDto>(content) ?? throw new InvalidOperationException("Failed to deserialize client profile response");
+            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize client profile response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating client profile"); throw; }
     }
@@ -1232,7 +1237,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/client-profile-versions/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileVersionDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileVersionDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching client profile version {VersionId}", id); throw; }
     }
@@ -1258,7 +1263,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/client-profile-versions", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileVersionDto>(content) ?? throw new InvalidOperationException("Failed to deserialize client profile version response");
+            return System.Text.Json.JsonSerializer.Deserialize<ClientProfileVersionDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize client profile version response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating client profile version"); throw; }
     }
@@ -1271,7 +1276,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.GetAsync($"repo/content-writer-v3/client-brand-voice-links/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientBrandVoiceLinkDto>(content);
+            return System.Text.Json.JsonSerializer.Deserialize<ClientBrandVoiceLinkDto>(content, JsonOpts);
         }
         catch (Exception ex) { _logger.LogError(ex, "Error fetching client brand voice link {LinkId}", id); throw; }
     }
@@ -1297,7 +1302,7 @@ public class HttpContentWriterV3Repository
             var response = await _httpClient.PostAsync("repo/content-writer-v3/client-brand-voice-links", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), ct);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync(ct);
-            return System.Text.Json.JsonSerializer.Deserialize<ClientBrandVoiceLinkDto>(content) ?? throw new InvalidOperationException("Failed to deserialize client brand voice link response");
+            return System.Text.Json.JsonSerializer.Deserialize<ClientBrandVoiceLinkDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize client brand voice link response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating client brand voice link"); throw; }
     }
