@@ -43,44 +43,57 @@ public class AuthController : ControllerBase
         var email = _httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.Email)
                     ?? $"user-{userId:N}@geekatyourspot.com";
 
-        var workspaceId = await EnsureDefaultWorkspaceAsync(ct);
-        var client = await EnsureDemoClientAsync(workspaceId, email, ct);
+        await EnsureDefaultWorkspaceAsync(ct);
+        var client = await EnsureDemoClientAsync(email, ct);
 
         // #region agent log
         _logger.LogInformation(
             "CW_AUTH_ME session=2d6b04 hypothesis=H23 user={UserId} workspace={WorkspaceId} client={ClientId} ensured=true",
-            userId, workspaceId, client.Id);
+            userId, DefaultWorkspaceId, client.Id);
         // #endregion
 
         return Ok(new UserInfoResponse(
             Id: userId,
             Email: email,
             ClientId: client.Id,
-            WorkspaceId: workspaceId
+            WorkspaceId: DefaultWorkspaceId
         ));
     }
 
-    private async Task<Guid> EnsureDefaultWorkspaceAsync(CancellationToken ct)
+    private async Task EnsureDefaultWorkspaceAsync(CancellationToken ct)
     {
         var existing = await _repo.GetWorkspaceByIdAsync(DefaultWorkspaceId, ct);
-        if (existing is not null)
-            return existing.Id;
+        if (existing is not null && existing.Id != Guid.Empty)
+            return;
 
         _logger.LogInformation("Creating default Demo Workspace {WorkspaceId}", DefaultWorkspaceId);
-        var created = await _repo.CreateWorkspaceAsync(
+        await _repo.CreateWorkspaceAsync(
             new CreateWorkspaceCommand("Demo Workspace", DefaultWorkspaceId), ct);
-        return created.Id;
+
+        existing = await _repo.GetWorkspaceByIdAsync(DefaultWorkspaceId, ct);
+        if (existing is null || existing.Id == Guid.Empty)
+            throw new InvalidOperationException($"Failed to ensure default workspace {DefaultWorkspaceId}");
     }
 
-    private async Task<ClientDto> EnsureDemoClientAsync(Guid workspaceId, string email, CancellationToken ct)
+    private async Task<ClientDto> EnsureDemoClientAsync(string email, CancellationToken ct)
     {
-        var clients = await _repo.GetClientsByWorkspaceIdAsync(workspaceId, ct);
-        if (clients.Count > 0)
-            return clients[0];
+        var clients = await _repo.GetClientsByWorkspaceIdAsync(DefaultWorkspaceId, ct);
+        var usable = clients.FirstOrDefault(c => c.Id != Guid.Empty);
+        if (usable is not null)
+            return usable;
 
         var name = string.IsNullOrWhiteSpace(email) ? "Demo Client" : $"{email.Split('@')[0]} (Demo)";
-        _logger.LogInformation("Creating demo client in workspace {WorkspaceId}", workspaceId);
-        return await _repo.CreateClientAsync(new CreateClientCommand(workspaceId, name), ct);
+        _logger.LogInformation("Creating demo client in workspace {WorkspaceId}", DefaultWorkspaceId);
+        var created = await _repo.CreateClientAsync(new CreateClientCommand(DefaultWorkspaceId, name), ct);
+        if (created.Id == Guid.Empty)
+        {
+            clients = await _repo.GetClientsByWorkspaceIdAsync(DefaultWorkspaceId, ct);
+            usable = clients.FirstOrDefault(c => c.Id != Guid.Empty)
+                ?? throw new InvalidOperationException("Failed to ensure demo client");
+            return usable;
+        }
+
+        return created;
     }
 
     public record UserInfoResponse(
