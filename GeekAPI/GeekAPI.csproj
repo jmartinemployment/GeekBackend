@@ -29,4 +29,20 @@
     <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Api\ContentWriter.Api.csproj" />
   </ItemGroup>
 
+  <!--
+    ContentWriter.Api (Sdk.Web, like this project) ships its own appsettings.json/
+    appsettings.Development.json as publish content — colliding with GeekAPI's own at the same
+    relative output path (NETSDK1152). Its config (LlmProviders/CompanyProfile) is merged into
+    this project's own appsettings.json instead (the real runtime source once merged), so its copy
+    is redundant here — but it stays in the content-writer-v2 repo unmodified, since the standalone
+    service still reads it directly.
+  -->
+  <Target Name="RemoveContentWriterV2DuplicateAppsettings" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="('%(ResolvedFileToPublish.RelativePath)' == 'appsettings.json' OR '%(ResolvedFileToPublish.RelativePath)' == 'appsettings.Development.json')
+                   AND $([System.String]::new('%(ResolvedFileToPublish.Identity)').Contains('content-writer-v2'))" />
+    </ItemGroup>
+  </Target>
+
 </Project>
