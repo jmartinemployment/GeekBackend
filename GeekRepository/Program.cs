@@ -56,6 +56,23 @@ builder.Services.AddDbContext<GeekRepository.Data.ContentWriterV3DbContext>(opti
             "content_writer_v3"))
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// ContentWriterV4: standalone Jasper-style generation product — new schema, shares no code with V3
+builder.Services.AddDbContext<GeekRepository.Data.ContentWriterV4DbContext>(options => options
+    .UseNpgsql(connectionString, npgsql =>
+        npgsql.MigrationsHistoryTable(
+            "content_writer_v4_ef_migrations_history",
+            "content_writer_v4"))
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
+// ContentWriterV2: generic JSON-blob persistence store for the separate .NET content-writer-v2
+// product's own IPersistenceStore — one table, arbitrary caller-chosen collections.
+builder.Services.AddDbContext<GeekRepository.Data.ContentWriterV2DbContext>(options => options
+    .UseNpgsql(connectionString, npgsql =>
+        npgsql.MigrationsHistoryTable(
+            "content_writer_v2_ef_migrations_history",
+            "content_writer_v2"))
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddHostedService<SqlMigrationRunner>();
@@ -65,6 +82,8 @@ var app = builder.Build();
 await ApplyPendingMigrationsAsync(app, startupLogger);
 await ApplyContentWriterMigrationsAsync(app, startupLogger);
 await ApplyContentWriterV3MigrationsAsync(app, startupLogger);
+await ApplyContentWriterV4MigrationsAsync(app, startupLogger);
+await ApplyContentWriterV2MigrationsAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseMiddleware<GeekRepository.Middleware.LegacyAuthRetiredMiddleware>();
@@ -117,6 +136,36 @@ static async Task ApplyContentWriterV3MigrationsAsync(WebApplication app, ILogge
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying ContentWriterV3 EF migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplyContentWriterV4MigrationsAsync(WebApplication app, ILogger logger)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<GeekRepository.Data.ContentWriterV4DbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("ContentWriterV4 (content_writer_v4 schema) EF migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying ContentWriterV4 EF migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplyContentWriterV2MigrationsAsync(WebApplication app, ILogger logger)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<GeekRepository.Data.ContentWriterV2DbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("ContentWriterV2 (content_writer_v2 schema) EF migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying ContentWriterV2 EF migrations. Continuing startup.");
     }
 }
 
