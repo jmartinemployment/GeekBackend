@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using ContentWriter.Api.Hosting;
+using ContentWriter.Infrastructure;
 using DotNetEnv;
 using GeekAPI.Auth;
 using GeekAPI.Controllers;
@@ -26,7 +29,19 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 builder.Services.AddOpenApi();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    // content-writer-v2 merge (Phase 1): its controllers live in ContentWriter.Api.dll, a
+    // referenced-but-not-entry assembly — ApplicationParts makes MVC discover them. JSON options
+    // are additive here: GeekAPI has no enums in any existing response today (confirmed before
+    // adding this), so JsonStringEnumConverter changes nothing for GeekAPI's current consumers;
+    // camelCase matches ASP.NET's existing System.Text.Json default, kept explicit for parity
+    // with content-writer-v2's own (already-deployed) JSON config.
+    .AddApplicationPart(typeof(ContentWriter.Api.Controllers.ProjectsController).Assembly)
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, CurrentUserContext>();
 
@@ -75,6 +90,15 @@ builder.Services.AddScoped<DepartmentContentService>();
 builder.Services.AddGeekSa2Read();
 builder.Services.AddScoped<SiteAnalyzer2SiteProfileReader>();
 
+// content-writer-v2 merge (Phase 1): persistence reuses the "GeekRepository" named HttpClient
+// already configured above (X-Repo-Key already attached) — no new credential, no direct call to
+// GeekRepository from anywhere content-writer-v2's own code runs standalone. See
+// GeekBackend/AGENTS.md § "Service topology & trust boundaries".
+builder.Services.AddContentWriter(builder.Configuration, sp =>
+    new GeekRepositoryPersistenceStore(
+        sp.GetRequiredService<IHttpClientFactory>(),
+        sp.GetRequiredService<ILogger<GeekRepositoryPersistenceStore>>()));
+
 var app = builder.Build();
 
 app.UseForwardedHeaders();
@@ -94,6 +118,10 @@ app.UseCors();
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
+
+// content-writer-v2 merge (Phase 1): loads persisted projects/clients from GeekRepository at
+// startup, same as content-writer-v2 does standalone.
+await app.HydrateContentWriterAsync();
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://0.0.0.0:{port}");

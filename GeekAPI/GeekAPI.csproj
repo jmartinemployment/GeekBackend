@@ -22,6 +22,11 @@
   <ItemGroup>
     <ProjectReference Include="..\GeekApplication\GeekApplication.csproj" />
     <ProjectReference Include="..\GeekSa2Read\GeekSa2Read.csproj" />
+    <!-- content-writer-v2 merge, Phase 1 (GeekBackend/AGENTS.md § Service topology). -->
+    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Domain\ContentWriter.Domain.csproj" />
+    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Application\ContentWriter.Application.csproj" />
+    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Infrastructure\ContentWriter.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Api\ContentWriter.Api.csproj" />
   </ItemGroup>
 
 </Project>
