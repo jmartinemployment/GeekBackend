@@ -10,7 +10,15 @@ RUN set -eu; \
     git fetch --depth 1 origin "${REF}"; \
     git checkout FETCH_HEAD; \
     test -f GeekSeo.Application/GeekSeo.Application.csproj
-# Mirror local monorepo layout so ../../Geek-SEO resolves from GeekBackend/* projects.
+COPY ContentWriterV2.commit .
+RUN set -eu; \
+    REF="$(tr -d '[:space:]' < ContentWriterV2.commit | grep -v '^#' | head -1)"; \
+    git clone --filter=blob:none --no-checkout https://github.com/jmartinemployment/Content-Writer-2.git content-writer-v2; \
+    cd content-writer-v2; \
+    git fetch --depth 1 origin "${REF}"; \
+    git checkout FETCH_HEAD; \
+    test -f backend/src/ContentWriter.Api/ContentWriter.Api.csproj
+# Mirror local monorepo layout so ../../Geek-SEO and ../../content-writer-v2 resolve from GeekBackend/* projects.
 COPY GeekApplication/ GeekBackend/GeekApplication/
 COPY GeekSa2Read/ GeekBackend/GeekSa2Read/
 COPY GeekAPI/ GeekBackend/GeekAPI/
