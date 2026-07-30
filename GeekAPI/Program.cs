@@ -94,10 +94,14 @@ builder.Services.AddScoped<SiteAnalyzer2SiteProfileReader>();
 // already configured above (X-Repo-Key already attached) — no new credential, no direct call to
 // GeekRepository from anywhere content-writer-v2's own code runs standalone. See
 // GeekBackend/AGENTS.md § "Service topology & trust boundaries".
-builder.Services.AddContentWriter(builder.Configuration, sp =>
-    new GeekRepositoryPersistenceStore(
+// Cross-department tool content cache reuses the same client/credential.
+builder.Services.AddContentWriter(builder.Configuration,
+    sp => new GeekRepositoryPersistenceStore(
         sp.GetRequiredService<IHttpClientFactory>(),
-        sp.GetRequiredService<ILogger<GeekRepositoryPersistenceStore>>()));
+        sp.GetRequiredService<ILogger<GeekRepositoryPersistenceStore>>()),
+    sp => new GeekRepositoryToolContentCacheStore(
+        sp.GetRequiredService<IHttpClientFactory>(),
+        sp.GetRequiredService<ILogger<GeekRepositoryToolContentCacheStore>>()));
 
 var app = builder.Build();
 
