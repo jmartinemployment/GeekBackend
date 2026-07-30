@@ -10,6 +10,7 @@ public class ContentWriterV2DbContext : DbContext
     }
 
     public virtual DbSet<Blob> Blobs => Set<Blob>();
+    public virtual DbSet<ToolContentCache> ToolContentCaches => Set<ToolContentCache>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,6 +25,17 @@ public class ContentWriterV2DbContext : DbContext
             entity.Property(b => b.DataJson).IsRequired().HasColumnName("data").HasColumnType("jsonb");
             entity.Property(b => b.UpdatedAtUtc).IsRequired().HasColumnName("updated_at");
             entity.HasIndex(b => new { b.Collection, b.ItemId }).IsUnique().HasDatabaseName("ix_blobs_collection_item_id");
+        });
+
+        modelBuilder.Entity<ToolContentCache>(entity =>
+        {
+            entity.ToTable("tool_content_cache");
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.NormalizedToolName).IsRequired().HasMaxLength(256).HasColumnName("normalized_tool_name");
+            entity.Property(t => t.DisplayName).IsRequired().HasMaxLength(256).HasColumnName("display_name");
+            entity.Property(t => t.OverviewJson).IsRequired().HasColumnName("overview_json").HasColumnType("jsonb");
+            entity.Property(t => t.UpdatedAtUtc).IsRequired().HasColumnName("updated_at");
+            entity.HasIndex(t => t.NormalizedToolName).IsUnique().HasDatabaseName("ix_tool_content_cache_normalized_tool_name");
         });
     }
 }
