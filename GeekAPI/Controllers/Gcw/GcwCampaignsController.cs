@@ -58,17 +58,30 @@ public class GcwCampaignsController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Keyword))
             return BadRequest("keyword is required");
 
-        // Profile versions land in P1 — empty GUID is allowed (no FK).
+        var profileVersionId = request.ProfileVersionId ?? Guid.Empty;
+        if (profileVersionId == Guid.Empty)
+        {
+            var profile = await _repo.GetClientProfileByClientIdAsync(request.ClientId, ct);
+            if (profile is not null)
+            {
+                var versions = await _repo.GetClientProfileVersionsByProfileIdAsync(profile.Id, ct);
+                var latest = versions.OrderByDescending(v => v.Version).FirstOrDefault();
+                if (latest is not null)
+                    profileVersionId = latest.Id;
+            }
+        }
+
         var command = new CreateContentCampaignCommand(
             request.ClientId,
             request.Name.Trim(),
             request.Keyword.Trim(),
-            request.ProfileVersionId ?? Guid.Empty);
+            profileVersionId);
 
         _logger.LogInformation(
-            "GCW user {UserId} creating campaign for client {ClientId}",
+            "GCW user {UserId} creating campaign for client {ClientId} (profileVersion={ProfileVersionId})",
             _currentUser.UserId,
-            request.ClientId);
+            request.ClientId,
+            profileVersionId);
 
         var campaign = await _repo.CreateCampaignAsync(command, ct);
         return CreatedAtAction(nameof(GetById), new { id = campaign.Id }, campaign);
