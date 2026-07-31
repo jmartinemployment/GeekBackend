@@ -453,6 +453,105 @@ public class GcwAssetVersionsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Pillar → YouTube / video SEO companion assets (VidIQ-class pack).
+    /// </summary>
+    [HttpPost("{id:guid}/video-seo")]
+    public async Task<ActionResult<RepurposeGcwResult>> VideoSeo(
+        Guid id,
+        [FromBody] VideoSeoGcwAssetVersionRequest? request,
+        CancellationToken ct)
+    {
+        request ??= new VideoSeoGcwAssetVersionRequest();
+
+        if (!Enum.TryParse<ContentGeneratorProvider>(
+                request.Provider ?? "OpenAi",
+                ignoreCase: true,
+                out var provider))
+        {
+            return BadRequest(
+                $"Unknown provider '{request.Provider}'. Valid: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.");
+        }
+
+        if (request.Tone is not null && GcwDraftingCatalog.FindTone(request.Tone) is null)
+            return BadRequest($"Unknown tone '{request.Tone}'");
+
+        var current = await _repo.GetAssetVersionByIdAsync(id, ct);
+        if (current is null)
+            return NotFound();
+        if (string.IsNullOrWhiteSpace(current.BodyDocumentJson))
+            return BadRequest("version has no body document for video SEO");
+
+        var sourceAsset = await _repo.GetAssetByIdAsync(current.AssetId, ct);
+        if (sourceAsset is null)
+            return NotFound();
+
+        var packBrief = GcwVideoSeoPack.BuildPackBrief();
+        var draftingSuffix = GcwDraftingCatalog.BuildPromptSuffix(null, request.Tone);
+        if (!string.IsNullOrWhiteSpace(draftingSuffix))
+            packBrief = $"{packBrief}\n\nTone guidance:\n{draftingSuffix}";
+
+        _logger.LogInformation(
+            "GCW user {UserId} generating video SEO pack for asset version {VersionId} via {Provider}",
+            _currentUser.UserId,
+            id,
+            provider);
+
+        try
+        {
+            var generator = _contentGeneratorFactory.Get(provider);
+            var packJson = await generator.GenerateVideoSeoPackAsync(
+                current.BodyDocumentJson,
+                packBrief,
+                ct);
+            var pack = GcwVideoSeoPack.Parse(packJson);
+
+            var created = new List<RepurposeGcwCreatedItem>();
+            var stamp = DateTime.UtcNow.ToString("HHmm");
+            foreach (var section in pack.Sections)
+            {
+                var label = GcwVideoSeoPack.ChannelLabel(section.Kind);
+                var name = $"{label} · {section.Title}";
+                if (name.Length > 120)
+                    name = name[..117] + "…";
+                name = $"{name} ({stamp})";
+
+                var asset = await _repo.CreateAssetAsync(
+                    new CreateContentAssetCommand(sourceAsset.CampaignId, "companion", name),
+                    ct);
+                var body = GcwVideoSeoPack.ToContentDocumentJson(section);
+                var version = await _repo.CreateAssetVersionAsync(
+                    new CreateContentAssetVersionCommand(asset.Id, body),
+                    ct);
+
+                var preview = section.Items.FirstOrDefault()
+                              ?? TruncatePreview(section.Body, 160);
+                created.Add(new RepurposeGcwCreatedItem(
+                    asset.Id,
+                    version.Id,
+                    asset.Name,
+                    section.Kind,
+                    preview));
+            }
+
+            return Ok(new RepurposeGcwResult(
+                sourceAsset.Id,
+                id,
+                sourceAsset.CampaignId,
+                created));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Video SEO misconfigured or invalid pack for {Provider}", provider);
+            return StatusCode(503, ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Video SEO provider call failed");
+            return StatusCode(502, "LLM provider request failed");
+        }
+    }
+
     private static string ChannelLabel(string channel) => channel.ToLowerInvariant() switch
     {
         "linkedin" => "LinkedIn",
@@ -481,6 +580,9 @@ public class GcwAssetVersionsController : ControllerBase
         string? Provider = null,
         string? Tone = null,
         string[]? Channels = null);
+    public sealed record VideoSeoGcwAssetVersionRequest(
+        string? Provider = null,
+        string? Tone = null);
     public sealed record RepurposeGcwCreatedItem(
         Guid AssetId,
         Guid VersionId,

@@ -119,6 +119,43 @@ public class ClaudeContentGenerator : IContentGenerator
         });
     }
 
+    public async Task<string> GenerateVideoSeoPackAsync(
+        string pillarDocumentJson,
+        string packBrief,
+        CancellationToken ct = default)
+    {
+        var prompt =
+            $"""
+            You are a YouTube SEO strategist (VidIQ-class). From a long-form pillar article,
+            produce a video SEO pack.
+
+            Pack brief:
+            {packBrief}
+
+            Pillar ContentDocument JSON:
+            {pillarDocumentJson}
+
+            Stay faithful to the pillar — do not invent product claims. Follow the pack brief exactly.
+
+            Respond with ONLY a single valid JSON object — no markdown fences — with a top-level
+            "sections" array. Each section object needs: kind (titles|description|tags|chapters|
+            thumbnails|shorts), title, optional body, optional items string array.
+            """;
+
+        var raw = await GenerateWithClaudeAsync(prompt, ct, maxTokens: 8192);
+        var pack = GeekAPI.Services.Gcw.GcwVideoSeoPack.Parse(raw);
+        return JsonSerializer.Serialize(new
+        {
+            sections = pack.Sections.Select(s => new
+            {
+                kind = s.Kind,
+                title = s.Title,
+                body = s.Body,
+                items = s.Items,
+            }),
+        });
+    }
+
     public async Task<string> GenerateSectionAsync(
         string sectionHeading,
         string context,

@@ -155,6 +155,49 @@ public class OpenAiContentGenerator : IContentGenerator
         });
     }
 
+    public async Task<string> GenerateVideoSeoPackAsync(
+        string pillarDocumentJson,
+        string packBrief,
+        CancellationToken ct = default)
+    {
+        var system = """
+            You are a YouTube SEO strategist (VidIQ-class). From a long-form pillar article,
+            produce a video SEO pack. Respond with ONLY a single valid JSON object:
+            {
+              "sections": [
+                {
+                  "kind": "titles" | "description" | "tags" | "chapters" | "thumbnails" | "shorts",
+                  "title": "short label",
+                  "body": "prose when needed",
+                  "items": ["list entries when needed"]
+                }
+              ]
+            }
+            Stay faithful to the pillar — do not invent product claims. Follow the pack brief exactly.
+            """;
+
+        var user = $"""
+            Pack brief:
+            {packBrief}
+
+            Pillar ContentDocument JSON:
+            {pillarDocumentJson}
+            """;
+
+        var raw = await GenerateWithOpenAiAsync(system, user, ct);
+        var pack = GeekAPI.Services.Gcw.GcwVideoSeoPack.Parse(raw);
+        return JsonSerializer.Serialize(new
+        {
+            sections = pack.Sections.Select(s => new
+            {
+                kind = s.Kind,
+                title = s.Title,
+                body = s.Body,
+                items = s.Items,
+            }),
+        });
+    }
+
     public async Task<string> GenerateSectionAsync(
         string sectionHeading,
         string context,
