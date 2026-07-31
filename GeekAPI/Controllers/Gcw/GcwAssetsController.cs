@@ -135,17 +135,20 @@ public class GcwAssetVersionsController : ControllerBase
 {
     private readonly HttpContentWriterV3Repository _repo;
     private readonly IContentGeneratorFactory _contentGeneratorFactory;
+    private readonly HttpImageGeneratorClient _imageGenerator;
     private readonly ICurrentUserContext _currentUser;
     private readonly ILogger<GcwAssetVersionsController> _logger;
 
     public GcwAssetVersionsController(
         HttpContentWriterV3Repository repo,
         IContentGeneratorFactory contentGeneratorFactory,
+        HttpImageGeneratorClient imageGenerator,
         ICurrentUserContext currentUser,
         ILogger<GcwAssetVersionsController> logger)
     {
         _repo = repo;
         _contentGeneratorFactory = contentGeneratorFactory;
+        _imageGenerator = imageGenerator;
         _currentUser = currentUser;
         _logger = logger;
     }
@@ -552,6 +555,104 @@ public class GcwAssetVersionsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Generate a campaign visual via image-generator and save as a companion asset.
+    /// </summary>
+    [HttpPost("{id:guid}/visuals")]
+    public async Task<ActionResult<RepurposeGcwResult>> GenerateVisual(
+        Guid id,
+        [FromBody] GenerateGcwVisualRequest? request,
+        CancellationToken ct)
+    {
+        request ??= new GenerateGcwVisualRequest();
+        var useCase = string.IsNullOrWhiteSpace(request.UseCase)
+            ? "social-linkedin"
+            : request.UseCase.Trim();
+        if (!GcwVisualCatalog.IsKnownUseCase(useCase))
+        {
+            return BadRequest(
+                $"Unknown useCase '{useCase}'. Valid: {string.Join(", ", GcwVisualCatalog.UseCases.Select(u => u.Slug))}");
+        }
+
+        var current = await _repo.GetAssetVersionByIdAsync(id, ct);
+        if (current is null)
+            return NotFound();
+        if (string.IsNullOrWhiteSpace(current.BodyDocumentJson))
+            return BadRequest("version has no body document to base a visual on");
+
+        var sourceAsset = await _repo.GetAssetByIdAsync(current.AssetId, ct);
+        if (sourceAsset is null)
+            return NotFound();
+
+        var prompt = GcwVisualCatalog.BuildPrompt(
+            current.BodyDocumentJson,
+            useCase,
+            request.Direction);
+
+        _logger.LogInformation(
+            "GCW user {UserId} generating visual for asset version {VersionId} useCase={UseCase}",
+            _currentUser.UserId,
+            id,
+            useCase);
+
+        try
+        {
+            var generated = await _imageGenerator.GenerateAsync(
+                prompt,
+                useCase,
+                request.Provider,
+                ct);
+            var image = generated.Images[0];
+            var format = image.Formats.Webp ?? image.Formats.Avif;
+            if (format is null || string.IsNullOrWhiteSpace(format.BytesBase64))
+                return StatusCode(502, "image-generator returned an empty image payload");
+
+            var label = GcwVisualCatalog.UseCases
+                .FirstOrDefault(u => u.Slug.Equals(useCase, StringComparison.OrdinalIgnoreCase))
+                .Name;
+            if (string.IsNullOrWhiteSpace(label))
+                label = useCase;
+            var stamp = DateTime.UtcNow.ToString("HHmm");
+            var name = $"Visual · {label} ({stamp})";
+
+            var asset = await _repo.CreateAssetAsync(
+                new CreateContentAssetCommand(sourceAsset.CampaignId, "companion", name),
+                ct);
+            var body = GcwVisualCatalog.ToContentDocumentJson(
+                prompt,
+                useCase,
+                image.Provider,
+                format.ContentType,
+                format.BytesBase64);
+            var version = await _repo.CreateAssetVersionAsync(
+                new CreateContentAssetVersionCommand(asset.Id, body),
+                ct);
+
+            return Ok(new RepurposeGcwResult(
+                sourceAsset.Id,
+                id,
+                sourceAsset.CampaignId,
+                [
+                    new RepurposeGcwCreatedItem(
+                        asset.Id,
+                        version.Id,
+                        asset.Name,
+                        useCase,
+                        $"Visual via {image.Provider}"),
+                ]));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Visual generation failed");
+            return StatusCode(503, ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "image-generator HTTP failed");
+            return StatusCode(502, "image-generator request failed");
+        }
+    }
+
     private static string ChannelLabel(string channel) => channel.ToLowerInvariant() switch
     {
         "linkedin" => "LinkedIn",
@@ -583,6 +684,10 @@ public class GcwAssetVersionsController : ControllerBase
     public sealed record VideoSeoGcwAssetVersionRequest(
         string? Provider = null,
         string? Tone = null);
+    public sealed record GenerateGcwVisualRequest(
+        string? UseCase = null,
+        string? Provider = null,
+        string? Direction = null);
     public sealed record RepurposeGcwCreatedItem(
         Guid AssetId,
         Guid VersionId,
