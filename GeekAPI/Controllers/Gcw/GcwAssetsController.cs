@@ -263,6 +263,33 @@ public class GcwAssetVersionsController : ControllerBase
     }
 
     /// <summary>
+    /// Grammarly-class polish / ship-check for a version (clarity + prohibited claims).
+    /// </summary>
+    [HttpGet("{id:guid}/polish")]
+    public async Task<ActionResult<GcwPolishAnalyzer.PolishReport>> GetPolish(Guid id, CancellationToken ct)
+    {
+        var version = await _repo.GetAssetVersionByIdAsync(id, ct);
+        if (version is null)
+            return NotFound();
+
+        var asset = await _repo.GetAssetByIdAsync(version.AssetId, ct);
+        if (asset is null)
+            return NotFound();
+
+        Dictionary<string, object>? prohibited = null;
+        var campaign = await _repo.GetCampaignByIdAsync(asset.CampaignId, ct);
+        if (campaign is not null && campaign.ProfileVersionId != Guid.Empty)
+        {
+            var profileVersion = await _repo.GetClientProfileVersionByIdAsync(campaign.ProfileVersionId, ct);
+            prohibited = profileVersion?.ProhibitedClaims;
+        }
+
+        var phrases = GcwPolishAnalyzer.ExtractClaimPhrases(prohibited);
+        var report = GcwPolishAnalyzer.Analyze(version.BodyDocumentJson ?? "", phrases);
+        return Ok(report);
+    }
+
+    /// <summary>
     /// Iterative revise chat: apply feedback to a version's ContentDocument and save a new version.
     /// </summary>
     [HttpPost("{id:guid}/revise")]
