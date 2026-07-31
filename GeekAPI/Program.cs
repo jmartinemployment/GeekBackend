@@ -80,6 +80,15 @@ builder.Services.AddScoped(sp =>
     return new HttpContentWriterV3Repository(httpClient, logger);
 });
 
+var imageGeneratorBaseUrl =
+    Environment.GetEnvironmentVariable("IMAGE_GENERATOR_BASE_URL")
+    ?? "https://image-generator.geekatyourspot.com";
+builder.Services.AddHttpClient<GeekAPI.Services.Gcw.HttpImageGeneratorClient>(client =>
+{
+    client.BaseAddress = new Uri(imageGeneratorBaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromMinutes(3);
+});
+
 // Content Writer V3: Services
 // Provider-selectable generation: keyed registrations resolved via IContentGeneratorFactory,
 // same pattern content-writer-v2's IContentProviderFactory uses. OpenAi reuses content-writer-v2's
