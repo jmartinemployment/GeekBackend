@@ -1,5 +1,6 @@
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.Gcw;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentWriterV3;
 using Microsoft.AspNetCore.Mvc;
@@ -262,24 +263,33 @@ public class GcwAssetVersionsController : ControllerBase
                 $"Unknown provider '{request.Provider}'. Valid: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.");
         }
 
+        if (request.Tone is not null && GcwDraftingCatalog.FindTone(request.Tone) is null)
+            return BadRequest($"Unknown tone '{request.Tone}'");
+
         var current = await _repo.GetAssetVersionByIdAsync(id, ct);
         if (current is null)
             return NotFound();
         if (string.IsNullOrWhiteSpace(current.BodyDocumentJson))
             return BadRequest("version has no body document to revise");
 
+        var feedback = request.Feedback.Trim();
+        var draftingSuffix = GcwDraftingCatalog.BuildPromptSuffix(null, request.Tone);
+        if (!string.IsNullOrWhiteSpace(draftingSuffix))
+            feedback = $"{feedback}\n\n{draftingSuffix}";
+
         _logger.LogInformation(
-            "GCW user {UserId} revising asset version {VersionId} via {Provider}",
+            "GCW user {UserId} revising asset version {VersionId} via {Provider} (tone={Tone})",
             _currentUser.UserId,
             id,
-            provider);
+            provider,
+            request.Tone);
 
         try
         {
             var generator = _contentGeneratorFactory.Get(provider);
             var revisedJson = await generator.ReviseStructuredDraftAsync(
                 current.BodyDocumentJson,
-                request.Feedback.Trim(),
+                feedback,
                 ct);
 
             var version = await _repo.CreateAssetVersionAsync(
@@ -301,7 +311,10 @@ public class GcwAssetVersionsController : ControllerBase
 
     public sealed record CreateGcwAssetVersionRequest(Guid AssetId, string BodyDocumentJson);
     public sealed record UpdateGcwAssetVersionRequest(string BodyDocumentJson);
-    public sealed record ReviseGcwAssetVersionRequest(string Feedback, string? Provider = null);
+    public sealed record ReviseGcwAssetVersionRequest(
+        string Feedback,
+        string? Provider = null,
+        string? Tone = null);
 }
 
 [ApiController]
