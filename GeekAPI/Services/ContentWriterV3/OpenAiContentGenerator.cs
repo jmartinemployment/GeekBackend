@@ -107,6 +107,54 @@ public class OpenAiContentGenerator : IContentGenerator
         return ExtractAndValidateContentDocument(raw);
     }
 
+    public async Task<string> GenerateRepurposePackAsync(
+        string pillarDocumentJson,
+        string channelBrief,
+        CancellationToken ct = default)
+    {
+        var system = """
+            You are a senior content strategist. Repurpose a long-form pillar ContentDocument into a
+            multi-channel short-form and paid-social pack. Respond with ONLY a single valid JSON object:
+            {
+              "variants": [
+                {
+                  "channel": "linkedin" | "x" | "instagram" | "meta_ad" | "google_ad" | "email",
+                  "title": "short internal label",
+                  "headline": "optional short headline",
+                  "body": "channel-ready copy",
+                  "cta": "optional call to action",
+                  "hashtags": ["optional", "tags"]
+                }
+              ]
+            }
+            Stay faithful to the pillar's facts — do not invent claims. Vary angles across variants.
+            Match platform norms in the channel brief exactly (counts and lengths).
+            """;
+
+        var user = $"""
+            Channel brief:
+            {channelBrief}
+
+            Pillar ContentDocument JSON:
+            {pillarDocumentJson}
+            """;
+
+        var raw = await GenerateWithOpenAiAsync(system, user, ct);
+        var pack = GeekAPI.Services.Gcw.GcwRepurposePack.Parse(raw);
+        return JsonSerializer.Serialize(new
+        {
+            variants = pack.Variants.Select(v => new
+            {
+                channel = v.Channel,
+                title = v.Title,
+                headline = v.Headline,
+                body = v.Body,
+                cta = v.Cta,
+                hashtags = v.Hashtags,
+            }),
+        });
+    }
+
     public async Task<string> GenerateSectionAsync(
         string sectionHeading,
         string context,

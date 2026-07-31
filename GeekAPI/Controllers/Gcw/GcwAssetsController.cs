@@ -356,12 +356,142 @@ public class GcwAssetVersionsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Pillar → multi-channel short-form / ad companion assets (Copy.ai-class pack).
+    /// </summary>
+    [HttpPost("{id:guid}/repurpose")]
+    public async Task<ActionResult<RepurposeGcwResult>> Repurpose(
+        Guid id,
+        [FromBody] RepurposeGcwAssetVersionRequest? request,
+        CancellationToken ct)
+    {
+        request ??= new RepurposeGcwAssetVersionRequest();
+
+        if (!Enum.TryParse<ContentGeneratorProvider>(
+                request.Provider ?? "OpenAi",
+                ignoreCase: true,
+                out var provider))
+        {
+            return BadRequest(
+                $"Unknown provider '{request.Provider}'. Valid: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.");
+        }
+
+        if (request.Tone is not null && GcwDraftingCatalog.FindTone(request.Tone) is null)
+            return BadRequest($"Unknown tone '{request.Tone}'");
+
+        var current = await _repo.GetAssetVersionByIdAsync(id, ct);
+        if (current is null)
+            return NotFound();
+        if (string.IsNullOrWhiteSpace(current.BodyDocumentJson))
+            return BadRequest("version has no body document to repurpose");
+
+        var sourceAsset = await _repo.GetAssetByIdAsync(current.AssetId, ct);
+        if (sourceAsset is null)
+            return NotFound();
+
+        var channelBrief = GcwRepurposeCatalog.BuildChannelBrief(request.Channels);
+        var draftingSuffix = GcwDraftingCatalog.BuildPromptSuffix(null, request.Tone);
+        if (!string.IsNullOrWhiteSpace(draftingSuffix))
+            channelBrief = $"{channelBrief}\n\nTone guidance:\n{draftingSuffix}";
+
+        _logger.LogInformation(
+            "GCW user {UserId} repurposing asset version {VersionId} via {Provider} (tone={Tone})",
+            _currentUser.UserId,
+            id,
+            provider,
+            request.Tone);
+
+        try
+        {
+            var generator = _contentGeneratorFactory.Get(provider);
+            var packJson = await generator.GenerateRepurposePackAsync(
+                current.BodyDocumentJson,
+                channelBrief,
+                ct);
+            var pack = GcwRepurposePack.Parse(packJson);
+
+            var created = new List<RepurposeGcwCreatedItem>();
+            var stamp = DateTime.UtcNow.ToString("HHmm");
+            foreach (var variant in pack.Variants)
+            {
+                var name = $"{ChannelLabel(variant.Channel)} · {variant.Title}";
+                if (name.Length > 120)
+                    name = name[..117] + "…";
+                name = $"{name} ({stamp})";
+
+                var asset = await _repo.CreateAssetAsync(
+                    new CreateContentAssetCommand(sourceAsset.CampaignId, "companion", name),
+                    ct);
+                var body = GcwRepurposePack.ToContentDocumentJson(variant);
+                var version = await _repo.CreateAssetVersionAsync(
+                    new CreateContentAssetVersionCommand(asset.Id, body),
+                    ct);
+
+                created.Add(new RepurposeGcwCreatedItem(
+                    asset.Id,
+                    version.Id,
+                    asset.Name,
+                    variant.Channel,
+                    TruncatePreview(variant.Body, 160)));
+            }
+
+            return Ok(new RepurposeGcwResult(
+                sourceAsset.Id,
+                id,
+                sourceAsset.CampaignId,
+                created));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Repurpose misconfigured or invalid pack for {Provider}", provider);
+            return StatusCode(503, ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Repurpose provider call failed");
+            return StatusCode(502, "LLM provider request failed");
+        }
+    }
+
+    private static string ChannelLabel(string channel) => channel.ToLowerInvariant() switch
+    {
+        "linkedin" => "LinkedIn",
+        "x" => "X",
+        "instagram" => "Instagram",
+        "meta_ad" => "Meta ad",
+        "google_ad" => "Google ad",
+        "email" => "Email",
+        _ => channel,
+    };
+
+    private static string TruncatePreview(string text, int max)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length <= max)
+            return text ?? "";
+        return text[..(max - 1)].TrimEnd() + "…";
+    }
+
     public sealed record CreateGcwAssetVersionRequest(Guid AssetId, string BodyDocumentJson);
     public sealed record UpdateGcwAssetVersionRequest(string BodyDocumentJson);
     public sealed record ReviseGcwAssetVersionRequest(
         string Feedback,
         string? Provider = null,
         string? Tone = null);
+    public sealed record RepurposeGcwAssetVersionRequest(
+        string? Provider = null,
+        string? Tone = null,
+        string[]? Channels = null);
+    public sealed record RepurposeGcwCreatedItem(
+        Guid AssetId,
+        Guid VersionId,
+        string Name,
+        string Channel,
+        string Preview);
+    public sealed record RepurposeGcwResult(
+        Guid SourceAssetId,
+        Guid SourceVersionId,
+        Guid CampaignId,
+        IReadOnlyList<RepurposeGcwCreatedItem> Created);
 }
 
 [ApiController]
