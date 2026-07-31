@@ -78,6 +78,47 @@ public class ClaudeContentGenerator : IContentGenerator
         return ExtractAndValidateContentDocument(raw);
     }
 
+    public async Task<string> GenerateRepurposePackAsync(
+        string pillarDocumentJson,
+        string channelBrief,
+        CancellationToken ct = default)
+    {
+        var prompt =
+            $"""
+            You are a senior content strategist. Repurpose a long-form pillar ContentDocument into a
+            multi-channel short-form and paid-social pack.
+
+            Channel brief:
+            {channelBrief}
+
+            Pillar ContentDocument JSON:
+            {pillarDocumentJson}
+
+            Stay faithful to the pillar's facts — do not invent claims. Vary angles across variants.
+            Match platform norms in the channel brief exactly (counts and lengths).
+
+            Respond with ONLY a single valid JSON object — no markdown fences, no commentary —
+            with a top-level "variants" array. Each variant object must include:
+            channel (linkedin|x|instagram|meta_ad|google_ad|email), title, optional headline,
+            body, optional cta, optional hashtags string array.
+            """;
+
+        var raw = await GenerateWithClaudeAsync(prompt, ct, maxTokens: 8192);
+        var pack = GeekAPI.Services.Gcw.GcwRepurposePack.Parse(raw);
+        return JsonSerializer.Serialize(new
+        {
+            variants = pack.Variants.Select(v => new
+            {
+                channel = v.Channel,
+                title = v.Title,
+                headline = v.Headline,
+                body = v.Body,
+                cta = v.Cta,
+                hashtags = v.Hashtags,
+            }),
+        });
+    }
+
     public async Task<string> GenerateSectionAsync(
         string sectionHeading,
         string context,
@@ -99,7 +140,7 @@ public class ClaudeContentGenerator : IContentGenerator
         return await GenerateWithClaudeAsync(prompt, ct);
     }
 
-    private async Task<string> GenerateWithClaudeAsync(string prompt, CancellationToken ct)
+    private async Task<string> GenerateWithClaudeAsync(string prompt, CancellationToken ct, int maxTokens = 4096)
     {
         try
         {
@@ -108,7 +149,7 @@ public class ClaudeContentGenerator : IContentGenerator
             var request = new
             {
                 model = ClaudeModel,
-                max_tokens = 4096,
+                max_tokens = maxTokens,
                 messages = new[]
                 {
                     new { role = "user", content = prompt }

@@ -43,6 +43,15 @@ public interface IContentGenerator
         CancellationToken ct = default);
 
     /// <summary>
+    /// Repurpose a pillar ContentDocument into a multi-channel short-form pack (social + ads).
+    /// Returns validated pack JSON: { "variants": [ { channel, title, headline?, body, cta?, hashtags? } ] }.
+    /// </summary>
+    Task<string> GenerateRepurposePackAsync(
+        string pillarDocumentJson,
+        string channelBrief,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Generate a specific section of content for feedback/refinement.
     /// </summary>
     Task<string> GenerateSectionAsync(
