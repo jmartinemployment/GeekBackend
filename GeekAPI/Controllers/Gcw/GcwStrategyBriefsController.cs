@@ -62,7 +62,7 @@ public class GcwStrategyBriefsController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.CallToAction))
             return BadRequest("callToAction is required");
 
-        // Pain points land in P2 — empty GUID is allowed (no FK).
+        // Empty GUID allowed when no pain point linked yet (no FK).
         var command = new CreateStrategyBriefCommand(
             request.CampaignId,
             request.PainPointId ?? Guid.Empty,
