@@ -584,10 +584,15 @@ public class GcwAssetVersionsController : ControllerBase
         if (sourceAsset is null)
             return NotFound();
 
-        var prompt = GcwVisualCatalog.BuildPrompt(
+        var copy = GcwVisualCatalog.BuildCopy(
             current.BodyDocumentJson,
             useCase,
             request.Direction);
+        var prompt = GcwVisualCatalog.BuildPrompt(
+            current.BodyDocumentJson,
+            useCase,
+            request.Direction,
+            copy);
 
         _logger.LogInformation(
             "GCW user {UserId} generating visual for asset version {VersionId} useCase={UseCase}",
@@ -601,6 +606,8 @@ public class GcwAssetVersionsController : ControllerBase
                 prompt,
                 useCase,
                 request.Provider,
+                copy.Headline,
+                copy.Subtitle,
                 ct);
             var image = generated.Images[0];
             var format = image.Formats.Webp ?? image.Formats.Avif;
@@ -623,7 +630,8 @@ public class GcwAssetVersionsController : ControllerBase
                 useCase,
                 image.Provider,
                 format.ContentType,
-                format.BytesBase64);
+                format.BytesBase64,
+                copy);
             var version = await _repo.CreateAssetVersionAsync(
                 new CreateContentAssetVersionCommand(asset.Id, body),
                 ct);
@@ -638,7 +646,7 @@ public class GcwAssetVersionsController : ControllerBase
                         version.Id,
                         asset.Name,
                         useCase,
-                        $"Visual via {image.Provider}"),
+                        copy.Headline),
                 ]));
         }
         catch (InvalidOperationException ex)
