@@ -52,6 +52,15 @@ public interface IContentGenerator
         CancellationToken ct = default);
 
     /// <summary>
+    /// Generate a YouTube / video SEO pack from a pillar ContentDocument (titles, description,
+    /// tags, chapters, thumbnail concepts, shorts hooks). Returns pack JSON with a "sections" array.
+    /// </summary>
+    Task<string> GenerateVideoSeoPackAsync(
+        string pillarDocumentJson,
+        string packBrief,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Generate a specific section of content for feedback/refinement.
     /// </summary>
     Task<string> GenerateSectionAsync(
