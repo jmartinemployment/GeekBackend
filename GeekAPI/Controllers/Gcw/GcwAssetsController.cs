@@ -243,6 +243,26 @@ public class GcwAssetVersionsController : ControllerBase
     }
 
     /// <summary>
+    /// In-editor SEO report for a version against its campaign keyword.
+    /// </summary>
+    [HttpGet("{id:guid}/seo")]
+    public async Task<ActionResult<GcwSeoAnalyzer.SeoReport>> GetSeo(Guid id, CancellationToken ct)
+    {
+        var version = await _repo.GetAssetVersionByIdAsync(id, ct);
+        if (version is null)
+            return NotFound();
+
+        var asset = await _repo.GetAssetByIdAsync(version.AssetId, ct);
+        if (asset is null)
+            return NotFound();
+
+        var campaign = await _repo.GetCampaignByIdAsync(asset.CampaignId, ct);
+        var keyword = campaign?.Keyword ?? "";
+        var report = GcwSeoAnalyzer.Analyze(version.BodyDocumentJson ?? "", keyword);
+        return Ok(report);
+    }
+
+    /// <summary>
     /// Iterative revise chat: apply feedback to a version's ContentDocument and save a new version.
     /// </summary>
     [HttpPost("{id:guid}/revise")]
