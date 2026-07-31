@@ -278,6 +278,33 @@ public class HttpContentWriterV3Repository
         }
     }
 
+    public async Task<StrategyBriefDto> UpdateStrategyBriefAsync(UpdateStrategyBriefCommand command, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PutAsync($"repo/content-writer-v3/strategy-briefs/{command.Id}", content, ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                throw new KeyNotFoundException($"StrategyBrief {command.Id} not found");
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<StrategyBriefDto>(responseContent, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize strategy brief response");
+        }
+        catch (KeyNotFoundException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating strategy brief {StrategyBriefId}", command.Id);
+            throw;
+        }
+    }
+
     public async Task<StrategyBriefDto> ApproveStrategyBriefAsync(Guid id, CancellationToken ct = default)
     {
         try

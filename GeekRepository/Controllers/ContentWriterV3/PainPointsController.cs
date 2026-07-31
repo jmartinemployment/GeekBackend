@@ -85,6 +85,24 @@ public class StrategyBriefsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = brief.Id }, brief);
     }
 
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult<StrategyBriefDto>> Update(Guid id, [FromBody] UpdateStrategyBriefCommand command, CancellationToken ct)
+    {
+        if (command is null)
+            return BadRequest("Command is required");
+
+        var updated = command with { Id = id };
+        try
+        {
+            var brief = await _repository.UpdateAsync(updated, ct);
+            return Ok(brief);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     [HttpPatch("{id:guid}/approve")]
     public async Task<ActionResult<StrategyBriefDto>> Approve(Guid id, CancellationToken ct)
     {
