@@ -1,5 +1,6 @@
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentWriterV3;
 using Microsoft.AspNetCore.Mvc;
 
@@ -132,15 +133,18 @@ public class GcwAssetsController : ControllerBase
 public class GcwAssetVersionsController : ControllerBase
 {
     private readonly HttpContentWriterV3Repository _repo;
+    private readonly IContentGeneratorFactory _contentGeneratorFactory;
     private readonly ICurrentUserContext _currentUser;
     private readonly ILogger<GcwAssetVersionsController> _logger;
 
     public GcwAssetVersionsController(
         HttpContentWriterV3Repository repo,
+        IContentGeneratorFactory contentGeneratorFactory,
         ICurrentUserContext currentUser,
         ILogger<GcwAssetVersionsController> logger)
     {
         _repo = repo;
+        _contentGeneratorFactory = contentGeneratorFactory;
         _currentUser = currentUser;
         _logger = logger;
     }
@@ -237,8 +241,67 @@ public class GcwAssetVersionsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Iterative revise chat: apply feedback to a version's ContentDocument and save a new version.
+    /// </summary>
+    [HttpPost("{id:guid}/revise")]
+    public async Task<ActionResult<ContentAssetVersionDto>> Revise(
+        Guid id,
+        [FromBody] ReviseGcwAssetVersionRequest request,
+        CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Feedback))
+            return BadRequest("feedback is required");
+
+        if (!Enum.TryParse<ContentGeneratorProvider>(
+                request.Provider ?? "OpenAi",
+                ignoreCase: true,
+                out var provider))
+        {
+            return BadRequest(
+                $"Unknown provider '{request.Provider}'. Valid: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.");
+        }
+
+        var current = await _repo.GetAssetVersionByIdAsync(id, ct);
+        if (current is null)
+            return NotFound();
+        if (string.IsNullOrWhiteSpace(current.BodyDocumentJson))
+            return BadRequest("version has no body document to revise");
+
+        _logger.LogInformation(
+            "GCW user {UserId} revising asset version {VersionId} via {Provider}",
+            _currentUser.UserId,
+            id,
+            provider);
+
+        try
+        {
+            var generator = _contentGeneratorFactory.Get(provider);
+            var revisedJson = await generator.ReviseStructuredDraftAsync(
+                current.BodyDocumentJson,
+                request.Feedback.Trim(),
+                ct);
+
+            var version = await _repo.CreateAssetVersionAsync(
+                new CreateContentAssetVersionCommand(current.AssetId, revisedJson),
+                ct);
+            return Ok(version);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Revise misconfigured for {Provider}", provider);
+            return StatusCode(503, ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Revise provider call failed");
+            return StatusCode(502, "LLM provider request failed");
+        }
+    }
+
     public sealed record CreateGcwAssetVersionRequest(Guid AssetId, string BodyDocumentJson);
     public sealed record UpdateGcwAssetVersionRequest(string BodyDocumentJson);
+    public sealed record ReviseGcwAssetVersionRequest(string Feedback, string? Provider = null);
 }
 
 [ApiController]

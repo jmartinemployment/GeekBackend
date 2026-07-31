@@ -83,12 +83,49 @@ public class OpenAiContentGenerator : IContentGenerator
         return ExtractAndValidateContentDocument(raw);
     }
 
-    public Task<string> GenerateSectionAsync(
+    public async Task<string> ReviseStructuredDraftAsync(
+        string currentDocumentJson,
+        string feedback,
+        CancellationToken ct = default)
+    {
+        var system = $"""
+            You are a professional content editor. Revise the given ContentDocument JSON according to the feedback.
+            Respond with ONLY a single valid JSON object — no markdown fences, no commentary — matching exactly:
+            {ContentDocumentJsonContract}
+            Preserve structure unless the feedback requires adding/removing sections. Keep approved facts intact;
+            do not invent claims. Apply the feedback thoroughly.
+            """;
+
+        var user = $"""
+            Feedback: {feedback}
+
+            Current document JSON:
+            {currentDocumentJson}
+            """;
+
+        var raw = await GenerateWithOpenAiAsync(system, user, ct);
+        return ExtractAndValidateContentDocument(raw);
+    }
+
+    public async Task<string> GenerateSectionAsync(
         string sectionHeading,
         string context,
         string specificFeedback,
-        CancellationToken ct = default) =>
-        throw new NotSupportedException("Section regeneration isn't implemented for OpenAiContentGenerator yet.");
+        CancellationToken ct = default)
+    {
+        var system = "You are a professional content writer. Return only the revised section prose — no JSON, no metadata.";
+        var user = $"""
+            Section: {sectionHeading}
+
+            Context: {context}
+
+            Feedback: {specificFeedback}
+
+            Write ONLY the section content, no metadata or explanations.
+            """;
+
+        return await GenerateWithOpenAiAsync(system, user, ct);
+    }
 
     private async Task<string> GenerateWithOpenAiAsync(string system, string user, CancellationToken ct)
     {

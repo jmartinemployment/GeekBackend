@@ -34,6 +34,15 @@ public interface IContentGenerator
         CancellationToken ct = default);
 
     /// <summary>
+    /// Revise an existing ContentDocument JSON based on editor feedback (tighten lede, add FAQ,
+    /// etc.). Returns validated ContentDocument JSON for a new asset version.
+    /// </summary>
+    Task<string> ReviseStructuredDraftAsync(
+        string currentDocumentJson,
+        string feedback,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Generate a specific section of content for feedback/refinement.
     /// </summary>
     Task<string> GenerateSectionAsync(
