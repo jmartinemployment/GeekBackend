@@ -1,5 +1,6 @@
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.Gcw;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentWriterV3;
 using GeekApplication.Models.ContentWriterV4;
@@ -183,6 +184,11 @@ public class GcwStrategyBriefsController : ControllerBase
                 $"Unknown provider '{request.Provider}'. Valid: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.");
         }
 
+        if (request.TemplateSlug is not null && GcwDraftingCatalog.FindTemplate(request.TemplateSlug) is null)
+            return BadRequest($"Unknown templateSlug '{request.TemplateSlug}'");
+        if (request.Tone is not null && GcwDraftingCatalog.FindTone(request.Tone) is null)
+            return BadRequest($"Unknown tone '{request.Tone}'");
+
         var brief = await _repo.GetStrategyBriefByIdAsync(id, ct);
         if (brief is null)
             return NotFound();
@@ -216,16 +222,22 @@ public class GcwStrategyBriefsController : ControllerBase
         if (!string.IsNullOrWhiteSpace(brandContext.AudienceSuffix))
             audience = $"{audience}\n\n{brandContext.AudienceSuffix}";
 
+        var draftingSuffix = GcwDraftingCatalog.BuildPromptSuffix(request.TemplateSlug, request.Tone);
+        if (!string.IsNullOrWhiteSpace(draftingSuffix))
+            audience = $"{audience}\n\n{draftingSuffix}";
+
         if (brandContext.EvidenceExtras.Count > 0)
             evidenceStatements.AddRange(brandContext.EvidenceExtras);
 
         _logger.LogInformation(
-            "GCW user {UserId} generating draft for brief {BriefId} → asset {AssetId} via {Provider} (brand={HasBrand})",
+            "GCW user {UserId} generating draft for brief {BriefId} → asset {AssetId} via {Provider} (brand={HasBrand}, template={Template}, tone={Tone})",
             _currentUser.UserId,
             id,
             request.AssetId,
             provider,
-            brandContext.HasBrand);
+            brandContext.HasBrand,
+            request.TemplateSlug,
+            request.Tone);
 
         try
         {
@@ -330,5 +342,9 @@ public class GcwStrategyBriefsController : ControllerBase
         string Angle,
         string CallToAction);
 
-    public sealed record GenerateGcwDraftRequest(Guid AssetId, string? Provider = null);
+    public sealed record GenerateGcwDraftRequest(
+        Guid AssetId,
+        string? Provider = null,
+        string? TemplateSlug = null,
+        string? Tone = null);
 }
