@@ -81,7 +81,12 @@ builder.Services.AddScoped(sp =>
 });
 
 // Content Writer V3: Services
-builder.Services.AddScoped<IContentGenerator, ClaudeContentGenerator>();
+// Provider-selectable generation: keyed registrations resolved via IContentGeneratorFactory,
+// same pattern content-writer-v2's IContentProviderFactory uses. OpenAi reuses content-writer-v2's
+// already-bound LlmProvidersOptions (registered by AddContentWriter below) rather than a separate key.
+builder.Services.AddKeyedScoped<IContentGenerator, ClaudeContentGenerator>(ContentGeneratorProvider.Anthropic);
+builder.Services.AddKeyedScoped<IContentGenerator, OpenAiContentGenerator>(ContentGeneratorProvider.OpenAi);
+builder.Services.AddScoped<IContentGeneratorFactory, ContentGeneratorFactory>();
 builder.Services.AddScoped<IAnalyticsAdapter, GoogleAnalyticsAdapter>();
 builder.Services.AddScoped<IPublishAdapter, WordPressPublishAdapter>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
