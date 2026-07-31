@@ -1,4 +1,5 @@
 using GeekAPI.HttpClients;
+using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentWriterV3;
 using Microsoft.AspNetCore.Mvc;
 
@@ -50,11 +51,16 @@ public class PainPointsController : ControllerBase
 public class StrategyBriefsController : ControllerBase
 {
     private readonly HttpContentWriterV3Repository _repo;
+    private readonly IContentGenerator _contentGenerator;
     private readonly ILogger<StrategyBriefsController> _logger;
 
-    public StrategyBriefsController(HttpContentWriterV3Repository repo, ILogger<StrategyBriefsController> logger)
+    public StrategyBriefsController(
+        HttpContentWriterV3Repository repo,
+        IContentGenerator contentGenerator,
+        ILogger<StrategyBriefsController> logger)
     {
         _repo = repo;
+        _contentGenerator = contentGenerator;
         _logger = logger;
     }
 
@@ -99,6 +105,63 @@ public class StrategyBriefsController : ControllerBase
         _logger.LogInformation("Rejecting strategy brief {StrategyBriefId}", id);
         var brief = await _repo.RejectStrategyBriefAsync(id, ct);
         return Ok(brief);
+    }
+
+    public record GenerateDraftRequest(Guid AssetId);
+
+    /// <summary>
+    /// Generates a real ContentAssetVersion from this brief: loads the brief's linked pain point
+    /// and research evidence, calls the LLM for structured JSON matching the frontend's
+    /// ContentDocument schema, and persists it as a new version of the given asset. First real
+    /// caller of IContentGenerator anywhere in this app — everything before this endpoint was
+    /// CRUD-only, with generation registered in DI but never invoked.
+    /// </summary>
+    [HttpPost("{id:guid}/generate")]
+    public async Task<ActionResult<ContentAssetVersionDto>> Generate(Guid id, [FromBody] GenerateDraftRequest request, CancellationToken ct)
+    {
+        var brief = await _repo.GetStrategyBriefByIdAsync(id, ct);
+        if (brief is null)
+        {
+            return NotFound($"Strategy brief {id} not found.");
+        }
+
+        var asset = await _repo.GetAssetByIdAsync(request.AssetId, ct);
+        if (asset is null)
+        {
+            return BadRequest($"Asset {request.AssetId} not found.");
+        }
+
+        var painPoint = await _repo.GetPainPointByIdAsync(brief.PainPointId, ct);
+
+        var evidenceLinks = await _repo.GetPainPointEvidenceLinksByPainPointIdAsync(brief.PainPointId, ct);
+        var evidenceStatements = new List<string>();
+        foreach (var link in evidenceLinks)
+        {
+            var evidence = await _repo.GetResearchEvidenceByIdAsync(link.ResearchEvidenceId, ct);
+            if (evidence is not null && evidence.ApprovedForClaim)
+            {
+                evidenceStatements.Add(evidence.Statement);
+            }
+        }
+
+        _logger.LogInformation(
+            "Generating structured draft for strategy brief {StrategyBriefId} (asset {AssetId}), {EvidenceCount} approved evidence statement(s)",
+            id, request.AssetId, evidenceStatements.Count);
+
+        var bodyDocumentJson = await _contentGenerator.GenerateStructuredDraftAsync(
+            angle: brief.Angle,
+            audienceProfile: painPoint is not null
+                ? $"{brief.AudienceProfile} (pain point: {painPoint.Name} — {painPoint.ReaderSymptom})"
+                : brief.AudienceProfile,
+            buyingStage: brief.BuyingStage,
+            callToAction: brief.CallToAction,
+            supportingEvidence: evidenceStatements,
+            ct: ct);
+
+        var version = await _repo.CreateAssetVersionAsync(
+            new CreateContentAssetVersionCommand(request.AssetId, bodyDocumentJson), ct);
+
+        return Ok(version);
     }
 }
 

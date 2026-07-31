@@ -19,6 +19,21 @@ public interface IContentGenerator
         CancellationToken ct = default);
 
     /// <summary>
+    /// Generate a complete draft as structured JSON matching content-writer-v3's own
+    /// ContentDocument/Section/Paragraph/Run schema (lib/types.ts) — not markdown prose. This is
+    /// the shape the frontend actually renders; <see cref="GenerateDraftAsync"/>'s markdown output
+    /// cannot be rendered into it. Returns the validated JSON string, ready to store as a
+    /// ContentAssetVersion's BodyDocumentJson.
+    /// </summary>
+    Task<string> GenerateStructuredDraftAsync(
+        string angle,
+        string audienceProfile,
+        string buyingStage,
+        string callToAction,
+        List<string> supportingEvidence,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Generate a specific section of content for feedback/refinement.
     /// </summary>
     Task<string> GenerateSectionAsync(
