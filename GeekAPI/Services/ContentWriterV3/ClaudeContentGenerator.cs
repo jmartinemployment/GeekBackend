@@ -53,6 +53,31 @@ public class ClaudeContentGenerator : IContentGenerator
         return ExtractAndValidateContentDocument(raw);
     }
 
+    public async Task<string> ReviseStructuredDraftAsync(
+        string currentDocumentJson,
+        string feedback,
+        CancellationToken ct = default)
+    {
+        var prompt = $"""
+            You are a professional content editor. Revise the given ContentDocument JSON according to the feedback.
+
+            Feedback: {feedback}
+
+            Current document JSON:
+            {currentDocumentJson}
+
+            Requirements:
+            - Apply the feedback thoroughly.
+            - Preserve structure unless the feedback requires adding/removing sections.
+            - Keep existing factual claims; do not invent new ones.
+            - Respond with ONLY a single valid JSON object — no markdown fences, no commentary — matching exactly:
+            {ContentDocumentJsonContract}
+            """;
+
+        var raw = await GenerateWithClaudeAsync(prompt, ct);
+        return ExtractAndValidateContentDocument(raw);
+    }
+
     public async Task<string> GenerateSectionAsync(
         string sectionHeading,
         string context,
