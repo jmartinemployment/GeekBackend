@@ -137,6 +137,18 @@ public class PublicationsController : ControllerBase
         return Ok(publication);
     }
 
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<PublicationDto>>> GetByAssetVersionId(
+        [FromQuery] Guid assetVersionId,
+        CancellationToken ct)
+    {
+        if (assetVersionId == Guid.Empty)
+            return BadRequest("assetVersionId is required");
+
+        var publications = await _repository.GetByAssetVersionIdAsync(assetVersionId, ct);
+        return Ok(publications);
+    }
+
     [HttpPost]
     public async Task<ActionResult<PublicationDto>> Create([FromBody] CreatePublicationCommand command, CancellationToken ct)
     {

@@ -1130,6 +1130,29 @@ public class HttpContentWriterV3Repository
         }
     }
 
+    public async Task<IReadOnlyList<PublicationDto>> GetPublicationsByAssetVersionIdAsync(
+        Guid assetVersionId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync(
+                $"repo/content-writer-v3/publications?assetVersionId={assetVersionId}",
+                ct);
+            if (!response.IsSuccessStatusCode)
+                return new List<PublicationDto>().AsReadOnly();
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<PublicationDto>>(content, JsonOpts);
+            return (dtos ?? new()).AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching publications for asset version {AssetVersionId}", assetVersionId);
+            throw;
+        }
+    }
+
     public async Task<PublicationDto> CreatePublicationAsync(CreatePublicationCommand command, CancellationToken ct = default)
     {
         try
