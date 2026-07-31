@@ -61,7 +61,7 @@ public class ReconciliationProposalRepository : IReconciliationProposalRepositor
     public async Task<IReadOnlyList<ReconciliationProposalDto>> GetByResearchRunIdAsync(Guid researchRunId, CancellationToken ct = default)
     {
         var entities = await _db.ReconciliationProposals
-            .Where(r => r.ResearchRunId == researchRunId && r.Status == "pending")
+            .Where(r => r.ResearchRunId == researchRunId)
             .OrderByDescending(r => r.CreatedAtUtc)
             .ToListAsync(ct);
         return entities.Select(MapToDto).ToList().AsReadOnly();
