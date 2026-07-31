@@ -51,16 +51,16 @@ public class PainPointsController : ControllerBase
 public class StrategyBriefsController : ControllerBase
 {
     private readonly HttpContentWriterV3Repository _repo;
-    private readonly IContentGenerator _contentGenerator;
+    private readonly IContentGeneratorFactory _contentGeneratorFactory;
     private readonly ILogger<StrategyBriefsController> _logger;
 
     public StrategyBriefsController(
         HttpContentWriterV3Repository repo,
-        IContentGenerator contentGenerator,
+        IContentGeneratorFactory contentGeneratorFactory,
         ILogger<StrategyBriefsController> logger)
     {
         _repo = repo;
-        _contentGenerator = contentGenerator;
+        _contentGeneratorFactory = contentGeneratorFactory;
         _logger = logger;
     }
 
@@ -107,7 +107,10 @@ public class StrategyBriefsController : ControllerBase
         return Ok(brief);
     }
 
-    public record GenerateDraftRequest(Guid AssetId);
+    /// <param name="Provider">"OpenAi" or "Anthropic" (case-insensitive). Defaults to OpenAi when
+    /// omitted — that's the provider with a working key configured as of this endpoint's initial
+    /// build; Anthropic requires ANTHROPIC_API_KEY to be set separately.</param>
+    public record GenerateDraftRequest(Guid AssetId, string? Provider = null);
 
     /// <summary>
     /// Generates a real ContentAssetVersion from this brief: loads the brief's linked pain point
@@ -119,6 +122,11 @@ public class StrategyBriefsController : ControllerBase
     [HttpPost("{id:guid}/generate")]
     public async Task<ActionResult<ContentAssetVersionDto>> Generate(Guid id, [FromBody] GenerateDraftRequest request, CancellationToken ct)
     {
+        if (!Enum.TryParse<ContentGeneratorProvider>(request.Provider ?? "OpenAi", ignoreCase: true, out var provider))
+        {
+            return BadRequest($"Unknown provider '{request.Provider}'. Valid values: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.");
+        }
+
         var brief = await _repo.GetStrategyBriefByIdAsync(id, ct);
         if (brief is null)
         {
@@ -145,10 +153,11 @@ public class StrategyBriefsController : ControllerBase
         }
 
         _logger.LogInformation(
-            "Generating structured draft for strategy brief {StrategyBriefId} (asset {AssetId}), {EvidenceCount} approved evidence statement(s)",
-            id, request.AssetId, evidenceStatements.Count);
+            "Generating structured draft for strategy brief {StrategyBriefId} (asset {AssetId}) via {Provider}, {EvidenceCount} approved evidence statement(s)",
+            id, request.AssetId, provider, evidenceStatements.Count);
 
-        var bodyDocumentJson = await _contentGenerator.GenerateStructuredDraftAsync(
+        var contentGenerator = _contentGeneratorFactory.Get(provider);
+        var bodyDocumentJson = await contentGenerator.GenerateStructuredDraftAsync(
             angle: brief.Angle,
             audienceProfile: painPoint is not null
                 ? $"{brief.AudienceProfile} (pain point: {painPoint.Name} — {painPoint.ReaderSymptom})"

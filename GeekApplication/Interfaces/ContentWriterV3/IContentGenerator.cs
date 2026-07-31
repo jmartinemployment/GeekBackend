@@ -56,6 +56,21 @@ public class TokenUsage
     public decimal EstimatedCost { get; set; } // USD
 }
 
+/// <summary>Which LLM backs a given IContentGenerator implementation — lets callers pick per
+/// request rather than being locked to whichever provider happens to be the sole DI registration.</summary>
+public enum ContentGeneratorProvider
+{
+    Anthropic,
+    OpenAi,
+}
+
+/// <summary>Resolves the requested IContentGenerator implementation via keyed DI — same pattern
+/// content-writer-v2's IContentProviderFactory uses for its own multi-provider selection.</summary>
+public interface IContentGeneratorFactory
+{
+    IContentGenerator Get(ContentGeneratorProvider provider);
+}
+
 /// <summary>
 /// Analytics data retrieval and aggregation.
 /// </summary>
