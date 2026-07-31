@@ -51,9 +51,11 @@ public class ContentWriterV3DbContext : DbContext
         {
             entity.ToTable("workspaces");
             entity.HasKey(w => w.Id);
+            entity.Property(w => w.OwnerId).IsRequired().HasColumnName("owner_id");
             entity.Property(w => w.Name).IsRequired().HasMaxLength(256);
             entity.Property(w => w.CreatedAtUtc).IsRequired();
             entity.Property(w => w.UpdatedAtUtc).IsRequired();
+            entity.HasIndex(w => w.OwnerId).HasDatabaseName("ix_workspaces_owner_id");
         });
 
         modelBuilder.Entity<Client>(entity =>

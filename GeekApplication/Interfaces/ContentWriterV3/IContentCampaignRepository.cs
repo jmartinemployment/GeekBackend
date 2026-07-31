@@ -81,6 +81,7 @@ public interface IResearchEvidenceRepository
 public interface IWorkspaceRepository
 {
     Task<WorkspaceDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<WorkspaceDto>> GetByOwnerIdAsync(Guid ownerId, CancellationToken ct = default);
     Task<WorkspaceDto> CreateAsync(CreateWorkspaceCommand command, CancellationToken ct = default);
     Task<WorkspaceDto> UpdateAsync(UpdateWorkspaceCommand command, CancellationToken ct = default);
 }

@@ -34,13 +34,20 @@ public class WorkspacesApiController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<WorkspaceDto>> Create([FromBody] CreateWorkspaceCommand command, CancellationToken ct)
+    public async Task<ActionResult<WorkspaceDto>> Create([FromBody] CreateWorkspaceRequest request, CancellationToken ct)
     {
+        if (request is null || string.IsNullOrWhiteSpace(request.Name))
+            return BadRequest("name is required");
+
         _logger.LogInformation("User {UserId} creating workspace", _currentUser.UserId);
 
-        var workspace = await _repo.CreateWorkspaceAsync(command, ct);
+        var workspace = await _repo.CreateWorkspaceAsync(
+            new CreateWorkspaceCommand(request.Name.Trim(), _currentUser.UserId),
+            ct);
         return CreatedAtAction(nameof(GetById), new { id = workspace.Id }, workspace);
     }
+
+    public sealed record CreateWorkspaceRequest(string Name);
 }
 
 [ApiController]

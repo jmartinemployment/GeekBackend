@@ -68,7 +68,7 @@ public class AuthController : ControllerBase
 
         _logger.LogInformation("Creating default Demo Workspace {WorkspaceId}", DefaultWorkspaceId);
         await _repo.CreateWorkspaceAsync(
-            new CreateWorkspaceCommand("Demo Workspace", DefaultWorkspaceId), ct);
+            new CreateWorkspaceCommand("Demo Workspace", Guid.Empty, DefaultWorkspaceId), ct);
 
         existing = await _repo.GetWorkspaceByIdAsync(DefaultWorkspaceId, ct);
         if (existing is null || existing.Id == Guid.Empty)

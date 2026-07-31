@@ -18,11 +18,21 @@ public class WorkspaceRepository : IWorkspaceRepository
         return entity == null ? null : MapToDto(entity);
     }
 
+    public async Task<IReadOnlyList<WorkspaceDto>> GetByOwnerIdAsync(Guid ownerId, CancellationToken ct = default)
+    {
+        var entities = await _db.Workspaces
+            .Where(w => w.OwnerId == ownerId)
+            .OrderByDescending(w => w.UpdatedAtUtc)
+            .ToListAsync(ct);
+        return entities.Select(MapToDto).ToList().AsReadOnly();
+    }
+
     public async Task<WorkspaceDto> CreateAsync(CreateWorkspaceCommand command, CancellationToken ct = default)
     {
         var entity = new Workspace
         {
             Id = command.Id ?? Guid.NewGuid(),
+            OwnerId = command.OwnerId,
             Name = command.Name,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow
@@ -47,7 +57,7 @@ public class WorkspaceRepository : IWorkspaceRepository
     }
 
     private static WorkspaceDto MapToDto(Workspace entity) =>
-        new(entity.Id, entity.Name, entity.CreatedAtUtc, entity.UpdatedAtUtc);
+        new(entity.Id, entity.OwnerId, entity.Name, entity.CreatedAtUtc, entity.UpdatedAtUtc);
 }
 
 public class ClientRepository : IClientRepository

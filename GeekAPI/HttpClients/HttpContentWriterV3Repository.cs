@@ -908,6 +908,19 @@ public class HttpContentWriterV3Repository
         catch (Exception ex) { _logger.LogError(ex, "Error fetching workspace {WorkspaceId}", id); throw; }
     }
 
+    public async Task<IReadOnlyList<WorkspaceDto>> GetWorkspacesByOwnerIdAsync(Guid ownerId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v3/workspaces?ownerId={ownerId}", ct);
+            if (!response.IsSuccessStatusCode) return new List<WorkspaceDto>().AsReadOnly();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<WorkspaceDto>>(content, JsonOpts);
+            return (dtos ?? new List<WorkspaceDto>()).AsReadOnly();
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error listing workspaces for owner {OwnerId}", ownerId); throw; }
+    }
+
     public async Task<WorkspaceDto> CreateWorkspaceAsync(CreateWorkspaceCommand command, CancellationToken ct = default)
     {
         try
@@ -919,6 +932,23 @@ public class HttpContentWriterV3Repository
             return System.Text.Json.JsonSerializer.Deserialize<WorkspaceDto>(content, JsonOpts) ?? throw new InvalidOperationException("Failed to deserialize workspace response");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating workspace"); throw; }
+    }
+
+    public async Task<WorkspaceDto> UpdateWorkspaceAsync(UpdateWorkspaceCommand command, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var response = await _httpClient.PatchAsync(
+                $"repo/content-writer-v3/workspaces/{command.Id}",
+                new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                ct);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<WorkspaceDto>(content, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize workspace response");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error updating workspace {WorkspaceId}", command.Id); throw; }
     }
 
     // Clients
