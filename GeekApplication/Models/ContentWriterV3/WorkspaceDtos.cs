@@ -2,12 +2,14 @@ namespace GeekApplication.Models.ContentWriterV3;
 
 public sealed record WorkspaceDto(
     Guid Id,
+    Guid OwnerId,
     string Name,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
 public sealed record CreateWorkspaceCommand(
     string Name,
+    Guid OwnerId,
     Guid? Id = null);
 
 public sealed record UpdateWorkspaceCommand(

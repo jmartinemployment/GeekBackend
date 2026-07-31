@@ -25,11 +25,27 @@ public class WorkspacesController : ControllerBase
         return Ok(workspace);
     }
 
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<WorkspaceDto>>> List(
+        [FromQuery] Guid ownerId,
+        CancellationToken ct)
+    {
+        if (ownerId == Guid.Empty)
+            return BadRequest("ownerId is required");
+
+        var workspaces = await _repository.GetByOwnerIdAsync(ownerId, ct);
+        return Ok(workspaces);
+    }
+
     [HttpPost]
     public async Task<ActionResult<WorkspaceDto>> Create([FromBody] CreateWorkspaceCommand command, CancellationToken ct)
     {
         if (command is null)
             return BadRequest("Command is required");
+        if (command.OwnerId == Guid.Empty)
+            return BadRequest("ownerId is required");
+        if (string.IsNullOrWhiteSpace(command.Name))
+            return BadRequest("name is required");
 
         var workspace = await _repository.CreateAsync(command, ct);
         return CreatedAtAction(nameof(GetById), new { id = workspace.Id }, workspace);
