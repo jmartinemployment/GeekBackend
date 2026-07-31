@@ -44,6 +44,18 @@ public class ContentAssetRepository : IContentAssetRepository
         return MapToDto(entity);
     }
 
+    public async Task<ContentAssetDto> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default)
+    {
+        var entity = await _db.ContentAssets.FirstOrDefaultAsync(a => a.Id == id, ct)
+            ?? throw new KeyNotFoundException($"ContentAsset {id} not found");
+
+        entity.Status = status;
+        entity.UpdatedAtUtc = DateTime.UtcNow;
+        _db.ContentAssets.Update(entity);
+        await _db.SaveChangesAsync(ct);
+        return MapToDto(entity);
+    }
+
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
         var entity = await _db.ContentAssets.FirstOrDefaultAsync(a => a.Id == id, ct);

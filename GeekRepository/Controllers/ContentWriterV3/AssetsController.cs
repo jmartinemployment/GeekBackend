@@ -45,6 +45,23 @@ public class AssetsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = asset.Id }, asset);
     }
 
+    [HttpPatch("{id:guid}/status")]
+    public async Task<ActionResult<ContentAssetDto>> UpdateStatus(Guid id, [FromBody] UpdateStatusRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Status))
+            return BadRequest("status is required");
+
+        try
+        {
+            var asset = await _repository.UpdateStatusAsync(id, request.Status.Trim(), ct);
+            return Ok(asset);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<ActionResult> Delete(Guid id, CancellationToken ct)
     {
@@ -54,4 +71,6 @@ public class AssetsController : ControllerBase
 
         return NoContent();
     }
+
+    public record UpdateStatusRequest(string Status);
 }

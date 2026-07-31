@@ -16,6 +16,7 @@ public interface IContentAssetRepository
     Task<ContentAssetDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<ContentAssetDto>> GetByCampaignIdAsync(Guid campaignId, CancellationToken ct = default);
     Task<ContentAssetDto> CreateAsync(CreateContentAssetCommand command, CancellationToken ct = default);
+    Task<ContentAssetDto> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 }
 

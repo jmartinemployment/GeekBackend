@@ -999,6 +999,40 @@ public class HttpContentWriterV3Repository
         catch (Exception ex) { _logger.LogError(ex, "Error creating review comment"); throw; }
     }
 
+    public async Task<ReviewCommentDto> ResolveReviewCommentAsync(Guid id, string resolution, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(new { resolution });
+            var response = await _httpClient.PatchAsync(
+                $"repo/content-writer-v3/review-comments/{id}/resolve",
+                new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                ct);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ReviewCommentDto>(content, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize review comment response");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error resolving review comment {CommentId}", id); throw; }
+    }
+
+    public async Task<ContentAssetDto> UpdateAssetStatusAsync(Guid id, string status, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(new { status });
+            var response = await _httpClient.PatchAsync(
+                $"repo/content-writer-v3/assets/{id}/status",
+                new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                ct);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<ContentAssetDto>(content, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize asset response");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error updating asset {AssetId} status", id); throw; }
+    }
+
     // ApprovalEvents
     public async Task<ApprovalEventDto?> GetApprovalEventByIdAsync(Guid id, CancellationToken ct = default)
     {
