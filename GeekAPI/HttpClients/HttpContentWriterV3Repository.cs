@@ -1390,4 +1390,69 @@ public class HttpContentWriterV3Repository
         }
         catch (Exception ex) { _logger.LogError(ex, "Error creating client brand voice link"); throw; }
     }
+
+    // BrandVoices (Content Writer V4)
+    public async Task<GeekApplication.Models.ContentWriterV4.BrandVoiceDto?> GetBrandVoiceByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v4/brand-voices/{id}", ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<GeekApplication.Models.ContentWriterV4.BrandVoiceDto>(content, JsonOpts);
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error getting brand voice {Id}", id); throw; }
+    }
+
+    public async Task<IReadOnlyList<GeekApplication.Models.ContentWriterV4.BrandVoiceDto>> GetBrandVoicesByOwnerIdAsync(Guid ownerId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v4/brand-voices?ownerId={ownerId}", ct);
+            if (!response.IsSuccessStatusCode) return new List<GeekApplication.Models.ContentWriterV4.BrandVoiceDto>().AsReadOnly();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<GeekApplication.Models.ContentWriterV4.BrandVoiceDto>>(content, JsonOpts);
+            return (dtos ?? new List<GeekApplication.Models.ContentWriterV4.BrandVoiceDto>()).AsReadOnly();
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error listing brand voices for owner {OwnerId}", ownerId); throw; }
+    }
+
+    public async Task<GeekApplication.Models.ContentWriterV4.BrandVoiceDto> CreateBrandVoiceAsync(
+        GeekApplication.Models.ContentWriterV4.CreateBrandVoiceCommand command,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var response = await _httpClient.PostAsync(
+                "repo/content-writer-v4/brand-voices",
+                new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                ct);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<GeekApplication.Models.ContentWriterV4.BrandVoiceDto>(content, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize brand voice response");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error creating brand voice"); throw; }
+    }
+
+    public async Task<GeekApplication.Models.ContentWriterV4.BrandVoiceDto> UpdateBrandVoiceAsync(
+        GeekApplication.Models.ContentWriterV4.UpdateBrandVoiceCommand command,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var response = await _httpClient.PutAsync(
+                $"repo/content-writer-v4/brand-voices/{command.Id}",
+                new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                ct);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<GeekApplication.Models.ContentWriterV4.BrandVoiceDto>(content, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize brand voice response");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error updating brand voice {Id}", command.Id); throw; }
+    }
 }

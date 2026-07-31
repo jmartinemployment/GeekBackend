@@ -1,11 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 using GeekApplication.Interfaces;
 using GeekApplication.Interfaces.ContentWriterV3;
+using GeekApplication.Interfaces.ContentWriterV4;
 using GeekRepository.Infrastructure;
 using GeekRepository.Repositories;
 using GeekRepository.Repositories.Blog;
 using GeekRepository.Repositories.Content;
 using GeekRepository.Repositories.ContentWriterV3;
+using GeekRepository.Repositories.ContentWriterV4;
 
 namespace GeekRepository;
 
@@ -50,6 +52,9 @@ public static class ServiceRegistration
         services.AddScoped<IClientProfileRepository, ClientProfileRepository>();
         services.AddScoped<IClientProfileVersionRepository, ClientProfileVersionRepository>();
         services.AddScoped<IClientBrandVoiceLinkRepository, ClientBrandVoiceLinkRepository>();
+
+        // Content Writer V4
+        services.AddScoped<IBrandVoiceRepository, BrandVoiceRepository>();
 
         services.AddGeekSeoData();
 
