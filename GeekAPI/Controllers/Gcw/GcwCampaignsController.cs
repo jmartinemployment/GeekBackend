@@ -13,6 +13,16 @@ namespace GeekAPI.Controllers.Gcw;
 [Route("api/gcw/campaigns")]
 public class GcwCampaignsController : ControllerBase
 {
+    private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "draft",
+        "research",
+        "strategy",
+        "drafting",
+        "published",
+        "archived",
+    };
+
     private readonly HttpContentWriterV3Repository _repo;
     private readonly ICurrentUserContext _currentUser;
     private readonly ILogger<GcwCampaignsController> _logger;
@@ -96,13 +106,17 @@ public class GcwCampaignsController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Status))
             return BadRequest("status is required");
 
+        var status = request.Status.Trim();
+        if (!AllowedStatuses.Contains(status))
+            return BadRequest($"status must be one of: {string.Join(", ", AllowedStatuses)}");
+
         _logger.LogInformation(
             "GCW user {UserId} updating campaign {CampaignId} status to {Status}",
             _currentUser.UserId,
             id,
-            request.Status);
+            status);
 
-        var campaign = await _repo.UpdateCampaignStatusAsync(id, request.Status.Trim(), ct);
+        var campaign = await _repo.UpdateCampaignStatusAsync(id, status, ct);
         return Ok(campaign);
     }
 
