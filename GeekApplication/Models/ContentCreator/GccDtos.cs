@@ -1,0 +1,86 @@
+namespace GeekApplication.Models.ContentCreator;
+
+public sealed record GccCreateDto(
+    Guid Id,
+    Guid ClientId,
+    Guid OwnerUserId,
+    string StartingContentType,
+    string Topic,
+    string? Notes,
+    Guid? SiteAnalysisId,
+    string? SiteSectionJson,
+    string Status,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
+
+public sealed record CreateGccCreateCommand(
+    Guid ClientId,
+    Guid OwnerUserId,
+    string StartingContentType,
+    string Topic,
+    string? Notes = null,
+    Guid? SiteAnalysisId = null,
+    string? SiteSectionJson = null);
+
+public sealed record GccArtifactDto(
+    Guid Id,
+    Guid CreateId,
+    Guid? ParentArtifactId,
+    string Type,
+    string Name,
+    string Status,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
+
+public sealed record CreateGccArtifactCommand(
+    Guid CreateId,
+    string Type,
+    string Name,
+    Guid? ParentArtifactId = null);
+
+public sealed record UpdateGccArtifactStatusCommand(
+    Guid Id,
+    string Status);
+
+public sealed record GccArtifactVersionDto(
+    Guid Id,
+    Guid ArtifactId,
+    int VersionNumber,
+    string BodyDocumentJson,
+    string? MetadataJson,
+    uint RowVersion,
+    DateTime CreatedAtUtc);
+
+public sealed record CreateGccArtifactVersionCommand(
+    Guid ArtifactId,
+    string BodyDocumentJson,
+    string? MetadataJson = null);
+
+public sealed record GccApprovalEventDto(
+    Guid Id,
+    Guid ArtifactVersionId,
+    Guid UserId,
+    string Action,
+    string? Notes,
+    DateTime CreatedAtUtc);
+
+public sealed record CreateGccApprovalEventCommand(
+    Guid ArtifactVersionId,
+    Guid UserId,
+    string Action,
+    string? Notes = null);
+
+public sealed record GccSiteAnalysisDto(
+    Guid Id,
+    string Domain,
+    string? SeedTopic,
+    string GapsJson,
+    bool IsDemo,
+    DateTime CreatedAtUtc);
+
+public sealed record CreateGccSiteAnalysisCommand(
+    Guid? Id,
+    string Domain,
+    string? SeedTopic,
+    string GapsJson,
+    bool IsDemo);

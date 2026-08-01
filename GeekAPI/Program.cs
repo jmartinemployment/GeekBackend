@@ -80,6 +80,26 @@ builder.Services.AddScoped(sp =>
     return new HttpContentWriterV3Repository(httpClient, logger);
 });
 
+builder.Services.AddScoped(sp =>
+{
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var httpClient = httpClientFactory.CreateClient("GeekRepository");
+    var logger = sp.GetRequiredService<ILogger<HttpGccRepository>>();
+    return new HttpGccRepository(httpClient, logger);
+});
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
+
+var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
+builder.Services.AddHttpClient<GeekAPI.Services.ContentCreator.HttpGeekSeoNicheClient>(client =>
+{
+    if (!string.IsNullOrWhiteSpace(geekSeoUrl))
+    {
+        client.BaseAddress = new Uri(geekSeoUrl + "/");
+        client.Timeout = TimeSpan.FromMinutes(2);
+    }
+});
+
 var imageGeneratorBaseUrl =
     Environment.GetEnvironmentVariable("IMAGE_GENERATOR_BASE_URL")
     ?? "https://image-generator.geekatyourspot.com";
