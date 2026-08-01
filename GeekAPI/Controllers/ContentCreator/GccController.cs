@@ -23,7 +23,6 @@ public class GccController : ControllerBase
     private readonly HttpGeekSeoNicheClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
-    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -32,7 +31,6 @@ public class GccController : ControllerBase
         HttpGeekSeoNicheClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
-        IServiceScopeFactory scopeFactory,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -40,7 +38,6 @@ public class GccController : ControllerBase
         _seo = seo;
         _jobs = jobs;
         _user = user;
-        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -138,36 +135,6 @@ public class GccController : ControllerBase
         if (!TryParseProvider(request?.Provider, out var provider, out var err))
             return BadRequest(err);
 
-        var useAsync = request?.Async == true
-            || string.Equals(create.StartingContentType, "pillar", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase);
-
-        if (useAsync)
-        {
-            var job = _jobs.Create("generate", id);
-            // Must not capture request-scoped _repo/_gen — request scope is disposed after 202.
-            var jobs = _jobs;
-            var logger = _logger;
-            var scopeFactory = _scopeFactory;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await using var scope = scopeFactory.CreateAsyncScope();
-                    var repo = scope.ServiceProvider.GetRequiredService<HttpGccRepository>();
-                    var gen = scope.ServiceProvider.GetRequiredService<GccGenerateService>();
-                    var result = await RunGenerateAsync(repo, gen, create, section, provider, CancellationToken.None);
-                    jobs.Complete(job.Id, result);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Async generate failed for create {CreateId}", id);
-                    jobs.Fail(job.Id, ex.Message);
-                }
-            });
-            return Accepted(new { jobId = job.Id, status = job.Status });
-        }
-
         try
         {
             var result = await RunGenerateAsync(_repo, _gen, create, section, provider, ct);
@@ -188,6 +155,7 @@ public class GccController : ControllerBase
     [HttpGet("jobs/{id:guid}")]
     public ActionResult<object> GetJob(Guid id)
     {
+        // Kept for older clients; generate is synchronous — no in-process job runner.
         var job = _jobs.Get(id);
         if (job is null) return NotFound();
         object? result = null;
