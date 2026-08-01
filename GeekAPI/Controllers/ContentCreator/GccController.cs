@@ -23,6 +23,7 @@ public class GccController : ControllerBase
     private readonly HttpGeekSeoNicheClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -31,6 +32,7 @@ public class GccController : ControllerBase
         HttpGeekSeoNicheClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
+        IServiceScopeFactory scopeFactory,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -38,6 +40,7 @@ public class GccController : ControllerBase
         _seo = seo;
         _jobs = jobs;
         _user = user;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -142,17 +145,24 @@ public class GccController : ControllerBase
         if (useAsync)
         {
             var job = _jobs.Create("generate", id);
+            // Must not capture request-scoped _repo/_gen — request scope is disposed after 202.
+            var jobs = _jobs;
+            var logger = _logger;
+            var scopeFactory = _scopeFactory;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var result = await RunGenerateAsync(create, section, provider, CancellationToken.None);
-                    _jobs.Complete(job.Id, result);
+                    await using var scope = scopeFactory.CreateAsyncScope();
+                    var repo = scope.ServiceProvider.GetRequiredService<HttpGccRepository>();
+                    var gen = scope.ServiceProvider.GetRequiredService<GccGenerateService>();
+                    var result = await RunGenerateAsync(repo, gen, create, section, provider, CancellationToken.None);
+                    jobs.Complete(job.Id, result);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Async generate failed for create {CreateId}", id);
-                    _jobs.Fail(job.Id, ex.Message);
+                    logger.LogError(ex, "Async generate failed for create {CreateId}", id);
+                    jobs.Fail(job.Id, ex.Message);
                 }
             });
             return Accepted(new { jobId = job.Id, status = job.Status });
@@ -160,7 +170,7 @@ public class GccController : ControllerBase
 
         try
         {
-            var result = await RunGenerateAsync(create, section, provider, ct);
+            var result = await RunGenerateAsync(_repo, _gen, create, section, provider, ct);
             return Ok(result);
         }
         catch (InvalidOperationException ex)
@@ -200,6 +210,8 @@ public class GccController : ControllerBase
     }
 
     private async Task<object> RunGenerateAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
         GccCreateDto create,
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
@@ -215,21 +227,21 @@ public class GccController : ControllerBase
             var created = new List<object>();
             foreach (var name in names)
             {
-                var (toolName, body) = await _gen.GenerateToolAsync(
+                var (toolName, body) = await gen.GenerateToolAsync(
                     name, create.Notes, null, provider, ct);
-                var artifact = await _repo.CreateArtifactAsync(
+                var artifact = await repo.CreateArtifactAsync(
                     new CreateGccArtifactCommand(id, "aiTool", toolName), ct);
-                var version = await _repo.CreateVersionAsync(
+                var version = await repo.CreateVersionAsync(
                     new CreateGccArtifactVersionCommand(artifact.Id, body), ct);
                 created.Add(new { artifact, version });
             }
             return new { created };
         }
 
-        var bodyJson = await _gen.GenerateStartingContentAsync(create, section, provider, ct);
-        var primaryArtifact = await _repo.CreateArtifactAsync(
+        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct);
+        var primaryArtifact = await repo.CreateArtifactAsync(
             new CreateGccArtifactCommand(id, create.StartingContentType, create.Topic), ct);
-        var primaryVersion = await _repo.CreateVersionAsync(
+        var primaryVersion = await repo.CreateVersionAsync(
             new CreateGccArtifactVersionCommand(primaryArtifact.Id, bodyJson), ct);
         return new { artifact = primaryArtifact, version = primaryVersion };
     }
