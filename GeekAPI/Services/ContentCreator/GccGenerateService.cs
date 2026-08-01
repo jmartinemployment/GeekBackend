@@ -1,8 +1,17 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using ContentWriter.Application.DTOs;
+using ContentWriter.Application.Providers;
+using ContentWriter.Application.Services;
+using ContentWriter.Application.Services.PromptBuilders;
+using ContentWriter.Application.Services.SchemaBuilders;
+using ContentWriter.Domain.Entities;
+using ContentWriter.Domain.Enums;
 using GeekAPI.Services.Gcw;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
+using Microsoft.Extensions.Options;
 
 namespace GeekAPI.Services.ContentCreator;
 
@@ -33,11 +42,22 @@ public class GccGenerateService
     };
 
     private readonly IContentGeneratorFactory _generators;
+    private readonly IContentPromptBuilder _prompts;
+    private readonly IContentProviderFactory _cwProviders;
+    private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
 
-    public GccGenerateService(IContentGeneratorFactory generators, ILogger<GccGenerateService> logger)
+    public GccGenerateService(
+        IContentGeneratorFactory generators,
+        IContentPromptBuilder prompts,
+        IContentProviderFactory cwProviders,
+        IOptions<CompanyProfileOptions> company,
+        ILogger<GccGenerateService> logger)
     {
         _generators = generators;
+        _prompts = prompts;
+        _cwProviders = cwProviders;
+        _company = company.Value;
         _logger = logger;
     }
 
@@ -185,49 +205,104 @@ public class GccGenerateService
         ContentGeneratorProvider provider,
         CancellationToken ct)
     {
-        var generator = _generators.Get(provider);
-        var audience = $"AI tool page for {toolName}. Brief: {brief}. Context: {sourceContext}";
-        var body = await generator.GenerateStructuredDraftAsync(
-            angle: toolName,
-            audienceProfile: audience,
-            buyingStage: "consideration",
-            callToAction: $"Try {toolName}",
-            supportingEvidence: new List<string>(),
-            ct: ct);
-        var meta = await generator.GenerateSectionAsync(
-            "metadata",
-            toolName,
-            "Short metadata JSON: title, summary, category.",
+        // Source of truth: Content Writer v2 tool prompts (BuildToolBodyPrompt + BuildToolMetadataPrompt),
+        // same stack as POST /api/projects/{id}/generate/tools — not a homemade structured-draft wrapper.
+        var llmType = provider == ContentGeneratorProvider.Anthropic
+            ? LlmProviderType.Anthropic
+            : LlmProviderType.OpenAi;
+        var llm = _cwProviders.Get(llmType);
+
+        var name = toolName.Trim();
+        var slug = Slugify(name);
+        var description = string.Join(
+            "\n",
+            new[] { brief, sourceContext }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        var app = new SoftwareApplicationDescriptor(name, string.IsNullOrWhiteSpace(description) ? null : description);
+        var pillarMeta = new ArticleMetadataDraft(
+            Title: name,
+            MetaDescription: Truncate((brief ?? name).Trim(), 160),
+            Keywords: [name],
+            SectionOutline:
+            [
+                "Overview",
+                "Key Capabilities",
+                "Implementation Considerations",
+                "When to Use",
+            ]);
+
+        var paragraphs = new List<string>();
+        if (!string.IsNullOrWhiteSpace(sourceContext))
+            paragraphs.Add(sourceContext.Trim());
+        if (!string.IsNullOrWhiteSpace(brief))
+            paragraphs.Add(brief.Trim());
+
+        var context = new ProjectGenerationContext(
+            ProjectName: name,
+            ProjectUrl: _company.ArticleBaseUrl,
+            TargetKeyword: name,
+            Department: "marketing",
+            SiteName: _company.PublisherName,
+            DetectedTone: "Professional, consultative",
+            DetectedFocus: name,
+            CrawledHeadings: [],
+            CrawledParagraphs: paragraphs,
+            JsonLdStructuredSummary: null,
+            KeywordSources: [],
+            PeopleAlsoAskQuestions: [],
+            PublisherName: _company.PublisherName,
+            PublisherLogoUrl: _company.PublisherLogoUrl,
+            AuthorName: _company.AuthorName,
+            ArticleBaseUrl: _company.ArticleBaseUrl,
+            BlogBaseUrl: _company.BlogBaseUrl,
+            ToolBaseUrl: _company.ToolBaseUrl,
+            ImplementerPositioning: _company.ImplementerPositioning,
+            Provider: llmType,
+            UseExactKeywordAsTitle: false,
+            DesiredHeadings: null,
+            MatchedUseCase: null);
+
+        var bodyResult = await llm.CompleteAsync(
+            _prompts.BuildToolBodyPrompt(context, pillarMeta, app, slug, brief),
             ct);
-        var wrapped = JsonSerializer.Serialize(new Dictionary<string, object?>
-        {
-            ["lede"] = $"Overview of {toolName}.",
-            ["sections"] = new object[]
-            {
-                new Dictionary<string, object?>
-                {
-                    ["heading"] = toolName,
-                    ["paragraphs"] = new object[]
-                    {
-                        new Dictionary<string, object?>
-                        {
-                            ["$type"] = "text",
-                            ["runs"] = new[] { new Dictionary<string, string?> { ["text"] = body } },
-                        },
-                    },
-                },
-            },
-        }, JsonOpts);
-        // Prefer storing structured body when valid ContentDocument
+        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"tool page '{name}'");
+        if (sections.Count == 0)
+            throw new InvalidOperationException($"CWV2 tool body returned no sections for '{name}'.");
+
+        var lede = sections[0] with { Tag = "h2" };
+        var document = new ContentDocument(lede, sections.Skip(1).ToList());
+
         try
         {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("sections", out _) || doc.RootElement.TryGetProperty("lede", out _))
-                return (toolName, body);
+            var metaResult = await llm.CompleteAsync(
+                _prompts.BuildToolMetadataPrompt(context, pillarMeta, app, document),
+                ct);
+            var meta = LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata");
+            var wrapped = JsonSerializer.Serialize(new
+            {
+                title = name,
+                metaDescription = meta.MetaDescription,
+                summary = meta.Summary,
+                body = document,
+            }, JsonOpts);
+            return (name, wrapped);
         }
-        catch { /* fall through */ }
-        return (toolName, wrapped);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CWV2 tool metadata failed for {Tool}; saving body only.", name);
+            return (name, JsonSerializer.Serialize(document, JsonOpts));
+        }
     }
+
+    private static string Slugify(string value)
+    {
+        var s = value.Trim().ToLowerInvariant();
+        s = Regex.Replace(s, @"[^a-z0-9\s-]", "");
+        s = Regex.Replace(s, @"[\s-]+", "-").Trim('-');
+        return string.IsNullOrEmpty(s) ? "tool" : s;
+    }
+
+    private static string Truncate(string value, int max)
+        => value.Length <= max ? value : value[..max];
 
     public static List<ContentGapDto> BuildDemoGaps(string? seedTopic)
     {
