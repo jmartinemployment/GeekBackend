@@ -1,10 +1,16 @@
 using System.Text.Json;
+using ContentWriter.Application.Services;
+using ContentWriter.Domain.Entities;
+using ContentWriter.Domain.Enums;
+using ContentWriter.Infrastructure;
+using ContentWriter.Infrastructure.InMemory;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace GeekAPI.Controllers.ContentCreator;
 
@@ -23,6 +29,8 @@ public class GccController : ControllerBase
     private readonly HttpGeekSeoNicheClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
+    private readonly IProjectStore _projects;
+    private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -31,6 +39,8 @@ public class GccController : ControllerBase
         HttpGeekSeoNicheClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
+        IProjectStore projects,
+        IOptions<CompanyProfileOptions> company,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -38,6 +48,8 @@ public class GccController : ControllerBase
         _seo = seo;
         _jobs = jobs;
         _user = user;
+        _projects = projects;
+        _company = company.Value;
         _logger = logger;
     }
 
@@ -502,6 +514,136 @@ public class GccController : ControllerBase
         return Ok(new { created });
     }
 
+    /// <summary>
+    /// Content Creator addition on CWV2 projects: generate tool pages from human-supplied names + brief
+    /// using CWV2 tool prompts — does <b>not</b> require a pillar Tools section.
+    /// </summary>
+    [HttpPost("projects/{projectId:guid}/tools-from-names")]
+    public async Task<IActionResult> GenerateToolsFromNames(
+        Guid projectId,
+        [FromBody] ToolsFromNamesRequest? request,
+        CancellationToken ct)
+    {
+        if (request is null)
+            return BadRequest("Body required");
+
+        var names = (request.ToolNames ?? Array.Empty<string>())
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+        if (names.Count == 0)
+            return BadRequest("toolNames required");
+        if (string.IsNullOrWhiteSpace(request.Brief))
+            return BadRequest("brief required");
+
+        if (!TryParseProvider(request.Provider, out var provider, out var err))
+            return BadRequest(err);
+
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        var usedSlugs = new HashSet<string>(
+            project.GeneratedContents
+                .Where(c => c.ContentType == GeneratedContentType.ToolPost)
+                .Select(c => c.Slug),
+            StringComparer.OrdinalIgnoreCase);
+
+        var order = project.GeneratedContents.Count(c => c.ContentType == GeneratedContentType.ToolPost);
+        try
+        {
+            foreach (var name in names)
+            {
+                var (toolName, bodyJson) = await _gen.GenerateToolAsync(
+                    name, request.Brief, null, provider, ct);
+                var (document, metaDescription, summary) = ParseToolBodyJson(bodyJson);
+                if (document is null)
+                    return StatusCode(502, $"CWV2 tool body for '{toolName}' was not a ContentDocument");
+
+                var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(toolName), usedSlugs);
+                order += 1;
+                var wordCount = ContentDocumentText.CountWords(document);
+
+                // Replace existing tool with same slug if regenerating.
+                var existing = project.GeneratedContents
+                    .FirstOrDefault(c =>
+                        c.ContentType == GeneratedContentType.ToolPost
+                        && string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase));
+                if (existing is not null)
+                    project.GeneratedContents.Remove(existing);
+
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.ToolPost,
+                    Title = toolName,
+                    DisplayTitle = toolName,
+                    Slug = slug,
+                    Body = document,
+                    MetaDescription = metaDescription,
+                    Summary = summary ?? string.Empty,
+                    SourceAppName = toolName,
+                    SourceAppOrder = order,
+                    WordCount = wordCount,
+                    GeneratedByProvider = provider == ContentGeneratorProvider.Anthropic
+                        ? LlmProviderType.Anthropic
+                        : LlmProviderType.OpenAi,
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+
+            project.UpdatedAtUtc = DateTime.UtcNow;
+            await _projects.SaveAsync(project, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Tools-from-names validation failed for {ProjectId}", projectId);
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Tools-from-names LLM failed for {ProjectId}", projectId);
+            return StatusCode(502, "LLM provider request failed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Tools-from-names failed for {ProjectId}", projectId);
+            return StatusCode(502, ex.Message);
+        }
+
+        var set = GeneratedContentSetAssembler.Assemble(
+            project,
+            project.Department,
+            _company.ArticleBaseUrl,
+            _company.BlogBaseUrl,
+            _company.ToolBaseUrl);
+        return Ok(set);
+    }
+
+    private static (ContentDocument? Document, string? MetaDescription, string? Summary) ParseToolBodyJson(string bodyJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(bodyJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("body", out var bodyEl))
+            {
+                var document = JsonSerializer.Deserialize<ContentDocument>(bodyEl.GetRawText(), JsonOpts);
+                var meta = root.TryGetProperty("metaDescription", out var m) ? m.GetString() : null;
+                var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
+                return (document, meta, summary);
+            }
+
+            return (JsonSerializer.Deserialize<ContentDocument>(bodyJson, JsonOpts), null, null);
+        }
+        catch
+        {
+            return (null, null, null);
+        }
+    }
+
     [HttpPost("image-prompts/generate")]
     public async Task<ActionResult<object>> GenerateImagePrompt([FromBody] ImagePromptRequest request, CancellationToken ct)
     {
@@ -673,6 +815,10 @@ public class GccController : ControllerBase
         Guid? SourceArtifactId,
         IReadOnlyList<string>? SelectedNames,
         Guid CreateId,
+        string? Provider);
+    public sealed record ToolsFromNamesRequest(
+        IReadOnlyList<string>? ToolNames,
+        string Brief,
         string? Provider);
     public sealed record ImagePromptRequest(
         Guid? CreateId,
