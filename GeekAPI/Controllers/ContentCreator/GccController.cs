@@ -622,6 +622,87 @@ public class GccController : ControllerBase
         return Ok(set);
     }
 
+    /// <summary>
+    /// Content Creator addition: operator Revise (Full/Section) on a CWV2 project draft.
+    /// New body replaces the selected GeneratedContent row (not a multi-turn chat).
+    /// </summary>
+    [HttpPost("projects/{projectId:guid}/revise")]
+    public async Task<IActionResult> ReviseProjectContent(
+        Guid projectId,
+        [FromBody] ProjectReviseRequest? request,
+        CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Feedback))
+            return BadRequest("feedback required");
+        if (string.IsNullOrWhiteSpace(request.ContentType))
+            return BadRequest("contentType required");
+        if (!TryParseProvider(request.Provider, out var provider, out var err))
+            return BadRequest(err);
+
+        if (!Enum.TryParse<GeneratedContentType>(request.ContentType, ignoreCase: true, out var contentType))
+            return BadRequest($"Unknown contentType '{request.ContentType}'.");
+
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        GeneratedContent? row = contentType switch
+        {
+            GeneratedContentType.ToolPost when !string.IsNullOrWhiteSpace(request.ToolSlug) =>
+                project.GeneratedContents.FirstOrDefault(c =>
+                    c.ContentType == GeneratedContentType.ToolPost
+                    && string.Equals(c.Slug, request.ToolSlug, StringComparison.OrdinalIgnoreCase)),
+            GeneratedContentType.ToolPost =>
+                project.GeneratedContents.FirstOrDefault(c => c.ContentType == GeneratedContentType.ToolPost),
+            _ => project.GeneratedContents.FirstOrDefault(c => c.ContentType == contentType),
+        };
+        if (row is null)
+            return NotFound($"No {contentType} draft on this project.");
+        if (row.Body is null)
+            return BadRequest("Selected draft has no body document to revise.");
+
+        try
+        {
+            var currentJson = JsonSerializer.Serialize(row.Body, JsonOpts);
+            var revisedJson = await _gen.ReviseAsync(
+                currentJson,
+                request.Feedback,
+                request.Scope ?? "full",
+                request.SectionPath,
+                provider,
+                ct);
+            var document = JsonSerializer.Deserialize<ContentDocument>(revisedJson, JsonOpts)
+                ?? throw new InvalidOperationException("Revise did not return a ContentDocument.");
+
+            row.Body = document;
+            row.WordCount = ContentDocumentText.CountWords(document);
+            project.UpdatedAtUtc = DateTime.UtcNow;
+            await _projects.SaveAsync(project, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Project revise LLM failed for {ProjectId}", projectId);
+            return StatusCode(502, "LLM provider request failed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Project revise failed for {ProjectId}", projectId);
+            return StatusCode(502, ex.Message);
+        }
+
+        var set = GeneratedContentSetAssembler.Assemble(
+            project,
+            project.Department,
+            _company.ArticleBaseUrl,
+            _company.BlogBaseUrl,
+            _company.ToolBaseUrl);
+        return Ok(set);
+    }
+
     private static (ContentDocument? Document, string? MetaDescription, string? Summary) ParseToolBodyJson(string bodyJson)
     {
         try
@@ -819,6 +900,13 @@ public class GccController : ControllerBase
     public sealed record ToolsFromNamesRequest(
         IReadOnlyList<string>? ToolNames,
         string Brief,
+        string? Provider);
+    public sealed record ProjectReviseRequest(
+        string ContentType,
+        string Feedback,
+        string? Scope,
+        string? SectionPath,
+        string? ToolSlug,
         string? Provider);
     public sealed record ImagePromptRequest(
         Guid? CreateId,
