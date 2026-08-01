@@ -12,6 +12,7 @@ public static class CorsOriginParser
         "https://content-writer-eta.vercel.app",
         "https://content-writer-jeff-martins-projects-66716453.vercel.app",
         "https://geek-content-creator.vercel.app",
+        "https://geek-content-creator-production.up.railway.app",
     ];
 
     /// <summary>
