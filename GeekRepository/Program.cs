@@ -73,6 +73,14 @@ builder.Services.AddDbContext<GeekRepository.Data.ContentWriterV2DbContext>(opti
             "content_writer_v2"))
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// Geek Content Creator: standalone product — new schema, no shared code with ContentWriterV3/V4.
+builder.Services.AddDbContext<GeekRepository.Data.ContentCreatorDbContext>(options => options
+    .UseNpgsql(connectionString, npgsql =>
+        npgsql.MigrationsHistoryTable(
+            "content_creator_ef_migrations_history",
+            "content_creator"))
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddHostedService<SqlMigrationRunner>();
@@ -84,6 +92,7 @@ await ApplyContentWriterMigrationsAsync(app, startupLogger);
 await ApplyContentWriterV3MigrationsAsync(app, startupLogger);
 await ApplyContentWriterV4MigrationsAsync(app, startupLogger);
 await ApplyContentWriterV2MigrationsAsync(app, startupLogger);
+await ApplyContentCreatorMigrationsAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseMiddleware<GeekRepository.Middleware.LegacyAuthRetiredMiddleware>();
@@ -166,6 +175,21 @@ static async Task ApplyContentWriterV2MigrationsAsync(WebApplication app, ILogge
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying ContentWriterV2 EF migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplyContentCreatorMigrationsAsync(WebApplication app, ILogger logger)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<GeekRepository.Data.ContentCreatorDbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("Content Creator (content_creator schema) EF migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying Content Creator EF migrations. Continuing startup.");
     }
 }
 

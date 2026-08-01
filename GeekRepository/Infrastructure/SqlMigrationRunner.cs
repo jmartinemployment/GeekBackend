@@ -22,6 +22,19 @@ public sealed class SqlMigrationRunner : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (string.Equals(
+                Environment.GetEnvironmentVariable("SKIP_AUTH_SQL_MIGRATIONS"),
+                "1",
+                StringComparison.OrdinalIgnoreCase)
+            || string.Equals(
+                Environment.GetEnvironmentVariable("SKIP_AUTH_SQL_MIGRATIONS"),
+                "true",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("SKIP_AUTH_SQL_MIGRATIONS set — skipping auth SQL scripts.");
+            return;
+        }
+
         try
         {
             await ApplyPendingScriptsAsync(cancellationToken);

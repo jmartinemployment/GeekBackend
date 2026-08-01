@@ -1,11 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 using GeekApplication.Interfaces;
+using GeekApplication.Interfaces.ContentCreator;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Interfaces.ContentWriterV4;
 using GeekRepository.Infrastructure;
 using GeekRepository.Repositories;
 using GeekRepository.Repositories.Blog;
 using GeekRepository.Repositories.Content;
+using GeekRepository.Repositories.ContentCreator;
 using GeekRepository.Repositories.ContentWriterV3;
 using GeekRepository.Repositories.ContentWriterV4;
 
@@ -56,6 +58,13 @@ public static class ServiceRegistration
         // Content Writer V4
         services.AddScoped<IBrandVoiceRepository, BrandVoiceRepository>();
         services.AddScoped<ISocialScheduleRepository, SocialScheduleRepository>();
+
+        // Geek Content Creator
+        services.AddScoped<IGccCreateRepository, GccCreateRepository>();
+        services.AddScoped<IGccArtifactRepository, GccArtifactRepository>();
+        services.AddScoped<IGccArtifactVersionRepository, GccArtifactVersionRepository>();
+        services.AddScoped<IGccApprovalEventRepository, GccApprovalEventRepository>();
+        services.AddScoped<IGccSiteAnalysisRepository, GccSiteAnalysisRepository>();
 
         services.AddGeekSeoData();
 
