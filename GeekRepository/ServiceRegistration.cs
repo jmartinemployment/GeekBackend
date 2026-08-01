@@ -55,6 +55,7 @@ public static class ServiceRegistration
 
         // Content Writer V4
         services.AddScoped<IBrandVoiceRepository, BrandVoiceRepository>();
+        services.AddScoped<ISocialScheduleRepository, SocialScheduleRepository>();
 
         services.AddGeekSeoData();
 

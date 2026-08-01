@@ -3,6 +3,7 @@ using System;
 using GeekRepository.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeekRepository.Data.Migrations.ContentWriterV4
 {
     [DbContext(typeof(ContentWriterV4DbContext))]
-    partial class ContentWriterV4DbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801094747_AddSocialScheduleEntries")]
+    partial class AddSocialScheduleEntries
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
