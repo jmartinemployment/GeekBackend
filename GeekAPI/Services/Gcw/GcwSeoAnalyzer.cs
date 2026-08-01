@@ -83,7 +83,9 @@ public static class GcwSeoAnalyzer
             "Draft length",
             lengthOk,
             $"{wordCount} words extracted from the document.",
-            lengthOk ? null : "Expand to at least ~800 words for pillar SEO depth."));
+            lengthOk
+                ? null
+                : $"CRITICAL: Expand from {wordCount} words to at least 900 words. Add 2–3 new H2 sections with concrete examples, steps, and a short FAQ. Do not only rephrase — substantially increase length while keeping “{keyword}” natural (density ~0.4–2.5%)."));
 
         var sectionsOk = sectionCount >= 3;
         checks.Add(new SeoCheck(
@@ -101,9 +103,14 @@ public static class GcwSeoAnalyzer
             .Select(c => c.FixHint!)
             .ToList();
 
+        // Put length first — revise models often ignore a soft “expand” hint.
+        hints = hints
+            .OrderByDescending(h => h.StartsWith("CRITICAL:", StringComparison.Ordinal))
+            .ToList();
+
         var applyFeedback = hints.Count == 0
             ? "Polish lightly for clarity while preserving SEO structure and the target keyword."
-            : "Improve on-page SEO with these edits:\n- " + string.Join("\n- ", hints);
+            : "Improve on-page SEO with these edits (must fully satisfy each):\n- " + string.Join("\n- ", hints);
 
         return new SeoReport(
             keyword,
