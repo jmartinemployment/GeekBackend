@@ -1485,4 +1485,95 @@ public class HttpContentWriterV3Repository
         }
         catch (Exception ex) { _logger.LogError(ex, "Error updating brand voice {Id}", command.Id); throw; }
     }
+
+    // Social schedule (Content Writer V4)
+    public async Task<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto?> GetSocialScheduleEntryByIdAsync(
+        Guid id,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"repo/content-writer-v4/social-schedule/{id}", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto>(content, JsonOpts);
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error fetching social schedule {Id}", id); throw; }
+    }
+
+    public async Task<IReadOnlyList<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto>> GetSocialScheduleByOwnerIdAsync(
+        Guid ownerId,
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        Guid? campaignId = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var qs = new List<string> { $"ownerId={ownerId}" };
+            if (fromUtc is DateTime from)
+                qs.Add($"fromUtc={Uri.EscapeDataString(from.ToUniversalTime().ToString("o"))}");
+            if (toUtc is DateTime to)
+                qs.Add($"toUtc={Uri.EscapeDataString(to.ToUniversalTime().ToString("o"))}");
+            if (campaignId is Guid cid && cid != Guid.Empty)
+                qs.Add($"campaignId={cid}");
+            var response = await _httpClient.GetAsync(
+                $"repo/content-writer-v4/social-schedule?{string.Join("&", qs)}",
+                ct);
+            if (!response.IsSuccessStatusCode)
+                return new List<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto>().AsReadOnly();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var dtos = System.Text.Json.JsonSerializer.Deserialize<List<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto>>(content, JsonOpts);
+            return (dtos ?? new()).AsReadOnly();
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error listing social schedule for owner {OwnerId}", ownerId); throw; }
+    }
+
+    public async Task<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto> CreateSocialScheduleEntryAsync(
+        GeekApplication.Models.ContentWriterV4.CreateSocialScheduleEntryCommand command,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var response = await _httpClient.PostAsync(
+                "repo/content-writer-v4/social-schedule",
+                new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                ct);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto>(content, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize social schedule response");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error creating social schedule entry"); throw; }
+    }
+
+    public async Task<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto> UpdateSocialScheduleEntryAsync(
+        GeekApplication.Models.ContentWriterV4.UpdateSocialScheduleEntryCommand command,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(command);
+            var response = await _httpClient.PutAsync(
+                $"repo/content-writer-v4/social-schedule/{command.Id}",
+                new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                ct);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<GeekApplication.Models.ContentWriterV4.SocialScheduleEntryDto>(content, JsonOpts)
+                ?? throw new InvalidOperationException("Failed to deserialize social schedule response");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error updating social schedule {Id}", command.Id); throw; }
+    }
+
+    public async Task<bool> DeleteSocialScheduleEntryAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"repo/content-writer-v4/social-schedule/{id}", ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error deleting social schedule {Id}", id); throw; }
+    }
 }

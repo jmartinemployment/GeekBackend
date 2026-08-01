@@ -11,6 +11,7 @@ public class ContentWriterV4DbContext : DbContext
 
     public virtual DbSet<Template> Templates => Set<Template>();
     public virtual DbSet<BrandVoice> BrandVoices => Set<BrandVoice>();
+    public virtual DbSet<SocialScheduleEntry> SocialScheduleEntries => Set<SocialScheduleEntry>();
     public virtual DbSet<Document> Documents => Set<Document>();
     public virtual DbSet<Generation> Generations => Set<Generation>();
     public virtual DbSet<ProviderModel> ProviderModels => Set<ProviderModel>();
@@ -48,6 +49,28 @@ public class ContentWriterV4DbContext : DbContext
             entity.Property(b => b.CreatedAtUtc).IsRequired().HasColumnName("created_at");
             entity.Property(b => b.UpdatedAtUtc).IsRequired().HasColumnName("updated_at");
             entity.HasIndex(b => b.OwnerId);
+        });
+
+        modelBuilder.Entity<SocialScheduleEntry>(entity =>
+        {
+            entity.ToTable("social_schedule_entries");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.OwnerId).IsRequired().HasColumnName("owner_id");
+            entity.Property(e => e.CampaignId).IsRequired().HasColumnName("campaign_id");
+            entity.Property(e => e.AssetId).IsRequired().HasColumnName("asset_id");
+            entity.Property(e => e.AssetVersionId).IsRequired().HasColumnName("asset_version_id");
+            entity.Property(e => e.Channel).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.ScheduledAtUtc).IsRequired().HasColumnName("scheduled_at");
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(512);
+            entity.Property(e => e.Notes).HasColumnName("notes");
+            entity.Property(e => e.CreatedAtUtc).IsRequired().HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAtUtc).IsRequired().HasColumnName("updated_at");
+            entity.HasIndex(e => e.OwnerId);
+            entity.HasIndex(e => new { e.OwnerId, e.ScheduledAtUtc })
+                .HasDatabaseName("ix_social_schedule_owner_when");
+            entity.HasIndex(e => new { e.CampaignId, e.ScheduledAtUtc })
+                .HasDatabaseName("ix_social_schedule_campaign_when");
         });
 
         modelBuilder.Entity<Document>(entity =>
