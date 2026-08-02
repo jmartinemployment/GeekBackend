@@ -33,6 +33,10 @@ public sealed record ContentGapDto(
 
 public sealed record SiteAnalysisDto(Guid Id, string Domain, string Status, bool IsDemo);
 
+/// <summary>
+/// Content Creator generation helpers. Source of truth = Content Writer v2 only
+/// (prompt builders + LLM providers). Do not call Content Writer v3 generators.
+/// </summary>
 public class GccGenerateService
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -41,20 +45,27 @@ public class GccGenerateService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    private readonly IContentGeneratorFactory _generators;
+    /// <summary>CWV2 ContentDocument wire format (Paragraph discriminator uses "type").</summary>
+    private static readonly JsonSerializerOptions CwDocumentJson = CreateCwDocumentJson();
+
+    private static JsonSerializerOptions CreateCwDocumentJson()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new ParagraphJsonConverter());
+        return options;
+    }
+
     private readonly IContentPromptBuilder _prompts;
     private readonly IContentProviderFactory _cwProviders;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
 
     public GccGenerateService(
-        IContentGeneratorFactory generators,
         IContentPromptBuilder prompts,
         IContentProviderFactory cwProviders,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger)
     {
-        _generators = generators;
         _prompts = prompts;
         _cwProviders = cwProviders;
         _company = company.Value;
@@ -97,37 +108,42 @@ public class GccGenerateService
             return await GenerateImagePromptJsonAsync(create.Topic, create.Notes, null, provider, ct);
         }
 
-        var audience = BuildAudience(create, section);
-        var evidence = BuildEvidence(section);
-        var generator = _generators.Get(provider);
-
         if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase))
         {
-            var name = create.Topic.Trim();
-            var body = await generator.GenerateStructuredDraftAsync(
-                angle: $"AI tool page for {name}",
-                audienceProfile: audience,
-                buyingStage: "consideration",
-                callToAction: $"Explore {name}",
-                supportingEvidence: evidence,
-                ct: ct);
-            var meta = await generator.GenerateSectionAsync(
-                "Tool metadata",
-                $"{name}\n{create.Notes}",
-                "Return a short JSON object with title, summary, and category for this AI tool.",
-                ct);
-            return JsonSerializer.Serialize(new { bodyDocument = JsonSerializer.Deserialize<object>(body), metadata = meta }, JsonOpts);
+            var (name, toolDocument, meta, summary) = await GenerateToolAsync(
+                create.Topic, create.Notes, BuildAudience(create, section), provider, ct);
+            return JsonSerializer.Serialize(new
+            {
+                title = name,
+                metaDescription = meta,
+                summary,
+                body = toolDocument,
+            }, CwDocumentJson);
         }
 
-        return await generator.GenerateStructuredDraftAsync(
-            angle: create.Topic,
-            audienceProfile: audience,
-            buyingStage: "awareness",
-            callToAction: "Learn more",
-            supportingEvidence: evidence,
-            ct: ct);
+        // Legacy GCC create long-form: CWV2 standalone blog body (not CWV3 structured draft).
+        var llm = GetLlm(provider);
+        var context = BuildMinimalContext(create.Topic, BuildAudience(create, section), ToLlm(provider));
+        var metadata = new BlogMetadataDraft(
+            Title: create.Topic.Trim(),
+            MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
+            Keywords: [create.Topic.Trim()],
+            SectionOutline: ["Overview", "Key considerations", "Next steps"]);
+        var bodyResult = await llm.CompleteAsync(
+            _prompts.BuildStandaloneBlogBodyPrompt(context, metadata, revisionNotes: null),
+            ct);
+        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "standalone blog body");
+        if (sections.Count == 0)
+            throw new InvalidOperationException("CWV2 blog body returned no sections.");
+        var lede = sections[0] with { Tag = "h2" };
+        var blogDocument = new ContentDocument(lede, sections.Skip(1).ToList());
+        return JsonSerializer.Serialize(blogDocument, CwDocumentJson);
     }
 
+    /// <summary>
+    /// Legacy GCC artifact revise. Prefer project revise via CWV2 orchestrator.
+    /// Uses CWV2 section JSON + revision notes — not CWV3 ReviseStructuredDraftAsync.
+    /// </summary>
     public async Task<string> ReviseAsync(
         string currentJson,
         string feedback,
@@ -144,8 +160,25 @@ public class GccGenerateService
             fb = $"Revise ONLY the section at path “{sectionPath}”. Leave all other sections unchanged.\n\n{fb}";
         }
 
-        var generator = _generators.Get(provider);
-        return await generator.ReviseStructuredDraftAsync(currentJson, fb, ct);
+        var document = JsonSerializer.Deserialize<ContentDocument>(currentJson, CwDocumentJson)
+            ?? throw new InvalidOperationException("Current body is not a CWV2 ContentDocument.");
+
+        var llm = GetLlm(provider);
+        var context = BuildMinimalContext(document.Lede.Heading, FlattenDocument(document), ToLlm(provider));
+        var metadata = new BlogMetadataDraft(
+            Title: document.Lede.Heading,
+            MetaDescription: Truncate(document.Lede.Heading, 160),
+            Keywords: [document.Lede.Heading],
+            SectionOutline: document.Sections.Select(s => s.Heading).Where(h => !string.IsNullOrWhiteSpace(h)).ToList());
+        var bodyResult = await llm.CompleteAsync(
+            _prompts.BuildStandaloneBlogBodyPrompt(context, metadata, revisionNotes: fb),
+            ct);
+        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "revised blog body");
+        if (sections.Count == 0)
+            throw new InvalidOperationException("CWV2 revise returned no sections.");
+        var lede = sections[0] with { Tag = "h2" };
+        var revised = new ContentDocument(lede, sections.Skip(1).ToList());
+        return JsonSerializer.Serialize(revised, CwDocumentJson);
     }
 
     public async Task<string> GenerateImagePromptJsonAsync(
@@ -155,12 +188,7 @@ public class GccGenerateService
         ContentGeneratorProvider provider,
         CancellationToken ct)
     {
-        // Source of truth: Content Writer v2 image-prompt style contract (BuildStandaloneImagePrompt),
-        // not a homemade GenerateSectionAsync wrapper.
-        var llmType = provider == ContentGeneratorProvider.Anthropic
-            ? LlmProviderType.Anthropic
-            : LlmProviderType.OpenAi;
-        var llm = _cwProviders.Get(llmType);
+        var llm = GetLlm(provider);
         var result = await llm.CompleteAsync(
             _prompts.BuildStandaloneImagePrompt(topic, notes, artifactContext),
             ct);
@@ -191,23 +219,42 @@ public class GccGenerateService
     {
         if (channels.Count == 0)
             throw new InvalidOperationException("At least one channel required for pack.");
-        var brief = $"Produce ONE pack JSON for ONLY these channels: {string.Join(", ", channels)}. Not one call per post. Shape: {{ \"variants\": [ {{ channel, title, headline?, body, cta?, hashtags? }} ] }}.";
-        var generator = _generators.Get(provider);
-        return await generator.GenerateRepurposePackAsync(sourceJson, brief, ct);
+
+        // One LLM call for chosen channels only (plan §7). CWV2 CompleteAsync — not CWV3 pack helper.
+        var llm = GetLlm(provider);
+        var brief =
+            $"Produce ONE pack JSON for ONLY these channels: {string.Join(", ", channels)}. " +
+            "Not one call per post. Shape: { \"variants\": [ { \"channel\": string, \"title\": string, \"headline\": string|null, \"body\": string, \"cta\": string|null, \"hashtags\": string[]|null } ] }. " +
+            "Source content follows:\n" + sourceJson;
+        var request = new ChatCompletionRequest(
+            Messages:
+            [
+                new ChatMessage(ChatRole.System, "You write marketing channel packs as strict JSON only."),
+                new ChatMessage(ChatRole.User, brief),
+            ],
+            Temperature: 0.4);
+        var result = await llm.CompleteAsync(request, ct);
+        var raw = result.Content?.Trim() ?? "{}";
+        try
+        {
+            using var _ = JsonDocument.Parse(raw);
+            return raw;
+        }
+        catch
+        {
+            return JsonSerializer.Serialize(new { variants = Array.Empty<object>(), raw }, JsonOpts);
+        }
     }
 
-    public async Task<(string Name, string BodyJson)> GenerateToolAsync(
+    public async Task<(string Name, ContentDocument Document, string? MetaDescription, string? Summary)> GenerateToolAsync(
         string toolName,
         string? brief,
         string? sourceContext,
         ContentGeneratorProvider provider,
         CancellationToken ct)
     {
-        // Source of truth: Content Writer v2 tool prompts (BuildToolBodyPrompt + BuildToolMetadataPrompt),
-        // same stack as POST /api/projects/{id}/generate/tools — not a homemade structured-draft wrapper.
-        var llmType = provider == ContentGeneratorProvider.Anthropic
-            ? LlmProviderType.Anthropic
-            : LlmProviderType.OpenAi;
+        // Source of truth: Content Writer v2 tool prompts (BuildToolBodyPrompt + BuildToolMetadataPrompt).
+        var llmType = ToLlm(provider);
         var llm = _cwProviders.Get(llmType);
 
         var name = toolName.Trim();
@@ -275,19 +322,82 @@ public class GccGenerateService
                 _prompts.BuildToolMetadataPrompt(context, pillarMeta, app, document),
                 ct);
             var meta = LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata");
-            var wrapped = JsonSerializer.Serialize(new
-            {
-                title = name,
-                metaDescription = meta.MetaDescription,
-                summary = meta.Summary,
-                body = document,
-            }, JsonOpts);
-            return (name, wrapped);
+            return (name, document, meta.MetaDescription, meta.Summary);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "CWV2 tool metadata failed for {Tool}; saving body only.", name);
-            return (name, JsonSerializer.Serialize(document, JsonOpts));
+            return (name, document, null, null);
+        }
+    }
+
+    /// <summary>Serialize a CWV2 ContentDocument for legacy GCC artifact storage.</summary>
+    public static string SerializeDocument(ContentDocument document) =>
+        JsonSerializer.Serialize(document, CwDocumentJson);
+
+    private IContentGenerationProvider GetLlm(ContentGeneratorProvider provider) =>
+        _cwProviders.Get(ToLlm(provider));
+
+    private static LlmProviderType ToLlm(ContentGeneratorProvider provider) =>
+        provider == ContentGeneratorProvider.Anthropic ? LlmProviderType.Anthropic : LlmProviderType.OpenAi;
+
+    private ProjectGenerationContext BuildMinimalContext(string topic, string notes, LlmProviderType llmType)
+    {
+        var paragraphs = string.IsNullOrWhiteSpace(notes)
+            ? new List<string>()
+            : new List<string> { notes };
+        return new ProjectGenerationContext(
+            ProjectName: topic,
+            ProjectUrl: _company.ArticleBaseUrl,
+            TargetKeyword: topic,
+            Department: "marketing",
+            SiteName: _company.PublisherName,
+            DetectedTone: "Professional, consultative",
+            DetectedFocus: topic,
+            CrawledHeadings: [],
+            CrawledParagraphs: paragraphs,
+            JsonLdStructuredSummary: null,
+            KeywordSources: [],
+            PeopleAlsoAskQuestions: [],
+            PublisherName: _company.PublisherName,
+            PublisherLogoUrl: _company.PublisherLogoUrl,
+            AuthorName: _company.AuthorName,
+            ArticleBaseUrl: _company.ArticleBaseUrl,
+            BlogBaseUrl: _company.BlogBaseUrl,
+            ToolBaseUrl: _company.ToolBaseUrl,
+            ImplementerPositioning: _company.ImplementerPositioning,
+            Provider: llmType,
+            UseExactKeywordAsTitle: false,
+            DesiredHeadings: null,
+            MatchedUseCase: null);
+    }
+
+    private static string FlattenDocument(ContentDocument document)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(document.Lede.Heading);
+        foreach (var p in document.Lede.Paragraphs)
+            AppendParagraph(sb, p);
+        foreach (var section in document.Sections)
+        {
+            sb.AppendLine(section.Heading);
+            foreach (var p in section.Paragraphs)
+                AppendParagraph(sb, p);
+        }
+        return sb.ToString();
+    }
+
+    private static void AppendParagraph(StringBuilder sb, Paragraph paragraph)
+    {
+        switch (paragraph)
+        {
+            case TextParagraph text:
+                sb.AppendLine(string.Join("", text.Runs.Select(r => r.Text)));
+                break;
+            case ListParagraph list:
+                foreach (var item in list.Items)
+                    sb.AppendLine("- " + string.Join("", item.Select(r => r.Text)));
+                break;
         }
     }
 
