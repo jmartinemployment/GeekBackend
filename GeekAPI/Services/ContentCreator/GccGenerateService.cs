@@ -22,7 +22,8 @@ public sealed record SiteSectionContextDto(
     string GapTopic,
     string? GapSectionPath,
     IReadOnlyList<RelatedPageDto> RelatedPages,
-    IReadOnlyList<string> TopicalNeighbors);
+    IReadOnlyList<string> TopicalNeighbors,
+    bool IsDemo = false);
 
 public sealed record ContentGapDto(
     string Id,
@@ -524,7 +525,8 @@ public class GccGenerateService
         string domain,
         string? seedTopic,
         IReadOnlyList<ContentGapDto> gaps,
-        string gapTopic)
+        string gapTopic,
+        bool isDemo = false)
     {
         var seed = string.IsNullOrWhiteSpace(seedTopic) ? domain : seedTopic.Trim();
         var gap = gaps.FirstOrDefault(g =>
@@ -554,7 +556,8 @@ public class GccGenerateService
             gapTopic,
             sectionPath,
             related,
-            new[] { seed, sectionPath ?? "General", "implementation" });
+            new[] { seed, sectionPath ?? "General", "implementation" },
+            isDemo);
     }
 
     public static GcwSeoAnalyzer.SeoReport AnalyzeSeo(string bodyJson, string keyword) =>
