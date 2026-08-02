@@ -22,8 +22,7 @@ public sealed record SiteSectionContextDto(
     string GapTopic,
     string? GapSectionPath,
     IReadOnlyList<RelatedPageDto> RelatedPages,
-    IReadOnlyList<string> TopicalNeighbors,
-    bool IsDemo = false);
+    IReadOnlyList<string> TopicalNeighbors);
 
 public sealed record ContentGapDto(
     string Id,
@@ -32,7 +31,14 @@ public sealed record ContentGapDto(
     string Reason,
     bool SuggestPillar);
 
-public sealed record SiteAnalysisDto(Guid Id, string Domain, string Status, bool IsDemo);
+public sealed record SiteAnalysisDto(Guid Id, string Domain, string Status);
+
+public sealed record SiteAnalysisStoredPayload(
+    IReadOnlyList<ContentGapDto> Gaps,
+    IReadOnlyList<RelatedPageDto> SitePages,
+    IReadOnlyList<string> TopicalNeighbors,
+    Guid? SeoProfileId = null,
+    Guid? SeoProjectId = null);
 
 /// <summary>
 /// Content Creator generation helpers. Source of truth = Content Writer v2 only
@@ -492,72 +498,84 @@ public class GccGenerateService
     private static string Truncate(string value, int max)
         => value.Length <= max ? value : value[..max];
 
-    public static List<ContentGapDto> BuildDemoGaps(string? seedTopic)
-    {
-        var topicBase = string.IsNullOrWhiteSpace(seedTopic) ? "operations automation" : seedTopic.Trim();
-        return
-        [
-            new("gap-1", $"{topicBase} for finance teams", "Finance / Accounting", "No dedicated page for this topic", true),
-            new("gap-2", $"How to choose {topicBase}", "Guides", "Heading exists in topical map with no page", false),
-            new("gap-3", $"{topicBase} vs spreadsheets", "Comparisons", "Orphan pillar candidate", true),
-        ];
-    }
+    public static string SerializeAnalysisPayload(SiteAnalysisStoredPayload payload) =>
+        JsonSerializer.Serialize(payload, JsonOpts);
 
-    public static string SerializeGaps(IReadOnlyList<ContentGapDto> gaps) =>
-        JsonSerializer.Serialize(gaps, JsonOpts);
-
-    public static IReadOnlyList<ContentGapDto> DeserializeGaps(string? gapsJson)
+    public static SiteAnalysisStoredPayload ParseAnalysisPayload(string? gapsJson)
     {
-        if (string.IsNullOrWhiteSpace(gapsJson)) return Array.Empty<ContentGapDto>();
+        if (string.IsNullOrWhiteSpace(gapsJson))
+            return new SiteAnalysisStoredPayload([], [], []);
+
         try
         {
-            return JsonSerializer.Deserialize<List<ContentGapDto>>(gapsJson, JsonOpts)
-                ?? new List<ContentGapDto>();
+            using var doc = JsonDocument.Parse(gapsJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                var legacyGaps = JsonSerializer.Deserialize<List<ContentGapDto>>(gapsJson, JsonOpts)
+                    ?? [];
+                return new SiteAnalysisStoredPayload(legacyGaps, [], []);
+            }
+
+            return JsonSerializer.Deserialize<SiteAnalysisStoredPayload>(gapsJson, JsonOpts)
+                ?? new SiteAnalysisStoredPayload([], [], []);
         }
         catch
         {
-            return Array.Empty<ContentGapDto>();
+            return new SiteAnalysisStoredPayload([], [], []);
         }
     }
 
-    public static SiteSectionContextDto BuildSectionContext(
+    public static IReadOnlyList<ContentGapDto> DeserializeGaps(string? gapsJson) =>
+        ParseAnalysisPayload(gapsJson).Gaps;
+
+    /// <summary>
+    /// Builds section context from stored Geek-SEO site pages for the chosen gap.
+    /// Returns null when related pages cannot be resolved (caller must fail closed).
+    /// </summary>
+    public static SiteSectionContextDto? TryBuildSectionContext(
         Guid analysisId,
-        string domain,
-        string? seedTopic,
-        IReadOnlyList<ContentGapDto> gaps,
-        string gapTopic,
-        bool isDemo = false)
+        SiteAnalysisStoredPayload payload,
+        string gapTopic)
     {
-        var seed = string.IsNullOrWhiteSpace(seedTopic) ? domain : seedTopic.Trim();
-        var gap = gaps.FirstOrDefault(g =>
+        if (string.IsNullOrWhiteSpace(gapTopic)) return null;
+
+        var gap = payload.Gaps.FirstOrDefault(g =>
             string.Equals(g.Topic, gapTopic, StringComparison.OrdinalIgnoreCase));
-        var sectionPath = gap?.SectionPath ?? "General";
-        var related = new List<RelatedPageDto>
-        {
-            new(
-                $"https://{domain}/about",
-                $"About {domain}",
-                new[] { "Our approach", "Who we serve" },
-                $"Existing overview content on {domain} relevant to {gapTopic}."),
-            new(
-                $"https://{domain}/resources",
-                "Resources hub",
-                new[] { "Guides", sectionPath ?? "Topics" },
-                $"Related resources neighboring the {gapTopic} gap in the {sectionPath} section."),
-            new(
-                $"https://{domain}/blog",
-                "Blog index",
-                new[] { seed, "Best practices" },
-                $"Blog coverage near {seed}; avoid duplicating these angles when writing {gapTopic}."),
-        };
+        var sectionPath = gap?.SectionPath;
+
+        var related = payload.SitePages
+            .Where(p =>
+                string.IsNullOrWhiteSpace(sectionPath)
+                || string.Equals(p.Title, sectionPath, StringComparison.OrdinalIgnoreCase)
+                || (p.Excerpt?.Contains(sectionPath, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (sectionPath is not null
+                    && p.Headings.Any(h =>
+                        h.Contains(sectionPath, StringComparison.OrdinalIgnoreCase))))
+            .ToList();
+
+        // Prefer same-section pages; if none match the pillar path, use all known site pages.
+        if (related.Count == 0)
+            related = payload.SitePages.ToList();
+
+        related = related
+            .Where(p => !string.IsNullOrWhiteSpace(p.Url))
+            .GroupBy(p => p.Url, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Take(12)
+            .ToList();
+
+        if (related.Count == 0) return null;
+
+        var neighbors = payload.TopicalNeighbors.Count > 0
+            ? payload.TopicalNeighbors
+            : payload.SitePages.Select(p => p.Title).Where(t => !string.IsNullOrWhiteSpace(t)).Take(12).ToArray();
 
         return new SiteSectionContextDto(
             analysisId,
             gapTopic,
             sectionPath,
             related,
-            new[] { seed, sectionPath ?? "General", "implementation" },
-            isDemo);
+            neighbors);
     }
 
     public static GcwSeoAnalyzer.SeoReport AnalyzeSeo(string bodyJson, string keyword) =>

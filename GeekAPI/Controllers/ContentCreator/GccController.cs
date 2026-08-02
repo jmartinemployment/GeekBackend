@@ -928,59 +928,54 @@ public class GccController : ControllerBase
     }
 
     [HttpPost("site-analyzer/analyze")]
-    public async Task<ActionResult<SiteAnalysisDto>> AnalyzeSite(
+    public async Task<IActionResult> AnalyzeSite(
         [FromBody] AnalyzeSiteRequest request,
         CancellationToken ct)
     {
         if (request is null || string.IsNullOrWhiteSpace(request.Domain))
-            return BadRequest("domain required");
+            return BadRequest(new { error = "domain required" });
 
-        if (request.NicheProfileId is Guid profileId && profileId != Guid.Empty && _seo.IsEnabled)
+        var auth = Request.Headers.Authorization.ToString();
+        var bearer = auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? auth["Bearer ".Length..].Trim()
+            : null;
+
+        var loaded = await _seo.LoadSiteModelByDomainAsync(request.Domain, bearer, ct);
+        if (!loaded.Ok || loaded.Value is null)
         {
-            var auth = Request.Headers.Authorization.ToString();
-            var bearer = auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                ? auth["Bearer ".Length..].Trim()
-                : null;
-            var live = await _seo.GetGapsAsync(profileId, bearer, ct);
-            if (live is { Count: > 0 })
-            {
-                var gaps = live.Select(g => new ContentGapDto(
-                    g.Id, g.Topic, g.SectionPath, g.Reason, g.SuggestPillar)).ToList();
-                var persisted = await _repo.CreateSiteAnalysisAsync(
-                    new CreateGccSiteAnalysisCommand(
-                        Id: null,
-                        Domain: request.Domain.Trim(),
-                        SeedTopic: request.SeedTopic,
-                        GapsJson: GccGenerateService.SerializeGaps(gaps),
-                        IsDemo: false),
-                    ct);
-                return Ok(new
-                {
-                    id = persisted.Id,
-                    domain = persisted.Domain,
-                    status = "ready",
-                    isDemo = false,
-                    gaps,
-                });
-            }
+            return StatusCode(
+                loaded.StatusCode is >= 400 and < 600 ? loaded.StatusCode : 502,
+                new { error = loaded.Error ?? "Failed to load site analysis from Geek-SEO" });
         }
 
-        var demoGaps = GccGenerateService.BuildDemoGaps(request.SeedTopic);
-        var demo = await _repo.CreateSiteAnalysisAsync(
+        var snap = loaded.Value;
+        var gaps = snap.Gaps.Select(g => new ContentGapDto(
+            g.Id, g.Topic, g.SectionPath, g.Reason, g.SuggestPillar)).ToList();
+
+        var payload = new SiteAnalysisStoredPayload(
+            gaps,
+            snap.SitePages.ToList(),
+            snap.TopicalNeighbors.ToList(),
+            snap.SeoProfileId,
+            snap.SeoProjectId);
+
+        var persisted = await _repo.CreateSiteAnalysisAsync(
             new CreateGccSiteAnalysisCommand(
                 Id: null,
-                Domain: request.Domain.Trim(),
+                Domain: snap.Domain,
                 SeedTopic: request.SeedTopic,
-                GapsJson: GccGenerateService.SerializeGaps(demoGaps),
-                IsDemo: true),
+                GapsJson: GccGenerateService.SerializeAnalysisPayload(payload),
+                IsDemo: false),
             ct);
+
         return Ok(new
         {
-            id = demo.Id,
-            domain = demo.Domain,
+            id = persisted.Id,
+            domain = persisted.Domain,
             status = "ready",
-            isDemo = true,
-            gaps = demoGaps,
+            seoProjectId = snap.SeoProjectId,
+            seoProfileId = snap.SeoProfileId,
+            gaps,
         });
     }
 
@@ -993,22 +988,28 @@ public class GccController : ControllerBase
     }
 
     [HttpGet("site-analyzer/{id:guid}/section-context")]
-    public async Task<ActionResult<SiteSectionContextDto>> SectionContext(
+    public async Task<IActionResult> SectionContext(
         Guid id,
         [FromQuery] string gapTopic,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(gapTopic)) return BadRequest("gapTopic required");
+        if (string.IsNullOrWhiteSpace(gapTopic))
+            return BadRequest(new { error = "gapTopic required" });
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
-        var gaps = GccGenerateService.DeserializeGaps(analysis.GapsJson);
-        return Ok(GccGenerateService.BuildSectionContext(
-            analysis.Id,
-            analysis.Domain,
-            analysis.SeedTopic,
-            gaps,
-            gapTopic,
-            analysis.IsDemo));
+
+        var payload = GccGenerateService.ParseAnalysisPayload(analysis.GapsJson);
+        var section = GccGenerateService.TryBuildSectionContext(analysis.Id, payload, gapTopic);
+        if (section is null || section.RelatedPages.Count == 0)
+        {
+            return UnprocessableEntity(new
+            {
+                error =
+                    "No existing site pages available for this gap. Site Analyzer Generate requires real related pages from the site model.",
+            });
+        }
+
+        return Ok(section);
     }
 
     private static bool TryParseProvider(string? raw, out ContentGeneratorProvider provider, out string? error)
@@ -1071,5 +1072,5 @@ public class GccController : ControllerBase
         Guid? SourceArtifactId,
         string? Provider);
     public sealed record ContentApprovalRequest(bool Approved = true);
-    public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic, Guid? NicheProfileId = null);
+    public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null);
 }
