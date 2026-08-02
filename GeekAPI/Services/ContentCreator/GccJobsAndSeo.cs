@@ -325,8 +325,8 @@ public class HttpGeekSeoSiteAnalyzerClient
         Guid Id,
         Guid ProjectId,
         string Domain,
-        string? PrimaryNiche,
-        string? NicheDescription,
+        string? PrimaryFocus,
+        string? FocusDescription,
         List<SeoPillarDto> Pillars);
 
     private sealed record SeoPillarDto(

@@ -7,35 +7,35 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace GeekRepository.Controllers.Seo;
 
-public sealed record UpdateNicheStatusRequest(
+public sealed record UpdateSiteAnalysisStatusRequest(
     string Status,
     string? Step,
     int StepNumber,
     int TotalSteps,
     string? ErrorMessage,
-    NicheAnalysisStepLogEntry? StepLogEntry = null);
+    SiteAnalysisStepLogEntry? StepLogEntry = null);
 
-public sealed record UpdateNicheScoresRequest(
+public sealed record UpdateSiteAnalysisScoresRequest(
     decimal AuthorityScore,
     int Covered,
     int Partial,
     int Gap);
 
-public sealed record UpdateNicheStepStatusRequest(
+public sealed record UpdateSiteAnalysisStepStatusRequest(
     string Slug,
     string Status,
-    NicheAnalysisStepLogEntry? StepLogEntry = null);
+    SiteAnalysisStepLogEntry? StepLogEntry = null);
 
-public sealed record InvalidateNicheStepsRequest(
+public sealed record InvalidateSiteAnalysisStepsRequest(
     IReadOnlyList<string> DownstreamSlugs);
 
 public sealed record UpdateCrawledUrlsRequest(
     string CrawledUrlsJson);
 
-public sealed record SaveNicheAnalysisResultsRequest(
-    string PrimaryNiche,
-    string NicheDescription,
-    string[] NicheTags,
+public sealed record SaveSiteAnalysisResultsRequest(
+    string PrimaryFocus,
+    string FocusDescription,
+    string[] FocusTags,
     string AudienceType,
     string DiscoveryMethod,
     decimal AuthorityScore,
@@ -47,26 +47,26 @@ public sealed record SaveNicheAnalysisResultsRequest(
     DateTimeOffset NextAnalysisDue,
     string? FusionSnapshot = null);
 
-public sealed record SaveNicheFusionSnapshotRequest(string FusionSnapshot);
-public sealed record ReplaceSchemaSignalsRequest(IReadOnlyList<NicheProfileSchemaSignalWrite> Signals);
-public sealed record ReplaceDiscoveredUrlsRequest(IReadOnlyList<NicheProfileDiscoveredUrlWrite> Urls);
-public sealed record ReplaceNavigationLinksRequest(IReadOnlyList<NicheProfileNavigationLinkWrite> Links);
-public sealed record ReplaceHeadingsRequest(IReadOnlyList<NicheProfileHeadingWrite> Headings);
-public sealed record ReplaceTopicCandidateEvidenceRequest(IReadOnlyList<NicheTopicCandidateEvidenceWrite> Evidence);
-public sealed record ReplacePageContentRequest(NicheProfilePageContentWrite Content);
-public sealed record ReplaceSiteStructureRequest(NicheProfileSiteStructureWrite Structure);
+public sealed record SaveSiteAnalysisFusionSnapshotRequest(string FusionSnapshot);
+public sealed record ReplaceSchemaSignalsRequest(IReadOnlyList<SiteAnalysisProfileSchemaSignalWrite> Signals);
+public sealed record ReplaceDiscoveredUrlsRequest(IReadOnlyList<SiteAnalysisProfileDiscoveredUrlWrite> Urls);
+public sealed record ReplaceNavigationLinksRequest(IReadOnlyList<SiteAnalysisProfileNavigationLinkWrite> Links);
+public sealed record ReplaceHeadingsRequest(IReadOnlyList<SiteAnalysisProfileHeadingWrite> Headings);
+public sealed record ReplaceTopicCandidateEvidenceRequest(IReadOnlyList<SiteAnalysisTopicCandidateEvidenceWrite> Evidence);
+public sealed record ReplacePageContentRequest(SiteAnalysisProfilePageContentWrite Content);
+public sealed record ReplaceSiteStructureRequest(SiteAnalysisProfileSiteStructureWrite Structure);
 
 [ApiController]
-[Route("repo/seo/niche-profiles")]
-public sealed class NicheProfilesController(
-    INicheProfileRepository profiles,
-    INicheAnalyticsDapperRepository analytics,
+[Route("repo/seo/site-analysis-profiles")]
+public sealed class SiteAnalysisProfilesController(
+    ISiteAnalysisProfileRepository profiles,
+    ISiteAnalysisAnalyticsRepository analytics,
     IProjectRepository projects) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Create(
         [FromQuery] Guid userId,
-        [FromBody] NicheProfile body,
+        [FromBody] SiteAnalysisProfile body,
         CancellationToken ct)
     {
         var owned = await EnsureProjectAsync(body.ProjectId, userId, ct);
@@ -151,7 +151,7 @@ public sealed class NicheProfilesController(
     public async Task<IActionResult> UpdateStatus(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] UpdateNicheStatusRequest body,
+        [FromBody] UpdateSiteAnalysisStatusRequest body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -166,7 +166,7 @@ public sealed class NicheProfilesController(
     public async Task<IActionResult> UpdateScores(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] UpdateNicheScoresRequest body,
+        [FromBody] UpdateSiteAnalysisScoresRequest body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -226,7 +226,7 @@ public sealed class NicheProfilesController(
         Guid profileId,
         string stepSlug,
         [FromQuery] Guid userId,
-        [FromBody] NicheProfileStepRunUpsert body,
+        [FromBody] SiteAnalysisProfileStepRunUpsert body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -243,7 +243,7 @@ public sealed class NicheProfilesController(
         Guid profileId,
         string stepSlug,
         [FromQuery] Guid userId,
-        [FromBody] NicheProfileStepRunStatusPatch body,
+        [FromBody] SiteAnalysisProfileStepRunStatusPatch body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -253,12 +253,12 @@ public sealed class NicheProfilesController(
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
-    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    /// <summary>Legacy route used by GeekSeoBackend HttpSiteAnalysisProfileRepository.</summary>
     [HttpPatch("{profileId:guid}/step-status")]
     public async Task<IActionResult> UpdateStepStatus(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] UpdateNicheStepStatusRequest body,
+        [FromBody] UpdateSiteAnalysisStepStatusRequest body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -269,7 +269,7 @@ public sealed class NicheProfilesController(
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
-    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    /// <summary>Legacy route used by GeekSeoBackend HttpSiteAnalysisProfileRepository.</summary>
     [HttpGet("{profileId:guid}/step-statuses")]
     public async Task<IActionResult> GetStepStatuses(
         Guid profileId,
@@ -283,12 +283,12 @@ public sealed class NicheProfilesController(
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
-    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    /// <summary>Legacy route used by GeekSeoBackend HttpSiteAnalysisProfileRepository.</summary>
     [HttpPatch("{profileId:guid}/invalidate-steps")]
     public async Task<IActionResult> InvalidateDownstreamSteps(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] InvalidateNicheStepsRequest body,
+        [FromBody] InvalidateSiteAnalysisStepsRequest body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -298,7 +298,7 @@ public sealed class NicheProfilesController(
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
-    /// <summary>Legacy route used by GeekSeoBackend HttpNicheProfileRepository.</summary>
+    /// <summary>Legacy route used by GeekSeoBackend HttpSiteAnalysisProfileRepository.</summary>
     [HttpPatch("{profileId:guid}/crawled-urls")]
     public async Task<IActionResult> UpdateCrawledUrls(
         Guid profileId,
@@ -506,7 +506,7 @@ public sealed class NicheProfilesController(
     public async Task<IActionResult> UpdateProfileSummary(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] NicheProfileSummaryPatch body,
+        [FromBody] SiteAnalysisProfileSummaryPatch body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -520,7 +520,7 @@ public sealed class NicheProfilesController(
     public async Task<IActionResult> SaveFusionSnapshot(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] SaveNicheFusionSnapshotRequest body,
+        [FromBody] SaveSiteAnalysisFusionSnapshotRequest body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -534,7 +534,7 @@ public sealed class NicheProfilesController(
     public async Task<IActionResult> UpdatePhaseStatus(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] NichePhaseStatusPatch body,
+        [FromBody] SiteAnalysisPhaseStatusPatch body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -548,7 +548,7 @@ public sealed class NicheProfilesController(
     public async Task<IActionResult> BulkUpsertTopicCandidates(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] List<NicheTopicCandidateBulkUpsert> body,
+        [FromBody] List<SiteAnalysisTopicCandidateBulkUpsert> body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
@@ -583,16 +583,16 @@ public sealed class NicheProfilesController(
     public async Task<IActionResult> SaveAnalysisResults(
         Guid profileId,
         [FromQuery] Guid userId,
-        [FromBody] SaveNicheAnalysisResultsRequest body,
+        [FromBody] SaveSiteAnalysisResultsRequest body,
         CancellationToken ct)
     {
         var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
         if (denied is not null) return denied;
 
-        var result = await profiles.SaveAnalysisResultsAsync(profileId, new NicheAnalysisSaveRequest(
-            body.PrimaryNiche,
-            body.NicheDescription,
-            body.NicheTags,
+        var result = await profiles.SaveAnalysisResultsAsync(profileId, new SiteAnalysisSaveRequest(
+            body.PrimaryFocus,
+            body.FocusDescription,
+            body.FocusTags,
             body.AudienceType,
             body.DiscoveryMethod,
             body.AuthorityScore,
@@ -609,10 +609,10 @@ public sealed class NicheProfilesController(
     [HttpPost("pillars")]
     public async Task<IActionResult> BulkInsertPillars(
         [FromQuery] Guid userId,
-        [FromBody] List<NichePillarBulkInsert> body,
+        [FromBody] List<SiteAnalysisPillarBulkInsert> body,
         CancellationToken ct)
     {
-        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var entities = body.Select(SiteAnalysisBulkInsertMapper.ToEntity).ToList();
         var result = await profiles.BulkInsertPillarsAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
@@ -620,10 +620,10 @@ public sealed class NicheProfilesController(
     [HttpPost("subtopics")]
     public async Task<IActionResult> BulkInsertSubtopics(
         [FromQuery] Guid userId,
-        [FromBody] List<NicheSubtopicBulkInsert> body,
+        [FromBody] List<SiteAnalysisSubtopicBulkInsert> body,
         CancellationToken ct)
     {
-        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var entities = body.Select(SiteAnalysisBulkInsertMapper.ToEntity).ToList();
         var result = await profiles.BulkInsertSubtopicsAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
@@ -631,10 +631,10 @@ public sealed class NicheProfilesController(
     [HttpPost("competitors")]
     public async Task<IActionResult> BulkInsertCompetitors(
         [FromQuery] Guid userId,
-        [FromBody] List<NicheCompetitorBulkInsert> body,
+        [FromBody] List<SiteAnalysisCompetitorBulkInsert> body,
         CancellationToken ct)
     {
-        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var entities = body.Select(SiteAnalysisBulkInsertMapper.ToEntity).ToList();
         var result = await profiles.BulkInsertCompetitorsAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
@@ -642,10 +642,10 @@ public sealed class NicheProfilesController(
     [HttpPost("entities")]
     public async Task<IActionResult> BulkInsertEntities(
         [FromQuery] Guid userId,
-        [FromBody] List<NicheEntityBulkInsert> body,
+        [FromBody] List<SiteAnalysisEntityBulkInsert> body,
         CancellationToken ct)
     {
-        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var entities = body.Select(SiteAnalysisBulkInsertMapper.ToEntity).ToList();
         var result = await profiles.BulkInsertEntitiesAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
@@ -653,10 +653,10 @@ public sealed class NicheProfilesController(
     [HttpPost("pillar-pages")]
     public async Task<IActionResult> BulkInsertPillarPages(
         [FromQuery] Guid userId,
-        [FromBody] List<NichePillarPageBulkInsert> body,
+        [FromBody] List<SiteAnalysisPillarPageBulkInsert> body,
         CancellationToken ct)
     {
-        var entities = body.Select(NicheBulkInsertMapper.ToEntity).ToList();
+        var entities = body.Select(SiteAnalysisBulkInsertMapper.ToEntity).ToList();
         var result = await profiles.BulkInsertPillarPagesAsync(entities, ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
