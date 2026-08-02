@@ -27,6 +27,7 @@ public class GccController : ControllerBase
 
     private readonly HttpGccRepository _repo;
     private readonly GccGenerateService _gen;
+    private readonly GccResearchFetchService _researchFetch;
     private readonly HttpGeekSeoNicheClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
@@ -38,6 +39,7 @@ public class GccController : ControllerBase
     public GccController(
         HttpGccRepository repo,
         GccGenerateService gen,
+        GccResearchFetchService researchFetch,
         HttpGeekSeoNicheClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
@@ -48,6 +50,7 @@ public class GccController : ControllerBase
     {
         _repo = repo;
         _gen = gen;
+        _researchFetch = researchFetch;
         _seo = seo;
         _jobs = jobs;
         _user = user;
@@ -82,11 +85,73 @@ public class GccController : ControllerBase
             create.Notes,
             create.SiteAnalysisId,
             create.SiteSectionJson,
+            create.BriefJson,
+            create.ResearchJson,
             create.Status,
             create.CreatedAtUtc,
             create.UpdatedAtUtc,
             artifacts,
         });
+    }
+
+    [HttpPatch("creates/{id:guid}/brief-research")]
+    public async Task<ActionResult<GccCreateDto>> UpdateBriefResearch(
+        Guid id,
+        [FromBody] UpdateBriefResearchRequest request,
+        CancellationToken ct)
+    {
+        if (request is null) return BadRequest("Body required");
+        if (request.BriefJson is null && request.ResearchJson is null)
+            return BadRequest("briefJson and/or researchJson required");
+
+        var existing = await _repo.GetCreateAsync(id, ct);
+        if (existing is null) return NotFound();
+
+        try
+        {
+            var updated = await _repo.UpdateBriefResearchAsync(
+                id,
+                new UpdateGccCreateBriefResearchCommand(request.BriefJson, request.ResearchJson),
+                ct);
+            return Ok(updated);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Update brief/research failed");
+            return StatusCode(502, "Failed to persist brief/research");
+        }
+    }
+
+    [HttpPost("creates/{id:guid}/research/follow")]
+    public async Task<ActionResult<GccCreateDto>> FollowResearchUrls(
+        Guid id,
+        [FromBody] FollowResearchRequest request,
+        CancellationToken ct)
+    {
+        if (request is null) return BadRequest("Body required");
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+
+        var urls = request.Urls ?? [];
+        try
+        {
+            var doc = await _researchFetch.FetchQuoteablesAsync(urls, request.SerpIndex, ct);
+            var json = GccResearchFetchService.Serialize(doc);
+            var updated = await _repo.UpdateBriefResearchAsync(
+                id,
+                new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json),
+                ct);
+            return Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Persist research failed");
+            return StatusCode(502, "Failed to persist research");
+        }
     }
 
     [HttpPost("creates")]
@@ -142,6 +207,7 @@ public class GccController : ControllerBase
         try
         {
             GccGenerateService.ValidateSiteSectionGate(create.SiteAnalysisId, section);
+            GccGenerateService.ValidateBriefRequired(create);
         }
         catch (InvalidOperationException ex)
         {
@@ -155,6 +221,12 @@ public class GccController : ControllerBase
         {
             var result = await RunGenerateAsync(_repo, _gen, create, section, provider, ct);
             return Ok(result);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("brief required", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("Site Analyzer", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(ex.Message);
         }
         catch (InvalidOperationException ex)
         {
@@ -1286,4 +1358,8 @@ public class GccController : ControllerBase
         string? Provider);
     public sealed record ContentApprovalRequest(bool Approved = true);
     public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null);
+    public sealed record UpdateBriefResearchRequest(string? BriefJson, string? ResearchJson);
+    public sealed record FollowResearchRequest(
+        IReadOnlyList<string>? Urls,
+        GccSerpIndex? SerpIndex);
 }

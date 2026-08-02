@@ -9,6 +9,7 @@ public interface IGccCreateRepository
     Task<IReadOnlyList<GccCreateDto>> ListAsync(Guid? clientId, string? ownerUserId, CancellationToken ct = default);
     Task<GccCreateDto> CreateAsync(CreateGccCreateCommand command, CancellationToken ct = default);
     Task<GccCreateDto> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default);
+    Task<GccCreateDto> UpdateBriefResearchAsync(Guid id, UpdateGccCreateBriefResearchCommand command, CancellationToken ct = default);
 }
 
 public interface IGccArtifactRepository

@@ -36,6 +36,12 @@ public class HttpGccRepository
     public Task<GccCreateDto> CreateCreateAsync(CreateGccCreateCommand command, CancellationToken ct = default) =>
         PostAsync<GccCreateDto>("repo/content-creator/creates", command, ct);
 
+    public Task<GccCreateDto> UpdateBriefResearchAsync(
+        Guid id,
+        UpdateGccCreateBriefResearchCommand command,
+        CancellationToken ct = default) =>
+        PatchAsync<GccCreateDto>($"repo/content-creator/creates/{id}/brief-research", command, ct);
+
     public Task<GccArtifactDto?> GetArtifactAsync(Guid id, CancellationToken ct = default) =>
         GetAsync<GccArtifactDto>($"repo/content-creator/artifacts/{id}", ct);
 

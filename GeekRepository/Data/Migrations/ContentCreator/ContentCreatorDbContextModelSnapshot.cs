@@ -143,11 +143,19 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("BriefJson")
+                        .HasColumnType("text")
+                        .HasColumnName("brief_json");
+
                     b.Property<string>("Notes")
                         .HasColumnType("text");
 
                     b.Property<Guid>("OwnerUserId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ResearchJson")
+                        .HasColumnType("text")
+                        .HasColumnName("research_json");
 
                     b.Property<Guid?>("SiteAnalysisId")
                         .HasColumnType("uuid");

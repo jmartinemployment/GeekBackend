@@ -108,6 +108,71 @@ public class GccGenerateService
                 "Site Analyzer–started Generate requires non-empty relatedPages in site section context.");
     }
 
+    /// <summary>
+    /// Generate reads persisted BriefJson from the create only — not client request bodies.
+    /// </summary>
+    public static void ValidateBriefRequired(GccCreateDto create)
+    {
+        if (string.IsNullOrWhiteSpace(create.BriefJson))
+            throw new InvalidOperationException("brief required");
+
+        using var doc = JsonDocument.Parse(create.BriefJson);
+        var root = doc.RootElement;
+        static string? S(JsonElement el, string name) =>
+            el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(S(root, "intent"))) missing.Add("intent");
+        if (string.IsNullOrWhiteSpace(S(root, "buyingStage"))) missing.Add("buyingStage");
+        if (string.IsNullOrWhiteSpace(S(root, "audiencePrimary"))) missing.Add("audiencePrimary");
+        if (string.IsNullOrWhiteSpace(S(root, "audienceDetail"))) missing.Add("audienceDetail");
+        if (string.IsNullOrWhiteSpace(S(root, "angle"))) missing.Add("angle");
+        if (string.IsNullOrWhiteSpace(S(root, "ctaType"))) missing.Add("ctaType");
+        if (string.IsNullOrWhiteSpace(S(root, "lengthBand"))) missing.Add("lengthBand");
+        if (missing.Count > 0)
+            throw new InvalidOperationException("brief required");
+    }
+
+    public static string BuildBriefAndResearchBlock(GccCreateDto create)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("=== BRIEF ===");
+        sb.AppendLine("(Persisted Content Brief — follow these controls; if audience detail conflicts with primary, follow detail.)");
+        sb.AppendLine(create.BriefJson!.Trim());
+        sb.AppendLine();
+
+        var research = GccResearchFetchService.Deserialize(create.ResearchJson);
+        if (research?.Quoteables is { Count: > 0 })
+        {
+            sb.AppendLine("=== QUOTEABLE RESEARCH (destination pages — quote/paraphrase; do not invent) ===");
+            foreach (var q in research.Quoteables.Take(GccResearchCaps.MaxQuoteables))
+            {
+                sb.AppendLine($"[{q.Title}] ({q.Url})");
+                foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+                    sb.AppendLine($"- {h}");
+                foreach (var p in q.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
+                    sb.AppendLine($"- {p}");
+                sb.AppendLine();
+            }
+        }
+
+        if (research?.SerpIndex is { } serp)
+        {
+            if (serp.OrganicTitles.Count > 0)
+            {
+                sb.AppendLine("SERP organic titles (index):");
+                foreach (var t in serp.OrganicTitles.Take(12)) sb.AppendLine($"- {t}");
+            }
+            if (serp.PeopleAlsoAsk.Count > 0)
+            {
+                sb.AppendLine("People Also Ask (index):");
+                foreach (var t in serp.PeopleAlsoAsk.Take(15)) sb.AppendLine($"- {t}");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
     public async Task<string> GenerateStartingContentAsync(
         GccCreateDto create,
         SiteSectionContextDto? section,
@@ -115,12 +180,19 @@ public class GccGenerateService
         CancellationToken ct)
     {
         ValidateSiteSectionGate(create.SiteAnalysisId, section);
+        ValidateBriefRequired(create);
+        var briefBlock = BuildBriefAndResearchBlock(create);
 
         if (string.Equals(create.StartingContentType, "imagePrompt", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(create.Topic) || string.IsNullOrWhiteSpace(create.Notes))
                 throw new InvalidOperationException("Standalone image prompt requires topic and notes.");
-            return await GenerateImagePromptJsonAsync(create.Topic, create.Notes, null, provider, ct);
+            return await GenerateImagePromptJsonAsync(
+                create.Topic,
+                $"{briefBlock}\n\n{create.Notes}",
+                null,
+                provider,
+                ct);
         }
 
         if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase))
@@ -128,7 +200,7 @@ public class GccGenerateService
             var tool = await GenerateToolPageAsync(
                 toolName: create.Topic,
                 brief: create.Notes,
-                sourceContext: BuildAudience(create, section),
+                sourceContext: $"{briefBlock}\n\n{BuildAudience(create, section)}",
                 department: "marketing",
                 relatedArticleUrl: null,
                 provider: provider,
@@ -143,9 +215,12 @@ public class GccGenerateService
             }, CwDocumentJson);
         }
 
-        // Legacy GCC create long-form: CWV2 standalone blog body (not CWV3 structured draft).
+        // Content Creator long-form: CWV2 standalone blog body + persisted brief/research.
         var llm = GetLlm(provider);
-        var context = BuildMinimalContext(create.Topic, BuildAudience(create, section), ToLlm(provider));
+        var context = BuildMinimalContext(
+            create.Topic,
+            $"{briefBlock}\n\n{BuildAudience(create, section)}",
+            ToLlm(provider));
         var metadata = new BlogMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
