@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ContentWriter.Application.DTOs;
 using ContentWriter.Application.Services;
 using ContentWriter.Domain.Entities;
 using ContentWriter.Domain.Enums;
@@ -30,6 +31,7 @@ public class GccController : ControllerBase
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
     private readonly IProjectStore _projects;
+    private readonly IContentGenerationOrchestrator _orchestrator;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccController> _logger;
 
@@ -40,6 +42,7 @@ public class GccController : ControllerBase
         GccJobStore jobs,
         ICurrentUserContext user,
         IProjectStore projects,
+        IContentGenerationOrchestrator orchestrator,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccController> logger)
     {
@@ -49,6 +52,7 @@ public class GccController : ControllerBase
         _jobs = jobs;
         _user = user;
         _projects = projects;
+        _orchestrator = orchestrator;
         _company = company.Value;
         _logger = logger;
     }
@@ -207,8 +211,9 @@ public class GccController : ControllerBase
             var created = new List<object>();
             foreach (var name in names)
             {
-                var (toolName, body) = await gen.GenerateToolAsync(
+                var (toolName, document, _, _) = await gen.GenerateToolAsync(
                     name, create.Notes, null, provider, ct);
+                var body = GccGenerateService.SerializeDocument(document);
                 var artifact = await repo.CreateArtifactAsync(
                     new CreateGccArtifactCommand(id, "aiTool", toolName), ct);
                 var version = await repo.CreateVersionAsync(
@@ -440,7 +445,7 @@ public class GccController : ControllerBase
             {
                 foreach (var name in toolNames)
                 {
-                    var (toolName, body) = await _gen.GenerateToolAsync(
+                    var (toolName, document, _, _) = await _gen.GenerateToolAsync(
                         name,
                         request?.AiToolBrief,
                         version.BodyDocumentJson,
@@ -449,7 +454,9 @@ public class GccController : ControllerBase
                     var toolArtifact = await _repo.CreateArtifactAsync(
                         new CreateGccArtifactCommand(createId, "aiTool", toolName), ct);
                     var toolVersion = await _repo.CreateVersionAsync(
-                        new CreateGccArtifactVersionCommand(toolArtifact.Id, body), ct);
+                        new CreateGccArtifactVersionCommand(
+                            toolArtifact.Id,
+                            GccGenerateService.SerializeDocument(document)), ct);
                     created.Add(new { artifact = toolArtifact, version = toolVersion });
                 }
             }
@@ -497,11 +504,13 @@ public class GccController : ControllerBase
         {
             foreach (var name in names)
             {
-                var (toolName, body) = await _gen.GenerateToolAsync(name, request.Brief, sourceContext, provider, ct);
+                var (toolName, document, _, _) = await _gen.GenerateToolAsync(name, request.Brief, sourceContext, provider, ct);
                 var artifact = await _repo.CreateArtifactAsync(
                     new CreateGccArtifactCommand(request.CreateId, "aiTool", toolName), ct);
                 var version = await _repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(artifact.Id, body), ct);
+                    new CreateGccArtifactVersionCommand(
+                        artifact.Id,
+                        GccGenerateService.SerializeDocument(document)), ct);
                 created.Add(new { artifact, version });
             }
         }
@@ -556,11 +565,8 @@ public class GccController : ControllerBase
         {
             foreach (var name in names)
             {
-                var (toolName, bodyJson) = await _gen.GenerateToolAsync(
+                var (toolName, document, metaDescription, summary) = await _gen.GenerateToolAsync(
                     name, request.Brief, null, provider, ct);
-                var (document, metaDescription, summary) = ParseToolBodyJson(bodyJson);
-                if (document is null)
-                    return StatusCode(502, $"CWV2 tool body for '{toolName}' was not a ContentDocument");
 
                 var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(toolName), usedSlugs);
                 order += 1;
@@ -742,26 +748,58 @@ public class GccController : ControllerBase
 
         if (row is null)
             return NotFound("No matching draft on this project.");
-        if (row.Body is null)
+
+        // Image-prompt rows store prompt JSON, not a body document.
+        var isImagePrompt = row.ContentType is GeneratedContentType.ImagePromptSection
+            or GeneratedContentType.ImagePromptPillarFigure
+            or GeneratedContentType.ImagePromptBlogFigure;
+
+        if (!isImagePrompt && row.Body is null)
             return BadRequest("Selected draft has no body document to revise.");
 
         try
         {
-            var currentJson = JsonSerializer.Serialize(row.Body, JsonOpts);
-            var revisedJson = await _gen.ReviseAsync(
-                currentJson,
-                request.Feedback,
-                request.Scope ?? "full",
-                request.SectionPath,
-                provider,
-                ct);
-            var document = JsonSerializer.Deserialize<ContentDocument>(revisedJson, JsonOpts)
-                ?? throw new InvalidOperationException("Revise did not return a ContentDocument.");
+            var notes = request.Feedback.Trim();
+            if (string.Equals(request.Scope, "section", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(request.SectionPath))
+                    return BadRequest("sectionPath is required when scope is section.");
+                notes =
+                    $"Revise ONLY the section at path “{request.SectionPath}”. Leave all other sections unchanged.\n\n{notes}";
+            }
 
-            row.Body = document;
-            row.WordCount = ContentDocumentText.CountWords(document);
-            project.UpdatedAtUtc = DateTime.UtcNow;
-            await _projects.SaveAsync(project, ct);
+            // CWV2 orchestrator with revisionNotes — same path as review rewrite. Not CWV3.
+            _ = provider; // provider selection remains on the project PreferredProvider / CWV2 stack
+            GeneratedContentSet set;
+            if (isImagePrompt)
+            {
+                set = await _orchestrator.GenerateImagePromptsAsync(
+                    projectId,
+                    sectionHeadingsToTest: string.IsNullOrWhiteSpace(row.Title)
+                        ? null
+                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Title },
+                    cancellationToken: ct);
+            }
+            else
+            {
+                set = row.ContentType switch
+                {
+                    GeneratedContentType.TechnicalArticle =>
+                        await _orchestrator.GeneratePillarBodyAsync(projectId, notes, ct),
+                    GeneratedContentType.BlogPost =>
+                        await _orchestrator.GenerateBlogAsync(projectId, notes, ct),
+                    GeneratedContentType.ToolPost =>
+                        await _orchestrator.GenerateToolPagesAsync(
+                            projectId,
+                            notes,
+                            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Slug },
+                            ct),
+                    _ => throw new InvalidOperationException(
+                        $"Revise is not supported for content type '{row.ContentType}'."),
+                };
+            }
+
+            return Ok(set);
         }
         catch (InvalidOperationException ex)
         {
@@ -777,37 +815,9 @@ public class GccController : ControllerBase
             _logger.LogError(ex, "Project revise failed for {ProjectId}", projectId);
             return StatusCode(502, ex.Message);
         }
-
-        var set = GeneratedContentSetAssembler.Assemble(
-            project,
-            project.Department,
-            _company.ArticleBaseUrl,
-            _company.BlogBaseUrl,
-            _company.ToolBaseUrl);
-        return Ok(set);
     }
 
-    private static (ContentDocument? Document, string? MetaDescription, string? Summary) ParseToolBodyJson(string bodyJson)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(bodyJson);
-            var root = doc.RootElement;
-            if (root.TryGetProperty("body", out var bodyEl))
-            {
-                var document = JsonSerializer.Deserialize<ContentDocument>(bodyEl.GetRawText(), JsonOpts);
-                var meta = root.TryGetProperty("metaDescription", out var m) ? m.GetString() : null;
-                var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
-                return (document, meta, summary);
-            }
-
-            return (JsonSerializer.Deserialize<ContentDocument>(bodyJson, JsonOpts), null, null);
-        }
-        catch
-        {
-            return (null, null, null);
-        }
-    }
+    // ParseToolBodyJson removed — tools-from-names keeps the CWV2 ContentDocument in memory.
 
     [HttpPost("image-prompts/generate")]
     public async Task<ActionResult<object>> GenerateImagePrompt([FromBody] ImagePromptRequest request, CancellationToken ct)
