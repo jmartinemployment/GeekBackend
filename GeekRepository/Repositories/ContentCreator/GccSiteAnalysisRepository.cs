@@ -25,7 +25,6 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
             Domain = command.Domain.Trim(),
             SeedTopic = command.SeedTopic,
             GapsJson = command.GapsJson,
-            IsDemo = command.IsDemo,
             CreatedAtUtc = DateTime.UtcNow,
         };
         _db.GccSiteAnalyses.Add(e);
@@ -34,5 +33,5 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
     }
 
     private static GccSiteAnalysisDto Map(GccSiteAnalysis e) =>
-        new(e.Id, e.Domain, e.SeedTopic, e.GapsJson, e.IsDemo, e.CreatedAtUtc);
+        new(e.Id, e.Domain, e.SeedTopic, e.GapsJson, e.CreatedAtUtc);
 }

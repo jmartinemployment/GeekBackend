@@ -205,9 +205,6 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<bool>("IsDemo")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("SeedTopic")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");

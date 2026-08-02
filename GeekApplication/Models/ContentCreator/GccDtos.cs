@@ -83,12 +83,10 @@ public sealed record GccSiteAnalysisDto(
     string Domain,
     string? SeedTopic,
     string GapsJson,
-    bool IsDemo,
     DateTime CreatedAtUtc);
 
 public sealed record CreateGccSiteAnalysisCommand(
     Guid? Id,
     string Domain,
     string? SeedTopic,
-    string GapsJson,
-    bool IsDemo);
+    string GapsJson);

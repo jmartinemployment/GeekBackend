@@ -63,6 +63,5 @@ public class GccSiteAnalysis
     public string Domain { get; set; } = string.Empty;
     public string? SeedTopic { get; set; }
     public string GapsJson { get; set; } = "[]";
-    public bool IsDemo { get; set; } = false;
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }
