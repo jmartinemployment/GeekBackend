@@ -97,7 +97,7 @@ builder.Services.AddHttpClient("GccResearchFetch", client =>
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
 
 var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
-builder.Services.AddHttpClient<GeekAPI.Services.ContentCreator.HttpGeekSeoNicheClient>(client =>
+builder.Services.AddHttpClient<GeekAPI.Services.ContentCreator.HttpGeekSeoSiteAnalyzerClient>(client =>
 {
     if (!string.IsNullOrWhiteSpace(geekSeoUrl))
     {

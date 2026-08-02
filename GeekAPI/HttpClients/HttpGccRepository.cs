@@ -72,6 +72,12 @@ public class HttpGccRepository
     public Task<GccSiteAnalysisDto> CreateSiteAnalysisAsync(CreateGccSiteAnalysisCommand command, CancellationToken ct = default) =>
         PostAsync<GccSiteAnalysisDto>("repo/content-creator/site-analyses", command, ct);
 
+    public Task<GccSiteAnalysisDto> UpdateSiteAnalysisAsync(
+        Guid id,
+        UpdateGccSiteAnalysisCommand command,
+        CancellationToken ct = default) =>
+        PatchAsync<GccSiteAnalysisDto>($"repo/content-creator/site-analyses/{id}", command, ct);
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try

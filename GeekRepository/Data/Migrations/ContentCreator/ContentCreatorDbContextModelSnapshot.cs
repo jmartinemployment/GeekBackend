@@ -206,6 +206,9 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
                     b.Property<string>("GapsJson")
                         .IsRequired()
                         .HasColumnType("text");
@@ -213,6 +216,24 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.Property<string>("SeedTopic")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
+
+                    b.Property<Guid?>("SeoProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SeoProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SiteModelJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 

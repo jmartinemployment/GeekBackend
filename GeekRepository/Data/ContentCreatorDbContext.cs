@@ -83,8 +83,12 @@ public class ContentCreatorDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Domain).IsRequired().HasMaxLength(512);
             entity.Property(e => e.SeedTopic).HasMaxLength(512);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.ErrorMessage).HasColumnType("text");
+            entity.Property(e => e.SiteModelJson).IsRequired().HasColumnType("text");
             entity.Property(e => e.GapsJson).IsRequired().HasColumnType("text");
             entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
             entity.HasIndex(e => e.Domain).HasDatabaseName("ix_gcc_site_analyses_domain");
         });
 

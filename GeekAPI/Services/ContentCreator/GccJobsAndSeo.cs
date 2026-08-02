@@ -1,16 +1,16 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// Geek-SEO client for Content Creator Site Analyzer.
-/// Resolves a domain to the signed-in user's project + latest analysis.
-/// Failures are returned as errors — never invent gaps or related pages.
+/// Site Analyzer client for Content Creator.
+/// Starts and polls a dedicated analysis; failures are returned as errors.
 /// </summary>
-public class HttpGeekSeoNicheClient
+public class HttpGeekSeoSiteAnalyzerClient
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -19,10 +19,10 @@ public class HttpGeekSeoNicheClient
     };
 
     private readonly HttpClient _http;
-    private readonly ILogger<HttpGeekSeoNicheClient> _logger;
+    private readonly ILogger<HttpGeekSeoSiteAnalyzerClient> _logger;
     private readonly bool _enabled;
 
-    public HttpGeekSeoNicheClient(HttpClient http, ILogger<HttpGeekSeoNicheClient> logger)
+    public HttpGeekSeoSiteAnalyzerClient(HttpClient http, ILogger<HttpGeekSeoSiteAnalyzerClient> logger)
     {
         _http = http;
         _logger = logger;
@@ -31,75 +31,128 @@ public class HttpGeekSeoNicheClient
 
     public bool IsEnabled => _enabled;
 
-    public async Task<SeoCallResult<SiteModelSnapshot>> LoadSiteModelByDomainAsync(
+    public async Task<SeoCallResult<SeoProjectDto>> EnsureProjectForDomainAsync(
         string domain,
         string? bearerToken,
         CancellationToken ct)
     {
         if (!_enabled)
         {
-            return SeoCallResult<SiteModelSnapshot>.Fail(
+            return SeoCallResult<SeoProjectDto>.Fail(
                 (int)HttpStatusCode.ServiceUnavailable,
-                "Geek-SEO is not configured on GeekAPI (GEEK_SEO_API_URL).");
+                "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
         }
 
         if (string.IsNullOrWhiteSpace(bearerToken))
         {
-            return SeoCallResult<SiteModelSnapshot>.Fail(
+            return SeoCallResult<SeoProjectDto>.Fail(
                 (int)HttpStatusCode.Unauthorized,
-                "Signed-in user required to load site analysis from Geek-SEO.");
+                "Signed-in user required to run site analysis.");
         }
 
         var host = NormalizeHost(domain);
         if (string.IsNullOrWhiteSpace(host))
         {
-            return SeoCallResult<SiteModelSnapshot>.Fail(
+            return SeoCallResult<SeoProjectDto>.Fail(
                 (int)HttpStatusCode.BadRequest,
                 "domain required");
         }
 
         var projectsRes = await SendAsync(HttpMethod.Get, "api/seo/projects", bearerToken, ct);
         if (!projectsRes.Ok)
-            return SeoCallResult<SiteModelSnapshot>.Fail(projectsRes.StatusCode, projectsRes.Error!);
+            return SeoCallResult<SeoProjectDto>.Fail(projectsRes.StatusCode, projectsRes.Error!);
 
         var projects = JsonSerializer.Deserialize<List<SeoProjectDto>>(projectsRes.Body!, JsonOpts) ?? [];
         var project = projects.FirstOrDefault(p => HostsMatch(host, NormalizeHost(p.Url)))
             ?? projects.FirstOrDefault(p => HostsMatch(host, NormalizeHost(p.Name)));
 
-        if (project is null)
-        {
-            return SeoCallResult<SiteModelSnapshot>.Fail(
-                (int)HttpStatusCode.NotFound,
-                $"No Geek-SEO project matches “{host}”. Create that project in Geek-SEO, run niche analysis there, then load gaps here.");
-        }
+        if (project is not null)
+            return SeoCallResult<SeoProjectDto>.Success(project);
 
-        var latestRes = await SendAsync(
-            HttpMethod.Get,
-            $"api/seo/niche-analyzer/project/{project.Id}/latest",
+        var createRes = await SendAsync(
+            HttpMethod.Post,
+            "api/seo/projects",
             bearerToken,
-            ct);
-        if (latestRes.StatusCode == (int)HttpStatusCode.NoContent
-            || (latestRes.Ok && string.IsNullOrWhiteSpace(latestRes.Body)))
-        {
-            return SeoCallResult<SiteModelSnapshot>.Fail(
-                (int)HttpStatusCode.NotFound,
-                $"Geek-SEO project “{project.Name}” has no niche analysis yet. Open Geek-SEO, run niche analysis for that project, then load gaps here.");
-        }
+            ct,
+            new { name = host, url = $"https://{host}", defaultLocation = "United States" });
+        if (!createRes.Ok)
+            return SeoCallResult<SeoProjectDto>.Fail(createRes.StatusCode, createRes.Error!);
 
-        if (!latestRes.Ok)
-            return SeoCallResult<SiteModelSnapshot>.Fail(latestRes.StatusCode, latestRes.Error!);
+        project = JsonSerializer.Deserialize<SeoProjectDto>(createRes.Body!, JsonOpts);
+        return project is null || project.Id == Guid.Empty
+            ? SeoCallResult<SeoProjectDto>.Fail((int)HttpStatusCode.BadGateway, "Site Analyzer returned an invalid project.")
+            : SeoCallResult<SeoProjectDto>.Success(project);
+    }
 
-        var profile = JsonSerializer.Deserialize<SeoProfileDto>(latestRes.Body!, JsonOpts);
-        if (profile is null || profile.Id == Guid.Empty)
-        {
-            return SeoCallResult<SiteModelSnapshot>.Fail(
-                (int)HttpStatusCode.NotFound,
-                $"Geek-SEO project “{project.Name}” has no niche analysis yet. Open Geek-SEO, run niche analysis for that project, then load gaps here.");
-        }
+    public async Task<SeoCallResult<Guid>> StartSiteAnalysisAsync(
+        Guid projectId,
+        string domain,
+        string? seedTopic,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<Guid>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<Guid>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to run site analysis.");
+
+        var result = await SendAsync(
+            HttpMethod.Post,
+            "api/seo/site-analyzer/analyze-and-run",
+            bearerToken,
+            ct,
+            new { projectId, domain = NormalizeHost(domain), seedTopic });
+        if (!result.Ok) return SeoCallResult<Guid>.Fail(result.StatusCode, result.Error!);
+
+        var profile = JsonSerializer.Deserialize<SeoProfileDto>(result.Body!, JsonOpts);
+        if (profile?.Id is Guid id && id != Guid.Empty) return SeoCallResult<Guid>.Success(id);
+        using var doc = JsonDocument.Parse(result.Body!);
+        if (doc.RootElement.TryGetProperty("profileId", out var profileId)
+            && Guid.TryParse(profileId.GetString(), out id))
+            return SeoCallResult<Guid>.Success(id);
+        return SeoCallResult<Guid>.Fail((int)HttpStatusCode.BadGateway, "Site Analyzer returned no profile ID.");
+    }
+
+    public async Task<SeoCallResult<SiteAnalysisStatus>> GetSiteAnalysisStatusAsync(
+        Guid profileId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<SiteAnalysisStatus>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<SiteAnalysisStatus>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to load site analysis.");
+
+        var result = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}/status", bearerToken, ct);
+        if (!result.Ok) return SeoCallResult<SiteAnalysisStatus>.Fail(result.StatusCode, result.Error!);
+        var status = JsonSerializer.Deserialize<SiteAnalysisStatus>(result.Body!, JsonOpts);
+        return status is null
+            ? SeoCallResult<SiteAnalysisStatus>.Fail((int)HttpStatusCode.BadGateway, "Site Analyzer returned an invalid status.")
+            : SeoCallResult<SiteAnalysisStatus>.Success(status);
+    }
+
+    public async Task<SeoCallResult<SiteModelSnapshot>> LoadSiteModelByProfileAsync(
+        Guid projectId,
+        Guid profileId,
+        string domain,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<SiteModelSnapshot>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<SiteModelSnapshot>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to load site analysis.");
+
+        var host = NormalizeHost(domain);
+        var profileRes = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}", bearerToken, ct);
+        if (!profileRes.Ok) return SeoCallResult<SiteModelSnapshot>.Fail(profileRes.StatusCode, profileRes.Error!);
+        var profile = JsonSerializer.Deserialize<SeoProfileDto>(profileRes.Body!, JsonOpts);
+        if (profile is null)
+            return SeoCallResult<SiteModelSnapshot>.Fail((int)HttpStatusCode.BadGateway, "Site Analyzer returned an invalid profile.");
 
         var gapsRes = await SendAsync(
             HttpMethod.Get,
-            $"api/seo/niche-analyzer/{profile.Id}/gaps?quickWinsOnly=false",
+            $"api/seo/site-analyzer/{profile.Id}/gaps?quickWinsOnly=false",
             bearerToken,
             ct);
         if (!gapsRes.Ok)
@@ -132,7 +185,7 @@ public class HttpGeekSeoNicheClient
         }
 
         return SeoCallResult<SiteModelSnapshot>.Success(new SiteModelSnapshot(
-            project.Id,
+            projectId,
             profile.Id,
             host,
             gaps,
@@ -189,29 +242,34 @@ public class HttpGeekSeoNicheClient
         HttpMethod method,
         string relativeUrl,
         string bearerToken,
-        CancellationToken ct)
+        CancellationToken ct,
+        object? payload = null)
     {
         try
         {
             using var req = new HttpRequestMessage(method, relativeUrl);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+            if (payload is not null)
+            {
+                req.Content = JsonContent.Create(payload, options: JsonOpts);
+            }
             var res = await _http.SendAsync(req, ct);
             var body = await res.Content.ReadAsStringAsync(ct);
             if (res.IsSuccessStatusCode)
                 return new RawHttp(true, (int)res.StatusCode, body, null);
 
-            var err = TryReadError(body) ?? $"Geek-SEO returned {(int)res.StatusCode} for {relativeUrl}";
-            _logger.LogWarning("Geek-SEO {Url} → {Status}: {Error}", relativeUrl, (int)res.StatusCode, err);
+            var err = TryReadError(body) ?? $"Site Analyzer returned {(int)res.StatusCode} for {relativeUrl}";
+            _logger.LogWarning("Site Analyzer {Url} → {Status}: {Error}", relativeUrl, (int)res.StatusCode, err);
             return new RawHttp(false, (int)res.StatusCode, body, err);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Geek-SEO call failed: {Url}", relativeUrl);
+            _logger.LogError(ex, "Site Analyzer call failed: {Url}", relativeUrl);
             return new RawHttp(
                 false,
                 (int)HttpStatusCode.BadGateway,
                 null,
-                $"Geek-SEO unreachable: {ex.Message}");
+                $"Site Analyzer is unreachable: {ex.Message}");
         }
     }
 
@@ -261,7 +319,7 @@ public class HttpGeekSeoNicheClient
 
     private sealed record RawHttp(bool Ok, int StatusCode, string? Body, string? Error);
 
-    private sealed record SeoProjectDto(Guid Id, string Name, string Url);
+    public sealed record SeoProjectDto(Guid Id, string Name, string Url);
 
     private sealed record SeoProfileDto(
         Guid Id,
@@ -294,6 +352,21 @@ public class HttpGeekSeoNicheClient
         string TargetKeyword,
         bool IsQuickWin,
         string RecommendedFormat);
+
+    public sealed record SiteAnalysisStatus(
+        string? Status,
+        string? Step = null,
+        int StepNumber = 0,
+        int TotalSteps = 0,
+        string? ErrorMessage = null)
+    {
+        public bool IsComplete => string.Equals(Status, "complete", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Status, "completed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Status, "ready", StringComparison.OrdinalIgnoreCase);
+
+        public bool IsFailed => string.Equals(Status, "failed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Status, "error", StringComparison.OrdinalIgnoreCase);
+    }
 
     public sealed record LiveGap(
         string Id,

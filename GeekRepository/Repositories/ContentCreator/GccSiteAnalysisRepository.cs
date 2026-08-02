@@ -25,13 +25,50 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
             Domain = command.Domain.Trim(),
             SeedTopic = command.SeedTopic,
             GapsJson = command.GapsJson,
+            Status = command.Status,
+            SeoProjectId = command.SeoProjectId,
+            SeoProfileId = command.SeoProfileId,
+            ErrorMessage = command.ErrorMessage,
+            SiteModelJson = command.SiteModelJson ?? """{"sitePages":[],"topicalNeighbors":[]}""",
             CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
         };
         _db.GccSiteAnalyses.Add(e);
         await _db.SaveChangesAsync(ct);
         return Map(e);
     }
 
+    public async Task<GccSiteAnalysisDto?> UpdateAsync(
+        Guid id,
+        UpdateGccSiteAnalysisCommand command,
+        CancellationToken ct = default)
+    {
+        var e = await _db.GccSiteAnalyses.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (e is null) return null;
+
+        e.Status = command.Status;
+        e.SeoProjectId = command.SeoProjectId;
+        e.SeoProfileId = command.SeoProfileId;
+        e.ErrorMessage = command.ErrorMessage;
+        if (command.GapsJson is not null) e.GapsJson = command.GapsJson;
+        if (command.SiteModelJson is not null) e.SiteModelJson = command.SiteModelJson;
+        e.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        return Map(e);
+    }
+
     private static GccSiteAnalysisDto Map(GccSiteAnalysis e) =>
-        new(e.Id, e.Domain, e.SeedTopic, e.GapsJson, e.CreatedAtUtc);
+        new(
+            e.Id,
+            e.Domain,
+            e.SeedTopic,
+            e.GapsJson,
+            e.Status,
+            e.SeoProjectId,
+            e.SeoProfileId,
+            e.ErrorMessage,
+            e.SiteModelJson,
+            e.CreatedAtUtc,
+            e.UpdatedAtUtc);
 }
