@@ -670,6 +670,31 @@ public class GccController : ControllerBase
         return Ok(new { names = names.Take(12).ToList() });
     }
 
+    /// <summary>Image-prompt rows on a CWV2 project (for Revise picker).</summary>
+    [HttpGet("projects/{projectId:guid}/image-prompt-rows")]
+    public async Task<IActionResult> ImagePromptRows(Guid projectId, CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        var rows = project.GeneratedContents
+            .Where(c => c.ContentType is GeneratedContentType.ImagePromptSection
+                or GeneratedContentType.ImagePromptPillarFigure
+                or GeneratedContentType.ImagePromptBlogFigure)
+            .OrderBy(c => c.Title)
+            .Select(c => new
+            {
+                slug = c.Slug,
+                title = c.Title,
+                contentType = c.ContentType.ToString(),
+                promptPreview = ContentDocumentText.Flatten(c.Body),
+            })
+            .ToList();
+
+        return Ok(new { rows });
+    }
+
     /// <summary>
     /// Content Creator addition: operator Revise (Full/Section) on a CWV2 project draft.
     /// New body replaces the selected GeneratedContent row (not a multi-turn chat).
@@ -682,30 +707,41 @@ public class GccController : ControllerBase
     {
         if (request is null || string.IsNullOrWhiteSpace(request.Feedback))
             return BadRequest("feedback required");
-        if (string.IsNullOrWhiteSpace(request.ContentType))
-            return BadRequest("contentType required");
+        if (string.IsNullOrWhiteSpace(request.ContentType) && string.IsNullOrWhiteSpace(request.Slug))
+            return BadRequest("contentType or slug required");
         if (!TryParseProvider(request.Provider, out var provider, out var err))
             return BadRequest(err);
-
-        if (!Enum.TryParse<GeneratedContentType>(request.ContentType, ignoreCase: true, out var contentType))
-            return BadRequest($"Unknown contentType '{request.ContentType}'.");
 
         var project = await _projects.GetAsync(projectId, ct);
         if (project is null)
             return NotFound();
 
-        GeneratedContent? row = contentType switch
+        GeneratedContent? row = null;
+        if (!string.IsNullOrWhiteSpace(request.Slug))
         {
-            GeneratedContentType.ToolPost when !string.IsNullOrWhiteSpace(request.ToolSlug) =>
-                project.GeneratedContents.FirstOrDefault(c =>
-                    c.ContentType == GeneratedContentType.ToolPost
-                    && string.Equals(c.Slug, request.ToolSlug, StringComparison.OrdinalIgnoreCase)),
-            GeneratedContentType.ToolPost =>
-                project.GeneratedContents.FirstOrDefault(c => c.ContentType == GeneratedContentType.ToolPost),
-            _ => project.GeneratedContents.FirstOrDefault(c => c.ContentType == contentType),
-        };
+            row = project.GeneratedContents.FirstOrDefault(c =>
+                string.Equals(c.Slug, request.Slug, StringComparison.OrdinalIgnoreCase));
+        }
+        else if (Enum.TryParse<GeneratedContentType>(request.ContentType, ignoreCase: true, out var contentType))
+        {
+            row = contentType switch
+            {
+                GeneratedContentType.ToolPost when !string.IsNullOrWhiteSpace(request.ToolSlug) =>
+                    project.GeneratedContents.FirstOrDefault(c =>
+                        c.ContentType == GeneratedContentType.ToolPost
+                        && string.Equals(c.Slug, request.ToolSlug, StringComparison.OrdinalIgnoreCase)),
+                GeneratedContentType.ToolPost =>
+                    project.GeneratedContents.FirstOrDefault(c => c.ContentType == GeneratedContentType.ToolPost),
+                _ => project.GeneratedContents.FirstOrDefault(c => c.ContentType == contentType),
+            };
+        }
+        else
+        {
+            return BadRequest($"Unknown contentType '{request.ContentType}'.");
+        }
+
         if (row is null)
-            return NotFound($"No {contentType} draft on this project.");
+            return NotFound("No matching draft on this project.");
         if (row.Body is null)
             return BadRequest("Selected draft has no body document to revise.");
 
@@ -950,11 +986,12 @@ public class GccController : ControllerBase
         string Brief,
         string? Provider);
     public sealed record ProjectReviseRequest(
-        string ContentType,
+        string? ContentType,
         string Feedback,
         string? Scope,
         string? SectionPath,
         string? ToolSlug,
+        string? Slug,
         string? Provider);
     public sealed record ImagePromptRequest(
         Guid? CreateId,
