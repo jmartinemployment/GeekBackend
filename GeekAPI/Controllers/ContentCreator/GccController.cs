@@ -980,11 +980,18 @@ public class GccController : ControllerBase
     }
 
     [HttpGet("site-analyzer/{id:guid}/gaps")]
-    public async Task<ActionResult<IReadOnlyList<ContentGapDto>>> Gaps(Guid id, CancellationToken ct)
+    public async Task<IActionResult> Gaps(Guid id, CancellationToken ct)
     {
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
-        return Ok(GccGenerateService.DeserializeGaps(analysis.GapsJson));
+        try
+        {
+            return Ok(GccGenerateService.DeserializeGaps(analysis.GapsJson));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return UnprocessableEntity(new { error = ex.Message });
+        }
     }
 
     [HttpGet("site-analyzer/{id:guid}/section-context")]
@@ -998,14 +1005,23 @@ public class GccController : ControllerBase
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
 
-        var payload = GccGenerateService.ParseAnalysisPayload(analysis.GapsJson);
+        SiteAnalysisStoredPayload payload;
+        try
+        {
+            payload = GccGenerateService.ParseAnalysisPayload(analysis.GapsJson);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return UnprocessableEntity(new { error = ex.Message });
+        }
+
         var section = GccGenerateService.TryBuildSectionContext(analysis.Id, payload, gapTopic);
         if (section is null || section.RelatedPages.Count == 0)
         {
             return UnprocessableEntity(new
             {
                 error =
-                    "No existing site pages available for this gap. Site Analyzer Generate requires real related pages from the site model.",
+                    "No existing site pages in this section for the chosen gap. Site Analyzer Generate requires real related pages from the site model.",
             });
         }
 

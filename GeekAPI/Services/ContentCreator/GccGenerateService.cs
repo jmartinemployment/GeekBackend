@@ -350,29 +350,10 @@ public class GccGenerateService
         var document = new ContentDocument(lede, sections.Skip(1).ToList());
         var wordCount = ContentDocumentText.CountWords(document);
 
-        ToolMetadataDraft metadata;
-        try
-        {
-            var metaResult = await llm.CompleteAsync(
-                _prompts.BuildToolMetadataPrompt(context, pillarMeta, app, document),
-                ct);
-            metadata = LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "CWV2 tool metadata failed for {Tool}; using brief fallbacks.", name);
-            var fallback = Truncate((brief ?? name).Trim(), 160);
-            metadata = new ToolMetadataDraft(
-                DepartmentListExcerpt: fallback,
-                Summary: fallback,
-                MainSummary: fallback,
-                HeroSummary: fallback,
-                HomeSummary: fallback,
-                BlogSummary: fallback,
-                ToolPageExcerpt: fallback,
-                AdvertisingSummary: fallback,
-                MetaDescription: fallback);
-        }
+        var metaResult = await llm.CompleteAsync(
+            _prompts.BuildToolMetadataPrompt(context, pillarMeta, app, document),
+            ct);
+        var metadata = LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata");
 
         var metaDescription = metadata.MetaDescription.Length > 160
             ? metadata.MetaDescription[..160]
@@ -399,7 +380,7 @@ public class GccGenerateService
             : relatedArticleUrl;
         var jsonLd = _softwareApplicationSchemaBuilder.BuildToolPage(schemaMeta, pillarUrl, app);
         if (string.IsNullOrWhiteSpace(jsonLd))
-            jsonLd = "{}";
+            throw new InvalidOperationException($"CWV2 tool JSON-LD schema builder returned empty for '{name}'.");
 
         return new ToolPageResult(name, slug, document, metadata, jsonLd, pillarUrl, wordCount);
     }
@@ -504,7 +485,7 @@ public class GccGenerateService
     public static SiteAnalysisStoredPayload ParseAnalysisPayload(string? gapsJson)
     {
         if (string.IsNullOrWhiteSpace(gapsJson))
-            return new SiteAnalysisStoredPayload([], [], []);
+            throw new InvalidOperationException("Site analysis payload is missing.");
 
         try
         {
@@ -512,16 +493,21 @@ public class GccGenerateService
             if (doc.RootElement.ValueKind == JsonValueKind.Array)
             {
                 var legacyGaps = JsonSerializer.Deserialize<List<ContentGapDto>>(gapsJson, JsonOpts)
-                    ?? [];
+                    ?? throw new InvalidOperationException("Site analysis gaps JSON is invalid.");
+                // Legacy analyses stored gaps only — no site pages. Callers must fail closed for section context.
                 return new SiteAnalysisStoredPayload(legacyGaps, [], []);
             }
 
             return JsonSerializer.Deserialize<SiteAnalysisStoredPayload>(gapsJson, JsonOpts)
-                ?? new SiteAnalysisStoredPayload([], [], []);
+                ?? throw new InvalidOperationException("Site analysis payload JSON is invalid.");
         }
-        catch
+        catch (InvalidOperationException)
         {
-            return new SiteAnalysisStoredPayload([], [], []);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Site analysis payload JSON could not be parsed.", ex);
         }
     }
 
@@ -543,22 +529,19 @@ public class GccGenerateService
             string.Equals(g.Topic, gapTopic, StringComparison.OrdinalIgnoreCase));
         var sectionPath = gap?.SectionPath;
 
-        var related = payload.SitePages
-            .Where(p =>
-                string.IsNullOrWhiteSpace(sectionPath)
-                || string.Equals(p.Title, sectionPath, StringComparison.OrdinalIgnoreCase)
+        IEnumerable<RelatedPageDto> candidates = payload.SitePages
+            .Where(p => !string.IsNullOrWhiteSpace(p.Url));
+
+        if (!string.IsNullOrWhiteSpace(sectionPath))
+        {
+            candidates = candidates.Where(p =>
+                string.Equals(p.Title, sectionPath, StringComparison.OrdinalIgnoreCase)
                 || (p.Excerpt?.Contains(sectionPath, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (sectionPath is not null
-                    && p.Headings.Any(h =>
-                        h.Contains(sectionPath, StringComparison.OrdinalIgnoreCase))))
-            .ToList();
+                || p.Headings.Any(h =>
+                    h.Contains(sectionPath, StringComparison.OrdinalIgnoreCase)));
+        }
 
-        // Prefer same-section pages; if none match the pillar path, use all known site pages.
-        if (related.Count == 0)
-            related = payload.SitePages.ToList();
-
-        related = related
-            .Where(p => !string.IsNullOrWhiteSpace(p.Url))
+        var related = candidates
             .GroupBy(p => p.Url, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .Take(12)
@@ -566,9 +549,8 @@ public class GccGenerateService
 
         if (related.Count == 0) return null;
 
-        var neighbors = payload.TopicalNeighbors.Count > 0
-            ? payload.TopicalNeighbors
-            : payload.SitePages.Select(p => p.Title).Where(t => !string.IsNullOrWhiteSpace(t)).Take(12).ToArray();
+        if (payload.TopicalNeighbors.Count == 0) return null;
+        var neighbors = payload.TopicalNeighbors;
 
         return new SiteSectionContextDto(
             analysisId,
