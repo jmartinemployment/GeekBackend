@@ -829,9 +829,6 @@ public class GccController : ControllerBase
             return BadRequest("Standalone image prompt requires topic and notes");
         }
 
-        if (request.CreateId is null || request.CreateId == Guid.Empty)
-            return BadRequest("createId required");
-
         try
         {
             var json = await _gen.GenerateImagePromptJsonAsync(
@@ -840,11 +837,20 @@ public class GccController : ControllerBase
                 artifactContext,
                 provider,
                 ct);
+
+            // Standalone path (no Create): return prompt JSON only — CWV2-style, no homemade create workspace.
+            if (request.CreateId is null || request.CreateId == Guid.Empty)
+            {
+                object? parsed = null;
+                try { parsed = JsonSerializer.Deserialize<object>(json, JsonOpts); } catch { /* keep raw */ }
+                return Ok(new { promptJson = json, prompt = parsed });
+            }
+
             var artifact = await _repo.CreateArtifactAsync(
                 new CreateGccArtifactCommand(request.CreateId.Value, "imagePrompt", request.Topic ?? "Image prompt"), ct);
             var version = await _repo.CreateVersionAsync(
                 new CreateGccArtifactVersionCommand(artifact.Id, json), ct);
-            return Ok(new { artifact, version });
+            return Ok(new { artifact, version, promptJson = json });
         }
         catch (InvalidOperationException ex)
         {
@@ -855,6 +861,35 @@ public class GccController : ControllerBase
             _logger.LogError(ex, "Image prompt generate failed");
             return StatusCode(502, "LLM provider request failed");
         }
+    }
+
+    [HttpPost("projects/{projectId:guid}/content-approval")]
+    public async Task<IActionResult> SetContentApproval(
+        Guid projectId,
+        [FromBody] ContentApprovalRequest? request,
+        CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null) return NotFound();
+
+        var approve = request?.Approved ?? true;
+        project.ContentApprovedAtUtc = approve ? DateTime.UtcNow : null;
+        project.UpdatedAtUtc = DateTime.UtcNow;
+        await _projects.SaveAsync(project, ct);
+        return Ok(new { projectId, contentApprovedAtUtc = project.ContentApprovedAtUtc });
+    }
+
+    [HttpGet("projects/{projectId:guid}/content-approval")]
+    public async Task<IActionResult> GetContentApproval(Guid projectId, CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null) return NotFound();
+        return Ok(new
+        {
+            projectId,
+            approved = project.ContentApprovedAtUtc is not null,
+            contentApprovedAtUtc = project.ContentApprovedAtUtc,
+        });
     }
 
     [HttpPost("site-analyzer/analyze")]
@@ -999,5 +1034,6 @@ public class GccController : ControllerBase
         string? Notes,
         Guid? SourceArtifactId,
         string? Provider);
+    public sealed record ContentApprovalRequest(bool Approved = true);
     public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic, Guid? NicheProfileId = null);
 }
