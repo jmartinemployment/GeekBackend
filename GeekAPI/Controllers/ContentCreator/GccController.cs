@@ -1225,8 +1225,7 @@ public class GccController : ControllerBase
                 Id: null,
                 Domain: snap.Domain,
                 SeedTopic: request.SeedTopic,
-                GapsJson: GccGenerateService.SerializeAnalysisPayload(payload),
-                IsDemo: false),
+                GapsJson: GccGenerateService.SerializeAnalysisPayload(payload)),
             ct);
 
         return Ok(new

@@ -20,7 +20,6 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     Domain = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
                     SeedTopic = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true),
                     GapsJson = table.Column<string>(type: "text", nullable: false),
-                    IsDemo = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
