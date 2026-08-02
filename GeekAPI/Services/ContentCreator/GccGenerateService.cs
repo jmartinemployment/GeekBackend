@@ -155,18 +155,16 @@ public class GccGenerateService
         ContentGeneratorProvider provider,
         CancellationToken ct)
     {
-        var context = new StringBuilder();
-        context.AppendLine($"Topic/title: {topic}");
-        if (!string.IsNullOrWhiteSpace(notes)) context.AppendLine($"Notes: {notes}");
-        if (!string.IsNullOrWhiteSpace(artifactContext))
-            context.AppendLine($"Artifact context:\n{artifactContext[..Math.Min(artifactContext.Length, 6000)]}");
-
-        var generator = _generators.Get(provider);
-        var raw = await generator.GenerateSectionAsync(
-            "Image prompt",
-            context.ToString(),
-            "Return ONLY valid JSON: { \"prompt\": string, \"style\": string, \"negativePrompt\": string, \"aspectRatio\": string }. Prompt text only — not pixels.",
+        // Source of truth: Content Writer v2 image-prompt style contract (BuildStandaloneImagePrompt),
+        // not a homemade GenerateSectionAsync wrapper.
+        var llmType = provider == ContentGeneratorProvider.Anthropic
+            ? LlmProviderType.Anthropic
+            : LlmProviderType.OpenAi;
+        var llm = _cwProviders.Get(llmType);
+        var result = await llm.CompleteAsync(
+            _prompts.BuildStandaloneImagePrompt(topic, notes, artifactContext),
             ct);
+        var raw = result.Content?.Trim() ?? string.Empty;
 
         try
         {
@@ -178,8 +176,8 @@ public class GccGenerateService
             return JsonSerializer.Serialize(new
             {
                 prompt = raw,
-                style = "editorial",
-                negativePrompt = "",
+                style = "Illustration",
+                negativePrompt = "readable text, logos, watermarks",
                 aspectRatio = "16:9",
             }, JsonOpts);
         }
