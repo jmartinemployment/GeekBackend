@@ -15,6 +15,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccArtifactVersion> GccArtifactVersions => Set<GccArtifactVersion>();
     public virtual DbSet<GccApprovalEvent> GccApprovalEvents => Set<GccApprovalEvent>();
     public virtual DbSet<GccSiteAnalysis> GccSiteAnalyses => Set<GccSiteAnalysis>();
+    public virtual DbSet<GccSiteFinding> GccSiteFindings => Set<GccSiteFinding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -90,6 +91,29 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
             entity.HasIndex(e => e.Domain).HasDatabaseName("ix_gcc_site_analyses_domain");
+        });
+
+        modelBuilder.Entity<GccSiteFinding>(entity =>
+        {
+            entity.ToTable("gcc_site_findings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SiteAnalysisId).IsRequired();
+            entity.Property(e => e.FindingType).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.Severity).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.AffectedUrl).HasMaxLength(2048);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(512);
+            entity.Property(e => e.Summary).IsRequired().HasColumnType("text");
+            entity.Property(e => e.DetailsJson).IsRequired().HasColumnType("text").HasDefaultValue("{}");
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.HasOne<GccSiteAnalysis>()
+                .WithMany()
+                .HasForeignKey(e => e.SiteAnalysisId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.SiteAnalysisId).HasDatabaseName("ix_gcc_site_findings_site_analysis_id");
+            entity.HasIndex(e => new { e.SiteAnalysisId, e.FindingType })
+                .HasDatabaseName("ix_gcc_site_findings_site_analysis_id_finding_type");
+            entity.HasIndex(e => new { e.SiteAnalysisId, e.Severity })
+                .HasDatabaseName("ix_gcc_site_findings_site_analysis_id_severity");
         });
 
         base.OnModelCreating(modelBuilder);

@@ -73,3 +73,16 @@ public class GccSiteAnalysis
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
+
+public class GccSiteFinding
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SiteAnalysisId { get; set; }
+    public string FindingType { get; set; } = string.Empty;
+    public string Severity { get; set; } = "info";
+    public string? AffectedUrl { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+    public string DetailsJson { get; set; } = "{}";
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+}

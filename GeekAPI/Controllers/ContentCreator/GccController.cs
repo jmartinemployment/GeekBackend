@@ -1254,7 +1254,17 @@ public class GccController : ControllerBase
 
         if (string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(analysis.Status))
-            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, gaps = GccGenerateService.DeserializeGaps(analysis.GapsJson) });
+        {
+            var persistedFindings = await _repo.ListSiteFindingsAsync(analysis.Id, ct);
+            return Ok(new
+            {
+                analysis.Id,
+                analysis.Domain,
+                analysis.Status,
+                gaps = GccGenerateService.DeserializeGaps(analysis.GapsJson),
+                findings = persistedFindings,
+            });
+        }
 
         if (string.Equals(analysis.Status, "failed", StringComparison.OrdinalIgnoreCase))
             return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
@@ -1326,7 +1336,12 @@ public class GccController : ControllerBase
                 SerializeSiteModel(snapshot.SitePages, snapshot.TopicalNeighbors)),
             ct);
 
-        return Ok(new { analysis.Id, analysis.Domain, analysis.Status, gaps });
+        var findings = await _repo.ReplaceSiteFindingsAsync(
+            analysis.Id,
+            new CreateGccSiteFindingsCommand(CreateContentGapFindings(analysis.Id, gaps)),
+            ct);
+
+        return Ok(new { analysis.Id, analysis.Domain, analysis.Status, gaps, findings });
     }
 
     [HttpGet("site-analyzer/{id:guid}/gaps")]
@@ -1411,6 +1426,23 @@ public class GccController : ControllerBase
         IReadOnlyList<RelatedPageDto> sitePages,
         IReadOnlyList<string> topicalNeighbors) =>
         JsonSerializer.Serialize(new { sitePages, topicalNeighbors }, JsonOpts);
+
+    private static IReadOnlyList<GccSiteFindingDto> CreateContentGapFindings(
+        Guid analysisId,
+        IReadOnlyList<ContentGapDto> gaps)
+    {
+        var now = DateTime.UtcNow;
+        return gaps.Select(g => new GccSiteFindingDto(
+            Guid.NewGuid(),
+            analysisId,
+            "content_gap",
+            g.Reason.Contains("quick-win", StringComparison.OrdinalIgnoreCase) ? "warning" : "info",
+            null,
+            g.Topic,
+            g.Reason,
+            JsonSerializer.Serialize(new { sectionPath = g.SectionPath, suggestPillar = g.SuggestPillar }, JsonOpts),
+            now)).ToList();
+    }
 
     private static bool TryParseProvider(string? raw, out ContentGeneratorProvider provider, out string? error)
     {

@@ -78,6 +78,18 @@ public class HttpGccRepository
         CancellationToken ct = default) =>
         PatchAsync<GccSiteAnalysisDto>($"repo/content-creator/site-analyses/{id}", command, ct);
 
+    public Task<IReadOnlyList<GccSiteFindingDto>> ListSiteFindingsAsync(Guid analysisId, CancellationToken ct = default) =>
+        GetListAsync<GccSiteFindingDto>($"repo/content-creator/site-analyses/{analysisId}/findings", ct);
+
+    public Task<IReadOnlyList<GccSiteFindingDto>> ReplaceSiteFindingsAsync(
+        Guid analysisId,
+        CreateGccSiteFindingsCommand command,
+        CancellationToken ct = default) =>
+        PutAsync<IReadOnlyList<GccSiteFindingDto>>(
+            $"repo/content-creator/site-analyses/{analysisId}/findings",
+            command,
+            ct);
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try
@@ -138,6 +150,16 @@ public class HttpGccRepository
         var content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
         var req = new HttpRequestMessage(HttpMethod.Patch, path) { Content = content };
         var res = await _http.SendAsync(req, ct);
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<T>(json, JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    private async Task<T> PutAsync<T>(string path, object body, CancellationToken ct)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PutAsync(path, content, ct);
         res.EnsureSuccessStatusCode();
         var json = await res.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<T>(json, JsonOpts)

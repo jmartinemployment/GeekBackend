@@ -58,6 +58,49 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
         return Map(e);
     }
 
+    public async Task<IReadOnlyList<GccSiteFindingDto>> ReplaceFindingsAsync(
+        Guid analysisId,
+        CreateGccSiteFindingsCommand command,
+        CancellationToken ct = default)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        await _db.GccSiteFindings
+            .Where(x => x.SiteAnalysisId == analysisId)
+            .ExecuteDeleteAsync(ct);
+
+        var now = DateTime.UtcNow;
+        var entities = command.Findings.Select(f => new GccSiteFinding
+        {
+            Id = f.Id == Guid.Empty ? Guid.NewGuid() : f.Id,
+            SiteAnalysisId = analysisId,
+            FindingType = f.FindingType.Trim(),
+            Severity = f.Severity.Trim(),
+            AffectedUrl = string.IsNullOrWhiteSpace(f.AffectedUrl) ? null : f.AffectedUrl.Trim(),
+            Title = f.Title.Trim(),
+            Summary = f.Summary.Trim(),
+            DetailsJson = string.IsNullOrWhiteSpace(f.DetailsJson) ? "{}" : f.DetailsJson,
+            CreatedAtUtc = f.CreatedAtUtc == default ? now : f.CreatedAtUtc,
+        }).ToList();
+
+        _db.GccSiteFindings.AddRange(entities);
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return entities.Select(Map).ToList();
+    }
+
+    public async Task<IReadOnlyList<GccSiteFindingDto>> ListByAnalysisIdAsync(
+        Guid analysisId,
+        CancellationToken ct = default)
+    {
+        var findings = await _db.GccSiteFindings
+            .AsNoTracking()
+            .Where(x => x.SiteAnalysisId == analysisId)
+            .OrderBy(x => x.CreatedAtUtc)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct);
+        return findings.Select(Map).ToList();
+    }
+
     private static GccSiteAnalysisDto Map(GccSiteAnalysis e) =>
         new(
             e.Id,
@@ -71,4 +114,16 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
             e.SiteModelJson,
             e.CreatedAtUtc,
             e.UpdatedAtUtc);
+
+    private static GccSiteFindingDto Map(GccSiteFinding e) =>
+        new(
+            e.Id,
+            e.SiteAnalysisId,
+            e.FindingType,
+            e.Severity,
+            e.AffectedUrl,
+            e.Title,
+            e.Summary,
+            e.DetailsJson,
+            e.CreatedAtUtc);
 }
