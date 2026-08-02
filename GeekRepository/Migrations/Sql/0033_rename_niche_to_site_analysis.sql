@@ -87,6 +87,6 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO geek_seo."__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+INSERT INTO geek_seo."__EFSeoMigrationsHistory" ("MigrationId", "ProductVersion")
 VALUES ('20260803000000_RenameNicheToSiteAnalysis', '10.0.9')
 ON CONFLICT DO NOTHING;
