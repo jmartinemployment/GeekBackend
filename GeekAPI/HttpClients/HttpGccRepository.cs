@@ -87,9 +87,19 @@ public class HttpGccRepository
         try
         {
             var res = await _http.GetAsync(path, ct);
-            if (!res.IsSuccessStatusCode) return Array.Empty<T>();
+            if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(ct);
+                throw new HttpRequestException(
+                    $"GET {path} failed with {(int)res.StatusCode}: {TruncateBody(body)}");
+            }
+
             var json = await res.Content.ReadAsStringAsync(ct);
             return JsonSerializer.Deserialize<List<T>>(json, JsonOpts) ?? new List<T>();
+        }
+        catch (HttpRequestException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -97,6 +107,9 @@ public class HttpGccRepository
             throw;
         }
     }
+
+    private static string TruncateBody(string body) =>
+        string.IsNullOrWhiteSpace(body) ? "(empty)" : (body.Length <= 240 ? body : body[..240]);
 
     private async Task<T> PostAsync<T>(string path, object body, CancellationToken ct)
     {
