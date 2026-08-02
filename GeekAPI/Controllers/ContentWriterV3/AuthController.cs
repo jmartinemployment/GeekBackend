@@ -30,8 +30,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Get current authenticated user info. Ensures the default demo workspace + client exist
-    /// so first-time sign-in is not an empty shell.
+    /// Current authenticated user. Does not invent Demo clients — callers must create real clients.
     /// </summary>
     [HttpGet("me")]
     public async Task<ActionResult<UserInfoResponse>> GetCurrentUser(CancellationToken ct)
@@ -44,18 +43,17 @@ public class AuthController : ControllerBase
                     ?? $"user-{userId:N}@geekatyourspot.com";
 
         await EnsureDefaultWorkspaceAsync(ct);
-        var client = await EnsureDemoClientAsync(email, ct);
 
-        // #region agent log
-        _logger.LogInformation(
-            "CW_AUTH_ME session=2d6b04 hypothesis=H23 user={UserId} workspace={WorkspaceId} client={ClientId} ensured=true",
-            userId, DefaultWorkspaceId, client.Id);
-        // #endregion
+        var clients = await _repo.GetClientsByWorkspaceIdAsync(DefaultWorkspaceId, ct);
+        var client = clients.FirstOrDefault(c =>
+            c.Id != Guid.Empty
+            && !c.Name.Contains("(Demo)", StringComparison.OrdinalIgnoreCase)
+            && !c.Name.Contains("Smoke", StringComparison.OrdinalIgnoreCase));
 
         return Ok(new UserInfoResponse(
             Id: userId,
             Email: email,
-            ClientId: client.Id,
+            ClientId: client?.Id ?? Guid.Empty,
             WorkspaceId: DefaultWorkspaceId
         ));
     }
@@ -66,34 +64,13 @@ public class AuthController : ControllerBase
         if (existing is not null && existing.Id != Guid.Empty)
             return;
 
-        _logger.LogInformation("Creating default Demo Workspace {WorkspaceId}", DefaultWorkspaceId);
+        _logger.LogInformation("Creating default workspace {WorkspaceId}", DefaultWorkspaceId);
         await _repo.CreateWorkspaceAsync(
-            new CreateWorkspaceCommand("Demo Workspace", Guid.Empty, DefaultWorkspaceId), ct);
+            new CreateWorkspaceCommand("Default Workspace", Guid.Empty, DefaultWorkspaceId), ct);
 
         existing = await _repo.GetWorkspaceByIdAsync(DefaultWorkspaceId, ct);
         if (existing is null || existing.Id == Guid.Empty)
             throw new InvalidOperationException($"Failed to ensure default workspace {DefaultWorkspaceId}");
-    }
-
-    private async Task<ClientDto> EnsureDemoClientAsync(string email, CancellationToken ct)
-    {
-        var clients = await _repo.GetClientsByWorkspaceIdAsync(DefaultWorkspaceId, ct);
-        var usable = clients.FirstOrDefault(c => c.Id != Guid.Empty);
-        if (usable is not null)
-            return usable;
-
-        var name = string.IsNullOrWhiteSpace(email) ? "Demo Client" : $"{email.Split('@')[0]} (Demo)";
-        _logger.LogInformation("Creating demo client in workspace {WorkspaceId}", DefaultWorkspaceId);
-        var created = await _repo.CreateClientAsync(new CreateClientCommand(DefaultWorkspaceId, name), ct);
-        if (created.Id == Guid.Empty)
-        {
-            clients = await _repo.GetClientsByWorkspaceIdAsync(DefaultWorkspaceId, ct);
-            usable = clients.FirstOrDefault(c => c.Id != Guid.Empty)
-                ?? throw new InvalidOperationException("Failed to ensure demo client");
-            return usable;
-        }
-
-        return created;
     }
 
     public record UserInfoResponse(
