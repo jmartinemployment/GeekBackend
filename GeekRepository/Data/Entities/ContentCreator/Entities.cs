@@ -62,6 +62,14 @@ public class GccSiteAnalysis
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Domain { get; set; } = string.Empty;
     public string? SeedTopic { get; set; }
+    /// <summary>processing, ready, or failed.</summary>
+    public string Status { get; set; } = "ready";
+    public Guid? SeoProjectId { get; set; }
+    public Guid? SeoProfileId { get; set; }
+    public string? ErrorMessage { get; set; }
+    /// <summary>Site pages and topical neighbors; gaps remain in GapsJson during the compatibility period.</summary>
+    public string SiteModelJson { get; set; } = """{"sitePages":[],"topicalNeighbors":[]}""";
     public string GapsJson { get; set; } = "[]";
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

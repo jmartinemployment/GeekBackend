@@ -28,7 +28,7 @@ public class GccController : ControllerBase
     private readonly HttpGccRepository _repo;
     private readonly GccGenerateService _gen;
     private readonly GccResearchFetchService _researchFetch;
-    private readonly HttpGeekSeoNicheClient _seo;
+    private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
     private readonly IProjectStore _projects;
@@ -40,7 +40,7 @@ public class GccController : ControllerBase
         HttpGccRepository repo,
         GccGenerateService gen,
         GccResearchFetchService researchFetch,
-        HttpGeekSeoNicheClient seo,
+        HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
         IProjectStore projects,
@@ -1200,43 +1200,133 @@ public class GccController : ControllerBase
         var bearer = auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
             ? auth["Bearer ".Length..].Trim()
             : null;
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required to run site analysis" });
 
-        var loaded = await _seo.LoadSiteModelByDomainAsync(request.Domain, bearer, ct);
-        if (!loaded.Ok || loaded.Value is null)
+        var projectResult = await _seo.EnsureProjectForDomainAsync(request.Domain, bearer, ct);
+        if (!projectResult.Ok || projectResult.Value is null)
         {
             return StatusCode(
-                loaded.StatusCode is >= 400 and < 600 ? loaded.StatusCode : 502,
-                new { error = loaded.Error ?? "Failed to load site analysis from Geek-SEO" });
+                projectResult.StatusCode is >= 400 and < 600 ? projectResult.StatusCode : 502,
+                new { error = projectResult.Error ?? "Failed to ensure site analysis project" });
         }
 
-        var snap = loaded.Value;
-        var gaps = snap.Gaps.Select(g => new ContentGapDto(
-            g.Id, g.Topic, g.SectionPath, g.Reason, g.SuggestPillar)).ToList();
+        var project = projectResult.Value;
+        var startResult = await _seo.StartSiteAnalysisAsync(
+            project.Id, request.Domain, request.SeedTopic, bearer, ct);
+        if (!startResult.Ok || startResult.Value == Guid.Empty)
+        {
+            return StatusCode(
+                startResult.StatusCode is >= 400 and < 600 ? startResult.StatusCode : 502,
+                new { error = startResult.Error ?? "Failed to start site analysis" });
+        }
 
-        var payload = new SiteAnalysisStoredPayload(
-            gaps,
-            snap.SitePages.ToList(),
-            snap.TopicalNeighbors.ToList(),
-            snap.SeoProfileId,
-            snap.SeoProjectId);
+        var emptyPayload = new SiteAnalysisStoredPayload(
+            [], [], [], startResult.Value, project.Id);
 
         var persisted = await _repo.CreateSiteAnalysisAsync(
             new CreateGccSiteAnalysisCommand(
                 Id: null,
-                Domain: snap.Domain,
+                Domain: HttpGeekSeoSiteAnalyzerClient.NormalizeHost(request.Domain),
                 SeedTopic: request.SeedTopic,
-                GapsJson: GccGenerateService.SerializeAnalysisPayload(payload)),
+                GapsJson: GccGenerateService.SerializeAnalysisPayload(emptyPayload),
+                Status: "processing",
+                SeoProjectId: project.Id,
+                SeoProfileId: startResult.Value,
+                SiteModelJson: SerializeSiteModel([], [])),
             ct);
 
         return Ok(new
         {
             id = persisted.Id,
             domain = persisted.Domain,
-            status = "ready",
-            seoProjectId = snap.SeoProjectId,
-            seoProfileId = snap.SeoProfileId,
-            gaps,
+            status = persisted.Status,
+            seoProjectId = persisted.SeoProjectId,
+            seoProfileId = persisted.SeoProfileId,
         });
+    }
+
+    [HttpGet("site-analyzer/{id:guid}")]
+    public async Task<IActionResult> GetSiteAnalysis(Guid id, CancellationToken ct)
+    {
+        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
+        if (analysis is null) return NotFound();
+
+        if (string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(analysis.Status))
+            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, gaps = GccGenerateService.DeserializeGaps(analysis.GapsJson) });
+
+        if (string.Equals(analysis.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+
+        if (analysis.CreatedAtUtc < DateTime.UtcNow.AddMinutes(-15))
+        {
+            analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis timed out after 15 minutes.", ct);
+            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+        }
+
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required to load site analysis" });
+        if (analysis.SeoProfileId is not Guid profileId || analysis.SeoProjectId is not Guid projectId)
+        {
+            analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis is missing SEO profile or project IDs.", ct);
+            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+        }
+
+        var statusResult = await _seo.GetSiteAnalysisStatusAsync(profileId, bearer, ct);
+        if (!statusResult.Ok || statusResult.Value is null)
+            return StatusCode(statusResult.StatusCode is >= 400 and < 600 ? statusResult.StatusCode : 502,
+                new { error = statusResult.Error ?? "Failed to poll site analysis" });
+
+        var seoStatus = statusResult.Value;
+        if (seoStatus.IsFailed)
+        {
+            analysis = await MarkAnalysisFailedAsync(
+                analysis,
+                seoStatus.ErrorMessage ?? "Site analysis failed in the SEO service.",
+                ct);
+            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+        }
+
+        if (!seoStatus.IsComplete)
+            return Ok(new
+            {
+                analysis.Id,
+                analysis.Domain,
+                analysis.Status,
+                seoStatus = seoStatus.Status,
+                step = seoStatus.Step,
+                stepNumber = seoStatus.StepNumber,
+                totalSteps = seoStatus.TotalSteps,
+            });
+
+        var modelResult = await _seo.LoadSiteModelByProfileAsync(projectId, profileId, analysis.Domain, bearer, ct);
+        if (!modelResult.Ok || modelResult.Value is null)
+        {
+            analysis = await MarkAnalysisFailedAsync(analysis, modelResult.Error ?? "Failed to load completed site analysis.", ct);
+            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+        }
+
+        var snapshot = modelResult.Value;
+        if (snapshot.Gaps.Count == 0 || snapshot.SitePages.Count == 0)
+        {
+            analysis = await MarkAnalysisFailedAsync(analysis, "Completed site analysis contained no gaps or existing pages.", ct);
+            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+        }
+
+        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(g.Id, g.Topic, g.SectionPath, g.Reason, g.SuggestPillar)).ToList();
+        var payload = new SiteAnalysisStoredPayload(
+            gaps, snapshot.SitePages.ToList(), snapshot.TopicalNeighbors.ToList(), profileId, projectId);
+        analysis = await _repo.UpdateSiteAnalysisAsync(
+            analysis.Id,
+            new UpdateGccSiteAnalysisCommand(
+                "ready", projectId, profileId, null,
+                GccGenerateService.SerializeAnalysisPayload(payload),
+                SerializeSiteModel(snapshot.SitePages, snapshot.TopicalNeighbors)),
+            ct);
+
+        return Ok(new { analysis.Id, analysis.Domain, analysis.Status, gaps });
     }
 
     [HttpGet("site-analyzer/{id:guid}/gaps")]
@@ -1244,6 +1334,9 @@ public class GccController : ControllerBase
     {
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
+        if (!string.IsNullOrWhiteSpace(analysis.Status)
+            && !string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
         try
         {
             return Ok(GccGenerateService.DeserializeGaps(analysis.GapsJson));
@@ -1264,6 +1357,9 @@ public class GccController : ControllerBase
             return BadRequest(new { error = "gapTopic required" });
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
+        if (!string.IsNullOrWhiteSpace(analysis.Status)
+            && !string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
 
         SiteAnalysisStoredPayload payload;
         try
@@ -1287,6 +1383,34 @@ public class GccController : ControllerBase
 
         return Ok(section);
     }
+
+    private string? GetBearerToken()
+    {
+        var auth = Request.Headers.Authorization.ToString();
+        return auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? auth["Bearer ".Length..].Trim()
+            : null;
+    }
+
+    private async Task<GccSiteAnalysisDto> MarkAnalysisFailedAsync(
+        GccSiteAnalysisDto analysis,
+        string error,
+        CancellationToken ct) =>
+        await _repo.UpdateSiteAnalysisAsync(
+            analysis.Id,
+            new UpdateGccSiteAnalysisCommand(
+                "failed",
+                analysis.SeoProjectId,
+                analysis.SeoProfileId,
+                error,
+                null,
+                null),
+            ct);
+
+    private static string SerializeSiteModel(
+        IReadOnlyList<RelatedPageDto> sitePages,
+        IReadOnlyList<string> topicalNeighbors) =>
+        JsonSerializer.Serialize(new { sitePages, topicalNeighbors }, JsonOpts);
 
     private static bool TryParseProvider(string? raw, out ContentGeneratorProvider provider, out string? error)
     {

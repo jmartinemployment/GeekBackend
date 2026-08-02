@@ -83,10 +83,29 @@ public sealed record GccSiteAnalysisDto(
     string Domain,
     string? SeedTopic,
     string GapsJson,
-    DateTime CreatedAtUtc);
+    string Status,
+    Guid? SeoProjectId,
+    Guid? SeoProfileId,
+    string? ErrorMessage,
+    string SiteModelJson,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
 
 public sealed record CreateGccSiteAnalysisCommand(
     Guid? Id,
     string Domain,
     string? SeedTopic,
-    string GapsJson);
+    string GapsJson,
+    string Status = "ready",
+    Guid? SeoProjectId = null,
+    Guid? SeoProfileId = null,
+    string? ErrorMessage = null,
+    string? SiteModelJson = null);
+
+public sealed record UpdateGccSiteAnalysisCommand(
+    string Status,
+    Guid? SeoProjectId,
+    Guid? SeoProfileId,
+    string? ErrorMessage,
+    string? GapsJson,
+    string? SiteModelJson);

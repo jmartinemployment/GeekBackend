@@ -31,4 +31,17 @@ public class GccSiteAnalysesController : ControllerBase
         var created = await _repo.CreateAsync(command, ct);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
+
+    [HttpPatch("{id:guid}")]
+    public async Task<ActionResult<GccSiteAnalysisDto>> Update(
+        Guid id,
+        [FromBody] UpdateGccSiteAnalysisCommand command,
+        CancellationToken ct)
+    {
+        if (command is null || string.IsNullOrWhiteSpace(command.Status))
+            return BadRequest("status required");
+
+        var updated = await _repo.UpdateAsync(id, command, ct);
+        return updated is null ? NotFound() : Ok(updated);
+    }
 }

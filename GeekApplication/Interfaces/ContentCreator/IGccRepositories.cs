@@ -38,4 +38,5 @@ public interface IGccSiteAnalysisRepository
 {
     Task<GccSiteAnalysisDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<GccSiteAnalysisDto> CreateAsync(CreateGccSiteAnalysisCommand command, CancellationToken ct = default);
+    Task<GccSiteAnalysisDto?> UpdateAsync(Guid id, UpdateGccSiteAnalysisCommand command, CancellationToken ct = default);
 }
