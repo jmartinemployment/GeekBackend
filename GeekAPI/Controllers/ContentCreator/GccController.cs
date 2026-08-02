@@ -565,12 +565,27 @@ public class GccController : ControllerBase
         {
             foreach (var name in names)
             {
-                var (toolName, document, metaDescription, summary) = await _gen.GenerateToolAsync(
-                    name, request.Brief, null, provider, ct);
+                var relatedPillar = project.GeneratedContents.FirstOrDefault(c =>
+                    c.ContentType == GeneratedContentType.TechnicalArticle
+                    && !string.IsNullOrWhiteSpace(c.Slug));
+                var relatedArticleUrl = relatedPillar is null
+                    ? null
+                    : $"{_company.ArticleBaseUrl.TrimEnd('/')}/{project.Department}/{relatedPillar.Slug}";
 
-                var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(toolName), usedSlugs);
+                var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(name), usedSlugs);
                 order += 1;
-                var wordCount = ContentDocumentText.CountWords(document);
+
+                var tool = await _gen.GenerateToolPageAsync(
+                    name,
+                    request.Brief,
+                    sourceContext: null,
+                    department: project.Department,
+                    relatedArticleUrl: relatedArticleUrl,
+                    provider: provider,
+                    ct: ct,
+                    preferredSlug: slug);
+
+                var meta = tool.Metadata;
 
                 // Replace existing tool with same slug if regenerating.
                 var existing = project.GeneratedContents
@@ -584,15 +599,25 @@ public class GccController : ControllerBase
                 {
                     ProjectId = project.Id,
                     ContentType = GeneratedContentType.ToolPost,
-                    Title = toolName,
-                    DisplayTitle = toolName,
+                    Title = tool.Name,
+                    DisplayTitle = tool.Name,
                     Slug = slug,
-                    Body = document,
-                    MetaDescription = metaDescription,
-                    Summary = summary ?? string.Empty,
-                    SourceAppName = toolName,
+                    Summary = meta.Summary,
+                    MainSummary = meta.MainSummary,
+                    HeroSummary = meta.HeroSummary,
+                    HomeSummary = meta.HomeSummary,
+                    BlogSummary = meta.BlogSummary,
+                    DepartmentListExcerpt = meta.DepartmentListExcerpt,
+                    ToolPageExcerpt = meta.ToolPageExcerpt,
+                    AdvertisingSummary = meta.AdvertisingSummary,
+                    MetaDescription = meta.MetaDescription,
+                    Body = tool.Document,
+                    LedeType = LedeType.Summary,
+                    JsonLdSchema = tool.JsonLdSchema,
+                    RelatedArticleUrl = tool.RelatedArticleUrl,
+                    SourceAppName = tool.Name,
                     SourceAppOrder = order,
-                    WordCount = wordCount,
+                    WordCount = tool.WordCount,
                     GeneratedByProvider = provider == ContentGeneratorProvider.Anthropic
                         ? LlmProviderType.Anthropic
                         : LlmProviderType.OpenAi,

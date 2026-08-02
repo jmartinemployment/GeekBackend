@@ -57,17 +57,20 @@ public class GccGenerateService
 
     private readonly IContentPromptBuilder _prompts;
     private readonly IContentProviderFactory _cwProviders;
+    private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
 
     public GccGenerateService(
         IContentPromptBuilder prompts,
         IContentProviderFactory cwProviders,
+        ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger)
     {
         _prompts = prompts;
         _cwProviders = cwProviders;
+        _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _company = company.Value;
         _logger = logger;
     }
@@ -110,14 +113,21 @@ public class GccGenerateService
 
         if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase))
         {
-            var (name, toolDocument, meta, summary) = await GenerateToolAsync(
-                create.Topic, create.Notes, BuildAudience(create, section), provider, ct);
+            var tool = await GenerateToolPageAsync(
+                toolName: create.Topic,
+                brief: create.Notes,
+                sourceContext: BuildAudience(create, section),
+                department: "marketing",
+                relatedArticleUrl: null,
+                provider: provider,
+                ct: ct);
             return JsonSerializer.Serialize(new
             {
-                title = name,
-                metaDescription = meta,
-                summary,
-                body = toolDocument,
+                title = tool.Name,
+                metaDescription = tool.Metadata.MetaDescription,
+                summary = tool.Metadata.Summary,
+                body = tool.Document,
+                jsonLdSchema = tool.JsonLdSchema,
             }, CwDocumentJson);
         }
 
@@ -246,19 +256,34 @@ public class GccGenerateService
         }
     }
 
-    public async Task<(string Name, ContentDocument Document, string? MetaDescription, string? Summary)> GenerateToolAsync(
+    /// <summary>
+    /// CWV2 tool page: body + ToolMetadataDraft + SoftwareApplication JSON-LD
+    /// (same contract as ToolPageGenerator.GenerateOneToolAsync).
+    /// </summary>
+    public sealed record ToolPageResult(
+        string Name,
+        string Slug,
+        ContentDocument Document,
+        ToolMetadataDraft Metadata,
+        string JsonLdSchema,
+        string? RelatedArticleUrl,
+        int WordCount);
+
+    public async Task<ToolPageResult> GenerateToolPageAsync(
         string toolName,
         string? brief,
         string? sourceContext,
+        string department,
+        string? relatedArticleUrl,
         ContentGeneratorProvider provider,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? preferredSlug = null)
     {
-        // Source of truth: Content Writer v2 tool prompts (BuildToolBodyPrompt + BuildToolMetadataPrompt).
         var llmType = ToLlm(provider);
         var llm = _cwProviders.Get(llmType);
 
         var name = toolName.Trim();
-        var slug = Slugify(name);
+        var slug = string.IsNullOrWhiteSpace(preferredSlug) ? Slugify(name) : preferredSlug.Trim();
         var description = string.Join(
             "\n",
             new[] { brief, sourceContext }.Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -281,11 +306,12 @@ public class GccGenerateService
         if (!string.IsNullOrWhiteSpace(brief))
             paragraphs.Add(brief.Trim());
 
+        var dept = string.IsNullOrWhiteSpace(department) ? "marketing" : department.Trim();
         var context = new ProjectGenerationContext(
             ProjectName: name,
             ProjectUrl: _company.ArticleBaseUrl,
             TargetKeyword: name,
-            Department: "marketing",
+            Department: dept,
             SiteName: _company.PublisherName,
             DetectedTone: "Professional, consultative",
             DetectedFocus: name,
@@ -315,20 +341,73 @@ public class GccGenerateService
 
         var lede = sections[0] with { Tag = "h2" };
         var document = new ContentDocument(lede, sections.Skip(1).ToList());
+        var wordCount = ContentDocumentText.CountWords(document);
 
+        ToolMetadataDraft metadata;
         try
         {
             var metaResult = await llm.CompleteAsync(
                 _prompts.BuildToolMetadataPrompt(context, pillarMeta, app, document),
                 ct);
-            var meta = LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata");
-            return (name, document, meta.MetaDescription, meta.Summary);
+            metadata = LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "CWV2 tool metadata failed for {Tool}; saving body only.", name);
-            return (name, document, null, null);
+            _logger.LogWarning(ex, "CWV2 tool metadata failed for {Tool}; using brief fallbacks.", name);
+            var fallback = Truncate((brief ?? name).Trim(), 160);
+            metadata = new ToolMetadataDraft(
+                DepartmentListExcerpt: fallback,
+                Summary: fallback,
+                MainSummary: fallback,
+                HeroSummary: fallback,
+                HomeSummary: fallback,
+                BlogSummary: fallback,
+                ToolPageExcerpt: fallback,
+                AdvertisingSummary: fallback,
+                MetaDescription: fallback);
         }
+
+        var metaDescription = metadata.MetaDescription.Length > 160
+            ? metadata.MetaDescription[..160]
+            : metadata.MetaDescription;
+        metadata = metadata with { MetaDescription = metaDescription };
+
+        var toolUrl = $"{_company.ToolBaseUrl.TrimEnd('/')}/{dept}/{slug}";
+        var now = DateTime.UtcNow;
+        var schemaMeta = new ContentMetadata(
+            name,
+            metaDescription,
+            context.AuthorName,
+            context.PublisherName,
+            context.PublisherLogoUrl,
+            toolUrl,
+            context.PublisherLogoUrl,
+            now,
+            now,
+            pillarMeta.Keywords,
+            wordCount);
+
+        var pillarUrl = string.IsNullOrWhiteSpace(relatedArticleUrl)
+            ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{dept}"
+            : relatedArticleUrl;
+        var jsonLd = _softwareApplicationSchemaBuilder.BuildToolPage(schemaMeta, pillarUrl, app);
+        if (string.IsNullOrWhiteSpace(jsonLd))
+            jsonLd = "{}";
+
+        return new ToolPageResult(name, slug, document, metadata, jsonLd, pillarUrl, wordCount);
+    }
+
+    /// <summary>Legacy alias — prefer <see cref="GenerateToolPageAsync"/>.</summary>
+    public async Task<(string Name, ContentDocument Document, string? MetaDescription, string? Summary)> GenerateToolAsync(
+        string toolName,
+        string? brief,
+        string? sourceContext,
+        ContentGeneratorProvider provider,
+        CancellationToken ct)
+    {
+        var tool = await GenerateToolPageAsync(
+            toolName, brief, sourceContext, "marketing", null, provider, ct);
+        return (tool.Name, tool.Document, tool.Metadata.MetaDescription, tool.Metadata.Summary);
     }
 
     /// <summary>Serialize a CWV2 ContentDocument for legacy GCC artifact storage.</summary>
