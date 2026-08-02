@@ -109,3 +109,17 @@ public sealed record UpdateGccSiteAnalysisCommand(
     string? ErrorMessage,
     string? GapsJson,
     string? SiteModelJson);
+
+public sealed record GccSiteFindingDto(
+    Guid Id,
+    Guid SiteAnalysisId,
+    string FindingType,
+    string Severity,
+    string? AffectedUrl,
+    string Title,
+    string Summary,
+    string DetailsJson,
+    DateTime CreatedAtUtc);
+
+public sealed record CreateGccSiteFindingsCommand(
+    IReadOnlyList<GccSiteFindingDto> Findings);

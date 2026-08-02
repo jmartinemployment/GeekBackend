@@ -192,6 +192,60 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.ToTable("gcc_creates", "content_creator");
                 });
 
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccSiteFinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AffectedUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DetailsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasDefaultValue("{}");
+
+                    b.Property<string>("FindingType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("SiteAnalysisId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SiteAnalysisId")
+                        .HasDatabaseName("ix_gcc_site_findings_site_analysis_id");
+
+                    b.HasIndex("SiteAnalysisId", "FindingType")
+                        .HasDatabaseName("ix_gcc_site_findings_site_analysis_id_finding_type");
+
+                    b.HasIndex("SiteAnalysisId", "Severity")
+                        .HasDatabaseName("ix_gcc_site_findings_site_analysis_id_severity");
+
+                    b.ToTable("gcc_site_findings", "content_creator");
+                });
+
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccSiteAnalysis", b =>
                 {
                     b.Property<Guid>("Id")
@@ -241,6 +295,15 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasDatabaseName("ix_gcc_site_analyses_domain");
 
                     b.ToTable("gcc_site_analyses", "content_creator");
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccSiteFinding", b =>
+                {
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccSiteAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("SiteAnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }
