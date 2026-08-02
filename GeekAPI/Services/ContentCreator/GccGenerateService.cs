@@ -87,11 +87,16 @@ public class GccGenerateService
         if (string.IsNullOrWhiteSpace(json)) return null;
         try
         {
-            return JsonSerializer.Deserialize<SiteSectionContextDto>(json, JsonOpts);
+            return JsonSerializer.Deserialize<SiteSectionContextDto>(json, JsonOpts)
+                ?? throw new InvalidOperationException("Site section JSON deserialized to null.");
         }
-        catch
+        catch (InvalidOperationException)
         {
-            return null;
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Site section JSON could not be parsed.", ex);
         }
     }
 
@@ -237,12 +242,13 @@ public class GccGenerateService
         if (channels.Count == 0)
             throw new InvalidOperationException("At least one channel required for pack.");
 
-        // One LLM call for chosen channels only (plan §7). CWV2 CompleteAsync — not CWV3 pack helper.
+        // Plan §7: one LLM call for chosen channels (not one call per post).
         var llm = GetLlm(provider);
+        var channelList = string.Join(", ", channels);
         var brief =
-            $"Produce ONE pack JSON for ONLY these channels: {string.Join(", ", channels)}. " +
-            "Not one call per post. Shape: { \"variants\": [ { \"channel\": string, \"title\": string, \"headline\": string|null, \"body\": string, \"cta\": string|null, \"hashtags\": string[]|null } ] }. " +
-            "Source content follows:\n" + sourceJson;
+            $"Produce ONE pack JSON for ONLY these channel slots (one variant object per slot, same order): {channelList}. " +
+            "Shape: { \"variants\": [ { \"channel\": string, \"title\": string, \"headline\": string|null, \"body\": string, \"cta\": string|null, \"hashtags\": string[]|null } ] }. " +
+            "Reply with valid JSON only.\nSource content:\n" + sourceJson;
         var request = new ChatCompletionRequest(
             Messages:
             [
@@ -251,17 +257,65 @@ public class GccGenerateService
             ],
             Temperature: 0.4);
         var result = await llm.CompleteAsync(request, ct);
-        var raw = result.Content?.Trim() ?? "{}";
+        var raw = result.Content?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new InvalidOperationException("Social/ads pack LLM returned empty content.");
+
+        // Strip markdown fences if the model wraps JSON.
+        if (raw.StartsWith("```", StringComparison.Ordinal))
+        {
+            var start = raw.IndexOf('{');
+            var end = raw.LastIndexOf('}');
+            if (start < 0 || end <= start)
+                throw new InvalidOperationException("Social/ads pack LLM returned non-JSON content.");
+            raw = raw[start..(end + 1)];
+        }
+
         try
         {
-            using var _ = JsonDocument.Parse(raw);
-            return raw;
+            using var doc = JsonDocument.Parse(raw);
+            if (!doc.RootElement.TryGetProperty("variants", out var variants)
+                || variants.ValueKind != JsonValueKind.Array
+                || variants.GetArrayLength() == 0)
+            {
+                throw new InvalidOperationException("Social/ads pack JSON missing non-empty variants array.");
+            }
         }
-        catch
+        catch (JsonException ex)
         {
-            return JsonSerializer.Serialize(new { variants = Array.Empty<object>(), raw }, JsonOpts);
+            throw new InvalidOperationException("Social/ads pack LLM returned invalid JSON.", ex);
         }
+
+        return raw;
     }
+
+    public static IReadOnlyList<PackVariant> ParsePackVariants(string packJson)
+    {
+        using var doc = JsonDocument.Parse(packJson);
+        var list = new List<PackVariant>();
+        foreach (var el in doc.RootElement.GetProperty("variants").EnumerateArray())
+        {
+            var channel = el.TryGetProperty("channel", out var c) ? c.GetString() ?? "" : "";
+            var title = el.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+            var body = el.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
+            var headline = el.TryGetProperty("headline", out var h) ? h.GetString() : null;
+            var cta = el.TryGetProperty("cta", out var ct) ? ct.GetString() : null;
+            if (string.IsNullOrWhiteSpace(channel) || string.IsNullOrWhiteSpace(body))
+                throw new InvalidOperationException("Social/ads pack variant missing channel or body.");
+            list.Add(new PackVariant(channel.Trim(), title.Trim(), headline, body.Trim(), cta));
+        }
+
+        if (list.Count == 0)
+            throw new InvalidOperationException("Social/ads pack has no variants.");
+        return list;
+    }
+
+    public sealed record PackVariant(
+        string Channel,
+        string Title,
+        string? Headline,
+        string Body,
+        string? Cta);
 
     /// <summary>
     /// CWV2 tool page: body + ToolMetadataDraft + SoftwareApplication JSON-LD

@@ -394,13 +394,13 @@ public class GccController : ControllerBase
 
             if (request?.Blog == true)
             {
-                var blogJson = await _gen.GenerateStartingContentAsync(
-                    new GccCreateDto(Guid.Empty, Guid.Empty, Guid.Empty, "blog", artifact.Name, "Repurpose blog from approved artifact", null, null, "draft", DateTime.UtcNow, DateTime.UtcNow),
+                var blogJson = await _gen.ReviseAsync(
+                    version.BodyDocumentJson,
+                    "Rewrite as a standalone blog post.",
+                    "full",
                     null,
                     provider,
                     ct);
-                // Use revise-style from source for better grounding
-                blogJson = await _gen.ReviseAsync(version.BodyDocumentJson, "Rewrite as a standalone blog post.", "full", null, provider, ct);
                 var blogArtifact = await _repo.CreateArtifactAsync(
                     new CreateGccArtifactCommand(createId, "blog", $"{artifact.Name} — Blog"), ct);
                 var blogVersion = await _repo.CreateVersionAsync(
@@ -652,6 +652,195 @@ public class GccController : ControllerBase
             _company.ToolBaseUrl);
         return Ok(set);
     }
+
+    /// <summary>
+    /// Plan §7 social/ads pack: one LLM call for chosen channel slots (counts), not one call per post.
+    /// Maps Facebook/LinkedIn variants onto CWV2 social rows; full pack JSON returned for other channels.
+    /// </summary>
+    [HttpPost("projects/{projectId:guid}/social-pack")]
+    public async Task<IActionResult> GenerateSocialPack(
+        Guid projectId,
+        [FromBody] SocialPackRequest? request,
+        CancellationToken ct)
+    {
+        request ??= new SocialPackRequest(1, 1, 0, 0, 0, 0, null);
+        if (!TryParseProvider(request.Provider, out var provider, out var err))
+            return BadRequest(err);
+
+        var channels = BuildPackChannels(request);
+        if (channels.Count == 0)
+            return BadRequest("Select at least one social/ads channel count.");
+
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null) return NotFound();
+
+        GeneratedContent? pillar = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.TechnicalArticle
+            && c.Body is not null
+            && c.WordCount >= 200);
+        GeneratedContent? blog = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.BlogPost
+            && c.Body is not null
+            && c.WordCount >= 100);
+        var sourceRow = pillar ?? blog;
+        if (sourceRow?.Body is null)
+            return BadRequest("Generate a pillar body or a blog before social/ads pack.");
+
+        var sourceJson = JsonSerializer.Serialize(new
+        {
+            title = sourceRow.DisplayTitle ?? sourceRow.Title,
+            body = ContentDocumentText.Flatten(sourceRow.Body),
+        }, JsonOpts);
+
+        var slugBase = sourceRow.Slug;
+        var sourceUrl = pillar is not null
+            ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{project.Department}/{slugBase}"
+            : $"{_company.BlogBaseUrl.TrimEnd('/')}/{project.Department}/{slugBase}";
+
+        try
+        {
+            var packJson = await _gen.GenerateRepurposePackAsync(sourceJson, channels, provider, ct);
+            var variants = GccGenerateService.ParsePackVariants(packJson);
+
+            // Replace prior CWV2 social rows (pack is authoritative for this run).
+            foreach (var existing in project.GeneratedContents
+                         .Where(c => c.ContentType is GeneratedContentType.SocialFacebook
+                             or GeneratedContentType.SocialLinkedIn)
+                         .ToList())
+            {
+                project.GeneratedContents.Remove(existing);
+            }
+
+            var fb = variants.FirstOrDefault(v =>
+                v.Channel.Contains("facebook", StringComparison.OrdinalIgnoreCase)
+                || v.Channel.Equals("Meta", StringComparison.OrdinalIgnoreCase));
+            var li = variants.FirstOrDefault(v =>
+                v.Channel.Contains("linkedin", StringComparison.OrdinalIgnoreCase));
+
+            if (fb is not null)
+            {
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.SocialFacebook,
+                    Title = string.IsNullOrWhiteSpace(fb.Title)
+                        ? $"{sourceRow.Title} (Facebook)"
+                        : fb.Title,
+                    Slug = $"{slugBase}-facebook",
+                    Body = ContentDocumentText.FromPlainText(FormatPackBody(fb)),
+                    RelatedArticleUrl = sourceUrl,
+                    MetaDescription = TruncateMeta(fb.Cta),
+                    GeneratedByProvider = ToLlm(provider),
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+
+            if (li is not null)
+            {
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.SocialLinkedIn,
+                    Title = string.IsNullOrWhiteSpace(li.Title)
+                        ? $"{sourceRow.Title} (LinkedIn)"
+                        : li.Title,
+                    Slug = $"{slugBase}-linkedin",
+                    Body = ContentDocumentText.FromPlainText(FormatPackBody(li)),
+                    RelatedArticleUrl = sourceUrl,
+                    // Full pack retained for Mix channels beyond FB/LI (inspectable, not invented later).
+                    MetaDescription = TruncateMeta(packJson),
+                    GeneratedByProvider = ToLlm(provider),
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+            else
+            {
+                // Pack had no LinkedIn slot — still persist pack JSON on a LinkedIn-typed row for retrieval.
+                var summary = string.Join(
+                    "\n\n---\n\n",
+                    variants.Select(v => $"[{v.Channel}]\n{FormatPackBody(v)}"));
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.SocialLinkedIn,
+                    Title = $"{sourceRow.Title} (Social pack)",
+                    Slug = $"{slugBase}-social-pack",
+                    Body = ContentDocumentText.FromPlainText(summary),
+                    RelatedArticleUrl = sourceUrl,
+                    MetaDescription = TruncateMeta(packJson),
+                    GeneratedByProvider = ToLlm(provider),
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+
+            project.UpdatedAtUtc = DateTime.UtcNow;
+            await _projects.SaveAsync(project, ct);
+
+            var set = GeneratedContentSetAssembler.Assemble(
+                project,
+                project.Department,
+                _company.ArticleBaseUrl,
+                _company.BlogBaseUrl,
+                _company.ToolBaseUrl);
+            return Ok(new
+            {
+                set,
+                packJson,
+                channels,
+                variantCount = variants.Count,
+                llmCalls = 1,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Social pack LLM failed for {ProjectId}", projectId);
+            return StatusCode(502, "LLM provider request failed");
+        }
+    }
+
+    private static List<string> BuildPackChannels(SocialPackRequest request)
+    {
+        var channels = new List<string>();
+        void Add(string name, int count)
+        {
+            for (var i = 0; i < Math.Max(0, count); i++)
+                channels.Add(name);
+        }
+
+        Add("Facebook", request.FacebookCount);
+        Add("LinkedIn", request.LinkedInCount);
+        Add("X", request.XCount);
+        Add("Instagram", request.InstagramCount);
+        Add("MetaAds", request.MetaAdsCount);
+        Add("GoogleAds", request.GoogleAdsCount);
+        return channels;
+    }
+
+    private static string FormatPackBody(GccGenerateService.PackVariant v)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(v.Headline))
+            sb.AppendLine(v.Headline);
+        sb.AppendLine(v.Body);
+        if (!string.IsNullOrWhiteSpace(v.Cta))
+            sb.AppendLine(v.Cta);
+        return sb.ToString().Trim();
+    }
+
+    private static string? TruncateMeta(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return value.Length <= 4000 ? value : value[..4000];
+    }
+
+    private static LlmProviderType ToLlm(ContentGeneratorProvider provider) =>
+        provider == ContentGeneratorProvider.Anthropic
+            ? LlmProviderType.Anthropic
+            : LlmProviderType.OpenAi;
 
     /// <summary>
     /// Names operators can pick for AI Tools — from pillar Tools section and existing tool drafts.
@@ -1073,6 +1262,14 @@ public class GccController : ControllerBase
         IReadOnlyList<string>? ToolNames,
         string Brief,
         string? Provider);
+    public sealed record SocialPackRequest(
+        int FacebookCount = 0,
+        int LinkedInCount = 0,
+        int XCount = 0,
+        int InstagramCount = 0,
+        int MetaAdsCount = 0,
+        int GoogleAdsCount = 0,
+        string? Provider = null);
     public sealed record ProjectReviseRequest(
         string? ContentType,
         string Feedback,
