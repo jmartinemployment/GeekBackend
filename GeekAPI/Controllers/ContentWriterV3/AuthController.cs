@@ -44,11 +44,9 @@ public class AuthController : ControllerBase
 
         await EnsureDefaultWorkspaceAsync(ct);
 
+        // Do not invent clients and do not hide bad rows by name — data must be correct at rest.
         var clients = await _repo.GetClientsByWorkspaceIdAsync(DefaultWorkspaceId, ct);
-        var client = clients.FirstOrDefault(c =>
-            c.Id != Guid.Empty
-            && !c.Name.Contains("(Demo)", StringComparison.OrdinalIgnoreCase)
-            && !c.Name.Contains("Smoke", StringComparison.OrdinalIgnoreCase));
+        var client = clients.FirstOrDefault(c => c.Id != Guid.Empty);
 
         return Ok(new UserInfoResponse(
             Id: userId,
