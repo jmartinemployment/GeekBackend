@@ -70,7 +70,7 @@ public class HttpGeekSeoNicheClient
         {
             return SeoCallResult<SiteModelSnapshot>.Fail(
                 (int)HttpStatusCode.NotFound,
-                $"No Geek-SEO project for “{host}”. Analyze that site in Geek-SEO first, then retry here.");
+                $"No Geek-SEO project matches “{host}”. Create that project in Geek-SEO, run niche analysis there, then load gaps here.");
         }
 
         var latestRes = await SendAsync(
@@ -83,7 +83,7 @@ public class HttpGeekSeoNicheClient
         {
             return SeoCallResult<SiteModelSnapshot>.Fail(
                 (int)HttpStatusCode.NotFound,
-                $"Geek-SEO project “{project.Name}” has no site analysis yet. Complete analysis in Geek-SEO, then retry.");
+                $"Geek-SEO project “{project.Name}” has no niche analysis yet. Open Geek-SEO, run niche analysis for that project, then load gaps here.");
         }
 
         if (!latestRes.Ok)
@@ -94,7 +94,7 @@ public class HttpGeekSeoNicheClient
         {
             return SeoCallResult<SiteModelSnapshot>.Fail(
                 (int)HttpStatusCode.NotFound,
-                $"Geek-SEO project “{project.Name}” has no site analysis yet. Complete analysis in Geek-SEO, then retry.");
+                $"Geek-SEO project “{project.Name}” has no niche analysis yet. Open Geek-SEO, run niche analysis for that project, then load gaps here.");
         }
 
         var gapsRes = await SendAsync(
