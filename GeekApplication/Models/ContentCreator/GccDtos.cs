@@ -9,6 +9,8 @@ public sealed record GccCreateDto(
     string? Notes,
     Guid? SiteAnalysisId,
     string? SiteSectionJson,
+    string? BriefJson,
+    string? ResearchJson,
     string Status,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
@@ -20,7 +22,13 @@ public sealed record CreateGccCreateCommand(
     string Topic,
     string? Notes = null,
     Guid? SiteAnalysisId = null,
-    string? SiteSectionJson = null);
+    string? SiteSectionJson = null,
+    string? BriefJson = null,
+    string? ResearchJson = null);
+
+public sealed record UpdateGccCreateBriefResearchCommand(
+    string? BriefJson,
+    string? ResearchJson);
 
 public sealed record GccArtifactDto(
     Guid Id,

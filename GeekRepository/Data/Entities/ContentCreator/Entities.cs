@@ -10,6 +10,10 @@ public class GccCreate
     public string? Notes { get; set; }
     public Guid? SiteAnalysisId { get; set; }
     public string? SiteSectionJson { get; set; }
+    /// <summary>Content Brief JSON (intent, audience, angle, CTA, ToV, length, SERP index fields).</summary>
+    public string? BriefJson { get; set; }
+    /// <summary>Deep research JSON (SERP index + ≤3 quoteable destination pages).</summary>
+    public string? ResearchJson { get; set; }
     public string Status { get; set; } = "draft"; // draft, generating, drafted, revising, approved, repurposed, archived
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;

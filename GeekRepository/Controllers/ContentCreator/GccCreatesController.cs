@@ -72,5 +72,27 @@ public class GccCreatesController : ControllerBase
         }
     }
 
+    [HttpPatch("{id:guid}/brief-research")]
+    public async Task<ActionResult<GccCreateDto>> UpdateBriefResearch(
+        Guid id,
+        [FromBody] UpdateGccCreateBriefResearchCommand request,
+        CancellationToken ct)
+    {
+        if (request is null)
+            return BadRequest("Body required");
+        if (request.BriefJson is null && request.ResearchJson is null)
+            return BadRequest("briefJson and/or researchJson required");
+
+        try
+        {
+            var create = await _repository.UpdateBriefResearchAsync(id, request, ct);
+            return Ok(create);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     public record UpdateStatusRequest(string Status);
 }

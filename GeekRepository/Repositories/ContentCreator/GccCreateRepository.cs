@@ -49,6 +49,8 @@ public class GccCreateRepository : IGccCreateRepository
             Notes = command.Notes,
             SiteAnalysisId = command.SiteAnalysisId,
             SiteSectionJson = command.SiteSectionJson,
+            BriefJson = command.BriefJson,
+            ResearchJson = command.ResearchJson,
             Status = "draft",
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
@@ -72,6 +74,25 @@ public class GccCreateRepository : IGccCreateRepository
         return MapToDto(entity);
     }
 
+    public async Task<GccCreateDto> UpdateBriefResearchAsync(
+        Guid id,
+        UpdateGccCreateBriefResearchCommand command,
+        CancellationToken ct = default)
+    {
+        var entity = await _db.GccCreates.FirstOrDefaultAsync(c => c.Id == id, ct)
+            ?? throw new KeyNotFoundException($"GccCreate {id} not found");
+
+        if (command.BriefJson is not null)
+            entity.BriefJson = string.IsNullOrWhiteSpace(command.BriefJson) ? null : command.BriefJson;
+        if (command.ResearchJson is not null)
+            entity.ResearchJson = string.IsNullOrWhiteSpace(command.ResearchJson) ? null : command.ResearchJson;
+        entity.UpdatedAtUtc = DateTime.UtcNow;
+
+        _db.GccCreates.Update(entity);
+        await _db.SaveChangesAsync(ct);
+        return MapToDto(entity);
+    }
+
     private static GccCreateDto MapToDto(GccCreate entity) =>
         new(
             entity.Id,
@@ -82,6 +103,8 @@ public class GccCreateRepository : IGccCreateRepository
             entity.Notes,
             entity.SiteAnalysisId,
             entity.SiteSectionJson,
+            entity.BriefJson,
+            entity.ResearchJson,
             entity.Status,
             entity.CreatedAtUtc,
             entity.UpdatedAtUtc);
