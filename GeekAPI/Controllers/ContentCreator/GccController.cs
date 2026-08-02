@@ -623,6 +623,54 @@ public class GccController : ControllerBase
     }
 
     /// <summary>
+    /// Names operators can pick for AI Tools — from pillar Tools section and existing tool drafts.
+    /// </summary>
+    [HttpGet("projects/{projectId:guid}/tool-name-candidates")]
+    public async Task<IActionResult> ToolNameCandidates(Guid projectId, CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var trimmed = name.Trim();
+            if (seen.Add(trimmed)) names.Add(trimmed);
+        }
+
+        var pillar = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.TechnicalArticle
+            && c.Body is not null
+            && c.WordCount >= 200);
+        if (pillar is not null)
+        {
+            foreach (var app in ToolSectionExtractor.ExtractApplications(pillar.Body, pillar.SectionOutline))
+                Add(app.Name);
+        }
+
+        foreach (var tool in project.GeneratedContents
+                     .Where(c => c.ContentType == GeneratedContentType.ToolPost)
+                     .OrderBy(c => c.SourceAppOrder ?? int.MaxValue))
+        {
+            Add(string.IsNullOrWhiteSpace(tool.DisplayTitle) ? tool.Title : tool.DisplayTitle);
+            Add(tool.SourceAppName);
+        }
+
+        // Desired headings often list tool names before a pillar exists.
+        if (!string.IsNullOrWhiteSpace(project.Notes))
+        {
+            foreach (var part in project.Notes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                Add(part);
+        }
+
+        return Ok(new { names = names.Take(12).ToList() });
+    }
+
+    /// <summary>
     /// Content Creator addition: operator Revise (Full/Section) on a CWV2 project draft.
     /// New body replaces the selected GeneratedContent row (not a multi-turn chat).
     /// </summary>
