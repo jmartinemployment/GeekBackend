@@ -7,22 +7,22 @@ using GeekSeo.Application.Results;
 namespace GeekRepository.Repositories.Seo;
 
 /// <summary>
-/// Raw SQL for niche analytics dashboards. Column names must match EF migrations (PascalCase quoted identifiers).
+/// Raw SQL for site analysis analytics dashboards. Column names must match EF migrations (PascalCase quoted identifiers).
 /// </summary>
-public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : INicheAnalyticsDapperRepository
+public sealed class SiteAnalysisAnalyticsRepository(IDbConnectionFactory db) : ISiteAnalysisAnalyticsRepository
 {
-    public async Task<Result<NicheProfileSummary?>> GetProfileSummaryAsync(
+    public async Task<Result<SiteAnalysisProfileSummary?>> GetProfileSummaryAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
         try
         {
             using var conn = db.CreateConnection();
-            var row = await conn.QueryFirstOrDefaultAsync<NicheProfileSummary>("""
+            var row = await conn.QueryFirstOrDefaultAsync<SiteAnalysisProfileSummary>("""
                 SELECT
                     "Id",
                     "Domain",
-                    "PrimaryNiche",
+                    "PrimaryFocus",
                     "TopicalAuthorityScore",
                     "TotalPillarsIdentified" AS "TotalPillars",
                     "PillarsCovered",
@@ -30,15 +30,15 @@ public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : IN
                     "CompetitionLevel",
                     "AnalyzedAt",
                     "Status"
-                FROM geek_seo.niche_profiles
+                FROM geek_seo.site_analysis_profiles
                 WHERE "Id" = @ProfileId
                 """, new { ProfileId = profileId });
 
-            return Result<NicheProfileSummary?>.Success(row);
+            return Result<SiteAnalysisProfileSummary?>.Success(row);
         }
         catch (Exception ex)
         {
-            return Result<NicheProfileSummary?>.Failure(ex.Message);
+            return Result<SiteAnalysisProfileSummary?>.Failure(ex.Message);
         }
     }
 
@@ -64,11 +64,11 @@ public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : IN
                     p."StrategicPriority",
                     EXISTS (
                         SELECT 1
-                        FROM geek_seo.niche_subtopics s
+                        FROM geek_seo.site_analysis_subtopics s
                         WHERE s."PillarId" = p."Id" AND s."IsQuickWin" = TRUE
                     ) AS "HasQuickWins"
-                FROM geek_seo.niche_pillars p
-                WHERE p."NicheProfileId" = @ProfileId
+                FROM geek_seo.site_analysis_pillars p
+                WHERE p."SiteAnalysisProfileId" = @ProfileId
                 ORDER BY p."DisplayOrder" ASC
                 """, new { ProfileId = profileId });
 
@@ -99,9 +99,9 @@ public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : IN
                     s."IsQuickWin",
                     s."RecommendedFormat",
                     s."FixEffort"
-                FROM geek_seo.niche_subtopics s
-                INNER JOIN geek_seo.niche_pillars p ON s."PillarId" = p."Id"
-                WHERE p."NicheProfileId" = @ProfileId
+                FROM geek_seo.site_analysis_subtopics s
+                INNER JOIN geek_seo.site_analysis_pillars p ON s."PillarId" = p."Id"
+                WHERE p."SiteAnalysisProfileId" = @ProfileId
                   AND s."CoverageStatus" = 'gap'
                   AND (@QuickWinsOnly = FALSE OR s."IsQuickWin" = TRUE)
                 ORDER BY s."KeywordDifficulty" ASC, s."SearchVolume" DESC
@@ -132,13 +132,13 @@ public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : IN
                     np."PillarsCovered",
                     (
                         SELECT COUNT(*)::int
-                        FROM geek_seo.niche_subtopics s
-                        INNER JOIN geek_seo.niche_pillars pl ON s."PillarId" = pl."Id"
-                        WHERE pl."NicheProfileId" = np."Id"
+                        FROM geek_seo.site_analysis_subtopics s
+                        INNER JOIN geek_seo.site_analysis_pillars pl ON s."PillarId" = pl."Id"
+                        WHERE pl."SiteAnalysisProfileId" = np."Id"
                           AND s."CoverageStatus" = 'covered'
                     ) AS "TotalSubtopicsCovered",
                     np."PillarsGap" AS "TotalGaps"
-                FROM geek_seo.niche_profiles np
+                FROM geek_seo.site_analysis_profiles np
                 WHERE np."ProjectId" = @ProjectId
                   AND np."Status" = 'complete'
                   AND np."AnalyzedAt" >= @Cutoff
@@ -153,7 +153,7 @@ public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : IN
         }
     }
 
-    public async Task<Result<IReadOnlyList<CompetitorNicheOverlap>>> GetCompetitorOverlapAsync(
+    public async Task<Result<IReadOnlyList<CompetitorFocusOverlap>>> GetCompetitorOverlapAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
@@ -161,24 +161,24 @@ public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : IN
         {
             using var conn = db.CreateConnection();
 
-            var rows = await conn.QueryAsync<CompetitorNicheOverlap>("""
+            var rows = await conn.QueryAsync<CompetitorFocusOverlap>("""
                 SELECT
                     c."Domain" AS "CompetitorDomain",
                     c."PillarsRanking" AS "SharedPillarCount",
                     0 AS "CompetitorOnlyPillarCount",
                     GREATEST(p."TotalPillarsIdentified" - c."PillarsRanking", 0) AS "OurOnlyPillarCount",
                     c."EstimatedAuthorityScore"
-                FROM geek_seo.niche_competitors c
-                INNER JOIN geek_seo.niche_profiles p ON c."NicheProfileId" = p."Id"
-                WHERE c."NicheProfileId" = @ProfileId
+                FROM geek_seo.site_analysis_competitors c
+                INNER JOIN geek_seo.site_analysis_profiles p ON c."SiteAnalysisProfileId" = p."Id"
+                WHERE c."SiteAnalysisProfileId" = @ProfileId
                 ORDER BY c."SerpPresence" DESC
                 """, new { ProfileId = profileId });
 
-            return Result<IReadOnlyList<CompetitorNicheOverlap>>.Success(rows.ToList());
+            return Result<IReadOnlyList<CompetitorFocusOverlap>>.Success(rows.ToList());
         }
         catch (Exception ex)
         {
-            return Result<IReadOnlyList<CompetitorNicheOverlap>>.Failure(ex.Message);
+            return Result<IReadOnlyList<CompetitorFocusOverlap>>.Failure(ex.Message);
         }
     }
 
@@ -197,8 +197,8 @@ public sealed class NicheAnalyticsDapperRepository(IDbConnectionFactory db) : IN
                     "MentionFrequency",
                     "PresentOnDomain",
                     COALESCE(array_length("AssociatedPillarIds", 1), 0) AS "AssociatedPillarCount"
-                FROM geek_seo.niche_entities
-                WHERE "NicheProfileId" = @ProfileId
+                FROM geek_seo.site_analysis_entities
+                WHERE "SiteAnalysisProfileId" = @ProfileId
                 ORDER BY "MentionFrequency" DESC
                 """, new { ProfileId = profileId });
 

@@ -5,10 +5,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace GeekRepository.Controllers.Seo;
 
 [ApiController]
-[Route("repo/seo/niche-analytics")]
-public sealed class NicheAnalyticsController(
-    INicheAnalyticsDapperRepository analytics,
-    INicheProfileRepository profiles,
+[Route("repo/seo/site-analysis-analytics")]
+public sealed class SiteAnalysisAnalyticsController(
+    ISiteAnalysisAnalyticsRepository analytics,
+    ISiteAnalysisProfileRepository profiles,
     IProjectRepository projects) : ControllerBase
 {
     [HttpGet("{profileId:guid}/summary")]

@@ -28,9 +28,9 @@ public sealed class SiteAnalyzer2SiteProfileReader(ILogger<SiteAnalyzer2SiteProf
                 "SiteUrl",
                 "DisplayName",
                 "GeekSeoProjectId",
-                "PrimaryNiche",
-                "NicheDescription",
-                "NicheTags",
+                "PrimaryFocus",
+                "FocusDescription",
+                "FocusTags",
                 "BusinessSummary",
                 "GeoAnchorNodes",
                 "ServiceAreaDescription",
@@ -55,9 +55,9 @@ public sealed class SiteAnalyzer2SiteProfileReader(ILogger<SiteAnalyzer2SiteProf
             SiteUrl = row.SiteUrl,
             DisplayName = row.DisplayName,
             GeekSeoProjectId = row.GeekSeoProjectId,
-            PrimaryNiche = row.PrimaryNiche,
-            NicheDescription = row.NicheDescription,
-            NicheTags = ParseStringList(row.NicheTags),
+            PrimaryFocus = row.PrimaryFocus,
+            FocusDescription = row.FocusDescription,
+            FocusTags = ParseStringList(row.FocusTags),
             BusinessSummary = row.BusinessSummary,
             GeoAnchorNodes = ParseStringList(row.GeoAnchorNodes),
             ServiceAreaDescription = row.ServiceAreaDescription,
@@ -88,9 +88,9 @@ public sealed class SiteAnalyzer2SiteProfileReader(ILogger<SiteAnalyzer2SiteProf
         public string SiteUrl { get; init; } = string.Empty;
         public string? DisplayName { get; init; }
         public Guid? GeekSeoProjectId { get; init; }
-        public string? PrimaryNiche { get; init; }
-        public string? NicheDescription { get; init; }
-        public string? NicheTags { get; init; }
+        public string? PrimaryFocus { get; init; }
+        public string? FocusDescription { get; init; }
+        public string? FocusTags { get; init; }
         public string? BusinessSummary { get; init; }
         public string? GeoAnchorNodes { get; init; }
         public string? ServiceAreaDescription { get; init; }

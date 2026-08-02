@@ -6,9 +6,9 @@ public sealed record SiteAnalyzer2SiteProfileExport
     public required string SiteUrl { get; init; }
     public string? DisplayName { get; init; }
     public Guid? GeekSeoProjectId { get; init; }
-    public string? PrimaryNiche { get; init; }
-    public string? NicheDescription { get; init; }
-    public IReadOnlyList<string> NicheTags { get; init; } = [];
+    public string? PrimaryFocus { get; init; }
+    public string? FocusDescription { get; init; }
+    public IReadOnlyList<string> FocusTags { get; init; } = [];
     public string? BusinessSummary { get; init; }
     public IReadOnlyList<string> GeoAnchorNodes { get; init; } = [];
     public string? ServiceAreaDescription { get; init; }

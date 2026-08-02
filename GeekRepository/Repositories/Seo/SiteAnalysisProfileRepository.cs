@@ -11,42 +11,42 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GeekRepository.Repositories.Seo;
 
-public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepository
+public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalysisProfileRepository
 {
-    public async Task<Result<NicheProfile>> CreateAsync(NicheProfile profile, CancellationToken ct = default)
+    public async Task<Result<SiteAnalysisProfile>> CreateAsync(SiteAnalysisProfile profile, CancellationToken ct = default)
     {
         if (profile.Id == Guid.Empty)
             profile.Id = Guid.NewGuid();
 
-        db.NicheProfiles.Add(profile);
+        db.SiteAnalysisProfiles.Add(profile);
         await db.SaveChangesAsync(ct);
-        return Result<NicheProfile>.Success(profile);
+        return Result<SiteAnalysisProfile>.Success(profile);
     }
 
-    public async Task<Result<NicheProfile?>> GetByIdAsync(Guid profileId, CancellationToken ct = default)
+    public async Task<Result<SiteAnalysisProfile?>> GetByIdAsync(Guid profileId, CancellationToken ct = default)
     {
         var profile = await ProfileWithGraph()
             .FirstOrDefaultAsync(p => p.Id == profileId, ct);
 
         ClearNavigationCycles(profile);
-        return Result<NicheProfile?>.Success(profile);
+        return Result<SiteAnalysisProfile?>.Success(profile);
     }
 
     public async Task<Result<Guid?>> GetProjectIdAsync(Guid profileId, CancellationToken ct = default)
     {
-        var projectId = await db.NicheProfiles.AsNoTracking()
+        var projectId = await db.SiteAnalysisProfiles.AsNoTracking()
             .Where(p => p.Id == profileId)
             .Select(p => (Guid?)p.ProjectId)
             .FirstOrDefaultAsync(ct);
         return Result<Guid?>.Success(projectId);
     }
 
-    public async Task<Result<NicheProfileStatusRow?>> GetStatusRowAsync(
+    public async Task<Result<SiteAnalysisProfileStatusRow?>> GetStatusRowAsync(
         Guid profileId, CancellationToken ct = default)
     {
-        var row = await db.NicheProfiles.AsNoTracking()
+        var row = await db.SiteAnalysisProfiles.AsNoTracking()
             .Where(p => p.Id == profileId)
-            .Select(p => new NicheProfileStatusRow(
+            .Select(p => new SiteAnalysisProfileStatusRow(
                 p.Id,
                 p.Status,
                 p.AnalysisStep,
@@ -60,41 +60,41 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 p.PersistStage))
             .FirstOrDefaultAsync(ct);
 
-        return Result<NicheProfileStatusRow?>.Success(row);
+        return Result<SiteAnalysisProfileStatusRow?>.Success(row);
     }
 
-    public async Task<Result<NicheAnalysisDetailsRow?>> GetAnalysisDetailsRowAsync(
+    public async Task<Result<SiteAnalysisDetailsRow?>> GetAnalysisDetailsRowAsync(
         Guid profileId, bool includeFusion, CancellationToken ct = default)
     {
         if (!includeFusion)
         {
-            var row = await db.NicheProfiles.AsNoTracking()
+            var row = await db.SiteAnalysisProfiles.AsNoTracking()
                 .Where(p => p.Id == profileId)
-                .Select(p => new NicheAnalysisDetailsRow(
+                .Select(p => new SiteAnalysisDetailsRow(
                     p.Status,
                     p.AnalysisStepLogVersion,
                     p.AnalysisStepLog,
                     null))
                 .FirstOrDefaultAsync(ct);
-            return Result<NicheAnalysisDetailsRow?>.Success(row);
+            return Result<SiteAnalysisDetailsRow?>.Success(row);
         }
 
-        var withFusion = await db.NicheProfiles.AsNoTracking()
+        var withFusion = await db.SiteAnalysisProfiles.AsNoTracking()
             .Where(p => p.Id == profileId)
-            .Select(p => new NicheAnalysisDetailsRow(
+            .Select(p => new SiteAnalysisDetailsRow(
                 p.Status,
                 p.AnalysisStepLogVersion,
                 p.AnalysisStepLog,
                 p.FusionSnapshot))
             .FirstOrDefaultAsync(ct);
 
-        return Result<NicheAnalysisDetailsRow?>.Success(withFusion);
+        return Result<SiteAnalysisDetailsRow?>.Success(withFusion);
     }
 
-    public async Task<Result<NicheProfile?>> GetLatestByProjectAsync(Guid projectId, CancellationToken ct = default)
+    public async Task<Result<SiteAnalysisProfile?>> GetLatestByProjectAsync(Guid projectId, CancellationToken ct = default)
     {
         // Prefer the latest *completed* run so a newer failed/queued re-analyze does not hide pillars.
-        var completeId = await db.NicheProfiles.AsNoTracking()
+        var completeId = await db.SiteAnalysisProfiles.AsNoTracking()
             .Where(p => p.ProjectId == projectId && p.Status == "complete")
             .OrderByDescending(p => p.AnalyzedAt ?? p.CreatedAt)
             .Select(p => (Guid?)p.Id)
@@ -110,36 +110,36 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 StripHeavyJsonFields(profile);
 
             ClearNavigationCycles(profile);
-            return Result<NicheProfile?>.Success(profile);
+            return Result<SiteAnalysisProfile?>.Success(profile);
         }
 
         // No complete profile — scalar-only load (avoids JSONB blobs + empty graph during polling).
-        var fallbackId = await db.NicheProfiles.AsNoTracking()
+        var fallbackId = await db.SiteAnalysisProfiles.AsNoTracking()
             .Where(p => p.ProjectId == projectId)
             .OrderByDescending(p => p.CreatedAt)
             .Select(p => (Guid?)p.Id)
             .FirstOrDefaultAsync(ct);
 
         if (fallbackId is null)
-            return Result<NicheProfile?>.Success(null);
+            return Result<SiteAnalysisProfile?>.Success(null);
 
         var fallback = await LoadProfileScalarsOnly(fallbackId.Value, ct);
         ClearNavigationCycles(fallback);
-        return Result<NicheProfile?>.Success(fallback);
+        return Result<SiteAnalysisProfile?>.Success(fallback);
     }
 
-    private async Task<NicheProfile?> LoadProfileScalarsOnly(Guid profileId, CancellationToken ct)
+    private async Task<SiteAnalysisProfile?> LoadProfileScalarsOnly(Guid profileId, CancellationToken ct)
     {
-        return await db.NicheProfiles.AsNoTracking()
+        return await db.SiteAnalysisProfiles.AsNoTracking()
             .Where(p => p.Id == profileId)
-            .Select(p => new NicheProfile
+            .Select(p => new SiteAnalysisProfile
             {
                 Id = p.Id,
                 ProjectId = p.ProjectId,
                 Domain = p.Domain,
-                PrimaryNiche = p.PrimaryNiche,
-                NicheDescription = p.NicheDescription,
-                NicheTags = p.NicheTags,
+                PrimaryFocus = p.PrimaryFocus,
+                FocusDescription = p.FocusDescription,
+                FocusTags = p.FocusTags,
                 AudienceType = p.AudienceType,
                 CompetitionLevel = p.CompetitionLevel,
                 DiscoveryMethod = p.DiscoveryMethod,
@@ -168,7 +168,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             .FirstOrDefaultAsync(ct);
     }
 
-    private static void StripHeavyJsonFields(NicheProfile profile)
+    private static void StripHeavyJsonFields(SiteAnalysisProfile profile)
     {
         profile.FusionSnapshot = null;
         profile.AnalysisStepLog = "[]";
@@ -176,8 +176,8 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         profile.StepStatusesJson = "{}";
     }
 
-    private IQueryable<NicheProfile> ProfileWithGraph() =>
-        db.NicheProfiles
+    private IQueryable<SiteAnalysisProfile> ProfileWithGraph() =>
+        db.SiteAnalysisProfiles
             .AsNoTracking()
             .AsSplitQuery()
             .Include(p => p.Pillars)
@@ -187,46 +187,46 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             .Include(p => p.Competitors)
             .Include(p => p.Entities);
 
-    private static void ClearNavigationCycles(NicheProfile? profile)
+    private static void ClearNavigationCycles(SiteAnalysisProfile? profile)
     {
         if (profile is null) return;
 
         foreach (var pillar in profile.Pillars)
         {
-            pillar.NicheProfile = null;
+            pillar.SiteAnalysisProfile = null;
             foreach (var sub in pillar.Subtopics) sub.Pillar = null;
             foreach (var page in pillar.ExistingPages) page.Pillar = null;
         }
-        foreach (var c in profile.Competitors) c.NicheProfile = null;
-        foreach (var e in profile.Entities) e.NicheProfile = null;
+        foreach (var c in profile.Competitors) c.SiteAnalysisProfile = null;
+        foreach (var e in profile.Entities) e.SiteAnalysisProfile = null;
     }
 
-    public async Task<Result<IReadOnlyList<NicheProfileSummary>>> GetHistoryAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileSummary>>> GetHistoryAsync(
         Guid projectId, CancellationToken ct = default)
     {
-        var list = await db.NicheProfiles
+        var list = await db.SiteAnalysisProfiles
             .AsNoTracking()
             .Where(p => p.ProjectId == projectId)
             .OrderByDescending(p => p.CreatedAt)
-            .Select(p => new NicheProfileSummary(
-                p.Id, p.Domain, p.PrimaryNiche,
+            .Select(p => new SiteAnalysisProfileSummary(
+                p.Id, p.Domain, p.PrimaryFocus,
                 p.TopicalAuthorityScore, p.TotalPillarsIdentified,
                 p.PillarsCovered, p.PillarsGap,
                 p.CompetitionLevel, p.AnalyzedAt, p.Status))
             .ToListAsync(ct);
 
-        return Result<IReadOnlyList<NicheProfileSummary>>.Success(list);
+        return Result<IReadOnlyList<SiteAnalysisProfileSummary>>.Success(list);
     }
 
     public async Task<Result> UpdateStatusAsync(
         Guid profileId, string status, string? step = null,
         int stepNumber = 0, int totalSteps = 0, string? errorMessage = null,
-        NicheAnalysisStepLogEntry? stepLogEntry = null,
+        SiteAnalysisStepLogEntry? stepLogEntry = null,
         CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         profile.Status = status;
         profile.ErrorMessage = errorMessage;
@@ -240,7 +240,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             profile.AnalysisProgressAt = DateTimeOffset.UtcNow;
 
         if (stepLogEntry is not null)
-            profile.AnalysisStepLog = NicheAnalysisStepLogJson.Append(profile.AnalysisStepLog, stepLogEntry);
+            profile.AnalysisStepLog = SiteAnalysisStepLogJson.Append(profile.AnalysisStepLog, stepLogEntry);
 
         if (status is "complete")
         {
@@ -256,9 +256,9 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         Guid profileId, decimal authorityScore, int covered, int partial, int gap,
         CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         profile.TopicalAuthorityScore = authorityScore;
         profile.PillarsCovered = covered;
@@ -271,15 +271,15 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     }
 
     public async Task<Result> UpdateProfileSummaryAsync(
-        Guid profileId, NicheProfileSummaryPatch summary, CancellationToken ct = default)
+        Guid profileId, SiteAnalysisProfileSummaryPatch summary, CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
-        profile.PrimaryNiche = summary.PrimaryNiche;
-        profile.NicheDescription = summary.NicheDescription;
-        profile.NicheTags = summary.NicheTags;
+        profile.PrimaryFocus = summary.PrimaryFocus;
+        profile.FocusDescription = summary.FocusDescription;
+        profile.FocusTags = summary.FocusTags;
         profile.AudienceType = summary.AudienceType;
         profile.TotalPillarsIdentified = summary.TotalPillarsIdentified;
         profile.AnalyzedAt = summary.AnalyzedAt;
@@ -303,9 +303,9 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     public async Task<Result> SaveFusionSnapshotAsync(
         Guid profileId, string fusionSnapshotJson, CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         profile.FusionSnapshot = fusionSnapshotJson;
         await db.SaveChangesAsync(ct);
@@ -313,11 +313,11 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     }
 
     public async Task<Result> UpdatePhaseStatusAsync(
-        Guid profileId, NichePhaseStatusPatch patch, CancellationToken ct = default)
+        Guid profileId, SiteAnalysisPhaseStatusPatch patch, CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         if (patch.StructureStatus is not null)
             profile.StructureStatus = patch.StructureStatus;
@@ -341,27 +341,27 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
     public async Task<Result> UpsertStepRunAsync(
         Guid profileId,
-        NicheProfileStepRunUpsert stepRun,
+        SiteAnalysisProfileStepRunUpsert stepRun,
         CancellationToken ct = default)
     {
-        var profileExists = await db.NicheProfiles.AnyAsync(p => p.Id == profileId, ct);
+        var profileExists = await db.SiteAnalysisProfiles.AnyAsync(p => p.Id == profileId, ct);
         if (!profileExists)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
-        var row = await db.NicheProfileStepRuns
+        var row = await db.SiteAnalysisProfileStepRuns
             .FirstOrDefaultAsync(
-                x => x.NicheProfileId == profileId && x.StepSlug == stepRun.StepSlug,
+                x => x.SiteAnalysisProfileId == profileId && x.StepSlug == stepRun.StepSlug,
                 ct);
 
         if (row is null)
         {
-            row = new NicheProfileStepRun
+            row = new SiteAnalysisProfileStepRun
             {
-                NicheProfileId = profileId,
+                SiteAnalysisProfileId = profileId,
                 StepNumber = stepRun.StepNumber,
                 StepSlug = stepRun.StepSlug,
             };
-            db.NicheProfileStepRuns.Add(row);
+            db.SiteAnalysisProfileStepRuns.Add(row);
         }
 
         row.StepNumber = stepRun.StepNumber;
@@ -383,13 +383,13 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     public async Task<Result> UpdateStepRunStatusAsync(
         Guid profileId,
         string stepSlug,
-        NicheProfileStepRunStatusPatch patch,
+        SiteAnalysisProfileStepRunStatusPatch patch,
         CancellationToken ct = default)
     {
         await EnsureStepRunsAsync(profileId, ct);
-        var row = await db.NicheProfileStepRuns
+        var row = await db.SiteAnalysisProfileStepRuns
             .FirstOrDefaultAsync(
-                x => x.NicheProfileId == profileId && x.StepSlug == stepSlug,
+                x => x.SiteAnalysisProfileId == profileId && x.StepSlug == stepSlug,
                 ct);
         if (row is null)
             return Result.Failure("Step run not found");
@@ -406,16 +406,16 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheProfileStepRunRow>>> GetStepRunsAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileStepRunRow>>> GetStepRunsAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var rows = await db.NicheProfileStepRuns.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var rows = await db.SiteAnalysisProfileStepRuns.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.StepNumber)
-            .Select(x => new NicheProfileStepRunRow(
+            .Select(x => new SiteAnalysisProfileStepRunRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.StepNumber,
                 x.StepSlug,
                 x.Status,
@@ -429,21 +429,21 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 x.Summary))
             .ToListAsync(ct);
 
-        return Result<IReadOnlyList<NicheProfileStepRunRow>>.Success(rows);
+        return Result<IReadOnlyList<SiteAnalysisProfileStepRunRow>>.Success(rows);
     }
 
     public async Task<Result> ReplaceSchemaSignalsAsync(
         Guid profileId,
-        IReadOnlyList<NicheProfileSchemaSignalWrite> signals,
+        IReadOnlyList<SiteAnalysisProfileSchemaSignalWrite> signals,
         CancellationToken ct = default)
     {
-        var existing = await db.NicheProfileSchemaSignals
-            .Where(x => x.NicheProfileId == profileId)
+        var existing = await db.SiteAnalysisProfileSchemaSignals
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .ToListAsync(ct);
-        db.NicheProfileSchemaSignals.RemoveRange(existing);
-        db.NicheProfileSchemaSignals.AddRange(signals.Select(x => new NicheProfileSchemaSignal
+        db.SiteAnalysisProfileSchemaSignals.RemoveRange(existing);
+        db.SiteAnalysisProfileSchemaSignals.AddRange(signals.Select(x => new SiteAnalysisProfileSchemaSignal
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             SchemaType = x.SchemaType,
             PropertyName = x.PropertyName,
             PropertyValue = x.PropertyValue,
@@ -454,37 +454,37 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheProfileSchemaSignalRow>>> GetSchemaSignalsAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileSchemaSignalRow>>> GetSchemaSignalsAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var rows = await db.NicheProfileSchemaSignals.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var rows = await db.SiteAnalysisProfileSchemaSignals.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheProfileSchemaSignalRow(
+            .Select(x => new SiteAnalysisProfileSchemaSignalRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.SchemaType,
                 x.PropertyName,
                 x.PropertyValue,
                 x.SourceUrl,
                 x.DisplayOrder))
             .ToListAsync(ct);
-        return Result<IReadOnlyList<NicheProfileSchemaSignalRow>>.Success(rows);
+        return Result<IReadOnlyList<SiteAnalysisProfileSchemaSignalRow>>.Success(rows);
     }
 
     public async Task<Result> ReplaceDiscoveredUrlsAsync(
         Guid profileId,
-        IReadOnlyList<NicheProfileDiscoveredUrlWrite> urls,
+        IReadOnlyList<SiteAnalysisProfileDiscoveredUrlWrite> urls,
         CancellationToken ct = default)
     {
-        var existing = await db.NicheProfileDiscoveredUrls
-            .Where(x => x.NicheProfileId == profileId)
+        var existing = await db.SiteAnalysisProfileDiscoveredUrls
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .ToListAsync(ct);
-        db.NicheProfileDiscoveredUrls.RemoveRange(existing);
-        db.NicheProfileDiscoveredUrls.AddRange(urls.Select(x => new NicheProfileDiscoveredUrl
+        db.SiteAnalysisProfileDiscoveredUrls.RemoveRange(existing);
+        db.SiteAnalysisProfileDiscoveredUrls.AddRange(urls.Select(x => new SiteAnalysisProfileDiscoveredUrl
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             Url = x.Url,
             SourceType = x.SourceType,
             LastSeenAt = x.LastSeenAt,
@@ -493,35 +493,35 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheProfileDiscoveredUrlRow>>> GetDiscoveredUrlsAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileDiscoveredUrlRow>>> GetDiscoveredUrlsAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var rows = await db.NicheProfileDiscoveredUrls.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var rows = await db.SiteAnalysisProfileDiscoveredUrls.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.Url)
-            .Select(x => new NicheProfileDiscoveredUrlRow(
+            .Select(x => new SiteAnalysisProfileDiscoveredUrlRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.Url,
                 x.SourceType,
                 x.LastSeenAt))
             .ToListAsync(ct);
-        return Result<IReadOnlyList<NicheProfileDiscoveredUrlRow>>.Success(rows);
+        return Result<IReadOnlyList<SiteAnalysisProfileDiscoveredUrlRow>>.Success(rows);
     }
 
     public async Task<Result> ReplaceNavigationLinksAsync(
         Guid profileId,
-        IReadOnlyList<NicheProfileNavigationLinkWrite> links,
+        IReadOnlyList<SiteAnalysisProfileNavigationLinkWrite> links,
         CancellationToken ct = default)
     {
-        var existing = await db.NicheProfileNavigationLinks
-            .Where(x => x.NicheProfileId == profileId)
+        var existing = await db.SiteAnalysisProfileNavigationLinks
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .ToListAsync(ct);
-        db.NicheProfileNavigationLinks.RemoveRange(existing);
-        db.NicheProfileNavigationLinks.AddRange(links.Select(x => new NicheProfileNavigationLink
+        db.SiteAnalysisProfileNavigationLinks.RemoveRange(existing);
+        db.SiteAnalysisProfileNavigationLinks.AddRange(links.Select(x => new SiteAnalysisProfileNavigationLink
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             SourceUrl = x.SourceUrl,
             LinkUrl = x.LinkUrl,
             AnchorText = x.AnchorText,
@@ -532,37 +532,37 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheProfileNavigationLinkRow>>> GetNavigationLinksAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileNavigationLinkRow>>> GetNavigationLinksAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var rows = await db.NicheProfileNavigationLinks.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var rows = await db.SiteAnalysisProfileNavigationLinks.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheProfileNavigationLinkRow(
+            .Select(x => new SiteAnalysisProfileNavigationLinkRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.SourceUrl,
                 x.LinkUrl,
                 x.AnchorText,
                 x.LinkArea,
                 x.DisplayOrder))
             .ToListAsync(ct);
-        return Result<IReadOnlyList<NicheProfileNavigationLinkRow>>.Success(rows);
+        return Result<IReadOnlyList<SiteAnalysisProfileNavigationLinkRow>>.Success(rows);
     }
 
     public async Task<Result> ReplaceHeadingsAsync(
         Guid profileId,
-        IReadOnlyList<NicheProfileHeadingWrite> headings,
+        IReadOnlyList<SiteAnalysisProfileHeadingWrite> headings,
         CancellationToken ct = default)
     {
-        var existing = await db.NicheProfileHeadings
-            .Where(x => x.NicheProfileId == profileId)
+        var existing = await db.SiteAnalysisProfileHeadings
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .ToListAsync(ct);
-        db.NicheProfileHeadings.RemoveRange(existing);
-        db.NicheProfileHeadings.AddRange(headings.Select(x => new NicheProfileHeading
+        db.SiteAnalysisProfileHeadings.RemoveRange(existing);
+        db.SiteAnalysisProfileHeadings.AddRange(headings.Select(x => new SiteAnalysisProfileHeading
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             PageUrl = x.PageUrl,
             HeadingLevel = x.HeadingLevel,
             HeadingText = x.HeadingText,
@@ -572,40 +572,40 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheProfileHeadingRow>>> GetHeadingsAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileHeadingRow>>> GetHeadingsAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var rows = await db.NicheProfileHeadings.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var rows = await db.SiteAnalysisProfileHeadings.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheProfileHeadingRow(
+            .Select(x => new SiteAnalysisProfileHeadingRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.PageUrl,
                 x.HeadingLevel,
                 x.HeadingText,
                 x.DisplayOrder))
             .ToListAsync(ct);
-        return Result<IReadOnlyList<NicheProfileHeadingRow>>.Success(rows);
+        return Result<IReadOnlyList<SiteAnalysisProfileHeadingRow>>.Success(rows);
     }
 
     public async Task<Result> ReplaceTopicCandidateEvidenceAsync(
         Guid profileId,
-        IReadOnlyList<NicheTopicCandidateEvidenceWrite> evidence,
+        IReadOnlyList<SiteAnalysisTopicCandidateEvidenceWrite> evidence,
         CancellationToken ct = default)
     {
-        var candidateIds = await db.NicheTopicCandidates.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var candidateIds = await db.SiteAnalysisTopicCandidates.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .Select(x => x.Id)
             .ToListAsync(ct);
 
-        var existing = await db.NicheTopicCandidateEvidenceRows
+        var existing = await db.SiteAnalysisTopicCandidateEvidenceRows
             .Where(x => candidateIds.Contains(x.TopicCandidateId))
             .ToListAsync(ct);
-        db.NicheTopicCandidateEvidenceRows.RemoveRange(existing);
+        db.SiteAnalysisTopicCandidateEvidenceRows.RemoveRange(existing);
 
-        db.NicheTopicCandidateEvidenceRows.AddRange(evidence.Select(x => new NicheTopicCandidateEvidence
+        db.SiteAnalysisTopicCandidateEvidenceRows.AddRange(evidence.Select(x => new SiteAnalysisTopicCandidateEvidence
         {
             TopicCandidateId = x.TopicCandidateId,
             EvidenceType = x.EvidenceType,
@@ -618,14 +618,14 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheTopicCandidateEvidenceRow>>> GetTopicCandidateEvidenceAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisTopicCandidateEvidenceRow>>> GetTopicCandidateEvidenceAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var rows = await db.NicheTopicCandidateEvidenceRows.AsNoTracking()
-            .Where(x => x.TopicCandidate!.NicheProfileId == profileId)
+        var rows = await db.SiteAnalysisTopicCandidateEvidenceRows.AsNoTracking()
+            .Where(x => x.TopicCandidate!.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheTopicCandidateEvidenceRow(
+            .Select(x => new SiteAnalysisTopicCandidateEvidenceRow(
                 x.Id,
                 x.TopicCandidateId,
                 x.EvidenceType,
@@ -634,39 +634,39 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 x.EvidenceText,
                 x.DisplayOrder))
             .ToListAsync(ct);
-        return Result<IReadOnlyList<NicheTopicCandidateEvidenceRow>>.Success(rows);
+        return Result<IReadOnlyList<SiteAnalysisTopicCandidateEvidenceRow>>.Success(rows);
     }
 
     public async Task<Result> ReplacePageContentAsync(
         Guid profileId,
-        NicheProfilePageContentWrite content,
+        SiteAnalysisProfilePageContentWrite content,
         CancellationToken ct = default)
     {
-        var profileExists = await db.NicheProfiles.AnyAsync(p => p.Id == profileId, ct);
+        var profileExists = await db.SiteAnalysisProfiles.AnyAsync(p => p.Id == profileId, ct);
         if (!profileExists)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
-        var existingItems = await db.NicheProfilePageContentItems
-            .Where(x => x.NicheProfileId == profileId)
+        var existingItems = await db.SiteAnalysisProfilePageContentItems
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .ToListAsync(ct);
-        db.NicheProfilePageContentItems.RemoveRange(existingItems);
+        db.SiteAnalysisProfilePageContentItems.RemoveRange(existingItems);
 
-        db.NicheProfilePageContentItems.AddRange(content.Items.Select(x => new NicheProfilePageContentItem
+        db.SiteAnalysisProfilePageContentItems.AddRange(content.Items.Select(x => new SiteAnalysisProfilePageContentItem
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             PageUrl = x.PageUrl,
             ItemKind = x.ItemKind,
             ItemText = x.ItemText,
             DisplayOrder = x.DisplayOrder,
         }));
 
-        var meta = await db.NicheProfilePageContentMetaRows
-            .FirstOrDefaultAsync(x => x.NicheProfileId == profileId, ct);
+        var meta = await db.SiteAnalysisProfilePageContentMetaRows
+            .FirstOrDefaultAsync(x => x.SiteAnalysisProfileId == profileId, ct);
         if (meta is null)
         {
-            db.NicheProfilePageContentMetaRows.Add(new NicheProfilePageContentMeta
+            db.SiteAnalysisProfilePageContentMetaRows.Add(new SiteAnalysisProfilePageContentMeta
             {
-                NicheProfileId = profileId,
+                SiteAnalysisProfileId = profileId,
                 PageUrl = content.PageUrl,
                 ListItemsScanned = content.ListItemsScanned,
             });
@@ -681,45 +681,45 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<NicheProfilePageContentRow?>> GetPageContentAsync(
+    public async Task<Result<SiteAnalysisProfilePageContentRow?>> GetPageContentAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var meta = await db.NicheProfilePageContentMetaRows.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.NicheProfileId == profileId, ct);
+        var meta = await db.SiteAnalysisProfilePageContentMetaRows.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.SiteAnalysisProfileId == profileId, ct);
         if (meta is null)
-            return Result<NicheProfilePageContentRow?>.Success(null);
+            return Result<SiteAnalysisProfilePageContentRow?>.Success(null);
 
-        var items = await db.NicheProfilePageContentItems.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var items = await db.SiteAnalysisProfilePageContentItems.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheProfilePageContentItemRow(
+            .Select(x => new SiteAnalysisProfilePageContentItemRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.PageUrl,
                 x.ItemKind,
                 x.ItemText,
                 x.DisplayOrder))
             .ToListAsync(ct);
 
-        return Result<NicheProfilePageContentRow?>.Success(
-            new NicheProfilePageContentRow(meta.PageUrl, meta.ListItemsScanned, items));
+        return Result<SiteAnalysisProfilePageContentRow?>.Success(
+            new SiteAnalysisProfilePageContentRow(meta.PageUrl, meta.ListItemsScanned, items));
     }
 
     public async Task<Result> ReplaceSiteStructureAsync(
         Guid profileId,
-        NicheProfileSiteStructureWrite structure,
+        SiteAnalysisProfileSiteStructureWrite structure,
         CancellationToken ct = default)
     {
-        var profileExists = await db.NicheProfiles.AnyAsync(p => p.Id == profileId, ct);
+        var profileExists = await db.SiteAnalysisProfiles.AnyAsync(p => p.Id == profileId, ct);
         if (!profileExists)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
-        var existingPages = await db.NicheProfileSitePages.Where(x => x.NicheProfileId == profileId).ToListAsync(ct);
-        db.NicheProfileSitePages.RemoveRange(existingPages);
-        db.NicheProfileSitePages.AddRange(structure.Pages.Select(x => new NicheProfileSitePage
+        var existingPages = await db.SiteAnalysisProfileSitePages.Where(x => x.SiteAnalysisProfileId == profileId).ToListAsync(ct);
+        db.SiteAnalysisProfileSitePages.RemoveRange(existingPages);
+        db.SiteAnalysisProfileSitePages.AddRange(structure.Pages.Select(x => new SiteAnalysisProfileSitePage
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             Url = x.Url,
             FetchMethod = x.FetchMethod,
             VisibleText = x.VisibleText,
@@ -727,11 +727,11 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             DisplayOrder = x.DisplayOrder,
         }));
 
-        var existingLinks = await db.NicheProfileSitePageLinks.Where(x => x.NicheProfileId == profileId).ToListAsync(ct);
-        db.NicheProfileSitePageLinks.RemoveRange(existingLinks);
-        db.NicheProfileSitePageLinks.AddRange(structure.Links.Select(x => new NicheProfileSitePageLink
+        var existingLinks = await db.SiteAnalysisProfileSitePageLinks.Where(x => x.SiteAnalysisProfileId == profileId).ToListAsync(ct);
+        db.SiteAnalysisProfileSitePageLinks.RemoveRange(existingLinks);
+        db.SiteAnalysisProfileSitePageLinks.AddRange(structure.Links.Select(x => new SiteAnalysisProfileSitePageLink
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             SourceUrl = x.SourceUrl,
             TargetUrl = x.TargetUrl,
             AnchorText = x.AnchorText,
@@ -739,11 +739,11 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             DisplayOrder = x.DisplayOrder,
         }));
 
-        var existingPatterns = await db.NicheProfileUrlPatternTopics.Where(x => x.NicheProfileId == profileId).ToListAsync(ct);
-        db.NicheProfileUrlPatternTopics.RemoveRange(existingPatterns);
-        db.NicheProfileUrlPatternTopics.AddRange(structure.UrlPatterns.Select(x => new NicheProfileUrlPatternTopic
+        var existingPatterns = await db.SiteAnalysisProfileUrlPatternTopics.Where(x => x.SiteAnalysisProfileId == profileId).ToListAsync(ct);
+        db.SiteAnalysisProfileUrlPatternTopics.RemoveRange(existingPatterns);
+        db.SiteAnalysisProfileUrlPatternTopics.AddRange(structure.UrlPatterns.Select(x => new SiteAnalysisProfileUrlPatternTopic
         {
-            NicheProfileId = profileId,
+            SiteAnalysisProfileId = profileId,
             Name = x.Name,
             Slug = x.Slug,
             Url = x.Url,
@@ -751,13 +751,13 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             DisplayOrder = x.DisplayOrder,
         }));
 
-        var crawlMeta = await db.NicheProfileSiteCrawlMetaRows
-            .FirstOrDefaultAsync(x => x.NicheProfileId == profileId, ct);
+        var crawlMeta = await db.SiteAnalysisProfileSiteCrawlMetaRows
+            .FirstOrDefaultAsync(x => x.SiteAnalysisProfileId == profileId, ct);
         if (crawlMeta is null)
         {
-            db.NicheProfileSiteCrawlMetaRows.Add(new NicheProfileSiteCrawlMeta
+            db.SiteAnalysisProfileSiteCrawlMetaRows.Add(new SiteAnalysisProfileSiteCrawlMeta
             {
-                NicheProfileId = profileId,
+                SiteAnalysisProfileId = profileId,
                 PagesAttempted = structure.CrawlMeta.PagesAttempted,
                 PagesFetched = structure.CrawlMeta.PagesFetched,
             });
@@ -772,16 +772,16 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         return Result.Success();
     }
 
-    public async Task<Result<NicheProfileSiteStructureRow?>> GetSiteStructureAsync(
+    public async Task<Result<SiteAnalysisProfileSiteStructureRow?>> GetSiteStructureAsync(
         Guid profileId,
         CancellationToken ct = default)
     {
-        var pages = await db.NicheProfileSitePages.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var pages = await db.SiteAnalysisProfileSitePages.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheProfileSitePageRow(
+            .Select(x => new SiteAnalysisProfileSitePageRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.Url,
                 x.FetchMethod,
                 x.VisibleText,
@@ -789,14 +789,14 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 x.DisplayOrder))
             .ToListAsync(ct);
         if (pages.Count == 0)
-            return Result<NicheProfileSiteStructureRow?>.Success(null);
+            return Result<SiteAnalysisProfileSiteStructureRow?>.Success(null);
 
-        var links = await db.NicheProfileSitePageLinks.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var links = await db.SiteAnalysisProfileSitePageLinks.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheProfileSitePageLinkRow(
+            .Select(x => new SiteAnalysisProfileSitePageLinkRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.SourceUrl,
                 x.TargetUrl,
                 x.AnchorText,
@@ -804,12 +804,12 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 x.DisplayOrder))
             .ToListAsync(ct);
 
-        var patterns = await db.NicheProfileUrlPatternTopics.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var patterns = await db.SiteAnalysisProfileUrlPatternTopics.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
-            .Select(x => new NicheProfileUrlPatternTopicRow(
+            .Select(x => new SiteAnalysisProfileUrlPatternTopicRow(
                 x.Id,
-                x.NicheProfileId,
+                x.SiteAnalysisProfileId,
                 x.Name,
                 x.Slug,
                 x.Url,
@@ -817,33 +817,33 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 x.DisplayOrder))
             .ToListAsync(ct);
 
-        var crawlMeta = await db.NicheProfileSiteCrawlMetaRows.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.NicheProfileId == profileId, ct);
+        var crawlMeta = await db.SiteAnalysisProfileSiteCrawlMetaRows.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.SiteAnalysisProfileId == profileId, ct);
 
-        return Result<NicheProfileSiteStructureRow?>.Success(new NicheProfileSiteStructureRow(
+        return Result<SiteAnalysisProfileSiteStructureRow?>.Success(new SiteAnalysisProfileSiteStructureRow(
             pages,
             links,
             patterns,
             crawlMeta is null
                 ? null
-                : new NicheProfileSiteCrawlMetaRow(
-                    crawlMeta.NicheProfileId,
+                : new SiteAnalysisProfileSiteCrawlMetaRow(
+                    crawlMeta.SiteAnalysisProfileId,
                     crawlMeta.PagesAttempted,
                     crawlMeta.PagesFetched)));
     }
 
     public async Task<Result> BulkUpsertTopicCandidatesAsync(
         Guid profileId,
-        IReadOnlyList<NicheTopicCandidateBulkUpsert> candidates,
+        IReadOnlyList<SiteAnalysisTopicCandidateBulkUpsert> candidates,
         string idempotencyKey,
         CancellationToken ct = default)
     {
         if (candidates.Count == 0)
             return Result.Success();
 
-        var profileExists = await db.NicheProfiles.AnyAsync(p => p.Id == profileId, ct);
+        var profileExists = await db.SiteAnalysisProfiles.AnyAsync(p => p.Id == profileId, ct);
         if (!profileExists)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
@@ -853,16 +853,16 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 await conn.OpenAsync(ct);
 
             const string sql = """
-                INSERT INTO geek_seo.niche_topic_candidates (
-                    "Id", "NicheProfileId", "Slug", "Name", "Confidence", "IsSelected",
+                INSERT INTO geek_seo.site_analysis_topic_candidates (
+                    "Id", "SiteAnalysisProfileId", "Slug", "Name", "Confidence", "IsSelected",
                     "ExclusionReason", "DedicatedPageUrl", "InternalLinkCount", "ContentDepthScore",
                     "DisplayOrder", "EvidenceJson", "CreatedAt"
                 ) VALUES (
-                    COALESCE(@Id, gen_random_uuid()), @NicheProfileId, @Slug, @Name, @Confidence, @IsSelected,
+                    COALESCE(@Id, gen_random_uuid()), @SiteAnalysisProfileId, @Slug, @Name, @Confidence, @IsSelected,
                     @ExclusionReason, @DedicatedPageUrl, @InternalLinkCount, @ContentDepthScore,
                     @DisplayOrder, CAST(@EvidenceJson AS jsonb), @CreatedAt
                 )
-                ON CONFLICT ("NicheProfileId", "Slug") DO UPDATE SET
+                ON CONFLICT ("SiteAnalysisProfileId", "Slug") DO UPDATE SET
                     "Name" = EXCLUDED."Name",
                     "Confidence" = EXCLUDED."Confidence",
                     "IsSelected" = EXCLUDED."IsSelected",
@@ -871,7 +871,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                     "InternalLinkCount" = EXCLUDED."InternalLinkCount",
                     "ContentDepthScore" = EXCLUDED."ContentDepthScore",
                     "DisplayOrder" = EXCLUDED."DisplayOrder",
-                    "EvidenceJson" = COALESCE(EXCLUDED."EvidenceJson", geek_seo.niche_topic_candidates."EvidenceJson")
+                    "EvidenceJson" = COALESCE(EXCLUDED."EvidenceJson", geek_seo.site_analysis_topic_candidates."EvidenceJson")
                 """;
 
             var now = DateTimeOffset.UtcNow;
@@ -880,7 +880,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 await conn.ExecuteAsync(sql, new
                 {
                     Id = c.Id,
-                    NicheProfileId = profileId,
+                    SiteAnalysisProfileId = profileId,
                     c.Slug,
                     c.Name,
                     c.Confidence,
@@ -905,7 +905,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         }
     }
 
-    public async Task<Result<NicheTopicCandidateListResult>> GetTopicCandidatesAsync(
+    public async Task<Result<SiteAnalysisTopicCandidateListResult>> GetTopicCandidatesAsync(
         Guid profileId,
         int page,
         int pageSize,
@@ -915,8 +915,8 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 5000);
 
-        var query = db.NicheTopicCandidates.AsNoTracking()
-            .Where(c => c.NicheProfileId == profileId);
+        var query = db.SiteAnalysisTopicCandidates.AsNoTracking()
+            .Where(c => c.SiteAnalysisProfileId == profileId);
 
         if (selectedOnly == true)
             query = query.Where(c => c.IsSelected);
@@ -933,7 +933,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         var evidenceRows = new List<(Guid TopicCandidateId, TopicEvidence Evidence)>();
         if (candidateIds.Count > 0)
         {
-            var rowsWithEvidence = await db.NicheTopicCandidateEvidenceRows.AsNoTracking()
+            var rowsWithEvidence = await db.SiteAnalysisTopicCandidateEvidenceRows.AsNoTracking()
                 .Where(x => candidateIds.Contains(x.TopicCandidateId))
                 .OrderBy(x => x.DisplayOrder)
                 .Select(x => new
@@ -967,12 +967,12 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
                 row,
                 evidenceByCandidateId.GetValueOrDefault(row.Id)))
             .ToList();
-        return Result<NicheTopicCandidateListResult>.Success(
-            new NicheTopicCandidateListResult(items, total, page, pageSize));
+        return Result<SiteAnalysisTopicCandidateListResult>.Success(
+            new SiteAnalysisTopicCandidateListResult(items, total, page, pageSize));
     }
 
-    private static NicheTopicCandidatePage MapCandidatePage(
-        NicheTopicCandidate row,
+    private static SiteAnalysisTopicCandidatePage MapCandidatePage(
+        SiteAnalysisTopicCandidate row,
         IReadOnlyList<TopicEvidence>? evidence)
     {
         if ((evidence is null || evidence.Count == 0) && !string.IsNullOrWhiteSpace(row.EvidenceJson))
@@ -988,9 +988,9 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             }
         }
 
-        return new NicheTopicCandidatePage(
+        return new SiteAnalysisTopicCandidatePage(
             row.Id,
-            row.NicheProfileId,
+            row.SiteAnalysisProfileId,
             row.Slug,
             row.Name,
             row.Confidence,
@@ -1004,15 +1004,15 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     }
 
     public async Task<Result> SaveAnalysisResultsAsync(
-        Guid profileId, NicheAnalysisSaveRequest results, CancellationToken ct = default)
+        Guid profileId, SiteAnalysisSaveRequest results, CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
-        profile.PrimaryNiche = results.PrimaryNiche;
-        profile.NicheDescription = results.NicheDescription;
-        profile.NicheTags = results.NicheTags;
+        profile.PrimaryFocus = results.PrimaryFocus;
+        profile.FocusDescription = results.FocusDescription;
+        profile.FocusTags = results.FocusTags;
         profile.AudienceType = results.AudienceType;
         profile.DiscoveryMethod = results.DiscoveryMethod;
         profile.TopicalAuthorityScore = results.AuthorityScore;
@@ -1029,54 +1029,54 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     }
 
     public async Task<Result> BulkInsertPillarsAsync(
-        IEnumerable<NichePillar> pillars, CancellationToken ct = default)
+        IEnumerable<SiteAnalysisPillar> pillars, CancellationToken ct = default)
     {
         foreach (var p in pillars)
         {
             if (p.Id == Guid.Empty) p.Id = Guid.NewGuid();
         }
-        db.NichePillars.AddRange(pillars);
+        db.SiteAnalysisPillars.AddRange(pillars);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
 
     public async Task<Result> BulkInsertSubtopicsAsync(
-        IEnumerable<NicheSubtopic> subtopics, CancellationToken ct = default)
+        IEnumerable<SiteAnalysisSubtopic> subtopics, CancellationToken ct = default)
     {
         foreach (var s in subtopics)
         {
             if (s.Id == Guid.Empty) s.Id = Guid.NewGuid();
         }
-        db.NicheSubtopics.AddRange(subtopics);
+        db.SiteAnalysisSubtopics.AddRange(subtopics);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
 
     public async Task<Result> BulkInsertCompetitorsAsync(
-        IEnumerable<NicheCompetitor> competitors, CancellationToken ct = default)
+        IEnumerable<SiteAnalysisCompetitor> competitors, CancellationToken ct = default)
     {
         var list = competitors.ToList();
         if (list.Count == 0) return Result.Success();
 
-        var profileId = list[0].NicheProfileId;
-        await db.NicheCompetitors
-            .Where(c => c.NicheProfileId == profileId)
+        var profileId = list[0].SiteAnalysisProfileId;
+        await db.SiteAnalysisCompetitors
+            .Where(c => c.SiteAnalysisProfileId == profileId)
             .ExecuteDeleteAsync(ct);
 
         foreach (var c in list)
         {
             if (c.Id == Guid.Empty) c.Id = Guid.NewGuid();
         }
-        db.NicheCompetitors.AddRange(list);
+        db.SiteAnalysisCompetitors.AddRange(list);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheCompetitor>>> GetCompetitorsAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisCompetitor>>> GetCompetitorsAsync(
         Guid profileId, CancellationToken ct = default)
     {
-        var list = await db.NicheCompetitors.AsNoTracking()
-            .Where(c => c.NicheProfileId == profileId)
+        var list = await db.SiteAnalysisCompetitors.AsNoTracking()
+            .Where(c => c.SiteAnalysisProfileId == profileId)
             .OrderByDescending(c => c.SerpPresence)
             .ThenBy(c => c.Domain)
             .ToListAsync(ct);
@@ -1086,14 +1086,14 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             .Select(g => g.First())
             .ToList();
 
-        return Result<IReadOnlyList<NicheCompetitor>>.Success(deduped);
+        return Result<IReadOnlyList<SiteAnalysisCompetitor>>.Success(deduped);
     }
 
     public async Task<Result> UpdateCompetitorInsightsAsync(
-        NicheCompetitor competitor,
+        SiteAnalysisCompetitor competitor,
         CancellationToken ct = default)
     {
-        var existing = await db.NicheCompetitors.FirstOrDefaultAsync(x => x.Id == competitor.Id, ct);
+        var existing = await db.SiteAnalysisCompetitors.FirstOrDefaultAsync(x => x.Id == competitor.Id, ct);
         if (existing is null)
             return Result.Failure("Competitor not found");
 
@@ -1103,78 +1103,78 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
     }
 
     public async Task<Result> BulkInsertEntitiesAsync(
-        IEnumerable<NicheEntity> entities, CancellationToken ct = default)
+        IEnumerable<SiteAnalysisEntity> entities, CancellationToken ct = default)
     {
         foreach (var e in entities)
         {
             if (e.Id == Guid.Empty) e.Id = Guid.NewGuid();
         }
-        db.NicheEntities.AddRange(entities);
+        db.SiteAnalysisEntities.AddRange(entities);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
 
     public async Task<Result> BulkInsertPillarPagesAsync(
-        IEnumerable<NichePillarPage> pages, CancellationToken ct = default)
+        IEnumerable<SiteAnalysisPillarPage> pages, CancellationToken ct = default)
     {
         foreach (var p in pages)
         {
             if (p.Id == Guid.Empty) p.Id = Guid.NewGuid();
         }
-        db.NichePillarPages.AddRange(pages);
+        db.SiteAnalysisPillarPages.AddRange(pages);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<NicheProfileSummary>>> ListDueForReanalysisAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileSummary>>> ListDueForReanalysisAsync(
         int limit, CancellationToken ct = default)
     {
         var cutoff = DateTimeOffset.UtcNow;
-        var list = await db.NicheProfiles
+        var list = await db.SiteAnalysisProfiles
             .AsNoTracking()
             .Where(p => p.Status == "complete"
                 && p.NextAnalysisDue != null
                 && p.NextAnalysisDue <= cutoff)
             .OrderBy(p => p.NextAnalysisDue)
             .Take(limit)
-            .Select(p => new NicheProfileSummary(
-                p.Id, p.Domain, p.PrimaryNiche,
+            .Select(p => new SiteAnalysisProfileSummary(
+                p.Id, p.Domain, p.PrimaryFocus,
                 p.TopicalAuthorityScore, p.TotalPillarsIdentified,
                 p.PillarsCovered, p.PillarsGap,
                 p.CompetitionLevel, p.AnalyzedAt, p.Status))
             .ToListAsync(ct);
 
-        return Result<IReadOnlyList<NicheProfileSummary>>.Success(list);
+        return Result<IReadOnlyList<SiteAnalysisProfileSummary>>.Success(list);
     }
 
-    public async Task<Result<IReadOnlyList<NicheQueuedJob>>> ListQueuedAsync(
+    public async Task<Result<IReadOnlyList<SiteAnalysisQueuedJob>>> ListQueuedAsync(
         int limit, CancellationToken ct = default)
     {
         var list = await (
-            from profile in db.NicheProfiles.AsNoTracking()
+            from profile in db.SiteAnalysisProfiles.AsNoTracking()
             join project in db.Projects.AsNoTracking() on profile.ProjectId equals project.Id
             where profile.Status == "queued"
             orderby profile.CreatedAt
-            select new NicheQueuedJob(profile.Id, profile.ProjectId, project.UserId, profile.Domain))
+            select new SiteAnalysisQueuedJob(profile.Id, profile.ProjectId, project.UserId, profile.Domain))
             .Take(Math.Clamp(limit, 1, 20))
             .ToListAsync(ct);
 
-        return Result<IReadOnlyList<NicheQueuedJob>>.Success(list);
+        return Result<IReadOnlyList<SiteAnalysisQueuedJob>>.Success(list);
     }
 
     public async Task<Result<int>> FailStaleProcessingAsync(TimeSpan maxAge, CancellationToken ct = default)
     {
         var cutoff = DateTimeOffset.UtcNow - maxAge;
-        var stale = await db.NicheProfiles
+        var stale = await db.SiteAnalysisProfiles
             .Where(p => p.Status == "processing"
                 && (p.AnalysisProgressAt ?? p.CreatedAt) < cutoff)
             .ToListAsync(ct);
 
         foreach (var profile in stale)
         {
-            var hasRunningStep = await db.NicheProfileStepRuns
+            var hasRunningStep = await db.SiteAnalysisProfileStepRuns
                 .AnyAsync(
-                    x => x.NicheProfileId == profile.Id && x.Status == "running",
+                    x => x.SiteAnalysisProfileId == profile.Id && x.Status == "running",
                     ct);
 
             if (hasRunningStep)
@@ -1184,9 +1184,9 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
             // heal instead of marking failed when the current step row is already complete.
             if (!string.IsNullOrWhiteSpace(profile.AnalysisStep))
             {
-                var currentStepComplete = await db.NicheProfileStepRuns
+                var currentStepComplete = await db.SiteAnalysisProfileStepRuns
                     .AnyAsync(
-                        x => x.NicheProfileId == profile.Id
+                        x => x.SiteAnalysisProfileId == profile.Id
                             && x.StepSlug == profile.AnalysisStep
                             && x.Status == "complete",
                         ct);
@@ -1214,17 +1214,17 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         Guid profileId,
         string slug,
         string status,
-        NicheAnalysisStepLogEntry? entry = null,
+        SiteAnalysisStepLogEntry? entry = null,
         CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         await EnsureStepRunsAsync(profileId, ct);
-        var row = await db.NicheProfileStepRuns
+        var row = await db.SiteAnalysisProfileStepRuns
             .FirstOrDefaultAsync(
-                x => x.NicheProfileId == profileId && x.StepSlug == slug,
+                x => x.SiteAnalysisProfileId == profileId && x.StepSlug == slug,
                 ct);
         if (row is null)
             return Result.Failure($"Step run not found for slug '{slug}'.");
@@ -1249,7 +1249,7 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         }
 
         if (entry is not null)
-            profile.AnalysisStepLog = NicheAnalysisStepLogJson.Append(profile.AnalysisStepLog, entry);
+            profile.AnalysisStepLog = SiteAnalysisStepLogJson.Append(profile.AnalysisStepLog, entry);
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -1260,14 +1260,14 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         IReadOnlyList<string> downstreamSlugs,
         CancellationToken ct = default)
     {
-        var profileExists = await db.NicheProfiles.AnyAsync(p => p.Id == profileId, ct);
+        var profileExists = await db.SiteAnalysisProfiles.AnyAsync(p => p.Id == profileId, ct);
         if (!profileExists)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         await EnsureStepRunsAsync(profileId, ct);
         var slugSet = downstreamSlugs.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var rows = await db.NicheProfileStepRuns
-            .Where(x => x.NicheProfileId == profileId && slugSet.Contains(x.StepSlug))
+        var rows = await db.SiteAnalysisProfileStepRuns
+            .Where(x => x.SiteAnalysisProfileId == profileId && slugSet.Contains(x.StepSlug))
             .ToListAsync(ct);
 
         foreach (var row in rows)
@@ -1289,9 +1289,9 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         string crawledUrlsJson,
         CancellationToken ct = default)
     {
-        var profile = await db.NicheProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
+        var profile = await db.SiteAnalysisProfiles.FirstOrDefaultAsync(p => p.Id == profileId, ct);
         if (profile is null)
-            return Result.Failure("Niche profile not found");
+            return Result.Failure("site analysis profile not found");
 
         profile.CrawledUrlsJson = crawledUrlsJson;
         await db.SaveChangesAsync(ct);
@@ -1302,13 +1302,13 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
         Guid profileId,
         CancellationToken ct = default)
     {
-        var profileExists = await db.NicheProfiles.AnyAsync(p => p.Id == profileId, ct);
+        var profileExists = await db.SiteAnalysisProfiles.AnyAsync(p => p.Id == profileId, ct);
         if (!profileExists)
-            return Result<IReadOnlyDictionary<string, string>>.Failure("Niche profile not found");
+            return Result<IReadOnlyDictionary<string, string>>.Failure("site analysis profile not found");
 
         await EnsureStepRunsAsync(profileId, ct);
-        var rows = await db.NicheProfileStepRuns.AsNoTracking()
-            .Where(x => x.NicheProfileId == profileId)
+        var rows = await db.SiteAnalysisProfileStepRuns.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .Select(x => new { x.StepSlug, x.Status })
             .ToListAsync(ct);
 
@@ -1321,12 +1321,12 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
     private async Task EnsureStepRunsAsync(Guid profileId, CancellationToken ct)
     {
-        var existingSlugs = await db.NicheProfileStepRuns
-            .Where(x => x.NicheProfileId == profileId)
+        var existingSlugs = await db.SiteAnalysisProfileStepRuns
+            .Where(x => x.SiteAnalysisProfileId == profileId)
             .Select(x => x.StepSlug)
             .ToListAsync(ct);
         var existing = existingSlugs.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var missing = NicheStepRunDefaults.Ordered
+        var missing = SiteAnalysisStepRunDefaults.Ordered
             .Where(step => !existing.Contains(step.StepSlug))
             .ToList();
         if (missing.Count == 0)
@@ -1334,9 +1334,9 @@ public sealed class NicheProfileRepository(SeoDbContext db) : INicheProfileRepos
 
         foreach (var (stepNumber, stepSlug) in missing)
         {
-            db.NicheProfileStepRuns.Add(new NicheProfileStepRun
+            db.SiteAnalysisProfileStepRuns.Add(new SiteAnalysisProfileStepRun
             {
-                NicheProfileId = profileId,
+                SiteAnalysisProfileId = profileId,
                 StepNumber = stepNumber,
                 StepSlug = stepSlug,
                 Status = "pending",

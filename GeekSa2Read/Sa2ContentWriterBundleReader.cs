@@ -25,9 +25,9 @@ public sealed class Sa2ContentWriterBundleReader(ILogger<Sa2ContentWriterBundleR
                 "SiteUrl",
                 "DisplayName",
                 "GeekSeoProjectId",
-                "PrimaryNiche",
-                "NicheDescription",
-                "NicheTags",
+                "PrimaryFocus",
+                "FocusDescription",
+                "FocusTags",
                 "BusinessSummary",
                 "GeoAnchorNodes",
                 "ServiceAreaDescription",
@@ -70,9 +70,9 @@ public sealed class Sa2ContentWriterBundleReader(ILogger<Sa2ContentWriterBundleR
                 "SiteUrl",
                 "DisplayName",
                 "GeekSeoProjectId",
-                "PrimaryNiche",
-                "NicheDescription",
-                "NicheTags",
+                "PrimaryFocus",
+                "FocusDescription",
+                "FocusTags",
                 "BusinessSummary",
                 "GeoAnchorNodes",
                 "ServiceAreaDescription",
@@ -117,9 +117,9 @@ public sealed class Sa2ContentWriterBundleReader(ILogger<Sa2ContentWriterBundleR
             GeneratedSchemaJson = string.IsNullOrWhiteSpace(row.GeneratedSchemaJson)
                 ? null
                 : row.GeneratedSchemaJson.Trim(),
-            PrimaryNiche = row.PrimaryNiche,
-            NicheDescription = row.NicheDescription,
-            NicheTags = Sa2Json.ParseStringList(row.NicheTags),
+            PrimaryFocus = row.PrimaryFocus,
+            FocusDescription = row.FocusDescription,
+            FocusTags = Sa2Json.ParseStringList(row.FocusTags),
             GeoAnchorNodes = Sa2Json.ParseStringList(row.GeoAnchorNodes),
             ServiceAreaDescription = row.ServiceAreaDescription,
             CompetitorDomains = Sa2Json.ParseStringList(row.CompetitorDomains),
@@ -141,9 +141,9 @@ public sealed class Sa2ContentWriterBundleReader(ILogger<Sa2ContentWriterBundleR
         public string SiteUrl { get; init; } = string.Empty;
         public string? DisplayName { get; init; }
         public Guid? GeekSeoProjectId { get; init; }
-        public string? PrimaryNiche { get; init; }
-        public string? NicheDescription { get; init; }
-        public string? NicheTags { get; init; }
+        public string? PrimaryFocus { get; init; }
+        public string? FocusDescription { get; init; }
+        public string? FocusTags { get; init; }
         public string? BusinessSummary { get; init; }
         public string? GeoAnchorNodes { get; init; }
         public string? ServiceAreaDescription { get; init; }

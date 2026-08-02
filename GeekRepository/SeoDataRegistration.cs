@@ -34,8 +34,8 @@ public static class SeoDataRegistration
         services.AddScoped<IGeoTrackingRepository, GeoTrackingRepository>();
         services.AddScoped<IRankTrackingRepository, RankTrackingRepository>();
         services.AddScoped<IContentGuardRepository, ContentGuardRepository>();
-        services.AddScoped<INicheProfileRepository, NicheProfileRepository>();
-        services.AddScoped<INicheAnalyticsDapperRepository, NicheAnalyticsDapperRepository>();
+        services.AddScoped<ISiteAnalysisProfileRepository, SiteAnalysisProfileRepository>();
+        services.AddScoped<ISiteAnalysisAnalyticsRepository, SiteAnalysisAnalyticsRepository>();
         services.AddScoped<IUrlResearchRepository, UrlResearchRepository>();
         services.AddScoped<ISiteResearchRepository, SiteResearchRepository>();
 
