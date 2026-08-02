@@ -1007,7 +1007,8 @@ public class GccController : ControllerBase
             analysis.Domain,
             analysis.SeedTopic,
             gaps,
-            gapTopic));
+            gapTopic,
+            analysis.IsDemo));
     }
 
     private static bool TryParseProvider(string? raw, out ContentGeneratorProvider provider, out string? error)
