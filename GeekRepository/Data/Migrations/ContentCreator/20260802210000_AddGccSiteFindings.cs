@@ -1,10 +1,14 @@
 using System;
+using GeekRepository.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace GeekRepository.Data.Migrations.ContentCreator;
 
+[DbContext(typeof(ContentCreatorDbContext))]
+[Migration("20260802210000_AddGccSiteFindings")]
 public partial class AddGccSiteFindings : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
