@@ -2,5 +2,5 @@ ALTER TABLE geek_seo.site_analysis_profiles
     ADD COLUMN IF NOT EXISTS "FusionSnapshot" jsonb NULL;
 
 INSERT INTO geek_seo."__EFSeoMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260606200000_AddNicheProfileFusionSnapshot', '10.0.7')
+VALUES ('20260606200000_AddSiteAnalysisProfileFusionSnapshot', '10.0.7')
 ON CONFLICT ("MigrationId") DO NOTHING;

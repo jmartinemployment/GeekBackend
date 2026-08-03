@@ -9,6 +9,6 @@ ALTER TABLE geek_seo.site_analysis_profiles
 
 INSERT INTO geek_seo."__EFSeoMigrationsHistory" ("MigrationId", "ProductVersion")
 VALUES
-    ('20260602193000_AddNicheProfileAnalysisStep', '10.0.7'),
+    ('20260602193000_AddSiteAnalysisProfileAnalysisStep', '10.0.7'),
     ('20260602194500_AddSiteAnalysisProfileProgressAt', '10.0.7')
 ON CONFLICT ("MigrationId") DO NOTHING;
