@@ -5,5 +5,5 @@ ALTER TABLE geek_seo.site_analysis_profiles
     ADD COLUMN IF NOT EXISTS "AnalysisStepLogVersion" integer NOT NULL DEFAULT 1;
 
 INSERT INTO geek_seo."__EFSeoMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260606120000_AddNicheProfileAnalysisStepLog', '10.0.7')
+VALUES ('20260606120000_AddSiteAnalysisProfileAnalysisStepLog', '10.0.7')
 ON CONFLICT ("MigrationId") DO NOTHING;

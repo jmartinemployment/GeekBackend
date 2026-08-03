@@ -1,6 +1,5 @@
 -- Scalable site analysis persistence: topic candidate inventory + phase status columns
--- Scalable site analysis persistence: topic candidate inventory + phase status columns
--- Mirrors GeekSeo.Persistence migration AddSiteAnalysisScalablePersistence (history id AddNicheScalablePersistence)
+-- Mirrors GeekSeo.Persistence migration AddSiteAnalysisScalablePersistence
 
 ALTER TABLE geek_seo.site_analysis_profiles
     ADD COLUMN IF NOT EXISTS "StructureStatus" text NOT NULL DEFAULT 'pending',
@@ -43,5 +42,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS "IX_site_analysis_topic_candidates_SiteAnalysi
     ON geek_seo.site_analysis_topic_candidates ("SiteAnalysisProfileId", "Slug");
 
 INSERT INTO geek_seo."__EFSeoMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260607205248_AddNicheScalablePersistence', '10.0.7')
+VALUES ('20260607205248_AddSiteAnalysisScalablePersistence', '10.0.7')
 ON CONFLICT ("MigrationId") DO NOTHING;
