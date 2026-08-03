@@ -1,5 +1,6 @@
 -- Scalable site analysis persistence: topic candidate inventory + phase status columns
--- Mirrors GeekSeo.Persistence migration AddNicheScalablePersistence
+-- Scalable site analysis persistence: topic candidate inventory + phase status columns
+-- Mirrors GeekSeo.Persistence migration AddSiteAnalysisScalablePersistence (history id AddNicheScalablePersistence)
 
 ALTER TABLE geek_seo.site_analysis_profiles
     ADD COLUMN IF NOT EXISTS "StructureStatus" text NOT NULL DEFAULT 'pending',
