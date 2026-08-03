@@ -1252,19 +1252,33 @@ public class GccController : ControllerBase
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
 
-        if (string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(analysis.Status))
+        if (string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
         {
             var persistedFindings = await _repo.ListSiteFindingsAsync(analysis.Id, ct);
+            var readyGaps = GccGenerateService.DeserializeGaps(analysis.GapsJson);
+            // Fail-closed: never surface ready without content gaps.
+            if (readyGaps.Count == 0)
+            {
+                analysis = await MarkAnalysisFailedAsync(
+                    analysis,
+                    "Site analysis is marked ready but has no content gaps.",
+                    ct);
+                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+            }
+
             return Ok(new
             {
                 analysis.Id,
                 analysis.Domain,
                 analysis.Status,
-                gaps = GccGenerateService.DeserializeGaps(analysis.GapsJson),
+                gaps = readyGaps,
                 findings = persistedFindings,
             });
         }
+
+        // Missing/unknown status is not ready — continue poll / fail path below.
+        if (string.IsNullOrWhiteSpace(analysis.Status))
+            analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis has no status.", ct);
 
         if (string.Equals(analysis.Status, "failed", StringComparison.OrdinalIgnoreCase))
             return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
@@ -1344,17 +1358,46 @@ public class GccController : ControllerBase
         return Ok(new { analysis.Id, analysis.Domain, analysis.Status, gaps, findings });
     }
 
+    /// <summary>
+    /// Downloads the generated sitemap.xml for this Site Analyzer run. Delegates to Geek-SEO,
+    /// which rebuilds the document from the current step-1 URL inventory on every request — there
+    /// is no separate "stale artifact" to go out of sync with the latest Analyze. No dedicated
+    /// Sitemap page, no FTP/root upload — download only.
+    /// </summary>
+    [HttpGet("site-analyzer/{id:guid}/sitemap")]
+    public async Task<IActionResult> SitemapXml(Guid id, CancellationToken ct)
+    {
+        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
+        if (analysis is null) return NotFound();
+        if (analysis.SeoProfileId is not Guid profileId)
+            return Conflict(new { error = "Site analysis is missing its SEO profile ID." });
+
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required to download the sitemap." });
+
+        var result = await _seo.GetSitemapXmlAsync(profileId, bearer, ct);
+        if (!result.Ok || result.Value is null)
+            return StatusCode(
+                result.StatusCode is >= 400 and < 600 ? result.StatusCode : 502,
+                new { error = result.Error ?? "Failed to load sitemap." });
+
+        return Content(result.Value, "application/xml");
+    }
+
     [HttpGet("site-analyzer/{id:guid}/gaps")]
     public async Task<IActionResult> Gaps(Guid id, CancellationToken ct)
     {
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
-        if (!string.IsNullOrWhiteSpace(analysis.Status)
-            && !string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
             return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
         try
         {
-            return Ok(GccGenerateService.DeserializeGaps(analysis.GapsJson));
+            var gaps = GccGenerateService.DeserializeGaps(analysis.GapsJson);
+            if (gaps.Count == 0)
+                return Conflict(new { error = "Site analysis has no content gaps.", status = analysis.Status });
+            return Ok(gaps);
         }
         catch (InvalidOperationException ex)
         {
@@ -1372,8 +1415,7 @@ public class GccController : ControllerBase
             return BadRequest(new { error = "gapTopic required" });
         var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
         if (analysis is null) return NotFound();
-        if (!string.IsNullOrWhiteSpace(analysis.Status)
-            && !string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
             return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
 
         SiteAnalysisStoredPayload payload;

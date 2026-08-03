@@ -193,6 +193,26 @@ public class HttpGeekSeoSiteAnalyzerClient
             neighbors));
     }
 
+    /// <summary>
+    /// Fetches the sitemap.xml built from the current step-1 URL inventory for this profile.
+    /// Always current — Geek-SEO rebuilds it from the persisted inventory on every request, so
+    /// there is nothing here to cache or go stale between Analyze runs.
+    /// </summary>
+    public async Task<SeoCallResult<string>> GetSitemapXmlAsync(
+        Guid profileId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<string>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<string>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to download the sitemap.");
+
+        var result = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}/sitemap.xml", bearerToken, ct);
+        if (!result.Ok) return SeoCallResult<string>.Fail(result.StatusCode, result.Error!);
+        return SeoCallResult<string>.Success(result.Body ?? string.Empty);
+    }
+
     private static List<RelatedPageDto> BuildSitePagesFromProfile(SeoProfileDto profile)
     {
         var pages = new List<RelatedPageDto>();
