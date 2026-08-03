@@ -1,6 +1,6 @@
--- Idempotent: niche analyzer step log (Phase 1.5)
+-- Idempotent: site analyzer step log (Phase 1.5)
 
-ALTER TABLE geek_seo.niche_profiles
+ALTER TABLE geek_seo.site_analysis_profiles
     ADD COLUMN IF NOT EXISTS "AnalysisStepLog" jsonb NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS "AnalysisStepLogVersion" integer NOT NULL DEFAULT 1;
 

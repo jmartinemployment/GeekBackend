@@ -1,4 +1,4 @@
-ALTER TABLE geek_seo.niche_profiles
+ALTER TABLE geek_seo.site_analysis_profiles
     ADD COLUMN IF NOT EXISTS "FusionSnapshot" jsonb NULL;
 
 INSERT INTO geek_seo."__EFSeoMigrationsHistory" ("MigrationId", "ProductVersion")
