@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GeekApplication\GeekApplication.csproj" />
+    <ProjectReference Include="..\GeekAPI\GeekAPI.csproj" />
   </ItemGroup>
 
 </Project>

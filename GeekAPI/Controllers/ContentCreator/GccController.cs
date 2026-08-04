@@ -1441,6 +1441,20 @@ public class GccController : ControllerBase
         return Ok(section);
     }
 
+    /// <summary>
+    /// Parse an operator-saved Google results page (HTML or text) into organics, PAA, related, and SERP shape.
+    /// Primary SERP path for Content Creator — not a live scrape / paid vendor.
+    /// </summary>
+    [HttpPost("serp/parse")]
+    public IActionResult ParseSavedSerp([FromBody] ParseSavedSerpRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Content))
+            return BadRequest(new { error = "content required (saved Google results HTML or text)" });
+
+        var parsed = GccSavedSerpParser.Parse(request.Content, request.TargetKeyword);
+        return Ok(parsed);
+    }
+
     private string? GetBearerToken()
     {
         var auth = Request.Headers.Authorization.ToString();
@@ -1559,4 +1573,5 @@ public class GccController : ControllerBase
     public sealed record FollowResearchRequest(
         IReadOnlyList<string>? Urls,
         GccSerpIndex? SerpIndex);
+    public sealed record ParseSavedSerpRequest(string Content, string? TargetKeyword = null);
 }

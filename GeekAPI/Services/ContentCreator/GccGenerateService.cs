@@ -8,6 +8,7 @@ using ContentWriter.Application.Services.PromptBuilders;
 using ContentWriter.Application.Services.SchemaBuilders;
 using ContentWriter.Domain.Entities;
 using ContentWriter.Domain.Enums;
+using GeekAPI.Services.ContentCreator.Guardrail;
 using GeekAPI.Services.Gcw;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
@@ -22,7 +23,8 @@ public sealed record SiteSectionContextDto(
     string GapTopic,
     string? GapSectionPath,
     IReadOnlyList<RelatedPageDto> RelatedPages,
-    IReadOnlyList<string> TopicalNeighbors);
+    IReadOnlyList<string> TopicalNeighbors,
+    InformationGainNote? InformationGain = null);
 
 public sealed record ContentGapDto(
     string Id,
@@ -120,17 +122,40 @@ public class GccGenerateService
         var root = doc.RootElement;
         static string? S(JsonElement el, string name) =>
             el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+        // Compat-first: accept the new Google-aligned field names OR the legacy
+        // names during the migration window. Prefer the first non-empty value.
+        static string? Any(JsonElement el, params string[] names)
+        {
+            foreach (var n in names)
+            {
+                var v = S(el, n);
+                if (!string.IsNullOrWhiteSpace(v)) return v;
+            }
+            return null;
+        }
+        static bool HasArrayItem(JsonElement el, string name) =>
+            el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Array && p.GetArrayLength() > 0;
 
         var missing = new List<string>();
-        if (string.IsNullOrWhiteSpace(S(root, "intent"))) missing.Add("intent");
+        if (string.IsNullOrWhiteSpace(Any(root, "primaryIntent", "intent"))) missing.Add("primaryIntent");
         if (string.IsNullOrWhiteSpace(S(root, "buyingStage"))) missing.Add("buyingStage");
-        if (string.IsNullOrWhiteSpace(S(root, "audiencePrimary"))) missing.Add("audiencePrimary");
-        if (string.IsNullOrWhiteSpace(S(root, "audienceDetail"))) missing.Add("audienceDetail");
+        if (string.IsNullOrWhiteSpace(Any(root, "audienceSegment", "audiencePrimary"))) missing.Add("audienceSegment");
+        if (string.IsNullOrWhiteSpace(Any(root, "audienceNotes", "audienceDetail"))) missing.Add("audienceNotes");
         if (string.IsNullOrWhiteSpace(S(root, "angle"))) missing.Add("angle");
         if (string.IsNullOrWhiteSpace(S(root, "ctaType"))) missing.Add("ctaType");
+        // toneOfVoice/eeatSignals are new; only enforce when the brief has already
+        // been migrated (legacy briefs carry a numeric toneOfVoice object, no eeatSignals).
+        var isNewBrief = S(root, "toneOfVoice") is not null
+            || root.TryGetProperty("eeatSignals", out _)
+            || root.TryGetProperty("primaryIntent", out _);
+        if (isNewBrief)
+        {
+            if (string.IsNullOrWhiteSpace(S(root, "toneOfVoice"))) missing.Add("toneOfVoice");
+            if (!HasArrayItem(root, "eeatSignals")) missing.Add("eeatSignals");
+        }
         if (string.IsNullOrWhiteSpace(S(root, "lengthBand"))) missing.Add("lengthBand");
         if (missing.Count > 0)
-            throw new InvalidOperationException("brief required");
+            throw new InvalidOperationException($"brief required: missing {string.Join(", ", missing)}");
     }
 
     public static string BuildBriefAndResearchBlock(GccCreateDto create)
@@ -171,6 +196,50 @@ public class GccGenerateService
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Part 4 — Consultant / four-phase methodology system-appendix, injected at the
+    /// GeekAPI call site (NOT by editing the external content-writer-v2 prompt builder).
+    /// Applied when toneOfVoice == consultant_professional, or the angle is the
+    /// comprehensive ultimate-guide. Returns "" when it should not apply.
+    /// </summary>
+    public static string BuildConsultantAppendix(GccCreateDto create)
+    {
+        if (string.IsNullOrWhiteSpace(create.BriefJson)) return string.Empty;
+        string? tone = null, angle = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(create.BriefJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("toneOfVoice", out var t) && t.ValueKind == JsonValueKind.String)
+                tone = t.GetString();
+            if (root.TryGetProperty("angle", out var a) && a.ValueKind == JsonValueKind.String)
+                angle = a.GetString();
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+
+        var isConsultant = string.Equals(tone, "consultant_professional", StringComparison.OrdinalIgnoreCase);
+        var isUltimateGuide = string.Equals(angle, "ultimate_guide", StringComparison.OrdinalIgnoreCase);
+        if (!isConsultant && !isUltimateGuide) return string.Empty;
+
+        return string.Join('\n', new[]
+        {
+            "=== ROLE & METHOD (consultant appendix) ===",
+            "Write as a Senior IT Consultant advising local SMBs on AI implementation and business-process",
+            "automation. Voice: objective, authoritative, technical, analytical (newspaper-style). Use first-person",
+            "plural or objective third-person advisor. Assume peer-level technical knowledge; high scannability.",
+            "Weave these four phases into the narrative (do not label them mechanically):",
+            "1. Business Objectives Alignment — the measurable goal / pain point (ROI, bottlenecks, cost of inaction).",
+            "2. Data Quality Assessment — integrity, schema, storage (pooling, JSONB, validation).",
+            "3. Tech Selection & Architecture — specific tools over generics (decoupled services, routing, benchmarks).",
+            "4. Pilot Implementation Strategy — execution, smoke tests, validation (local integration, TDD, sandboxed rollout).",
+            "Constraints: ban AI filler / clichés; Markdown ##/### outline; close with an FAQ drawn from the",
+            "People Also Ask / related searches in the brief. Keep temperature low.",
+        });
     }
 
     public async Task<string> GenerateStartingContentAsync(
@@ -217,9 +286,13 @@ public class GccGenerateService
 
         // Content Creator long-form: CWV2 standalone blog body + persisted brief/research.
         var llm = GetLlm(provider);
+        var consultantAppendix = BuildConsultantAppendix(create);
+        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
+        if (consultantAppendix.Length > 0)
+            sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
         var context = BuildMinimalContext(
             create.Topic,
-            $"{briefBlock}\n\n{BuildAudience(create, section)}",
+            sourceContext,
             ToLlm(provider));
         var metadata = new BlogMetadataDraft(
             Title: create.Topic.Trim(),
@@ -234,6 +307,7 @@ public class GccGenerateService
             throw new InvalidOperationException("CWV2 blog body returned no sections.");
         var lede = sections[0] with { Tag = "h2" };
         var blogDocument = new ContentDocument(lede, sections.Skip(1).ToList());
+        blogDocument = ContentGuardrail.Apply(blogDocument).Document;
         return JsonSerializer.Serialize(blogDocument, CwDocumentJson);
     }
 
@@ -275,6 +349,7 @@ public class GccGenerateService
             throw new InvalidOperationException("CWV2 revise returned no sections.");
         var lede = sections[0] with { Tag = "h2" };
         var revised = new ContentDocument(lede, sections.Skip(1).ToList());
+        revised = ContentGuardrail.Apply(revised).Document;
         return JsonSerializer.Serialize(revised, CwDocumentJson);
     }
 
@@ -681,12 +756,15 @@ public class GccGenerateService
         if (payload.TopicalNeighbors.Count == 0) return null;
         var neighbors = payload.TopicalNeighbors;
 
+        var informationGain = GccSavedSerpParser.BuildPartialInformationGain(gapTopic, related);
+
         return new SiteSectionContextDto(
             analysisId,
             gapTopic,
             sectionPath,
             related,
-            neighbors);
+            neighbors,
+            informationGain);
     }
 
     public static GcwSeoAnalyzer.SeoReport AnalyzeSeo(string bodyJson, string keyword) =>
