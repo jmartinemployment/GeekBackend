@@ -1031,15 +1031,25 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
     public async Task<Result> BulkInsertPillarsAsync(
         IEnumerable<SiteAnalysisPillar> pillars, CancellationToken ct = default)
     {
-        foreach (var p in pillars)
-        {
+        var list = pillars.ToList();
+        if (list.Count == 0) return Result.Success();
+
+        var profileId = list[0].SiteAnalysisProfileId;
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Re-Analyze reuses pillar Ids; clear the profile's prior pillars first (cascades old
+        // subtopics + pillar-pages) so the re-insert can't collide on PK_niche_pillars.
+        await db.SiteAnalysisPillars
+            .Where(p => p.SiteAnalysisProfileId == profileId)
+            .ExecuteDeleteAsync(ct);
+        foreach (var p in list)
             if (p.Id == Guid.Empty) p.Id = Guid.NewGuid();
-        }
-        db.SiteAnalysisPillars.AddRange(pillars);
+        db.SiteAnalysisPillars.AddRange(list);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return Result.Success();
     }
 
+    // Relies on BulkInsertPillarsAsync cascade-deleting old subtopics + pillars-first call order.
     public async Task<Result> BulkInsertSubtopicsAsync(
         IEnumerable<SiteAnalysisSubtopic> subtopics, CancellationToken ct = default)
     {
