@@ -1,13 +1,38 @@
 namespace GeekApplication.Models.ContentCreator;
 
 /// <summary>
-/// Persisted research on a Content Creator create.
-/// Caps: ≤3 quoteables; ≤8 headings / ≤6 paragraphs per page; heading ≤200 chars; paragraph ≤500 chars.
+/// Persisted research on a Content Creator create. Quoteables and SerpPages are unlimited
+/// (per-page heading/paragraph/organic trimming below bounds prompt size, not a total-file cap).
 /// </summary>
 public sealed record GccResearchDocument(
     GccSerpIndex? SerpIndex,
     IReadOnlyList<GccQuoteablePage> Quoteables,
-    IReadOnlyList<GccKeywordSource>? Sources = null);
+    IReadOnlyList<GccKeywordSource>? Sources = null,
+    IReadOnlyList<GccParsedSerpPage>? SerpPages = null);
+
+/// <summary>
+/// A parsed Keyword (Google SERP) upload — organics + related searches only. PAA is intentionally
+/// never captured here (discarded at parse time); it stays a manually hand-entered brief field.
+/// Shape.Guidance is advisory and surfaces in the UI only (operator adds it to brief notes
+/// themselves via "Add to notes") — it is never auto-injected into the Generate prompt.
+/// </summary>
+public sealed record GccParsedSerpPage(
+    string Id,
+    string FileName,
+    IReadOnlyList<SavedSerpOrganic> Organics,
+    IReadOnlyList<string> RelatedSearches,
+    SerpShapeSummary Shape,
+    string? ParseWarning);
+
+/// <summary>API response for a keyword source: metadata plus its parsed SERP page, if any (KeywordResult only).</summary>
+public sealed record GccKeywordSourceDetail(
+    string Id,
+    string FileName,
+    string Category,
+    int HeadingCount,
+    int ParagraphCount,
+    int QuestionCount,
+    GccParsedSerpPage? SerpPage);
 
 /// <summary>
 /// An operator-uploaded research file attached to a create (CWv2-style keyword source).
