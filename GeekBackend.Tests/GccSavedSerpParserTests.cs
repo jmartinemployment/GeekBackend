@@ -94,6 +94,39 @@ public class GccSavedSerpParserTests
     }
 
     [Fact]
+    public void Parse_html_uses_h3_title_when_anchor_text_exceeds_limit()
+    {
+        // Regression: modern Google wraps the title in <h3> inside the result anchor, whose
+        // full InnerText (title + source + breadcrumb cite + "About this result") exceeds 200
+        // chars. The old whole-anchor-text heuristic skipped all of them -> 0 organics -> error.
+        const string html = """
+            <!doctype html><html><body>
+            <div class="MjjYud">
+              <a jsname="UWckNb" class="zReHs" href="https://business.adobe.com/blog/how-enterprises-scale-content-creation-workflows">
+                <h3 class="LC20lb MBeuO DKV0Md">How enterprises scale content creation workflows</h3>
+                <div class="notranslate"><span class="VuuXrf">Adobe for Business</span>
+                  <cite class="qLRx3b">https://business.adobe.com &rsaquo; blog &rsaquo; how-enterprises-scale-content-creation-workflows-and-more-breadcrumb-text...</cite>
+                </div>
+                <div>About this result — Adobe for Business — cached — similar — more chrome text to push length past two hundred characters easily now</div>
+              </a>
+            </div>
+            </body></html>
+            """;
+
+        var result = GccSavedSerpParser.Parse(html, "content creation workflow");
+
+        Assert.Single(result.Organics);
+        Assert.Equal("How enterprises scale content creation workflows", result.Organics[0].Title);
+        Assert.Equal(
+            "https://business.adobe.com/blog/how-enterprises-scale-content-creation-workflows",
+            result.Organics[0].Url);
+        Assert.DoesNotContain("About this result", result.Organics[0].Title);
+        Assert.False(
+            (result.ParseWarning ?? "").Contains("Could not", StringComparison.OrdinalIgnoreCase),
+            $"Unexpected hard warning: {result.ParseWarning}");
+    }
+
+    [Fact]
     public void BuildPartialInformationGain_lists_this_site_coverage()
     {
         var pages = new List<RelatedPageDto>
