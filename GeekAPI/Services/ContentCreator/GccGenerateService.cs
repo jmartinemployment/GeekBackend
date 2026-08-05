@@ -170,7 +170,9 @@ public class GccGenerateService
         if (research?.Quoteables is { Count: > 0 })
         {
             sb.AppendLine("=== QUOTEABLE RESEARCH (destination pages — quote/paraphrase; do not invent) ===");
-            foreach (var q in research.Quoteables.Take(GccResearchCaps.MaxQuoteables))
+            // Uploaded research is unlimited — read every quoteable (per-page heading/paragraph
+            // trimming below still bounds prompt size).
+            foreach (var q in research.Quoteables)
             {
                 sb.AppendLine($"[{q.Title}] ({q.Url})");
                 foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))

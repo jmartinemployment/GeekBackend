@@ -6,7 +6,20 @@ namespace GeekApplication.Models.ContentCreator;
 /// </summary>
 public sealed record GccResearchDocument(
     GccSerpIndex? SerpIndex,
-    IReadOnlyList<GccQuoteablePage> Quoteables);
+    IReadOnlyList<GccQuoteablePage> Quoteables,
+    IReadOnlyList<GccKeywordSource>? Sources = null);
+
+/// <summary>
+/// An operator-uploaded research file attached to a create (CWv2-style keyword source).
+/// Uploading is the research action — no follow/process step. Unlimited per create.
+/// </summary>
+public sealed record GccKeywordSource(
+    string Id,
+    string FileName,
+    string Category,
+    int HeadingCount,
+    int ParagraphCount,
+    int QuestionCount);
 
 public sealed record GccSerpIndex(
     IReadOnlyList<string> OrganicTitles,

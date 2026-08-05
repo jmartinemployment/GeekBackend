@@ -154,6 +154,101 @@ public class GccController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// CWv2-style file upload: uploading IS the research action (no follow/process button).
+    /// HTML files (keyword-result / wiki / .edu / .gov) are parsed into unlimited quoteables and
+    /// merged into the create's ResearchJson, which Generate already reads. PeopleAlsoAsk .txt is
+    /// parsed and returned for operator weeding (persisted into the brief by the client), not dumped.
+    /// </summary>
+    [HttpPost("creates/{id:guid}/keyword-sources")]
+    public async Task<ActionResult<object>> UploadKeywordSource(
+        Guid id,
+        [FromForm] IFormFile? file,
+        [FromForm] string? category,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0) return BadRequest("file required");
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+        var cat = string.IsNullOrWhiteSpace(category) ? "KeywordResult" : category.Trim();
+
+        string content;
+        using (var reader = new StreamReader(file.OpenReadStream()))
+            content = await reader.ReadToEndAsync(ct);
+
+        // PeopleAlsoAsk: parse questions and return for weeding — the operator curates which
+        // seed the brief (client persists selected into brief.paaQuestions). Not auto-dumped.
+        if (string.Equals(cat, "PeopleAlsoAsk", StringComparison.OrdinalIgnoreCase))
+        {
+            var questions = content
+                .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.TrimStart('-', '*', '•', ' ').Trim())
+                .Where(l => l.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return Ok(new { category = cat, fileName = file.FileName, questions });
+        }
+
+        // HTML quoteable → persist into ResearchJson (unlimited; no cap).
+        var sourceId = Guid.NewGuid().ToString("N");
+        var page = GccArticleHtmlExtractor.Extract($"upload://{sourceId}/{file.FileName}", content);
+        if (GccArticleHtmlExtractor.IsEmpty(page))
+            return BadRequest("No headings or paragraphs found in this file.");
+
+        var existing = GccResearchFetchService.Deserialize(create.ResearchJson)
+            ?? new GccResearchDocument(null, []);
+        var quoteables = existing.Quoteables.ToList();
+        quoteables.Add(page);
+        var sources = (existing.Sources ?? []).ToList();
+        var src = new GccKeywordSource(
+            sourceId, file.FileName, cat, page.Headings.Count, page.Paragraphs.Count, 0);
+        sources.Add(src);
+
+        var json = GccResearchFetchService.Serialize(
+            existing with { Quoteables = quoteables, Sources = sources });
+        try
+        {
+            await _repo.UpdateBriefResearchAsync(
+                id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json), ct);
+            return Ok(src);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Persist uploaded keyword source failed");
+            return StatusCode(502, "Failed to persist uploaded research");
+        }
+    }
+
+    [HttpGet("creates/{id:guid}/keyword-sources")]
+    public async Task<ActionResult<IReadOnlyList<GccKeywordSource>>> ListKeywordSources(
+        Guid id, CancellationToken ct)
+    {
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+        var doc = GccResearchFetchService.Deserialize(create.ResearchJson);
+        return Ok((IReadOnlyList<GccKeywordSource>)(doc?.Sources ?? []));
+    }
+
+    [HttpDelete("creates/{id:guid}/keyword-sources/{sourceId}")]
+    public async Task<IActionResult> DeleteKeywordSource(Guid id, string sourceId, CancellationToken ct)
+    {
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+        var doc = GccResearchFetchService.Deserialize(create.ResearchJson);
+        if (doc is null) return NoContent();
+
+        var prefix = $"upload://{sourceId}/";
+        var quoteables = doc.Quoteables
+            .Where(q => !q.Url.StartsWith(prefix, StringComparison.Ordinal))
+            .ToList();
+        var sources = (doc.Sources ?? []).Where(s => s.Id != sourceId).ToList();
+        var json = GccResearchFetchService.Serialize(
+            doc with { Quoteables = quoteables, Sources = sources });
+        await _repo.UpdateBriefResearchAsync(
+            id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json), ct);
+        return NoContent();
+    }
+
     [HttpPost("creates")]
     public async Task<ActionResult<GccCreateDto>> CreateCreate(
         [FromBody] CreateCreateRequest request,
