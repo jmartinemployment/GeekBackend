@@ -88,12 +88,6 @@ builder.Services.AddScoped(sp =>
     return new HttpGccRepository(httpClient, logger);
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
-builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccResearchFetchService>();
-builder.Services.AddHttpClient("GccResearchFetch", client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(25);
-    client.DefaultRequestHeaders.UserAgent.ParseAdd("GeekContentCreatorResearch/1.0");
-});
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
 
 var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');

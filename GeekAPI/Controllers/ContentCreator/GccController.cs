@@ -27,7 +27,6 @@ public class GccController : ControllerBase
 
     private readonly HttpGccRepository _repo;
     private readonly GccGenerateService _gen;
-    private readonly GccResearchFetchService _researchFetch;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
@@ -39,7 +38,6 @@ public class GccController : ControllerBase
     public GccController(
         HttpGccRepository repo,
         GccGenerateService gen,
-        GccResearchFetchService researchFetch,
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
@@ -50,7 +48,6 @@ public class GccController : ControllerBase
     {
         _repo = repo;
         _gen = gen;
-        _researchFetch = researchFetch;
         _seo = seo;
         _jobs = jobs;
         _user = user;
@@ -122,44 +119,12 @@ public class GccController : ControllerBase
         }
     }
 
-    [HttpPost("creates/{id:guid}/research/follow")]
-    public async Task<ActionResult<GccCreateDto>> FollowResearchUrls(
-        Guid id,
-        [FromBody] FollowResearchRequest request,
-        CancellationToken ct)
-    {
-        if (request is null) return BadRequest("Body required");
-        var create = await _repo.GetCreateAsync(id, ct);
-        if (create is null) return NotFound();
-
-        var urls = request.Urls ?? [];
-        try
-        {
-            var doc = await _researchFetch.FetchQuoteablesAsync(urls, request.SerpIndex, ct);
-            var json = GccResearchFetchService.Serialize(doc);
-            var updated = await _repo.UpdateBriefResearchAsync(
-                id,
-                new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json),
-                ct);
-            return Ok(updated);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Persist research failed");
-            return StatusCode(502, "Failed to persist research");
-        }
-    }
-
     /// <summary>
     /// CWv2-style file upload: uploading IS the research action (no follow/process button).
-    /// HTML files (ranking article / wiki / .edu / .gov) are parsed into unlimited quoteables and
-    /// merged into the create's ResearchJson, which Generate already reads. Google SERP HTML is not
-    /// accepted here — use POST serp/parse (SERP ingest on the brief). PeopleAlsoAsk .txt is
-    /// parsed and returned for operator weeding (persisted into the brief by the client), not dumped.
+    /// KeywordResult (saved Google SERP HTML) is parsed with <see cref="GccSavedSerpParser"/> into
+    /// organics + related searches (PAA is parsed but always discarded — stays a manual brief
+    /// field). Wiki/.edu/.gov are parsed as articles into quoteables, which Generate already reads.
+    /// PeopleAlsoAsk .txt is parsed and returned for operator weeding, not dumped. Unlimited files.
     /// </summary>
     [HttpPost("creates/{id:guid}/keyword-sources")]
     public async Task<ActionResult<object>> UploadKeywordSource(
@@ -190,15 +155,46 @@ public class GccController : ControllerBase
             return Ok(new { category = cat, fileName = file.FileName, questions });
         }
 
-        // HTML quoteable → persist into ResearchJson (unlimited; no cap).
         var sourceId = Guid.NewGuid().ToString("N");
+        var existing = GccResearchFetchService.Deserialize(create.ResearchJson)
+            ?? new GccResearchDocument(null, []);
+
+        if (string.Equals(cat, "KeywordResult", StringComparison.OrdinalIgnoreCase))
+        {
+            // Saved Google SERP page → GccSavedSerpParser. Never hard-fails: even a zero-organic
+            // parse is persisted with its ParseWarning, so a partial save isn't lost.
+            var parsed = GccSavedSerpParser.Parse(content, create.Topic);
+            var serpPage = new GccParsedSerpPage(
+                sourceId, file.FileName, parsed.Organics, parsed.RelatedSearches, parsed.Shape, parsed.ParseWarning);
+
+            var serpPages = (existing.SerpPages ?? []).ToList();
+            serpPages.Add(serpPage);
+            var srcMeta = new GccKeywordSource(sourceId, file.FileName, cat, 0, 0, 0);
+            var sourcesList = (existing.Sources ?? []).ToList();
+            sourcesList.Add(srcMeta);
+
+            var serpJson = GccResearchFetchService.Serialize(
+                existing with { SerpPages = serpPages, Sources = sourcesList });
+            try
+            {
+                await _repo.UpdateBriefResearchAsync(
+                    id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: serpJson), ct);
+                return Ok(new GccKeywordSourceDetail(
+                    srcMeta.Id, srcMeta.FileName, srcMeta.Category, 0, 0, 0, serpPage));
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Persist uploaded keyword SERP failed");
+                return StatusCode(502, "Failed to persist uploaded research");
+            }
+        }
+
+        // Wiki/.edu/.gov: unchanged article path → quoteable (unlimited; no cap).
         var page = GccArticleHtmlExtractor.Extract($"upload://{sourceId}/{file.FileName}", content);
         if (GccArticleHtmlExtractor.IsEmpty(page))
             return BadRequest(
-                "No article headings or paragraphs found. This upload expects saved ranking-article / Wikipedia / .edu / .gov HTML with h1–h3 and <p> text. Google search-results (SERP) HTML belongs in SERP ingest on the brief, not keyword-sources.");
+                "No article headings or paragraphs found. This upload expects saved article HTML (Wikipedia / .edu / .gov) with h1–h3 and <p> text.");
 
-        var existing = GccResearchFetchService.Deserialize(create.ResearchJson)
-            ?? new GccResearchDocument(null, []);
         var quoteables = existing.Quoteables.ToList();
         quoteables.Add(page);
         var sources = (existing.Sources ?? []).ToList();
@@ -212,7 +208,8 @@ public class GccController : ControllerBase
         {
             await _repo.UpdateBriefResearchAsync(
                 id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json), ct);
-            return Ok(src);
+            return Ok(new GccKeywordSourceDetail(
+                src.Id, src.FileName, src.Category, src.HeadingCount, src.ParagraphCount, src.QuestionCount, null));
         }
         catch (HttpRequestException ex)
         {
@@ -222,13 +219,20 @@ public class GccController : ControllerBase
     }
 
     [HttpGet("creates/{id:guid}/keyword-sources")]
-    public async Task<ActionResult<IReadOnlyList<GccKeywordSource>>> ListKeywordSources(
+    public async Task<ActionResult<IReadOnlyList<GccKeywordSourceDetail>>> ListKeywordSources(
         Guid id, CancellationToken ct)
     {
         var create = await _repo.GetCreateAsync(id, ct);
         if (create is null) return NotFound();
         var doc = GccResearchFetchService.Deserialize(create.ResearchJson);
-        return Ok((IReadOnlyList<GccKeywordSource>)(doc?.Sources ?? []));
+        var sources = doc?.Sources ?? [];
+        var pagesById = (doc?.SerpPages ?? []).ToDictionary(p => p.Id);
+        var result = sources
+            .Select(s => new GccKeywordSourceDetail(
+                s.Id, s.FileName, s.Category, s.HeadingCount, s.ParagraphCount, s.QuestionCount,
+                pagesById.GetValueOrDefault(s.Id)))
+            .ToList();
+        return Ok((IReadOnlyList<GccKeywordSourceDetail>)result);
     }
 
     [HttpDelete("creates/{id:guid}/keyword-sources/{sourceId}")]
@@ -243,9 +247,10 @@ public class GccController : ControllerBase
         var quoteables = doc.Quoteables
             .Where(q => !q.Url.StartsWith(prefix, StringComparison.Ordinal))
             .ToList();
+        var serpPages = (doc.SerpPages ?? []).Where(p => p.Id != sourceId).ToList();
         var sources = (doc.Sources ?? []).Where(s => s.Id != sourceId).ToList();
         var json = GccResearchFetchService.Serialize(
-            doc with { Quoteables = quoteables, Sources = sources });
+            doc with { Quoteables = quoteables, SerpPages = serpPages, Sources = sources });
         await _repo.UpdateBriefResearchAsync(
             id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json), ct);
         return NoContent();
@@ -1791,8 +1796,5 @@ public class GccController : ControllerBase
     public sealed record ContentApprovalRequest(bool Approved = true);
     public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null);
     public sealed record UpdateBriefResearchRequest(string? BriefJson, string? ResearchJson);
-    public sealed record FollowResearchRequest(
-        IReadOnlyList<string>? Urls,
-        GccSerpIndex? SerpIndex);
     public sealed record ParseSavedSerpRequest(string Content, string? TargetKeyword = null);
 }

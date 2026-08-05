@@ -183,6 +183,25 @@ public class GccGenerateService
             }
         }
 
+        if (research?.SerpPages is { Count: > 0 } serpPages)
+        {
+            // One labeled block per uploaded Keyword SERP file: title→URL + related searches only.
+            // No PAA (always discarded from these uploads) and no Shape.Guidance (advisory —
+            // surfaced in the UI only; the operator adds it to writing notes themselves).
+            foreach (var page in serpPages)
+            {
+                sb.AppendLine($"=== KEYWORD SERP: {page.FileName} ===");
+                foreach (var o in page.Organics)
+                    sb.AppendLine($"- {o.Title} ({o.Url})");
+                if (page.RelatedSearches.Count > 0)
+                {
+                    sb.AppendLine("Related searches:");
+                    foreach (var r in page.RelatedSearches) sb.AppendLine($"- {r}");
+                }
+                sb.AppendLine();
+            }
+        }
+
         if (research?.SerpIndex is { } serp)
         {
             if (serp.OrganicTitles.Count > 0)
