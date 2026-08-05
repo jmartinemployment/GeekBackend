@@ -219,7 +219,7 @@ public class GccController : ControllerBase
 
         try
         {
-            var result = await RunGenerateAsync(_repo, _gen, create, section, provider, ct);
+            var result = await RunGenerateAsync(_repo, _gen, create, section, provider, request?.OutputTypes, ct);
             return Ok(result);
         }
         catch (InvalidOperationException ex) when (
@@ -265,14 +265,28 @@ public class GccController : ControllerBase
         });
     }
 
+    private static readonly HashSet<string> LongFormTypes =
+        new(StringComparer.OrdinalIgnoreCase) { "pillar", "blog", "techArticle" };
+
     private async Task<object> RunGenerateAsync(
         HttpGccRepository repo,
         GccGenerateService gen,
         GccCreateDto create,
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
+        IReadOnlyList<string>? outputTypes,
         CancellationToken ct)
     {
+        var requested = (outputTypes ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Multi-output: one long-form primary + derivatives, all persisted as artifacts.
+        if (requested.Count > 1)
+            return await RunMultiGenerateAsync(repo, gen, create, section, provider, requested, ct);
+
         var id = create.Id;
         if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase))
         {
@@ -301,6 +315,113 @@ public class GccController : ControllerBase
         var primaryVersion = await repo.CreateVersionAsync(
             new CreateGccArtifactVersionCommand(primaryArtifact.Id, bodyJson), ct);
         return new { artifact = primaryArtifact, version = primaryVersion };
+    }
+
+    /// <summary>
+    /// Multi-output generate: produce one long-form primary body, then derive every other
+    /// requested content type from it (email/social/ads via the repurpose-pack engine,
+    /// additional long-form via revise-rewrite, image prompts + tools directly). No content
+    /// approval required — derivatives run from the freshly generated body.
+    /// </summary>
+    private async Task<object> RunMultiGenerateAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        IReadOnlyList<string> requested,
+        CancellationToken ct)
+    {
+        var id = create.Id;
+        var created = new List<object>();
+
+        // Primary = first long-form requested (else the create's starting type). Its body seeds
+        // every document-derived derivative, so it must be a long-form document.
+        var primaryType = requested.FirstOrDefault(LongFormTypes.Contains) ?? create.StartingContentType;
+        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct);
+        var primaryArtifact = await repo.CreateArtifactAsync(
+            new CreateGccArtifactCommand(id, primaryType, create.Topic), ct);
+        var primaryVersion = await repo.CreateVersionAsync(
+            new CreateGccArtifactVersionCommand(primaryArtifact.Id, bodyJson), ct);
+        created.Add(new { artifact = primaryArtifact, version = primaryVersion });
+
+        var primaryIsDocument = LongFormTypes.Contains(primaryType);
+        var packChannels = new List<string>();
+        var emailIndex = 0;
+
+        foreach (var type in requested)
+        {
+            if (string.Equals(type, primaryType, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            switch (type.ToLowerInvariant())
+            {
+                case "linkedin": packChannels.Add("LinkedIn"); break;
+                case "x": packChannels.Add("X"); break;
+                case "instagram": packChannels.Add("Instagram"); break;
+                case "metaads": packChannels.Add("MetaAds"); break;
+                case "googleads": packChannels.Add("GoogleAds"); break;
+
+                case "email" when primaryIsDocument:
+                {
+                    var emailBody = await gen.GenerateRepurposePackAsync(bodyJson, ["Email"], provider, ct);
+                    var a = await repo.CreateArtifactAsync(
+                        new CreateGccArtifactCommand(id, "email", $"Email {++emailIndex}"), ct);
+                    var v = await repo.CreateVersionAsync(
+                        new CreateGccArtifactVersionCommand(a.Id, emailBody), ct);
+                    created.Add(new { artifact = a, version = v });
+                    break;
+                }
+
+                case "pillar" or "blog" or "techarticle" when primaryIsDocument:
+                {
+                    var rewritten = await gen.ReviseAsync(
+                        bodyJson, $"Rewrite as a standalone {type}.", "full", null, provider, ct);
+                    var a = await repo.CreateArtifactAsync(
+                        new CreateGccArtifactCommand(id, type, $"{create.Topic} — {type}"), ct);
+                    var v = await repo.CreateVersionAsync(
+                        new CreateGccArtifactVersionCommand(a.Id, rewritten), ct);
+                    created.Add(new { artifact = a, version = v });
+                    break;
+                }
+
+                case "imageprompt":
+                {
+                    var promptJson = await gen.GenerateImagePromptJsonAsync(
+                        create.Topic, create.Notes, primaryIsDocument ? bodyJson : null, provider, ct);
+                    var a = await repo.CreateArtifactAsync(
+                        new CreateGccArtifactCommand(id, "imagePrompt", $"{create.Topic} — Image prompt"), ct);
+                    var v = await repo.CreateVersionAsync(
+                        new CreateGccArtifactVersionCommand(a.Id, promptJson), ct);
+                    created.Add(new { artifact = a, version = v });
+                    break;
+                }
+
+                case "aitool":
+                {
+                    var (toolName, document, _, _) = await gen.GenerateToolAsync(
+                        create.Topic, create.Notes, primaryIsDocument ? bodyJson : null, provider, ct);
+                    var a = await repo.CreateArtifactAsync(
+                        new CreateGccArtifactCommand(id, "aiTool", toolName), ct);
+                    var v = await repo.CreateVersionAsync(
+                        new CreateGccArtifactVersionCommand(a.Id, GccGenerateService.SerializeDocument(document)), ct);
+                    created.Add(new { artifact = a, version = v });
+                    break;
+                }
+            }
+        }
+
+        if (packChannels.Count > 0 && primaryIsDocument)
+        {
+            var packJson = await gen.GenerateRepurposePackAsync(bodyJson, packChannels, provider, ct);
+            var a = await repo.CreateArtifactAsync(
+                new CreateGccArtifactCommand(id, "socialPack", "Social / ads pack"), ct);
+            var v = await repo.CreateVersionAsync(
+                new CreateGccArtifactVersionCommand(a.Id, packJson), ct);
+            created.Add(new { artifact = a, version = v });
+        }
+
+        return new { created };
     }
 
     private static List<string> ParseAiToolNames(string topic, string? notes)
@@ -1518,7 +1639,10 @@ public class GccController : ControllerBase
         Guid? SiteAnalysisId,
         SiteSectionContextDto? SiteSection);
 
-    public sealed record ProviderRequest(string? Provider, bool Async = false);
+    public sealed record ProviderRequest(
+        string? Provider,
+        bool Async = false,
+        IReadOnlyList<string>? OutputTypes = null);
     public sealed record ReviseRequest(string Feedback, string? Scope, string? SectionPath, string? Provider);
     public sealed record ApproveRequest(string? Notes);
     public sealed record MixRequest(

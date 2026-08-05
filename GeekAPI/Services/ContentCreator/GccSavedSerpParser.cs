@@ -180,32 +180,57 @@ public static partial class GccSavedSerpParser
 
         var organics = new List<SavedSerpOrganic>();
         var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        // Classic Google: a[href] under result blocks; also /url?q= redirect links.
-        var anchors = doc.DocumentNode.SelectNodes("//a[@href]");
         var position = 0;
-        if (anchors is not null)
+
+        // Modern Google wraps each organic/video result's title in an <h3> INSIDE the
+        // result anchor. The anchor's full InnerText also contains the source name,
+        // breadcrumb cite and "About this result" chrome, so use the <h3> text as the
+        // title — never the whole anchor (which routinely exceeds 200 chars and would
+        // cause every result to be skipped).
+        var titleAnchors = doc.DocumentNode.SelectNodes("//a[@href][.//h3]");
+        if (titleAnchors is not null)
         {
-            foreach (var a in anchors)
+            foreach (var a in titleAnchors)
             {
-                var href = a.GetAttributeValue("href", "");
-                var url = NormalizeGoogleHref(href);
-                if (url is null || !seenUrls.Add(url))
-                    continue;
-                if (IsGoogleChromeUrl(url))
+                var url = NormalizeGoogleHref(a.GetAttributeValue("href", ""));
+                if (url is null || IsGoogleChromeUrl(url) || !seenUrls.Add(url))
                     continue;
 
-                var title = CleanText(a.InnerText);
-                if (title.Length < 8 || title.Length > 200)
-                    continue;
-                // Skip nav chrome
-                if (title is "Cached" or "Similar" or "Translate this page")
+                var title = CleanText(a.SelectSingleNode(".//h3")?.InnerText);
+                if (title.Length < 5 || title.Length > 240)
                     continue;
 
                 position++;
                 organics.Add(new SavedSerpOrganic(Truncate(title, 200), url, position));
                 if (organics.Count >= 12)
                     break;
+            }
+        }
+
+        // Fallback for older / simplified markup: anchors whose own text is a plausible
+        // title (kept from the original heuristic, used only if the <h3> scan found none).
+        if (organics.Count == 0)
+        {
+            var anchors = doc.DocumentNode.SelectNodes("//a[@href]");
+            if (anchors is not null)
+            {
+                foreach (var a in anchors)
+                {
+                    var url = NormalizeGoogleHref(a.GetAttributeValue("href", ""));
+                    if (url is null || IsGoogleChromeUrl(url) || !seenUrls.Add(url))
+                        continue;
+
+                    var title = CleanText(a.InnerText);
+                    if (title.Length < 8 || title.Length > 200)
+                        continue;
+                    if (title is "Cached" or "Similar" or "Translate this page")
+                        continue;
+
+                    position++;
+                    organics.Add(new SavedSerpOrganic(Truncate(title, 200), url, position));
+                    if (organics.Count >= 12)
+                        break;
+                }
             }
         }
 
@@ -242,11 +267,17 @@ public static partial class GccSavedSerpParser
         var allText = CleanText(doc.DocumentNode.InnerText);
         related.AddRange(ExtractRelatedFromPlain(allText));
 
+        // Non-fatal: even with no organic pairs we still return PAA / related / headings,
+        // and hand-entry remains available. Mirror CWv2, which never hard-failed an upload.
+        var dePaa = DedupStrings(paa);
+        var deRelated = DedupStrings(related);
         string? warning = organics.Count == 0
-            ? "Could not extract organic title→URL pairs from this HTML (Google markup may have changed). Use hand-entry fallback."
+            ? (dePaa.Count > 0 || deRelated.Count > 0
+                ? "No organic title→URL pairs parsed (Google markup may have changed), but questions/related searches were extracted. Review below or hand-enter organics."
+                : "Could not parse this page. Re-save the Google results page (Ctrl+S → “Webpage, HTML Only”) or hand-enter the fields.")
             : null;
 
-        return (organics, DedupStrings(paa), DedupStrings(related), warning);
+        return (organics, dePaa, deRelated, warning);
     }
 
     private static (List<SavedSerpOrganic> Organics, List<string> Paa, List<string> Related, string? Warning)
