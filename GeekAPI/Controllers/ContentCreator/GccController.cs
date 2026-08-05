@@ -156,8 +156,9 @@ public class GccController : ControllerBase
 
     /// <summary>
     /// CWv2-style file upload: uploading IS the research action (no follow/process button).
-    /// HTML files (keyword-result / wiki / .edu / .gov) are parsed into unlimited quoteables and
-    /// merged into the create's ResearchJson, which Generate already reads. PeopleAlsoAsk .txt is
+    /// HTML files (ranking article / wiki / .edu / .gov) are parsed into unlimited quoteables and
+    /// merged into the create's ResearchJson, which Generate already reads. Google SERP HTML is not
+    /// accepted here — use POST serp/parse (SERP ingest on the brief). PeopleAlsoAsk .txt is
     /// parsed and returned for operator weeding (persisted into the brief by the client), not dumped.
     /// </summary>
     [HttpPost("creates/{id:guid}/keyword-sources")]
@@ -193,7 +194,8 @@ public class GccController : ControllerBase
         var sourceId = Guid.NewGuid().ToString("N");
         var page = GccArticleHtmlExtractor.Extract($"upload://{sourceId}/{file.FileName}", content);
         if (GccArticleHtmlExtractor.IsEmpty(page))
-            return BadRequest("No headings or paragraphs found in this file.");
+            return BadRequest(
+                "No article headings or paragraphs found. This upload expects saved ranking-article / Wikipedia / .edu / .gov HTML with h1–h3 and <p> text. Google search-results (SERP) HTML belongs in SERP ingest on the brief, not keyword-sources.");
 
         var existing = GccResearchFetchService.Deserialize(create.ResearchJson)
             ?? new GccResearchDocument(null, []);

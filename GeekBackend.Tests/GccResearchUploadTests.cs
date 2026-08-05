@@ -29,6 +29,24 @@ public class GccResearchUploadTests
     }
 
     [Fact]
+    public void ArticleExtractor_serp_like_html_without_article_markup_is_empty()
+    {
+        // Google SERP saves are mostly div chrome — no usable h1–h3 / <p> for quoteables.
+        const string html = """
+            <html><head><title>keyword - Google Search</title></head>
+            <body>
+              <div class="g"><a href="https://example.com"><span>Some Result Title</span></a></div>
+              <div role="heading">People also ask</div>
+              <span>A short snippet with no paragraph tag</span>
+            </body></html>
+            """;
+
+        var page = GccArticleHtmlExtractor.Extract("upload://abc/serp.html", html);
+
+        Assert.True(GccArticleHtmlExtractor.IsEmpty(page));
+    }
+
+    [Fact]
     public void ResearchDocument_with_sources_round_trips_and_is_unlimited()
     {
         // More than the old 3-quoteable cap — all must persist.
