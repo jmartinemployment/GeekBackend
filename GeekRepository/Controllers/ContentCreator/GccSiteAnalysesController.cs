@@ -21,6 +21,15 @@ public class GccSiteAnalysesController : ControllerBase
         return item is null ? NotFound() : Ok(item);
     }
 
+    [HttpGet("by-domain/{domain}")]
+    public async Task<ActionResult<GccSiteAnalysisDto>> GetLatestByDomain(string domain, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(domain))
+            return BadRequest("domain required");
+        var item = await _repo.GetLatestByDomainAsync(domain, ct);
+        return item is null ? NotFound() : Ok(item);
+    }
+
     [HttpPost]
     public async Task<ActionResult<GccSiteAnalysisDto>> Create(
         [FromBody] CreateGccSiteAnalysisCommand command,

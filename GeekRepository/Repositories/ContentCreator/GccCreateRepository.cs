@@ -47,6 +47,7 @@ public class GccCreateRepository : IGccCreateRepository
             StartingContentType = command.StartingContentType,
             Topic = command.Topic,
             Notes = command.Notes,
+            Department = string.IsNullOrWhiteSpace(command.Department) ? "marketing" : command.Department.Trim(),
             SiteAnalysisId = command.SiteAnalysisId,
             SiteSectionJson = command.SiteSectionJson,
             BriefJson = command.BriefJson,
@@ -107,5 +108,6 @@ public class GccCreateRepository : IGccCreateRepository
             entity.ResearchJson,
             entity.Status,
             entity.CreatedAtUtc,
-            entity.UpdatedAtUtc);
+            entity.UpdatedAtUtc,
+            string.IsNullOrWhiteSpace(entity.Department) ? "marketing" : entity.Department);
 }

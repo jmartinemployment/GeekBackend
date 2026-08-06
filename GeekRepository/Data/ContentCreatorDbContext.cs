@@ -30,6 +30,7 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(c => c.StartingContentType).IsRequired().HasMaxLength(64);
             entity.Property(c => c.Topic).IsRequired().HasMaxLength(1024);
             entity.Property(c => c.Notes).HasColumnType("text");
+            entity.Property(c => c.Department).IsRequired().HasMaxLength(64).HasDefaultValue("marketing");
             entity.Property(c => c.SiteSectionJson).HasColumnType("text");
             entity.Property(c => c.BriefJson).HasColumnName("brief_json").HasColumnType("text");
             entity.Property(c => c.ResearchJson).HasColumnName("research_json").HasColumnType("text");

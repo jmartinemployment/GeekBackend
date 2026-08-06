@@ -17,6 +17,15 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
         return e is null ? null : Map(e);
     }
 
+    public async Task<GccSiteAnalysisDto?> GetLatestByDomainAsync(string domain, CancellationToken ct = default)
+    {
+        var e = await _db.GccSiteAnalyses
+            .Where(x => x.Domain == domain)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        return e is null ? null : Map(e);
+    }
+
     public async Task<GccSiteAnalysisDto> CreateAsync(CreateGccSiteAnalysisCommand command, CancellationToken ct = default)
     {
         var e = new GccSiteAnalysis

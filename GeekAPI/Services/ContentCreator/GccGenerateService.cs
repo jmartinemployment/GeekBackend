@@ -102,10 +102,16 @@ public class GccGenerateService
         }
     }
 
+    /// <summary>
+    /// Site Analyzer <em>handoff</em> creates carry a site section with relatedPages — those must
+    /// stay non-empty. Domain-only grounding (SiteAnalysisId with no section) is allowed: Generate
+    /// uses page-section trees for "must mention" injection, not relatedPages.
+    /// </summary>
     public static void ValidateSiteSectionGate(Guid? siteAnalysisId, SiteSectionContextDto? section)
     {
         if (siteAnalysisId is null || siteAnalysisId == Guid.Empty) return;
-        if (section is null || section.RelatedPages is null || section.RelatedPages.Count == 0)
+        if (section is null) return;
+        if (section.RelatedPages is null || section.RelatedPages.Count == 0)
             throw new InvalidOperationException(
                 "Site Analyzer–started Generate requires non-empty relatedPages in site section context.");
     }
@@ -263,15 +269,104 @@ public class GccGenerateService
         });
     }
 
+    /// <summary>
+    /// Finds the heading node matching <paramref name="topic"/> anywhere in the site's persisted
+    /// page-section trees and renders its real sub-topics as a "must mention" prompt block.
+    /// Matching is deterministic, not probabilistic "fuzzy": (1) exact normalized-slug match,
+    /// (2) one slug containing the other. Neither hit → empty string, no injection — a wrong
+    /// match would actively misdirect Generate with confidently-wrong context, which is worse
+    /// than no grounding at all.
+    /// </summary>
+    public static string BuildMustMentionSubtopicsBlock(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string topic)
+    {
+        if (string.IsNullOrWhiteSpace(topic) || pageTrees.Count == 0)
+            return string.Empty;
+
+        var topicSlug = Slugify(topic);
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? exactMatch = null;
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? containsMatch = null;
+
+        foreach (var page in pageTrees)
+        {
+            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(page.TreeJson, JsonOpts);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (roots is null) continue;
+
+            foreach (var node in FlattenSections(roots))
+            {
+                var nodeSlug = Slugify(node.HeadingText);
+                if (string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase))
+                {
+                    exactMatch = node;
+                    break;
+                }
+
+                if (containsMatch is null &&
+                    (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
+                     || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase)))
+                {
+                    containsMatch = node;
+                }
+            }
+
+            if (exactMatch is not null) break;
+        }
+
+        var matched = exactMatch ?? containsMatch;
+        if (matched is null || matched.Children is null || matched.Children.Count == 0)
+            return string.Empty;
+
+        var subtopics = matched.Children
+            .Select(c => c.HeadingText)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (subtopics.Count == 0)
+            return string.Empty;
+
+        var lines = new List<string>
+        {
+            "=== MUST MENTION (real sub-topics from the analyzed site) ===",
+            $"This topic corresponds to a real page section (\"{matched.HeadingText}\") with the following real",
+            "sub-topics on the analyzed site. The draft must mention each of these:",
+        };
+        lines.AddRange(subtopics.Select(s => $"- {s}"));
+        return string.Join('\n', lines);
+    }
+
+    private static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(
+        IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node;
+            if (node.Children is null) continue;
+            foreach (var child in FlattenSections(node.Children))
+                yield return child;
+        }
+    }
+
     public async Task<string> GenerateStartingContentAsync(
         GccCreateDto create,
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? mustMentionBlock = null)
     {
         ValidateSiteSectionGate(create.SiteAnalysisId, section);
         ValidateBriefRequired(create);
         var briefBlock = BuildBriefAndResearchBlock(create);
+        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+            briefBlock = $"{briefBlock}\n\n{mustMentionBlock}";
 
         if (string.Equals(create.StartingContentType, "imagePrompt", StringComparison.OrdinalIgnoreCase))
         {
@@ -291,7 +386,7 @@ public class GccGenerateService
                 toolName: create.Topic,
                 brief: create.Notes,
                 sourceContext: $"{briefBlock}\n\n{BuildAudience(create, section)}",
-                department: "marketing",
+                department: string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department,
                 relatedArticleUrl: null,
                 provider: provider,
                 ct: ct);
@@ -314,7 +409,8 @@ public class GccGenerateService
         var context = BuildMinimalContext(
             create.Topic,
             sourceContext,
-            ToLlm(provider));
+            ToLlm(provider),
+            create.Department);
         var metadata = new BlogMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
@@ -633,16 +729,21 @@ public class GccGenerateService
     private static LlmProviderType ToLlm(ContentGeneratorProvider provider) =>
         provider == ContentGeneratorProvider.Anthropic ? LlmProviderType.Anthropic : LlmProviderType.OpenAi;
 
-    private ProjectGenerationContext BuildMinimalContext(string topic, string notes, LlmProviderType llmType)
+    private ProjectGenerationContext BuildMinimalContext(
+        string topic,
+        string notes,
+        LlmProviderType llmType,
+        string? department = null)
     {
         var paragraphs = string.IsNullOrWhiteSpace(notes)
             ? new List<string>()
             : new List<string> { notes };
+        var dept = string.IsNullOrWhiteSpace(department) ? "marketing" : department.Trim();
         return new ProjectGenerationContext(
             ProjectName: topic,
             ProjectUrl: _company.ArticleBaseUrl,
             TargetKeyword: topic,
-            Department: "marketing",
+            Department: dept,
             SiteName: _company.PublisherName,
             DetectedTone: "Professional, consultative",
             DetectedFocus: topic,

@@ -143,6 +143,13 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Department")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("marketing");
+
                     b.Property<string>("BriefJson")
                         .HasColumnType("text")
                         .HasColumnName("brief_json");

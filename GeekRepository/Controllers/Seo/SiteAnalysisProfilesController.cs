@@ -52,6 +52,7 @@ public sealed record ReplaceSchemaSignalsRequest(IReadOnlyList<SiteAnalysisProfi
 public sealed record ReplaceDiscoveredUrlsRequest(IReadOnlyList<SiteAnalysisProfileDiscoveredUrlWrite> Urls);
 public sealed record ReplaceNavigationLinksRequest(IReadOnlyList<SiteAnalysisProfileNavigationLinkWrite> Links);
 public sealed record ReplaceHeadingsRequest(IReadOnlyList<SiteAnalysisProfileHeadingWrite> Headings);
+public sealed record ReplacePageSectionTreesRequest(IReadOnlyList<SiteAnalysisPageSectionTreeWrite> Pages);
 public sealed record ReplaceTopicCandidateEvidenceRequest(IReadOnlyList<SiteAnalysisTopicCandidateEvidenceWrite> Evidence);
 public sealed record ReplacePageContentRequest(SiteAnalysisProfilePageContentWrite Content);
 public sealed record ReplaceSiteStructureRequest(SiteAnalysisProfileSiteStructureWrite Structure);
@@ -418,6 +419,33 @@ public sealed class SiteAnalysisProfilesController(
         if (denied is not null) return denied;
 
         var result = await profiles.GetHeadingsAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/page-section-trees")]
+    public async Task<IActionResult> ReplacePageSectionTrees(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplacePageSectionTreesRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplacePageSectionTreesAsync(profileId, body.Pages, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/page-section-trees")]
+    public async Task<IActionResult> GetPageSectionTrees(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetPageSectionTreesAsync(profileId, ct);
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 

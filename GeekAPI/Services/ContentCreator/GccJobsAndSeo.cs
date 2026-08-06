@@ -165,7 +165,9 @@ public class HttpGeekSeoSiteAnalyzerClient
             g.PillarTopic,
             g.IsQuickWin
                 ? "Quick-win topical gap"
-                : $"Gap under {g.PillarTopic} ({g.RecommendedFormat})",
+                : string.IsNullOrWhiteSpace(g.RecommendedFormat)
+                    ? $"Gap under {g.PillarTopic}"
+                    : $"Gap under {g.PillarTopic} ({g.RecommendedFormat})",
             string.Equals(g.RecommendedFormat, "pillar", StringComparison.OrdinalIgnoreCase)
                 || g.RecommendedFormat.Contains("pillar", StringComparison.OrdinalIgnoreCase))).ToList();
 
@@ -191,6 +193,26 @@ public class HttpGeekSeoSiteAnalyzerClient
             gaps,
             sitePages,
             neighbors));
+    }
+
+    /// <summary>
+    /// Real per-page heading+paragraph tree for this profile — the grounding data for the
+    /// "must mention real sub-topics" Generate injection (see <c>GccGenerateService</c>).
+    /// </summary>
+    public async Task<SeoCallResult<List<PageSectionTreeDto>>> GetPageSectionTreesAsync(
+        Guid profileId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<List<PageSectionTreeDto>>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<List<PageSectionTreeDto>>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to load page section trees.");
+
+        var result = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}/page-section-trees", bearerToken, ct);
+        if (!result.Ok) return SeoCallResult<List<PageSectionTreeDto>>.Fail(result.StatusCode, result.Error!);
+        var trees = JsonSerializer.Deserialize<List<PageSectionTreeDto>>(result.Body!, JsonOpts) ?? [];
+        return SeoCallResult<List<PageSectionTreeDto>>.Success(trees);
     }
 
     /// <summary>
@@ -394,6 +416,20 @@ public class HttpGeekSeoSiteAnalyzerClient
         string? SectionPath,
         string Reason,
         bool SuggestPillar);
+
+    /// <summary>One crawled page's real heading tree (mirrors Geek-SEO's PageSection JSON shape).</summary>
+    public sealed record PageSectionDto(
+        int Level,
+        string HeadingText,
+        List<string>? Paragraphs,
+        List<PageSectionDto>? Children);
+
+    public sealed record PageSectionTreeDto(
+        Guid Id,
+        Guid SiteAnalysisProfileId,
+        string PageUrl,
+        string TreeJson,
+        DateTimeOffset CreatedAtUtc);
 
     public sealed record SiteModelSnapshot(
         Guid SeoProjectId,
