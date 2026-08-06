@@ -30,6 +30,14 @@ public class GccSiteAnalysesController : ControllerBase
         return item is null ? NotFound() : Ok(item);
     }
 
+    /// <summary>Workflow unlock: true when any site analysis is ready.</summary>
+    [HttpGet("ready")]
+    public async Task<ActionResult<object>> HasReady(CancellationToken ct)
+    {
+        var ready = await _repo.HasReadyAsync(ct);
+        return Ok(new { ready });
+    }
+
     [HttpPost]
     public async Task<ActionResult<GccSiteAnalysisDto>> Create(
         [FromBody] CreateGccSiteAnalysisCommand command,

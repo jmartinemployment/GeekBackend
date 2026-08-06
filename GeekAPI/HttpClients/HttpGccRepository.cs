@@ -72,6 +72,14 @@ public class HttpGccRepository
     public Task<GccSiteAnalysisDto?> GetLatestSiteAnalysisByDomainAsync(string domain, CancellationToken ct = default) =>
         GetAsync<GccSiteAnalysisDto>($"repo/content-creator/site-analyses/by-domain/{Uri.EscapeDataString(domain)}", ct);
 
+    public async Task<bool> HasReadySiteAnalysisAsync(CancellationToken ct = default)
+    {
+        var body = await GetAsync<SiteAnalysisReadyDto>("repo/content-creator/site-analyses/ready", ct);
+        return body?.Ready == true;
+    }
+
+    private sealed record SiteAnalysisReadyDto(bool Ready);
+
     public Task<GccSiteAnalysisDto> CreateSiteAnalysisAsync(CreateGccSiteAnalysisCommand command, CancellationToken ct = default) =>
         PostAsync<GccSiteAnalysisDto>("repo/content-creator/site-analyses", command, ct);
 

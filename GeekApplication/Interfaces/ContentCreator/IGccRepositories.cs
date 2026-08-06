@@ -42,6 +42,8 @@ public interface IGccSiteAnalysisRepository
     /// re-analyze checks, so a create's SiteAnalysisId can point at one continuously-refreshed
     /// row per domain instead of accumulating orphaned duplicates.</summary>
     Task<GccSiteAnalysisDto?> GetLatestByDomainAsync(string domain, CancellationToken ct = default);
+    /// <summary>True when any site analysis row is status <c>ready</c> (Workflow unlock gate).</summary>
+    Task<bool> HasReadyAsync(CancellationToken ct = default);
     Task<GccSiteAnalysisDto> CreateAsync(CreateGccSiteAnalysisCommand command, CancellationToken ct = default);
     Task<GccSiteAnalysisDto?> UpdateAsync(Guid id, UpdateGccSiteAnalysisCommand command, CancellationToken ct = default);
     Task<IReadOnlyList<GccSiteFindingDto>> ReplaceFindingsAsync(

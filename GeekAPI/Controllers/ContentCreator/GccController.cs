@@ -1004,15 +1004,8 @@ public class GccController : ControllerBase
         var isStale = existing is not null && existing.CreatedAtUtc < new DateTime(2026, 8, 6, 0, 0, 0, DateTimeKind.Utc);
         if (isStale) existing = null;
 
-        // Not forcing a re-run and a run is already in flight or already ready: hand back the
-        // existing row rather than starting a duplicate — the operator explicitly opts into a
-        // fresh run via `force`, this endpoint never silently duplicates or silently skips.
-        if (existing is not null && !request.Force &&
-            existing.Status is "processing" or "ready")
-        {
-            return Ok(ToAnalyzeSiteResponse(existing));
-        }
-
+        // Content Creator Analyze always starts a new Geek-SEO crawl. Never return a cached
+        // ready/processing row as if a scan happened — gaps without a scan are invalid.
         var projectResult = await _seo.EnsureProjectForDomainAsync(request.Domain, bearer, ct);
         if (!projectResult.Ok || projectResult.Value is null)
         {
@@ -1076,6 +1069,14 @@ public class GccController : ControllerBase
             ? analysis.UpdatedAtUtc
             : (DateTime?)null,
     };
+
+    /// <summary>Workflow nav unlock: true when any Content Creator site analysis is ready.</summary>
+    [HttpGet("site-analyzer/ready")]
+    public async Task<IActionResult> SiteAnalyzerReady(CancellationToken ct)
+    {
+        var ready = await _repo.HasReadySiteAnalysisAsync(ct);
+        return Ok(new { ready });
+    }
 
     [HttpGet("site-analyzer/{id:guid}")]
     public async Task<IActionResult> GetSiteAnalysis(Guid id, CancellationToken ct)
