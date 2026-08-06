@@ -66,6 +66,11 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
         if (command.GapsJson is not null) e.GapsJson = command.GapsJson;
         if (command.SiteModelJson is not null) e.SiteModelJson = command.SiteModelJson;
         e.UpdatedAtUtc = DateTime.UtcNow;
+        // Re-analyze in place must restart the 15-minute clock — CreatedAtUtc is the
+        // processing timeout anchor. Leaving the original create time caused immediate
+        // "timed out after 15 minutes" on every force re-run of an older row.
+        if (string.Equals(command.Status, "processing", StringComparison.OrdinalIgnoreCase))
+            e.CreatedAtUtc = e.UpdatedAtUtc;
 
         await _db.SaveChangesAsync(ct);
         return Map(e);
