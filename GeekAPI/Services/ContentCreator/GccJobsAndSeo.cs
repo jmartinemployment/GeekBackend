@@ -161,7 +161,8 @@ public class HttpGeekSeoSiteAnalyzerClient
         var gapDtos = JsonSerializer.Deserialize<List<LiveGapDto>>(gapsRes.Body!, JsonOpts) ?? [];
         var gaps = gapDtos.Select(g => new LiveGap(
             g.SubtopicId == Guid.Empty ? Guid.NewGuid().ToString("N") : g.SubtopicId.ToString("D"),
-            string.IsNullOrWhiteSpace(g.TargetKeyword) ? g.SubtopicTitle : g.TargetKeyword,
+            // Display / create topic = heading only (not pillar+" "+heading concatenation).
+            string.IsNullOrWhiteSpace(g.SubtopicTitle) ? g.TargetKeyword : g.SubtopicTitle,
             g.PillarTopic,
             g.IsQuickWin
                 ? "Quick-win topical gap"
