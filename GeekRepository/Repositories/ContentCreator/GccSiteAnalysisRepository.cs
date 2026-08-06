@@ -26,6 +26,10 @@ public class GccSiteAnalysisRepository : IGccSiteAnalysisRepository
         return e is null ? null : Map(e);
     }
 
+    public Task<bool> HasReadyAsync(CancellationToken ct = default) =>
+        _db.GccSiteAnalyses.AsNoTracking()
+            .AnyAsync(x => x.Status == "ready", ct);
+
     public async Task<GccSiteAnalysisDto> CreateAsync(CreateGccSiteAnalysisCommand command, CancellationToken ct = default)
     {
         var e = new GccSiteAnalysis
