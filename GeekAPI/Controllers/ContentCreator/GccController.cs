@@ -30,9 +30,6 @@ public class GccController : ControllerBase
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
-    private readonly IProjectStore _projects;
-    private readonly IContentGenerationOrchestrator _orchestrator;
-    private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -41,9 +38,6 @@ public class GccController : ControllerBase
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
-        IProjectStore projects,
-        IContentGenerationOrchestrator orchestrator,
-        IOptions<CompanyProfileOptions> company,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -51,9 +45,6 @@ public class GccController : ControllerBase
         _seo = seo;
         _jobs = jobs;
         _user = user;
-        _projects = projects;
-        _orchestrator = orchestrator;
-        _company = company.Value;
         _logger = logger;
     }
 
@@ -66,12 +57,34 @@ public class GccController : ControllerBase
         return Ok(list);
     }
 
+    /// <summary>
+    /// Site grounding older than this many days requires an explicit operator choice before Generate
+    /// proceeds — re-analyze now, or acknowledge stale grounding. Never silently proceed.
+    /// </summary>
+    public const int SiteAnalysisStaleAfterDays = 30;
+
     [HttpGet("creates/{id:guid}")]
     public async Task<ActionResult<object>> GetCreate(Guid id, CancellationToken ct)
     {
         var create = await _repo.GetCreateAsync(id, ct);
         if (create is null) return NotFound();
         var artifacts = await _repo.ListArtifactsAsync(id, ct);
+
+        DateTime? lastAnalyzedAtUtc = null;
+        int? analysisAgeDays = null;
+        bool analysisStale = false;
+        if (create.SiteAnalysisId is Guid analysisId && analysisId != Guid.Empty)
+        {
+            var analysis = await _repo.GetSiteAnalysisAsync(analysisId, ct);
+            if (analysis is not null &&
+                string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            {
+                lastAnalyzedAtUtc = analysis.UpdatedAtUtc;
+                analysisAgeDays = Math.Max(0, (int)(DateTime.UtcNow - analysis.UpdatedAtUtc).TotalDays);
+                analysisStale = analysisAgeDays >= SiteAnalysisStaleAfterDays;
+            }
+        }
+
         return Ok(new
         {
             create.Id,
@@ -80,6 +93,7 @@ public class GccController : ControllerBase
             create.StartingContentType,
             create.Topic,
             create.Notes,
+            create.Department,
             create.SiteAnalysisId,
             create.SiteSectionJson,
             create.BriefJson,
@@ -87,6 +101,9 @@ public class GccController : ControllerBase
             create.Status,
             create.CreatedAtUtc,
             create.UpdatedAtUtc,
+            lastAnalyzedAtUtc,
+            analysisAgeDays,
+            analysisStale,
             artifacts,
         });
     }
@@ -294,7 +311,8 @@ public class GccController : ControllerBase
             request.Topic.Trim(),
             string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             request.SiteAnalysisId,
-            sectionJson), ct);
+            sectionJson,
+            Department: string.IsNullOrWhiteSpace(request.Department) ? "marketing" : request.Department.Trim()), ct);
 
         return CreatedAtAction(nameof(GetCreate), new { id = created.Id }, created);
     }
@@ -319,9 +337,17 @@ public class GccController : ControllerBase
         if (!TryParseProvider(request?.Provider, out var provider, out var err))
             return BadRequest(err);
 
+        // Staleness is an operator choice shown before Generate runs — never a silent proceed.
+        var staleGate = await TryBuildStaleGroundingResponseAsync(
+            create, request?.AcknowledgeStaleGrounding == true, ct);
+        if (staleGate is not null)
+            return Conflict(staleGate);
+
+        var mustMentionBlock = await TryBuildMustMentionBlockAsync(create, ct);
+
         try
         {
-            var result = await RunGenerateAsync(_repo, _gen, create, section, provider, request?.OutputTypes, ct);
+            var result = await RunGenerateAsync(_repo, _gen, create, section, provider, request?.OutputTypes, mustMentionBlock, ct);
             return Ok(result);
         }
         catch (InvalidOperationException ex) when (
@@ -370,6 +396,78 @@ public class GccController : ControllerBase
     private static readonly HashSet<string> LongFormTypes =
         new(StringComparer.OrdinalIgnoreCase) { "pillar", "blog", "techArticle" };
 
+    /// <summary>
+    /// Looks up this create's real "must mention" sub-topics from its analyzed site's persisted
+    /// page-section trees (see GccGenerateService.BuildMustMentionSubtopicsBlock). Returns null
+    /// (no injection, no failure) when there's no attached analysis, no bearer token, or no
+    /// deterministic slug match — a missing/uncertain match must never block Generate or inject
+    /// a guessed subtree.
+    /// </summary>
+    private async Task<string?> TryBuildMustMentionBlockAsync(GccCreateDto create, CancellationToken ct)
+    {
+        if (create.SiteAnalysisId is not Guid analysisId || analysisId == Guid.Empty)
+            return null;
+
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return null;
+
+        var analysis = await _repo.GetSiteAnalysisAsync(analysisId, ct);
+        if (analysis?.SeoProfileId is not Guid profileId)
+            return null;
+
+        var treesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
+        if (!treesResult.Ok || treesResult.Value is null || treesResult.Value.Count == 0)
+            return null;
+
+        var block = GccGenerateService.BuildMustMentionSubtopicsBlock(treesResult.Value, create.Topic);
+        return string.IsNullOrWhiteSpace(block) ? null : block;
+    }
+
+    /// <summary>
+    /// When the create's site analysis is older than <see cref="SiteAnalysisStaleAfterDays"/> and
+    /// the operator has not acknowledged stale grounding, returns a Conflict payload presenting
+    /// the choice. Null means Generate may proceed (no analysis, not stale, or acknowledged).
+    /// </summary>
+    private async Task<object?> TryBuildStaleGroundingResponseAsync(
+        GccCreateDto create,
+        bool acknowledged,
+        CancellationToken ct)
+    {
+        if (acknowledged) return null;
+        if (create.SiteAnalysisId is not Guid analysisId || analysisId == Guid.Empty)
+            return null;
+
+        var analysis = await _repo.GetSiteAnalysisAsync(analysisId, ct);
+        if (analysis is null) return null;
+        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var ageDays = Math.Max(0, (int)(DateTime.UtcNow - analysis.UpdatedAtUtc).TotalDays);
+        if (ageDays < SiteAnalysisStaleAfterDays)
+            return null;
+
+        return new
+        {
+            error = "stale_site_analysis",
+            message =
+                $"This site's analysis is {ageDays} day(s) old — re-analyze now, or proceed with stale grounding?",
+            lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
+            analysisAgeDays = ageDays,
+            staleAfterDays = SiteAnalysisStaleAfterDays,
+            domain = analysis.Domain,
+            siteAnalysisId = analysis.Id,
+        };
+    }
+
+    private string? GetBearerToken()
+    {
+        var auth = Request.Headers.Authorization.ToString();
+        return auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? auth["Bearer ".Length..].Trim()
+            : null;
+    }
+
     private async Task<object> RunGenerateAsync(
         HttpGccRepository repo,
         GccGenerateService gen,
@@ -377,6 +475,7 @@ public class GccController : ControllerBase
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         IReadOnlyList<string>? outputTypes,
+        string? mustMentionBlock,
         CancellationToken ct)
     {
         var requested = (outputTypes ?? [])
@@ -387,7 +486,7 @@ public class GccController : ControllerBase
 
         // Multi-output: one long-form primary + derivatives, all persisted as artifacts.
         if (requested.Count > 1)
-            return await RunMultiGenerateAsync(repo, gen, create, section, provider, requested, ct);
+            return await RunMultiGenerateAsync(repo, gen, create, section, provider, requested, mustMentionBlock, ct);
 
         var id = create.Id;
         if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase))
@@ -411,7 +510,7 @@ public class GccController : ControllerBase
             return new { created };
         }
 
-        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct);
+        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
         var primaryArtifact = await repo.CreateArtifactAsync(
             new CreateGccArtifactCommand(id, create.StartingContentType, create.Topic), ct);
         var primaryVersion = await repo.CreateVersionAsync(
@@ -432,6 +531,7 @@ public class GccController : ControllerBase
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         IReadOnlyList<string> requested,
+        string? mustMentionBlock,
         CancellationToken ct)
     {
         var id = create.Id;
@@ -440,7 +540,7 @@ public class GccController : ControllerBase
         // Primary = first long-form requested (else the create's starting type). Its body seeds
         // every document-derived derivative, so it must be a long-form document.
         var primaryType = requested.FirstOrDefault(LongFormTypes.Contains) ?? create.StartingContentType;
-        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct);
+        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
         var primaryArtifact = await repo.CreateArtifactAsync(
             new CreateGccArtifactCommand(id, primaryType, create.Topic), ct);
         var primaryVersion = await repo.CreateVersionAsync(
@@ -818,516 +918,6 @@ public class GccController : ControllerBase
         return Ok(new { created });
     }
 
-    /// <summary>
-    /// Content Creator addition on CWV2 projects: generate tool pages from human-supplied names + brief
-    /// using CWV2 tool prompts — does <b>not</b> require a pillar Tools section.
-    /// </summary>
-    [HttpPost("projects/{projectId:guid}/tools-from-names")]
-    public async Task<IActionResult> GenerateToolsFromNames(
-        Guid projectId,
-        [FromBody] ToolsFromNamesRequest? request,
-        CancellationToken ct)
-    {
-        if (request is null)
-            return BadRequest("Body required");
-
-        var names = (request.ToolNames ?? Array.Empty<string>())
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Select(n => n.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(5)
-            .ToList();
-        if (names.Count == 0)
-            return BadRequest("toolNames required");
-        if (string.IsNullOrWhiteSpace(request.Brief))
-            return BadRequest("brief required");
-
-        if (!TryParseProvider(request.Provider, out var provider, out var err))
-            return BadRequest(err);
-
-        var project = await _projects.GetAsync(projectId, ct);
-        if (project is null)
-            return NotFound();
-
-        var usedSlugs = new HashSet<string>(
-            project.GeneratedContents
-                .Where(c => c.ContentType == GeneratedContentType.ToolPost)
-                .Select(c => c.Slug),
-            StringComparer.OrdinalIgnoreCase);
-
-        var order = project.GeneratedContents.Count(c => c.ContentType == GeneratedContentType.ToolPost);
-        try
-        {
-            foreach (var name in names)
-            {
-                var relatedPillar = project.GeneratedContents.FirstOrDefault(c =>
-                    c.ContentType == GeneratedContentType.TechnicalArticle
-                    && !string.IsNullOrWhiteSpace(c.Slug));
-                var relatedArticleUrl = relatedPillar is null
-                    ? null
-                    : $"{_company.ArticleBaseUrl.TrimEnd('/')}/{project.Department}/{relatedPillar.Slug}";
-
-                var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(name), usedSlugs);
-                order += 1;
-
-                var tool = await _gen.GenerateToolPageAsync(
-                    name,
-                    request.Brief,
-                    sourceContext: null,
-                    department: project.Department,
-                    relatedArticleUrl: relatedArticleUrl,
-                    provider: provider,
-                    ct: ct,
-                    preferredSlug: slug);
-
-                var meta = tool.Metadata;
-
-                // Replace existing tool with same slug if regenerating.
-                var existing = project.GeneratedContents
-                    .FirstOrDefault(c =>
-                        c.ContentType == GeneratedContentType.ToolPost
-                        && string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase));
-                if (existing is not null)
-                    project.GeneratedContents.Remove(existing);
-
-                project.GeneratedContents.Add(new GeneratedContent
-                {
-                    ProjectId = project.Id,
-                    ContentType = GeneratedContentType.ToolPost,
-                    Title = tool.Name,
-                    DisplayTitle = tool.Name,
-                    Slug = slug,
-                    Summary = meta.Summary,
-                    MainSummary = meta.MainSummary,
-                    HeroSummary = meta.HeroSummary,
-                    HomeSummary = meta.HomeSummary,
-                    BlogSummary = meta.BlogSummary,
-                    DepartmentListExcerpt = meta.DepartmentListExcerpt,
-                    ToolPageExcerpt = meta.ToolPageExcerpt,
-                    AdvertisingSummary = meta.AdvertisingSummary,
-                    MetaDescription = meta.MetaDescription,
-                    Body = tool.Document,
-                    LedeType = LedeType.Summary,
-                    JsonLdSchema = tool.JsonLdSchema,
-                    RelatedArticleUrl = tool.RelatedArticleUrl,
-                    SourceAppName = tool.Name,
-                    SourceAppOrder = order,
-                    WordCount = tool.WordCount,
-                    GeneratedByProvider = provider == ContentGeneratorProvider.Anthropic
-                        ? LlmProviderType.Anthropic
-                        : LlmProviderType.OpenAi,
-                    GeneratedByModel = provider.ToString(),
-                });
-            }
-
-            project.UpdatedAtUtc = DateTime.UtcNow;
-            await _projects.SaveAsync(project, ct);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "Tools-from-names validation failed for {ProjectId}", projectId);
-            return BadRequest(ex.Message);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Tools-from-names LLM failed for {ProjectId}", projectId);
-            return StatusCode(502, "LLM provider request failed");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Tools-from-names failed for {ProjectId}", projectId);
-            return StatusCode(502, ex.Message);
-        }
-
-        var set = GeneratedContentSetAssembler.Assemble(
-            project,
-            project.Department,
-            _company.ArticleBaseUrl,
-            _company.BlogBaseUrl,
-            _company.ToolBaseUrl);
-        return Ok(set);
-    }
-
-    /// <summary>
-    /// Plan §7 social/ads pack: one LLM call for chosen channel slots (counts), not one call per post.
-    /// Maps Facebook/LinkedIn variants onto CWV2 social rows; full pack JSON returned for other channels.
-    /// </summary>
-    [HttpPost("projects/{projectId:guid}/social-pack")]
-    public async Task<IActionResult> GenerateSocialPack(
-        Guid projectId,
-        [FromBody] SocialPackRequest? request,
-        CancellationToken ct)
-    {
-        request ??= new SocialPackRequest(1, 1, 0, 0, 0, 0, null);
-        if (!TryParseProvider(request.Provider, out var provider, out var err))
-            return BadRequest(err);
-
-        var channels = BuildPackChannels(request);
-        if (channels.Count == 0)
-            return BadRequest("Select at least one social/ads channel count.");
-
-        var project = await _projects.GetAsync(projectId, ct);
-        if (project is null) return NotFound();
-
-        GeneratedContent? pillar = project.GeneratedContents.FirstOrDefault(c =>
-            c.ContentType == GeneratedContentType.TechnicalArticle
-            && c.Body is not null
-            && c.WordCount >= 200);
-        GeneratedContent? blog = project.GeneratedContents.FirstOrDefault(c =>
-            c.ContentType == GeneratedContentType.BlogPost
-            && c.Body is not null
-            && c.WordCount >= 100);
-        var sourceRow = pillar ?? blog;
-        if (sourceRow?.Body is null)
-            return BadRequest("Generate a pillar body or a blog before social/ads pack.");
-
-        var sourceJson = JsonSerializer.Serialize(new
-        {
-            title = sourceRow.DisplayTitle ?? sourceRow.Title,
-            body = ContentDocumentText.Flatten(sourceRow.Body),
-        }, JsonOpts);
-
-        var slugBase = sourceRow.Slug;
-        var sourceUrl = pillar is not null
-            ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{project.Department}/{slugBase}"
-            : $"{_company.BlogBaseUrl.TrimEnd('/')}/{project.Department}/{slugBase}";
-
-        try
-        {
-            var packJson = await _gen.GenerateRepurposePackAsync(sourceJson, channels, provider, ct);
-            var variants = GccGenerateService.ParsePackVariants(packJson);
-
-            // Replace prior CWV2 social rows (pack is authoritative for this run).
-            foreach (var existing in project.GeneratedContents
-                         .Where(c => c.ContentType is GeneratedContentType.SocialFacebook
-                             or GeneratedContentType.SocialLinkedIn)
-                         .ToList())
-            {
-                project.GeneratedContents.Remove(existing);
-            }
-
-            var fb = variants.FirstOrDefault(v =>
-                v.Channel.Contains("facebook", StringComparison.OrdinalIgnoreCase)
-                || v.Channel.Equals("Meta", StringComparison.OrdinalIgnoreCase));
-            var li = variants.FirstOrDefault(v =>
-                v.Channel.Contains("linkedin", StringComparison.OrdinalIgnoreCase));
-
-            if (fb is not null)
-            {
-                project.GeneratedContents.Add(new GeneratedContent
-                {
-                    ProjectId = project.Id,
-                    ContentType = GeneratedContentType.SocialFacebook,
-                    Title = string.IsNullOrWhiteSpace(fb.Title)
-                        ? $"{sourceRow.Title} (Facebook)"
-                        : fb.Title,
-                    Slug = $"{slugBase}-facebook",
-                    Body = ContentDocumentText.FromPlainText(FormatPackBody(fb)),
-                    RelatedArticleUrl = sourceUrl,
-                    MetaDescription = TruncateMeta(fb.Cta),
-                    GeneratedByProvider = ToLlm(provider),
-                    GeneratedByModel = provider.ToString(),
-                });
-            }
-
-            if (li is not null)
-            {
-                project.GeneratedContents.Add(new GeneratedContent
-                {
-                    ProjectId = project.Id,
-                    ContentType = GeneratedContentType.SocialLinkedIn,
-                    Title = string.IsNullOrWhiteSpace(li.Title)
-                        ? $"{sourceRow.Title} (LinkedIn)"
-                        : li.Title,
-                    Slug = $"{slugBase}-linkedin",
-                    Body = ContentDocumentText.FromPlainText(FormatPackBody(li)),
-                    RelatedArticleUrl = sourceUrl,
-                    // Full pack retained for Mix channels beyond FB/LI (inspectable, not invented later).
-                    MetaDescription = TruncateMeta(packJson),
-                    GeneratedByProvider = ToLlm(provider),
-                    GeneratedByModel = provider.ToString(),
-                });
-            }
-            else
-            {
-                // Pack had no LinkedIn slot — still persist pack JSON on a LinkedIn-typed row for retrieval.
-                var summary = string.Join(
-                    "\n\n---\n\n",
-                    variants.Select(v => $"[{v.Channel}]\n{FormatPackBody(v)}"));
-                project.GeneratedContents.Add(new GeneratedContent
-                {
-                    ProjectId = project.Id,
-                    ContentType = GeneratedContentType.SocialLinkedIn,
-                    Title = $"{sourceRow.Title} (Social pack)",
-                    Slug = $"{slugBase}-social-pack",
-                    Body = ContentDocumentText.FromPlainText(summary),
-                    RelatedArticleUrl = sourceUrl,
-                    MetaDescription = TruncateMeta(packJson),
-                    GeneratedByProvider = ToLlm(provider),
-                    GeneratedByModel = provider.ToString(),
-                });
-            }
-
-            project.UpdatedAtUtc = DateTime.UtcNow;
-            await _projects.SaveAsync(project, ct);
-
-            var set = GeneratedContentSetAssembler.Assemble(
-                project,
-                project.Department,
-                _company.ArticleBaseUrl,
-                _company.BlogBaseUrl,
-                _company.ToolBaseUrl);
-            return Ok(new
-            {
-                set,
-                packJson,
-                channels,
-                variantCount = variants.Count,
-                llmCalls = 1,
-            });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Social pack LLM failed for {ProjectId}", projectId);
-            return StatusCode(502, "LLM provider request failed");
-        }
-    }
-
-    private static List<string> BuildPackChannels(SocialPackRequest request)
-    {
-        var channels = new List<string>();
-        void Add(string name, int count)
-        {
-            for (var i = 0; i < Math.Max(0, count); i++)
-                channels.Add(name);
-        }
-
-        Add("Facebook", request.FacebookCount);
-        Add("LinkedIn", request.LinkedInCount);
-        Add("X", request.XCount);
-        Add("Instagram", request.InstagramCount);
-        Add("MetaAds", request.MetaAdsCount);
-        Add("GoogleAds", request.GoogleAdsCount);
-        return channels;
-    }
-
-    private static string FormatPackBody(GccGenerateService.PackVariant v)
-    {
-        var sb = new System.Text.StringBuilder();
-        if (!string.IsNullOrWhiteSpace(v.Headline))
-            sb.AppendLine(v.Headline);
-        sb.AppendLine(v.Body);
-        if (!string.IsNullOrWhiteSpace(v.Cta))
-            sb.AppendLine(v.Cta);
-        return sb.ToString().Trim();
-    }
-
-    private static string? TruncateMeta(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        return value.Length <= 4000 ? value : value[..4000];
-    }
-
-    private static LlmProviderType ToLlm(ContentGeneratorProvider provider) =>
-        provider == ContentGeneratorProvider.Anthropic
-            ? LlmProviderType.Anthropic
-            : LlmProviderType.OpenAi;
-
-    /// <summary>
-    /// Names operators can pick for AI Tools — from pillar Tools section and existing tool drafts.
-    /// </summary>
-    [HttpGet("projects/{projectId:guid}/tool-name-candidates")]
-    public async Task<IActionResult> ToolNameCandidates(Guid projectId, CancellationToken ct)
-    {
-        var project = await _projects.GetAsync(projectId, ct);
-        if (project is null)
-            return NotFound();
-
-        var names = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        void Add(string? name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return;
-            var trimmed = name.Trim();
-            if (seen.Add(trimmed)) names.Add(trimmed);
-        }
-
-        var pillar = project.GeneratedContents.FirstOrDefault(c =>
-            c.ContentType == GeneratedContentType.TechnicalArticle
-            && c.Body is not null
-            && c.WordCount >= 200);
-        if (pillar is not null)
-        {
-            foreach (var app in ToolSectionExtractor.ExtractApplications(pillar.Body, pillar.SectionOutline))
-                Add(app.Name);
-        }
-
-        foreach (var tool in project.GeneratedContents
-                     .Where(c => c.ContentType == GeneratedContentType.ToolPost)
-                     .OrderBy(c => c.SourceAppOrder ?? int.MaxValue))
-        {
-            Add(string.IsNullOrWhiteSpace(tool.DisplayTitle) ? tool.Title : tool.DisplayTitle);
-            Add(tool.SourceAppName);
-        }
-
-        // Desired headings often list tool names before a pillar exists.
-        if (!string.IsNullOrWhiteSpace(project.Notes))
-        {
-            foreach (var part in project.Notes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                Add(part);
-        }
-
-        return Ok(new { names = names.Take(12).ToList() });
-    }
-
-    /// <summary>Image-prompt rows on a CWV2 project (for Revise picker).</summary>
-    [HttpGet("projects/{projectId:guid}/image-prompt-rows")]
-    public async Task<IActionResult> ImagePromptRows(Guid projectId, CancellationToken ct)
-    {
-        var project = await _projects.GetAsync(projectId, ct);
-        if (project is null)
-            return NotFound();
-
-        var rows = project.GeneratedContents
-            .Where(c => c.ContentType is GeneratedContentType.ImagePromptSection
-                or GeneratedContentType.ImagePromptPillarFigure
-                or GeneratedContentType.ImagePromptBlogFigure)
-            .OrderBy(c => c.Title)
-            .Select(c => new
-            {
-                slug = c.Slug,
-                title = c.Title,
-                contentType = c.ContentType.ToString(),
-                promptPreview = ContentDocumentText.Flatten(c.Body),
-            })
-            .ToList();
-
-        return Ok(new { rows });
-    }
-
-    /// <summary>
-    /// Content Creator addition: operator Revise (Full/Section) on a CWV2 project draft.
-    /// New body replaces the selected GeneratedContent row (not a multi-turn chat).
-    /// </summary>
-    [HttpPost("projects/{projectId:guid}/revise")]
-    public async Task<IActionResult> ReviseProjectContent(
-        Guid projectId,
-        [FromBody] ProjectReviseRequest? request,
-        CancellationToken ct)
-    {
-        if (request is null || string.IsNullOrWhiteSpace(request.Feedback))
-            return BadRequest("feedback required");
-        if (string.IsNullOrWhiteSpace(request.ContentType) && string.IsNullOrWhiteSpace(request.Slug))
-            return BadRequest("contentType or slug required");
-        if (!TryParseProvider(request.Provider, out var provider, out var err))
-            return BadRequest(err);
-
-        var project = await _projects.GetAsync(projectId, ct);
-        if (project is null)
-            return NotFound();
-
-        GeneratedContent? row = null;
-        if (!string.IsNullOrWhiteSpace(request.Slug))
-        {
-            row = project.GeneratedContents.FirstOrDefault(c =>
-                string.Equals(c.Slug, request.Slug, StringComparison.OrdinalIgnoreCase));
-        }
-        else if (Enum.TryParse<GeneratedContentType>(request.ContentType, ignoreCase: true, out var contentType))
-        {
-            row = contentType switch
-            {
-                GeneratedContentType.ToolPost when !string.IsNullOrWhiteSpace(request.ToolSlug) =>
-                    project.GeneratedContents.FirstOrDefault(c =>
-                        c.ContentType == GeneratedContentType.ToolPost
-                        && string.Equals(c.Slug, request.ToolSlug, StringComparison.OrdinalIgnoreCase)),
-                GeneratedContentType.ToolPost =>
-                    project.GeneratedContents.FirstOrDefault(c => c.ContentType == GeneratedContentType.ToolPost),
-                _ => project.GeneratedContents.FirstOrDefault(c => c.ContentType == contentType),
-            };
-        }
-        else
-        {
-            return BadRequest($"Unknown contentType '{request.ContentType}'.");
-        }
-
-        if (row is null)
-            return NotFound("No matching draft on this project.");
-
-        // Image-prompt rows store prompt JSON, not a body document.
-        var isImagePrompt = row.ContentType is GeneratedContentType.ImagePromptSection
-            or GeneratedContentType.ImagePromptPillarFigure
-            or GeneratedContentType.ImagePromptBlogFigure;
-
-        if (!isImagePrompt && row.Body is null)
-            return BadRequest("Selected draft has no body document to revise.");
-
-        try
-        {
-            var notes = request.Feedback.Trim();
-            if (string.Equals(request.Scope, "section", StringComparison.OrdinalIgnoreCase))
-            {
-                if (string.IsNullOrWhiteSpace(request.SectionPath))
-                    return BadRequest("sectionPath is required when scope is section.");
-                notes =
-                    $"Revise ONLY the section at path “{request.SectionPath}”. Leave all other sections unchanged.\n\n{notes}";
-            }
-
-            // CWV2 orchestrator with revisionNotes — same path as review rewrite. Not CWV3.
-            _ = provider; // provider selection remains on the project PreferredProvider / CWV2 stack
-            GeneratedContentSet set;
-            if (isImagePrompt)
-            {
-                set = await _orchestrator.GenerateImagePromptsAsync(
-                    projectId,
-                    sectionHeadingsToTest: string.IsNullOrWhiteSpace(row.Title)
-                        ? null
-                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Title },
-                    cancellationToken: ct);
-            }
-            else
-            {
-                set = row.ContentType switch
-                {
-                    GeneratedContentType.TechnicalArticle =>
-                        await _orchestrator.GeneratePillarBodyAsync(projectId, notes, ct),
-                    GeneratedContentType.BlogPost =>
-                        await _orchestrator.GenerateBlogAsync(projectId, notes, ct),
-                    GeneratedContentType.ToolPost =>
-                        await _orchestrator.GenerateToolPagesAsync(
-                            projectId,
-                            notes,
-                            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Slug },
-                            ct),
-                    _ => throw new InvalidOperationException(
-                        $"Revise is not supported for content type '{row.ContentType}'."),
-                };
-            }
-
-            return Ok(set);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Project revise LLM failed for {ProjectId}", projectId);
-            return StatusCode(502, "LLM provider request failed");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Project revise failed for {ProjectId}", projectId);
-            return StatusCode(502, ex.Message);
-        }
-    }
-
-    // ParseToolBodyJson removed — tools-from-names keeps the CWV2 ContentDocument in memory.
-
     [HttpPost("image-prompts/generate")]
     public async Task<ActionResult<object>> GenerateImagePrompt([FromBody] ImagePromptRequest request, CancellationToken ct)
     {
@@ -1382,35 +972,15 @@ public class GccController : ControllerBase
         }
     }
 
-    [HttpPost("projects/{projectId:guid}/content-approval")]
-    public async Task<IActionResult> SetContentApproval(
-        Guid projectId,
-        [FromBody] ContentApprovalRequest? request,
-        CancellationToken ct)
-    {
-        var project = await _projects.GetAsync(projectId, ct);
-        if (project is null) return NotFound();
-
-        var approve = request?.Approved ?? true;
-        project.ContentApprovedAtUtc = approve ? DateTime.UtcNow : null;
-        project.UpdatedAtUtc = DateTime.UtcNow;
-        await _projects.SaveAsync(project, ct);
-        return Ok(new { projectId, contentApprovedAtUtc = project.ContentApprovedAtUtc });
-    }
-
-    [HttpGet("projects/{projectId:guid}/content-approval")]
-    public async Task<IActionResult> GetContentApproval(Guid projectId, CancellationToken ct)
-    {
-        var project = await _projects.GetAsync(projectId, ct);
-        if (project is null) return NotFound();
-        return Ok(new
-        {
-            projectId,
-            approved = project.ContentApprovedAtUtc is not null,
-            contentApprovedAtUtc = project.ContentApprovedAtUtc,
-        });
-    }
-
+    /// <summary>
+    /// Starts (or re-runs) a Site Analysis for a domain. Domains aren't static, so this is not
+    /// first-time-only: at most one <see cref="GccSiteAnalysisDto"/> row is kept per normalized
+    /// domain — a bare call reuses an existing ready/processing analysis rather than starting a
+    /// duplicate; <c>force: true</c> explicitly re-runs it in place (same row, fresh crawl),
+    /// which is how a stale analysis gets refreshed. <c>lastAnalyzedAtUtc</c> in the response
+    /// (set once a run reaches "ready") is the staleness signal the create-start UI/Generate use
+    /// to decide whether to prompt for re-analysis — never decided silently here.
+    /// </summary>
     [HttpPost("site-analyzer/analyze")]
     public async Task<IActionResult> AnalyzeSite(
         [FromBody] AnalyzeSiteRequest request,
@@ -1425,6 +995,18 @@ public class GccController : ControllerBase
             : null;
         if (string.IsNullOrWhiteSpace(bearer))
             return Unauthorized(new { error = "Bearer token required to run site analysis" });
+
+        var normalizedDomain = HttpGeekSeoSiteAnalyzerClient.NormalizeHost(request.Domain);
+        var existing = await _repo.GetLatestSiteAnalysisByDomainAsync(normalizedDomain, ct);
+
+        // Not forcing a re-run and a run is already in flight or already ready: hand back the
+        // existing row rather than starting a duplicate — the operator explicitly opts into a
+        // fresh run via `force`, this endpoint never silently duplicates or silently skips.
+        if (existing is not null && !request.Force &&
+            existing.Status is "processing" or "ready")
+        {
+            return Ok(ToAnalyzeSiteResponse(existing));
+        }
 
         var projectResult = await _seo.EnsureProjectForDomainAsync(request.Domain, bearer, ct);
         if (!projectResult.Ok || projectResult.Value is null)
@@ -1446,28 +1028,49 @@ public class GccController : ControllerBase
 
         var emptyPayload = new SiteAnalysisStoredPayload(
             [], [], [], startResult.Value, project.Id);
+        var emptyGapsJson = GccGenerateService.SerializeAnalysisPayload(emptyPayload);
+        var emptySiteModelJson = SerializeSiteModel([], []);
 
-        var persisted = await _repo.CreateSiteAnalysisAsync(
-            new CreateGccSiteAnalysisCommand(
-                Id: null,
-                Domain: HttpGeekSeoSiteAnalyzerClient.NormalizeHost(request.Domain),
-                SeedTopic: request.SeedTopic,
-                GapsJson: GccGenerateService.SerializeAnalysisPayload(emptyPayload),
-                Status: "processing",
-                SeoProjectId: project.Id,
-                SeoProfileId: startResult.Value,
-                SiteModelJson: SerializeSiteModel([], [])),
-            ct);
-
-        return Ok(new
+        GccSiteAnalysisDto persisted;
+        if (existing is not null)
         {
-            id = persisted.Id,
-            domain = persisted.Domain,
-            status = persisted.Status,
-            seoProjectId = persisted.SeoProjectId,
-            seoProfileId = persisted.SeoProfileId,
-        });
+            // Re-analyze in place: same row/Id, so a create's SiteAnalysisId keeps pointing at
+            // one continuously-refreshed analysis per domain instead of an orphaned duplicate.
+            persisted = await _repo.UpdateSiteAnalysisAsync(
+                existing.Id,
+                new UpdateGccSiteAnalysisCommand(
+                    "processing", project.Id, startResult.Value, null, emptyGapsJson, emptySiteModelJson),
+                ct);
+        }
+        else
+        {
+            persisted = await _repo.CreateSiteAnalysisAsync(
+                new CreateGccSiteAnalysisCommand(
+                    Id: null,
+                    Domain: normalizedDomain,
+                    SeedTopic: request.SeedTopic,
+                    GapsJson: emptyGapsJson,
+                    Status: "processing",
+                    SeoProjectId: project.Id,
+                    SeoProfileId: startResult.Value,
+                    SiteModelJson: emptySiteModelJson),
+                ct);
+        }
+
+        return Ok(ToAnalyzeSiteResponse(persisted));
     }
+
+    private static object ToAnalyzeSiteResponse(GccSiteAnalysisDto analysis) => new
+    {
+        id = analysis.Id,
+        domain = analysis.Domain,
+        status = analysis.Status,
+        seoProjectId = analysis.SeoProjectId,
+        seoProfileId = analysis.SeoProfileId,
+        lastAnalyzedAtUtc = string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase)
+            ? analysis.UpdatedAtUtc
+            : (DateTime?)null,
+    };
 
     [HttpGet("site-analyzer/{id:guid}")]
     public async Task<IActionResult> GetSiteAnalysis(Guid id, CancellationToken ct)
@@ -1494,6 +1097,7 @@ public class GccController : ControllerBase
                 analysis.Id,
                 analysis.Domain,
                 analysis.Status,
+                lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
                 gaps = readyGaps,
                 findings = persistedFindings,
             });
@@ -1578,7 +1182,15 @@ public class GccController : ControllerBase
             new CreateGccSiteFindingsCommand(CreateContentGapFindings(analysis.Id, gaps)),
             ct);
 
-        return Ok(new { analysis.Id, analysis.Domain, analysis.Status, gaps, findings });
+        return Ok(new
+        {
+            analysis.Id,
+            analysis.Domain,
+            analysis.Status,
+            lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
+            gaps,
+            findings,
+        });
     }
 
     /// <summary>
@@ -1678,14 +1290,6 @@ public class GccController : ControllerBase
         return Ok(parsed);
     }
 
-    private string? GetBearerToken()
-    {
-        var auth = Request.Headers.Authorization.ToString();
-        return auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? auth["Bearer ".Length..].Trim()
-            : null;
-    }
-
     private async Task<GccSiteAnalysisDto> MarkAnalysisFailedAsync(
         GccSiteAnalysisDto analysis,
         string error,
@@ -1739,12 +1343,14 @@ public class GccController : ControllerBase
         string Topic,
         string? Notes,
         Guid? SiteAnalysisId,
-        SiteSectionContextDto? SiteSection);
+        SiteSectionContextDto? SiteSection,
+        string? Department = null);
 
     public sealed record ProviderRequest(
         string? Provider,
         bool Async = false,
-        IReadOnlyList<string>? OutputTypes = null);
+        IReadOnlyList<string>? OutputTypes = null,
+        bool AcknowledgeStaleGrounding = false);
     public sealed record ReviseRequest(string Feedback, string? Scope, string? SectionPath, string? Provider);
     public sealed record ApproveRequest(string? Notes);
     public sealed record MixRequest(
@@ -1767,34 +1373,13 @@ public class GccController : ControllerBase
         IReadOnlyList<string>? SelectedNames,
         Guid CreateId,
         string? Provider);
-    public sealed record ToolsFromNamesRequest(
-        IReadOnlyList<string>? ToolNames,
-        string Brief,
-        string? Provider);
-    public sealed record SocialPackRequest(
-        int FacebookCount = 0,
-        int LinkedInCount = 0,
-        int XCount = 0,
-        int InstagramCount = 0,
-        int MetaAdsCount = 0,
-        int GoogleAdsCount = 0,
-        string? Provider = null);
-    public sealed record ProjectReviseRequest(
-        string? ContentType,
-        string Feedback,
-        string? Scope,
-        string? SectionPath,
-        string? ToolSlug,
-        string? Slug,
-        string? Provider);
     public sealed record ImagePromptRequest(
         Guid? CreateId,
         string? Topic,
         string? Notes,
         Guid? SourceArtifactId,
         string? Provider);
-    public sealed record ContentApprovalRequest(bool Approved = true);
-    public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null);
+    public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null, bool Force = false);
     public sealed record UpdateBriefResearchRequest(string? BriefJson, string? ResearchJson);
     public sealed record ParseSavedSerpRequest(string Content, string? TargetKeyword = null);
 }

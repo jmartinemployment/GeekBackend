@@ -8,6 +8,11 @@ public class GccCreate
     public string StartingContentType { get; set; } = "long-form";
     public string Topic { get; set; } = string.Empty;
     public string? Notes { get; set; }
+    /// <summary>
+    /// Per-create department slug for canonical URL / JSON-LD / meta (replaces CWV2 Project.Department).
+    /// Describes what's being written, not which domain was analyzed.
+    /// </summary>
+    public string Department { get; set; } = "marketing";
     public Guid? SiteAnalysisId { get; set; }
     public string? SiteSectionJson { get; set; }
     /// <summary>Content Brief JSON (intent, audience, angle, CTA, ToV, length, SERP index fields).</summary>

@@ -590,6 +590,42 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
         return Result<IReadOnlyList<SiteAnalysisProfileHeadingRow>>.Success(rows);
     }
 
+    public async Task<Result> ReplacePageSectionTreesAsync(
+        Guid profileId,
+        IReadOnlyList<SiteAnalysisPageSectionTreeWrite> pages,
+        CancellationToken ct = default)
+    {
+        var existing = await db.SiteAnalysisPageSectionTrees
+            .Where(x => x.SiteAnalysisProfileId == profileId)
+            .ToListAsync(ct);
+        db.SiteAnalysisPageSectionTrees.RemoveRange(existing);
+        db.SiteAnalysisPageSectionTrees.AddRange(pages.Select(x => new SiteAnalysisPageSectionTree
+        {
+            SiteAnalysisProfileId = profileId,
+            PageUrl = x.PageUrl,
+            TreeJson = x.TreeJson,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+        }));
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    public async Task<Result<IReadOnlyList<SiteAnalysisPageSectionTreeRow>>> GetPageSectionTreesAsync(
+        Guid profileId,
+        CancellationToken ct = default)
+    {
+        var rows = await db.SiteAnalysisPageSectionTrees.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
+            .Select(x => new SiteAnalysisPageSectionTreeRow(
+                x.Id,
+                x.SiteAnalysisProfileId,
+                x.PageUrl,
+                x.TreeJson,
+                x.CreatedAtUtc))
+            .ToListAsync(ct);
+        return Result<IReadOnlyList<SiteAnalysisPageSectionTreeRow>>.Success(rows);
+    }
+
     public async Task<Result> ReplaceTopicCandidateEvidenceAsync(
         Guid profileId,
         IReadOnlyList<SiteAnalysisTopicCandidateEvidenceWrite> evidence,

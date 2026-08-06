@@ -13,7 +13,8 @@ public sealed record GccCreateDto(
     string? ResearchJson,
     string Status,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    string Department = "marketing");
 
 public sealed record CreateGccCreateCommand(
     Guid ClientId,
@@ -24,7 +25,8 @@ public sealed record CreateGccCreateCommand(
     Guid? SiteAnalysisId = null,
     string? SiteSectionJson = null,
     string? BriefJson = null,
-    string? ResearchJson = null);
+    string? ResearchJson = null,
+    string Department = "marketing");
 
 public sealed record UpdateGccCreateBriefResearchCommand(
     string? BriefJson,
