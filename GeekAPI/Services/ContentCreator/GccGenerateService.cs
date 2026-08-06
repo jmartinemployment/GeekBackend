@@ -103,17 +103,49 @@ public class GccGenerateService
     }
 
     /// <summary>
-    /// Site Analyzer <em>handoff</em> creates carry a site section with relatedPages — those must
-    /// stay non-empty. Domain-only grounding (SiteAnalysisId with no section) is allowed: Generate
-    /// uses page-section trees for "must mention" injection, not relatedPages.
+    /// Required gate: every Generate must have a resolved, current-version SiteAnalysisId.
+    /// Domain-only grounding (SiteAnalysisId with no section) is allowed — Generate uses
+    /// page-section trees for "must mention" injection. Handoff-created sections must have
+    /// non-empty relatedPages. Applies to all types including imagePrompt/aiTool (no exemption);
+    /// per-H2 image prompts must include siteSection+tree with at least one top-level section.
     /// </summary>
     public static void ValidateSiteSectionGate(Guid? siteAnalysisId, SiteSectionContextDto? section)
     {
-        if (siteAnalysisId is null || siteAnalysisId == Guid.Empty) return;
+        if (siteAnalysisId is null || siteAnalysisId == Guid.Empty)
+            throw new InvalidOperationException(
+                "site analysis required — run or reuse an analysis for this domain");
+
         if (section is null) return;
         if (section.RelatedPages is null || section.RelatedPages.Count == 0)
             throw new InvalidOperationException(
                 "Site Analyzer–started Generate requires non-empty relatedPages in site section context.");
+    }
+
+    /// <summary>
+    /// Per-H2 image-prompt gate: requires a primary long-form with at least one top-level section.
+    /// Call after ValidateSiteSectionGate when imagePrompt is among OutputTypes.
+    /// </summary>
+    public static void ValidateImagePromptRequiresLongForm(string startingContentType, bool hasLongForm, int h2Count)
+    {
+        if (!hasLongForm)
+            throw new InvalidOperationException(
+                $"{ToDisplayType(startingContentType)} must include at least one top-level section before generating image prompts");
+
+        if (h2Count == 0)
+            throw new InvalidOperationException(
+                $"{ToDisplayType(startingContentType)} must include at least one top-level section before generating image prompts");
+    }
+
+    private static string ToDisplayType(string raw)
+    {
+        var t = raw?.Trim().ToLowerInvariant();
+        return t switch
+        {
+            "pillar" => "Pillar",
+            "blog" => "Blog",
+            "techarticle" => "TechArticle",
+            _ => "Primary long-form"
+        };
     }
 
     /// <summary>
