@@ -999,6 +999,11 @@ public class GccController : ControllerBase
         var normalizedDomain = HttpGeekSeoSiteAnalyzerClient.NormalizeHost(request.Domain);
         var existing = await _repo.GetLatestSiteAnalysisByDomainAsync(normalizedDomain, ct);
 
+        // Version-aware reuse: pre-2.0 / orphaned rows (CreatedAtUtc < 2026-08-06) are treated as absent.
+        // Cross-DB time cutoff is the proxy for AnalysisVersion != "2.0" since GccSiteAnalysis has no version column.
+        var isStale = existing is not null && existing.CreatedAtUtc < new DateTime(2026, 8, 6, 0, 0, 0, DateTimeKind.Utc);
+        if (isStale) existing = null;
+
         // Not forcing a re-run and a run is already in flight or already ready: hand back the
         // existing row rather than starting a duplicate — the operator explicitly opts into a
         // fresh run via `force`, this endpoint never silently duplicates or silently skips.
