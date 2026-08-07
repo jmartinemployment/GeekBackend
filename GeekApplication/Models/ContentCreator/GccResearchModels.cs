@@ -52,10 +52,13 @@ public sealed record GccSerpIndex(
     IReadOnlyList<string> PeopleAlsoAsk,
     IReadOnlyList<string> RelatedSearches);
 
+/// <summary>A real crawled/parsed heading with its HTML level (1 = h1 ... 6 = h6).</summary>
+public sealed record HeadingDto(int Level, string Text);
+
 public sealed record GccQuoteablePage(
     string Url,
     string Title,
-    IReadOnlyList<string> Headings,
+    IReadOnlyList<HeadingDto> Headings,
     IReadOnlyList<string> Paragraphs);
 
 public static class GccResearchCaps

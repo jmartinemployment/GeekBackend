@@ -210,7 +210,7 @@ public class GccController : ControllerBase
         var page = GccArticleHtmlExtractor.Extract($"upload://{sourceId}/{file.FileName}", content);
         if (GccArticleHtmlExtractor.IsEmpty(page))
             return BadRequest(
-                "No article headings or paragraphs found. This upload expects saved article HTML (Wikipedia / .edu / .gov) with h1–h3 and <p> text.");
+                "No article headings or paragraphs found. This upload expects saved article HTML (Wikipedia / .edu / .gov) with h1–h6 and <p> text.");
 
         var quoteables = existing.Quoteables.ToList();
         quoteables.Add(page);

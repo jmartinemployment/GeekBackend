@@ -16,7 +16,7 @@ using Microsoft.Extensions.Options;
 
 namespace GeekAPI.Services.ContentCreator;
 
-public sealed record RelatedPageDto(string Url, string Title, string[] Headings, string Excerpt);
+public sealed record RelatedPageDto(string Url, string Title, HeadingDto[] Headings, string Excerpt);
 
 public sealed record SiteSectionContextDto(
     Guid SiteAnalysisId,
@@ -214,7 +214,7 @@ public class GccGenerateService
             {
                 sb.AppendLine($"[{q.Title}] ({q.Url})");
                 foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
-                    sb.AppendLine($"- {h}");
+                    sb.AppendLine($"- H{h.Level}: {h.Text}");
                 foreach (var p in q.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
                     sb.AppendLine($"- {p}");
                 sb.AppendLine();
@@ -375,7 +375,7 @@ public class GccGenerateService
         return string.Join('\n', lines);
     }
 
-    private static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(
+    internal static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(
         IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes)
     {
         foreach (var node in nodes)
@@ -896,7 +896,7 @@ public class GccGenerateService
                 string.Equals(p.Title, sectionPath, StringComparison.OrdinalIgnoreCase)
                 || (p.Excerpt?.Contains(sectionPath, StringComparison.OrdinalIgnoreCase) ?? false)
                 || p.Headings.Any(h =>
-                    h.Contains(sectionPath, StringComparison.OrdinalIgnoreCase)));
+                    h.Text.Contains(sectionPath, StringComparison.OrdinalIgnoreCase)));
         }
 
         var related = candidates
@@ -947,7 +947,7 @@ public class GccGenerateService
             {
                 sb.AppendLine($"- {p.Title} ({p.Url})");
                 if (p.Headings.Length > 0)
-                    sb.AppendLine($"  Headings: {string.Join(" | ", p.Headings)}");
+                    sb.AppendLine($"  Headings: {string.Join(" | ", p.Headings.Select(h => $"H{h.Level}: {h.Text}"))}");
                 if (!string.IsNullOrWhiteSpace(p.Excerpt))
                     sb.AppendLine($"  Excerpt: {p.Excerpt}");
             }

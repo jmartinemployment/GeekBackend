@@ -75,7 +75,7 @@ public static partial class GccSavedSerpParser
         foreach (var page in relatedPages.Take(12))
         {
             var bits = new List<string> { page.Title };
-            bits.AddRange(page.Headings.Take(4));
+            bits.AddRange(page.Headings.Take(4).Select(h => h.Text));
             if (!string.IsNullOrWhiteSpace(page.Excerpt))
                 bits.Add(Truncate(page.Excerpt, 120));
             covers.Add($"{page.Url}: {string.Join(" · ", bits.Where(b => !string.IsNullOrWhiteSpace(b)).Distinct())}");
