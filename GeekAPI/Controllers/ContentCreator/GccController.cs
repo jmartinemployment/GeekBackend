@@ -1188,6 +1188,17 @@ public class GccController : ControllerBase
             new CreateGccSiteFindingsCommand(CreateContentGapFindings(analysis.Id, gaps)),
             ct);
 
+        var pages = snapshot.SitePages
+            .Select(sp => new
+            {
+                url = sp.Url,
+                title = sp.Title,
+                headings = (sp.Headings ?? Enumerable.Empty<HeadingDto>())
+                    .Select(h => new { level = h.Level, text = h.Text })
+                    .ToArray()
+            })
+            .ToList();
+
         return Ok(new
         {
             analysis.Id,
@@ -1196,6 +1207,7 @@ public class GccController : ControllerBase
             lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
             gaps,
             findings,
+            pages,
         });
     }
 
