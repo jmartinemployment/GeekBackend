@@ -145,37 +145,10 @@ public class HttpGeekSeoSiteAnalyzerClient
             return SeoCallResult<SiteModelSnapshot>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to load site analysis.");
 
         var host = NormalizeHost(domain);
-        var profileRes = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}", bearerToken, ct);
-        if (!profileRes.Ok) return SeoCallResult<SiteModelSnapshot>.Fail(profileRes.StatusCode, profileRes.Error!);
-        var profile = JsonSerializer.Deserialize<SeoProfileDto>(profileRes.Body!, JsonOpts);
-        if (profile is null)
-            return SeoCallResult<SiteModelSnapshot>.Fail((int)HttpStatusCode.BadGateway, "Site Analyzer returned an invalid profile.");
-
-        var gapsRes = await SendAsync(
-            HttpMethod.Get,
-            $"api/seo/site-analyzer/{profile.Id}/gaps?quickWinsOnly=false",
-            bearerToken,
-            ct);
-        if (!gapsRes.Ok)
-            return SeoCallResult<SiteModelSnapshot>.Fail(gapsRes.StatusCode, gapsRes.Error!);
-
-        var gapDtos = JsonSerializer.Deserialize<List<LiveGapDto>>(gapsRes.Body!, JsonOpts) ?? [];
-        var gaps = gapDtos.Select(g => new LiveGap(
-            g.SubtopicId == Guid.Empty ? Guid.NewGuid().ToString("N") : g.SubtopicId.ToString("D"),
-            // Display / create topic = heading only (not pillar+" "+heading concatenation).
-            string.IsNullOrWhiteSpace(g.SubtopicTitle) ? g.TargetKeyword : g.SubtopicTitle,
-            g.PillarTopic,
-            g.IsQuickWin
-                ? "Quick-win topical gap"
-                : string.IsNullOrWhiteSpace(g.RecommendedFormat)
-                    ? $"Gap under {g.PillarTopic}"
-                    : $"Gap under {g.PillarTopic} ({g.RecommendedFormat})",
-            string.Equals(g.RecommendedFormat, "pillar", StringComparison.OrdinalIgnoreCase)
-                || g.RecommendedFormat.Contains("pillar", StringComparison.OrdinalIgnoreCase))).ToList();
 
         // Real per-page h1–h6 tree, when available — see GetPageSectionTreesAsync. Non-fatal if
-        // the trees call fails: related pages still stand on their URL + excerpt; headings just
-        // degrade to empty rather than failing the whole site model load.
+        // the trees call fails: related pages still stand on their URL; headings just degrade to
+        // empty rather than failing the whole site model load.
         var treesResult = await GetPageSectionTreesAsync(profileId, bearerToken, ct);
         var trees = treesResult.Ok && treesResult.Value is not null
             ? treesResult.Value
@@ -187,14 +160,12 @@ public class HttpGeekSeoSiteAnalyzerClient
                 profileId, treesResult.Error);
         }
 
-        var sitePages = BuildSitePagesFromProfile(profile, trees);
-        var neighbors = profile.Pillars
-            .Select(p => p.PillarTopic)
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(24)
-            .ToList();
+        var urlsResult = await GetDiscoveredUrlsAsync(profileId, bearerToken, ct);
+        if (!urlsResult.Ok)
+            return SeoCallResult<SiteModelSnapshot>.Fail(urlsResult.StatusCode, urlsResult.Error!);
+        var discoveredUrls = urlsResult.Value ?? [];
 
+        var sitePages = BuildSitePagesFromDiscoveredUrls(discoveredUrls, trees);
         if (sitePages.Count == 0)
         {
             return SeoCallResult<SiteModelSnapshot>.Fail(
@@ -202,13 +173,52 @@ public class HttpGeekSeoSiteAnalyzerClient
                 "Site analysis has no existing pages with URLs. Content Creator cannot attach site section context.");
         }
 
+        // Topical neighbors: the site's own real top-level headings (one per crawled page,
+        // wherever present) — a raw fact about what else is on the site, not an opinionated
+        // topic-selection result. No cap: every real heading is kept.
+        var neighbors = trees
+            .Select(t => FirstHeadingText(t.TreeJson))
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var gapsResult = await GetContentGapsAsync(profileId, bearerToken, ct);
+        if (!gapsResult.Ok)
+            return SeoCallResult<SiteModelSnapshot>.Fail(gapsResult.StatusCode, gapsResult.Error!);
+        var gaps = (gapsResult.Value ?? []).Select(g => new LiveGap(
+            Guid.NewGuid().ToString("N"),
+            g.Topic,
+            g.SectionPath,
+            string.IsNullOrWhiteSpace(g.SectionPath)
+                ? $"No page found for heading \"{g.Topic}\""
+                : $"No page found for heading \"{g.Topic}\" (under \"{g.SectionPath}\")",
+            false)).ToList();
+
         return SeoCallResult<SiteModelSnapshot>.Success(new SiteModelSnapshot(
             projectId,
-            profile.Id,
+            profileId,
             host,
             gaps,
             sitePages,
             neighbors));
+    }
+
+    /// <summary>The page's own first real heading (its natural title), or null if it has none.</summary>
+    private static string? FirstHeadingText(string treeJson)
+    {
+        List<PageSectionDto>? roots;
+        try
+        {
+            roots = JsonSerializer.Deserialize<List<PageSectionDto>>(treeJson, JsonOpts);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        if (roots is null) return null;
+        return GccGenerateService.FlattenSections(roots)
+            .Select(n => n.HeadingText)
+            .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
     }
 
     /// <summary>
@@ -231,6 +241,43 @@ public class HttpGeekSeoSiteAnalyzerClient
         return SeoCallResult<List<PageSectionTreeDto>>.Success(trees);
     }
 
+    /// <summary>Raw discovered/crawled URL inventory — the "does a page already exist" side of
+    /// Content Creator's gap check. A raw crawl fact, not an opinionated analysis result.</summary>
+    private async Task<SeoCallResult<List<DiscoveredUrlDto>>> GetDiscoveredUrlsAsync(
+        Guid profileId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<List<DiscoveredUrlDto>>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<List<DiscoveredUrlDto>>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to load discovered URLs.");
+
+        var result = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}/discovered-urls", bearerToken, ct);
+        if (!result.Ok) return SeoCallResult<List<DiscoveredUrlDto>>.Fail(result.StatusCode, result.Error!);
+        var urls = JsonSerializer.Deserialize<List<DiscoveredUrlDto>>(result.Body!, JsonOpts) ?? [];
+        return SeoCallResult<List<DiscoveredUrlDto>>.Success(urls);
+    }
+
+    /// <summary>Content gaps computed mechanically by Geek-SEO from raw crawl data: a real
+    /// heading with no matching page. No pillar selection, no confidence score, no minimum
+    /// length gate — see <c>SiteContentCoverageMatcher.CollectAllHeadingGaps</c>.</summary>
+    private async Task<SeoCallResult<List<ContentGapRawDto>>> GetContentGapsAsync(
+        Guid profileId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<List<ContentGapRawDto>>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<List<ContentGapRawDto>>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to load content gaps.");
+
+        var result = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}/content-gaps", bearerToken, ct);
+        if (!result.Ok) return SeoCallResult<List<ContentGapRawDto>>.Fail(result.StatusCode, result.Error!);
+        var gaps = JsonSerializer.Deserialize<List<ContentGapRawDto>>(result.Body!, JsonOpts) ?? [];
+        return SeoCallResult<List<ContentGapRawDto>>.Success(gaps);
+    }
+
     /// <summary>
     /// Fetches the sitemap.xml built from the current step-1 URL inventory for this profile.
     /// Always current — Geek-SEO rebuilds it from the persisted inventory on every request, so
@@ -251,41 +298,27 @@ public class HttpGeekSeoSiteAnalyzerClient
         return SeoCallResult<string>.Success(result.Body ?? string.Empty);
     }
 
-    private static List<RelatedPageDto> BuildSitePagesFromProfile(
-        SeoProfileDto profile,
+    /// <summary>
+    /// Existing site pages built directly from raw crawl facts — the discovered/crawled URL
+    /// inventory plus each page's real heading tree. No pillar/subtopic model, no excerpt
+    /// invention: a page's title is its own first real heading, or its URL if it has none.
+    /// </summary>
+    private static List<RelatedPageDto> BuildSitePagesFromDiscoveredUrls(
+        List<DiscoveredUrlDto> discoveredUrls,
         List<PageSectionTreeDto> trees)
     {
         var headingsByUrl = BuildHeadingsByUrl(trees);
         var pages = new List<RelatedPageDto>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var pillar in profile.Pillars)
+        foreach (var d in discoveredUrls)
         {
-            if (!string.IsNullOrWhiteSpace(pillar.PageUrl) && seen.Add(pillar.PageUrl.Trim()))
-            {
-                var excerpt = !string.IsNullOrWhiteSpace(pillar.ContentAngle)
-                    ? pillar.ContentAngle!.Trim()
-                    : $"Existing pillar page for “{pillar.PillarTopic}” on the analyzed site.";
-                pages.Add(new RelatedPageDto(
-                    pillar.PageUrl.Trim(),
-                    pillar.PillarTopic,
-                    HeadingsForUrl(pillar.PageUrl, headingsByUrl),
-                    excerpt));
-            }
+            if (string.IsNullOrWhiteSpace(d.Url) || !seen.Add(d.Url.Trim()))
+                continue;
 
-            foreach (var sub in pillar.Subtopics)
-            {
-                if (string.IsNullOrWhiteSpace(sub.ExistingUrl) || !seen.Add(sub.ExistingUrl.Trim()))
-                    continue;
-                var excerpt = !string.IsNullOrWhiteSpace(sub.TargetKeyword)
-                    ? $"Existing coverage for “{sub.TargetKeyword}” under {pillar.PillarTopic}."
-                    : $"Existing page under {pillar.PillarTopic}.";
-                pages.Add(new RelatedPageDto(
-                    sub.ExistingUrl.Trim(),
-                    sub.SubtopicTitle,
-                    HeadingsForUrl(sub.ExistingUrl, headingsByUrl),
-                    excerpt));
-            }
+            var headings = HeadingsForUrl(d.Url, headingsByUrl);
+            var title = headings.Length > 0 ? headings[0].Text : d.Url.Trim();
+            pages.Add(new RelatedPageDto(d.Url.Trim(), title, headings, string.Empty));
         }
 
         return pages;
@@ -424,37 +457,20 @@ public class HttpGeekSeoSiteAnalyzerClient
 
     public sealed record SeoProjectDto(Guid Id, string Name, string Url);
 
-    private sealed record SeoProfileDto(
-        Guid Id,
-        Guid ProjectId,
-        string Domain,
-        string? PrimaryFocus,
-        string? FocusDescription,
-        List<SeoPillarDto> Pillars);
+    /// <summary>Only <c>Id</c> is ever read (see <see cref="StartSiteAnalysisAsync"/>) — the
+    /// pillar/subtopic fields this used to carry were deleted along with the site's-own-pillar
+    /// pipeline; gaps and existing pages are now read as raw crawl facts instead (see
+    /// <see cref="DiscoveredUrlDto"/>, <see cref="ContentGapRawDto"/>).</summary>
+    private sealed record SeoProfileDto(Guid Id);
 
-    private sealed record SeoPillarDto(
-        Guid Id,
-        string PillarTopic,
-        string? PageUrl,
-        string? ContentAngle,
-        List<SeoSubtopicDto> Subtopics);
+    /// <summary>Raw discovered/crawled URL — one row of the site's real URL inventory, no
+    /// opinion attached.</summary>
+    private sealed record DiscoveredUrlDto(string Url, string SourceType);
 
-    private sealed record SeoSubtopicDto(
-        Guid Id,
-        string SubtopicTitle,
-        string TargetKeyword,
-        string? CoverageStatus,
-        string? ExistingUrl,
-        string RecommendedFormat,
-        bool IsQuickWin);
-
-    private sealed record LiveGapDto(
-        Guid SubtopicId,
-        string PillarTopic,
-        string SubtopicTitle,
-        string TargetKeyword,
-        bool IsQuickWin,
-        string RecommendedFormat);
+    /// <summary>A real heading with no matching page — Content Creator's entire gap rule,
+    /// computed mechanically in Geek-SEO from raw crawl data (see
+    /// <c>SiteContentCoverageMatcher.CollectAllHeadingGaps</c>). No pillar, no confidence score.</summary>
+    private sealed record ContentGapRawDto(string Topic, string? SectionPath);
 
     public sealed record SiteAnalysisStatus(
         string? Status,
