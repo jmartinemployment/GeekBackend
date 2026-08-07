@@ -23,15 +23,18 @@ public static class GccArticleHtmlExtractor
 
         title = Truncate(title, GccResearchCaps.MaxTitleChars);
 
-        var headings = new List<string>();
-        var headingNodes = doc.DocumentNode.SelectNodes("//h1 | //h2 | //h3");
+        var headings = new List<HeadingDto>();
+        var headingNodes = doc.DocumentNode.SelectNodes("//h1 | //h2 | //h3 | //h4 | //h5 | //h6");
         if (headingNodes is not null)
         {
             foreach (var node in headingNodes)
             {
                 var text = Truncate(CleanText(node.InnerText), GccResearchCaps.MaxHeadingChars);
                 if (text.Length > 2)
-                    headings.Add(text);
+                {
+                    var level = int.Parse(node.Name[1..]);
+                    headings.Add(new HeadingDto(level, text));
+                }
                 if (headings.Count >= GccResearchCaps.MaxHeadingsPerPage)
                     break;
             }

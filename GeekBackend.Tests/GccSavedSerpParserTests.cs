@@ -131,7 +131,7 @@ public class GccSavedSerpParserTests
     {
         var pages = new List<RelatedPageDto>
         {
-            new("https://site.example/ai", "AI Services", ["Overview", "Pricing"], "We offer AI consulting."),
+            new("https://site.example/ai", "AI Services", [new HeadingDto(1, "Overview"), new HeadingDto(2, "Pricing")], "We offer AI consulting."),
         };
 
         var note = GccSavedSerpParser.BuildPartialInformationGain("AI consulting", pages);
@@ -146,7 +146,7 @@ public class GccSavedSerpParserTests
     {
         var pages = new List<RelatedPageDto>
         {
-            new("https://oursite.com/blog", "Our Blog", ["AI"], "excerpt"),
+            new("https://oursite.com/blog", "Our Blog", [new HeadingDto(2, "AI")], "excerpt"),
         };
         var organics = new List<SavedSerpOrganic>
         {

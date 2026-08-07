@@ -39,9 +39,33 @@ public class GccResearchUploadTests
 
         Assert.Equal("AI Marketing Guide", page.Title);
         Assert.Equal("upload://abc/guide.html", page.Url);
-        Assert.Contains(page.Headings, h => h.Contains("optimizes ad budgets", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(page.Headings, h => h.Text.Contains("optimizes ad budgets", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(page.Paragraphs, p => p.Contains("reallocate spend", StringComparison.OrdinalIgnoreCase));
         Assert.False(GccArticleHtmlExtractor.IsEmpty(page));
+    }
+
+    [Fact]
+    public void ArticleExtractor_captures_h1_through_h6_with_real_levels()
+    {
+        const string html = """
+            <html><head><title>Deep Outline</title></head>
+            <body>
+              <h1>Top level</h1>
+              <h2>Second level</h2>
+              <h3>Third level</h3>
+              <h4>Fourth level</h4>
+              <h5>Fifth level</h5>
+              <h6>Sixth level</h6>
+              <p>Enough paragraph text to pass the minimum length filter here.</p>
+            </body></html>
+            """;
+
+        var page = GccArticleHtmlExtractor.Extract("upload://abc/deep.html", html);
+
+        Assert.Equal(6, page.Headings.Count);
+        Assert.Equal([1, 2, 3, 4, 5, 6], page.Headings.Select(h => h.Level));
+        Assert.Contains(page.Headings, h => h.Level == 4 && h.Text == "Fourth level");
+        Assert.Contains(page.Headings, h => h.Level == 6 && h.Text == "Sixth level");
     }
 
     [Fact]
@@ -67,7 +91,7 @@ public class GccResearchUploadTests
     {
         // More than the old 3-quoteable cap — all must persist.
         var quoteables = Enumerable.Range(0, 5)
-            .Select(i => new GccQuoteablePage($"upload://s{i}/f{i}.html", $"Doc {i}", [$"H{i}"], [$"P{i}"]))
+            .Select(i => new GccQuoteablePage($"upload://s{i}/f{i}.html", $"Doc {i}", [new HeadingDto(2, $"H{i}")], [$"P{i}"]))
             .ToList();
         var sources = Enumerable.Range(0, 5)
             .Select(i => new GccKeywordSource($"s{i}", $"f{i}.html", "KeywordResult", 1, 1, 0))

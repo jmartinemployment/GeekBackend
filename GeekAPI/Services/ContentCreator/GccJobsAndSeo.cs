@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.Services.ContentCreator;
 
@@ -172,7 +173,21 @@ public class HttpGeekSeoSiteAnalyzerClient
             string.Equals(g.RecommendedFormat, "pillar", StringComparison.OrdinalIgnoreCase)
                 || g.RecommendedFormat.Contains("pillar", StringComparison.OrdinalIgnoreCase))).ToList();
 
-        var sitePages = BuildSitePagesFromProfile(profile);
+        // Real per-page h1–h6 tree, when available — see GetPageSectionTreesAsync. Non-fatal if
+        // the trees call fails: related pages still stand on their URL + excerpt; headings just
+        // degrade to empty rather than failing the whole site model load.
+        var treesResult = await GetPageSectionTreesAsync(profileId, bearerToken, ct);
+        var trees = treesResult.Ok && treesResult.Value is not null
+            ? treesResult.Value
+            : new List<PageSectionTreeDto>();
+        if (!treesResult.Ok)
+        {
+            _logger.LogWarning(
+                "Site Analyzer page-section-trees unavailable for profile {ProfileId}: {Error}",
+                profileId, treesResult.Error);
+        }
+
+        var sitePages = BuildSitePagesFromProfile(profile, trees);
         var neighbors = profile.Pillars
             .Select(p => p.PillarTopic)
             .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -236,8 +251,11 @@ public class HttpGeekSeoSiteAnalyzerClient
         return SeoCallResult<string>.Success(result.Body ?? string.Empty);
     }
 
-    private static List<RelatedPageDto> BuildSitePagesFromProfile(SeoProfileDto profile)
+    private static List<RelatedPageDto> BuildSitePagesFromProfile(
+        SeoProfileDto profile,
+        List<PageSectionTreeDto> trees)
     {
+        var headingsByUrl = BuildHeadingsByUrl(trees);
         var pages = new List<RelatedPageDto>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -245,21 +263,13 @@ public class HttpGeekSeoSiteAnalyzerClient
         {
             if (!string.IsNullOrWhiteSpace(pillar.PageUrl) && seen.Add(pillar.PageUrl.Trim()))
             {
-                var headings = pillar.Subtopics
-                    .Where(s => !string.IsNullOrWhiteSpace(s.ExistingUrl)
-                                || string.Equals(s.CoverageStatus, "covered", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(s.CoverageStatus, "partial", StringComparison.OrdinalIgnoreCase))
-                    .Select(s => s.SubtopicTitle)
-                    .Where(t => !string.IsNullOrWhiteSpace(t))
-                    .Take(8)
-                    .ToArray();
                 var excerpt = !string.IsNullOrWhiteSpace(pillar.ContentAngle)
                     ? pillar.ContentAngle!.Trim()
                     : $"Existing pillar page for “{pillar.PillarTopic}” on the analyzed site.";
                 pages.Add(new RelatedPageDto(
                     pillar.PageUrl.Trim(),
                     pillar.PillarTopic,
-                    headings,
+                    HeadingsForUrl(pillar.PageUrl, headingsByUrl),
                     excerpt));
             }
 
@@ -273,13 +283,63 @@ public class HttpGeekSeoSiteAnalyzerClient
                 pages.Add(new RelatedPageDto(
                     sub.ExistingUrl.Trim(),
                     sub.SubtopicTitle,
-                    Array.Empty<string>(),
+                    HeadingsForUrl(sub.ExistingUrl, headingsByUrl),
                     excerpt));
             }
         }
 
         return pages;
     }
+
+    /// <summary>
+    /// Flattens each page's real h1–h6 tree (<see cref="PageSectionDto"/>, as fetched by
+    /// <see cref="GetPageSectionTreesAsync"/>) into leveled headings, keyed by normalized page URL.
+    /// A page with no matching tree simply has no headings — never fabricated.
+    /// </summary>
+    private static Dictionary<string, HeadingDto[]> BuildHeadingsByUrl(List<PageSectionTreeDto> trees)
+    {
+        var byUrl = new Dictionary<string, HeadingDto[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tree in trees)
+        {
+            if (string.IsNullOrWhiteSpace(tree.PageUrl)) continue;
+            List<PageSectionDto>? roots;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<PageSectionDto>>(tree.TreeJson, JsonOpts);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (roots is null) continue;
+
+            // No count cap here: this is the real crawled outline for an existing page, not
+            // uploaded-research prompt injection (that's what MaxHeadingsPerPage bounds).
+            // Truncating an individual absurdly-long heading string is still a reasonable guard;
+            // truncating how many real headings a page is allowed to have is not.
+            var headings = GccGenerateService.FlattenSections(roots)
+                .Where(n => !string.IsNullOrWhiteSpace(n.HeadingText))
+                .Select(n => new HeadingDto(
+                    n.Level,
+                    n.HeadingText.Length > GccResearchCaps.MaxHeadingChars
+                        ? n.HeadingText[..GccResearchCaps.MaxHeadingChars]
+                        : n.HeadingText))
+                .ToArray();
+
+            byUrl[NormalizeUrlKey(tree.PageUrl)] = headings;
+        }
+        return byUrl;
+    }
+
+    private static HeadingDto[] HeadingsForUrl(string? url, Dictionary<string, HeadingDto[]> headingsByUrl)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return Array.Empty<HeadingDto>();
+        return headingsByUrl.TryGetValue(NormalizeUrlKey(url), out var headings)
+            ? headings
+            : Array.Empty<HeadingDto>();
+    }
+
+    private static string NormalizeUrlKey(string url) => url.Trim().TrimEnd('/');
 
     private async Task<RawHttp> SendAsync(
         HttpMethod method,
