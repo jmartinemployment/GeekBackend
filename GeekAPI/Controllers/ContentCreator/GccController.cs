@@ -317,6 +317,38 @@ public class GccController : ControllerBase
         return CreatedAtAction(nameof(GetCreate), new { id = created.Id }, created);
     }
 
+    [HttpGet("clients/{id:guid}")]
+    public async Task<ActionResult<GccClientDto>> GetClient(Guid id, CancellationToken ct)
+    {
+        var client = await _repo.GetClientByIdAsync(id, ct);
+        if (client is null) return NotFound();
+        return Ok(client);
+    }
+
+    [HttpGet("clients")]
+    public async Task<ActionResult<GccClientDto>> GetClientByName([FromQuery] string? name, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return BadRequest("name query parameter is required");
+
+        var client = await _repo.GetClientByNameAsync(name, ct);
+        if (client is null) return NotFound();
+        return Ok(client);
+    }
+
+    [HttpPost("clients")]
+    public async Task<ActionResult<GccClientDto>> CreateClient([FromBody] CreateGccClientCommand command, CancellationToken ct)
+    {
+        if (command is null)
+            return BadRequest("Command is required");
+
+        if (string.IsNullOrWhiteSpace(command.Name))
+            return BadRequest("Name is required");
+
+        var client = await _repo.CreateClientAsync(command, ct);
+        return CreatedAtAction(nameof(GetClient), new { id = client.Id }, client);
+    }
+
     [HttpPost("creates/{id:guid}/generate")]
     public async Task<IActionResult> Generate(Guid id, [FromBody] ProviderRequest? request, CancellationToken ct)
     {

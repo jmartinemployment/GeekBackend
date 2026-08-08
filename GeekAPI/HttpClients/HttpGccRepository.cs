@@ -101,6 +101,15 @@ public class HttpGccRepository
             command,
             ct);
 
+    public Task<GccClientDto?> GetClientByIdAsync(Guid id, CancellationToken ct = default) =>
+        GetAsync<GccClientDto>($"repo/content-creator/clients/{id}", ct);
+
+    public Task<GccClientDto?> GetClientByNameAsync(string name, CancellationToken ct = default) =>
+        GetAsync<GccClientDto>($"repo/content-creator/clients?name={Uri.EscapeDataString(name)}", ct);
+
+    public Task<GccClientDto> CreateClientAsync(CreateGccClientCommand command, CancellationToken ct = default) =>
+        PostAsync<GccClientDto>("repo/content-creator/clients", command, ct);
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try

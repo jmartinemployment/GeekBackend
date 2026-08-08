@@ -34,6 +34,13 @@ public interface IGccApprovalEventRepository
     Task<GccApprovalEventDto> CreateAsync(CreateGccApprovalEventCommand command, CancellationToken ct = default);
 }
 
+public interface IGccClientRepository
+{
+    Task<GccClientDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<GccClientDto?> GetByNameAsync(string name, CancellationToken ct = default);
+    Task<GccClientDto> CreateAsync(CreateGccClientCommand command, CancellationToken ct = default);
+}
+
 public interface IGccSiteAnalysisRepository
 {
     Task<GccSiteAnalysisDto?> GetByIdAsync(Guid id, CancellationToken ct = default);

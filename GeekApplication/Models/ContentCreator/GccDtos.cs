@@ -125,3 +125,14 @@ public sealed record GccSiteFindingDto(
 
 public sealed record CreateGccSiteFindingsCommand(
     IReadOnlyList<GccSiteFindingDto> Findings);
+
+public sealed record GccClientDto(
+    Guid Id,
+    string Name,
+    string? Notes,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
+
+public sealed record CreateGccClientCommand(
+    string Name,
+    string? Notes = null);
