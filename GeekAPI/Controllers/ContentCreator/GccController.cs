@@ -1120,6 +1120,7 @@ public class GccController : ControllerBase
         {
             var persistedFindings = await _repo.ListSiteFindingsAsync(analysis.Id, ct);
             var readyGaps = GccGenerateService.DeserializeGaps(analysis.GapsJson);
+            var readyPages = GccGenerateService.DeserializeSitePages(analysis.GapsJson);
             // Fail-closed: never surface ready without content gaps.
             if (readyGaps.Count == 0)
             {
@@ -1138,6 +1139,7 @@ public class GccController : ControllerBase
                 lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
                 gaps = readyGaps,
                 findings = persistedFindings,
+                pages = readyPages,
             });
         }
 
