@@ -872,6 +872,9 @@ public class GccGenerateService
     public static IReadOnlyList<ContentGapDto> DeserializeGaps(string? gapsJson) =>
         ParseAnalysisPayload(gapsJson).Gaps;
 
+    public static IReadOnlyList<RelatedPageDto> DeserializeSitePages(string? gapsJson) =>
+        ParseAnalysisPayload(gapsJson).SitePages;
+
     /// <summary>
     /// Builds section context from stored Geek-SEO site pages for the chosen gap.
     /// Returns null when related pages cannot be resolved (caller must fail closed).

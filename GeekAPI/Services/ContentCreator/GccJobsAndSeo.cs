@@ -313,7 +313,7 @@ public class HttpGeekSeoSiteAnalyzerClient
 
         foreach (var d in discoveredUrls)
         {
-            if (string.IsNullOrWhiteSpace(d.Url) || !seen.Add(d.Url.Trim()))
+            if (string.IsNullOrWhiteSpace(d.Url) || !seen.Add(NormalizeUrlKey(d.Url)))
                 continue;
 
             var headings = HeadingsForUrl(d.Url, headingsByUrl);
