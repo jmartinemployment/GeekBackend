@@ -16,6 +16,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccApprovalEvent> GccApprovalEvents => Set<GccApprovalEvent>();
     public virtual DbSet<GccSiteAnalysis> GccSiteAnalyses => Set<GccSiteAnalysis>();
     public virtual DbSet<GccSiteFinding> GccSiteFindings => Set<GccSiteFinding>();
+    public virtual DbSet<GccClient> GccClients => Set<GccClient>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,6 +116,17 @@ public class ContentCreatorDbContext : DbContext
                 .HasDatabaseName("ix_gcc_site_findings_site_analysis_id_finding_type");
             entity.HasIndex(e => new { e.SiteAnalysisId, e.Severity })
                 .HasDatabaseName("ix_gcc_site_findings_site_analysis_id_severity");
+        });
+
+        modelBuilder.Entity<GccClient>(entity =>
+        {
+            entity.ToTable("gcc_clients");
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Name).IsRequired().HasMaxLength(256);
+            entity.Property(c => c.Notes).HasColumnType("text");
+            entity.Property(c => c.CreatedAtUtc).IsRequired();
+            entity.Property(c => c.UpdatedAtUtc).IsRequired();
+            entity.HasIndex(c => c.Name).IsUnique().HasDatabaseName("ix_gcc_clients_name_unique");
         });
 
         base.OnModelCreating(modelBuilder);
