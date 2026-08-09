@@ -1340,6 +1340,53 @@ public class GccController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Parsed page-section trees for Workflow hierarchy matching (keyword → node → children).
+    /// </summary>
+    [HttpGet("site-analyzer/{id:guid}/page-section-trees")]
+    public async Task<IActionResult> PageSectionTrees(Guid id, CancellationToken ct)
+    {
+        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
+        if (analysis is null) return NotFound();
+        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
+        if (analysis.SeoProfileId is not Guid profileId)
+            return Conflict(new { error = "Site analysis is missing SEO profile id." });
+
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required to load page section trees" });
+
+        var treesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
+        if (!treesResult.Ok)
+            return StatusCode(treesResult.StatusCode, new { error = treesResult.Error });
+
+        var trees = treesResult.Value ?? [];
+        var payload = new List<object>();
+        foreach (var page in trees)
+        {
+            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots = null;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
+                    page.TreeJson, JsonOpts);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                continue;
+            }
+
+            if (roots is null || roots.Count == 0) continue;
+            payload.Add(new
+            {
+                pageUrl = page.PageUrl,
+                roots,
+            });
+        }
+
+        return Ok(payload);
+    }
+
     [HttpGet("site-analyzer/{id:guid}/section-context")]
     public async Task<IActionResult> SectionContext(
         Guid id,
