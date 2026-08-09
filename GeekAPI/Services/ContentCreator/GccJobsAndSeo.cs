@@ -191,8 +191,7 @@ public class HttpGeekSeoSiteAnalyzerClient
             g.SectionPath,
             string.IsNullOrWhiteSpace(g.SectionPath)
                 ? $"No page found for heading \"{g.Topic}\""
-                : $"No page found for heading \"{g.Topic}\" (under \"{g.SectionPath}\")",
-            false)).ToList();
+                : $"No page found for heading \"{g.Topic}\" (under \"{g.SectionPath}\")")).ToList();
 
         return SeoCallResult<SiteModelSnapshot>.Success(new SiteModelSnapshot(
             projectId,
@@ -491,8 +490,7 @@ public class HttpGeekSeoSiteAnalyzerClient
         string Id,
         string Topic,
         string? SectionPath,
-        string Reason,
-        bool SuggestPillar);
+        string Reason);
 
     /// <summary>One crawled page's real heading tree (mirrors Geek-SEO's PageSection JSON shape).</summary>
     public sealed record PageSectionDto(

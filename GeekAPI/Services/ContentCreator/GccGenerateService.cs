@@ -30,8 +30,7 @@ public sealed record ContentGapDto(
     string Id,
     string Topic,
     string? SectionPath,
-    string Reason,
-    bool SuggestPillar);
+    string Reason);
 
 public sealed record SiteAnalysisDto(Guid Id, string Domain, string Status);
 
