@@ -968,4 +968,267 @@ public class GccGenerateService
         }
         return list;
     }
+
+    // Copied from content-writer-v2 with Site Analyzer grounding integrated
+    public async Task<string> GenerateEmailAsync(
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        string? mustMentionBlock,
+        CancellationToken ct)
+    {
+        var llm = GetLlm(provider);
+        var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
+        var groundingBlock = BuildAudience(create, section);
+
+        var system = new StringBuilder()
+            .AppendLine("You write cold outreach / sales emails for an IT consulting firm that specializes in AI implementation.")
+            .AppendLine("Body must be 150-200 words.")
+            .AppendLine("Pitch ONE clear idea. No HTML. No markdown links. Do not invent URLs.")
+            .AppendLine("ctaLabel is short button/link text (e.g. \"Read the full guide\"). The destination URL is injected by the app.")
+            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("{\"subject\": string, \"body\": string, \"ctaLabel\": string}")
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine(briefBlock)
+            .AppendLine()
+            .AppendLine(groundingBlock);
+        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+
+        var request = new ChatCompletionRequest(
+            Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
+            Temperature: 0.65,
+            MaxOutputTokens: 1024);
+
+        var result = await llm.CompleteAsync(request, ct);
+        var raw = result.Content?.Trim() ?? "";
+
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new InvalidOperationException("Email generation returned empty content.");
+
+        if (raw.StartsWith("```"))
+        {
+            var start = raw.IndexOf('{');
+            var end = raw.LastIndexOf('}');
+            if (start < 0 || end <= start)
+                throw new InvalidOperationException("Email generation returned non-JSON content.");
+            raw = raw[start..(end + 1)];
+        }
+
+        return raw;
+    }
+
+    public async Task<string> GenerateSocialPostAsync(
+        GccCreateDto create,
+        string platform,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        string? mustMentionBlock,
+        CancellationToken ct)
+    {
+        var llm = GetLlm(provider);
+        var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
+        var groundingBlock = BuildAudience(create, section);
+
+        var (styleGuidance, lengthGuidance, maxTokens) = platform switch
+        {
+            "facebook" => (
+                "Casual B2B link-share post: 30-50 words (~40-250 characters). Put the hook in the first line before \"See more\" truncates (~200 chars). 1 emoji max. End with a light CTA.",
+                "Keep under 250 characters total when possible.",
+                512),
+            "linkedin" => (
+                "Professional thought-leadership post: 200-300 words. Structure: (1) hook in first 30 words — mobile \"see more\" folds at ~210 chars, (2) context/problem, (3) 1-2 insights, (4) CTA. No emojis or at most one.",
+                "Aim for 1,300-1,900 characters. Maximum 3,000 characters.",
+                2048),
+            _ => ("Professional tone, concise.", "Keep concise.", 1024)
+        };
+
+        var system = new StringBuilder()
+            .AppendLine($"You write {platform} posts for an IT consulting firm that specializes in AI implementation.")
+            .AppendLine(styleGuidance)
+            .AppendLine(lengthGuidance)
+            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("{\"text\": string}")
+            .AppendLine("JSON rules: one string value for text. Use \\n for line breaks.")
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine(briefBlock)
+            .AppendLine()
+            .AppendLine(groundingBlock);
+        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+
+        var request = new ChatCompletionRequest(
+            Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
+            Temperature: 0.65,
+            MaxOutputTokens: maxTokens);
+
+        var result = await llm.CompleteAsync(request, ct);
+        var raw = result.Content?.Trim() ?? "";
+
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new InvalidOperationException($"{platform} generation returned empty content.");
+
+        if (raw.StartsWith("```"))
+        {
+            var start = raw.IndexOf('{');
+            var end = raw.LastIndexOf('}');
+            if (start < 0 || end <= start)
+                throw new InvalidOperationException($"{platform} generation returned non-JSON content.");
+            raw = raw[start..(end + 1)];
+        }
+
+        return raw;
+    }
+
+    public async Task<string> GeneratePillarBodyAsync(
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        string? mustMentionBlock,
+        CancellationToken ct)
+    {
+        var llm = GetLlm(provider);
+        var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
+        var groundingBlock = BuildAudience(create, section);
+
+        var system = new StringBuilder()
+            .AppendLine("You write comprehensive B2B pillar articles for an IT consulting firm specializing in AI implementation.")
+            .AppendLine("Generate a well-structured markdown body with multiple H2 sections (each 400-600 words).")
+            .AppendLine("Start directly with the first ## section — no preamble or introduction.")
+            .AppendLine("Each section should be self-contained and detailed, with real examples and insights.")
+            .AppendLine("Use clear language suitable for technical and business audiences.")
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine(briefBlock)
+            .AppendLine()
+            .AppendLine(groundingBlock);
+        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+
+        var request = new ChatCompletionRequest(
+            Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
+            Temperature: 0.7,
+            MaxOutputTokens: 4096);
+
+        var result = await llm.CompleteAsync(request, ct);
+        return result.Content?.Trim() ?? "";
+    }
+
+    public async Task<string> GenerateBlogBodyAsync(
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        string? mustMentionBlock,
+        CancellationToken ct)
+    {
+        var llm = GetLlm(provider);
+        var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
+        var groundingBlock = BuildAudience(create, section);
+
+        var system = new StringBuilder()
+            .AppendLine("You write accessible B2B blog posts for an IT consulting firm specializing in AI implementation.")
+            .AppendLine("Generate a well-structured markdown body with 3-4 H2 sections (each 300-400 words).")
+            .AppendLine("Start directly with the first ## section — no preamble or introduction.")
+            .AppendLine("Each section should be clear and approachable, with practical examples.")
+            .AppendLine("Use conversational language that engages both technical and business readers.")
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine(briefBlock)
+            .AppendLine()
+            .AppendLine(groundingBlock);
+        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+
+        var request = new ChatCompletionRequest(
+            Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
+            Temperature: 0.7,
+            MaxOutputTokens: 2048);
+
+        var result = await llm.CompleteAsync(request, ct);
+        return result.Content?.Trim() ?? "";
+    }
+
+    public async Task<string> GenerateSectionImagePromptsAsync(
+        string contentType,
+        string title,
+        string body,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        CancellationToken ct)
+    {
+        var llm = GetLlm(provider);
+        var sections = ExtractSectionHeadings(body);
+
+        if (sections.Count == 0)
+            throw new InvalidOperationException("No sections found in content body.");
+
+        var system = new StringBuilder()
+            .AppendLine("You write AI image-generation prompts for B2B article figures.")
+            .AppendLine("CRITICAL: Return EXACTLY ONE prompt for EACH listed section, in the exact order listed.")
+            .AppendLine()
+            .AppendLine("VISUAL STYLE:")
+            .AppendLine("- Flat vector / infographic, professional B2B tech aesthetic.")
+            .AppendLine("- Default size: 1200x630. Style: professional illustration.")
+            .AppendLine("- NO readable text, logos, or watermarks in the image.")
+            .AppendLine($"- Hero image for '{title}': establishing-shot composition, evokes the title's theme.")
+            .AppendLine("- Section images: teaching diagrams appropriate to the section topic.")
+            .AppendLine()
+            .AppendLine("Respond with ONLY a single valid JSON object:")
+            .AppendLine("{\"prompts\": [{\"section\": string, \"prompt\": string}]}")
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine($"Article title: {title}")
+            .AppendLine($"Content type: {contentType}")
+            .AppendLine()
+            .AppendLine("Sections requiring image prompts:");
+
+        user.AppendLine($"- Hero: {title}");
+        for (int i = 0; i < sections.Count; i++)
+        {
+            user.AppendLine($"- Section {i + 1}: {sections[i]}");
+        }
+
+        var request = new ChatCompletionRequest(
+            Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
+            Temperature: 0.7,
+            MaxOutputTokens: 2048);
+
+        var result = await llm.CompleteAsync(request, ct);
+        var raw = result.Content?.Trim() ?? "";
+
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new InvalidOperationException("Image prompts generation returned empty content.");
+
+        if (raw.StartsWith("```"))
+        {
+            var start = raw.IndexOf('{');
+            var end = raw.LastIndexOf('}');
+            if (start < 0 || end <= start)
+                throw new InvalidOperationException("Image prompts generation returned non-JSON content.");
+            raw = raw[start..(end + 1)];
+        }
+
+        return raw;
+    }
+
+    private static List<string> ExtractSectionHeadings(string body)
+    {
+        var headings = new List<string>();
+        var lines = body.Split('\n');
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("## "))
+            {
+                headings.Add(line[3..].Trim());
+            }
+        }
+        return headings;
+    }
 }

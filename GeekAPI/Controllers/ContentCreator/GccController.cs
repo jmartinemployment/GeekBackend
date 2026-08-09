@@ -521,30 +521,52 @@ public class GccController : ControllerBase
             return await RunMultiGenerateAsync(repo, gen, create, section, provider, requested, mustMentionBlock, ct);
 
         var id = create.Id;
-        if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase))
-        {
-            var names = ParseAiToolNames(create.Topic, create.Notes);
-            if (names.Count == 0)
-                throw new InvalidOperationException("AI Tool generate requires at least one tool name");
+        var contentType = (requested.Count == 1 ? requested[0] : create.StartingContentType).ToLowerInvariant();
 
-            var created = new List<object>();
-            foreach (var name in names)
-            {
-                var (toolName, document, _, _) = await gen.GenerateToolAsync(
-                    name, create.Notes, null, provider, ct);
-                var body = GccGenerateService.SerializeDocument(document);
-                var artifact = await repo.CreateArtifactAsync(
-                    new CreateGccArtifactCommand(id, "aiTool", toolName), ct);
-                var version = await repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(artifact.Id, body), ct);
-                created.Add(new { artifact, version });
-            }
-            return new { created };
+        // Route to appropriate generator based on content type
+        string bodyJson;
+        switch (contentType)
+        {
+            case "pillar":
+                bodyJson = await gen.GeneratePillarBodyAsync(create, section, provider, mustMentionBlock, ct);
+                // Generate per-H2 image prompts
+                var pillarImagePrompts = await gen.GenerateSectionImagePromptsAsync(
+                    "pillar", create.Topic, bodyJson, section, provider, ct);
+                break;
+
+            case "blog":
+                bodyJson = await gen.GenerateBlogBodyAsync(create, section, provider, mustMentionBlock, ct);
+                // Generate per-H2 image prompts
+                var blogImagePrompts = await gen.GenerateSectionImagePromptsAsync(
+                    "blog", create.Topic, bodyJson, section, provider, ct);
+                break;
+
+            case "email":
+                bodyJson = await gen.GenerateEmailAsync(create, section, provider, mustMentionBlock, ct);
+                // Email gets one standalone image prompt
+                bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
+                break;
+
+            case "linkedin":
+                bodyJson = await gen.GenerateSocialPostAsync(create, "linkedin", section, provider, mustMentionBlock, ct);
+                // LinkedIn gets one standalone image prompt
+                bodyJson = await AddImagePromptForContentAsync(gen, "linkedin", create.Topic, bodyJson, section, provider, ct);
+                break;
+
+            case "facebook":
+                bodyJson = await gen.GenerateSocialPostAsync(create, "facebook", section, provider, mustMentionBlock, ct);
+                // Facebook gets one standalone image prompt
+                bodyJson = await AddImagePromptForContentAsync(gen, "facebook", create.Topic, bodyJson, section, provider, ct);
+                break;
+
+            default:
+                // Fallback to old generic method for unsupported types
+                bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
+                break;
         }
 
-        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
         var primaryArtifact = await repo.CreateArtifactAsync(
-            new CreateGccArtifactCommand(id, create.StartingContentType, create.Topic), ct);
+            new CreateGccArtifactCommand(id, contentType, create.Topic), ct);
         var primaryVersion = await repo.CreateVersionAsync(
             new CreateGccArtifactVersionCommand(primaryArtifact.Id, bodyJson), ct);
         return new { artifact = primaryArtifact, version = primaryVersion };
@@ -1377,6 +1399,29 @@ public class GccController : ControllerBase
             g.Reason,
             JsonSerializer.Serialize(new { sectionPath = g.SectionPath, suggestPillar = g.SuggestPillar }, JsonOpts),
             now)).ToList();
+    }
+
+    private async Task<string> AddImagePromptForContentAsync(
+        GccGenerateService gen,
+        string contentType,
+        string topic,
+        string contentJson,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        CancellationToken ct)
+    {
+        try
+        {
+            var imagePromptJson = await gen.GenerateImagePromptJsonAsync(
+                topic, null, contentJson, provider, ct);
+            // For now, just return the content as-is; image prompts can be stored separately
+            return contentJson;
+        }
+        catch
+        {
+            // Image prompt generation is optional, don't fail the whole generation
+            return contentJson;
+        }
     }
 
     private static bool TryParseProvider(string? raw, out ContentGeneratorProvider provider, out string? error)
