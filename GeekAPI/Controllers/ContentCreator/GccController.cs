@@ -1166,7 +1166,8 @@ public class GccController : ControllerBase
                 return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
             }
 
-            var readyGaps = readySnapshot.Gaps.Select(g => new ContentGapDto(g.Id, g.Topic, g.SectionPath, g.Reason)).ToList();
+            var readyGaps = readySnapshot.Gaps.Select(g => new ContentGapDto(
+                g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
             // Fail-closed: never surface ready without content gaps.
             if (readyGaps.Count == 0)
             {
@@ -1252,7 +1253,8 @@ public class GccController : ControllerBase
             return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
         }
 
-        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(g.Id, g.Topic, g.SectionPath, g.Reason)).ToList();
+        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(
+            g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
         var payload = new SiteAnalysisStoredPayload(
             gaps, snapshot.SitePages.ToList(), snapshot.TopicalNeighbors.ToList(), profileId, projectId);
         analysis = await _repo.UpdateSiteAnalysisAsync(
@@ -1421,7 +1423,12 @@ public class GccController : ControllerBase
             null,
             g.Topic,
             g.Reason,
-            JsonSerializer.Serialize(new { sectionPath = g.SectionPath }, JsonOpts),
+            JsonSerializer.Serialize(new
+            {
+                sectionPath = g.SectionPath,
+                hierarchy = g.Hierarchy,
+                sourcePageUrl = g.SourcePageUrl,
+            }, JsonOpts),
             now)).ToList();
     }
 

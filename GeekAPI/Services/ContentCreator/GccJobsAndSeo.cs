@@ -185,13 +185,25 @@ public class HttpGeekSeoSiteAnalyzerClient
         var gapsResult = await GetContentGapsAsync(profileId, bearerToken, ct);
         if (!gapsResult.Ok)
             return SeoCallResult<SiteModelSnapshot>.Fail(gapsResult.StatusCode, gapsResult.Error!);
-        var gaps = (gapsResult.Value ?? []).Select(g => new LiveGap(
-            Guid.NewGuid().ToString("N"),
-            g.Topic,
-            g.SectionPath,
-            string.IsNullOrWhiteSpace(g.SectionPath)
+        var gaps = (gapsResult.Value ?? []).Select(g =>
+        {
+            var hierarchy = g.Hierarchy is { Count: > 0 }
+                ? g.Hierarchy
+                : null;
+            var pathLabel = hierarchy is { Count: > 0 }
+                ? string.Join(" › ", hierarchy)
+                : g.SectionPath;
+            var reason = string.IsNullOrWhiteSpace(pathLabel)
                 ? $"No page found for heading \"{g.Topic}\""
-                : $"No page found for heading \"{g.Topic}\" (under \"{g.SectionPath}\")")).ToList();
+                : $"No page found for heading \"{g.Topic}\" ({pathLabel})";
+            return new LiveGap(
+                Guid.NewGuid().ToString("N"),
+                g.Topic,
+                g.SectionPath,
+                reason,
+                hierarchy,
+                g.SourcePageUrl);
+        }).ToList();
 
         return SeoCallResult<SiteModelSnapshot>.Success(new SiteModelSnapshot(
             projectId,
@@ -469,7 +481,11 @@ public class HttpGeekSeoSiteAnalyzerClient
     /// <summary>A real heading with no matching page — Content Creator's entire gap rule,
     /// computed mechanically in Geek-SEO from raw crawl data (see
     /// <c>SiteContentCoverageMatcher.CollectAllHeadingGaps</c>). No pillar, no confidence score.</summary>
-    private sealed record ContentGapRawDto(string Topic, string? SectionPath);
+    private sealed record ContentGapRawDto(
+        string Topic,
+        string? SectionPath,
+        string? SourcePageUrl = null,
+        IReadOnlyList<string>? Hierarchy = null);
 
     public sealed record SiteAnalysisStatus(
         string? Status,
@@ -490,7 +506,9 @@ public class HttpGeekSeoSiteAnalyzerClient
         string Id,
         string Topic,
         string? SectionPath,
-        string Reason);
+        string Reason,
+        IReadOnlyList<string>? Hierarchy = null,
+        string? SourcePageUrl = null);
 
     /// <summary>One crawled page's real heading tree (mirrors Geek-SEO's PageSection JSON shape).</summary>
     public sealed record PageSectionDto(

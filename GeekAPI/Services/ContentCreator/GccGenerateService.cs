@@ -30,7 +30,9 @@ public sealed record ContentGapDto(
     string Id,
     string Topic,
     string? SectionPath,
-    string Reason);
+    string Reason,
+    IReadOnlyList<string>? Hierarchy = null,
+    string? SourcePageUrl = null);
 
 public sealed record SiteAnalysisDto(Guid Id, string Domain, string Status);
 
