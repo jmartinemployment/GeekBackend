@@ -1141,8 +1141,32 @@ public class GccController : ControllerBase
         if (string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
         {
             var persistedFindings = await _repo.ListSiteFindingsAsync(analysis.Id, ct);
-            var readyGaps = GccGenerateService.DeserializeGaps(analysis.GapsJson);
             var readyPages = GccGenerateService.DeserializeSitePages(analysis.GapsJson);
+
+            var readyToken = GetBearerToken();
+            if (string.IsNullOrWhiteSpace(readyToken))
+                return Unauthorized(new { error = "Bearer token required to load site analysis" });
+            if (analysis.SeoProfileId is not Guid readyPid || analysis.SeoProjectId is not Guid readyProjId)
+            {
+                analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis is missing SEO profile or project IDs.", ct);
+                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+            }
+
+            var readyModel = await _seo.LoadSiteModelByProfileAsync(readyProjId, readyPid, analysis.Domain, readyToken, ct);
+            if (!readyModel.Ok || readyModel.Value is null)
+            {
+                analysis = await MarkAnalysisFailedAsync(analysis, readyModel.Error ?? "Failed to load completed site analysis.", ct);
+                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+            }
+
+            var readySnapshot = readyModel.Value;
+            if (readySnapshot.Gaps.Count == 0)
+            {
+                analysis = await MarkAnalysisFailedAsync(analysis, "Completed site analysis contained no gaps.", ct);
+                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
+            }
+
+            var readyGaps = readySnapshot.Gaps.Select(g => new ContentGapDto(g.Id, g.Topic, g.SectionPath, g.Reason)).ToList();
             // Fail-closed: never surface ready without content gaps.
             if (readyGaps.Count == 0)
             {
@@ -1228,7 +1252,7 @@ public class GccController : ControllerBase
             return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
         }
 
-        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(g.Id, g.Topic, g.SectionPath, g.Reason, g.SuggestPillar)).ToList();
+        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(g.Id, g.Topic, g.SectionPath, g.Reason)).ToList();
         var payload = new SiteAnalysisStoredPayload(
             gaps, snapshot.SitePages.ToList(), snapshot.TopicalNeighbors.ToList(), profileId, projectId);
         analysis = await _repo.UpdateSiteAnalysisAsync(
@@ -1397,7 +1421,7 @@ public class GccController : ControllerBase
             null,
             g.Topic,
             g.Reason,
-            JsonSerializer.Serialize(new { sectionPath = g.SectionPath, suggestPillar = g.SuggestPillar }, JsonOpts),
+            JsonSerializer.Serialize(new { sectionPath = g.SectionPath }, JsonOpts),
             now)).ToList();
     }
 
