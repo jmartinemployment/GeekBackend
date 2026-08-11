@@ -929,6 +929,7 @@ public class GccGenerateService
             ["buying_committee"] = "boolean_combination",
         };
 
+    /// <summary>Single Brief incorporate — mirrors <c>GeekContentCreator/src/lib/content-creator/brief-catalog.ts:migrateBrief</c> as the one source of truth. Keep LEGACY_* maps in sync with that file.</summary>
     internal static (string? Segment, IReadOnlyList<string>? Details, string? Notes, string? Angle) ExtractBriefAudienceAngle(string? briefJson)
     {
         var fields = ExtractBriefFields(briefJson);
