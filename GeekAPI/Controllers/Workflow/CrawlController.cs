@@ -1,0 +1,156 @@
+using GeekAPI.Controllers.Workflow.Contracts;
+using GeekAPI.Services.Workflow.DTOs;
+using GeekAPI.Services.Workflow.Providers;
+using GeekAPI.Services.Workflow.Services;
+using GeekAPI.Services.Workflow.Services.PromptBuilders;
+using GeekAPI.Services.Workflow.Domain.Entities;
+using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.Infrastructure.InMemory;
+using Microsoft.AspNetCore.Mvc;
+
+namespace GeekAPI.Controllers.Workflow;
+
+[ApiController]
+[Route("api/projects/{projectId:guid}/crawl")]
+public class CrawlController : ControllerBase
+{
+    private readonly IProjectStore _projectStore;
+    private readonly ISiteCrawlerService _crawlerService;
+    private readonly IContentProviderFactory _providerFactory;
+    private readonly IContentPromptBuilder _promptBuilder;
+    private readonly ILogger<CrawlController> _logger;
+
+    public CrawlController(
+        IProjectStore projectStore,
+        ISiteCrawlerService crawlerService,
+        IContentProviderFactory providerFactory,
+        IContentPromptBuilder promptBuilder,
+        ILogger<CrawlController> logger)
+    {
+        _projectStore = projectStore;
+        _crawlerService = crawlerService;
+        _providerFactory = providerFactory;
+        _promptBuilder = promptBuilder;
+        _logger = logger;
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<CrawlSummaryResponse>> CrawlProject(Guid projectId, [FromQuery] int maxPages = int.MaxValue, CancellationToken cancellationToken = default)
+    {
+        var project = await _projectStore.GetAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound();
+        }
+
+        project.Status = ProjectStatus.Crawling;
+
+        SiteCrawlResult result;
+        try
+        {
+            result = await _crawlerService.CrawlAsync(project.ProjectUrl, maxPages, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Crawl failed for project {ProjectId}", projectId);
+            project.Status = ProjectStatus.Failed;
+            return Problem($"Crawl failed: {ex.Message}", statusCode: 502);
+        }
+
+        // Word-frequency heuristic (result.DetectedFocus) is noisy on thin/marketing-heavy sites —
+        // prefer LLM-extracted topic phrases, falling back to the heuristic if the model call fails.
+        var detectedFocus = await TryExtractFocusWithLlmAsync(project, result, cancellationToken) ?? result.DetectedFocus;
+        var useCases = await TryExtractUseCasesWithLlmAsync(project, result, cancellationToken);
+
+        project.CrawledSite = new CrawledSite
+        {
+            ProjectId = project.Id,
+            SourceUrl = project.ProjectUrl,
+            SiteName = result.SiteName,
+            JsonLdBlocks = result.JsonLdBlocks,
+            Headings = result.Headings,
+            Paragraphs = result.Paragraphs,
+            DetectedTone = result.DetectedTone,
+            DetectedFocus = detectedFocus,
+            UseCases = useCases,
+            PagesCrawled = result.PagesCrawled
+        };
+
+        project.Status = ProjectStatus.ReadyForGeneration;
+        project.UpdatedAtUtc = DateTime.UtcNow;
+        await _projectStore.SaveAsync(project, cancellationToken);
+
+        return Ok(new CrawlSummaryResponse(
+            result.SiteName, result.PagesCrawled, result.DetectedTone, detectedFocus,
+            result.Headings.Count, result.Paragraphs.Count, result.JsonLdBlocks.Count));
+    }
+
+    private async Task<string?> TryExtractFocusWithLlmAsync(Project project, SiteCrawlResult result, CancellationToken cancellationToken)
+    {
+        if (result.Headings.Count == 0 && result.Paragraphs.Count == 0)
+        {
+            return null;
+        }
+
+        var provider = _providerFactory.Get(project.PreferredProvider);
+        var prompt = _promptBuilder.BuildTopicFocusPrompt(result.SiteName, result.Headings, result.Paragraphs);
+
+        try
+        {
+            var completion = await provider.CompleteAsync(prompt, cancellationToken);
+            var parsed = LlmResponseJsonParser.Parse<TopicFocusResponse>(completion.Content, "topic focus");
+            var phrases = (parsed.Focus ?? [])
+                .Select(p => p?.Trim())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
+
+            if (phrases.Count > 0)
+            {
+                return string.Join(", ", phrases);
+            }
+
+            _logger.LogWarning("LLM returned empty topic focus for project {ProjectId} — falling back to heuristic.", project.Id);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Topic focus extraction failed for project {ProjectId} — falling back to heuristic.", project.Id);
+        }
+
+        return null;
+    }
+
+    private async Task<List<UseCaseItem>> TryExtractUseCasesWithLlmAsync(Project project, SiteCrawlResult result, CancellationToken cancellationToken)
+    {
+        if (result.HomePageHeadings.Count == 0 && result.HomePageParagraphs.Count == 0)
+        {
+            return [];
+        }
+
+        var provider = _providerFactory.Get(project.PreferredProvider);
+        var prompt = _promptBuilder.BuildUseCaseExtractionPrompt(result.SiteName, result.HomePageHeadings, result.HomePageParagraphs);
+
+        try
+        {
+            var completion = await provider.CompleteAsync(prompt, cancellationToken);
+            var parsed = LlmResponseJsonParser.Parse<UseCaseExtractionResponse>(completion.Content, "Home page use-case extraction");
+            var items = (parsed.Items ?? [])
+                .Where(i => !string.IsNullOrWhiteSpace(i.Name))
+                .Select(i => new UseCaseItem(i.Category?.Trim() ?? string.Empty, i.Name.Trim(), i.Description?.Trim(), i.Href?.Trim()))
+                .ToList();
+
+            if (items.Count > 0)
+            {
+                _logger.LogInformation("Extracted {Count} Home page use-case item(s) for project {ProjectId}", items.Count, project.Id);
+            }
+
+            return items;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Home page use-case extraction failed for project {ProjectId} — continuing without it.", project.Id);
+            return [];
+        }
+    }
+}

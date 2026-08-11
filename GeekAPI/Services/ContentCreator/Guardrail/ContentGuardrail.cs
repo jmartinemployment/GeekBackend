@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using ContentWriter.Domain.Entities;
+using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.ContentCreator.Guardrail;
 

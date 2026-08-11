@@ -1,6 +1,4 @@
 using System.Text.Json.Serialization;
-using ContentWriter.Api.Hosting;
-using ContentWriter.Infrastructure;
 using DotNetEnv;
 using GeekAPI.Auth;
 using GeekAPI.Controllers;
@@ -10,6 +8,8 @@ using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekAPI.Services.ContentWriterV3;
 using GeekAPI.Services.SiteAnalyzer2;
+using GeekAPI.Services.Workflow.Hosting;
+using GeekAPI.Services.Workflow.Infrastructure;
 using GeekApplication.Interfaces;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekSa2Read.DependencyInjection;
@@ -30,13 +30,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers()
-    // content-writer-v2 merge (Phase 1): its controllers live in ContentWriter.Api.dll, a
-    // referenced-but-not-entry assembly — ApplicationParts makes MVC discover them. JSON options
-    // are additive here: GeekAPI has no enums in any existing response today (confirmed before
-    // adding this), so JsonStringEnumConverter changes nothing for GeekAPI's current consumers;
-    // camelCase matches ASP.NET's existing System.Text.Json default, kept explicit for parity
-    // with content-writer-v2's own (already-deployed) JSON config.
-    .AddApplicationPart(typeof(ContentWriter.Api.Controllers.ProjectsController).Assembly)
+    // Workflow controllers live in this assembly (GeekAPI.Controllers.Workflow). JSON options
+    // keep string enums + camelCase for parity with the prior Workflow/content-writer contract
+    // GeekContentCreator already consumes.
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
@@ -110,9 +106,8 @@ builder.Services.AddHttpClient<GeekAPI.Services.Gcw.HttpImageGeneratorClient>(cl
 });
 
 // Content Writer V3: Services
-// Provider-selectable generation: keyed registrations resolved via IContentGeneratorFactory,
-// same pattern content-writer-v2's IContentProviderFactory uses. OpenAi reuses content-writer-v2's
-// already-bound LlmProvidersOptions (registered by AddContentWriter below) rather than a separate key.
+// Provider-selectable generation: keyed registrations resolved via IContentGeneratorFactory.
+// OpenAi reuses Workflow's already-bound LlmProvidersOptions (registered by AddWorkflow below).
 builder.Services.AddKeyedScoped<IContentGenerator, ClaudeContentGenerator>(ContentGeneratorProvider.Anthropic);
 builder.Services.AddKeyedScoped<IContentGenerator, OpenAiContentGenerator>(ContentGeneratorProvider.OpenAi);
 builder.Services.AddScoped<IContentGeneratorFactory, ContentGeneratorFactory>();
@@ -124,12 +119,10 @@ builder.Services.AddScoped<DepartmentContentService>();
 builder.Services.AddGeekSa2Read();
 builder.Services.AddScoped<SiteAnalyzer2SiteProfileReader>();
 
-// content-writer-v2 merge (Phase 1): persistence reuses the "GeekRepository" named HttpClient
-// already configured above (X-Repo-Key already attached) — no new credential, no direct call to
-// GeekRepository from anywhere content-writer-v2's own code runs standalone. See
-// GeekBackend/AGENTS.md § "Service topology & trust boundaries".
-// Cross-department tool content cache reuses the same client/credential.
-builder.Services.AddContentWriter(builder.Configuration,
+// Workflow (GeekAPI-owned): persistence reuses the "GeekRepository" named HttpClient already
+// configured above (X-Repo-Key already attached). See GeekBackend/AGENTS.md § Service topology
+// and the content-writer "copy, never reuse" rule.
+builder.Services.AddWorkflow(builder.Configuration,
     sp => new GeekRepositoryPersistenceStore(
         sp.GetRequiredService<IHttpClientFactory>(),
         sp.GetRequiredService<ILogger<GeekRepositoryPersistenceStore>>()),
@@ -157,9 +150,8 @@ app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
 
-// content-writer-v2 merge (Phase 1): loads persisted projects/clients from GeekRepository at
-// startup, same as content-writer-v2 does standalone.
-await app.HydrateContentWriterAsync();
+// Workflow: loads persisted projects/clients from GeekRepository at startup.
+await app.HydrateWorkflowAsync();
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://0.0.0.0:{port}");

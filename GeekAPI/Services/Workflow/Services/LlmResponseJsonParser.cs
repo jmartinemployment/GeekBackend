@@ -1,0 +1,692 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using GeekAPI.Services.Workflow.DTOs;
+using GeekAPI.Services.Workflow.Providers;
+using GeekAPI.Services.Workflow.Domain.Entities;
+
+namespace GeekAPI.Services.Workflow.Services;
+
+/// <summary>Parses JSON-shaped LLM responses with light repair for common local-model mistakes.</summary>
+public static class LlmResponseJsonParser
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    /// <summary>internal (not private) so <see cref="ContentSectionJsonSchema"/> can generate the
+    /// provider-facing schema from these exact options — the single source of truth for the real
+    /// deserialization contract, so the schema can never silently drift from it.</summary>
+    internal static readonly JsonSerializerOptions SectionJsonOptions = CreateSectionJsonOptions();
+    private static readonly Regex MarkdownFence = new(@"^```(?:json|html)?\s*|\s*```$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex MarkdownLink = new(@"\[([^\]]*)\]\(([^)]+)\)", RegexOptions.Compiled);
+
+    /// <summary>Leaked Markdown/HTML syntax that should never appear in a plain-text field — see the
+    /// content-hygiene validation pass in the design plan: cheap to check because there's no markup
+    /// to balance, just stray symbols that shouldn't be there.</summary>
+    private static readonly Regex LeakedMarkupSyntax = new(
+        @"(\*\*|##+\s|\[[^\]]*\]\([^)]*\)|<[a-zA-Z/][^>]*>)",
+        RegexOptions.Compiled);
+
+    private static JsonSerializerOptions CreateSectionJsonOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            // JsonSchemaExporter (used by ContentSectionJsonSchema) requires an explicit
+            // TypeInfoResolver — reflection-based resolution isn't picked up implicitly for it.
+            TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
+        };
+        options.Converters.Add(new ParagraphJsonConverter());
+        return options;
+    }
+
+    /// <summary>
+    /// Parses the model's structured Section-tree response. Two-tier validation: JSON/record-type
+    /// deserialization is the schema check (a response that doesn't fit the records fails here);
+    /// <see cref="ValidateContentHygiene"/> is the second tier, catching leaked Markdown/HTML syntax
+    /// a model typed into a plain-text field out of base-model habit.
+    /// </summary>
+    public static Section ParseSection(string rawContent, string expectedTag, string label)
+    {
+        var cleaned = Clean(rawContent);
+        var failures = new List<string>();
+
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            try
+            {
+                var section = JsonSerializer.Deserialize<Section>(candidate, SectionJsonOptions);
+                if (section is not null && !string.IsNullOrWhiteSpace(section.Heading))
+                {
+                    var normalized = Normalize(section) with { Tag = expectedTag };
+                    ValidateContentHygiene(normalized, label);
+                    return normalized;
+                }
+
+                failures.Add($"deserialized but heading was empty (candidate length {candidate.Length})");
+            }
+            catch (JsonException ex)
+            {
+                failures.Add($"JsonException at byte {ex.BytePositionInLine} (path {ex.Path}): {ex.Message}");
+            }
+        }
+
+        var trimmedEnd = cleaned.TrimEnd();
+        var isTruncated = cleaned.Length > 0 && !trimmedEnd.EndsWith('}') && !trimmedEnd.EndsWith(']');
+        var hint = isTruncated ? " The response looks truncated — it may have hit the max output token limit." : string.Empty;
+
+        throw new ContentGenerationException(
+            $"Model did not return a valid structured section for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+    }
+
+    /// <summary>Parses a top-level sections array (whole-body regeneration/expansion responses).</summary>
+    public static IReadOnlyList<Section> ParseSections(string rawContent, string label)
+    {
+        var cleaned = Clean(rawContent);
+
+        var candidateIndex = 0;
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            try
+            {
+                // Models frequently drop the {"sections": [...]} wrapper and return the bare array
+                // directly when asked for "the sections array" — accept both shapes.
+                var isBareArray = candidate.TrimStart().StartsWith('[');
+                var sectionsRaw = isBareArray
+                    ? JsonSerializer.Deserialize<List<Section>>(candidate, SectionJsonOptions)
+                    : JsonSerializer.Deserialize<SectionsArrayResponse>(candidate, SectionJsonOptions)?.Sections;
+
+                if (sectionsRaw is { Count: > 0 } sections)
+                {
+                    var normalized = sections.Select(Normalize).ToList();
+                    foreach (var section in normalized)
+                    {
+                        ValidateContentHygiene(section, label);
+                    }
+                    return normalized;
+                }
+            }
+            catch (JsonException)
+            {
+                // Try the next repaired candidate.
+            }
+            catch (ContentGenerationException)
+            {
+                throw;
+            }
+            candidateIndex++;
+        }
+
+        var trimmedEnd = cleaned.TrimEnd();
+        var isTruncated = cleaned.Length > 0 && !trimmedEnd.EndsWith('}') && !trimmedEnd.EndsWith(']');
+        var hint = isTruncated ? " The response looks truncated — it may have hit the max output token limit." : string.Empty;
+
+        throw new ContentGenerationException(
+            $"Model did not return a valid sections array for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+    }
+
+    /// <summary>Parses the opening lede: a heading + paragraphs + which pattern (creative/summary) was used.</summary>
+    public static (Section Lede, LedeType LedeType) ParseLede(string rawContent, string label)
+    {
+        var cleaned = Clean(rawContent);
+
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<LedeResponse>(candidate, SectionJsonOptions);
+                if (parsed is not null && !string.IsNullOrWhiteSpace(parsed.Heading))
+                {
+                    var ledeType = string.Equals(parsed.LedeType, "summary", StringComparison.OrdinalIgnoreCase)
+                        ? LedeType.Summary
+                        : LedeType.Creative;
+                    var section = Normalize(new Section("h2", parsed.Heading, parsed.Paragraphs ?? [], null, [], parsed.ImagePrompt));
+                    ValidateContentHygiene(section, label);
+                    return (section, ledeType);
+                }
+            }
+            catch (JsonException)
+            {
+                // Try the next repaired candidate.
+            }
+        }
+
+        throw new ContentGenerationException(
+            $"Model did not return a valid lede for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+    }
+
+    private sealed record LedeAndIntroductionResponse(LedeResponse? Lede, Section? Introduction);
+
+    /// <summary>Parses the combined lede + Introduction section response (one call covering both,
+    /// since they cover overlapping ground) — same candidate-JSON repair loop as <see cref="ParseLede"/>.</summary>
+    public static (Section Lede, LedeType LedeType, Section Introduction) ParseLedeAndIntroduction(string rawContent, string label)
+    {
+        var cleaned = Clean(rawContent);
+
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<LedeAndIntroductionResponse>(candidate, SectionJsonOptions);
+                if (parsed?.Lede is { } lede
+                    && !string.IsNullOrWhiteSpace(lede.Heading)
+                    && parsed.Introduction is { } introduction
+                    && !string.IsNullOrWhiteSpace(introduction.Heading))
+                {
+                    var ledeType = string.Equals(lede.LedeType, "summary", StringComparison.OrdinalIgnoreCase)
+                        ? LedeType.Summary
+                        : LedeType.Creative;
+                    var ledeSection = Normalize(new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
+                    ValidateContentHygiene(ledeSection, $"{label} (lede)");
+
+                    var introSection = Normalize(introduction) with { Tag = "h2" };
+                    ValidateContentHygiene(introSection, $"{label} (introduction)");
+
+                    return (ledeSection, ledeType, introSection);
+                }
+            }
+            catch (JsonException)
+            {
+                // Try the next repaired candidate.
+            }
+        }
+
+        throw new ContentGenerationException(
+            $"Model did not return a valid lede+introduction for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+    }
+
+    private sealed record SectionsArrayResponse(List<Section>? Sections);
+
+    private sealed record LedeResponse(string? LedeType, string Heading, List<Paragraph>? Paragraphs, string? ImagePrompt);
+
+    /// <summary>
+    /// System.Text.Json does not enforce non-null on a record's reference-typed constructor params —
+    /// a provider without native schema enforcement (OpenAI/Groq/LM Studio today; see the provider
+    /// reality check in the design plan) can omit "children"/"paragraphs"/"runs" or leave a "text"
+    /// field null, which would otherwise NRE the first time anything iterates the tree. Normalize
+    /// once at the parse boundary so every downstream consumer can trust the non-null invariant.
+    /// </summary>
+    private static Section Normalize(Section section) => section with
+    {
+        Heading = section.Heading ?? string.Empty,
+        Paragraphs = (section.Paragraphs ?? []).Select(NormalizeParagraph).ToList(),
+        Children = (section.Children ?? []).Select(Normalize).ToList(),
+    };
+
+    private static Paragraph NormalizeParagraph(Paragraph paragraph) => paragraph switch
+    {
+        TextParagraph text => new TextParagraph((text.Runs ?? []).Select(NormalizeRun).ToList()),
+        ListParagraph list => new ListParagraph(
+            list.Ordered,
+            (list.Items ?? []).Select(item => (IReadOnlyList<Run>)(item ?? []).Select(NormalizeRun).ToList()).ToList()),
+        _ => paragraph,
+    };
+
+    private static Run NormalizeRun(Run run) => run with { Text = run.Text ?? string.Empty };
+
+    private static void ValidateContentHygiene(Section section, string label)
+    {
+        CheckText(section.Heading, label);
+        foreach (var paragraph in section.Paragraphs)
+        {
+            var runs = paragraph switch
+            {
+                TextParagraph text => text.Runs,
+                ListParagraph list => list.Items.SelectMany(item => item).ToList(),
+                _ => [],
+            };
+            foreach (var run in runs)
+            {
+                CheckText(run.Text, label);
+            }
+        }
+        foreach (var child in section.Children)
+        {
+            ValidateContentHygiene(child, label);
+        }
+    }
+
+    private static void CheckText(string text, string label)
+    {
+        if (LeakedMarkupSyntax.IsMatch(text))
+        {
+            throw new ContentGenerationException(
+                $"Model leaked Markdown/HTML syntax into a plain-text field for {label}: \"{text}\". " +
+                "Plain text only — use the bold/italic/href fields instead.");
+        }
+    }
+
+    public static T Parse<T>(string rawContent, string label)
+    {
+        var cleaned = Clean(rawContent);
+
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<T>(candidate, JsonOptions);
+                if (parsed is not null)
+                {
+                    return parsed;
+                }
+            }
+            catch (JsonException)
+            {
+                // Try the next repaired candidate.
+            }
+        }
+
+        var isTruncated = cleaned.Contains('{') && !cleaned.TrimEnd().EndsWith('}');
+        var hint = isTruncated
+            ? " The response looks truncated — try a smaller local model context window or use OpenAI/Anthropic for long-form content."
+            : string.Empty;
+
+        throw new ContentGenerationException(
+            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+    }
+
+    public static string ParseSocialText(string rawContent, string articleUrl, string label)
+    {
+        var cleaned = Clean(rawContent);
+
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            if (TryDeserializeSocial(candidate, out var text))
+            {
+                return NormalizeSocialText(text, articleUrl);
+            }
+        }
+
+        var strictMatch = Regex.Match(cleaned, @"""text""\s*:\s*""((?:\\.|[^""\\])*)""", RegexOptions.Singleline);
+        if (strictMatch.Success)
+        {
+            return NormalizeSocialText(UnescapeJsonString(strictMatch.Groups[1].Value), articleUrl);
+        }
+
+        // Truncated or broken JSON — salvage the text field and ensure the link is present.
+        var salvageMatch = Regex.Match(cleaned, @"""text""\s*:\s*""(.*)", RegexOptions.Singleline);
+        if (salvageMatch.Success)
+        {
+            var salvaged = UnescapeJsonString(salvageMatch.Groups[1].Value.TrimEnd('"', ' ', '\r', '\n', '}'));
+            if (salvaged.Length > 0)
+            {
+                return NormalizeSocialText(salvaged, articleUrl);
+            }
+        }
+
+        throw new ContentGenerationException(
+            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+    }
+
+    public static ColdOutreachEmailDraft ParseColdOutreach(string rawContent, string label)
+    {
+        var cleaned = Clean(rawContent);
+
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            if (TryDeserializeColdOutreach(candidate, out var draft))
+            {
+                return ValidateColdOutreach(draft, label);
+            }
+        }
+
+        throw new ContentGenerationException(
+            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+    }
+
+    public static ImagePromptSectionPromptsDraft ParseSectionImagePrompts(
+        string rawContent,
+        IReadOnlyList<ImagePromptSectionTarget> expectedSections,
+        string label)
+    {
+        var cleaned = Clean(rawContent);
+
+        foreach (var candidate in CandidateJsonStrings(cleaned))
+        {
+            if (TryDeserializeSectionImagePrompts(candidate, out var draft))
+            {
+                return ValidateSectionImagePrompts(draft, expectedSections, label);
+            }
+        }
+
+        throw new ContentGenerationException(
+            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+    }
+
+    private static bool TryDeserializeSectionImagePrompts(string json, out ImagePromptSectionPromptsDraft draft)
+    {
+        draft = new ImagePromptSectionPromptsDraft([]);
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<ImagePromptSectionsResponse>(json, JsonOptions);
+            if (parsed?.Sections is null || parsed.Sections.Count == 0)
+            {
+                return false;
+            }
+
+            draft = new ImagePromptSectionPromptsDraft(
+                parsed.Sections.Select(ToSectionDraft).ToList());
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static ImagePromptSectionDraft ToSectionDraft(ImagePromptSectionResponse item) =>
+        new(
+            (item.SourceType ?? "").Trim().ToLowerInvariant(),
+            (item.Heading ?? "").Trim(),
+            item.Order,
+            (item.Prompt ?? "").Trim(),
+            item.Width,
+            item.Height,
+            (item.ImageModel ?? "").Trim(),
+            (item.StylePreset ?? "").Trim(),
+            item.Alchemy ?? true,
+            item.PhotoReal ?? false,
+            string.IsNullOrWhiteSpace(item.Notes) ? null : item.Notes.Trim());
+
+    private static ImagePromptSectionPromptsDraft ValidateSectionImagePrompts(
+        ImagePromptSectionPromptsDraft draft,
+        IReadOnlyList<ImagePromptSectionTarget> expectedSections,
+        string label)
+    {
+        if (draft.Sections.Count != expectedSections.Count)
+        {
+            throw new ContentGenerationException(
+                $"{label} must include {expectedSections.Count} section prompts (got {draft.Sections.Count}).");
+        }
+
+        for (var i = 0; i < expectedSections.Count; i++)
+        {
+            var expected = expectedSections[i];
+            var item = draft.Sections.FirstOrDefault(s =>
+                string.Equals(s.SourceType, expected.SourceType, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(s.Heading, expected.Heading, StringComparison.OrdinalIgnoreCase)
+                && s.Order == expected.Order);
+
+            if (item is null)
+            {
+                throw new ContentGenerationException(
+                    $"{label} is missing a prompt for {expected.SourceType} section \"{expected.Heading}\" (order {expected.Order}).");
+            }
+
+            ValidateSectionImagePromptItem(item, expected, label);
+        }
+
+        return draft;
+    }
+
+    private static void ValidateSectionImagePromptItem(
+        ImagePromptSectionDraft item,
+        ImagePromptSectionTarget expected,
+        string label)
+    {
+        if (string.IsNullOrWhiteSpace(item.Prompt))
+        {
+            throw new ContentGenerationException(
+                $"Model returned empty prompt for {expected.SourceType} section \"{expected.Heading}\" in {label}.");
+        }
+
+        // Word-count range is advisory only (soft gate) — out-of-range prompts still save so the
+        // user can copy/edit them. Empty prompt and invalid dimensions/model remain hard failures.
+
+        if (item.Width < 512 || item.Height < 512 || item.Width > 2048 || item.Height > 2048)
+        {
+            throw new ContentGenerationException($"Dimensions for \"{expected.Heading}\" are out of range (512–2048).");
+        }
+
+        if (item.Width < item.Height)
+        {
+            throw new ContentGenerationException($"Prompt for \"{expected.Heading}\" should be landscape (width >= height).");
+        }
+
+        if (string.IsNullOrWhiteSpace(item.ImageModel))
+        {
+            throw new ContentGenerationException($"Model returned empty imageModel for \"{expected.Heading}\" in {label}.");
+        }
+
+        if (string.IsNullOrWhiteSpace(item.StylePreset))
+        {
+            throw new ContentGenerationException($"Model returned empty stylePreset for \"{expected.Heading}\" in {label}.");
+        }
+    }
+
+    private static IEnumerable<string> CandidateJsonStrings(string cleaned)
+    {
+        yield return cleaned;
+
+        var extracted = ExtractJsonObject(cleaned);
+        if (!string.IsNullOrWhiteSpace(extracted))
+        {
+            yield return extracted;
+            yield return RepairLiteralNewlinesInJsonStrings(extracted);
+        }
+    }
+
+    private static bool TryDeserializeColdOutreach(string json, out ColdOutreachEmailDraft draft)
+    {
+        draft = new ColdOutreachEmailDraft("", "", "");
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<ColdOutreachResponse>(json, JsonOptions);
+            if (parsed is null)
+            {
+                return false;
+            }
+
+            draft = new ColdOutreachEmailDraft(
+                (parsed.Subject ?? "").Trim(),
+                (parsed.BodyText ?? "").Trim(),
+                (parsed.CtaLabel ?? "").Trim());
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static ColdOutreachEmailDraft ValidateColdOutreach(ColdOutreachEmailDraft draft, string label)
+    {
+        if (string.IsNullOrWhiteSpace(draft.Subject))
+        {
+            throw new ContentGenerationException($"Model returned empty subject for {label}.");
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.BodyText))
+        {
+            throw new ContentGenerationException($"Model returned empty body for {label}.");
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.CtaLabel))
+        {
+            throw new ContentGenerationException($"Model returned empty ctaLabel for {label}.");
+        }
+
+        // Word-count range is advisory only (soft gate, same as blog/tools) — out-of-range
+        // bodies still parse/save so the UI can show an amber badge and the user can decide.
+        return draft;
+    }
+
+    private static bool TryDeserializeSocial(string json, out string text)
+    {
+        text = string.Empty;
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<SocialTextResponse>(json, JsonOptions);
+            if (string.IsNullOrWhiteSpace(parsed?.Text))
+            {
+                return false;
+            }
+
+            text = parsed.Text;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string Clean(string rawContent) => MarkdownFence.Replace(rawContent, string.Empty).Trim();
+
+    /// <summary>
+    /// Finds the first "{" or "[" and scans for its actual matching close (tracking nesting depth
+    /// across both bracket types and skipping over brackets inside string literals) rather than
+    /// naively grabbing through the last "}" anywhere in the response. A model that appends any
+    /// trailing text after valid JSON — a closing remark, an aside that happens to contain a brace
+    /// or bracket character — would otherwise get that trailing content spliced into the "JSON"
+    /// handed to the deserializer, breaking parsing even though the actual JSON was well-formed.
+    /// Returns null if no balanced close is found (e.g. the response was genuinely truncated
+    /// mid-object/mid-array).
+    /// </summary>
+    private static string? ExtractJsonObject(string raw)
+    {
+        var start = -1;
+        for (var i = 0; i < raw.Length; i++)
+        {
+            if (raw[i] is '{' or '[')
+            {
+                start = i;
+                break;
+            }
+        }
+
+        if (start < 0)
+        {
+            return null;
+        }
+
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+
+        for (var i = start; i < raw.Length; i++)
+        {
+            var ch = raw[i];
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (ch == '\\' && inString)
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString)
+            {
+                continue;
+            }
+
+            if (ch is '{' or '[')
+            {
+                depth++;
+            }
+            else if (ch is '}' or ']')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return raw[start..(i + 1)];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string RepairLiteralNewlinesInJsonStrings(string json)
+    {
+        var result = new System.Text.StringBuilder(json.Length);
+        var inString = false;
+        var escaped = false;
+
+        foreach (var ch in json)
+        {
+            if (escaped)
+            {
+                result.Append(ch);
+                escaped = false;
+                continue;
+            }
+
+            if (ch == '\\' && inString)
+            {
+                result.Append(ch);
+                escaped = true;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inString = !inString;
+                result.Append(ch);
+                continue;
+            }
+
+            if (inString && (ch == '\r' || ch == '\n'))
+            {
+                result.Append("\\n");
+                continue;
+            }
+
+            result.Append(ch);
+        }
+
+        return result.ToString();
+    }
+
+    private static string UnescapeJsonString(string value)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<string>($"\"{value}\"") ?? value;
+        }
+        catch (JsonException)
+        {
+            return value.Replace("\\n", "\n", StringComparison.Ordinal)
+                .Replace("\\\"", "\"", StringComparison.Ordinal)
+                .Replace("\\\\", "\\", StringComparison.Ordinal);
+        }
+    }
+
+    private static string NormalizeSocialText(string text, string articleUrl)
+    {
+        text = MarkdownLink.Replace(text, "$2").Trim();
+        if (!text.Contains(articleUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            text = $"{text.TrimEnd()} {articleUrl}".Trim();
+        }
+
+        return text;
+    }
+
+    private sealed record SocialTextResponse(string Text);
+
+    private sealed record ColdOutreachResponse(string? Subject, string? BodyText, string? CtaLabel);
+
+    private sealed record ImagePromptSectionsResponse(IReadOnlyList<ImagePromptSectionResponse>? Sections);
+
+    private sealed record ImagePromptSectionResponse(
+        string? SourceType,
+        string? Heading,
+        int Order,
+        string? Prompt,
+        int Width,
+        int Height,
+        string? ImageModel,
+        string? StylePreset,
+        bool? Alchemy,
+        bool? PhotoReal,
+        string? Notes);
+}
