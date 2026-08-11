@@ -36,7 +36,20 @@ public record ProjectGenerationContext(
     string? SerpUrls = null,
     string? SerpPaaQuestions = null,
     string? SerpRelatedSearches = null,
-    IReadOnlyList<string>? HierarchyToolNames = null);
+    IReadOnlyList<string>? HierarchyToolNames = null,
+    string? AudienceSegment = null,
+    IReadOnlyList<string>? AudienceDetails = null,
+    string? AudienceNotes = null,
+    string? ContentAngle = null,
+    string? PrimaryIntent = null,
+    string? SecondaryIntent = null,
+    string? BuyingStage = null,
+    string? ToneOfVoice = null,
+    IReadOnlyList<string>? EeatSignals = null,
+    string? CtaType = null,
+    string? CtaLabel = null,
+    string? LengthBand = null,
+    string? WritingNotes = null);
 
 public record TopicFocusResponse(string[]? Focus);
 

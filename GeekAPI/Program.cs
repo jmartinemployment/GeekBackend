@@ -36,6 +36,8 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.Converters.Add(new GeekAPI.Services.Workflow.Domain.Entities.TolerantNullableLedeTypeConverter());
+        options.JsonSerializerOptions.Converters.Add(new GeekAPI.Services.Workflow.Domain.Entities.StrictLedeTypeConverter());
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 builder.Services.AddHttpContextAccessor();

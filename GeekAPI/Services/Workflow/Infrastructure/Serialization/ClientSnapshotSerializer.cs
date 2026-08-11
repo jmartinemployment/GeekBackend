@@ -14,7 +14,7 @@ public static class ClientSnapshotSerializer
     {
         WriteIndented = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new TolerantNullableLedeTypeConverter(), new StrictLedeTypeConverter(), new JsonStringEnumConverter() }
     };
 
     public static string Serialize(Client client)

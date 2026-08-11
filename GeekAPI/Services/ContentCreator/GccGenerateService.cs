@@ -439,11 +439,25 @@ public class GccGenerateService
         var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
+        var brief = ExtractBriefFields(create.BriefJson);
         var context = BuildMinimalContext(
             create.Topic,
             sourceContext,
             ToLlm(provider),
-            create.Department);
+            create.Department,
+            brief.Segment,
+            brief.Details,
+            brief.Notes,
+            brief.Angle,
+            brief.PrimaryIntent,
+            brief.SecondaryIntent,
+            brief.BuyingStage,
+            brief.ToneOfVoice,
+            brief.EeatSignals,
+            brief.CtaType,
+            brief.CtaLabel,
+            brief.LengthBand,
+            brief.WritingNotes);
         var metadata = new BlogMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
@@ -766,7 +780,20 @@ public class GccGenerateService
         string topic,
         string notes,
         LlmProviderType llmType,
-        string? department = null)
+        string? department = null,
+        string? audienceSegment = null,
+        IReadOnlyList<string>? audienceDetails = null,
+        string? audienceNotes = null,
+        string? contentAngle = null,
+        string? primaryIntent = null,
+        string? secondaryIntent = null,
+        string? buyingStage = null,
+        string? toneOfVoice = null,
+        IReadOnlyList<string>? eeatSignals = null,
+        string? ctaType = null,
+        string? ctaLabel = null,
+        string? lengthBand = null,
+        string? writingNotes = null)
     {
         var paragraphs = string.IsNullOrWhiteSpace(notes)
             ? new List<string>()
@@ -795,7 +822,20 @@ public class GccGenerateService
             Provider: llmType,
             UseExactKeywordAsTitle: false,
             DesiredHeadings: null,
-            MatchedUseCase: null);
+            MatchedUseCase: null,
+            AudienceSegment: audienceSegment,
+            AudienceDetails: audienceDetails,
+            AudienceNotes: audienceNotes,
+            ContentAngle: contentAngle,
+            PrimaryIntent: primaryIntent,
+            SecondaryIntent: secondaryIntent,
+            BuyingStage: buyingStage,
+            ToneOfVoice: toneOfVoice,
+            EeatSignals: eeatSignals,
+            CtaType: ctaType,
+            CtaLabel: ctaLabel,
+            LengthBand: lengthBand,
+            WritingNotes: writingNotes);
     }
 
     private static string FlattenDocument(ContentDocument document)
@@ -837,6 +877,209 @@ public class GccGenerateService
 
     private static string Truncate(string value, int max)
         => value.Length <= max ? value : value[..max];
+
+    private static readonly IReadOnlyDictionary<string, string> LegacyAudienceSegmentMap =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["affinity"] = "affinity",
+            ["interest_affinity"] = "affinity",
+            ["cold_prospect"] = "affinity",
+            ["in_market"] = "in_market",
+            ["life_events"] = "life_events",
+            ["detailed_demographics"] = "detailed_demographics",
+            ["your_data"] = "your_data",
+            ["engaged_visitor"] = "your_data",
+            ["lead"] = "your_data",
+            ["customer"] = "your_data",
+            ["lapsed"] = "your_data",
+            ["lookalike"] = "your_data",
+            ["custom"] = "custom",
+            ["account_based"] = "custom",
+            ["local_geo"] = "custom",
+        };
+
+    private static readonly IReadOnlyDictionary<string, string> LegacyAngleMap =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["comparative"] = "comparative",
+            ["comparison"] = "comparative",
+            ["problem_solution"] = "problem_solution",
+            ["case_study_data"] = "case_study_data",
+            ["case_study"] = "case_study_data",
+            ["ultimate_guide"] = "ultimate_guide",
+            ["howto_workflow"] = "ultimate_guide",
+            ["explainer"] = "ultimate_guide",
+            ["listicle"] = "ultimate_guide",
+            ["objection_faq"] = "ultimate_guide",
+        };
+
+    private static readonly HashSet<string> ValidAudienceDetails = new(StringComparer.OrdinalIgnoreCase)
+        { "demographic_attributes", "behavioral_triggers", "boolean_combination" };
+
+    private static readonly IReadOnlyDictionary<string, string> LegacyAudienceDetailMap =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["demographic_attributes"] = "demographic_attributes",
+            ["demographic"] = "demographic_attributes",
+            ["firmographic"] = "demographic_attributes",
+            ["behavioral_triggers"] = "behavioral_triggers",
+            ["list_match"] = "behavioral_triggers",
+            ["boolean_combination"] = "boolean_combination",
+            ["life_event"] = "boolean_combination",
+            ["buying_committee"] = "boolean_combination",
+        };
+
+    internal static (string? Segment, IReadOnlyList<string>? Details, string? Notes, string? Angle) ExtractBriefAudienceAngle(string? briefJson)
+    {
+        var fields = ExtractBriefFields(briefJson);
+        return (fields.Segment, fields.Details, fields.Notes, fields.Angle);
+    }
+
+    internal static BriefFields ExtractBriefFields(string? briefJson)
+    {
+        if (string.IsNullOrWhiteSpace(briefJson)) return new BriefFields();
+        try
+        {
+            using var doc = JsonDocument.Parse(briefJson);
+            var root = doc.RootElement;
+            string? S(string name) => root.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+            string? Any(params string[] names)
+            {
+                foreach (var n in names)
+                {
+                    var v = S(n);
+                    if (!string.IsNullOrWhiteSpace(v)) return v;
+                }
+                return null;
+            }
+
+            var rawSegment = Any("audienceSegment", "audiencePrimary");
+            string? segment = null;
+            if (!string.IsNullOrWhiteSpace(rawSegment) && LegacyAudienceSegmentMap.TryGetValue(rawSegment.Trim(), out var mappedSeg))
+                segment = mappedSeg;
+
+            IReadOnlyList<string>? details = null;
+            List<string>? detailList = null;
+            if (root.TryGetProperty("audienceDetails", out var detProp) && detProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in detProp.EnumerateArray())
+                    if (el.ValueKind == JsonValueKind.String && el.GetString() is string s && !string.IsNullOrWhiteSpace(s))
+                    {
+                        if (LegacyAudienceDetailMap.TryGetValue(s.Trim(), out var mappedDet))
+                        {
+                            detailList ??= new List<string>();
+                            if (!detailList.Contains(mappedDet, StringComparer.OrdinalIgnoreCase))
+                                detailList.Add(mappedDet);
+                        }
+                    }
+            }
+            else if (root.TryGetProperty("audienceModifiers", out var modProp) && modProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in modProp.EnumerateArray())
+                    if (el.ValueKind == JsonValueKind.String && el.GetString() is string s && !string.IsNullOrWhiteSpace(s))
+                    {
+                        if (LegacyAudienceDetailMap.TryGetValue(s.Trim(), out var mappedDet))
+                        {
+                            detailList ??= new List<string>();
+                            if (!detailList.Contains(mappedDet, StringComparer.OrdinalIgnoreCase))
+                                detailList.Add(mappedDet);
+                        }
+                    }
+            }
+            if (detailList is not null) details = detailList;
+
+            var notes = Any("audienceNotes", "audienceDetail");
+            var exclude = S("audienceExclude");
+            if (!string.IsNullOrWhiteSpace(exclude))
+                notes = string.IsNullOrWhiteSpace(notes) ? $"Exclude: {exclude.Trim()}" : $"{notes.Trim()}\nExclude: {exclude.Trim()}";
+
+            var rawAngle = S("angle");
+            string? angle = null;
+            if (!string.IsNullOrWhiteSpace(rawAngle) && LegacyAngleMap.TryGetValue(rawAngle.Trim(), out var mappedAngle))
+                angle = mappedAngle;
+
+            var primaryIntent = Any("primaryIntent", "intent");
+            if (primaryIntent is not null && !new[] { "informational", "navigational", "commercial_investigation", "transactional" }.Contains(primaryIntent))
+                primaryIntent = null;
+            var secondaryIntent = S("secondaryIntent");
+            if (secondaryIntent is not null && !new[] { "local", "freebies", "comparison" }.Contains(secondaryIntent))
+                secondaryIntent = null;
+            var buyingStage = S("buyingStage");
+            if (buyingStage is not null && !new[] { "awareness", "consideration", "action" }.Contains(buyingStage))
+            {
+                // legacy map
+                var legacyBuying = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                { ["tof_interest"] = "awareness", ["mof_consideration"] = "consideration", ["decision"] = "action", ["bof_actions"] = "action" };
+                if (!legacyBuying.TryGetValue(buyingStage, out var mapped)) buyingStage = null;
+                else buyingStage = mapped;
+            }
+            var toneOfVoice = S("toneOfVoice");
+            if (toneOfVoice is not null && toneOfVoice is not "consultant_professional" and not "informational_instructional" and not "commercial_balanced")
+            {
+                // legacy was numeric Record
+                if (toneOfVoice is not null && toneOfVoice.StartsWith("{")) toneOfVoice = "commercial_balanced";
+                else toneOfVoice = null;
+            }
+            IReadOnlyList<string>? eeatSignals = null;
+            if (root.TryGetProperty("eeatSignals", out var eeatProp) && eeatProp.ValueKind == JsonValueKind.Array)
+            {
+                var list = new List<string>();
+                foreach (var el in eeatProp.EnumerateArray())
+                    if (el.ValueKind == JsonValueKind.String && el.GetString() is string s && new[] { "first_hand_experience", "expertise", "authoritativeness", "trustworthiness" }.Contains(s))
+                        if (!list.Contains(s)) list.Add(s);
+                if (list.Count > 0) eeatSignals = list;
+            }
+            var ctaType = S("ctaType");
+            if (ctaType is not null && !new[] { "sign_up", "contact_us", "book_now", "download", "learn_more", "apply_now", "get_quote" }.Contains(ctaType))
+            {
+                var legacyCta = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                { ["start_trial"] = "sign_up", ["subscribe"] = "sign_up", ["book_demo"] = "book_now", ["read_related"] = "learn_more", ["contact_quote"] = "get_quote", ["buy"] = "get_quote" };
+                if (!legacyCta.TryGetValue(ctaType, out var mapped)) ctaType = null;
+                else ctaType = mapped;
+            }
+            var ctaLabel = S("ctaLabel");
+            var lengthBand = S("lengthBand");
+            var writingNotes = S("writingNotes");
+            var segNotes = notes;
+            return new BriefFields
+            {
+                Segment = segment,
+                Details = details,
+                Notes = string.IsNullOrWhiteSpace(segNotes) ? null : segNotes.Trim(),
+                Angle = angle,
+                PrimaryIntent = string.IsNullOrWhiteSpace(primaryIntent) ? null : primaryIntent,
+                SecondaryIntent = string.IsNullOrWhiteSpace(secondaryIntent) ? null : secondaryIntent,
+                BuyingStage = string.IsNullOrWhiteSpace(buyingStage) ? null : buyingStage,
+                ToneOfVoice = string.IsNullOrWhiteSpace(toneOfVoice) ? null : toneOfVoice,
+                EeatSignals = eeatSignals,
+                CtaType = string.IsNullOrWhiteSpace(ctaType) ? null : ctaType,
+                CtaLabel = string.IsNullOrWhiteSpace(ctaLabel) ? null : ctaLabel.Trim(),
+                LengthBand = string.IsNullOrWhiteSpace(lengthBand) ? null : lengthBand.Trim(),
+                WritingNotes = string.IsNullOrWhiteSpace(writingNotes) ? null : writingNotes.Trim(),
+            };
+        }
+        catch (JsonException)
+        {
+            return new BriefFields();
+        }
+    }
+
+    internal sealed record BriefFields
+    {
+        public string? Segment { get; init; }
+        public IReadOnlyList<string>? Details { get; init; }
+        public string? Notes { get; init; }
+        public string? Angle { get; init; }
+        public string? PrimaryIntent { get; init; }
+        public string? SecondaryIntent { get; init; }
+        public string? BuyingStage { get; init; }
+        public string? ToneOfVoice { get; init; }
+        public IReadOnlyList<string>? EeatSignals { get; init; }
+        public string? CtaType { get; init; }
+        public string? CtaLabel { get; init; }
+        public string? LengthBand { get; init; }
+        public string? WritingNotes { get; init; }
+    }
 
     public static string SerializeAnalysisPayload(SiteAnalysisStoredPayload payload) =>
         JsonSerializer.Serialize(payload, JsonOpts);
