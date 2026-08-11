@@ -1,10 +1,10 @@
 using System.Text.Json;
-using ContentWriter.Application.DTOs;
-using ContentWriter.Application.Services;
-using ContentWriter.Domain.Entities;
-using ContentWriter.Domain.Enums;
-using ContentWriter.Infrastructure;
-using ContentWriter.Infrastructure.InMemory;
+using GeekAPI.Services.Workflow.DTOs;
+using GeekAPI.Services.Workflow.Services;
+using GeekAPI.Services.Workflow.Domain.Entities;
+using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.Infrastructure;
+using GeekAPI.Services.Workflow.Infrastructure.InMemory;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;

@@ -1,0 +1,15 @@
+using GeekAPI.Services.Workflow.Domain.Enums;
+
+namespace GeekAPI.Controllers.Workflow.Contracts;
+
+public record CreateClientRequest(string Name, string? Notes);
+
+public record CreatePublishTargetRequest(
+    string GeekBackendApiBaseUrl, string OAuthTokenEndpoint, string ClientIdEnvVar, string ClientSecretEnvVar,
+    int? DefaultAuthorId, CategoryStrategy CategoryStrategy);
+
+public record PublishTargetResponse(
+    Guid Id, string GeekBackendApiBaseUrl, string OAuthTokenEndpoint, string ClientIdEnvVar, string ClientSecretEnvVar,
+    int? DefaultAuthorId, CategoryStrategy CategoryStrategy);
+
+public record ClientResponse(Guid Id, string Name, string? Notes, DateTime CreatedAtUtc, PublishTargetResponse? PublishTarget);

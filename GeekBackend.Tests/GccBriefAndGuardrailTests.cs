@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using ContentWriter.Domain.Entities;
+using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreator.Guardrail;
 using GeekApplication.Models.ContentCreator;

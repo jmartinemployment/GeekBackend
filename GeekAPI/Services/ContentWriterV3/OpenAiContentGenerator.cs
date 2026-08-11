@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using ContentWriter.Application.Providers;
+using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Interfaces.ContentWriterV3;
 using Microsoft.Extensions.Options;
 

@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="DotNetEnv" Version="3.1.1" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
@@ -22,27 +23,6 @@
   <ItemGroup>
     <ProjectReference Include="..\GeekApplication\GeekApplication.csproj" />
     <ProjectReference Include="..\GeekSa2Read\GeekSa2Read.csproj" />
-    <!-- content-writer-v2 merge, Phase 1 (GeekBackend/AGENTS.md § Service topology). -->
-    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Domain\ContentWriter.Domain.csproj" />
-    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Application\ContentWriter.Application.csproj" />
-    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Infrastructure\ContentWriter.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\content-writer-v2\backend\src\ContentWriter.Api\ContentWriter.Api.csproj" />
   </ItemGroup>
-
-  <!--
-    ContentWriter.Api (Sdk.Web, like this project) ships its own appsettings.json/
-    appsettings.Development.json as publish content — colliding with GeekAPI's own at the same
-    relative output path (NETSDK1152). Its config (LlmProviders/CompanyProfile) is merged into
-    this project's own appsettings.json instead (the real runtime source once merged), so its copy
-    is redundant here — but it stays in the content-writer-v2 repo unmodified, since the standalone
-    service still reads it directly.
-  -->
-  <Target Name="RemoveContentWriterV2DuplicateAppsettings" AfterTargets="ComputeResolvedFilesToPublishList">
-    <ItemGroup>
-      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
-        Condition="('%(ResolvedFileToPublish.RelativePath)' == 'appsettings.json' OR '%(ResolvedFileToPublish.RelativePath)' == 'appsettings.Development.json')
-                   AND $([System.String]::new('%(ResolvedFileToPublish.Identity)').Contains('content-writer-v2'))" />
-    </ItemGroup>
-  </Target>
 
 </Project>

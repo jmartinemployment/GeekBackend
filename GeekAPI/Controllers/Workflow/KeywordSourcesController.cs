@@ -1,0 +1,92 @@
+using GeekAPI.Controllers.Workflow.Contracts;
+using GeekAPI.Services.Workflow.Services;
+using GeekAPI.Services.Workflow.Domain.Entities;
+using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.Infrastructure.InMemory;
+using Microsoft.AspNetCore.Mvc;
+
+namespace GeekAPI.Controllers.Workflow;
+
+[ApiController]
+[Route("api/projects/{projectId:guid}/keyword-sources")]
+public class KeywordSourcesController : ControllerBase
+{
+    private const long MaxFileSizeBytes = 10 * 1024 * 1024; // 10 MB per manually-scraped HTML/text file
+
+    private readonly IProjectStore _projectStore;
+    private readonly IKeywordHtmlParserService _parserService;
+
+    public KeywordSourcesController(IProjectStore projectStore, IKeywordHtmlParserService parserService)
+    {
+        _projectStore = projectStore;
+        _parserService = parserService;
+    }
+
+    /// <summary>
+    /// Uploads one manually-scraped input file: a keyword SERP result, an .edu/.gov/wikipedia page,
+    /// a local pack result, a competitor crawl, or a People-Also-Asked text dump.
+    /// </summary>
+    [HttpPost]
+    [RequestSizeLimit(MaxFileSizeBytes)]
+    public async Task<ActionResult<KeywordSourceResponse>> Upload(
+        Guid projectId, [FromForm] KeywordSourceCategory category, IFormFile file, CancellationToken cancellationToken)
+    {
+        var project = await _projectStore.GetAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound($"Project {projectId} was not found.");
+        }
+
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest("A non-empty file is required.");
+        }
+
+        if (file.Length > MaxFileSizeBytes)
+        {
+            return BadRequest($"File exceeds the {MaxFileSizeBytes / (1024 * 1024)}MB limit.");
+        }
+
+        string rawContent;
+        using (var reader = new StreamReader(file.OpenReadStream()))
+        {
+            rawContent = await reader.ReadToEndAsync(cancellationToken);
+        }
+
+        var parsed = _parserService.Parse(category, file.FileName, rawContent);
+
+        var entity = new KeywordSource
+        {
+            ProjectId = projectId,
+            Category = category,
+            OriginalFileName = file.FileName,
+            RawContent = rawContent,
+            ExtractedTitle = parsed.Title,
+            ExtractedHeadings = parsed.Headings,
+            ExtractedParagraphs = parsed.Paragraphs,
+            ExtractedQuestions = parsed.Questions
+        };
+
+        project.KeywordSources.Add(entity);
+        await _projectStore.SaveAsync(project, cancellationToken);
+
+        return Ok(new KeywordSourceResponse(
+            entity.Id, entity.Category, entity.OriginalFileName, entity.ExtractedTitle,
+            entity.ExtractedHeadings.Count, entity.ExtractedParagraphs.Count, entity.ExtractedQuestions.Count));
+    }
+
+    [HttpDelete("{keywordSourceId:guid}")]
+    public async Task<IActionResult> Delete(Guid projectId, Guid keywordSourceId, CancellationToken cancellationToken)
+    {
+        var project = await _projectStore.GetAsync(projectId, cancellationToken);
+        var target = project?.KeywordSources.FirstOrDefault(k => k.Id == keywordSourceId);
+        if (project is null || target is null)
+        {
+            return NotFound();
+        }
+
+        project.KeywordSources.Remove(target);
+        await _projectStore.SaveAsync(project, cancellationToken);
+        return NoContent();
+    }
+}
