@@ -121,7 +121,7 @@ public static class LlmResponseJsonParser
             $"Model did not return a valid sections array for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
     }
 
-    /// <summary>Parses the opening lede: a heading + paragraphs + which pattern (creative/summary) was used.</summary>
+    /// <summary>Parses the opening lede: a heading + paragraphs + which pattern was used.</summary>
     public static (Section Lede, LedeType LedeType) ParseLede(string rawContent, string label)
     {
         var cleaned = Clean(rawContent);
@@ -133,9 +133,7 @@ public static class LlmResponseJsonParser
                 var parsed = JsonSerializer.Deserialize<LedeResponse>(candidate, SectionJsonOptions);
                 if (parsed is not null && !string.IsNullOrWhiteSpace(parsed.Heading))
                 {
-                    var ledeType = string.Equals(parsed.LedeType, "summary", StringComparison.OrdinalIgnoreCase)
-                        ? LedeType.Summary
-                        : LedeType.Creative;
+                    var ledeType = ParseLedeTypeStrict(parsed.LedeType, label);
                     var section = Normalize(new Section("h2", parsed.Heading, parsed.Paragraphs ?? [], null, [], parsed.ImagePrompt));
                     ValidateContentHygiene(section, label);
                     return (section, ledeType);
@@ -144,6 +142,10 @@ public static class LlmResponseJsonParser
             catch (JsonException)
             {
                 // Try the next repaired candidate.
+            }
+            catch (ContentGenerationException)
+            {
+                throw;
             }
         }
 
@@ -169,9 +171,7 @@ public static class LlmResponseJsonParser
                     && parsed.Introduction is { } introduction
                     && !string.IsNullOrWhiteSpace(introduction.Heading))
                 {
-                    var ledeType = string.Equals(lede.LedeType, "summary", StringComparison.OrdinalIgnoreCase)
-                        ? LedeType.Summary
-                        : LedeType.Creative;
+                    var ledeType = ParseLedeTypeStrict(lede.LedeType, label);
                     var ledeSection = Normalize(new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
                     ValidateContentHygiene(ledeSection, $"{label} (lede)");
 
@@ -185,6 +185,10 @@ public static class LlmResponseJsonParser
             {
                 // Try the next repaired candidate.
             }
+            catch (ContentGenerationException)
+            {
+                throw;
+            }
         }
 
         throw new ContentGenerationException(
@@ -194,6 +198,17 @@ public static class LlmResponseJsonParser
     private sealed record SectionsArrayResponse(List<Section>? Sections);
 
     private sealed record LedeResponse(string? LedeType, string Heading, List<Paragraph>? Paragraphs, string? ImagePrompt);
+
+    private static LedeType ParseLedeTypeStrict(string? raw, string label)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new ContentGenerationException($"Model returned ledeType null/empty for {label} — expected one of the 12 taxonomy values.");
+        var normalized = raw.Trim();
+        if (Enum.TryParse<LedeType>(normalized, ignoreCase: true, out var parsed) && Enum.IsDefined(typeof(LedeType), parsed))
+            return parsed;
+        // Also accept camelCase variants that differ only by case — Enum.TryParse with ignoreCase already handles, but ensure no alias
+        throw new ContentGenerationException($"Model returned unknown ledeType '{raw}' for {label} — expected one of: {string.Join(", ", Enum.GetNames<LedeType>())}.");
+    }
 
     /// <summary>
     /// System.Text.Json does not enforce non-null on a record's reference-typed constructor params —

@@ -4,8 +4,18 @@ namespace GeekAPI.Services.Workflow.Domain.Entities;
 
 public enum LedeType
 {
-    Creative,
     Summary,
+    ImmediateIdentification,
+    DelayedIdentification,
+    SingleItem,
+    Anecdotal,
+    Narrative,
+    SceneSetting,
+    StartlingStatement,
+    DirectAddress,
+    Question,
+    Quote,
+    Wordplay
 }
 
 public sealed record Run(string Text, bool Bold = false, bool Italic = false, string? Href = null);

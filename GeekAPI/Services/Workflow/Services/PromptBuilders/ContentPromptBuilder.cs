@@ -211,12 +211,98 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "{\"sections\": [" + SectionJsonContract + ", ...] (top-level h2 sections, in order)}";
 
     private const string LedeJsonContract =
-        "{\"ledeType\": \"creative\"|\"summary\", \"heading\": string (a real written headline — never the literal words \"Creative Lead\"/\"Summary Lede\"), " +
+        "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", \"heading\": string (a real written headline — never the literal words \"Summary Lede\" etc.), " +
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...], " +
         "\"imagePrompt\": string (40-400 words describing an image to accompany this opening — subject, setting, style; no text/words rendered in the image)}";
 
     private const string LedeAndIntroductionJsonContract =
         "{\"lede\": " + LedeJsonContract + ", \"introduction\": " + SectionJsonContract + "}";
+
+    private static string BuildLedeTypeGuidance(ProjectGenerationContext context)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Lede types (pick ONE ledeType that best fits this audience + angle + heading/topic):");
+        sb.AppendLine("- summary: direct thesis-first overview (what/why).");
+        sb.AppendLine("- immediateIdentification: lead names the who/what up front.");
+        sb.AppendLine("- delayedIdentification: hold identity for reveal after hook.");
+        sb.AppendLine("- singleItem: spotlight one striking example/data point.");
+        sb.AppendLine("- anecdotal: brief human story or vignette.");
+        sb.AppendLine("- narrative: chronological arc or journey.");
+        sb.AppendLine("- sceneSetting: vivid place/time establishing context.");
+        sb.AppendLine("- startlingStatement: bold, counterintuitive claim.");
+        sb.AppendLine("- directAddress: speak directly to reader (you/your).");
+        sb.AppendLine("- question: open with a compelling question.");
+        sb.AppendLine("- quote: open with a relevant quotation.");
+        sb.AppendLine("- wordplay: clever phrasing or pun (use sparingly, only if topic allows).");
+        var hasBrief = !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes) || !string.IsNullOrWhiteSpace(context.ContentAngle)
+            || !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
+            || !string.IsNullOrWhiteSpace(context.CtaType) || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
+            || context.EeatSignals is { Count: > 0 };
+        if (hasBrief)
+        {
+            if (!string.IsNullOrWhiteSpace(context.PrimaryIntent))
+                sb.AppendLine($"Primary intent: {context.PrimaryIntent}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $" (secondary: {context.SecondaryIntent})"));
+            if (!string.IsNullOrWhiteSpace(context.BuyingStage))
+                sb.AppendLine($"Buying stage: {context.BuyingStage}");
+            if (!string.IsNullOrWhiteSpace(context.AudienceSegment))
+                sb.AppendLine($"Audience: {context.AudienceSegment}" + (context.AudienceDetails is { Count: > 0 } d ? $" — details: {string.Join(", ", d)}" : "") + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — notes: {context.AudienceNotes}"));
+            else if (!string.IsNullOrWhiteSpace(context.AudienceNotes))
+                sb.AppendLine($"Audience notes: {context.AudienceNotes}");
+            if (context.AudienceDetails is { Count: > 0 } details && string.IsNullOrWhiteSpace(context.AudienceSegment))
+                sb.AppendLine($"Audience details: {string.Join(", ", details)}");
+            if (!string.IsNullOrWhiteSpace(context.ContentAngle))
+                sb.AppendLine($"Angle: {context.ContentAngle}");
+            if (!string.IsNullOrWhiteSpace(context.ToneOfVoice))
+                sb.AppendLine($"Tone of voice: {context.ToneOfVoice}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {string.Join(", ", ee)}" : ""));
+            else if (context.EeatSignals is { Count: > 0 } eeOnly)
+                sb.AppendLine($"E-E-A-T: {string.Join(", ", eeOnly)}");
+            if (!string.IsNullOrWhiteSpace(context.CtaType))
+                sb.AppendLine($"CTA: {context.CtaType}" + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $" — label: {context.CtaLabel}"));
+            if (!string.IsNullOrWhiteSpace(context.LengthBand))
+                sb.AppendLine($"Length band: {context.LengthBand}");
+            if (!string.IsNullOrWhiteSpace(context.WritingNotes))
+                sb.AppendLine($"Writing notes: {context.WritingNotes}");
+            sb.AppendLine("Lede guidance by angle:");
+            sb.AppendLine("  comparative → prefers question, startlingStatement, singleItem (stakes/contrast)");
+            sb.AppendLine("  problem_solution → prefers anecdotal, sceneSetting, directAddress, question (pain-first)");
+            sb.AppendLine("  case_study_data → prefers immediateIdentification, singleItem, quote, startlingStatement (evidence-first)");
+            sb.AppendLine("  ultimate_guide → prefers summary, delayedIdentification, directAddress (comprehensive framing)");
+            sb.AppendLine("Lede guidance by audience:");
+            sb.AppendLine("  affinity/in_market → more narrative/anecdotal room");
+            sb.AppendLine("  detailed_demographics/your_data → more directAddress/question");
+            sb.AppendLine("Lede guidance by intent/funnel:");
+            sb.AppendLine("  informational → summary/narrative/sceneSetting; transactional/commercial_investigation → directAddress/question/singleItem; navigational → immediateIdentification");
+            sb.AppendLine("  awareness → anecdotal/narrative/sceneSetting; consideration → comparative/question; action → directAddress/singleItem");
+            sb.AppendLine("If audience notes conflict with segment, follow notes. Tone and E-E-A-T must be honored in lede voice.");
+        }
+        sb.Append("Pick ONE ledeType from the 12 that best fits this brief (audience + angle + intent/funnel/tone) + heading/topic.");
+        return sb.ToString();
+    }
+
+    private static string BuildBriefBodyGuidance(ProjectGenerationContext context)
+    {
+        var sb = new StringBuilder();
+        var hasAny = !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
+            || !string.IsNullOrWhiteSpace(context.CtaType) || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
+            || context.EeatSignals is { Count: > 0 };
+        if (!hasAny) return string.Empty;
+        sb.AppendLine("=== BRIEF CONTROLS (honor in body) ===");
+        if (!string.IsNullOrWhiteSpace(context.PrimaryIntent))
+            sb.AppendLine($"Primary intent: {context.PrimaryIntent}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $" + {context.SecondaryIntent}"));
+        if (!string.IsNullOrWhiteSpace(context.BuyingStage))
+            sb.AppendLine($"Buying stage: {context.BuyingStage} — align examples/CTAs to funnel (awareness=educate, consideration=compare, action=convert).");
+        if (!string.IsNullOrWhiteSpace(context.ToneOfVoice))
+            sb.AppendLine($"Tone of voice: {context.ToneOfVoice} — hold this voice throughout (consultant_professional=objective authority, informational_instructional=clear stepwise, commercial_balanced=balanced benefits/tradeoffs).");
+        if (context.EeatSignals is { Count: > 0 } ee2)
+            sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", ee2)}.");
+        if (!string.IsNullOrWhiteSpace(context.CtaType))
+            sb.AppendLine($"CTA: {context.CtaType}" + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $" ({context.CtaLabel})") + " — weave naturally into closing, not forced.");
+        if (!string.IsNullOrWhiteSpace(context.LengthBand))
+            sb.AppendLine($"Length band: {context.LengthBand} — respect target length.");
+        if (!string.IsNullOrWhiteSpace(context.WritingNotes))
+            sb.AppendLine($"Writing notes: {context.WritingNotes}");
+        return sb.ToString();
+    }
 
     private static ChatCompletionRequest WithSectionSchema(ChatCompletionRequest request) =>
         request with { JsonSchemaName = "section", JsonSchema = ContentSectionJsonSchema.SectionSchema };
@@ -352,7 +438,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write the opening lede for a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
-            .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
+            .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("The heading is a real written headline for the opening — never the literal words \"Creative Lead\"/\"Summary Lede\"; that label goes only in ledeType.")
             .AppendLine("Do NOT start with \"How\" or a question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
@@ -402,7 +488,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine()
             .AppendLine("LEDE:")
-            .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
+            .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("The heading is a real written headline for the opening — never the literal words \"Creative Lead\"/\"Summary Lede\"; that label goes only in ledeType.")
             .AppendLine("Do NOT start with \"How\" or a question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
@@ -1004,12 +1090,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
     public ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null)
     {
+        var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write a standalone deep-dive blog post from the research brief and keyword — there is no pillar article to repurpose.")
             .AppendLine("Substantive paragraphs with examples and implementation context; first/second person allowed.")
             .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
+            .AppendLine(briefBody)
             .AppendLine("Respond with ONLY the sections array — no markdown fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .ToString();
