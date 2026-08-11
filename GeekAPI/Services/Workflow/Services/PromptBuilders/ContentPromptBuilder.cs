@@ -596,9 +596,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var outlineContext = string.Join("\n", fullOutline.Select((h, i) => $"{i + 1}. {h}"));
         var headingsList = string.Join("\n", headings.Select((h, i) => $"{i + 1}. \"{h}\""));
 
+        var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(briefBody)
             .AppendLine($"Write {headings.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Respond with ONLY the sections array, one entry per heading listed below, in the same order — no markdown fences, no commentary:")
@@ -694,9 +696,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
         // (section-type guidance, the assigned heading, revision notes) lives in the user message
         // instead, after the static research brief — see ResearchBriefBuilder.Build's no-instructions
         // overload below.
+        var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(briefBody)
             .AppendLine("Write ONE section of a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Respond with ONLY a single valid JSON Section object for this section — no markdown fences, no commentary, no other sections.")
@@ -899,9 +903,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
     {
         var paaBlock = string.Join("\n", faqQuestions.Select((q, i) => $"  - Q{i + 1}: {q}"));
 
+        var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(briefBody)
             .AppendLine("Write ONLY the \"People Also Ask\" FAQ section of a TechnicalArticle pillar.")
             .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary.")
             .AppendLine(SectionJsonContract)
