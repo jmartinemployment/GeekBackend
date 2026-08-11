@@ -793,8 +793,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
         bool isRegeneration,
         string? revisionNotes = null)
     {
+        var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
+            .AppendLine(briefBody)
             .AppendLine("Choose 4-5 major platforms or tools for the Tools H2 of a TechnicalArticle pillar.")
             .AppendLine("Only real, verifiable, well-known products relevant to the target keyword. Never invent a tool name or vendor.")
             .AppendLine("Prefer depth on 4 platforms over shallow coverage of 6.")
@@ -843,11 +845,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
             $"{ContentLengthTargets.PillarToolsSectionMinWords / Math.Max(platformCount, 1)}" +
             $"-{ContentLengthTargets.PillarToolsSectionTargetMaxWords / Math.Max(platformCount, 1)}";
 
+        var briefBody = BuildBriefBodyGuidance(context);
         // Fully static across every platform call in a run — see BuildArticleSectionPrompt's
         // identical rationale for why this needs to be a stable prefix for prompt caching.
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(briefBody)
             .AppendLine("Write ONE platform subsection for the Tools H2 of a TechnicalArticle pillar — third person, expert, consultative.")
             .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary, no other platforms.")
             .AppendLine(SectionJsonContract)
@@ -1149,9 +1153,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             _ => ("Professional tone, concise, end with the link.", "Keep concise.", 1024)
         };
 
+        var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine($"You write {platform} posts for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForSocialPlatform(platform))
+            .AppendLine(briefBody)
             .AppendLine(styleGuidance)
             .AppendLine(lengthGuidance)
             .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
@@ -1178,8 +1184,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
         ArticleDraft sourceArticle,
         string articleUrl)
     {
+        var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine("You write cold outreach / sales emails for an IT consulting firm that specializes in AI implementation.")
+            .AppendLine(briefBody)
             .AppendLine(ContentLengthTargets.EmailColdOutreachEditorialDefinition)
             .AppendLine($"Body must be {ContentLengthTargets.EmailColdOutreachMinWords}-{ContentLengthTargets.EmailColdOutreachMaxWords} words.")
             .AppendLine("Pitch ONE clear idea. No HTML. No markdown links. Do not invent URLs.")
