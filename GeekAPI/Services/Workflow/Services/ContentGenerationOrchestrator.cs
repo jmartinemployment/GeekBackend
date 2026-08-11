@@ -1043,29 +1043,23 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         // is reassembled in mainSections' original order at the end instead of relying on append order.
         var sectionsByHeading = new Dictionary<string, Section>(StringComparer.OrdinalIgnoreCase);
 
-        if (introductionHeading is not null)
+        if (introductionHeading is null)
         {
-            _logger.LogInformation("Generating pillar lede + introduction (combined call)");
-            var introIndex = mainSections.IndexOf(introductionHeading);
-            var ledeIntroResult = await provider.CompleteAsync(
-                _promptBuilder.BuildArticleLedeAndIntroductionPrompt(
-                    context, metadata, introductionHeading, introIndex, mainSections.Count, metadata.SectionOutline,
-                    isRegeneration, revisionNotes, existingLedeHeading),
-                cancellationToken);
-            (lede, ledeType, var introSection) = LlmResponseJsonParser.ParseLedeAndIntroduction(
-                ledeIntroResult.Content, "TechnicalArticle lede+introduction");
-            sectionsByHeading[introductionHeading] = introSection;
+            throw new ContentGenerationException(
+                "Pillar outline is missing a required Introduction/Overview heading (e.g. \"Overview of X\", \"Understanding Y\"). " +
+                "Step 1 (pillar plan) must produce a section outline that begins with an Introduction/Overview-classified heading.");
         }
-        else
-        {
-            // Fallback: no heading in this outline matches the Introduction markers — generate the
-            // lede on its own rather than silently dropping it.
-            _logger.LogInformation("Generating pillar lede (no Introduction heading found to combine with)");
-            var ledeResult = await provider.CompleteAsync(
-                _promptBuilder.BuildArticleLedePrompt(context, metadata, revisionNotes, existingLedeHeading),
-                cancellationToken);
-            (lede, ledeType) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "TechnicalArticle lede");
-        }
+
+        _logger.LogInformation("Generating pillar lede + introduction (combined call)");
+        var introIndex = mainSections.IndexOf(introductionHeading);
+        var ledeIntroResult = await provider.CompleteAsync(
+            _promptBuilder.BuildArticleLedeAndIntroductionPrompt(
+                context, metadata, introductionHeading, introIndex, mainSections.Count, metadata.SectionOutline,
+                isRegeneration, revisionNotes, existingLedeHeading),
+            cancellationToken);
+        (lede, ledeType, var introSection) = LlmResponseJsonParser.ParseLedeAndIntroduction(
+            ledeIntroResult.Content, "TechnicalArticle lede+introduction");
+        sectionsByHeading[introductionHeading] = introSection;
 
         // Batch every remaining main section that isn't Tools/Implementation into one call — those
         // two stay their own calls (Tools per the documented truncation-avoidance rule; Implementation
