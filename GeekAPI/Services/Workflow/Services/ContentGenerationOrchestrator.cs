@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services.JsonLd;
@@ -14,6 +15,7 @@ namespace GeekAPI.Services.Workflow.Services;
 public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 {
     private const int MaxPeopleAlsoAskQuestions = 12;
+    private static readonly ConcurrentDictionary<Guid, byte> InFlightGenerations = new();
 
     private readonly IProjectStore _projectStore;
     private readonly IContentProviderFactory _providerFactory;
@@ -90,33 +92,41 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
     public async Task<GeneratedContentSet> GeneratePillarBodyAsync(Guid projectId, string? revisionNotes = null, CancellationToken cancellationToken = default)
     {
-        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
-        var articleRow = RequireGeneratedContent(project, GeneratedContentType.TechnicalArticle,
-            "Generate the pillar plan (Step 1) before writing the article body.");
-
-        var context = BuildContext(project);
-        var provider = _providerFactory.Get(project.PreferredProvider);
-
-        articleRow.NoResearchWarning = HasNoResearchInput(context) ? BuildNoResearchWarning(context.TargetKeyword) : null;
-        if (articleRow.NoResearchWarning is not null)
+        if (!InFlightGenerations.TryAdd(projectId, 0))
         {
-            _logger.LogWarning(
-                "Project {ProjectId} has no crawled site content, no uploaded keyword sources, and no matched Home-page Use Case — generating from keyword \"{Keyword}\" alone.",
-                projectId, context.TargetKeyword);
+            throw new ContentGenerationException(
+                "A pillar body generation is already in progress for this project. Please wait for it to complete before starting another.");
         }
 
-        var metadata = ToMetadataDraft(articleRow);
-        var (bodyMetadata, faqQuestions) = PrepareBodyInput(metadata, context.PeopleAlsoAskQuestions, context.TargetKeyword);
-        if (!articleRow.SectionOutline.SequenceEqual(bodyMetadata.SectionOutline))
+        try
         {
-            articleRow.SectionOutline = bodyMetadata.SectionOutline;
-        }
+            var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
+            var articleRow = RequireGeneratedContent(project, GeneratedContentType.TechnicalArticle,
+                "Generate the pillar plan (Step 1) before writing the article body.");
 
-        var isRegeneration = articleRow.Body is not null && articleRow.WordCount > 0;
+            var context = BuildContext(project);
+            var provider = _providerFactory.Get(project.PreferredProvider);
 
-        _logger.LogInformation(
-            "Generating pillar body for project {ProjectId} via {Provider} (regeneration={IsRegeneration}, faqCount={FaqCount})",
-            projectId, provider.ProviderType, isRegeneration, faqQuestions.Count);
+            articleRow.NoResearchWarning = HasNoResearchInput(context) ? BuildNoResearchWarning(context.TargetKeyword) : null;
+            if (articleRow.NoResearchWarning is not null)
+            {
+                _logger.LogWarning(
+                    "Project {ProjectId} has no crawled site content, no uploaded keyword sources, and no matched Home-page Use Case — generating from keyword \"{Keyword}\" alone.",
+                    projectId, context.TargetKeyword);
+            }
+
+            var metadata = ToMetadataDraft(articleRow);
+            var (bodyMetadata, faqQuestions) = PrepareBodyInput(metadata, context.PeopleAlsoAskQuestions, context.TargetKeyword);
+            if (!articleRow.SectionOutline.SequenceEqual(bodyMetadata.SectionOutline))
+            {
+                articleRow.SectionOutline = bodyMetadata.SectionOutline;
+            }
+
+            var isRegeneration = articleRow.Body is not null && articleRow.WordCount > 0;
+
+            _logger.LogInformation(
+                "Generating pillar body for project {ProjectId} via {Provider} (regeneration={IsRegeneration}, faqCount={FaqCount})",
+                projectId, provider.ProviderType, isRegeneration, faqQuestions.Count);
 
         if (!string.IsNullOrWhiteSpace(revisionNotes))
         {
@@ -171,11 +181,16 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         articleRow.MainSummary = summaryVariants.MainSummary;
         articleRow.HeroSummary = summaryVariants.HeroSummary;
         articleRow.HomeSummary = summaryVariants.HomeSummary;
-        articleRow.BlogSummary = summaryVariants.BlogSummary;
-        articleRow.AdvertisingSummary = summaryVariants.AdvertisingSummary;
+            articleRow.BlogSummary = summaryVariants.BlogSummary;
+            articleRow.AdvertisingSummary = summaryVariants.AdvertisingSummary;
 
-        await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
-        return Assemble(project);
+            await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
+            return Assemble(project);
+        }
+        finally
+        {
+            InFlightGenerations.TryRemove(projectId, out _);
+        }
     }
 
     public async Task<GeneratedContentSet> GeneratePillarAsync(Guid projectId, CancellationToken cancellationToken = default)
