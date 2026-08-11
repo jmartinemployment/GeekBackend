@@ -619,12 +619,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var project = await _projectStore.GetAsync(projectId, cancellationToken)
             ?? throw new ContentGenerationException($"Project {projectId} was not found.");
 
-        var hasSerpIndex = !string.IsNullOrWhiteSpace(project.SerpTitles);
-        if (project.KeywordSources.Count == 0 && !hasSerpIndex)
-        {
-            throw new ContentGenerationException(
-                "Upload research inputs or confirm a curated Keyword SERP index before generating content.");
-        }
+        // Brief is sole research input — Upload Research Inputs removed (293da90); research (KeywordSources/SerpIndex) is optional enrichment, not a generation gate. Brief + Hierarchy alone grounds generation.
 
         var hasHierarchy = !string.IsNullOrWhiteSpace(project.HierarchyPath)
             || project.HierarchyChildHeadings.Count > 0;
