@@ -329,6 +329,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             hierarchyOutlineInstruction +
             "Derive sectionOutline from keyword SERP and local pack headings (declarative topics like \"Benefits of X\", not questions). " +
             "Frame this as a use case showing how AI implementation services solve the client problem — not just generic background. " +
+            "REQUIRED: sectionOutline must begin with exactly one Introduction/Overview H2 (e.g. \"Overview of AI Sales Acceleration\", \"Understanding AI-Driven Lead Generation\") — this opening section frames the keyword use case before diving into specifics. " +
             "REQUIRED: include exactly one tools H2 with a descriptive name (e.g. \"Top AI Tools for Sales Prospecting\") — platforms plus which problems an AI implementer solves. Never use a bare \"Tools/Platforms\" heading. " +
             "Title must NOT be a question and must NOT start with \"How\" — use a definitive statement (e.g. \"AI Prospecting and Lead Intelligence: Implementation Guide\"). " +
             $"Meta description: 140-160 characters, include \"{context.TargetKeyword}\" naturally, concise factual summary for B2B readers, no hype. " +
