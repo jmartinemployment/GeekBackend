@@ -1043,13 +1043,6 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         // is reassembled in mainSections' original order at the end instead of relying on append order.
         var sectionsByHeading = new Dictionary<string, Section>(StringComparer.OrdinalIgnoreCase);
 
-        if (introductionHeading is null)
-        {
-            throw new ContentGenerationException(
-                "Pillar outline is missing a required Introduction/Overview heading (e.g. \"Overview of X\", \"Understanding Y\"). " +
-                "Step 1 (pillar plan) must produce a section outline that begins with an Introduction/Overview-classified heading.");
-        }
-
         _logger.LogInformation("Generating pillar lede + introduction (combined call)");
         var introIndex = mainSections.IndexOf(introductionHeading);
         var ledeIntroResult = await provider.CompleteAsync(
