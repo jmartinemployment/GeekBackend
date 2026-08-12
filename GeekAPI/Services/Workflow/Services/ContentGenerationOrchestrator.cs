@@ -1048,7 +1048,20 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             cancellationToken);
         (lede, ledeType, var introSection) = LlmResponseJsonParser.ParseLedeAndIntroduction(
             ledeIntroResult.Content, "TechnicalArticle lede+introduction");
-        sectionsByHeading[introductionHeading] = introSection;
+        // True fix without renderer fallback: lede IS the first H2 — when model returns identical headings, merge into one ContentDocument.Lede and don't store a duplicate Sections[0].
+        if (string.Equals(lede.Heading.Trim(), introSection.Heading.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            var merged = new Section(lede.Tag, lede.Heading, lede.Paragraphs.Concat(introSection.Paragraphs).ToList(), lede.Href, introSection.Children, lede.ImagePrompt ?? introSection.ImagePrompt, lede.Id ?? introSection.Id);
+            lede = merged;
+            // Do not put duplicate heading into Sections — Lede already is the first H2; Sections will be remaining outline entries only.
+            // Mark as handled so batchHeadings skips it but final sections list won't duplicate H2.
+            sectionsByHeading[introductionHeading] = new Section(introductionHeading, string.Empty, [], null, [], null);
+            // Tag as placeholder to exclude from final sections ordering below — will be filtered out.
+        }
+        else
+        {
+            sectionsByHeading[introductionHeading] = introSection;
+        }
 
         // Batch every remaining main section that isn't Tools/Implementation into one call — those
         // two stay their own calls (Tools per the documented truncation-avoidance rule; Implementation
@@ -1136,6 +1149,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var sections = mainSections
             .Where(h => sectionsByHeading.ContainsKey(h))
             .Select(h => sectionsByHeading[h])
+            .Where(s => !string.IsNullOrWhiteSpace(s.Heading))
             .ToList();
 
         if (faqQuestions.Count > 0)
