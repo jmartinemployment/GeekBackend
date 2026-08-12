@@ -492,7 +492,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("LEDE (this IS the H2 — no generic Introduction label):")
             .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("The lede.heading IS the H2 heading for this section — a real creative headline (e.g. hook), never a generic \"Introduction to...\" / \"Introduction/Overview\" string and never the literal words \"Creative Lead\"/\"Summary Lede\"; that label goes only in ledeType.")
-            .AppendLine("The introduction.heading MUST equal lede.heading — do not emit a separate \"Introduction to...\" heading.")
             .AppendLine("Do NOT start with \"How\" or a question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
