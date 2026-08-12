@@ -1042,7 +1042,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         _logger.LogInformation("Generating pillar lede + introduction (combined call)");
         var introIndex = mainSections.IndexOf(introductionHeading);
         var ledeIntroResult = await provider.CompleteAsync(
-            _promptBuilder.BuildArticleLedeAndIntroductionPrompt(
+            _promptBuilder.BuildPillarLedePrompt(
                 context, metadata, introductionHeading, introIndex, mainSections.Count, metadata.SectionOutline,
                 isRegeneration, revisionNotes, existingLedeHeading),
             cancellationToken);

@@ -25,13 +25,13 @@ public interface IContentPromptBuilder
         string? revisionNotes = null,
         string? existingLedeHeading = null);
 
-    /// <summary>Combines the lede and Introduction section into one call — they cover overlapping
-    /// ground (both open the article), so writing them separately is redundant call volume.</summary>
-    ChatCompletionRequest BuildArticleLedeAndIntroductionPrompt(
+    /// <summary>Produces the pillar's opening Lede H2 — the hook (12-type, audience×angle→heading/topic, tone) plus its real h3/h4 scoping.
+    /// Replaces the tightly-coupled lede+Introduction pair; the lede IS the first H2.</summary>
+    ChatCompletionRequest BuildPillarLedePrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
-        string introductionHeading,
-        int introductionIndex,
+        string ledeHeading,
+        int ledeIndex,
         int totalSections,
         IReadOnlyList<string> fullOutline,
         bool isRegeneration,
@@ -470,11 +470,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             MaxOutputTokens: 1024);
     }
 
-    public ChatCompletionRequest BuildArticleLedeAndIntroductionPrompt(
+    public ChatCompletionRequest BuildPillarLedePrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
-        string introductionHeading,
-        int introductionIndex,
+        string ledeHeading,
+        int ledeIndex,
         int totalSections,
         IReadOnlyList<string> fullOutline,
         bool isRegeneration,
@@ -486,21 +486,20 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine("Write the Introduction/Overview H2 section for a schema.org TechnicalArticle pillar — the lede IS this section's heading and opening, not a separate pre-H2 block.")
+            .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + heading/topic → 12 types); keep expert, consultative tone throughout.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine()
-            .AppendLine("LEDE (this IS the H2 — no generic Introduction label):")
+            .AppendLine("Produce the pillar's Lede — it IS the first H2 (no separate Introduction/Overview label):")
             .AppendLine(BuildLedeTypeGuidance(context))
-            .AppendLine("The lede.heading IS the H2 heading for this section — a real creative headline (e.g. hook), never a generic \"Introduction to...\" / \"Introduction/Overview\" string and never the literal words \"Creative Lead\"/\"Summary Lede\"; that label goes only in ledeType.")
-            .AppendLine("Do NOT start with \"How\" or a question.")
+            .AppendLine("The heading IS the H2 — a real creative headline (hook), never a generic \"Introduction to...\" / \"Introduction/Overview\" string and never the literal words \"Creative Lead\"/\"Summary Lede\"; that label goes only in ledeType.")
+            .AppendLine("Do NOT start with \"How\" or a question unless ledeType is Question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation. 2-3 paragraphs total.")
             .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
             .AppendLine()
-            .AppendLine("INTRODUCTION SECTION (real content, not a duplicate hook):")
-            .AppendLine("This section's own tag is \"h2\". Its opening paragraphs ARE the lede above — then continue with the rest of the Introduction: ")
-            .AppendLine("scoping the topic, who it's for, and what the article will walk through — do not repeat the hook as a separate block.")
+            .AppendLine("LEDE H2 — real content follows the hook in the same H2:")
+            .AppendLine("This H2's opening paragraphs ARE the lede hook above — then continue in the same H2 with scoping (who it's for, what the article walks through), not a duplicate hook.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
             .AppendLine("Each h3 is a keyword-level topic and MUST itself nest 1-3 h4 children covering concrete subtopics of that h3.")
@@ -527,7 +526,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             system += Environment.NewLine + "LEDE " + ledeRevisionBlock;
         }
 
-        var introRevisionBlock = BuildRevisionNotesBlock(revisionNotes, sectionHeading: introductionHeading);
+        var introRevisionBlock = BuildRevisionNotesBlock(revisionNotes, sectionHeading: ledeHeading);
         if (introRevisionBlock is not null)
         {
             system += Environment.NewLine + "INTRODUCTION " + introRevisionBlock;
@@ -536,12 +535,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
             .AppendLine()
-            .AppendLine($"Write the lede, then Introduction section {introductionIndex + 1} of {totalSections}: \"{introductionHeading}\".")
+            .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}: \"{ledeHeading}\".")
             .AppendLine($"Article title: {metadata.Title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Meta description: {metadata.MetaDescription}")
             .AppendLine()
-            .AppendLine("Full article outline (for context only — write ONLY the lede and the Introduction section):")
+            .AppendLine("Full article outline (for context only — write ONLY the Lede H2):")
             .AppendLine(outlineContext)
             .ToString();
 
