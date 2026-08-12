@@ -1029,7 +1029,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             .Where(s => !PillarOutlineNormalizer.IsFaqSectionTitle(s))
             .ToList();
 
-        var introductionHeading = mainSections.FirstOrDefault(PillarSectionClassifier.IsIntroductionSection);
+        // First outline entry IS the lede/opening H2 — never a mandatory "Introduction" label.
+        var introductionHeading = mainSections.FirstOrDefault(PillarSectionClassifier.IsIntroductionSection)
+            ?? mainSections.FirstOrDefault();
 
         Section lede;
         LedeType ledeType;
