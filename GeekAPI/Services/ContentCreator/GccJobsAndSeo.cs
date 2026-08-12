@@ -510,11 +510,16 @@ public class HttpGeekSeoSiteAnalyzerClient
         IReadOnlyList<string>? Hierarchy = null,
         string? SourcePageUrl = null);
 
+    public sealed record PageSectionLinkDto(
+        string Text,
+        string Href);
+
     /// <summary>One crawled page's real heading tree (mirrors Geek-SEO's PageSection JSON shape).</summary>
     public sealed record PageSectionDto(
         int Level,
         string HeadingText,
         List<string>? Paragraphs,
+        List<PageSectionLinkDto>? Links,
         List<PageSectionDto>? Children);
 
     public sealed record PageSectionTreeDto(

@@ -16,7 +16,8 @@ public record UpdateHierarchyContextRequest(
     string? HierarchySourcePageUrl,
     bool AllowOutsideSiteScope,
     Guid? SiteAnalysisId = null,
-    IReadOnlyList<string>? HierarchyToolNames = null);
+    IReadOnlyList<string>? HierarchyToolNames = null,
+    Dictionary<string, string>? HierarchyToolUrls = null);
 
 public record UpdateSerpContextRequest(
     string? SerpTitles,
@@ -46,6 +47,7 @@ public record ProjectDetailResponse(
     string? SerpPaaQuestions = null,
     string? SerpRelatedSearches = null,
     IReadOnlyList<string>? HierarchyToolNames = null,
+    Dictionary<string, string>? HierarchyToolUrls = null,
     Guid? LinkedCreateId = null);
 
 public record CrawlSummaryResponse(

@@ -132,10 +132,23 @@ public class ProjectsController : ControllerBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var toolUrls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (request.HierarchyToolUrls is not null)
+        {
+            foreach (var kvp in request.HierarchyToolUrls)
+            {
+                if (!string.IsNullOrWhiteSpace(kvp.Key) && !string.IsNullOrWhiteSpace(kvp.Value))
+                {
+                    toolUrls[kvp.Key.Trim()] = kvp.Value.Trim();
+                }
+            }
+        }
+
         var path = string.IsNullOrWhiteSpace(request.HierarchyPath) ? null : request.HierarchyPath.Trim();
         project.HierarchyPath = path;
         project.HierarchyChildHeadings = children;
         project.HierarchyToolNames = toolNames;
+        project.HierarchyToolUrls = toolUrls;
         project.HierarchySourcePageUrl = string.IsNullOrWhiteSpace(request.HierarchySourcePageUrl)
             ? null
             : request.HierarchySourcePageUrl.Trim();
@@ -235,6 +248,7 @@ public class ProjectsController : ControllerBase
             project.SerpPaaQuestions,
             project.SerpRelatedSearches,
             project.HierarchyToolNames,
+            project.HierarchyToolUrls,
             project.LinkedCreateId);
     }
 

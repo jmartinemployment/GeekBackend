@@ -91,6 +91,7 @@ internal static class ResearchBriefBuilder
                 AppendKeywordSerpBrief(sb, context, maxHeadingsPerFile: 3, maxParagraphsPerFile: 1);
                 AppendAuthoritativeSourcesBrief(sb, context, maxSources: 2, maxHeadingsPerFile: 2, maxParagraphsPerFile: 2);
                 AppendCompetitorGapsBrief(sb, context);
+                AppendKnownToolsBrief(sb, context);
                 break;
 
             case ResearchBriefPhase.ToolBody:
@@ -265,6 +266,7 @@ internal static class ResearchBriefBuilder
     /// <summary>
     /// Grounds pillar/blog prose in Site Analyzer tool names + uploaded tool research.
     /// Instructs recurring, substantive mentions — not a Tools section roll-call.
+    /// Includes URLs when available; instructs LLM to set Run.href on substantive mentions.
     /// </summary>
     private static void AppendKnownToolsBrief(StringBuilder sb, ProjectGenerationContext context)
     {
@@ -278,6 +280,8 @@ internal static class ResearchBriefBuilder
             .Where(k => k.Category == KeywordSourceCategory.Tools)
             .ToList();
 
+        var toolUrls = context.HierarchyToolUrls ?? new Dictionary<string, string>();
+
         if (names.Count == 0 && toolSources.Count == 0)
         {
             return;
@@ -290,11 +294,27 @@ internal static class ResearchBriefBuilder
             "recurring where relevant, discussed substantively. Do NOT create a dedicated Tools/Platforms " +
             "section, do NOT produce a roll-call list, and do NOT mention each tool only once at first occurrence.");
 
+        if (toolUrls.Count > 0)
+        {
+            sb.AppendLine("When a tool in this list is substantively mentioned in body prose (not headings), set its Run object's " +
+                "\"href\" field to the URL given below. Never fabricate a URL for a tool without a link. Avoid over-linking " +
+                "(max ~1-2 linked mentions per tool per document).");
+        }
+
         if (names.Count > 0)
         {
             sb.AppendLine("Hierarchy tool set:");
             foreach (var name in names)
-                sb.AppendLine($"- {name}");
+            {
+                if (toolUrls.TryGetValue(name, out var url))
+                {
+                    sb.AppendLine($"- {name}: {url}");
+                }
+                else
+                {
+                    sb.AppendLine($"- {name}");
+                }
+            }
         }
 
         foreach (var source in toolSources)
