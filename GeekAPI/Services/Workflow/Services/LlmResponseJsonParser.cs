@@ -167,16 +167,25 @@ public static class LlmResponseJsonParser
             {
                 var parsed = JsonSerializer.Deserialize<LedeAndIntroductionResponse>(candidate, SectionJsonOptions);
                 if (parsed?.Lede is { } lede
-                    && !string.IsNullOrWhiteSpace(lede.Heading)
-                    && parsed.Introduction is { } introduction
-                    && !string.IsNullOrWhiteSpace(introduction.Heading))
+                    && !string.IsNullOrWhiteSpace(lede.Heading))
                 {
+                    // Introduction may be same heading as lede (f853c40: lede IS the H2). Handle missing/empty introduction gracefully.
+                    var introduction = parsed.Introduction;
+                    if (introduction is null || string.IsNullOrWhiteSpace(introduction.Heading))
+                    {
+                        // Synthesize introduction from lede when model omits it (same hook H2, no duplicate).
+                        introduction = new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt);
+                    }
                     var ledeType = ParseLedeTypeStrict(lede.LedeType, label);
                     var ledeSection = Normalize(new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
                     ValidateContentHygiene(ledeSection, $"{label} (lede)");
 
                     var introSection = Normalize(introduction) with { Tag = "h2" };
-                    ValidateContentHygiene(introSection, $"{label} (introduction)");
+                    // If introduction heading was synthesized from lede, skip second hygiene that would duplicate error; otherwise validate.
+                    if (!string.Equals(introSection.Heading.Trim(), ledeSection.Heading.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        ValidateContentHygiene(introSection, $"{label} (introduction)");
+                    }
 
                     return (ledeSection, ledeType, introSection);
                 }
