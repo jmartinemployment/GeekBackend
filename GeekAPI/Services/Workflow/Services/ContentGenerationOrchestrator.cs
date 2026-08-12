@@ -6,6 +6,7 @@ using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Infrastructure.InMemory;
+using GeekAPI.Services.ContentCreator;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -876,6 +877,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             siteName = projectUri.Host;
         }
 
+        var brief = GccGenerateService.ExtractBriefFields(project.BriefJson);
+
         // This phase: omit crawl tone/focus from prompts even if a legacy crawl row exists.
         return new ProjectGenerationContext(
             ProjectName: project.Name,
@@ -910,7 +913,20 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             SerpUrls: project.SerpUrls,
             SerpPaaQuestions: project.SerpPaaQuestions,
             SerpRelatedSearches: project.SerpRelatedSearches,
-            HierarchyToolNames: project.HierarchyToolNames);
+            HierarchyToolNames: project.HierarchyToolNames,
+            AudienceSegment: brief.Segment,
+            AudienceDetails: brief.Details,
+            AudienceNotes: brief.Notes,
+            ContentAngle: brief.Angle,
+            PrimaryIntent: brief.PrimaryIntent,
+            SecondaryIntent: brief.SecondaryIntent,
+            BuyingStage: brief.BuyingStage,
+            ToneOfVoice: brief.ToneOfVoice,
+            EeatSignals: brief.EeatSignals,
+            CtaType: brief.CtaType,
+            CtaLabel: brief.CtaLabel,
+            LengthBand: brief.LengthBand,
+            WritingNotes: brief.WritingNotes);
     }
 
     /// <summary>Matches a project's TargetKeyword against a Home page use-case item by name — forgiving
@@ -980,15 +996,19 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     }
 
     /// <summary>True when generation is about to run from nothing but the bare keyword — no
-    /// crawled site content, no uploaded keyword sources, no matched Home-page Use Case.</summary>
+    /// crawled site content, no uploaded keyword sources, no matched Home-page Use Case, or Content Brief.</summary>
     private static bool HasNoResearchInput(ProjectGenerationContext context) =>
         context.CrawledHeadings.Count == 0
         && context.CrawledParagraphs.Count == 0
         && context.KeywordSources.Count == 0
-        && context.MatchedUseCase is null;
+        && context.MatchedUseCase is null
+        && string.IsNullOrWhiteSpace(context.AudienceSegment)
+        && string.IsNullOrWhiteSpace(context.ContentAngle)
+        && string.IsNullOrWhiteSpace(context.PrimaryIntent)
+        && string.IsNullOrWhiteSpace(context.WritingNotes);
 
     private static string BuildNoResearchWarning(string targetKeyword) =>
-        $"Generated from the keyword \"{targetKeyword}\" alone — no crawled site content, uploaded keyword sources, or matched Home-page Use Case were available.";
+        $"Generated from the keyword \"{targetKeyword}\" alone — no crawled site content, uploaded keyword sources, matched Home-page Use Case, or Content Brief were available.";
 
     private static string CombineUrl(string baseUrl, string department, string slug) =>
         $"{baseUrl.TrimEnd('/')}/{department}/{slug}";

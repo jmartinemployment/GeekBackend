@@ -23,7 +23,7 @@ public static class ProjectSnapshotSerializer
     {
         // Snapshot excludes the Client navigation; it's rehydrated from the client cache on load.
         var snapshot = new ProjectSnapshot(
-            SchemaVersion: 2,
+            SchemaVersion: 3,
             Id: project.Id,
             ClientId: project.ClientId,
             Name: project.Name,
@@ -44,6 +44,8 @@ public static class ProjectSnapshotSerializer
             SerpUrls: project.SerpUrls,
             SerpPaaQuestions: project.SerpPaaQuestions,
             SerpRelatedSearches: project.SerpRelatedSearches,
+            LinkedCreateId: project.LinkedCreateId,
+            BriefJson: project.BriefJson,
             CreatedAtUtc: project.CreatedAtUtc,
             UpdatedAtUtc: project.UpdatedAtUtc,
             ContentApprovedAtUtc: project.ContentApprovedAtUtc,
@@ -81,6 +83,8 @@ public static class ProjectSnapshotSerializer
             SerpUrls = snapshot.SerpUrls,
             SerpPaaQuestions = snapshot.SerpPaaQuestions,
             SerpRelatedSearches = snapshot.SerpRelatedSearches,
+            LinkedCreateId = snapshot.LinkedCreateId,
+            BriefJson = snapshot.BriefJson,
             CreatedAtUtc = snapshot.CreatedAtUtc,
             UpdatedAtUtc = snapshot.UpdatedAtUtc,
             ContentApprovedAtUtc = snapshot.ContentApprovedAtUtc,
@@ -113,6 +117,8 @@ public static class ProjectSnapshotSerializer
         string? SerpUrls,
         string? SerpPaaQuestions,
         string? SerpRelatedSearches,
+        Guid? LinkedCreateId,
+        string? BriefJson,
         DateTime CreatedAtUtc,
         DateTime? UpdatedAtUtc,
         DateTime? ContentApprovedAtUtc,
