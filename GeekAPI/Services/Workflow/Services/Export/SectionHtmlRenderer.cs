@@ -129,10 +129,22 @@ public static class SectionHtmlRenderer
         h1.AppendChild(CreateEncodedTextNode(doc, title));
         body_.AppendChild(h1);
 
-        AppendSection(doc, body_, body.Lede);
-        foreach (var section in body.Sections)
+        if (body.Sections.Count > 0 && string.Equals(body.Lede.Heading.Trim(), body.Sections[0].Heading.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            AppendSection(doc, body_, section);
+            var merged = new Section(body.Lede.Tag, body.Lede.Heading, body.Lede.Paragraphs.Concat(body.Sections[0].Paragraphs).ToList(), body.Lede.Href, body.Sections[0].Children, body.Lede.ImagePrompt ?? body.Sections[0].ImagePrompt, body.Lede.Id ?? body.Sections[0].Id);
+            AppendSection(doc, body_, merged);
+            foreach (var section in body.Sections.Skip(1))
+            {
+                AppendSection(doc, body_, section);
+            }
+        }
+        else
+        {
+            AppendSection(doc, body_, body.Lede);
+            foreach (var section in body.Sections)
+            {
+                AppendSection(doc, body_, section);
+            }
         }
 
         return "<!doctype html>\n" + doc.DocumentNode.OuterHtml;
@@ -192,10 +204,23 @@ public static class SectionHtmlRenderer
         var container = doc.CreateElement("div");
         doc.DocumentNode.AppendChild(container);
 
-        AppendSection(doc, container, body.Lede);
-        foreach (var section in body.Sections)
+        // Lede IS the opening H2 (b032b6a/f853c40) — if its heading equals Sections[0], render once to avoid duplicate identical H2s.
+        if (body.Sections.Count > 0 && string.Equals(body.Lede.Heading.Trim(), body.Sections[0].Heading.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            AppendSection(doc, container, section);
+            var merged = new Section(body.Lede.Tag, body.Lede.Heading, body.Lede.Paragraphs.Concat(body.Sections[0].Paragraphs).ToList(), body.Lede.Href, body.Sections[0].Children, body.Lede.ImagePrompt ?? body.Sections[0].ImagePrompt, body.Lede.Id ?? body.Sections[0].Id);
+            AppendSection(doc, container, merged);
+            foreach (var section in body.Sections.Skip(1))
+            {
+                AppendSection(doc, container, section);
+            }
+        }
+        else
+        {
+            AppendSection(doc, container, body.Lede);
+            foreach (var section in body.Sections)
+            {
+                AppendSection(doc, container, section);
+            }
         }
 
         return container.InnerHtml;
