@@ -855,7 +855,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Write ONE platform subsection for the Tools H2 of a TechnicalArticle pillar — third person, expert, consultative.")
             .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary, no other platforms.")
             .AppendLine(SectionJsonContract)
-            .AppendLine("This section's own tag is \"h3\". Heading must be exactly the assigned platform name.")
+            .AppendLine("This section's own tag is \"h3\". Heading must be exactly \"<a href=\"/tools/{department}/{slug}\">PlatformName</a>\" — enclose the platform name in an anchor tag linking to /tools/{department}/{slugified-platform-name} (e.g. <a href=\"/tools/marketing/tipalti\">Tipalti</a>), using the department from the project context and the slugified tool name.")
             .AppendLine("Include: a brief overview paragraph of what the platform does for this use case, then a list paragraph with 2-4 factual capability bullets.")
             .AppendLine("Then one child Section (tag h4, heading \"How an AI implementer helps with {Platform}\").")
             .AppendLine($"Target ~{perPlatformTarget} words for this platform subtree so the full Tools section lands near {ContentLengthTargets.PillarToolsSectionMinWords}-{ContentLengthTargets.PillarToolsSectionTargetMaxWords} words.")
