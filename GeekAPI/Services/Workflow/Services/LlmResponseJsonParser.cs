@@ -259,6 +259,11 @@ public static class LlmResponseJsonParser
 
     private static void CheckText(string text, string label)
     {
+        // Tool anchors are permitted via Run.Href or as escaped <a href="/tools/..."> literal per prompt — don't flag them as leaked markup.
+        if (text.Contains("<a href=\"/tools/", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
         if (LeakedMarkupSyntax.IsMatch(text))
         {
             throw new ContentGenerationException(
