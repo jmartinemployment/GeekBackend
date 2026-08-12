@@ -24,6 +24,8 @@ public record UpdateSerpContextRequest(
     string? SerpPaaQuestions,
     string? SerpRelatedSearches);
 
+public record UpdateProjectBriefRequest(Guid CreateId, string? BriefJson);
+
 public record ProjectSummaryResponse(
     Guid Id, Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,
     ProjectStatus Status, LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle, DateTime CreatedAtUtc,
@@ -43,7 +45,8 @@ public record ProjectDetailResponse(
     string? SerpUrls = null,
     string? SerpPaaQuestions = null,
     string? SerpRelatedSearches = null,
-    IReadOnlyList<string>? HierarchyToolNames = null);
+    IReadOnlyList<string>? HierarchyToolNames = null,
+    Guid? LinkedCreateId = null);
 
 public record CrawlSummaryResponse(
     string SiteName, int PagesCrawled, string DetectedTone, string DetectedFocus,

@@ -58,6 +58,12 @@ public class Project
     /// <summary>Curated related searches (one per line).</summary>
     public string? SerpRelatedSearches { get; set; }
 
+    /// <summary>Durable link to the Content Creator GccCreate holding the operator-authored Brief.</summary>
+    public Guid? LinkedCreateId { get; set; }
+
+    /// <summary>Cached copy of the linked create's BriefJson, refreshed each time the brief is saved from the UI — avoids a live cross-service fetch during Generate.</summary>
+    public string? BriefJson { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAtUtc { get; set; }
 

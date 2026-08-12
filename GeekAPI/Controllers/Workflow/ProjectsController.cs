@@ -184,6 +184,21 @@ public class ProjectsController : ControllerBase
         return Ok(ToDetail(project));
     }
 
+    [HttpPut("{id:guid}/brief")]
+    public async Task<ActionResult<ProjectDetailResponse>> UpdateBrief(
+        Guid id, [FromBody] UpdateProjectBriefRequest request, CancellationToken cancellationToken)
+    {
+        var project = await _projectStore.GetAsync(id, cancellationToken);
+        if (project is null) return NotFound();
+        if (request.CreateId == Guid.Empty) return BadRequest("CreateId is required.");
+
+        project.LinkedCreateId = request.CreateId;
+        project.BriefJson = string.IsNullOrWhiteSpace(request.BriefJson) ? null : request.BriefJson;
+        project.UpdatedAtUtc = DateTime.UtcNow;
+        await _projectStore.SaveAsync(project, cancellationToken);
+        return Ok(ToDetail(project));
+    }
+
     private ProjectDetailResponse ToDetail(Project project)
     {
         var crawl = project.CrawledSite is null ? null : new CrawlSummaryResponse(
@@ -219,7 +234,8 @@ public class ProjectsController : ControllerBase
             project.SerpUrls,
             project.SerpPaaQuestions,
             project.SerpRelatedSearches,
-            project.HierarchyToolNames);
+            project.HierarchyToolNames,
+            project.LinkedCreateId);
     }
 
     private static ProjectSummaryResponse ToSummary(Project project) => new(
