@@ -37,6 +37,10 @@ public class Project
     /// </summary>
     public List<string> HierarchyToolNames { get; set; } = new();
 
+    /// <summary>Tool name → href mappings for tools mentioned in the matched hierarchy node.
+    /// Populated from crawled page anchors; empty when not available.</summary>
+    public Dictionary<string, string> HierarchyToolUrls { get; set; } = new();
+
     /// <summary>Source page URL for the matched hierarchy node.</summary>
     public string? HierarchySourcePageUrl { get; set; }
 

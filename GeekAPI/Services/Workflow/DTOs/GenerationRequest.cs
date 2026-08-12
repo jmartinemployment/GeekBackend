@@ -37,6 +37,7 @@ public record ProjectGenerationContext(
     string? SerpPaaQuestions = null,
     string? SerpRelatedSearches = null,
     IReadOnlyList<string>? HierarchyToolNames = null,
+    IReadOnlyDictionary<string, string>? HierarchyToolUrls = null,
     string? AudienceSegment = null,
     IReadOnlyList<string>? AudienceDetails = null,
     string? AudienceNotes = null,

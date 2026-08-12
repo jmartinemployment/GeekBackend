@@ -914,6 +914,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             SerpPaaQuestions: project.SerpPaaQuestions,
             SerpRelatedSearches: project.SerpRelatedSearches,
             HierarchyToolNames: project.HierarchyToolNames,
+            HierarchyToolUrls: project.HierarchyToolUrls,
             AudienceSegment: brief.Segment,
             AudienceDetails: brief.Details,
             AudienceNotes: brief.Notes,
