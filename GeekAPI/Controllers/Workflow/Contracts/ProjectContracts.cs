@@ -3,6 +3,10 @@ using GeekAPI.Services.Workflow.Domain.Enums;
 
 namespace GeekAPI.Controllers.Workflow.Contracts;
 
+public record ToolInfo(string Name, string? Href = null);
+
+public record ToolsByHeading(string Heading, IReadOnlyList<ToolInfo> Tools);
+
 public record CreateProjectRequest(
     Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,
     LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle = false,
@@ -16,8 +20,7 @@ public record UpdateHierarchyContextRequest(
     string? HierarchySourcePageUrl,
     bool AllowOutsideSiteScope,
     Guid? SiteAnalysisId = null,
-    IReadOnlyList<string>? HierarchyToolNames = null,
-    Dictionary<string, string>? HierarchyToolUrls = null);
+    IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null);
 
 public record UpdateSerpContextRequest(
     string? SerpTitles,
@@ -46,8 +49,7 @@ public record ProjectDetailResponse(
     string? SerpUrls = null,
     string? SerpPaaQuestions = null,
     string? SerpRelatedSearches = null,
-    IReadOnlyList<string>? HierarchyToolNames = null,
-    Dictionary<string, string>? HierarchyToolUrls = null,
+    IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null,
     Guid? LinkedCreateId = null);
 
 public record CrawlSummaryResponse(

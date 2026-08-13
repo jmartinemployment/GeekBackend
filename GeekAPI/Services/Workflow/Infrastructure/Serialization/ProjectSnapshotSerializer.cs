@@ -23,7 +23,7 @@ public static class ProjectSnapshotSerializer
     {
         // Snapshot excludes the Client navigation; it's rehydrated from the client cache on load.
         var snapshot = new ProjectSnapshot(
-            SchemaVersion: 3,
+            SchemaVersion: 4,
             Id: project.Id,
             ClientId: project.ClientId,
             Name: project.Name,
@@ -37,8 +37,7 @@ public static class ProjectSnapshotSerializer
             SiteAnalysisId: project.SiteAnalysisId,
             HierarchyPath: project.HierarchyPath,
             HierarchyChildHeadings: project.HierarchyChildHeadings,
-            HierarchyToolNames: project.HierarchyToolNames,
-            HierarchyToolUrls: project.HierarchyToolUrls,
+            HierarchyToolsByHeading: project.HierarchyToolsByHeading,
             HierarchySourcePageUrl: project.HierarchySourcePageUrl,
             AllowOutsideSiteScope: project.AllowOutsideSiteScope,
             SerpTitles: project.SerpTitles,
@@ -77,8 +76,7 @@ public static class ProjectSnapshotSerializer
             SiteAnalysisId = snapshot.SiteAnalysisId,
             HierarchyPath = snapshot.HierarchyPath,
             HierarchyChildHeadings = snapshot.HierarchyChildHeadings ?? new(),
-            HierarchyToolNames = snapshot.HierarchyToolNames ?? new(),
-            HierarchyToolUrls = snapshot.HierarchyToolUrls ?? new(),
+            HierarchyToolsByHeading = snapshot.HierarchyToolsByHeading ?? new(),
             HierarchySourcePageUrl = snapshot.HierarchySourcePageUrl,
             AllowOutsideSiteScope = snapshot.AllowOutsideSiteScope,
             SerpTitles = snapshot.SerpTitles,
@@ -112,8 +110,7 @@ public static class ProjectSnapshotSerializer
         Guid? SiteAnalysisId,
         string? HierarchyPath,
         List<string>? HierarchyChildHeadings,
-        List<string>? HierarchyToolNames,
-        Dictionary<string, string>? HierarchyToolUrls,
+        List<ToolsByHeading>? HierarchyToolsByHeading,
         string? HierarchySourcePageUrl,
         bool AllowOutsideSiteScope,
         string? SerpTitles,
