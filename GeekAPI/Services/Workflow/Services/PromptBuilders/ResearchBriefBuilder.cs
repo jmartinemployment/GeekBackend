@@ -1,6 +1,7 @@
 using System.Text;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 
@@ -270,19 +271,14 @@ internal static class ResearchBriefBuilder
     /// </summary>
     private static void AppendKnownToolsBrief(StringBuilder sb, ProjectGenerationContext context)
     {
-        var names = (context.HierarchyToolNames ?? Array.Empty<string>())
-            .Select(n => n.Trim())
-            .Where(n => n.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var toolsByHeading = context.HierarchyToolsByHeading ?? Array.Empty<ToolsByHeading>();
+        var allTools = toolsByHeading.SelectMany(g => g.Tools).Distinct(new ToolInfoComparer()).ToList();
 
         var toolSources = context.KeywordSources
             .Where(k => k.Category == KeywordSourceCategory.Tools)
             .ToList();
 
-        var toolUrls = context.HierarchyToolUrls ?? new Dictionary<string, string>();
-
-        if (names.Count == 0 && toolSources.Count == 0)
+        if (allTools.Count == 0 && toolSources.Count == 0)
         {
             return;
         }
@@ -294,25 +290,30 @@ internal static class ResearchBriefBuilder
             "recurring where relevant, discussed substantively. Do NOT create a dedicated Tools/Platforms " +
             "section, do NOT produce a roll-call list, and do NOT mention each tool only once at first occurrence.");
 
-        if (toolUrls.Count > 0)
+        var hasUrls = allTools.Any(t => !string.IsNullOrWhiteSpace(t.Href));
+        if (hasUrls)
         {
             sb.AppendLine("When a tool in this list is substantively mentioned in body prose (not headings), set its Run object's " +
                 "\"href\" field to the URL given below. Never fabricate a URL for a tool without a link. Avoid over-linking " +
                 "(max ~1-2 linked mentions per tool per document).");
         }
 
-        if (names.Count > 0)
+        if (allTools.Count > 0)
         {
-            sb.AppendLine("Hierarchy tool set:");
-            foreach (var name in names)
+            sb.AppendLine("Hierarchy tools grouped by source section:");
+            foreach (var group in toolsByHeading)
             {
-                if (toolUrls.TryGetValue(name, out var url))
+                sb.AppendLine($"• {group.Heading}:");
+                foreach (var tool in group.Tools)
                 {
-                    sb.AppendLine($"- {name}: {url}");
-                }
-                else
-                {
-                    sb.AppendLine($"- {name}");
+                    if (!string.IsNullOrWhiteSpace(tool.Href))
+                    {
+                        sb.AppendLine($"  - {tool.Name}: {tool.Href}");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"  - {tool.Name}");
+                    }
                 }
             }
         }
@@ -337,4 +338,15 @@ internal static class ResearchBriefBuilder
 
     private static string FormatSourceLabel(KeywordSourceSummary source) =>
         !string.IsNullOrWhiteSpace(source.Title) ? source.Title! : source.SourceLabel;
+
+    private sealed class ToolInfoComparer : IEqualityComparer<ToolInfo>
+    {
+        public bool Equals(ToolInfo? x, ToolInfo? y)
+        {
+            if (x is null || y is null) return x == y;
+            return x.Name.Equals(y.Name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int GetHashCode(ToolInfo obj) => obj.Name.ToLowerInvariant().GetHashCode();
+    }
 }
