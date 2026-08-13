@@ -125,21 +125,20 @@ public class ProjectsController : ControllerBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var toolNames = (request.HierarchyToolNames ?? [])
-            .Select(t => t?.Trim())
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Cast<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var toolUrls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (request.HierarchyToolUrls is not null)
+        var toolsByHeading = new List<ToolsByHeading>();
+        if (request.HierarchyToolsByHeading is not null)
         {
-            foreach (var kvp in request.HierarchyToolUrls)
+            foreach (var group in request.HierarchyToolsByHeading)
             {
-                if (!string.IsNullOrWhiteSpace(kvp.Key) && !string.IsNullOrWhiteSpace(kvp.Value))
+                if (string.IsNullOrWhiteSpace(group.Heading)) continue;
+                var tools = (group.Tools ?? [])
+                    .Where(t => !string.IsNullOrWhiteSpace(t.Name))
+                    .Select(t => new ToolInfo { Name = t.Name.Trim(), Href = t.Href?.Trim() })
+                    .Distinct(new ToolInfoComparer())
+                    .ToList();
+                if (tools.Count > 0)
                 {
-                    toolUrls[kvp.Key.Trim()] = kvp.Value.Trim();
+                    toolsByHeading.Add(new ToolsByHeading { Heading = group.Heading.Trim(), Tools = tools });
                 }
             }
         }
@@ -147,14 +146,13 @@ public class ProjectsController : ControllerBase
         var path = string.IsNullOrWhiteSpace(request.HierarchyPath) ? null : request.HierarchyPath.Trim();
         project.HierarchyPath = path;
         project.HierarchyChildHeadings = children;
-        project.HierarchyToolNames = toolNames;
-        project.HierarchyToolUrls = toolUrls;
+        project.HierarchyToolsByHeading = toolsByHeading;
         project.HierarchySourcePageUrl = string.IsNullOrWhiteSpace(request.HierarchySourcePageUrl)
             ? null
             : request.HierarchySourcePageUrl.Trim();
         project.AllowOutsideSiteScope = request.AllowOutsideSiteScope;
 
-        var hasHierarchy = !string.IsNullOrWhiteSpace(path) || children.Count > 0 || toolNames.Count > 0;
+        var hasHierarchy = !string.IsNullOrWhiteSpace(path) || children.Count > 0 || toolsByHeading.Count > 0;
         if (hasHierarchy || project.AllowOutsideSiteScope)
         {
             project.Status = ProjectStatus.ReadyForGeneration;
@@ -247,8 +245,7 @@ public class ProjectsController : ControllerBase
             project.SerpUrls,
             project.SerpPaaQuestions,
             project.SerpRelatedSearches,
-            project.HierarchyToolNames,
-            project.HierarchyToolUrls,
+            project.HierarchyToolsByHeading.Select(g => new ToolsByHeading { Heading = g.Heading, Tools = g.Tools.Select(t => new ToolInfo { Name = t.Name, Href = t.Href }).ToList() }).ToList(),
             project.LinkedCreateId);
     }
 
@@ -256,4 +253,15 @@ public class ProjectsController : ControllerBase
         project.Id, project.ClientId, project.Name, project.ProjectUrl, project.TargetKeyword, project.Department,
         project.Status, project.PreferredProvider, project.UseExactKeywordAsTitle, project.CreatedAtUtc,
         project.SiteAnalysisId);
+
+    private sealed class ToolInfoComparer : IEqualityComparer<ToolInfo>
+    {
+        public bool Equals(ToolInfo? x, ToolInfo? y)
+        {
+            if (x is null || y is null) return x == y;
+            return x.Name.Equals(y.Name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int GetHashCode(ToolInfo obj) => obj.Name.ToLowerInvariant().GetHashCode();
+    }
 }

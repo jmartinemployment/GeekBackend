@@ -1,11 +1,8 @@
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Controllers.Workflow.Contracts;
-
-public record ToolInfo(string Name, string? Href = null);
-
-public record ToolsByHeading(string Heading, IReadOnlyList<ToolInfo> Tools);
 
 public record CreateProjectRequest(
     Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,

@@ -113,8 +113,9 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
     private static List<ToolSlot> ResolveToolSlots(Project project)
     {
-        var hierarchyNames = (project.HierarchyToolNames ?? [])
-            .Select(n => n.Trim())
+        var hierarchyNames = (project.HierarchyToolsByHeading ?? [])
+            .SelectMany(g => g.Tools)
+            .Select(t => t.Name.Trim())
             .Where(n => n.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
