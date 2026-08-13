@@ -3,6 +3,18 @@ using GeekAPI.Services.Workflow.Domain.Enums;
 
 namespace GeekAPI.Services.Workflow.Domain.Entities;
 
+public class ToolsByHeading
+{
+    public string Heading { get; set; } = string.Empty;
+    public List<ToolInfo> Tools { get; set; } = new();
+}
+
+public class ToolInfo
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Href { get; set; }
+}
+
 public class Project
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -32,14 +44,11 @@ public class Project
     public List<string> HierarchyChildHeadings { get; set; } = new();
 
     /// <summary>
-    /// Tool names parsed from the matched SA node's "Top … Tools: a, b, c" paragraph.
-    /// Empty when the node has no such paragraph — never LLM-invented.
+    /// Tools grouped by their source heading on the matched SA node and descendants.
+    /// Preserves heading associations so the LLM knows which tool belongs to which section.
+    /// Empty when no tool-list paragraphs are found — never LLM-invented.
     /// </summary>
-    public List<string> HierarchyToolNames { get; set; } = new();
-
-    /// <summary>Tool name → href mappings for tools mentioned in the matched hierarchy node.
-    /// Populated from crawled page anchors; empty when not available.</summary>
-    public Dictionary<string, string> HierarchyToolUrls { get; set; } = new();
+    public List<ToolsByHeading> HierarchyToolsByHeading { get; set; } = new();
 
     /// <summary>Source page URL for the matched hierarchy node.</summary>
     public string? HierarchySourcePageUrl { get; set; }
