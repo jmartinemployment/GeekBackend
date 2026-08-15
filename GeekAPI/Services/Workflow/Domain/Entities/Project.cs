@@ -50,6 +50,9 @@ public class Project
     /// </summary>
     public List<ToolsByHeading> HierarchyToolsByHeading { get; set; } = new();
 
+    /// <summary>Markdown for the matched heading and its descendants — what to write about.</summary>
+    public string? HierarchyAssignmentMarkdown { get; set; }
+
     /// <summary>Source page URL for the matched hierarchy node.</summary>
     public string? HierarchySourcePageUrl { get; set; }
 

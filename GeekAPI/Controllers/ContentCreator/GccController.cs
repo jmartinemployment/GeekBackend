@@ -1341,7 +1341,8 @@ public class GccController : ControllerBase
     }
 
     /// <summary>
-    /// Parsed page-section trees for Workflow hierarchy matching (keyword → node → children).
+    /// PageContext (headings + markdown) for Workflow hierarchy matching.
+    /// The matched heading's markdown slice is the assignment.
     /// </summary>
     [HttpGet("site-analyzer/{id:guid}/page-section-trees")]
     public async Task<IActionResult> PageSectionTrees(Guid id, CancellationToken ct)
@@ -1355,34 +1356,23 @@ public class GccController : ControllerBase
 
         var bearer = GetBearerToken();
         if (string.IsNullOrWhiteSpace(bearer))
-            return Unauthorized(new { error = "Bearer token required to load page section trees" });
+            return Unauthorized(new { error = "Bearer token required to load page contexts" });
 
-        var treesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
-        if (!treesResult.Ok)
-            return StatusCode(treesResult.StatusCode, new { error = treesResult.Error });
+        var contexts = await _seo.GetPageContextsAsync(profileId, bearer, ct);
+        if (!contexts.Ok)
+            return StatusCode(contexts.StatusCode, new { error = contexts.Error });
 
-        var trees = treesResult.Value ?? [];
-        var payload = new List<object>();
-        foreach (var page in trees)
-        {
-            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots = null;
-            try
+        var payload = (contexts.Value ?? [])
+            .Where(p => !string.IsNullOrWhiteSpace(p.PageUrl))
+            .Select(p => new
             {
-                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
-                    page.TreeJson, JsonOpts);
-            }
-            catch (System.Text.Json.JsonException)
-            {
-                continue;
-            }
-
-            if (roots is null || roots.Count == 0) continue;
-            payload.Add(new
-            {
-                pageUrl = page.PageUrl,
-                roots,
-            });
-        }
+                pageUrl = p.PageUrl,
+                title = p.Title ?? "",
+                description = p.Description ?? "",
+                headings = p.Headings ?? [],
+                markdown = p.Markdown ?? "",
+            })
+            .ToList();
 
         return Ok(payload);
     }

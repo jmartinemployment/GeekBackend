@@ -49,7 +49,8 @@ public record ProjectGenerationContext(
     string? CtaType = null,
     string? CtaLabel = null,
     string? LengthBand = null,
-    string? WritingNotes = null);
+    string? WritingNotes = null,
+    string? HierarchyAssignmentMarkdown = null);
 
 public record TopicFocusResponse(string[]? Focus);
 

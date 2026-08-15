@@ -751,17 +751,36 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
         if (!profileExists)
             return Result.Failure("site analysis profile not found");
 
-        var existingPages = await db.SiteAnalysisProfileSitePages.Where(x => x.SiteAnalysisProfileId == profileId).ToListAsync(ct);
-        db.SiteAnalysisProfileSitePages.RemoveRange(existingPages);
-        db.SiteAnalysisProfileSitePages.AddRange(structure.Pages.Select(x => new SiteAnalysisProfileSitePage
+        var existingPages = await db.SiteAnalysisProfileSitePages
+            .Where(x => x.SiteAnalysisProfileId == profileId)
+            .ToListAsync(ct);
+        var existingByUrl = existingPages.ToDictionary(x => x.Url, StringComparer.OrdinalIgnoreCase);
+        var incomingUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var incoming in structure.Pages)
         {
-            SiteAnalysisProfileId = profileId,
-            Url = x.Url,
-            FetchMethod = x.FetchMethod,
-            VisibleText = x.VisibleText,
-            WordCount = x.WordCount,
-            DisplayOrder = x.DisplayOrder,
-        }));
+            incomingUrls.Add(incoming.Url);
+            if (!existingByUrl.TryGetValue(incoming.Url, out var stored))
+            {
+                stored = new SiteAnalysisProfileSitePage { SiteAnalysisProfileId = profileId };
+                db.SiteAnalysisProfileSitePages.Add(stored);
+                existingByUrl[incoming.Url] = stored;
+                ApplyCrawlDocument(stored, incoming);
+                continue;
+            }
+
+            ApplyCrawlRecord(stored, incoming);
+            if (CrawlDocumentHasher.ShouldReplaceDocument(
+                    structure.ForceDocumentWrite,
+                    stored.ContentHash,
+                    incoming.ContentHash))
+            {
+                ApplyCrawlDocument(stored, incoming);
+            }
+        }
+
+        db.SiteAnalysisProfileSitePages.RemoveRange(
+            existingPages.Where(x => !incomingUrls.Contains(x.Url)));
 
         var existingLinks = await db.SiteAnalysisProfileSitePageLinks.Where(x => x.SiteAnalysisProfileId == profileId).ToListAsync(ct);
         db.SiteAnalysisProfileSitePageLinks.RemoveRange(existingLinks);
@@ -812,9 +831,11 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
         Guid profileId,
         CancellationToken ct = default)
     {
-        var pages = await db.SiteAnalysisProfileSitePages.AsNoTracking()
+        var pageEntities = await db.SiteAnalysisProfileSitePages.AsNoTracking()
             .Where(x => x.SiteAnalysisProfileId == profileId)
             .OrderBy(x => x.DisplayOrder)
+            .ToListAsync(ct);
+        var pages = pageEntities
             .Select(x => new SiteAnalysisProfileSitePageRow(
                 x.Id,
                 x.SiteAnalysisProfileId,
@@ -822,8 +843,17 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
                 x.FetchMethod,
                 x.VisibleText,
                 x.WordCount,
-                x.DisplayOrder))
-            .ToListAsync(ct);
+                x.DisplayOrder,
+                DeserializeContext(x.ContextJson),
+                x.ContentHash,
+                x.FinalUrl,
+                x.StatusCode,
+                x.Canonical,
+                x.NoIndex,
+                x.NoFollow,
+                x.RedirectChainJson,
+                x.FetchedAt))
+            .ToList();
         if (pages.Count == 0)
             return Result<SiteAnalysisProfileSiteStructureRow?>.Success(null);
 
@@ -1390,5 +1420,48 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
         }
 
         await db.SaveChangesAsync(ct);
+    }
+
+    private static readonly JsonSerializerOptions ContextJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    private static void ApplyCrawlRecord(SiteAnalysisProfileSitePage stored, SiteAnalysisProfileSitePageWrite incoming)
+    {
+        stored.Url = incoming.Url;
+        stored.FetchMethod = incoming.FetchMethod;
+        stored.DisplayOrder = incoming.DisplayOrder;
+        stored.FinalUrl = incoming.FinalUrl;
+        stored.StatusCode = incoming.StatusCode;
+        stored.Canonical = incoming.Canonical;
+        stored.NoIndex = incoming.NoIndex;
+        stored.NoFollow = incoming.NoFollow;
+        stored.RedirectChainJson = incoming.RedirectChainJson;
+        stored.FetchedAt = incoming.FetchedAt == default ? DateTimeOffset.UtcNow : incoming.FetchedAt;
+    }
+
+    private static void ApplyCrawlDocument(SiteAnalysisProfileSitePage stored, SiteAnalysisProfileSitePageWrite incoming)
+    {
+        ApplyCrawlRecord(stored, incoming);
+        stored.VisibleText = incoming.VisibleText;
+        stored.WordCount = incoming.WordCount;
+        stored.ContentHash = incoming.ContentHash;
+        stored.ContextJson = JsonSerializer.Serialize(incoming.ContextData ?? new PageContext(), ContextJsonOptions);
+    }
+
+    private static PageContext DeserializeContext(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json) || json == "{}")
+            return new PageContext();
+        try
+        {
+            return JsonSerializer.Deserialize<PageContext>(json, ContextJsonOptions) ?? new PageContext();
+        }
+        catch (JsonException)
+        {
+            return new PageContext();
+        }
     }
 }

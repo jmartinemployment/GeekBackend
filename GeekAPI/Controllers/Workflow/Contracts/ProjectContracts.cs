@@ -17,7 +17,8 @@ public record UpdateHierarchyContextRequest(
     string? HierarchySourcePageUrl,
     bool AllowOutsideSiteScope,
     Guid? SiteAnalysisId = null,
-    IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null);
+    IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null,
+    string? HierarchyAssignmentMarkdown = null);
 
 public record UpdateSerpContextRequest(
     string? SerpTitles,
@@ -47,7 +48,8 @@ public record ProjectDetailResponse(
     string? SerpPaaQuestions = null,
     string? SerpRelatedSearches = null,
     IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null,
-    Guid? LinkedCreateId = null);
+    Guid? LinkedCreateId = null,
+    string? HierarchyAssignmentMarkdown = null);
 
 public record CrawlSummaryResponse(
     string SiteName, int PagesCrawled, string DetectedTone, string DetectedFocus,

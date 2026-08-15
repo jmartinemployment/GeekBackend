@@ -252,6 +252,22 @@ public class HttpGeekSeoSiteAnalyzerClient
         return SeoCallResult<List<PageSectionTreeDto>>.Success(trees);
     }
 
+    public async Task<SeoCallResult<List<PageContextDto>>> GetPageContextsAsync(
+        Guid profileId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<List<PageContextDto>>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<List<PageContextDto>>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to load page contexts.");
+
+        var result = await SendAsync(HttpMethod.Get, $"api/seo/site-analyzer/{profileId}/page-contexts", bearerToken, ct);
+        if (!result.Ok) return SeoCallResult<List<PageContextDto>>.Fail(result.StatusCode, result.Error!);
+        var pages = JsonSerializer.Deserialize<List<PageContextDto>>(result.Body!, JsonOpts) ?? [];
+        return SeoCallResult<List<PageContextDto>>.Success(pages);
+    }
+
     /// <summary>Raw discovered/crawled URL inventory — the "does a page already exist" side of
     /// Content Creator's gap check. A raw crawl fact, not an opinionated analysis result.</summary>
     private async Task<SeoCallResult<List<DiscoveredUrlDto>>> GetDiscoveredUrlsAsync(
@@ -528,6 +544,13 @@ public class HttpGeekSeoSiteAnalyzerClient
         string PageUrl,
         string TreeJson,
         DateTimeOffset CreatedAtUtc);
+
+    public sealed record PageContextDto(
+        string PageUrl,
+        string? Title,
+        string? Description,
+        List<string>? Headings,
+        string? Markdown);
 
     public sealed record SiteModelSnapshot(
         Guid SeoProjectId,
