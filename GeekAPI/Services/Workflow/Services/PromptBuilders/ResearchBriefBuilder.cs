@@ -110,16 +110,22 @@ internal static class ResearchBriefBuilder
         // Tone/focus omitted this phase — do not invent from crawl leftovers.
 
         var children = context.HierarchyChildHeadings ?? Array.Empty<string>();
-        if (!string.IsNullOrWhiteSpace(context.HierarchyPath) || children.Count > 0)
+        if (!string.IsNullOrWhiteSpace(context.HierarchyPath) || children.Count > 0
+            || !string.IsNullOrWhiteSpace(context.HierarchyAssignmentMarkdown))
         {
-            sb.AppendLine("=== SITE ANALYZER HIERARCHY CONTEXT ===");
+            sb.AppendLine("=== SITE ANALYZER ASSIGNMENT ===");
             if (!string.IsNullOrWhiteSpace(context.HierarchyPath))
-                sb.AppendLine($"Matched hierarchy path: {context.HierarchyPath}");
+                sb.AppendLine($"Matched heading path: {context.HierarchyPath}");
             if (!string.IsNullOrWhiteSpace(context.HierarchySourcePageUrl))
                 sb.AppendLine($"Source page: {context.HierarchySourcePageUrl}");
+            if (!string.IsNullOrWhiteSpace(context.HierarchyAssignmentMarkdown))
+            {
+                sb.AppendLine("Write about this matched heading and the markdown below (child headings and lists are the assignment, not optional flavor):");
+                sb.AppendLine(context.HierarchyAssignmentMarkdown);
+            }
             if (children.Count > 0)
             {
-                sb.AppendLine("Child topics from the analyzed site (use as directed by the content-type instructions):");
+                sb.AppendLine("Child topics from the analyzed site:");
                 foreach (var child in children)
                     sb.AppendLine($"- {child}");
             }

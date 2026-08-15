@@ -926,7 +926,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             CtaType: brief.CtaType,
             CtaLabel: brief.CtaLabel,
             LengthBand: brief.LengthBand,
-            WritingNotes: brief.WritingNotes);
+            WritingNotes: brief.WritingNotes,
+            HierarchyAssignmentMarkdown: project.HierarchyAssignmentMarkdown);
     }
 
     /// <summary>Matches a project's TargetKeyword against a Home page use-case item by name — forgiving
