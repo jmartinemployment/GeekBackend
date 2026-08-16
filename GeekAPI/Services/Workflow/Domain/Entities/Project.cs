@@ -34,8 +34,14 @@ public class Project
     /// <summary>Optional comma-separated desired headings that must appear in the pillar article outline.</summary>
     public string? Notes { get; set; }
 
-    /// <summary>Site Analyzer profile/analysis id from Workflow handoff — grounds hierarchy match.</summary>
+    /// <summary>Optional GCC poll/report handle (content_creator.gcc_site_analyses.Id).</summary>
     public Guid? SiteAnalysisId { get; set; }
+
+    /// <summary>
+    /// Required for hierarchy grounding: geek_seo.site_analysis_profiles.Id
+    /// (FK on site_analysis_page_section_trees."SiteAnalysisProfileId"). Not a generic "Profile Id".
+    /// </summary>
+    public Guid? SiteAnalysisProfileId { get; set; }
 
     /// <summary>Matched SA heading breadcrumb (e.g. "Services › HVAC › Installation").</summary>
     public string? HierarchyPath { get; set; }

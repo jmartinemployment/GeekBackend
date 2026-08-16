@@ -7,7 +7,8 @@ namespace GeekAPI.Controllers.Workflow.Contracts;
 public record CreateProjectRequest(
     Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,
     LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle = false,
-    Guid? SiteAnalysisId = null);
+    Guid? SiteAnalysisId = null,
+    Guid? SiteAnalysisProfileId = null);
 
 public record UpdateProjectNotesRequest(string? Notes);
 
@@ -17,6 +18,7 @@ public record UpdateHierarchyContextRequest(
     string? HierarchySourcePageUrl,
     bool AllowOutsideSiteScope,
     Guid? SiteAnalysisId = null,
+    Guid? SiteAnalysisProfileId = null,
     IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null,
     string? HierarchyAssignmentMarkdown = null);
 
@@ -31,7 +33,8 @@ public record UpdateProjectBriefRequest(Guid CreateId, string? BriefJson);
 public record ProjectSummaryResponse(
     Guid Id, Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,
     ProjectStatus Status, LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle, DateTime CreatedAtUtc,
-    Guid? SiteAnalysisId = null);
+    Guid? SiteAnalysisId = null,
+    Guid? SiteAnalysisProfileId = null);
 
 public record ProjectDetailResponse(
     Guid Id, Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department, ProjectStatus Status,
@@ -39,6 +42,7 @@ public record ProjectDetailResponse(
     List<KeywordSourceResponse> KeywordSources, List<GeneratedContentResponse> GeneratedContent,
     GeneratedContentSet? ContentSet, string? Notes, DateTime? ContentApprovedAtUtc = null,
     Guid? SiteAnalysisId = null,
+    Guid? SiteAnalysisProfileId = null,
     string? HierarchyPath = null,
     IReadOnlyList<string>? HierarchyChildHeadings = null,
     string? HierarchySourcePageUrl = null,

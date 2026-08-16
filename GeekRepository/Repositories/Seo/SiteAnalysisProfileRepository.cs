@@ -219,6 +219,106 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db, ILogger<SiteA
         return Result<IReadOnlyList<SiteAnalysisProfileSummary>>.Success(list);
     }
 
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileSummary>>> ListRecentAsync(
+        int limit, CancellationToken ct = default)
+    {
+        var take = Math.Clamp(limit, 1, 200);
+        var list = await db.SiteAnalysisProfiles
+            .AsNoTracking()
+            .OrderByDescending(p => p.AnalyzedAt ?? p.CreatedAt)
+            .Take(take)
+            .Select(p => new SiteAnalysisProfileSummary(
+                p.Id, p.Domain, p.PrimaryFocus,
+                p.TopicalAuthorityScore, p.TotalPillarsIdentified,
+                p.PillarsCovered, p.PillarsGap,
+                p.CompetitionLevel, p.AnalyzedAt, p.Status))
+            .ToListAsync(ct);
+        return Result<IReadOnlyList<SiteAnalysisProfileSummary>>.Success(list);
+    }
+
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileSummary>>> ListByNormalizedDomainAsync(
+        string normalizedHost, int limit, CancellationToken ct = default)
+    {
+        var host = (normalizedHost ?? "").Trim().ToLowerInvariant();
+        if (host.Length == 0)
+            return Result<IReadOnlyList<SiteAnalysisProfileSummary>>.Success([]);
+
+        var take = Math.Clamp(limit, 1, 200);
+        // Domain may be stored as bare host or https://host — narrow with Contains then exact-normalize.
+        var candidates = await db.SiteAnalysisProfiles
+            .AsNoTracking()
+            .Where(p => p.Domain.ToLower().Contains(host))
+            .OrderByDescending(p => p.AnalyzedAt ?? p.CreatedAt)
+            .Take(Math.Max(take * 4, 40))
+            .Select(p => new SiteAnalysisProfileSummary(
+                p.Id, p.Domain, p.PrimaryFocus,
+                p.TopicalAuthorityScore, p.TotalPillarsIdentified,
+                p.PillarsCovered, p.PillarsGap,
+                p.CompetitionLevel, p.AnalyzedAt, p.Status))
+            .ToListAsync(ct);
+
+        var matched = candidates
+            .Where(p => DomainHostsMatch(NormalizeDomainHost(p.Domain), host))
+            .Take(take)
+            .ToList();
+        return Result<IReadOnlyList<SiteAnalysisProfileSummary>>.Success(matched);
+    }
+
+    public async Task<Result<IReadOnlyList<SiteAnalysisPageSectionTreeRow>>> FindTreesByKeywordAsync(
+        Guid siteAnalysisProfileId, string keyword, CancellationToken ct = default)
+    {
+        var needle = (keyword ?? "").Trim();
+        if (siteAnalysisProfileId == Guid.Empty || needle.Length == 0)
+            return Result<IReadOnlyList<SiteAnalysisPageSectionTreeRow>>.Success([]);
+
+        // Prefer JSON heading shape; also match raw keyword. Escape LIKE wildcards.
+        var escaped = EscapeLike(needle);
+        var headingNeedle = "%\"HeadingText\":\"%" + escaped + "%";
+        var plainNeedle = "%" + escaped + "%";
+
+        var rows = await db.SiteAnalysisPageSectionTrees.AsNoTracking()
+            .Where(t => t.SiteAnalysisProfileId == siteAnalysisProfileId
+                && (EF.Functions.ILike(t.TreeJson, headingNeedle)
+                    || EF.Functions.ILike(t.TreeJson, plainNeedle)))
+            .Select(t => new SiteAnalysisPageSectionTreeRow(
+                t.Id,
+                t.SiteAnalysisProfileId,
+                t.PageUrl,
+                t.TreeJson,
+                t.CreatedAtUtc))
+            .ToListAsync(ct);
+
+        return Result<IReadOnlyList<SiteAnalysisPageSectionTreeRow>>.Success(rows);
+    }
+
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+
+    private static string NormalizeDomainHost(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var s = raw.Trim();
+        if (!s.Contains("://", StringComparison.Ordinal))
+            s = "https://" + s;
+        if (!Uri.TryCreate(s, UriKind.Absolute, out var uri))
+        {
+            return raw.Trim().TrimEnd('/').ToLowerInvariant()
+                .Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+        }
+
+        var host = uri.Host.ToLowerInvariant();
+        if (host.StartsWith("www.", StringComparison.Ordinal))
+            host = host[4..];
+        return host;
+    }
+
+    private static bool DomainHostsMatch(string a, string b) =>
+        !string.IsNullOrWhiteSpace(a)
+        && !string.IsNullOrWhiteSpace(b)
+        && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
     public async Task<Result> UpdateStatusAsync(
         Guid profileId, string status, string? step = null,
         int stepNumber = 0, int totalSteps = 0, string? errorMessage = null,

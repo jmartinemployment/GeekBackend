@@ -23,7 +23,7 @@ public static class ProjectSnapshotSerializer
     {
         // Snapshot excludes the Client navigation; it's rehydrated from the client cache on load.
         var snapshot = new ProjectSnapshot(
-            SchemaVersion: 4,
+            SchemaVersion: 5,
             Id: project.Id,
             ClientId: project.ClientId,
             Name: project.Name,
@@ -35,6 +35,7 @@ public static class ProjectSnapshotSerializer
             UseExactKeywordAsTitle: project.UseExactKeywordAsTitle,
             Notes: project.Notes,
             SiteAnalysisId: project.SiteAnalysisId,
+            SiteAnalysisProfileId: project.SiteAnalysisProfileId,
             HierarchyPath: project.HierarchyPath,
             HierarchyChildHeadings: project.HierarchyChildHeadings,
             HierarchyToolsByHeading: project.HierarchyToolsByHeading,
@@ -75,6 +76,7 @@ public static class ProjectSnapshotSerializer
             UseExactKeywordAsTitle = snapshot.UseExactKeywordAsTitle,
             Notes = snapshot.Notes,
             SiteAnalysisId = snapshot.SiteAnalysisId,
+            SiteAnalysisProfileId = snapshot.SiteAnalysisProfileId,
             HierarchyPath = snapshot.HierarchyPath,
             HierarchyChildHeadings = snapshot.HierarchyChildHeadings ?? new(),
             HierarchyToolsByHeading = snapshot.HierarchyToolsByHeading ?? new(),
@@ -110,6 +112,7 @@ public static class ProjectSnapshotSerializer
         bool UseExactKeywordAsTitle,
         string? Notes,
         Guid? SiteAnalysisId,
+        Guid? SiteAnalysisProfileId,
         string? HierarchyPath,
         List<string>? HierarchyChildHeadings,
         List<ToolsByHeading>? HierarchyToolsByHeading,

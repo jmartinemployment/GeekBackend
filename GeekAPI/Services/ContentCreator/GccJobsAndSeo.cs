@@ -252,6 +252,84 @@ public class HttpGeekSeoSiteAnalyzerClient
         return SeoCallResult<List<PageSectionTreeDto>>.Success(trees);
     }
 
+    public async Task<SeoCallResult<List<SiteAnalysisProfileListItemDto>>> ListRecentProfilesAsync(
+        string? bearerToken,
+        int limit,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required.");
+
+        var result = await SendAsync(
+            HttpMethod.Get,
+            $"api/seo/site-analyzer/profiles/recent?limit={Math.Clamp(limit, 1, 200)}",
+            bearerToken,
+            ct);
+        if (!result.Ok)
+            return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Fail(result.StatusCode, result.Error!);
+        var list = JsonSerializer.Deserialize<List<SiteAnalysisProfileListItemDto>>(result.Body!, JsonOpts) ?? [];
+        return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Success(list);
+    }
+
+    public async Task<SeoCallResult<List<SiteAnalysisProfileListItemDto>>> ListProfilesByDomainAsync(
+        string domain,
+        string? bearerToken,
+        int limit,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required.");
+
+        var host = NormalizeHost(domain);
+        var result = await SendAsync(
+            HttpMethod.Get,
+            $"api/seo/site-analyzer/profiles/by-domain?domain={Uri.EscapeDataString(host)}&limit={Math.Clamp(limit, 1, 200)}",
+            bearerToken,
+            ct);
+        if (!result.Ok)
+            return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Fail(result.StatusCode, result.Error!);
+        var list = JsonSerializer.Deserialize<List<SiteAnalysisProfileListItemDto>>(result.Body!, JsonOpts) ?? [];
+        return SeoCallResult<List<SiteAnalysisProfileListItemDto>>.Success(list);
+    }
+
+    public async Task<SeoCallResult<List<PageSectionTreeDto>>> FindTreesByKeywordAsync(
+        Guid siteAnalysisProfileId,
+        string keyword,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+            return SeoCallResult<List<PageSectionTreeDto>>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return SeoCallResult<List<PageSectionTreeDto>>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required.");
+
+        var result = await SendAsync(
+            HttpMethod.Get,
+            $"api/seo/site-analyzer/{siteAnalysisProfileId}/hierarchy-match?keyword={Uri.EscapeDataString(keyword)}",
+            bearerToken,
+            ct);
+        if (!result.Ok)
+            return SeoCallResult<List<PageSectionTreeDto>>.Fail(result.StatusCode, result.Error!);
+
+        // SEO returns { pageUrl, treeJson, siteAnalysisProfileId } — map to PageSectionTreeDto
+        using var doc = JsonDocument.Parse(result.Body ?? "[]");
+        var trees = new List<PageSectionTreeDto>();
+        foreach (var el in doc.RootElement.EnumerateArray())
+        {
+            var pageUrl = el.TryGetProperty("pageUrl", out var pu) ? pu.GetString() ?? "" : "";
+            var treeJson = el.TryGetProperty("treeJson", out var tj) ? tj.GetString() ?? "[]" : "[]";
+            var pid = el.TryGetProperty("siteAnalysisProfileId", out var sp) && sp.TryGetGuid(out var g)
+                ? g
+                : siteAnalysisProfileId;
+            trees.Add(new PageSectionTreeDto(Guid.Empty, pid, pageUrl, treeJson, DateTimeOffset.UtcNow));
+        }
+        return SeoCallResult<List<PageSectionTreeDto>>.Success(trees);
+    }
+
     public async Task<SeoCallResult<List<PageContextDto>>> GetPageContextsAsync(
         Guid profileId,
         string? bearerToken,
@@ -544,6 +622,14 @@ public class HttpGeekSeoSiteAnalyzerClient
         string PageUrl,
         string TreeJson,
         DateTimeOffset CreatedAtUtc);
+
+    /// <summary>Picker row: site_analysis_profiles.Id + domain metadata.</summary>
+    public sealed record SiteAnalysisProfileListItemDto(
+        Guid Id,
+        string Domain,
+        string? Status,
+        DateTimeOffset? AnalyzedAt,
+        string? PrimaryFocus);
 
     public sealed record PageContextDto(
         string PageUrl,
