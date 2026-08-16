@@ -1184,6 +1184,8 @@ public class GccController : ControllerBase
                 analysis.Domain,
                 analysis.Status,
                 lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
+                seoProfileId = analysis.SeoProfileId,
+                seoProjectId = analysis.SeoProjectId,
                 gaps = readyGaps,
                 findings = persistedFindings,
                 pages = readyPages,
@@ -1341,8 +1343,8 @@ public class GccController : ControllerBase
     }
 
     /// <summary>
-    /// PageContext (headings + markdown) for Workflow hierarchy matching.
-    /// The matched heading's markdown slice is the assignment.
+    /// Legacy name: returns PageContext (headings + markdown), NOT nested trees.
+    /// Prefer hierarchy-match / page-contexts for new callers.
     /// </summary>
     [HttpGet("site-analyzer/{id:guid}/page-section-trees")]
     public async Task<IActionResult> PageSectionTrees(Guid id, CancellationToken ct)
@@ -1375,6 +1377,120 @@ public class GccController : ControllerBase
             .ToList();
 
         return Ok(payload);
+    }
+
+    /// <summary>Recent site_analysis_profiles.Id rows for Site Analyzer picker.</summary>
+    [HttpGet("site-analyzer/profiles/recent")]
+    public async Task<IActionResult> ListRecentSiteAnalysisProfiles(
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var result = await _seo.ListRecentProfilesAsync(bearer, limit, ct);
+        if (!result.Ok)
+            return StatusCode(result.StatusCode, new { error = result.Error });
+        return Ok(result.Value ?? []);
+    }
+
+    /// <summary>site_analysis_profiles for a normalized domain host.</summary>
+    [HttpGet("site-analyzer/profiles/by-domain")]
+    public async Task<IActionResult> ListSiteAnalysisProfilesByDomain(
+        [FromQuery] string domain,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(domain))
+            return BadRequest(new { error = "domain required" });
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var result = await _seo.ListProfilesByDomainAsync(domain, bearer, limit, ct);
+        if (!result.Ok)
+            return StatusCode(result.StatusCode, new { error = result.Error });
+        return Ok(result.Value ?? []);
+    }
+
+    /// <summary>
+    /// SQL hierarchy match for site_analysis_profiles.Id + keyword.
+    /// Returns ranked matches (path, children, assignment) or empty array.
+    /// </summary>
+    [HttpGet("site-analyzer/profiles/{siteAnalysisProfileId:guid}/hierarchy-match")]
+    public async Task<IActionResult> HierarchyMatchBySiteAnalysisProfileId(
+        Guid siteAnalysisProfileId,
+        [FromQuery] string keyword,
+        CancellationToken ct)
+    {
+        if (siteAnalysisProfileId == Guid.Empty)
+            return BadRequest(new { error = "siteAnalysisProfileId required" });
+        if (string.IsNullOrWhiteSpace(keyword))
+            return BadRequest(new { error = "keyword required" });
+
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var trees = await _seo.FindTreesByKeywordAsync(siteAnalysisProfileId, keyword.Trim(), bearer, ct);
+        if (!trees.Ok)
+            return StatusCode(trees.StatusCode, new { error = trees.Error });
+
+        var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(trees.Value ?? [], keyword.Trim());
+        return Ok(matches);
+    }
+
+    /// <summary>Page contexts for a site_analysis_profiles.Id (may be empty ContextJson).</summary>
+    [HttpGet("site-analyzer/profiles/{siteAnalysisProfileId:guid}/page-contexts")]
+    public async Task<IActionResult> PageContextsBySiteAnalysisProfileId(
+        Guid siteAnalysisProfileId,
+        CancellationToken ct)
+    {
+        if (siteAnalysisProfileId == Guid.Empty)
+            return BadRequest(new { error = "siteAnalysisProfileId required" });
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var contexts = await _seo.GetPageContextsAsync(siteAnalysisProfileId, bearer, ct);
+        if (!contexts.Ok)
+            return StatusCode(contexts.StatusCode, new { error = contexts.Error });
+
+        return Ok((contexts.Value ?? [])
+            .Where(p => !string.IsNullOrWhiteSpace(p.PageUrl))
+            .Select(p => new
+            {
+                pageUrl = p.PageUrl,
+                title = p.Title ?? "",
+                description = p.Description ?? "",
+                headings = p.Headings ?? [],
+                markdown = p.Markdown ?? "",
+            }));
+    }
+
+    /// <summary>Real nested trees for site_analysis_profiles.Id (TreeJson), for reports / grounding.</summary>
+    [HttpGet("site-analyzer/profiles/{siteAnalysisProfileId:guid}/trees")]
+    public async Task<IActionResult> TreesBySiteAnalysisProfileId(
+        Guid siteAnalysisProfileId,
+        CancellationToken ct)
+    {
+        if (siteAnalysisProfileId == Guid.Empty)
+            return BadRequest(new { error = "siteAnalysisProfileId required" });
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var trees = await _seo.GetPageSectionTreesAsync(siteAnalysisProfileId, bearer, ct);
+        if (!trees.Ok)
+            return StatusCode(trees.StatusCode, new { error = trees.Error });
+
+        return Ok((trees.Value ?? []).Select(t => new
+        {
+            pageUrl = t.PageUrl,
+            treeJson = t.TreeJson,
+            siteAnalysisProfileId = t.SiteAnalysisProfileId,
+        }));
     }
 
     [HttpGet("site-analyzer/{id:guid}/section-context")]

@@ -376,6 +376,118 @@ public class GccGenerateService
         return string.Join('\n', lines);
     }
 
+    public sealed record HierarchyMatchDto(
+        string[] Path,
+        string[] ChildHeadings,
+        string SourcePageUrl,
+        string MatchedHeading,
+        string Kind,
+        string AssignmentMarkdown);
+
+    /// <summary>
+    /// From SQL-filtered tree rows (already scoped to site_analysis_profiles.Id + keyword),
+    /// pick the best heading match and return path/children for Workflow.
+    /// </summary>
+    public static IReadOnlyList<HierarchyMatchDto> BuildHierarchyMatchesFromTrees(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword) || pageTrees.Count == 0)
+            return [];
+
+        var topicSlug = Slugify(keyword);
+        if (string.IsNullOrEmpty(topicSlug) || topicSlug == "tool")
+            return [];
+
+        var matches = new List<HierarchyMatchDto>();
+        foreach (var page in pageTrees)
+        {
+            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
+                    page.TreeJson, JsonOpts);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (roots is null || roots.Count == 0) continue;
+
+            foreach (var (node, path) in WalkSectionsWithPath(roots, []))
+            {
+                var nodeSlug = Slugify(node.HeadingText);
+                string? kind = null;
+                if (string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase))
+                    kind = "exact-heading";
+                else if (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
+                         || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase))
+                    kind = "contains-heading";
+                if (kind is null) continue;
+
+                var children = (node.Children ?? [])
+                    .Select(c => c.HeadingText)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .ToArray();
+                var assignment = FormatSectionAssignment(node);
+                matches.Add(new HierarchyMatchDto(
+                    path.ToArray(),
+                    children,
+                    page.PageUrl,
+                    node.HeadingText,
+                    kind,
+                    assignment));
+            }
+        }
+
+        return matches
+            .OrderBy(m => m.Kind == "exact-heading" ? 0 : 1)
+            .ThenByDescending(m => m.ChildHeadings.Length)
+            .ThenBy(m => string.Join(" › ", m.Path), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IEnumerable<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, List<string> Path)> WalkSectionsWithPath(
+        IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes,
+        List<string> parentPath)
+    {
+        foreach (var node in nodes)
+        {
+            var path = new List<string>(parentPath) { node.HeadingText ?? "" };
+            yield return (node, path);
+            if (node.Children is null) continue;
+            foreach (var child in WalkSectionsWithPath(node.Children, path))
+                yield return child;
+        }
+    }
+
+    private static string FormatSectionAssignment(HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
+    {
+        var sb = new StringBuilder();
+        void Write(HttpGeekSeoSiteAnalyzerClient.PageSectionDto n, int depth)
+        {
+            var hashes = new string('#', Math.Clamp(n.Level > 0 ? n.Level : depth + 1, 1, 6));
+            sb.Append(hashes).Append(' ').AppendLine(n.HeadingText ?? "");
+            sb.AppendLine();
+            foreach (var p in n.Paragraphs ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(p)) continue;
+                sb.AppendLine(p.Trim());
+                sb.AppendLine();
+            }
+            foreach (var link in n.Links ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(link.Text) || string.IsNullOrWhiteSpace(link.Href)) continue;
+                sb.Append("- [").Append(link.Text.Trim()).Append("](").Append(link.Href.Trim()).AppendLine(")");
+            }
+            if ((n.Links?.Count ?? 0) > 0) sb.AppendLine();
+            foreach (var c in n.Children ?? [])
+                Write(c, depth + 1);
+        }
+        Write(node, 0);
+        return sb.ToString().TrimEnd();
+    }
+
     internal static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(
         IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes)
     {

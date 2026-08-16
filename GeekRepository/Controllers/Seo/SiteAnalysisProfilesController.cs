@@ -149,6 +149,47 @@ public sealed class SiteAnalysisProfilesController(
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpGet("recent")]
+    public async Task<IActionResult> ListRecent(
+        [FromQuery] Guid userId,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        _ = userId; // reserved for future ownership filter
+        var result = await profiles.ListRecentAsync(limit, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpGet("by-domain")]
+    public async Task<IActionResult> ListByDomain(
+        [FromQuery] Guid userId,
+        [FromQuery] string domain,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        _ = userId;
+        if (string.IsNullOrWhiteSpace(domain))
+            return BadRequest("domain required");
+        var result = await profiles.ListByNormalizedDomainAsync(domain.Trim(), limit, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/trees-by-keyword")]
+    public async Task<IActionResult> FindTreesByKeyword(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromQuery] string keyword,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+        if (string.IsNullOrWhiteSpace(keyword))
+            return BadRequest("keyword required");
+
+        var result = await profiles.FindTreesByKeywordAsync(profileId, keyword, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
     [HttpPatch("{profileId:guid}/status")]
     public async Task<IActionResult> UpdateStatus(
         Guid profileId,
