@@ -96,6 +96,19 @@ await ApplyContentCreatorMigrationsAsync(app, startupLogger);
 await RewriteRetiredSiteAnalysisHistoryNamesAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
+        throw;
+    }
+});
+
 app.UseMiddleware<GeekRepository.Middleware.LegacyAuthRetiredMiddleware>();
 app.UseGeekRepositoryAuth();
 app.MapControllers()
