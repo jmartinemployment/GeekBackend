@@ -8,10 +8,11 @@ using GeekSeo.Persistence.Data;
 using GeekSeo.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 
 namespace GeekRepository.Repositories.Seo;
 
-public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalysisProfileRepository
+public sealed class SiteAnalysisProfileRepository(SeoDbContext db, ILogger<SiteAnalysisProfileRepository> logger) : ISiteAnalysisProfileRepository
 {
     public async Task<Result<SiteAnalysisProfile>> CreateAsync(SiteAnalysisProfile profile, CancellationToken ct = default)
     {
@@ -645,7 +646,15 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
             Body = x.Body,
             ExtractedAt = DateTimeOffset.UtcNow,
         }));
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            logger.LogError(ex, "Failed to save extracted tools for profile {ProfileId} ({ToolCount} tools)", profileId, tools.Count);
+            return Result.Failure(ex.InnerException?.Message ?? ex.Message);
+        }
         return Result.Success();
     }
 
@@ -886,7 +895,7 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
                 x.VisibleText,
                 x.WordCount,
                 x.DisplayOrder,
-                DeserializeContext(x.ContextJson),
+                DeserializeContext(x.ContextJson, x.Id),
                 x.ContentHash,
                 x.FinalUrl,
                 x.StatusCode,
@@ -1493,7 +1502,7 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
         stored.ContextJson = JsonSerializer.Serialize(incoming.ContextData ?? new PageContext(), ContextJsonOptions);
     }
 
-    private static PageContext DeserializeContext(string json)
+    private PageContext DeserializeContext(string json, Guid sitePageId)
     {
         if (string.IsNullOrWhiteSpace(json) || json == "{}")
             return new PageContext();
@@ -1501,8 +1510,9 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
         {
             return JsonSerializer.Deserialize<PageContext>(json, ContextJsonOptions) ?? new PageContext();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            logger.LogWarning(ex, "Failed to deserialize ContextJson for site page {SitePageId}; returning empty PageContext", sitePageId);
             return new PageContext();
         }
     }
