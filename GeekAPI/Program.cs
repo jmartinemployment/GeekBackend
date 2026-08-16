@@ -137,6 +137,19 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
+        throw;
+    }
+});
+
 app.Logger.LogInformation("CORS origins: {Origins}", string.Join(", ", corsOrigins));
 
 if (app.Environment.IsDevelopment())
