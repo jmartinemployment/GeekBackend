@@ -53,6 +53,7 @@ public sealed record ReplaceDiscoveredUrlsRequest(IReadOnlyList<SiteAnalysisProf
 public sealed record ReplaceNavigationLinksRequest(IReadOnlyList<SiteAnalysisProfileNavigationLinkWrite> Links);
 public sealed record ReplaceHeadingsRequest(IReadOnlyList<SiteAnalysisProfileHeadingWrite> Headings);
 public sealed record ReplacePageSectionTreesRequest(IReadOnlyList<SiteAnalysisPageSectionTreeWrite> Pages);
+public sealed record ReplaceExtractedToolsRequest(IReadOnlyList<SiteAnalysisProfileExtractedToolWrite> Tools);
 public sealed record ReplaceTopicCandidateEvidenceRequest(IReadOnlyList<SiteAnalysisTopicCandidateEvidenceWrite> Evidence);
 public sealed record ReplacePageContentRequest(SiteAnalysisProfilePageContentWrite Content);
 public sealed record ReplaceSiteStructureRequest(SiteAnalysisProfileSiteStructureWrite Structure);
@@ -446,6 +447,33 @@ public sealed class SiteAnalysisProfilesController(
         if (denied is not null) return denied;
 
         var result = await profiles.GetPageSectionTreesAsync(profileId, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpPut("{profileId:guid}/extracted-tools")]
+    public async Task<IActionResult> ReplaceExtractedTools(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        [FromBody] ReplaceExtractedToolsRequest body,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.ReplaceExtractedToolsAsync(profileId, body.Tools, ct);
+        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+    }
+
+    [HttpGet("{profileId:guid}/extracted-tools")]
+    public async Task<IActionResult> GetExtractedTools(
+        Guid profileId,
+        [FromQuery] Guid userId,
+        CancellationToken ct)
+    {
+        var denied = await EnsureProfileOwnedAsync(profileId, userId, ct);
+        if (denied is not null) return denied;
+
+        var result = await profiles.GetExtractedToolsAsync(profileId, ct);
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 

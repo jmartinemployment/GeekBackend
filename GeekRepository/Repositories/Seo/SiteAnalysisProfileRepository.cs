@@ -626,6 +626,48 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db) : ISiteAnalys
         return Result<IReadOnlyList<SiteAnalysisPageSectionTreeRow>>.Success(rows);
     }
 
+    public async Task<Result> ReplaceExtractedToolsAsync(
+        Guid profileId,
+        IReadOnlyList<SiteAnalysisProfileExtractedToolWrite> tools,
+        CancellationToken ct = default)
+    {
+        var existing = await db.ExtractedTools
+            .Where(x => x.SiteAnalysisProfileId == profileId)
+            .ToListAsync(ct);
+        db.ExtractedTools.RemoveRange(existing);
+        db.ExtractedTools.AddRange(tools.Select(x => new SiteAnalysisProfileExtractedTool
+        {
+            SiteAnalysisProfileId = profileId,
+            SitePageId = x.SitePageId,
+            Name = x.Name,
+            Href = x.Href,
+            Department = x.Department,
+            Body = x.Body,
+            ExtractedAt = DateTimeOffset.UtcNow,
+        }));
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+
+    public async Task<Result<IReadOnlyList<SiteAnalysisProfileExtractedToolRow>>> GetExtractedToolsAsync(
+        Guid profileId,
+        CancellationToken ct = default)
+    {
+        var rows = await db.ExtractedTools.AsNoTracking()
+            .Where(x => x.SiteAnalysisProfileId == profileId)
+            .Select(x => new SiteAnalysisProfileExtractedToolRow(
+                x.Id,
+                x.SiteAnalysisProfileId,
+                x.SitePageId,
+                x.Name,
+                x.Href,
+                x.Department,
+                x.Body,
+                x.ExtractedAt))
+            .ToListAsync(ct);
+        return Result<IReadOnlyList<SiteAnalysisProfileExtractedToolRow>>.Success(rows);
+    }
+
     public async Task<Result> ReplaceTopicCandidateEvidenceAsync(
         Guid profileId,
         IReadOnlyList<SiteAnalysisTopicCandidateEvidenceWrite> evidence,
