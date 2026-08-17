@@ -97,6 +97,7 @@ internal static class ResearchBriefBuilder
 
             case ResearchBriefPhase.ToolBody:
                 AppendAuthoritativeSourcesBrief(sb, context, maxSources: 1, maxHeadingsPerFile: 2, maxParagraphsPerFile: 2);
+                AppendKnownToolsBrief(sb, context);
                 break;
         }
 
@@ -271,88 +272,46 @@ internal static class ResearchBriefBuilder
     }
 
     /// <summary>
-    /// Grounds pillar/blog prose in Site Analyzer tool names + uploaded tool research.
-    /// Instructs recurring, substantive mentions — not a Tools section roll-call.
-    /// Includes URLs when available; instructs LLM to set Run.href on substantive mentions.
+    /// Grounds pillar/blog/tool prose in crawl tool names fetched at generate time.
+    /// Instructs named, substantive discussion in running paragraphs — not a roll-call and not links alone.
     /// </summary>
     private static void AppendKnownToolsBrief(StringBuilder sb, ProjectGenerationContext context)
     {
-        var toolsByHeading = context.HierarchyToolsByHeading ?? Array.Empty<ToolsByHeading>();
-        var allTools = toolsByHeading.SelectMany(g => g.Tools).Distinct(new ToolInfoComparer()).ToList();
-
-        var toolSources = context.KeywordSources
-            .Where(k => k.Category == KeywordSourceCategory.Tools)
-            .ToList();
-
-        if (allTools.Count == 0 && toolSources.Count == 0)
+        var tools = context.KnownCrawlTools ?? Array.Empty<KnownCrawlTool>();
+        if (tools.Count == 0)
         {
             return;
         }
 
+        var dept = string.IsNullOrWhiteSpace(context.Department) ? "marketing" : context.Department.Trim();
+
         sb.AppendLine();
-        sb.AppendLine("=== KNOWN TOOLS (grounding — weave into sections where contextually relevant) ===");
+        sb.AppendLine("=== KNOWN TOOLS (grounding — weave into this content) ===");
         sb.AppendLine(
-            "Reference these tools by name wherever each is contextually relevant across sections — " +
-            "recurring where relevant, discussed substantively. Do NOT create a dedicated Tools/Platforms " +
-            "section, do NOT produce a roll-call list, and do NOT mention each tool only once at first occurrence.");
-
-        var hasUrls = allTools.Any(t => !string.IsNullOrWhiteSpace(t.Href));
-        if (hasUrls)
+            "Name these platforms in running paragraphs wherever each is relevant to THIS section or page. " +
+            "Discuss them substantively — what they do for this use case, not a one-word mention. " +
+            "Do not produce a roll-call list, and do not duplicate the pillar Tools H2 catalog. " +
+            "Recurring mentions are fine when they add something; first-mention-only is not enough. " +
+            "A link is optional and never a substitute for discussing the tool.");
+        sb.AppendLine(
+            "If a public path is given, you may set Run.href on at most 1-2 substantive body mentions per tool " +
+            "(not headings). Never fabricate a URL. Do not send the reader to the crawl source page.");
+        sb.AppendLine("Platforms from the crawl:");
+        foreach (var tool in tools)
         {
-            sb.AppendLine("When a tool in this list is substantively mentioned in body prose (not headings), set its Run object's " +
-                "\"href\" field to the URL given below. Never fabricate a URL for a tool without a link. Avoid over-linking " +
-                "(max ~1-2 linked mentions per tool per document).");
-        }
-
-        if (allTools.Count > 0)
-        {
-            sb.AppendLine("Hierarchy tools grouped by source section:");
-            foreach (var group in toolsByHeading)
+            var slug = SlugHelper.Slugify(tool.Name);
+            var publicPath = $"/tools/{dept}/{slug}";
+            if (!string.IsNullOrWhiteSpace(tool.Href))
             {
-                sb.AppendLine($"• {group.Heading}:");
-                foreach (var tool in group.Tools)
-                {
-                    if (!string.IsNullOrWhiteSpace(tool.Href))
-                    {
-                        sb.AppendLine($"  - {tool.Name}: {tool.Href}");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"  - {tool.Name}");
-                    }
-                }
-            }
-        }
-
-        foreach (var source in toolSources)
-        {
-            var label = FormatSourceLabel(source);
-            sb.AppendLine($"[{label}]");
-            if (!string.IsNullOrWhiteSpace(source.ExtractedToolResearchJson))
-            {
-                var json = source.ExtractedToolResearchJson!;
-                if (json.Length > 2500) json = json[..2500] + "…";
-                sb.AppendLine(json);
+                sb.AppendLine($"- {tool.Name} — public path: {publicPath} (crawl source, do not send the reader there: {tool.Href})");
             }
             else
             {
-                foreach (var h in source.Headings.Take(4)) sb.AppendLine($"- {h}");
-                foreach (var p in source.Paragraphs.Take(2)) sb.AppendLine($"  {p}");
+                sb.AppendLine($"- {tool.Name} — public path: {publicPath}");
             }
         }
     }
 
     private static string FormatSourceLabel(KeywordSourceSummary source) =>
         !string.IsNullOrWhiteSpace(source.Title) ? source.Title! : source.SourceLabel;
-
-    private sealed class ToolInfoComparer : IEqualityComparer<ToolInfo>
-    {
-        public bool Equals(ToolInfo? x, ToolInfo? y)
-        {
-            if (x is null || y is null) return x == y;
-            return x.Name.Equals(y.Name, StringComparison.OrdinalIgnoreCase);
-        }
-
-        public int GetHashCode(ToolInfo obj) => obj.Name.ToLowerInvariant().GetHashCode();
-    }
 }

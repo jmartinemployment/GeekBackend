@@ -37,6 +37,8 @@ public record ProjectGenerationContext(
     string? SerpPaaQuestions = null,
     string? SerpRelatedSearches = null,
     IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null,
+    IReadOnlyList<KnownCrawlTool>? KnownCrawlTools = null,
+    string? PillarBodyExcerpt = null,
     string? AudienceSegment = null,
     IReadOnlyList<string>? AudienceDetails = null,
     string? AudienceNotes = null,
@@ -51,6 +53,9 @@ public record ProjectGenerationContext(
     string? LengthBand = null,
     string? WritingNotes = null,
     string? HierarchyAssignmentMarkdown = null);
+
+/// <summary>Crawl tool name + optional source href. Generate-time only — not copied onto the project.</summary>
+public sealed record KnownCrawlTool(string Name, string? Href);
 
 public record TopicFocusResponse(string[]? Focus);
 
