@@ -24,6 +24,165 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db, ILogger<SiteA
         return Result<SiteAnalysisProfile>.Success(profile);
     }
 
+    public async Task<Result<Guid>> PersistThroughCoverageAsync(
+        ThroughCoveragePersistRequest request,
+        CancellationToken ct = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var profileId = Guid.NewGuid();
+        var crawledUrls = request.Structure.Pages.Select(p => p.Url).ToList();
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var profile = new SiteAnalysisProfile
+            {
+                Id = profileId,
+                ProjectId = request.ProjectId,
+                Domain = request.Domain,
+                Status = "complete",
+                AnalysisVersion = "2.0",
+                AnalysisStep = "url_patterns",
+                AnalysisStepNumber = 8,
+                AnalysisTotalSteps = 8,
+                AnalysisStepLog = "[]",
+                AnalysisStepLogVersion = 1,
+                StepStatusesJson = "{}",
+                StructureStatus = "complete",
+                EnrichmentStatus = "complete",
+                PersistStage = "site_coverage",
+                AnalyzedAt = now,
+                AnalysisProgressAt = now,
+                CreatedAt = now,
+                CrawledUrlsJson = JsonSerializer.Serialize(crawledUrls),
+            };
+            db.SiteAnalysisProfiles.Add(profile);
+
+            db.SiteAnalysisProfileSchemaSignals.AddRange(request.SchemaSignals.Select(x => new SiteAnalysisProfileSchemaSignal
+            {
+                SiteAnalysisProfileId = profileId,
+                SchemaType = x.SchemaType,
+                PropertyName = x.PropertyName,
+                PropertyValue = x.PropertyValue,
+                SourceUrl = x.SourceUrl,
+                DisplayOrder = x.DisplayOrder,
+            }));
+
+            db.SiteAnalysisProfileDiscoveredUrls.AddRange(request.DiscoveredUrls.Select(x => new SiteAnalysisProfileDiscoveredUrl
+            {
+                SiteAnalysisProfileId = profileId,
+                Url = x.Url,
+                SourceType = x.SourceType,
+                LastSeenAt = x.LastSeenAt,
+            }));
+
+            db.SiteAnalysisProfileNavigationLinks.AddRange(request.NavigationLinks.Select(x => new SiteAnalysisProfileNavigationLink
+            {
+                SiteAnalysisProfileId = profileId,
+                SourceUrl = x.SourceUrl,
+                LinkUrl = x.LinkUrl,
+                AnchorText = x.AnchorText,
+                LinkArea = x.LinkArea,
+                DisplayOrder = x.DisplayOrder,
+            }));
+
+            if (request.PageContent is not null)
+            {
+                db.SiteAnalysisProfilePageContentItems.AddRange(request.PageContent.Items.Select(x => new SiteAnalysisProfilePageContentItem
+                {
+                    SiteAnalysisProfileId = profileId,
+                    PageUrl = x.PageUrl,
+                    ItemKind = x.ItemKind,
+                    ItemText = x.ItemText,
+                    DisplayOrder = x.DisplayOrder,
+                }));
+                db.SiteAnalysisProfilePageContentMetaRows.Add(new SiteAnalysisProfilePageContentMeta
+                {
+                    SiteAnalysisProfileId = profileId,
+                    PageUrl = request.PageContent.PageUrl,
+                    ListItemsScanned = request.PageContent.ListItemsScanned,
+                });
+            }
+
+            db.SiteAnalysisPageSectionTrees.AddRange(request.PageSectionTrees.Select(x => new SiteAnalysisPageSectionTree
+            {
+                SiteAnalysisProfileId = profileId,
+                PageUrl = x.PageUrl,
+                TreeJson = x.TreeJson,
+                CreatedAtUtc = now,
+            }));
+
+            var pagesByUrl = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var incoming in request.Structure.Pages)
+            {
+                var stored = new SiteAnalysisProfileSitePage
+                {
+                    Id = Guid.NewGuid(),
+                    SiteAnalysisProfileId = profileId,
+                };
+                ApplyCrawlDocument(stored, incoming);
+                db.SiteAnalysisProfileSitePages.Add(stored);
+                pagesByUrl[incoming.Url] = stored.Id;
+            }
+
+            db.SiteAnalysisProfileSitePageLinks.AddRange(request.Structure.Links.Select(x => new SiteAnalysisProfileSitePageLink
+            {
+                SiteAnalysisProfileId = profileId,
+                SourceUrl = x.SourceUrl,
+                TargetUrl = x.TargetUrl,
+                AnchorText = x.AnchorText,
+                InferredFromUrlSlug = x.InferredFromUrlSlug,
+                DisplayOrder = x.DisplayOrder,
+            }));
+
+            db.SiteAnalysisProfileUrlPatternTopics.AddRange(request.Structure.UrlPatterns.Select(x => new SiteAnalysisProfileUrlPatternTopic
+            {
+                SiteAnalysisProfileId = profileId,
+                Name = x.Name,
+                Slug = x.Slug,
+                Url = x.Url,
+                PathSegment = x.PathSegment,
+                DisplayOrder = x.DisplayOrder,
+            }));
+
+            db.SiteAnalysisProfileSiteCrawlMetaRows.Add(new SiteAnalysisProfileSiteCrawlMeta
+            {
+                SiteAnalysisProfileId = profileId,
+                PagesAttempted = request.Structure.CrawlMeta.PagesAttempted,
+                PagesFetched = request.Structure.CrawlMeta.PagesFetched,
+            });
+
+            var tools = new List<SiteAnalysisProfileExtractedTool>();
+            foreach (var tool in request.ExtractedTools)
+            {
+                if (!pagesByUrl.TryGetValue(tool.PageUrl, out var pageId))
+                    continue;
+                tools.Add(new SiteAnalysisProfileExtractedTool
+                {
+                    SiteAnalysisProfileId = profileId,
+                    SitePageId = pageId,
+                    Name = tool.Name,
+                    Href = tool.Href,
+                    Department = tool.Department,
+                    Body = tool.Body,
+                    ExtractedAt = now,
+                });
+            }
+            if (tools.Count > 0)
+                db.ExtractedTools.AddRange(tools);
+
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return Result<Guid>.Success(profileId);
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync(ct);
+            logger.LogError(ex, "PersistThroughCoverage failed for project {ProjectId} domain {Domain}", request.ProjectId, request.Domain);
+            return Result<Guid>.Failure(ex.Message);
+        }
+    }
+
     public async Task<Result<SiteAnalysisProfile?>> GetByIdAsync(Guid profileId, CancellationToken ct = default)
     {
         var profile = await ProfileWithGraph()

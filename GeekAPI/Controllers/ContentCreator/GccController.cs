@@ -73,15 +73,22 @@ public class GccController : ControllerBase
         DateTime? lastAnalyzedAtUtc = null;
         int? analysisAgeDays = null;
         bool analysisStale = false;
-        if (create.SiteAnalysisId is Guid analysisId && analysisId != Guid.Empty)
+        if (create.SiteAnalysisId is Guid crawlId && crawlId != Guid.Empty)
         {
-            var analysis = await _repo.GetSiteAnalysisAsync(analysisId, ct);
-            if (analysis is not null &&
-                string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            var bearer = GetBearerToken();
+            if (!string.IsNullOrWhiteSpace(bearer))
             {
-                lastAnalyzedAtUtc = analysis.UpdatedAtUtc;
-                analysisAgeDays = Math.Max(0, (int)(DateTime.UtcNow - analysis.UpdatedAtUtc).TotalDays);
-                analysisStale = analysisAgeDays >= SiteAnalysisStaleAfterDays;
+                var statusResult = await _seo.GetSiteAnalysisStatusAsync(crawlId, bearer, ct);
+                if (statusResult.Ok && statusResult.Value is { } seoStatus && seoStatus.IsComplete)
+                {
+                    var at = (seoStatus.ProgressAt ?? seoStatus.CreatedAt)?.UtcDateTime;
+                    if (at is DateTime analyzedAt)
+                    {
+                        lastAnalyzedAtUtc = analyzedAt;
+                        analysisAgeDays = Math.Max(0, (int)(DateTime.UtcNow - analyzedAt).TotalDays);
+                        analysisStale = analysisAgeDays >= SiteAnalysisStaleAfterDays;
+                    }
+                }
             }
         }
 
@@ -94,7 +101,7 @@ public class GccController : ControllerBase
             create.Topic,
             create.Notes,
             create.Department,
-            create.SiteAnalysisId,
+            siteAnalysisProfileId = create.SiteAnalysisId,
             create.SiteSectionJson,
             create.BriefJson,
             create.ResearchJson,
@@ -296,7 +303,7 @@ public class GccController : ControllerBase
         string? sectionJson = null;
         if (request.SiteSection is not null)
         {
-            if (request.SiteAnalysisId is Guid aid && aid != Guid.Empty
+            if (request.SiteAnalysisProfileId is Guid aid && aid != Guid.Empty
                 && (request.SiteSection.RelatedPages is null || request.SiteSection.RelatedPages.Count == 0))
             {
                 return BadRequest("Site Analyzer create requires non-empty relatedPages");
@@ -310,7 +317,7 @@ public class GccController : ControllerBase
             request.StartingContentType.Trim(),
             request.Topic.Trim(),
             string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
-            request.SiteAnalysisId,
+            request.SiteAnalysisProfileId,
             sectionJson,
             Department: string.IsNullOrWhiteSpace(request.Department) ? "marketing" : request.Department.Trim()), ct);
 
@@ -437,15 +444,11 @@ public class GccController : ControllerBase
     /// </summary>
     private async Task<string?> TryBuildMustMentionBlockAsync(GccCreateDto create, CancellationToken ct)
     {
-        if (create.SiteAnalysisId is not Guid analysisId || analysisId == Guid.Empty)
+        if (create.SiteAnalysisId is not Guid profileId || profileId == Guid.Empty)
             return null;
 
         var bearer = GetBearerToken();
         if (string.IsNullOrWhiteSpace(bearer))
-            return null;
-
-        var analysis = await _repo.GetSiteAnalysisAsync(analysisId, ct);
-        if (analysis?.SeoProfileId is not Guid profileId)
             return null;
 
         var treesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
@@ -467,15 +470,21 @@ public class GccController : ControllerBase
         CancellationToken ct)
     {
         if (acknowledged) return null;
-        if (create.SiteAnalysisId is not Guid analysisId || analysisId == Guid.Empty)
+        if (create.SiteAnalysisId is not Guid profileId || profileId == Guid.Empty)
             return null;
 
-        var analysis = await _repo.GetSiteAnalysisAsync(analysisId, ct);
-        if (analysis is null) return null;
-        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
             return null;
 
-        var ageDays = Math.Max(0, (int)(DateTime.UtcNow - analysis.UpdatedAtUtc).TotalDays);
+        var statusResult = await _seo.GetSiteAnalysisStatusAsync(profileId, bearer, ct);
+        if (!statusResult.Ok || statusResult.Value is null || !statusResult.Value.IsComplete)
+            return null;
+
+        var at = (statusResult.Value.ProgressAt ?? statusResult.Value.CreatedAt)?.UtcDateTime;
+        if (at is null)
+            return null;
+        var ageDays = Math.Max(0, (int)(DateTime.UtcNow - at.Value).TotalDays);
         if (ageDays < SiteAnalysisStaleAfterDays)
             return null;
 
@@ -484,11 +493,10 @@ public class GccController : ControllerBase
             error = "stale_site_analysis",
             message =
                 $"This site's analysis is {ageDays} day(s) old — re-analyze now, or proceed with stale grounding?",
-            lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
+            lastAnalyzedAtUtc = at,
             analysisAgeDays = ageDays,
             staleAfterDays = SiteAnalysisStaleAfterDays,
-            domain = analysis.Domain,
-            siteAnalysisId = analysis.Id,
+            siteAnalysisProfileId = profileId,
         };
     }
 
@@ -1027,13 +1035,8 @@ public class GccController : ControllerBase
     }
 
     /// <summary>
-    /// Starts (or re-runs) a Site Analysis for a domain. Domains aren't static, so this is not
-    /// first-time-only: at most one <see cref="GccSiteAnalysisDto"/> row is kept per normalized
-    /// domain — a bare call reuses an existing ready/processing analysis rather than starting a
-    /// duplicate; <c>force: true</c> explicitly re-runs it in place (same row, fresh crawl),
-    /// which is how a stale analysis gets refreshed. <c>lastAnalyzedAtUtc</c> in the response
-    /// (set once a run reaches "ready") is the staleness signal the create-start UI/Generate use
-    /// to decide whether to prompt for re-analysis — never decided silently here.
+    /// Starts a Through Coverage crawl. Progress arrives on the SEO SignalR hub; when complete
+    /// the event includes <c>site_analysis_profiles.Id</c>. Nothing is written to gcc_site_analyses.
     /// </summary>
     [HttpPost("site-analyzer/analyze")]
     public async Task<IActionResult> AnalyzeSite(
@@ -1043,23 +1046,10 @@ public class GccController : ControllerBase
         if (request is null || string.IsNullOrWhiteSpace(request.Domain))
             return BadRequest(new { error = "domain required" });
 
-        var auth = Request.Headers.Authorization.ToString();
-        var bearer = auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? auth["Bearer ".Length..].Trim()
-            : null;
+        var bearer = GetBearerToken();
         if (string.IsNullOrWhiteSpace(bearer))
             return Unauthorized(new { error = "Bearer token required to run site analysis" });
 
-        var normalizedDomain = HttpGeekSeoSiteAnalyzerClient.NormalizeHost(request.Domain);
-        var existing = await _repo.GetLatestSiteAnalysisByDomainAsync(normalizedDomain, ct);
-
-        // Version-aware reuse: pre-2.0 / orphaned rows (CreatedAtUtc < 2026-08-06) are treated as absent.
-        // Cross-DB time cutoff is the proxy for AnalysisVersion != "2.0" since GccSiteAnalysis has no version column.
-        var isStale = existing is not null && existing.CreatedAtUtc < new DateTime(2026, 8, 6, 0, 0, 0, DateTimeKind.Utc);
-        if (isStale) existing = null;
-
-        // Content Creator Analyze always starts a new Geek-SEO crawl. Never return a cached
-        // ready/processing row as if a scan happened — gaps without a scan are invalid.
         var projectResult = await _seo.EnsureProjectForDomainAsync(request.Domain, bearer, ct);
         if (!projectResult.Ok || projectResult.Value is null)
         {
@@ -1068,210 +1058,57 @@ public class GccController : ControllerBase
                 new { error = projectResult.Error ?? "Failed to ensure site analysis project" });
         }
 
-        var project = projectResult.Value;
         var startResult = await _seo.StartSiteAnalysisAsync(
-            project.Id, request.Domain, request.SeedTopic, bearer, ct);
-        if (!startResult.Ok || startResult.Value == Guid.Empty)
+            projectResult.Value.Id, request.Domain, request.SeedTopic, bearer, ct);
+        if (!startResult.Ok)
         {
             return StatusCode(
                 startResult.StatusCode is >= 400 and < 600 ? startResult.StatusCode : 502,
                 new { error = startResult.Error ?? "Failed to start site analysis" });
         }
 
-        var emptyPayload = new SiteAnalysisStoredPayload(
-            [], [], [], startResult.Value, project.Id);
-        var emptyGapsJson = GccGenerateService.SerializeAnalysisPayload(emptyPayload);
-        var emptySiteModelJson = SerializeSiteModel([], []);
-
-        GccSiteAnalysisDto persisted;
-        if (existing is not null)
-        {
-            // Re-analyze in place: same row/Id, so a create's SiteAnalysisId keeps pointing at
-            // one continuously-refreshed analysis per domain instead of an orphaned duplicate.
-            persisted = await _repo.UpdateSiteAnalysisAsync(
-                existing.Id,
-                new UpdateGccSiteAnalysisCommand(
-                    "processing", project.Id, startResult.Value, null, emptyGapsJson, emptySiteModelJson),
-                ct);
-        }
-        else
-        {
-            persisted = await _repo.CreateSiteAnalysisAsync(
-                new CreateGccSiteAnalysisCommand(
-                    Id: null,
-                    Domain: normalizedDomain,
-                    SeedTopic: request.SeedTopic,
-                    GapsJson: emptyGapsJson,
-                    Status: "processing",
-                    SeoProjectId: project.Id,
-                    SeoProfileId: startResult.Value,
-                    SiteModelJson: emptySiteModelJson),
-                ct);
-        }
-
-        return Ok(ToAnalyzeSiteResponse(persisted));
+        return Ok(new { status = "queued" });
     }
 
-    private static object ToAnalyzeSiteResponse(GccSiteAnalysisDto analysis) => new
-    {
-        id = analysis.Id,
-        domain = analysis.Domain,
-        status = analysis.Status,
-        seoProjectId = analysis.SeoProjectId,
-        seoProfileId = analysis.SeoProfileId,
-        lastAnalyzedAtUtc = string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase)
-            ? analysis.UpdatedAtUtc
-            : (DateTime?)null,
-    };
-
-    /// <summary>Workflow nav unlock: true when any Content Creator site analysis is ready.</summary>
+    /// <summary>Workflow nav unlock: true when this user has a completed crawl.</summary>
     [HttpGet("site-analyzer/ready")]
     public async Task<IActionResult> SiteAnalyzerReady(CancellationToken ct)
     {
-        var ready = await _repo.HasReadySiteAnalysisAsync(ct);
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+        var list = await _seo.ListRecentProfilesAsync(bearer, 20, ct);
+        if (!list.Ok)
+            return StatusCode(list.StatusCode is >= 400 and < 600 ? list.StatusCode : 502, new { error = list.Error });
+        var ready = (list.Value ?? []).Any(p =>
+            string.Equals(p.Status, "complete", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(p.Status, "ready", StringComparison.OrdinalIgnoreCase));
         return Ok(new { ready });
     }
 
+    /// <summary>Load pages and gaps for a finished crawl (<c>site_analysis_profiles.Id</c>).</summary>
     [HttpGet("site-analyzer/{id:guid}")]
-    public async Task<IActionResult> GetSiteAnalysis(Guid id, CancellationToken ct)
+    public Task<IActionResult> GetSiteAnalysis(Guid id, CancellationToken ct) =>
+        SnapshotByProfileIdAsync(id, ct);
+
+    private async Task<IActionResult> SnapshotByProfileIdAsync(Guid siteAnalysisProfileId, CancellationToken ct)
     {
-        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
-        if (analysis is null) return NotFound();
-
-        if (string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
-        {
-            var persistedFindings = await _repo.ListSiteFindingsAsync(analysis.Id, ct);
-            var readyPages = GccGenerateService.DeserializeSitePages(analysis.GapsJson);
-
-            var readyToken = GetBearerToken();
-            if (string.IsNullOrWhiteSpace(readyToken))
-                return Unauthorized(new { error = "Bearer token required to load site analysis" });
-            if (analysis.SeoProfileId is not Guid readyPid || analysis.SeoProjectId is not Guid readyProjId)
-            {
-                analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis is missing SEO profile or project IDs.", ct);
-                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-            }
-
-            var readyModel = await _seo.LoadSiteModelByProfileAsync(readyProjId, readyPid, analysis.Domain, readyToken, ct);
-            if (!readyModel.Ok || readyModel.Value is null)
-            {
-                analysis = await MarkAnalysisFailedAsync(analysis, readyModel.Error ?? "Failed to load completed site analysis.", ct);
-                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-            }
-
-            var readySnapshot = readyModel.Value;
-            if (readySnapshot.Gaps.Count == 0)
-            {
-                analysis = await MarkAnalysisFailedAsync(analysis, "Completed site analysis contained no gaps.", ct);
-                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-            }
-
-            var readyGaps = readySnapshot.Gaps.Select(g => new ContentGapDto(
-                g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
-            // Fail-closed: never surface ready without content gaps.
-            if (readyGaps.Count == 0)
-            {
-                analysis = await MarkAnalysisFailedAsync(
-                    analysis,
-                    "Site analysis is marked ready but has no content gaps.",
-                    ct);
-                return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-            }
-
-            return Ok(new
-            {
-                analysis.Id,
-                analysis.Domain,
-                analysis.Status,
-                lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
-                seoProfileId = analysis.SeoProfileId,
-                seoProjectId = analysis.SeoProjectId,
-                gaps = readyGaps,
-                findings = persistedFindings,
-                pages = readyPages,
-            });
-        }
-
-        // Missing/unknown status is not ready — continue poll / fail path below.
-        if (string.IsNullOrWhiteSpace(analysis.Status))
-            analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis has no status.", ct);
-
-        if (string.Equals(analysis.Status, "failed", StringComparison.OrdinalIgnoreCase))
-            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-
-        if (analysis.CreatedAtUtc < DateTime.UtcNow.AddMinutes(-15))
-        {
-            analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis timed out after 15 minutes.", ct);
-            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-        }
-
+        if (siteAnalysisProfileId == Guid.Empty)
+            return BadRequest(new { error = "siteAnalysisProfileId required" });
         var bearer = GetBearerToken();
         if (string.IsNullOrWhiteSpace(bearer))
             return Unauthorized(new { error = "Bearer token required to load site analysis" });
-        if (analysis.SeoProfileId is not Guid profileId || analysis.SeoProjectId is not Guid projectId)
-        {
-            analysis = await MarkAnalysisFailedAsync(analysis, "Site analysis is missing SEO profile or project IDs.", ct);
-            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-        }
 
-        var statusResult = await _seo.GetSiteAnalysisStatusAsync(profileId, bearer, ct);
-        if (!statusResult.Ok || statusResult.Value is null)
-            return StatusCode(statusResult.StatusCode is >= 400 and < 600 ? statusResult.StatusCode : 502,
-                new { error = statusResult.Error ?? "Failed to poll site analysis" });
+        var model = await _seo.LoadSiteModelByProfileAsync(
+            Guid.Empty, siteAnalysisProfileId, "", bearer, ct);
+        if (!model.Ok || model.Value is null)
+            return StatusCode(
+                model.StatusCode is >= 400 and < 600 ? model.StatusCode : 502,
+                new { error = model.Error ?? "Failed to load crawl" });
 
-        var seoStatus = statusResult.Value;
-        if (seoStatus.IsFailed)
-        {
-            analysis = await MarkAnalysisFailedAsync(
-                analysis,
-                seoStatus.ErrorMessage ?? "Site analysis failed in the SEO service.",
-                ct);
-            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-        }
-
-        if (!seoStatus.IsComplete)
-            return Ok(new
-            {
-                analysis.Id,
-                analysis.Domain,
-                analysis.Status,
-                seoStatus = seoStatus.Status,
-                step = seoStatus.Step,
-                stepNumber = seoStatus.StepNumber,
-                totalSteps = seoStatus.TotalSteps,
-            });
-
-        var modelResult = await _seo.LoadSiteModelByProfileAsync(projectId, profileId, analysis.Domain, bearer, ct);
-        if (!modelResult.Ok || modelResult.Value is null)
-        {
-            analysis = await MarkAnalysisFailedAsync(analysis, modelResult.Error ?? "Failed to load completed site analysis.", ct);
-            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-        }
-
-        var snapshot = modelResult.Value;
-        if (snapshot.Gaps.Count == 0 || snapshot.SitePages.Count == 0)
-        {
-            analysis = await MarkAnalysisFailedAsync(analysis, "Completed site analysis contained no gaps or existing pages.", ct);
-            return Ok(new { analysis.Id, analysis.Domain, analysis.Status, error = analysis.ErrorMessage });
-        }
-
+        var snapshot = model.Value;
         var gaps = snapshot.Gaps.Select(g => new ContentGapDto(
             g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
-        var payload = new SiteAnalysisStoredPayload(
-            gaps, snapshot.SitePages.ToList(), snapshot.TopicalNeighbors.ToList(), profileId, projectId);
-        analysis = await _repo.UpdateSiteAnalysisAsync(
-            analysis.Id,
-            new UpdateGccSiteAnalysisCommand(
-                "ready", projectId, profileId, null,
-                GccGenerateService.SerializeAnalysisPayload(payload),
-                SerializeSiteModel(snapshot.SitePages, snapshot.TopicalNeighbors)),
-            ct);
-
-        var findings = await _repo.ReplaceSiteFindingsAsync(
-            analysis.Id,
-            new CreateGccSiteFindingsCommand(CreateContentGapFindings(analysis.Id, gaps)),
-            ct);
-
         var pages = snapshot.SitePages
             .Select(sp => new
             {
@@ -1285,12 +1122,10 @@ public class GccController : ControllerBase
 
         return Ok(new
         {
-            analysis.Id,
-            analysis.Domain,
-            analysis.Status,
-            lastAnalyzedAtUtc = analysis.UpdatedAtUtc,
+            siteAnalysisProfileId,
+            status = "ready",
+            domain = snapshot.Domain,
             gaps,
-            findings,
             pages,
         });
     }
@@ -1304,16 +1139,11 @@ public class GccController : ControllerBase
     [HttpGet("site-analyzer/{id:guid}/sitemap")]
     public async Task<IActionResult> SitemapXml(Guid id, CancellationToken ct)
     {
-        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
-        if (analysis is null) return NotFound();
-        if (analysis.SeoProfileId is not Guid profileId)
-            return Conflict(new { error = "Site analysis is missing its SEO profile ID." });
-
         var bearer = GetBearerToken();
         if (string.IsNullOrWhiteSpace(bearer))
             return Unauthorized(new { error = "Bearer token required to download the sitemap." });
 
-        var result = await _seo.GetSitemapXmlAsync(profileId, bearer, ct);
+        var result = await _seo.GetSitemapXmlAsync(id, bearer, ct);
         if (!result.Ok || result.Value is null)
             return StatusCode(
                 result.StatusCode is >= 400 and < 600 ? result.StatusCode : 502,
@@ -1325,21 +1155,17 @@ public class GccController : ControllerBase
     [HttpGet("site-analyzer/{id:guid}/gaps")]
     public async Task<IActionResult> Gaps(Guid id, CancellationToken ct)
     {
-        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
-        if (analysis is null) return NotFound();
-        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
-            return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
-        try
-        {
-            var gaps = GccGenerateService.DeserializeGaps(analysis.GapsJson);
-            if (gaps.Count == 0)
-                return Conflict(new { error = "Site analysis has no content gaps.", status = analysis.Status });
-            return Ok(gaps);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return UnprocessableEntity(new { error = ex.Message });
-        }
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+        var model = await _seo.LoadSiteModelByProfileAsync(Guid.Empty, id, "", bearer, ct);
+        if (!model.Ok || model.Value is null)
+            return StatusCode(
+                model.StatusCode is >= 400 and < 600 ? model.StatusCode : 502,
+                new { error = model.Error ?? "Failed to load crawl" });
+        var gaps = model.Value.Gaps.Select(g => new ContentGapDto(
+            g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
+        return Ok(gaps);
     }
 
     /// <summary>
@@ -1349,18 +1175,11 @@ public class GccController : ControllerBase
     [HttpGet("site-analyzer/{id:guid}/page-section-trees")]
     public async Task<IActionResult> PageSectionTrees(Guid id, CancellationToken ct)
     {
-        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
-        if (analysis is null) return NotFound();
-        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
-            return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
-        if (analysis.SeoProfileId is not Guid profileId)
-            return Conflict(new { error = "Site analysis is missing SEO profile id." });
-
         var bearer = GetBearerToken();
         if (string.IsNullOrWhiteSpace(bearer))
             return Unauthorized(new { error = "Bearer token required to load page contexts" });
 
-        var contexts = await _seo.GetPageContextsAsync(profileId, bearer, ct);
+        var contexts = await _seo.GetPageContextsAsync(id, bearer, ct);
         if (!contexts.Ok)
             return StatusCode(contexts.StatusCode, new { error = contexts.Error });
 
@@ -1501,22 +1320,23 @@ public class GccController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(gapTopic))
             return BadRequest(new { error = "gapTopic required" });
-        var analysis = await _repo.GetSiteAnalysisAsync(id, ct);
-        if (analysis is null) return NotFound();
-        if (!string.Equals(analysis.Status, "ready", StringComparison.OrdinalIgnoreCase))
-            return Conflict(new { error = "Site analysis is not ready.", status = analysis.Status });
+        var bearer = GetBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
 
-        SiteAnalysisStoredPayload payload;
-        try
-        {
-            payload = GccGenerateService.ParseAnalysisPayload(analysis.GapsJson);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return UnprocessableEntity(new { error = ex.Message });
-        }
+        var model = await _seo.LoadSiteModelByProfileAsync(Guid.Empty, id, "", bearer, ct);
+        if (!model.Ok || model.Value is null)
+            return StatusCode(
+                model.StatusCode is >= 400 and < 600 ? model.StatusCode : 502,
+                new { error = model.Error ?? "Failed to load crawl" });
 
-        var section = GccGenerateService.TryBuildSectionContext(analysis.Id, payload, gapTopic);
+        var snapshot = model.Value;
+        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(
+            g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
+        var payload = new SiteAnalysisStoredPayload(
+            gaps, snapshot.SitePages.ToList(), snapshot.TopicalNeighbors.ToList(), id, snapshot.SeoProjectId);
+
+        var section = GccGenerateService.TryBuildSectionContext(id, payload, gapTopic);
         if (section is null || section.RelatedPages.Count == 0)
         {
             return UnprocessableEntity(new
@@ -1623,7 +1443,7 @@ public class GccController : ControllerBase
         string StartingContentType,
         string Topic,
         string? Notes,
-        Guid? SiteAnalysisId,
+        Guid? SiteAnalysisProfileId,
         SiteSectionContextDto? SiteSection,
         string? Department = null);
 

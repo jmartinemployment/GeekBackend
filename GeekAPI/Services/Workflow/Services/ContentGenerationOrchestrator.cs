@@ -622,6 +622,13 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
         // Brief is sole research input — Upload Research Inputs removed (293da90); research (KeywordSources/SerpIndex) is optional enrichment, not a generation gate. Brief + Hierarchy alone grounds generation.
 
+        if (project.SiteAnalysisProfileId is not Guid crawlId || crawlId == Guid.Empty)
+        {
+            if (!project.AllowOutsideSiteScope)
+                throw new ContentGenerationException(
+                    "site analysis required — run or reuse an analysis for this domain");
+        }
+
         var hasHierarchy = !string.IsNullOrWhiteSpace(project.HierarchyPath)
             || project.HierarchyChildHeadings.Count > 0;
         if (!hasHierarchy && !project.AllowOutsideSiteScope)
