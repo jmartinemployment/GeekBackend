@@ -285,7 +285,8 @@ Auth integration tests were removed with M4–M6. Add new tests against content 
 | **GeekAPI** | `./Dockerfile` | none (default) |
 | **GeekRepository** | `./Dockerfile.repository` | `railway.geekrepository.toml` (set path in service settings) |
 
-GeekRepository clones **Geek-SEO** at the SHA in `Geek-SEO.commit`.
+GeekRepository clones **Geek-SEO** at the SHA in `Geek-SEO.commit` (includes `DropExtractedTools`;
+do not recreate `geek_seo.extracted_tools`).
 
 1. **Create PostgreSQL:** Railway Marketplace > PostgreSQL 16
 2. **Create service:** Railway Marketplace > .NET Runtime

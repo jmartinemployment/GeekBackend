@@ -30,6 +30,10 @@ dotnet ef database update --context SeoDbContext --project GeekRepository --star
 
 Migration `0004_drop_oauth_openiddict_and_adapter_storage.sql` removes issuer-era tables but **does not** drop `geek_seo`.
 
+`geek_seo.extracted_tools` was dropped (`GeekSeo.Persistence` migration `DropExtractedTools`,
+Geek-SEO `2989ee3`). Do not recreate it. Tools for Generate are queryable attributes of page-section
+trees (`site_analysis_page_section_trees."TreeJson"`) keyed by `site_analysis_profiles.Id`.
+
 ## Repository routes (data only)
 
 | Route | Purpose |
