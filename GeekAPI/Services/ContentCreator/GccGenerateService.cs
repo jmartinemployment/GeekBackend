@@ -448,6 +448,149 @@ public class GccGenerateService
             .ToList();
     }
 
+    public sealed record CrawlTool(string Name, string? Href);
+
+    /// <summary>
+    /// Tools from the crawl's page-section trees (TreeJson links under the matched heading).
+    /// </summary>
+    public static IReadOnlyList<CrawlTool> ExtractToolsFromTrees(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword,
+        string? sourcePageUrl,
+        string? hierarchyPath)
+    {
+        var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
+        if (matched is null) return [];
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var tools = new List<CrawlTool>();
+        foreach (var node in FlattenSections([matched]))
+        {
+            foreach (var tool in ToolsFromSection(node))
+            {
+                if (!seen.Add(tool.Name)) continue;
+                tools.Add(tool);
+            }
+        }
+
+        if (tools.Count >= 2) return tools;
+
+        tools.Clear();
+        seen.Clear();
+        foreach (var node in FlattenSections([matched]))
+        {
+            foreach (var tool in UniqueToolLinks(node.Links))
+            {
+                if (!seen.Add(tool.Name)) continue;
+                tools.Add(tool);
+            }
+        }
+
+        return tools.Count >= 2 ? tools : [];
+    }
+
+    private static HttpGeekSeoSiteAnalyzerClient.PageSectionDto? FindMatchedSection(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword,
+        string? sourcePageUrl,
+        string? hierarchyPath)
+    {
+        var pages = pageTrees;
+        if (!string.IsNullOrWhiteSpace(sourcePageUrl))
+        {
+            var want = NormalizePageUrl(sourcePageUrl);
+            pages = pageTrees.Where(p => NormalizePageUrl(p.PageUrl) == want).ToList();
+            if (pages.Count == 0) pages = pageTrees;
+        }
+
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? pathHit = null;
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? exactHit = null;
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? containsHit = null;
+        var pathWant = (hierarchyPath ?? "").Trim();
+        var topicSlug = Slugify(keyword);
+
+        foreach (var page in pages)
+        {
+            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
+                    page.TreeJson, JsonOpts);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (roots is null || roots.Count == 0) continue;
+
+            foreach (var (node, path) in WalkSectionsWithPath(roots, []))
+            {
+                if (pathWant.Length > 0
+                    && string.Equals(string.Join(" › ", path), pathWant, StringComparison.OrdinalIgnoreCase))
+                {
+                    pathHit = node;
+                    break;
+                }
+
+                var nodeSlug = Slugify(node.HeadingText);
+                if (string.IsNullOrEmpty(topicSlug) || topicSlug == "tool") continue;
+                if (exactHit is null
+                    && string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase))
+                    exactHit = node;
+                else if (containsHit is null
+                    && (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
+                        || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase)))
+                    containsHit = node;
+            }
+
+            if (pathHit is not null) break;
+        }
+
+        return pathHit ?? exactHit ?? containsHit;
+    }
+
+    private static string NormalizePageUrl(string? url) =>
+        (url ?? "").Trim().TrimEnd('/').ToLowerInvariant();
+
+    private static IReadOnlyList<CrawlTool> ToolsFromSection(
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
+    {
+        var unique = UniqueToolLinks(node.Links);
+        if (unique.Count < 2) return [];
+
+        var paraCompact = CompactAlnum(string.Join(" ", node.Paragraphs ?? []));
+        if (paraCompact.Length == 0) return unique;
+
+        var linkCompact = CompactAlnum(string.Join(" ", unique.Select(t => t.Name)));
+        if (linkCompact.Length == 0) return [];
+        if ((double)linkCompact.Length / paraCompact.Length < 0.6) return [];
+        return unique;
+    }
+
+    private static IReadOnlyList<CrawlTool> UniqueToolLinks(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto>? links)
+    {
+        if (links is null || links.Count == 0) return [];
+        var unique = new List<CrawlTool>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var link in links)
+        {
+            var name = (link.Text ?? "").Replace('\n', ' ').Trim();
+            if (name.Length == 0 || name.Length >= 80) continue;
+            if (!seen.Add(name)) continue;
+            unique.Add(new CrawlTool(
+                name,
+                string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim()));
+        }
+        return unique;
+    }
+
+    private static string CompactAlnum(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return string.Concat(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant));
+    }
+
     private static IEnumerable<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, List<string> Path)> WalkSectionsWithPath(
         IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes,
         List<string> parentPath)

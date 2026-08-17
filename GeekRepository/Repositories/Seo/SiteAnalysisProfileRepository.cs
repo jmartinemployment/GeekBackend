@@ -112,7 +112,6 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db, ILogger<SiteA
                 CreatedAtUtc = now,
             }));
 
-            var pagesByUrl = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
             foreach (var incoming in request.Structure.Pages)
             {
                 var stored = new SiteAnalysisProfileSitePage
@@ -122,7 +121,6 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db, ILogger<SiteA
                 };
                 ApplyCrawlDocument(stored, incoming);
                 db.SiteAnalysisProfileSitePages.Add(stored);
-                pagesByUrl[incoming.Url] = stored.Id;
             }
 
             db.SiteAnalysisProfileSitePageLinks.AddRange(request.Structure.Links.Select(x => new SiteAnalysisProfileSitePageLink
@@ -151,25 +149,6 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db, ILogger<SiteA
                 PagesAttempted = request.Structure.CrawlMeta.PagesAttempted,
                 PagesFetched = request.Structure.CrawlMeta.PagesFetched,
             });
-
-            var tools = new List<SiteAnalysisProfileExtractedTool>();
-            foreach (var tool in request.ExtractedTools)
-            {
-                if (!pagesByUrl.TryGetValue(tool.PageUrl, out var pageId))
-                    continue;
-                tools.Add(new SiteAnalysisProfileExtractedTool
-                {
-                    SiteAnalysisProfileId = profileId,
-                    SitePageId = pageId,
-                    Name = tool.Name,
-                    Href = tool.Href,
-                    Department = tool.Department,
-                    Body = tool.Body,
-                    ExtractedAt = now,
-                });
-            }
-            if (tools.Count > 0)
-                db.ExtractedTools.AddRange(tools);
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -884,56 +863,6 @@ public sealed class SiteAnalysisProfileRepository(SeoDbContext db, ILogger<SiteA
                 x.CreatedAtUtc))
             .ToListAsync(ct);
         return Result<IReadOnlyList<SiteAnalysisPageSectionTreeRow>>.Success(rows);
-    }
-
-    public async Task<Result> ReplaceExtractedToolsAsync(
-        Guid profileId,
-        IReadOnlyList<SiteAnalysisProfileExtractedToolWrite> tools,
-        CancellationToken ct = default)
-    {
-        var existing = await db.ExtractedTools
-            .Where(x => x.SiteAnalysisProfileId == profileId)
-            .ToListAsync(ct);
-        db.ExtractedTools.RemoveRange(existing);
-        db.ExtractedTools.AddRange(tools.Select(x => new SiteAnalysisProfileExtractedTool
-        {
-            SiteAnalysisProfileId = profileId,
-            SitePageId = x.SitePageId,
-            Name = x.Name,
-            Href = x.Href,
-            Department = x.Department,
-            Body = x.Body,
-            ExtractedAt = DateTimeOffset.UtcNow,
-        }));
-        try
-        {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex)
-        {
-            logger.LogError(ex, "Failed to save extracted tools for profile {ProfileId} ({ToolCount} tools)", profileId, tools.Count);
-            return Result.Failure(ex.InnerException?.Message ?? ex.Message);
-        }
-        return Result.Success();
-    }
-
-    public async Task<Result<IReadOnlyList<SiteAnalysisProfileExtractedToolRow>>> GetExtractedToolsAsync(
-        Guid profileId,
-        CancellationToken ct = default)
-    {
-        var rows = await db.ExtractedTools.AsNoTracking()
-            .Where(x => x.SiteAnalysisProfileId == profileId)
-            .Select(x => new SiteAnalysisProfileExtractedToolRow(
-                x.Id,
-                x.SiteAnalysisProfileId,
-                x.SitePageId,
-                x.Name,
-                x.Href,
-                x.Department,
-                x.Body,
-                x.ExtractedAt))
-            .ToListAsync(ct);
-        return Result<IReadOnlyList<SiteAnalysisProfileExtractedToolRow>>.Success(rows);
     }
 
     public async Task<Result> ReplaceTopicCandidateEvidenceAsync(
