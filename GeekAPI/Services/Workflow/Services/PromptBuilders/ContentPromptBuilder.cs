@@ -94,7 +94,8 @@ public interface IContentPromptBuilder
         int platformIndex,
         int platformCount,
         bool isRegeneration,
-        string? revisionNotes = null);
+        string? revisionNotes = null,
+        string? crawlHref = null);
 
     ChatCompletionRequest BuildBlogMetadataPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle);
 
@@ -620,6 +621,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch, but MUST be explicitly labeled hypothetical/illustrative. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
+            .AppendLine("Platforms listed in the research brief must appear in body prose where they are relevant to that section. The dedicated Tools H2 catalog is written separately — do not dump that catalog here.")
             .ToString();
 
         // Per-heading guidance — these blocks are pure functions of context (not the loop index),
@@ -724,6 +726,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("\"in a representative scenario\". Never phrase it as something that already happened to a real client. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for this section. Do not write other sections.")
+            .AppendLine("Platforms listed in the research brief must appear in body prose where they are relevant to this section. The dedicated Tools H2 catalog is written separately — do not dump that catalog here.")
             .ToString();
 
         var perCall = new StringBuilder();
@@ -840,7 +843,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         int platformIndex,
         int platformCount,
         bool isRegeneration,
-        string? revisionNotes = null)
+        string? revisionNotes = null,
+        string? crawlHref = null)
     {
         var perPlatformTarget =
             $"{ContentLengthTargets.PillarToolsSectionMinWords / Math.Max(platformCount, 1)}" +
@@ -890,11 +894,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Tools section heading: {toolsSectionHeading}")
             .AppendLine($"Platforms in this Tools section (write ONLY the bracketed one): {platformList}")
-            .AppendLine($"Platform to write: {platformName}")
-            .ToString();
+            .AppendLine($"Platform to write: {platformName}");
+        if (!string.IsNullOrWhiteSpace(crawlHref))
+        {
+            user.AppendLine($"This platform was linked from the crawl at: {crawlHref}");
+        }
 
         return WithSectionSchema(new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: isRegeneration ? 0.72 : 0.65,
             MaxOutputTokens: 2048));
     }
@@ -1018,6 +1025,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Do NOT duplicate the pillar's structure or reuse its H2 headings verbatim — use fresh headings (5-6 top-level sections) ")
             .AppendLine("that pick out a distinct angle or subset of the pillar's material (duplicate structure/headings across the two published pages hurts SEO).")
             .AppendLine("Substantive paragraphs with examples, drawn from what the pillar actually says; first/second person allowed.")
+            .AppendLine("Weave the pillar's takeaways into this blog's own paragraphs. Name listed platforms in prose where they help the angle — a closing CTA is not weaving.")
             .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
             .AppendLine("Respond with ONLY the sections array — no markdown fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
@@ -1039,7 +1047,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine($"Blog meta description: {metadata.MetaDescription}")
             .AppendLine()
-            .AppendLine("Write the blog body sections. Summarize 2-3 key takeaways from the pillar, add a practical tip or short story, and end with a CTA to read the full technical article for implementation depth.")
+            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.BlogSection))
+            .AppendLine()
+            .AppendLine("Write the blog body sections. Re-angle the pillar's substance in this blog's own paragraphs — takeaways must appear in the body, not only as a closing CTA.")
+            .AppendLine("Name the platforms in the research brief in running prose where they help this angle. A closing CTA is not the only connection to the pillar or the tools.")
             .ToString();
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
@@ -1130,7 +1141,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Advisory section outline (prefer these H2s when they still fit, but you may refine):")
             .AppendLine(string.Join(Environment.NewLine, (metadata.SectionOutline ?? []).Select(h => $"- {h}")))
             .AppendLine()
-            .AppendLine("Write the blog body sections. End with a clear next-step CTA for the reader.")
+            .AppendLine("Write the blog body sections. Name platforms from the research brief in running prose where they fit. End with a clear next-step CTA for the reader.")
             .ToString();
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
@@ -1344,6 +1355,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Frame these as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
             .AppendLine("There is no real case-study data available — never present a named client, company, or engagement as if it were real. " +
                 "A quantified outcome is fine for narrative punch only if explicitly labeled hypothetical/illustrative — avoid recycling a stock 40% line.")
+            .AppendLine($"Tie Overview and When to Use to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps — this page is about {app.Name}, not a roundup.")
             .ToString();
 
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
@@ -1360,13 +1372,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Tool name: {app.Name}")
             .AppendLine($"Tool summary: {app.Description ?? "N/A"}")
             .AppendLine($"Public path: /tools/{toolSlug}");
+        if (!string.IsNullOrWhiteSpace(context.PillarBodyExcerpt))
+        {
+            user.AppendLine("=== PILLAR USE-CASE EXCERPT (ground Overview and When to Use here; do not reprint the pillar) ===");
+            user.AppendLine(context.PillarBodyExcerpt);
+        }
         if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
         {
             user.AppendLine("=== PERSISTED TOOL RESEARCH (authoritative) ===");
             user.AppendLine(extractedToolResearchJson);
         }
 
-        user.AppendLine("Write expert third-person technical prose focused on this single platform.");
+        user.AppendLine($"Write expert third-person technical prose focused on {app.Name}, grounded in this use-case.");
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
@@ -1394,6 +1411,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("  - Implementation Considerations: ~450-600 words")
             .AppendLine("  - When to Use: ~300-400 words")
             .AppendLine($"When persisted tool research is provided, treat it as the authoritative source.")
+            .AppendLine($"Tie When to Use to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps.")
             .ToString();
 
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
@@ -1409,6 +1427,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Pillar topic: {pillarMetadata.Title}")
             .AppendLine($"Tool name: {app.Name}")
             .AppendLine($"Tool summary: {app.Description ?? "N/A"}");
+        if (!string.IsNullOrWhiteSpace(context.PillarBodyExcerpt))
+        {
+            user.AppendLine("=== PILLAR USE-CASE EXCERPT (ground When to Use here; do not reprint the pillar) ===");
+            user.AppendLine(context.PillarBodyExcerpt);
+        }
         if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
         {
             user.AppendLine("=== PERSISTED TOOL RESEARCH (authoritative) ===");

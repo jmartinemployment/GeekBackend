@@ -96,6 +96,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             "Generate the pillar plan (Step 1) before writing the article body.");
 
         var context = BuildContext(project);
+        var crawlTools = await _toolPageGenerator.ListCrawlToolsAsync(project, cancellationToken);
+        context = WithKnownCrawlTools(context, crawlTools);
         var provider = _providerFactory.Get(project.PreferredProvider);
 
         articleRow.NoResearchWarning = HasNoResearchInput(context) ? BuildNoResearchWarning(context.TargetKeyword) : null;
@@ -127,7 +129,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
         var existingLedeHeading = articleRow.Body?.Lede.Heading;
         var (document, ledeType) = await GenerateArticleBodyAsync(
-            provider, context, bodyMetadata, faqQuestions, isRegeneration, revisionNotes, existingLedeHeading, cancellationToken);
+            provider, context, bodyMetadata, faqQuestions, isRegeneration, revisionNotes, existingLedeHeading, crawlTools, cancellationToken);
         var wordCount = ContentDocumentText.CountWords(document);
 
         if (wordCount < ContentLengthTargets.PillarMinWords)
@@ -191,7 +193,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     {
         var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
         var articleRow = RequireCompletePillar(project);
-        var context = BuildContext(project);
+        var context = await BuildContextWithCrawlToolsAsync(project, cancellationToken);
+        context = context with { PillarBodyExcerpt = TruncatePillarExcerpt(articleRow) };
         var provider = _providerFactory.Get(project.PreferredProvider);
         var metadata = ToMetadataDraft(articleRow);
         var articleUrl = CombineUrl(context.ArticleBaseUrl, context.Department, articleRow.Slug);
@@ -265,7 +268,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         }
 
         var articleRow = pillar;
-        var context = BuildContext(project);
+        var context = await BuildContextWithCrawlToolsAsync(project, cancellationToken);
         var provider = _providerFactory.Get(project.PreferredProvider);
         var article = GeneratedContentSetAssembler.ToArticleDraft(articleRow);
         var articleUrl = CombineUrl(context.ArticleBaseUrl, context.Department, articleRow.Slug);
@@ -341,7 +344,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         string? revisionNotes,
         CancellationToken cancellationToken)
     {
-        var context = BuildContext(project);
+        var context = await BuildContextWithCrawlToolsAsync(project, cancellationToken);
         var provider = _providerFactory.Get(project.PreferredProvider);
 
         _logger.LogInformation(
@@ -825,6 +828,30 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         GeneratedContentSetAssembler.Assemble(
             project, project.Department, _companyProfile.ArticleBaseUrl, _companyProfile.BlogBaseUrl, _companyProfile.ToolBaseUrl);
 
+    private async Task<ProjectGenerationContext> BuildContextWithCrawlToolsAsync(
+        Project project, CancellationToken cancellationToken)
+    {
+        var context = BuildContext(project);
+        var tools = await _toolPageGenerator.ListCrawlToolsAsync(project, cancellationToken);
+        return WithKnownCrawlTools(context, tools);
+    }
+
+    private static ProjectGenerationContext WithKnownCrawlTools(
+        ProjectGenerationContext context,
+        IReadOnlyList<GccGenerateService.CrawlTool> tools) =>
+        context with
+        {
+            KnownCrawlTools = tools.Select(t => new KnownCrawlTool(t.Name, t.Href)).ToList(),
+        };
+
+    private static string? TruncatePillarExcerpt(GeneratedContent articleRow, int maxChars = 1200)
+    {
+        if (articleRow.Body is null) return null;
+        var text = ContentDocumentText.Flatten(articleRow.Body).Trim();
+        if (text.Length == 0) return null;
+        return text.Length <= maxChars ? text : text[..maxChars].TrimEnd() + "…";
+    }
+
     public ProjectGenerationContext BuildContext(Project project)
     {
         var crawl = project.CrawledSite;
@@ -1056,6 +1083,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         bool isRegeneration,
         string? revisionNotes,
         string? existingLedeHeading,
+        IReadOnlyList<GccGenerateService.CrawlTool> crawlTools,
         CancellationToken cancellationToken)
     {
         var mainSections = metadata.SectionOutline
@@ -1159,11 +1187,19 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                 i + 1, mainSections.Count, heading);
 
             Section section;
-            var sectionResult = await provider.CompleteAsync(
-                _promptBuilder.BuildArticleSectionPrompt(
-                    context, metadata, heading, i, mainSections.Count, metadata.SectionOutline, isRegeneration, revisionNotes),
-                cancellationToken);
-            section = LlmResponseJsonParser.ParseSection(sectionResult.Content, "h2", $"TechnicalArticle section '{heading}'");
+            if (PillarOutlineNormalizer.IsToolsSection(heading))
+            {
+                section = await GenerateToolsCatalogSectionAsync(
+                    provider, context, metadata, heading, crawlTools, isRegeneration, revisionNotes, cancellationToken);
+            }
+            else
+            {
+                var sectionResult = await provider.CompleteAsync(
+                    _promptBuilder.BuildArticleSectionPrompt(
+                        context, metadata, heading, i, mainSections.Count, metadata.SectionOutline, isRegeneration, revisionNotes),
+                    cancellationToken);
+                section = LlmResponseJsonParser.ParseSection(sectionResult.Content, "h2", $"TechnicalArticle section '{heading}'");
+            }
 
             sectionsByHeading[heading] = section;
 
@@ -1197,6 +1233,51 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         }
 
         return (new ContentDocument(lede, sections), ledeType);
+    }
+
+    private async Task<Section> GenerateToolsCatalogSectionAsync(
+        IContentGenerationProvider provider,
+        ProjectGenerationContext context,
+        ArticleMetadataDraft metadata,
+        string toolsHeading,
+        IReadOnlyList<GccGenerateService.CrawlTool> crawlTools,
+        bool isRegeneration,
+        string? revisionNotes,
+        CancellationToken cancellationToken)
+    {
+        if (crawlTools.Count == 0)
+        {
+            _logger.LogWarning(
+                "Pillar Tools section \"{Heading}\" has no crawl tools for this hierarchy — writing an empty catalog, not invented names.",
+                toolsHeading);
+            return new Section(
+                "h2",
+                toolsHeading,
+                [new TextParagraph([new Run("No tools were found in the crawl for this hierarchy match.")])],
+                null,
+                []);
+        }
+
+        var names = crawlTools.Select(t => t.Name).ToList();
+        _logger.LogInformation(
+            "Generating Tools catalog with {Count} crawl platforms: {Names}",
+            names.Count, string.Join(", ", names));
+
+        var children = new List<Section>(names.Count);
+        for (var p = 0; p < crawlTools.Count; p++)
+        {
+            var tool = crawlTools[p];
+            var childResult = await provider.CompleteAsync(
+                _promptBuilder.BuildToolsPlatformChildPrompt(
+                    context, metadata, toolsHeading, tool.Name, names, p, names.Count,
+                    isRegeneration, revisionNotes, tool.Href),
+                cancellationToken);
+            var child = LlmResponseJsonParser.ParseSection(
+                childResult.Content, "h3", $"Tools platform '{tool.Name}'");
+            children.Add(child);
+        }
+
+        return new Section("h2", toolsHeading, [], null, children);
     }
 
     private static List<SoftwareApplicationDescriptor> DescriptorsFromToolPosts(
