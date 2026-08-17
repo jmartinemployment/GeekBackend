@@ -57,7 +57,6 @@ public class ProjectsController : ControllerBase
             Department = request.Department,
             PreferredProvider = request.PreferredProvider,
             UseExactKeywordAsTitle = request.UseExactKeywordAsTitle,
-            SiteAnalysisId = request.SiteAnalysisId is Guid sid && sid != Guid.Empty ? sid : null,
             SiteAnalysisProfileId = request.SiteAnalysisProfileId is Guid spid && spid != Guid.Empty ? spid : null,
         };
 
@@ -112,11 +111,6 @@ public class ProjectsController : ControllerBase
         if (project is null)
         {
             return NotFound();
-        }
-
-        if (request.SiteAnalysisId is Guid sid && sid != Guid.Empty)
-        {
-            project.SiteAnalysisId = sid;
         }
 
         if (request.SiteAnalysisProfileId is Guid spid && spid != Guid.Empty)

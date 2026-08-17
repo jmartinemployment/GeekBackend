@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -19,7 +20,7 @@ namespace GeekAPI.Services.ContentCreator;
 public sealed record RelatedPageDto(string Url, string Title, HeadingDto[] Headings, string Excerpt);
 
 public sealed record SiteSectionContextDto(
-    Guid SiteAnalysisId,
+    [property: JsonPropertyName("siteAnalysisProfileId")] Guid SiteAnalysisId,
     string GapTopic,
     string? GapSectionPath,
     IReadOnlyList<RelatedPageDto> RelatedPages,
@@ -104,15 +105,15 @@ public class GccGenerateService
     }
 
     /// <summary>
-    /// Required gate: every Generate must have a resolved, current-version SiteAnalysisId.
-    /// Domain-only grounding (SiteAnalysisId with no section) is allowed — Generate uses
+    /// Required gate: every Generate must have a crawl id (site_analysis_profiles.Id).
+    /// Domain-only grounding (crawl id with no section) is allowed — Generate uses
     /// page-section trees for "must mention" injection. Handoff-created sections must have
     /// non-empty relatedPages. Applies to all types including imagePrompt/aiTool (no exemption);
     /// per-H2 image prompts must include siteSection+tree with at least one top-level section.
     /// </summary>
-    public static void ValidateSiteSectionGate(Guid? siteAnalysisId, SiteSectionContextDto? section)
+    public static void ValidateSiteSectionGate(Guid? siteAnalysisProfileId, SiteSectionContextDto? section)
     {
-        if (siteAnalysisId is null || siteAnalysisId == Guid.Empty)
+        if (siteAnalysisProfileId is null || siteAnalysisProfileId == Guid.Empty)
             throw new InvalidOperationException(
                 "site analysis required — run or reuse an analysis for this domain");
 

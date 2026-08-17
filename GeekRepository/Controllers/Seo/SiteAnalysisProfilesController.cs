@@ -78,6 +78,19 @@ public sealed class SiteAnalysisProfilesController(
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
 
+    [HttpPost("through-coverage")]
+    public async Task<IActionResult> PersistThroughCoverage(
+        [FromQuery] Guid userId,
+        [FromBody] ThroughCoveragePersistRequest body,
+        CancellationToken ct)
+    {
+        var owned = await EnsureProjectAsync(body.ProjectId, userId, ct);
+        if (owned is not null) return owned;
+
+        var result = await profiles.PersistThroughCoverageAsync(body, ct);
+        return result.IsSuccess ? Ok(new { id = result.Value }) : BadRequest(result.Error);
+    }
+
     [HttpGet("{profileId:guid}")]
     public async Task<IActionResult> GetById(
         Guid profileId,

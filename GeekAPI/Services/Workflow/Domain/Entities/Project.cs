@@ -34,7 +34,7 @@ public class Project
     /// <summary>Optional comma-separated desired headings that must appear in the pillar article outline.</summary>
     public string? Notes { get; set; }
 
-    /// <summary>Optional GCC poll/report handle (content_creator.gcc_site_analyses.Id).</summary>
+    /// <summary>Unused wrapper id (content_creator.gcc_site_analyses). Crawl key is SiteAnalysisProfileId.</summary>
     public Guid? SiteAnalysisId { get; set; }
 
     /// <summary>

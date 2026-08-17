@@ -85,7 +85,7 @@ public class HttpGeekSeoSiteAnalyzerClient
             : SeoCallResult<SeoProjectDto>.Success(project);
     }
 
-    public async Task<SeoCallResult<Guid>> StartSiteAnalysisAsync(
+    public async Task<SeoCallResult<bool>> StartSiteAnalysisAsync(
         Guid projectId,
         string domain,
         string? seedTopic,
@@ -93,9 +93,9 @@ public class HttpGeekSeoSiteAnalyzerClient
         CancellationToken ct)
     {
         if (!_enabled)
-            return SeoCallResult<Guid>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+            return SeoCallResult<bool>.Fail((int)HttpStatusCode.ServiceUnavailable, "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
         if (string.IsNullOrWhiteSpace(bearerToken))
-            return SeoCallResult<Guid>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to run site analysis.");
+            return SeoCallResult<bool>.Fail((int)HttpStatusCode.Unauthorized, "Signed-in user required to run site analysis.");
 
         var result = await SendAsync(
             HttpMethod.Post,
@@ -103,15 +103,8 @@ public class HttpGeekSeoSiteAnalyzerClient
             bearerToken,
             ct,
             new { projectId, domain = NormalizeHost(domain), seedTopic });
-        if (!result.Ok) return SeoCallResult<Guid>.Fail(result.StatusCode, result.Error!);
-
-        var profile = JsonSerializer.Deserialize<SeoProfileDto>(result.Body!, JsonOpts);
-        if (profile?.Id is Guid id && id != Guid.Empty) return SeoCallResult<Guid>.Success(id);
-        using var doc = JsonDocument.Parse(result.Body!);
-        if (doc.RootElement.TryGetProperty("profileId", out var profileId)
-            && Guid.TryParse(profileId.GetString(), out id))
-            return SeoCallResult<Guid>.Success(id);
-        return SeoCallResult<Guid>.Fail((int)HttpStatusCode.BadGateway, "Site Analyzer returned no profile ID.");
+        if (!result.Ok) return SeoCallResult<bool>.Fail(result.StatusCode, result.Error!);
+        return SeoCallResult<bool>.Success(true);
     }
 
     public async Task<SeoCallResult<SiteAnalysisStatus>> GetSiteAnalysisStatusAsync(
@@ -586,7 +579,9 @@ public class HttpGeekSeoSiteAnalyzerClient
         string? Step = null,
         int StepNumber = 0,
         int TotalSteps = 0,
-        string? ErrorMessage = null)
+        string? ErrorMessage = null,
+        DateTimeOffset? CreatedAt = null,
+        DateTimeOffset? ProgressAt = null)
     {
         public bool IsComplete => string.Equals(Status, "complete", StringComparison.OrdinalIgnoreCase)
             || string.Equals(Status, "completed", StringComparison.OrdinalIgnoreCase)
