@@ -109,7 +109,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         }
 
         var metadata = ToMetadataDraft(articleRow);
-        var (bodyMetadata, faqQuestions) = PrepareBodyInput(metadata, context.PeopleAlsoAskQuestions, context.TargetKeyword);
+        var (bodyMetadata, faqQuestions) = PrepareBodyInput(metadata, context.PeopleAlsoAskQuestions);
         if (!articleRow.SectionOutline.SequenceEqual(bodyMetadata.SectionOutline))
         {
             articleRow.SectionOutline = bodyMetadata.SectionOutline;
@@ -129,7 +129,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
         var existingLedeHeading = articleRow.Body?.Lede.Heading;
         var (document, ledeType) = await GenerateArticleBodyAsync(
-            provider, context, bodyMetadata, faqQuestions, isRegeneration, revisionNotes, existingLedeHeading, crawlTools, cancellationToken);
+            provider, context, bodyMetadata, faqQuestions, isRegeneration, revisionNotes, existingLedeHeading, cancellationToken);
         var wordCount = ContentDocumentText.CountWords(document);
 
         if (wordCount < ContentLengthTargets.PillarMinWords)
@@ -405,7 +405,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             _promptBuilder.BuildStandaloneBlogMetadataPrompt(context),
             cancellationToken);
         var metadata = NormalizeBlogMetadata(ParseJson<BlogMetadataDraft>(metadataResult.Content, "BlogPosting metadata"));
-        metadata = EnsureBlogSectionOutline(metadata);
+        // EnsureBlogSectionOutline commented out — do not invent extra blog H2s.
 
         _logger.LogInformation("Generating standalone blog lede");
         var ledeResult = await provider.CompleteAsync(
@@ -867,33 +867,20 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                 k.ExtractedToolResearchJson))
             .ToList();
 
-        var paaFromFiles = project.KeywordSources
-            .Where(k => k.Category == KeywordSourceCategory.PeopleAlsoAsk)
-            .SelectMany(k => k.ExtractedQuestions);
+        var brief = GccGenerateService.ExtractBriefFields(project.BriefJson);
 
-        var paaFromSerp = (project.SerpPaaQuestions ?? string.Empty)
-            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-
-        var paaQuestions = paaFromFiles
-            .Concat(paaFromSerp)
+        var paaQuestions = (brief.PaaQuestions ?? [])
             .Where(q => !string.IsNullOrWhiteSpace(q))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(MaxPeopleAlsoAskQuestions)
             .ToList();
 
-        if (paaQuestions.Count == MaxPeopleAlsoAskQuestions)
+        if (paaQuestions.Count == MaxPeopleAlsoAskQuestions
+            && (brief.PaaQuestions?.Count ?? 0) > MaxPeopleAlsoAskQuestions)
         {
-            var totalPaa = paaFromFiles
-                .Concat(paaFromSerp)
-                .Where(q => !string.IsNullOrWhiteSpace(q))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count();
-            if (totalPaa > MaxPeopleAlsoAskQuestions)
-            {
-                _logger.LogWarning(
-                    "Project {ProjectId} has {Total} PAA questions; using first {Cap} for generation.",
-                    project.Id, totalPaa, MaxPeopleAlsoAskQuestions);
-            }
+            _logger.LogWarning(
+                "Project {ProjectId} has {Total} brief PAA questions; using first {Cap} for generation.",
+                project.Id, brief.PaaQuestions!.Count, MaxPeopleAlsoAskQuestions);
         }
 
         string? jsonLdSummary = null;
@@ -915,8 +902,6 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         {
             siteName = projectUri.Host;
         }
-
-        var brief = GccGenerateService.ExtractBriefFields(project.BriefJson);
 
         // This phase: omit crawl tone/focus from prompts even if a legacy crawl row exists.
         return new ProjectGenerationContext(
@@ -1070,8 +1055,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             _promptBuilder.BuildArticleMetadataPrompt(context),
             cancellationToken);
         var metadata = NormalizeMetadata(ParseJson<ArticleMetadataDraft>(metadataResult.Content, "TechnicalArticle metadata"));
-        metadata = SanitizePlanMetadata(metadata, context.PeopleAlsoAskQuestions, context.TargetKeyword);
-        metadata = PillarPlanMetadataNormalizer.Normalize(metadata, context.TargetKeyword);
+        // SanitizePlanMetadata / PillarPlanMetadataNormalizer.Normalize commented out — prompt only.
         return context.UseExactKeywordAsTitle ? metadata with { Title = context.TargetKeyword } : metadata;
     }
 
@@ -1083,7 +1067,6 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         bool isRegeneration,
         string? revisionNotes,
         string? existingLedeHeading,
-        IReadOnlyList<GccGenerateService.CrawlTool> crawlTools,
         CancellationToken cancellationToken)
     {
         var mainSections = metadata.SectionOutline
@@ -1124,53 +1107,66 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             sectionsByHeading[introductionHeading] = introSection;
         }
 
-        // Batch every remaining main section that isn't Tools/Implementation into one call — those
-        // two stay their own calls (Tools per the documented truncation-avoidance rule; Implementation
-        // kept separate per the requested grouping).
+        // Remaining H2s except Implementation: small batches (truncation-avoidance).
+        // One giant batch of 500–700 word nested sections exceeds the output budget and 502s.
         var batchHeadings = mainSections
             .Where(h => !sectionsByHeading.ContainsKey(h)
-                && !PillarOutlineNormalizer.IsToolsSection(h)
                 && !PillarSectionClassifier.IsImplementationSection(h))
             .ToList();
 
-        if (batchHeadings.Count > 0)
+        const int sectionBatchSize = 2;
+        for (var offset = 0; offset < batchHeadings.Count; offset += sectionBatchSize)
         {
-            _logger.LogInformation("Generating {Count} pillar sections in one batched call: {Headings}",
-                batchHeadings.Count, string.Join(", ", batchHeadings));
-            var batchResult = await provider.CompleteAsync(
-                _promptBuilder.BuildArticleSectionBatchPrompt(
-                    context, metadata, batchHeadings, metadata.SectionOutline, isRegeneration, revisionNotes),
-                cancellationToken);
-            var batchSections = LlmResponseJsonParser.ParseSections(batchResult.Content, "TechnicalArticle section batch");
-
-            // Match returned sections back to requested headings by position — the model is asked to
-            // return them in the same order it was given, but never trust that blindly for a keyed
-            // lookup; fall back to the model's own heading text if the count doesn't line up.
-            for (var b = 0; b < batchHeadings.Count; b++)
+            var chunk = batchHeadings.Skip(offset).Take(sectionBatchSize).ToList();
+            if (chunk.Count < 2)
             {
-                var section = b < batchSections.Count ? batchSections[b] : null;
-                if (section is not null)
-                {
-                    sectionsByHeading[batchHeadings[b]] = section;
-                }
+                break;
             }
 
-            var batchWordFloor = (int)(ContentLengthTargets.PillarSectionMinWords * 0.85);
-            for (var b = 0; b < batchHeadings.Count; b++)
+            _logger.LogInformation("Generating {Count} pillar sections in one batched call: {Headings}",
+                chunk.Count, string.Join(", ", chunk));
+            try
             {
-                if (!sectionsByHeading.TryGetValue(batchHeadings[b], out var section))
+                var batchResult = await provider.CompleteAsync(
+                    _promptBuilder.BuildArticleSectionBatchPrompt(
+                        context, metadata, chunk, metadata.SectionOutline, isRegeneration, revisionNotes),
+                    cancellationToken);
+                var batchSections = LlmResponseJsonParser.ParseSections(
+                    batchResult.Content, "TechnicalArticle section batch");
+
+                for (var b = 0; b < chunk.Count; b++)
                 {
-                    _logger.LogWarning("Batched pillar section \"{Heading}\" was not returned by the model.", batchHeadings[b]);
-                    continue;
+                    var section = b < batchSections.Count ? batchSections[b] : null;
+                    if (section is not null)
+                    {
+                        sectionsByHeading[chunk[b]] = section;
+                    }
                 }
 
-                var words = ContentDocumentText.CountWords(section);
-                if (words < batchWordFloor)
+                var batchWordFloor = (int)(ContentLengthTargets.PillarSectionMinWords * 0.85);
+                for (var b = 0; b < chunk.Count; b++)
                 {
-                    _logger.LogWarning(
-                        "Pillar section \"{Heading}\" is {Count} words (soft minimum {Minimum}) — no retry, single attempt only.",
-                        batchHeadings[b], words, batchWordFloor);
+                    if (!sectionsByHeading.TryGetValue(chunk[b], out var section))
+                    {
+                        _logger.LogWarning("Batched pillar section \"{Heading}\" was not returned by the model.", chunk[b]);
+                        continue;
+                    }
+
+                    var words = ContentDocumentText.CountWords(section);
+                    if (words < batchWordFloor)
+                    {
+                        _logger.LogWarning(
+                            "Pillar section \"{Heading}\" is {Count} words (soft minimum {Minimum}) — no retry, single attempt only.",
+                            chunk[b], words, batchWordFloor);
+                    }
                 }
+            }
+            catch (ContentGenerationException ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Pillar section batch failed ({Headings}); writing those sections individually.",
+                    string.Join(", ", chunk));
             }
         }
 
@@ -1186,20 +1182,11 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                 "Generating pillar section {Index}/{Total}: {Heading}",
                 i + 1, mainSections.Count, heading);
 
-            Section section;
-            if (PillarOutlineNormalizer.IsToolsSection(heading))
-            {
-                section = await GenerateToolsCatalogSectionAsync(
-                    provider, context, metadata, heading, crawlTools, isRegeneration, revisionNotes, cancellationToken);
-            }
-            else
-            {
-                var sectionResult = await provider.CompleteAsync(
-                    _promptBuilder.BuildArticleSectionPrompt(
-                        context, metadata, heading, i, mainSections.Count, metadata.SectionOutline, isRegeneration, revisionNotes),
-                    cancellationToken);
-                section = LlmResponseJsonParser.ParseSection(sectionResult.Content, "h2", $"TechnicalArticle section '{heading}'");
-            }
+            var sectionResult = await provider.CompleteAsync(
+                _promptBuilder.BuildArticleSectionPrompt(
+                    context, metadata, heading, i, mainSections.Count, metadata.SectionOutline, isRegeneration, revisionNotes),
+                cancellationToken);
+            var section = LlmResponseJsonParser.ParseSection(sectionResult.Content, "h2", $"TechnicalArticle section '{heading}'");
 
             sectionsByHeading[heading] = section;
 
@@ -1235,51 +1222,6 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         return (new ContentDocument(lede, sections), ledeType);
     }
 
-    private async Task<Section> GenerateToolsCatalogSectionAsync(
-        IContentGenerationProvider provider,
-        ProjectGenerationContext context,
-        ArticleMetadataDraft metadata,
-        string toolsHeading,
-        IReadOnlyList<GccGenerateService.CrawlTool> crawlTools,
-        bool isRegeneration,
-        string? revisionNotes,
-        CancellationToken cancellationToken)
-    {
-        if (crawlTools.Count == 0)
-        {
-            _logger.LogWarning(
-                "Pillar Tools section \"{Heading}\" has no crawl tools for this hierarchy — writing an empty catalog, not invented names.",
-                toolsHeading);
-            return new Section(
-                "h2",
-                toolsHeading,
-                [new TextParagraph([new Run("No tools were found in the crawl for this hierarchy match.")])],
-                null,
-                []);
-        }
-
-        var names = crawlTools.Select(t => t.Name).ToList();
-        _logger.LogInformation(
-            "Generating Tools catalog with {Count} crawl platforms: {Names}",
-            names.Count, string.Join(", ", names));
-
-        var children = new List<Section>(names.Count);
-        for (var p = 0; p < crawlTools.Count; p++)
-        {
-            var tool = crawlTools[p];
-            var childResult = await provider.CompleteAsync(
-                _promptBuilder.BuildToolsPlatformChildPrompt(
-                    context, metadata, toolsHeading, tool.Name, names, p, names.Count,
-                    isRegeneration, revisionNotes, tool.Href),
-                cancellationToken);
-            var child = LlmResponseJsonParser.ParseSection(
-                childResult.Content, "h3", $"Tools platform '{tool.Name}'");
-            children.Add(child);
-        }
-
-        return new Section("h2", toolsHeading, [], null, children);
-    }
-
     private static List<SoftwareApplicationDescriptor> DescriptorsFromToolPosts(
         Project project,
         ProjectGenerationContext context)
@@ -1302,22 +1244,18 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     internal static bool IsToolRoundupSlug(string slug) =>
         slug.StartsWith("top-ai-tools-for-", StringComparison.OrdinalIgnoreCase);
 
-    private static ArticleMetadataDraft SanitizePlanMetadata(
-        ArticleMetadataDraft metadata,
-        IReadOnlyList<string> paaQuestions,
-        string targetKeyword)
-    {
-        var (mainOutline, _) = PillarOutlineNormalizer.Sanitize(metadata.SectionOutline, paaQuestions, targetKeyword);
-        return metadata with { SectionOutline = mainOutline };
-    }
+    // SanitizePlanMetadata commented out — do not rewrite the Generate plan outline.
 
     private static (ArticleMetadataDraft Metadata, List<string> FaqQuestions) PrepareBodyInput(
         ArticleMetadataDraft metadata,
-        IReadOnlyList<string> paaQuestions,
-        string targetKeyword)
+        IReadOnlyList<string> paaQuestions)
     {
-        var (mainOutline, faqQuestions) = PillarOutlineNormalizer.Sanitize(metadata.SectionOutline, paaQuestions, targetKeyword);
-        return (metadata with { SectionOutline = mainOutline }, faqQuestions);
+        // Outline is written as planned. FAQ questions come from the brief only.
+        var faqQuestions = paaQuestions
+            .Where(q => !string.IsNullOrWhiteSpace(q))
+            .Take(MaxPeopleAlsoAskQuestions)
+            .ToList();
+        return (metadata, faqQuestions);
     }
 
     private static ArticleMetadataDraft NormalizeMetadata(ArticleMetadataDraft metadata) => metadata with
@@ -1337,7 +1275,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             _promptBuilder.BuildBlogMetadataPrompt(context, article),
             cancellationToken);
         var metadata = NormalizeBlogMetadata(ParseJson<BlogMetadataDraft>(metadataResult.Content, "BlogPosting metadata"));
-        metadata = EnsureBlogSectionOutline(metadata);
+        // EnsureBlogSectionOutline commented out — do not invent extra blog H2s.
 
         _logger.LogInformation("Generating blog lede");
         var ledeResult = await provider.CompleteAsync(
@@ -1385,24 +1323,25 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         return (draft, ledeType);
     }
 
-    private static BlogMetadataDraft EnsureBlogSectionOutline(BlogMetadataDraft metadata)
-    {
-        var outline = metadata.SectionOutline?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? [];
-
-        while (outline.Count < ContentLengthTargets.BlogSectionCountMin)
-        {
-            outline.Add(outline.Count switch
-            {
-                0 => "Why this matters now",
-                1 => "What the data shows",
-                2 => "Key takeaways you can use",
-                3 => "Practical steps to implement",
-                _ => "What to do next"
-            });
-        }
-
-        return metadata with { SectionOutline = outline };
-    }
+    // EnsureBlogSectionOutline commented out — do not invent extra blog H2s when the outline is short.
+    // private static BlogMetadataDraft EnsureBlogSectionOutline(BlogMetadataDraft metadata)
+    // {
+    //     var outline = metadata.SectionOutline?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? [];
+    //
+    //     while (outline.Count < ContentLengthTargets.BlogSectionCountMin)
+    //     {
+    //         outline.Add(outline.Count switch
+    //         {
+    //             0 => "Why this matters now",
+    //             1 => "What the data shows",
+    //             2 => "Key takeaways you can use",
+    //             3 => "Practical steps to implement",
+    //             _ => "What to do next"
+    //         });
+    //     }
+    //
+    //     return metadata with { SectionOutline = outline };
+    // }
 
     private static BlogMetadataDraft NormalizeBlogMetadata(BlogMetadataDraft metadata) => metadata with
     {

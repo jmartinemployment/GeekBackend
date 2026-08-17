@@ -288,15 +288,15 @@ internal static class ResearchBriefBuilder
         sb.AppendLine();
         sb.AppendLine("=== KNOWN TOOLS (grounding — weave into this content) ===");
         sb.AppendLine(
-            "Name these platforms in running paragraphs wherever each is relevant to THIS section or page. " +
+            "Name these tools in running paragraphs wherever each is relevant to THIS section or page. " +
             "Discuss them substantively — what they do for this use case, not a one-word mention. " +
-            "Do not produce a roll-call list, and do not duplicate the pillar Tools H2 catalog. " +
+            "Do not produce a roll-call list, and do not write a Tools heading or catalog. " +
             "Recurring mentions are fine when they add something; first-mention-only is not enough. " +
             "A link is optional and never a substitute for discussing the tool.");
         sb.AppendLine(
             "If a public path is given, you may set Run.href on at most 1-2 substantive body mentions per tool " +
             "(not headings). Never fabricate a URL. Do not send the reader to the crawl source page.");
-        sb.AppendLine("Platforms from the crawl:");
+        sb.AppendLine("Tools from the crawl:");
         foreach (var tool in tools)
         {
             var slug = SlugHelper.Slugify(tool.Name);
