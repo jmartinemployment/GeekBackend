@@ -374,7 +374,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     private const string ArticleMetadataJsonContract =
-        "{\"title\": string, \"metaDescription\": string (140-160 characters, must include the target keyword naturally, no hype), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-7 declarative H2 headings — exactly ONE tools section with a descriptive name like \"Top AI Tools for {topic}\" (never a bare \"Tools/Platforms\" label), plus final item: \"People Also Ask\")}";
+        "{\"title\": string, \"metaDescription\": string (140-160 characters, must include the target keyword naturally, no hype), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-7 declarative H2 headings, plus final item: \"People Also Ask\")}";
 
     private const string SocialJsonContract =
         "{\"text\": string}";
@@ -397,7 +397,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HierarchyPromptGuidance(context, strictChildHeadings: true))
             .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary.")
             .AppendLine(ArticleMetadataJsonContract)
-            .AppendLine("GOOD sectionOutline example: [\"Overview of Enterprise AI\", \"Implementation Framework\", \"Top AI Platforms and Tools\", \"Measuring ROI\", \"People Also Ask\"]")
+            .AppendLine("With the exception of the Lede, article headings are never questions.")
+            .AppendLine("GOOD sectionOutline example: [\"Overview of Enterprise AI\", \"Implementation Framework\", \"Measuring ROI\", \"People Also Ask\"]")
             .AppendLine("BAD sectionOutline example: [\"What is AI?\", \"How does it work?\"] — never use questions as main H2s.")
             .AppendLine("CRITICAL: sectionOutline[0] is the opening H2 — it MUST be a creative hook headline (lede-driven, specific to the keyword), never a generic \"Introduction to...\" / \"Introduction/Overview\" label. The lede's 12-type hook IS this first H2.")
             .AppendLine("BAD first H2: \"Introduction to AI Content Creation Workflow\" — never use a bare Introduction label.")
@@ -418,7 +419,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             hierarchyOutlineInstruction +
             "Derive sectionOutline from keyword SERP and local pack headings (declarative topics like \"Benefits of X\", not questions). " +
             "Frame this as a use case showing how AI implementation services solve the client problem — not just generic background. " +
-            "REQUIRED: include exactly one tools H2 with a descriptive name (e.g. \"Top AI Tools for Sales Prospecting\") — platforms plus which problems an AI implementer solves. Never use a bare \"Tools/Platforms\" heading. " +
+            "Do not include a Tools H2. Tool names from the crawl belong in body sentences later, not as outline headings. " +
+            "With the exception of the Lede, article headings are never questions. People Also Ask questions from the brief are not outline headings. " +
             "Title must NOT be a question and must NOT start with \"How\" — use a definitive statement (e.g. \"AI Prospecting and Lead Intelligence: Implementation Guide\"). " +
             $"Meta description: 140-160 characters, include \"{context.TargetKeyword}\" naturally, concise factual summary for B2B readers, no hype. " +
             "End sectionOutline with exactly one FAQ section titled \"People Also Ask\" — PAA questions are answered there in the body step, not as main H2s. " +
@@ -621,7 +623,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch, but MUST be explicitly labeled hypothetical/illustrative. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
-            .AppendLine("Platforms listed in the research brief must appear in body prose where they are relevant to that section. The dedicated Tools H2 catalog is written separately — do not dump that catalog here.")
+            .AppendLine("With the exception of the Lede, article headings are never questions.")
+            .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
             .ToString();
 
         // Per-heading guidance — these blocks are pure functions of context (not the loop index),
@@ -674,7 +677,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: 6144));
+            MaxOutputTokens: 16384));
     }
 
     public ChatCompletionRequest BuildArticleSectionPrompt(
@@ -726,7 +729,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("\"in a representative scenario\". Never phrase it as something that already happened to a real client. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for this section. Do not write other sections.")
-            .AppendLine("Platforms listed in the research brief must appear in body prose where they are relevant to this section. The dedicated Tools H2 catalog is written separately — do not dump that catalog here.")
+            .AppendLine("With the exception of the Lede, article headings are never questions.")
+            .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
             .ToString();
 
         var perCall = new StringBuilder();

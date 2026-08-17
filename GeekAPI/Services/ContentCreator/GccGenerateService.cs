@@ -1192,6 +1192,43 @@ public class GccGenerateService
         return (fields.Segment, fields.Details, fields.Notes, fields.Angle);
     }
 
+    /// <summary>People Also Ask lines the operator typed on the brief — newline string or JSON array.</summary>
+    private static IReadOnlyList<string>? ParsePaaQuestions(JsonElement root)
+    {
+        if (!root.TryGetProperty("paaQuestions", out var prop))
+        {
+            return null;
+        }
+
+        var list = new List<string>();
+        if (prop.ValueKind == JsonValueKind.String)
+        {
+            var raw = prop.GetString();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                foreach (var line in raw.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (line.Length > 0)
+                    {
+                        list.Add(line);
+                    }
+                }
+            }
+        }
+        else if (prop.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var el in prop.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String && el.GetString() is string s && !string.IsNullOrWhiteSpace(s))
+                {
+                    list.Add(s.Trim());
+                }
+            }
+        }
+
+        return list.Count == 0 ? null : list;
+    }
+
     internal static BriefFields ExtractBriefFields(string? briefJson)
     {
         if (string.IsNullOrWhiteSpace(briefJson)) return new BriefFields();
@@ -1297,6 +1334,7 @@ public class GccGenerateService
             var ctaLabel = S("ctaLabel");
             var lengthBand = S("lengthBand");
             var writingNotes = S("writingNotes");
+            IReadOnlyList<string>? paaQuestions = ParsePaaQuestions(root);
             var segNotes = notes;
             return new BriefFields
             {
@@ -1313,6 +1351,7 @@ public class GccGenerateService
                 CtaLabel = string.IsNullOrWhiteSpace(ctaLabel) ? null : ctaLabel.Trim(),
                 LengthBand = string.IsNullOrWhiteSpace(lengthBand) ? null : lengthBand.Trim(),
                 WritingNotes = string.IsNullOrWhiteSpace(writingNotes) ? null : writingNotes.Trim(),
+                PaaQuestions = paaQuestions,
             };
         }
         catch (JsonException)
@@ -1336,6 +1375,7 @@ public class GccGenerateService
         public string? CtaLabel { get; init; }
         public string? LengthBand { get; init; }
         public string? WritingNotes { get; init; }
+        public IReadOnlyList<string>? PaaQuestions { get; init; }
     }
 
     public static string SerializeAnalysisPayload(SiteAnalysisStoredPayload payload) =>
