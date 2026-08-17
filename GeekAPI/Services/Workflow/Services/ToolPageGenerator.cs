@@ -5,6 +5,8 @@ using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Infrastructure;
+using GeekAPI.Services.ContentCreator;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
@@ -36,17 +38,23 @@ public sealed class ToolPageGenerator : IToolPageGenerator
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly IContentPromptBuilder _promptBuilder;
     private readonly IToolContentCacheStore _toolContentCacheStore;
+    private readonly HttpGeekSeoSiteAnalyzerClient _seo;
+    private readonly IHttpContextAccessor _httpContext;
     private readonly ILogger<ToolPageGenerator> _logger;
 
     public ToolPageGenerator(
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IContentPromptBuilder promptBuilder,
         IToolContentCacheStore toolContentCacheStore,
+        HttpGeekSeoSiteAnalyzerClient seo,
+        IHttpContextAccessor httpContext,
         ILogger<ToolPageGenerator> logger)
     {
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _promptBuilder = promptBuilder;
         _toolContentCacheStore = toolContentCacheStore;
+        _seo = seo;
+        _httpContext = httpContext;
         _logger = logger;
     }
 
@@ -61,7 +69,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         IReadOnlySet<string>? toolSlugsToRegenerate = null,
         CancellationToken cancellationToken = default)
     {
-        var toolSlots = ResolveToolSlots(project);
+        var toolSlots = await ResolveToolSlotsAsync(project, cancellationToken);
         if (toolSlots.Count == 0)
         {
             return new ToolGenerationResult(ToolGenerationOutcome.ToolsSectionEmpty, []);
@@ -72,7 +80,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             .Select(s => new SoftwareApplicationDescriptor(
                 s.Name,
                 s.Description,
-                Url: null))
+                Url: string.IsNullOrWhiteSpace(s.Href) ? null : s.Href))
             .ToList();
 
         var usedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -90,7 +98,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         if (slotsToGenerate.Count == 0)
         {
             throw new ContentGenerationException(
-                "None of the requested tool slugs match the project's hierarchy/uploaded tool set.");
+                "None of the requested tool slugs match the crawl's tools for this hierarchy.");
         }
 
         var rows = (await Task.WhenAll(slotsToGenerate.Select(slot => GenerateOneToolAsync(
@@ -109,73 +117,41 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         return new ToolGenerationResult(ToolGenerationOutcome.Success, rows);
     }
 
-    private sealed record ToolSlot(string Name, string? Description, string? ResearchJson);
+    private sealed record ToolSlot(string Name, string? Description, string? ResearchJson, string? Href);
 
-    private static List<ToolSlot> ResolveToolSlots(Project project)
+    private async Task<List<ToolSlot>> ResolveToolSlotsAsync(Project project, CancellationToken cancellationToken)
     {
-        var hierarchyNames = (project.HierarchyToolsByHeading ?? [])
-            .SelectMany(g => g.Tools)
-            .Select(t => t.Name.Trim())
-            .Where(n => n.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        if (project.SiteAnalysisProfileId is not Guid profileId || profileId == Guid.Empty)
+            return [];
 
-        var uploaded = project.KeywordSources
-            .Where(k => k.Category == KeywordSourceCategory.Tools)
-            .ToList();
+        var keyword = project.TargetKeyword?.Trim() ?? "";
+        if (keyword.Length == 0)
+            return [];
 
-        if (hierarchyNames.Count > 0)
+        var bearer = BearerToken();
+        var result = await _seo.FindTreesByKeywordAsync(profileId, keyword, bearer, cancellationToken);
+        if (!result.Ok)
         {
-            return hierarchyNames.Select(name =>
-            {
-                var match = uploaded.FirstOrDefault(u =>
-                    string.Equals(u.ExtractedTitle?.Trim(), name, StringComparison.OrdinalIgnoreCase)
-                    || (!string.IsNullOrWhiteSpace(u.ExtractedToolResearchJson)
-                        && u.ExtractedToolResearchJson.Contains(name, StringComparison.OrdinalIgnoreCase)));
-                return new ToolSlot(
-                    name,
-                    DescriptionFromResearch(match?.ExtractedToolResearchJson),
-                    match?.ExtractedToolResearchJson);
-            }).ToList();
+            throw new ContentGenerationException(
+                result.Error ?? "Could not load crawl trees for this site analysis.");
         }
 
-        return uploaded.Select(u =>
-        {
-            var name = !string.IsNullOrWhiteSpace(u.ExtractedTitle)
-                ? u.ExtractedTitle!.Trim()
-                : Path.GetFileNameWithoutExtension(u.OriginalFileName);
-            return new ToolSlot(name, DescriptionFromResearch(u.ExtractedToolResearchJson), u.ExtractedToolResearchJson);
-        })
-        .Where(s => !string.IsNullOrWhiteSpace(s.Name))
-        .GroupBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-        .Select(g => g.First())
-        .ToList();
+        return GccGenerateService.ExtractToolsFromTrees(
+                result.Value ?? [],
+                keyword,
+                project.HierarchySourcePageUrl,
+                project.HierarchyPath)
+            .Select(t => new ToolSlot(t.Name, null, null, t.Href))
+            .ToList();
     }
 
-    private static string? DescriptionFromResearch(string? researchJson)
+    private string? BearerToken()
     {
-        if (string.IsNullOrWhiteSpace(researchJson)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(researchJson);
-            if (doc.RootElement.TryGetProperty("summary", out var summary)
-                && summary.ValueKind == JsonValueKind.String)
-            {
-                return summary.GetString();
-            }
-
-            if (doc.RootElement.TryGetProperty("whatItDoes", out var what)
-                && what.ValueKind == JsonValueKind.String)
-            {
-                return what.GetString();
-            }
-        }
-        catch (JsonException)
-        {
-            // fall through
-        }
-
-        return researchJson.Length > 240 ? researchJson[..240] : researchJson;
+        var auth = _httpContext.HttpContext?.Request.Headers.Authorization.ToString();
+        if (string.IsNullOrWhiteSpace(auth)) return null;
+        return auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? auth["Bearer ".Length..].Trim()
+            : auth.Trim();
     }
 
     private async Task<GeneratedContent> GenerateOneToolAsync(

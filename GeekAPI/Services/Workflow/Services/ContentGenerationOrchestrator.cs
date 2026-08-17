@@ -209,42 +209,47 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             toolSlugsToRegenerate,
             cancellationToken);
 
-        if (generation.Outcome != ToolGenerationOutcome.Success)
+        if (generation.Outcome != ToolGenerationOutcome.Success || generation.ToolPosts.Count == 0)
         {
-            _logger.LogWarning(
-                "Tool page generation for project {ProjectId} produced no tools: {Outcome}",
-                projectId, generation.Outcome);
+            throw new ContentGenerationException(generation.Outcome switch
+            {
+                ToolGenerationOutcome.ToolsSectionEmpty =>
+                    "No tools in the crawl for this hierarchy match.",
+                ToolGenerationOutcome.NoToolsSection =>
+                    "No Tools section in the pillar to generate pages from.",
+                ToolGenerationOutcome.ToolsSectionNotFoundInBody =>
+                    "The pillar outline lists Tools, but the body has no matching Tools section.",
+                _ => "Tool page generation produced no pages.",
+            });
         }
-        else
+
+        // Only remove the rows we're actually replacing, and only now that generation has
+        // succeeded — a failed/retried-out run must never destroy tool pages that were already
+        // generated successfully in a prior run. A full run (no slug filter) still replaces the
+        // entire existing ToolPost set, same as before; a targeted rewrite only replaces the
+        // slug(s) it regenerated.
+        var newSlugs = generation.ToolPosts.Select(r => r.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var toRemove = project.GeneratedContents
+            .Where(c => c.ContentType == GeneratedContentType.ToolPost && newSlugs.Contains(c.Slug))
+            .ToList();
+        foreach (var row in toRemove)
         {
-            // Only remove the rows we're actually replacing, and only now that generation has
-            // succeeded — a failed/retried-out run must never destroy tool pages that were already
-            // generated successfully in a prior run. A full run (no slug filter) still replaces the
-            // entire existing ToolPost set, same as before; a targeted rewrite only replaces the
-            // slug(s) it regenerated.
-            var newSlugs = generation.ToolPosts.Select(r => r.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var toRemove = project.GeneratedContents
-                .Where(c => c.ContentType == GeneratedContentType.ToolPost && newSlugs.Contains(c.Slug))
-                .ToList();
-            foreach (var row in toRemove)
-            {
-                project.GeneratedContents.Remove(row);
-            }
-
-            foreach (var toolRow in generation.ToolPosts)
-            {
-                await AddContentAsync(project, provider.ProviderType, toolRow, cancellationToken);
-            }
-
-            // Build pillar SoftwareApplication JSON-LD once from real ToolPost URLs (no text scrape, no rebuild-from-pillar).
-            var now = DateTime.UtcNow;
-            var articleMetadata = new ContentMetadata(
-                metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
-                context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, articleRow.WordCount);
-            var softwareApplications = DescriptorsFromToolPosts(project, context);
-            articleRow.JsonLdSchema = _articleSchemaBuilder.Build(
-                articleMetadata, articleRow.RelatedArticleUrl ?? string.Empty, softwareApplications);
+            project.GeneratedContents.Remove(row);
         }
+
+        foreach (var toolRow in generation.ToolPosts)
+        {
+            await AddContentAsync(project, provider.ProviderType, toolRow, cancellationToken);
+        }
+
+        // Build pillar SoftwareApplication JSON-LD once from real ToolPost URLs (no text scrape, no rebuild-from-pillar).
+        var now = DateTime.UtcNow;
+        var articleMetadata = new ContentMetadata(
+            metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
+            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, articleRow.WordCount);
+        var softwareApplications = DescriptorsFromToolPosts(project, context);
+        articleRow.JsonLdSchema = _articleSchemaBuilder.Build(
+            articleMetadata, articleRow.RelatedArticleUrl ?? string.Empty, softwareApplications);
 
         await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
         return Assemble(project);
