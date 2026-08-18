@@ -232,8 +232,10 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         // entire existing ToolPost set, same as before; a targeted rewrite only replaces the
         // slug(s) it regenerated.
         var newSlugs = generation.ToolPosts.Select(r => r.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var replaceAllTools = toolSlugsToRegenerate is null or { Count: 0 };
         var toRemove = project.GeneratedContents
-            .Where(c => c.ContentType == GeneratedContentType.ToolPost && newSlugs.Contains(c.Slug))
+            .Where(c => c.ContentType == GeneratedContentType.ToolPost
+                && (replaceAllTools || newSlugs.Contains(c.Slug)))
             .ToList();
         foreach (var row in toRemove)
         {

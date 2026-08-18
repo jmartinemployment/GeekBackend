@@ -1459,9 +1459,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Respond with ONLY a sections array — no markdown fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
-            .AppendLine($"Write a roundup titled \"{roundupTitle}\" that lists each tool and links to its dedicated page URL.")
+            .AppendLine($"Write a hub page titled \"{roundupTitle}\" that lists each tool and links to its dedicated page URL.")
+            .AppendLine("This page belongs to Generate Tools — it is not a pillar Write Body section.")
             .AppendLine("Use the persisted research for each tool — do not invent capabilities.")
-            .AppendLine("Structure: Overview H2, then one H2 (or H3 children) per tool with a short substantive blurb and the provided URL.")
+            .AppendLine("Structure: opening H2 with the exact title, then one H3 per tool. Each H3 heading is the tool name; the first mention in that subsection must link to the provided dedicated-page URL.")
+            .AppendLine("Each tool gets a short substantive blurb (what it does for this use case), not a one-line roll-call and not a copy of the dedicated tool page.")
             .ToString();
 
         var user = new StringBuilder()
