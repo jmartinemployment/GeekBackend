@@ -109,6 +109,14 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 slot.App, slot.ResearchJson, slot.Slug, slot.Order, revisionNotes, cancellationToken))))
             .ToList();
 
+        // Hub page lives here, not in Write Body. Full runs only (not a single-tool rewrite).
+        if (toolSlugsToRegenerate is null or { Count: 0 })
+        {
+            var roundup = await GenerateRoundupAsync(
+                project, metadata, context, provider, pillarArticleUrl, slotted, cancellationToken);
+            rows.Insert(0, roundup);
+        }
+
         return new ToolGenerationResult(ToolGenerationOutcome.Success, rows);
     }
 
@@ -231,6 +239,65 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             WordCount = wordCount,
             GeneratedByProvider = provider.ProviderType,
             GeneratedByModel = provider.ProviderType.ToString(),
+        };
+    }
+
+    private async Task<GeneratedContent> GenerateRoundupAsync(
+        Project project,
+        ArticleMetadataDraft metadata,
+        ProjectGenerationContext context,
+        IContentGenerationProvider provider,
+        string pillarArticleUrl,
+        IReadOnlyList<(SoftwareApplicationDescriptor App, string? ResearchJson, string Slug, int Order)> slotted,
+        CancellationToken cancellationToken)
+    {
+        var topic = context.TargetKeyword.Trim();
+        var title = string.IsNullOrWhiteSpace(topic)
+            ? "Top AI Tools"
+            : $"Top AI Tools for {topic}";
+        var slug = SlugHelper.Slugify($"top-ai-tools-for-{topic}");
+        if (string.IsNullOrWhiteSpace(slug) || slug == "top-ai-tools-for")
+        {
+            slug = "top-ai-tools-roundup";
+        }
+
+        var toolLines = slotted.Select(s =>
+        {
+            var url = $"{context.ToolBaseUrl.TrimEnd('/')}/{context.Department}/{s.Slug}";
+            var research = string.IsNullOrWhiteSpace(s.ResearchJson) ? "" : s.ResearchJson!;
+            if (research.Length > 1200) research = research[..1200] + "…";
+            return $"- {s.App.Name} → {url}\n  Research: {research}";
+        });
+
+        var result = await provider.CompleteAsync(
+            _promptBuilder.BuildToolRoundupPrompt(context, metadata, title, string.Join("\n", toolLines)),
+            cancellationToken);
+        var sections = LlmResponseJsonParser.ParseSections(result.Content, "tool roundup").ToList();
+        var lede = sections[0] with { Tag = "h2" };
+        var document = new ContentDocument(lede, sections.Skip(1).ToList());
+        var wordCount = ContentDocumentText.CountWords(document);
+        var now = DateTime.UtcNow;
+
+        return new GeneratedContent
+        {
+            ProjectId = project.Id,
+            ContentType = GeneratedContentType.ToolPost,
+            Title = title,
+            DisplayTitle = title,
+            Slug = slug,
+            MetaDescription = $"Overview of tools for {topic}".Length > 160
+                ? $"Overview of tools for {topic}"[..160]
+                : $"Overview of tools for {topic}",
+            Body = document,
+            LedeType = GeekAPI.Services.Workflow.Domain.Entities.LedeType.Summary,
+            JsonLdSchema = "{}",
+            RelatedArticleUrl = pillarArticleUrl,
+            SourceAppName = title,
+            SourceAppOrder = 0,
+            WordCount = wordCount,
+            GeneratedByProvider = provider.ProviderType,
+            GeneratedByModel = provider.ProviderType.ToString(),
+            Summary = title,
         };
     }
 
