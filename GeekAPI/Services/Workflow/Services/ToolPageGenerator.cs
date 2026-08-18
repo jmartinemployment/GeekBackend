@@ -37,7 +37,6 @@ public sealed record ToolGenerationResult(
 public sealed class ToolPageGenerator : IToolPageGenerator
 {
     private const int MaxTools = 5;
-    private static readonly JsonSerializerOptions CacheJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly IContentPromptBuilder _promptBuilder;
@@ -290,11 +289,15 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         {
             try
             {
-                cachedSections = JsonSerializer.Deserialize<List<Section>>(cached.OverviewJson, CacheJsonOptions);
+                cachedSections = JsonSerializer.Deserialize<List<Section>>(
+                    cached.OverviewJson, LlmResponseJsonParser.SectionJsonOptions);
             }
-            catch (JsonException)
+            catch (Exception ex)
             {
-                _logger.LogWarning("Tool content cache entry for '{App}' was malformed — regenerating fully.", app.Name);
+                _logger.LogWarning(
+                    ex,
+                    "Tool content cache entry for '{App}' could not be restored — regenerating fully.",
+                    app.Name);
             }
         }
 
@@ -315,7 +318,8 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             {
                 try
                 {
-                    var overviewAndCapabilities = JsonSerializer.Serialize(sections.Take(2).ToList(), CacheJsonOptions);
+                    var overviewAndCapabilities = JsonSerializer.Serialize(
+                        sections.Take(2).ToList(), LlmResponseJsonParser.SectionJsonOptions);
                     await _toolContentCacheStore.SaveAsync(app.Name, app.Name, overviewAndCapabilities, cancellationToken);
                 }
                 catch (Exception ex)
