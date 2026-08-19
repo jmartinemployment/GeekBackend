@@ -148,17 +148,6 @@ public interface IContentPromptBuilder
         SchemaBuilders.SoftwareApplicationDescriptor app,
         ContentDocument body);
 
-    /// <summary>Writes only the project-specific half of a tool page (Implementation Considerations,
-    /// When to Use) — used on a tool-content-cache hit, when Overview/Key Capabilities are reused
-    /// from a prior generation instead of rewritten.</summary>
-    ChatCompletionRequest BuildToolBodyRemainderPrompt(
-        ProjectGenerationContext context,
-        ArticleMetadataDraft pillarMetadata,
-        SchemaBuilders.SoftwareApplicationDescriptor app,
-        string toolSlug,
-        string? revisionNotes = null,
-        string? extractedToolResearchJson = null);
-
     /// <summary>Roundup document listing/linking each per-tool page from persisted research.</summary>
     ChatCompletionRequest BuildToolRoundupPrompt(
         ProjectGenerationContext context,
@@ -1393,59 +1382,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.5,
             MaxOutputTokens: 8192));
-    }
-
-    public ChatCompletionRequest BuildToolBodyRemainderPrompt(
-        ProjectGenerationContext context,
-        ArticleMetadataDraft pillarMetadata,
-        SchemaBuilders.SoftwareApplicationDescriptor app,
-        string toolSlug,
-        string? revisionNotes = null,
-        string? extractedToolResearchJson = null)
-    {
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical writer for an IT consulting firm.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
-            .AppendLine("This tool's Overview and Key Capabilities sections already exist (reused from a prior generation) — do NOT write them.")
-            .AppendLine("Respond with ONLY the sections array for the remaining two sections — no markdown fences, no commentary:")
-            .AppendLine(SectionsArrayJsonContract)
-            .AppendLine("Required top-level (h2) sections, in order: Implementation Considerations, When to Use.")
-            .AppendLine("Per-section budgets (approximate):")
-            .AppendLine("  - Implementation Considerations: ~450-600 words")
-            .AppendLine("  - When to Use: ~300-400 words")
-            .AppendLine($"When persisted tool research is provided, treat it as the authoritative source.")
-            .AppendLine($"Tie When to Use to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps.")
-            .ToString();
-
-        var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
-        if (revisionBlock is not null)
-        {
-            system += Environment.NewLine + revisionBlock;
-        }
-
-        var user = new StringBuilder()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ToolBody, $"Write the Implementation Considerations and When to Use sections for {app.Name}."))
-            .AppendLine()
-            .AppendLine($"Target keyword context: {context.TargetKeyword}")
-            .AppendLine($"Pillar topic: {pillarMetadata.Title}")
-            .AppendLine($"Tool name: {app.Name}")
-            .AppendLine($"Tool summary: {app.Description ?? "N/A"}");
-        if (!string.IsNullOrWhiteSpace(context.PillarBodyExcerpt))
-        {
-            user.AppendLine("=== PILLAR USE-CASE EXCERPT (ground When to Use here; do not reprint the pillar) ===");
-            user.AppendLine(context.PillarBodyExcerpt);
-        }
-        if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
-        {
-            user.AppendLine("=== PERSISTED TOOL RESEARCH (authoritative) ===");
-            user.AppendLine(extractedToolResearchJson);
-        }
-
-        return WithSectionsArraySchema(new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
-            Temperature: 0.5,
-            MaxOutputTokens: 4096));
     }
 
     public ChatCompletionRequest BuildToolRoundupPrompt(

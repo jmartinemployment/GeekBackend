@@ -127,10 +127,7 @@ builder.Services.AddScoped<SiteAnalyzer2SiteProfileReader>();
 builder.Services.AddWorkflow(builder.Configuration,
     sp => new GeekRepositoryPersistenceStore(
         sp.GetRequiredService<IHttpClientFactory>(),
-        sp.GetRequiredService<ILogger<GeekRepositoryPersistenceStore>>()),
-    sp => new GeekRepositoryToolContentCacheStore(
-        sp.GetRequiredService<IHttpClientFactory>(),
-        sp.GetRequiredService<ILogger<GeekRepositoryToolContentCacheStore>>()));
+        sp.GetRequiredService<ILogger<GeekRepositoryPersistenceStore>>()));
 
 var app = builder.Build();
 
