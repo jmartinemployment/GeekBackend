@@ -4,7 +4,6 @@ using GeekAPI.Services.Workflow.Services.PromptBuilders;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
-using GeekAPI.Services.Workflow.Infrastructure;
 using GeekAPI.Services.ContentCreator;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -40,7 +39,6 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly IContentPromptBuilder _promptBuilder;
-    private readonly IToolContentCacheStore _toolContentCacheStore;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly IHttpContextAccessor _httpContext;
     private readonly ILogger<ToolPageGenerator> _logger;
@@ -48,14 +46,12 @@ public sealed class ToolPageGenerator : IToolPageGenerator
     public ToolPageGenerator(
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IContentPromptBuilder promptBuilder,
-        IToolContentCacheStore toolContentCacheStore,
         HttpGeekSeoSiteAnalyzerClient seo,
         IHttpContextAccessor httpContext,
         ILogger<ToolPageGenerator> logger)
     {
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _promptBuilder = promptBuilder;
-        _toolContentCacheStore = toolContentCacheStore;
         _seo = seo;
         _httpContext = httpContext;
         _logger = logger;
@@ -317,12 +313,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
     }
 
     /// <summary>Generates the tool page as a sections array; the first section (always "Overview")
-    /// becomes the document's lede, the rest become its top-level sections. Overview + Key
-    /// Capabilities (sections 0-1, tool-intrinsic, not department-specific) are cached across
-    /// projects/departments via <see cref="_toolContentCacheStore"/> — a cache hit only calls the
-    /// LLM for the two remaining project-specific sections (Implementation Considerations, When to
-    /// Use). Skips the cache entirely on a targeted revision (revisionNotes present) so feedback
-    /// always regenerates fresh content, which then refreshes the cache for future reuse.</summary>
+    /// becomes the document's lede, the rest become its top-level sections.</summary>
     private async Task<ContentDocument> GenerateToolBodyWithValidationAsync(
         IContentGenerationProvider provider,
         ProjectGenerationContext context,
@@ -333,68 +324,8 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         string? revisionNotes,
         CancellationToken cancellationToken)
     {
-        List<Section> sections;
-
-        // The cache is purely an optimization — any failure reading or writing it (malformed
-        // entry, the store itself unreachable/erroring, e.g. before its backing table exists)
-        // must fall back to full generation rather than break tool generation entirely.
-        CachedToolContent? cached = null;
-        if (string.IsNullOrWhiteSpace(revisionNotes))
-        {
-            try
-            {
-                cached = await _toolContentCacheStore.GetAsync(app.Name, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Tool content cache lookup failed for '{App}' — generating fully.", app.Name);
-            }
-        }
-
-        List<Section>? cachedSections = null;
-        if (cached is not null)
-        {
-            try
-            {
-                cachedSections = JsonSerializer.Deserialize<List<Section>>(
-                    cached.OverviewJson, LlmResponseJsonParser.SectionJsonOptions);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Tool content cache entry for '{App}' could not be restored — regenerating fully.",
-                    app.Name);
-            }
-        }
-
-        if (cachedSections is { Count: 2 })
-        {
-            _logger.LogInformation("Tool content cache hit for '{App}' — reusing Overview/Key Capabilities.", app.Name);
-            var remainderResult = await provider.CompleteAsync(
-                _promptBuilder.BuildToolBodyRemainderPrompt(context, pillarMetadata, app, toolSlug, revisionNotes, researchJson),
-                cancellationToken);
-            var remainderSections = LlmResponseJsonParser.ParseSections(remainderResult.Content, $"tool page remainder '{app.Name}'");
-            sections = cachedSections.Concat(remainderSections).ToList();
-        }
-        else
-        {
-            sections = await GenerateFullToolBodyAsync(provider, context, pillarMetadata, app, researchJson, toolSlug, revisionNotes, cancellationToken);
-
-            if (sections.Count >= 2)
-            {
-                try
-                {
-                    var overviewAndCapabilities = JsonSerializer.Serialize(
-                        sections.Take(2).ToList(), LlmResponseJsonParser.SectionJsonOptions);
-                    await _toolContentCacheStore.SaveAsync(app.Name, app.Name, overviewAndCapabilities, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Tool content cache save failed for '{App}' — this generation still succeeded, just not cached.", app.Name);
-                }
-            }
-        }
+        var sections = await GenerateFullToolBodyAsync(
+            provider, context, pillarMetadata, app, researchJson, toolSlug, revisionNotes, cancellationToken);
 
         var wordCount = ContentDocumentText.CountWords(sections);
 
