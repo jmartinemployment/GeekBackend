@@ -14,6 +14,10 @@ public interface IContentGenerationOrchestrator
     Task<GeneratedContentSet> GenerateToolPagesAsync(
         Guid projectId, string? revisionNotes = null, IReadOnlySet<string>? toolSlugsToRegenerate = null, CancellationToken cancellationToken = default);
 
+    /// <summary>Writes ToolPost rows from a supplied name list. Does not use crawl slots or require a pillar.</summary>
+    Task<GeneratedContentSet> GenerateToolPagesFromNamesAsync(
+        Guid projectId, IReadOnlyList<string> toolNames, string? brief = null, CancellationToken cancellationToken = default);
+
     Task<GeneratedContentSet> GenerateBlogAsync(Guid projectId, string? revisionNotes = null, CancellationToken cancellationToken = default);
 
     Task<GeneratedContentSet> GenerateSocialAsync(Guid projectId, CancellationToken cancellationToken = default);
