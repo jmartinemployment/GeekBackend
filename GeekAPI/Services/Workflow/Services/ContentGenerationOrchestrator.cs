@@ -7,6 +7,7 @@ using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Infrastructure.InMemory;
 using GeekAPI.Services.ContentCreator;
+using GeekApplication.Interfaces.ContentWriterV3;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -23,6 +24,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     private readonly ITechnicalArticleSchemaBuilder _articleSchemaBuilder;
     private readonly IBlogPostingSchemaBuilder _blogSchemaBuilder;
     private readonly IToolPageGenerator _toolPageGenerator;
+    private readonly GccGenerateService _gccGenerate;
     private readonly CompanyProfileOptions _companyProfile;
     private readonly ILogger<ContentGenerationOrchestrator> _logger;
 
@@ -34,6 +36,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         ITechnicalArticleSchemaBuilder articleSchemaBuilder,
         IBlogPostingSchemaBuilder blogSchemaBuilder,
         IToolPageGenerator toolPageGenerator,
+        GccGenerateService gccGenerate,
         IOptions<CompanyProfileOptions> companyProfile,
         ILogger<ContentGenerationOrchestrator> logger)
     {
@@ -44,6 +47,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         _articleSchemaBuilder = articleSchemaBuilder;
         _blogSchemaBuilder = blogSchemaBuilder;
         _toolPageGenerator = toolPageGenerator;
+        _gccGenerate = gccGenerate;
         _companyProfile = companyProfile.Value;
         _logger = logger;
     }
@@ -255,6 +259,101 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var softwareApplications = DescriptorsFromToolPosts(project, context);
         articleRow.JsonLdSchema = _articleSchemaBuilder.Build(
             articleMetadata, articleRow.RelatedArticleUrl ?? string.Empty, softwareApplications);
+
+        await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
+        return Assemble(project);
+    }
+
+    public async Task<GeneratedContentSet> GenerateToolPagesFromNamesAsync(
+        Guid projectId,
+        IReadOnlyList<string> toolNames,
+        string? brief = null,
+        CancellationToken cancellationToken = default)
+    {
+        var names = toolNames
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+        if (names.Count == 0)
+        {
+            throw new ContentGenerationException("toolNames required (non-empty after trim).");
+        }
+
+        var project = await _projectStore.GetAsync(projectId, cancellationToken)
+            ?? throw new ContentGenerationException($"Project {projectId} was not found.");
+
+        var gccProvider = project.PreferredProvider == LlmProviderType.Anthropic
+            ? ContentGeneratorProvider.Anthropic
+            : ContentGeneratorProvider.OpenAi;
+        var llmType = _providerFactory.Get(project.PreferredProvider).ProviderType;
+        var department = string.IsNullOrWhiteSpace(project.Department) ? "marketing" : project.Department.Trim();
+        var relatedUrl = TryGetCompletePillar(project) is { } pillar
+            ? CombineUrl(_companyProfile.ArticleBaseUrl, department, pillar.Slug)
+            : null;
+        var notes = string.IsNullOrWhiteSpace(brief) ? project.TargetKeyword : brief.Trim();
+
+        _logger.LogInformation(
+            "Generating tool pages from {Count} name(s) for project {ProjectId}",
+            names.Count,
+            projectId);
+
+        var usedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var rows = new List<GeneratedContent>();
+        var order = 1;
+        foreach (var name in names)
+        {
+            var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(name), usedSlugs);
+            try
+            {
+                var tool = await _gccGenerate.GenerateToolPageAsync(
+                    name,
+                    notes,
+                    sourceContext: null,
+                    department,
+                    relatedUrl,
+                    gccProvider,
+                    cancellationToken,
+                    slug);
+                rows.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.ToolPost,
+                    Title = tool.Name,
+                    DisplayTitle = tool.Name,
+                    Slug = tool.Slug,
+                    Summary = tool.Metadata.Summary,
+                    MainSummary = tool.Metadata.MainSummary,
+                    HeroSummary = tool.Metadata.HeroSummary,
+                    HomeSummary = tool.Metadata.HomeSummary,
+                    BlogSummary = tool.Metadata.BlogSummary,
+                    DepartmentListExcerpt = tool.Metadata.DepartmentListExcerpt,
+                    ToolPageExcerpt = tool.Metadata.ToolPageExcerpt,
+                    AdvertisingSummary = tool.Metadata.AdvertisingSummary,
+                    MetaDescription = tool.Metadata.MetaDescription,
+                    Body = tool.Document,
+                    LedeType = LedeType.Summary,
+                    JsonLdSchema = string.IsNullOrWhiteSpace(tool.JsonLdSchema) ? "{}" : tool.JsonLdSchema,
+                    RelatedArticleUrl = tool.RelatedArticleUrl,
+                    SourceAppName = tool.Name,
+                    SourceAppOrder = order++,
+                    WordCount = tool.WordCount,
+                    GeneratedByProvider = llmType,
+                    GeneratedByModel = llmType.ToString(),
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new ContentGenerationException(ex.Message, ex);
+            }
+        }
+
+        RemoveGeneratedContents(project, GeneratedContentType.ToolPost);
+        foreach (var row in rows)
+        {
+            await AddContentAsync(project, llmType, row, cancellationToken);
+        }
 
         await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
         return Assemble(project);

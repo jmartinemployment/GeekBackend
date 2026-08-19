@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Infrastructure.Serialization;
+using GeekAPI.Services.Workflow.Services;
 using Microsoft.Extensions.Logging;
 
 namespace GeekAPI.Services.Workflow.Infrastructure.InMemory;
@@ -46,6 +47,7 @@ public sealed class PersistentProjectStore : IProjectStore
     public async Task SaveAsync(Project project, CancellationToken cancellationToken = default)
     {
         var json = ProjectSnapshotSerializer.Serialize(project);
+        EnsureSerializedBodiesKeepWords(project, json);
         await _persistence.SaveDocumentAsync(Collection, project.Id, json, cancellationToken);
         _logger.LogDebug("Persisted project {ProjectId}", project.Id);
     }
@@ -89,6 +91,13 @@ public sealed class PersistentProjectStore : IProjectStore
                 var project = ProjectSnapshotSerializer.Deserialize(json, null);
                 var client = await _clientStore.GetAsync(project.ClientId, cancellationToken);
                 project.Client = client;
+                if (StripHollowBodies(project))
+                {
+                    _logger.LogWarning(
+                        "Dropped generated rows with empty paragraph bodies on project {ProjectId}",
+                        id);
+                    await SaveAsync(project, cancellationToken);
+                }
                 _projects[project.Id] = project;
 
                 _logger.LogDebug("Hydrated project {ProjectId}", id);
@@ -100,5 +109,49 @@ public sealed class PersistentProjectStore : IProjectStore
         }
 
         _logger.LogInformation("Hydration complete: {Count} project(s) loaded", _projects.Count);
+    }
+
+    private static bool StripHollowBodies(Project project)
+    {
+        var hollow = project.GeneratedContents
+            .Where(c => c.Body is not null && ContentDocumentText.CountWords(c.Body) == 0)
+            .ToList();
+        if (hollow.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var row in hollow)
+        {
+            project.GeneratedContents.Remove(row);
+        }
+
+        return true;
+    }
+
+    private static void EnsureSerializedBodiesKeepWords(Project project, string json)
+    {
+        var roundtrip = ProjectSnapshotSerializer.Deserialize(json, project.Client);
+        foreach (var live in project.GeneratedContents)
+        {
+            if (live.Body is null)
+            {
+                continue;
+            }
+
+            var liveWords = ContentDocumentText.CountWords(live.Body);
+            if (liveWords < 20)
+            {
+                continue;
+            }
+
+            var saved = roundtrip.GeneratedContents.FirstOrDefault(c => c.Id == live.Id);
+            var savedWords = saved?.Body is null ? 0 : ContentDocumentText.CountWords(saved.Body);
+            if (savedWords == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to persist project {project.Id}: generated content '{live.Title}' lost paragraph text in the snapshot.");
+            }
+        }
     }
 }

@@ -34,6 +34,30 @@ public class GenerateController : ControllerBase
     public Task<IActionResult> GenerateToolPages(Guid projectId, CancellationToken cancellationToken) =>
         RunStep(projectId, _orchestrator.GenerateToolPagesAsync(projectId, cancellationToken: cancellationToken), "tools", cancellationToken);
 
+    [HttpPost("tools-from-names")]
+    public Task<IActionResult> GenerateToolPagesFromNames(
+        Guid projectId,
+        [FromBody] GenerateToolsFromNamesRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var names = (request?.ToolNames ?? [])
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+        if (names.Count == 0)
+        {
+            return Task.FromResult<IActionResult>(BadRequest(new { error = "toolNames required (non-empty after trim)." }));
+        }
+
+        return RunStep(
+            projectId,
+            _orchestrator.GenerateToolPagesFromNamesAsync(projectId, names, request?.Brief, cancellationToken),
+            "tools-from-names",
+            cancellationToken);
+    }
+
     [HttpPost("blog")]
     public Task<IActionResult> GenerateBlog(Guid projectId, CancellationToken cancellationToken) =>
         RunStep(projectId, _orchestrator.GenerateBlogAsync(projectId, cancellationToken: cancellationToken), "blog", cancellationToken);
@@ -93,3 +117,5 @@ public class GenerateController : ControllerBase
 /// When populated, only the listed section headings (pillar/blog H2 text, or the pillar/blog title for the
 /// hero images, or a tool name) are regenerated — existing image prompts for other sections are left as-is.</summary>
 public sealed record GenerateImagePromptsRequest(List<string>? SectionHeadingsToTest = null);
+
+public sealed record GenerateToolsFromNamesRequest(List<string>? ToolNames = null, string? Brief = null);

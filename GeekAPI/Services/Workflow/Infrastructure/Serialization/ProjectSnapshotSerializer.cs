@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.Services;
 
 namespace GeekAPI.Services.Workflow.Infrastructure.Serialization;
 
@@ -16,7 +17,7 @@ public static class ProjectSnapshotSerializer
     {
         WriteIndented = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new TolerantNullableLedeTypeConverter(), new StrictLedeTypeConverter(), new JsonStringEnumConverter() }
+        Converters = { new ParagraphJsonConverter(), new TolerantNullableLedeTypeConverter(), new StrictLedeTypeConverter(), new JsonStringEnumConverter() }
     };
 
     public static string Serialize(Project project)
