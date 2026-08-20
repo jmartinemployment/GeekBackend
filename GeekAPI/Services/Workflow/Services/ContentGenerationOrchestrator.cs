@@ -1666,11 +1666,11 @@ public class CompanyProfileOptions
     public const string SectionName = "CompanyProfile";
 
     public string PublisherName { get; set; } = "Geek At Your Spot";
-    public string PublisherLogoUrl { get; set; } = "https://www.geekatyourspot.com/images/GeekAtYourSpot.svg";
+    public string PublisherLogoUrl { get; set; } = "https://geekatyourspot.com/images/GeekAtYourSpot.svg";
     public string AuthorName { get; set; } = "Geek At Your Spot Editorial Team";
-    public string ArticleBaseUrl { get; set; } = "https://www.geekatyourspot.com/use-cases";
-    public string BlogBaseUrl { get; set; } = "https://www.geekatyourspot.com/blog";
-    public string ToolBaseUrl { get; set; } = "https://www.geekatyourspot.com/tools";
+    public string ArticleBaseUrl { get; set; } = "https://geekatyourspot.com/use-cases";
+    public string BlogBaseUrl { get; set; } = "https://geekatyourspot.com/blog";
+    public string ToolBaseUrl { get; set; } = "https://geekatyourspot.com/tools";
 
     /// <summary>Google Tag Manager container id (e.g. GTM-K5CXSQRP) injected into exported HTML
     /// head + body noscript. Empty/invalid values skip GTM entirely.</summary>
