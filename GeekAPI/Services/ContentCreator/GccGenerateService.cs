@@ -453,8 +453,40 @@ public class GccGenerateService
     /// <summary>
     /// Tools from the crawl's page-section trees (TreeJson links under the matched heading).
     /// Every heading with two or more tool links contributes; no paragraph-ratio drop and no count cap.
+    /// When the selected hierarchy leaf has no links, walk ancestor path segments so a barren leaf
+    /// does not hide tools on the parent topic. Does not fall back to unrelated pages.
     /// </summary>
     public static IReadOnlyList<CrawlTool> ExtractToolsFromTrees(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword,
+        string? sourcePageUrl,
+        string? hierarchyPath)
+    {
+        foreach (var pathAttempt in HierarchyPathAttempts(hierarchyPath))
+        {
+            var tools = ExtractToolsUnderMatch(pageTrees, keyword, sourcePageUrl, pathAttempt);
+            if (tools.Count > 0) return tools;
+        }
+
+        return [];
+    }
+
+    private static IReadOnlyList<string?> HierarchyPathAttempts(string? hierarchyPath)
+    {
+        var path = (hierarchyPath ?? "").Trim();
+        if (path.Length == 0) return [null];
+
+        var parts = path.Split('›', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return [path];
+
+        // Leaf → … → root (widen the subtree until tool links appear).
+        var attempts = new List<string?>();
+        for (var i = parts.Length; i >= 1; i--)
+            attempts.Add(string.Join(" › ", parts.Take(i)));
+        return attempts;
+    }
+
+    private static IReadOnlyList<CrawlTool> ExtractToolsUnderMatch(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
         string keyword,
         string? sourcePageUrl,
