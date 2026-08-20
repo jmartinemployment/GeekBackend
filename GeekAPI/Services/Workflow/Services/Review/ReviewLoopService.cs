@@ -139,7 +139,10 @@ public sealed class ReviewLoopService : IReviewLoopService
                 await _orchestrator.GenerateBlogAsync(projectId, revisionNotes, cancellationToken),
             GeneratedContentType.ToolPost =>
                 await _orchestrator.GenerateToolPagesAsync(
-                    projectId, revisionNotes, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Slug }, cancellationToken),
+                    projectId,
+                    revisionNotes,
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Slug },
+                    cancellationToken: cancellationToken),
             _ => throw new ContentGenerationException("Rewrite is not supported for this content type."),
         };
     }
