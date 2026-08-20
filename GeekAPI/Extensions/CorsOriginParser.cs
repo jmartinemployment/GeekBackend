@@ -6,6 +6,7 @@ public static class CorsOriginParser
     [
         "http://localhost:3000",
         "http://localhost:3003",
+        "https://geekatyourspot.com",
         "https://www.geekatyourspot.com",
         "https://admin.geekatyourspot.com",
         "https://content-writer-v3.vercel.app",
