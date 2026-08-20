@@ -76,6 +76,8 @@ public static class WorkflowServiceRegistration
         services.AddScoped<IBlogPostingSchemaBuilder, BlogPostingSchemaBuilder>();
         services.AddScoped<IToolPageGenerator, ToolPageGenerator>();
         services.AddScoped<IContentGenerationOrchestrator, ContentGenerationOrchestrator>();
+        services.AddSingleton<ToolsGenerationJobStore>();
+        services.AddSingleton<ToolsGenerationJobRunner>();
         services.AddScoped<IHtmlExportService, HtmlExportService>();
         services.AddHttpClient("GitHub");
         services.AddScoped<IGeekatyourspotCommitService, GeekatyourspotCommitService>();

@@ -10,11 +10,19 @@ namespace GeekAPI.Controllers.Workflow;
 public class GenerateController : ControllerBase
 {
     private readonly IContentGenerationOrchestrator _orchestrator;
+    private readonly ToolsGenerationJobRunner _toolsJobs;
+    private readonly ToolsGenerationJobStore _toolsJobStore;
     private readonly ILogger<GenerateController> _logger;
 
-    public GenerateController(IContentGenerationOrchestrator orchestrator, ILogger<GenerateController> logger)
+    public GenerateController(
+        IContentGenerationOrchestrator orchestrator,
+        ToolsGenerationJobRunner toolsJobs,
+        ToolsGenerationJobStore toolsJobStore,
+        ILogger<GenerateController> logger)
     {
         _orchestrator = orchestrator;
+        _toolsJobs = toolsJobs;
+        _toolsJobStore = toolsJobStore;
         _logger = logger;
     }
 
@@ -30,15 +38,19 @@ public class GenerateController : ControllerBase
     public Task<IActionResult> GeneratePillar(Guid projectId, CancellationToken cancellationToken) =>
         RunStep(projectId, _orchestrator.GeneratePillarAsync(projectId, cancellationToken), "pillar", cancellationToken);
 
+    /// <summary>Starts crawl tools generation in the background. Poll GET tools/jobs/{jobId}.</summary>
     [HttpPost("tools")]
-    public Task<IActionResult> GenerateToolPages(Guid projectId, CancellationToken cancellationToken) =>
-        RunStep(projectId, _orchestrator.GenerateToolPagesAsync(projectId, cancellationToken: cancellationToken), "tools", cancellationToken);
+    public IActionResult GenerateToolPages(Guid projectId)
+    {
+        var job = _toolsJobs.StartCrawlTools(projectId);
+        return Accepted(ToResponse(job));
+    }
 
+    /// <summary>Starts names-only tools generation in the background. Poll GET tools/jobs/{jobId}.</summary>
     [HttpPost("tools-from-names")]
-    public Task<IActionResult> GenerateToolPagesFromNames(
+    public IActionResult GenerateToolPagesFromNames(
         Guid projectId,
-        [FromBody] GenerateToolsFromNamesRequest? request,
-        CancellationToken cancellationToken)
+        [FromBody] GenerateToolsFromNamesRequest? request)
     {
         var names = (request?.ToolNames ?? [])
             .Where(n => !string.IsNullOrWhiteSpace(n))
@@ -47,14 +59,20 @@ public class GenerateController : ControllerBase
             .ToList();
         if (names.Count == 0)
         {
-            return Task.FromResult<IActionResult>(BadRequest(new { error = "toolNames required (non-empty after trim)." }));
+            return BadRequest(new { error = "toolNames required (non-empty after trim)." });
         }
 
-        return RunStep(
-            projectId,
-            _orchestrator.GenerateToolPagesFromNamesAsync(projectId, names, request?.Brief, cancellationToken),
-            "tools-from-names",
-            cancellationToken);
+        var job = _toolsJobs.StartToolsFromNames(projectId, names, request?.Brief);
+        return Accepted(ToResponse(job));
+    }
+
+    [HttpGet("tools/jobs/{jobId:guid}")]
+    public IActionResult GetToolsJob(Guid projectId, Guid jobId)
+    {
+        var job = _toolsJobStore.Get(jobId);
+        if (job is null || job.ProjectId != projectId)
+            return NotFound();
+        return Ok(ToResponse(job));
     }
 
     [HttpPost("blog")]
@@ -84,6 +102,9 @@ public class GenerateController : ControllerBase
     [HttpPost]
     public Task<IActionResult> GenerateAll(Guid projectId, CancellationToken cancellationToken) =>
         RunStep(projectId, _orchestrator.GenerateAllAsync(projectId, cancellationToken), "all", cancellationToken);
+
+    private static ToolsGenerationJobResponse ToResponse(ToolsGenerationJob job) =>
+        new(job.Id, job.ProjectId, job.Kind, job.Status, job.Completed, job.Total, job.Error, job.Result);
 
     private async Task<IActionResult> RunStep(
         Guid projectId, Task<GeneratedContentSet> action, string step, CancellationToken cancellationToken)

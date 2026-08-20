@@ -26,6 +26,7 @@ public interface IToolPageGenerator
         string? revisionNotes = null,
         IReadOnlySet<string>? toolSlugsToRegenerate = null,
         Func<GeneratedContent, CancellationToken, Task>? onRowReady = null,
+        Action<int>? reportTotal = null,
         CancellationToken cancellationToken = default);
 
     Task<GeneratedContent> GenerateHubAsync(
@@ -75,6 +76,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         string? revisionNotes = null,
         IReadOnlySet<string>? toolSlugsToRegenerate = null,
         Func<GeneratedContent, CancellationToken, Task>? onRowReady = null,
+        Action<int>? reportTotal = null,
         CancellationToken cancellationToken = default)
     {
         var toolSlots = await ResolveToolSlotsAsync(project, cancellationToken);
@@ -108,6 +110,9 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 "None of the requested tool slugs match the crawl's tools for this hierarchy.");
         }
 
+        var includeHub = toolSlugsToRegenerate is null or { Count: 0 };
+        reportTotal?.Invoke(slotsToGenerate.Count + (includeHub ? 1 : 0));
+
         var rows = new List<GeneratedContent>();
         foreach (var slot in slotsToGenerate)
         {
@@ -135,7 +140,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 await onRowReady(row, cancellationToken);
         }
 
-        if (toolSlugsToRegenerate is null or { Count: 0 })
+        if (includeHub)
         {
             var hubSlug = HubSlug(context.TargetKeyword);
             var existingHub = FindKeepableHub(project, hubSlug);

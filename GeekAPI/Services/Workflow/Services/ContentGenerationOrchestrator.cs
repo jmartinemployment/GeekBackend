@@ -193,7 +193,11 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     }
 
     public async Task<GeneratedContentSet> GenerateToolPagesAsync(
-        Guid projectId, string? revisionNotes = null, IReadOnlySet<string>? toolSlugsToRegenerate = null, CancellationToken cancellationToken = default)
+        Guid projectId,
+        string? revisionNotes = null,
+        IReadOnlySet<string>? toolSlugsToRegenerate = null,
+        Action<int, int>? reportProgress = null,
+        CancellationToken cancellationToken = default)
     {
         var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
         var pillar = TryGetCompletePillar(project);
@@ -215,6 +219,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             provider.ProviderType,
             pillar is not null);
 
+        var progressCount = 0;
         var generation = await _toolPageGenerator.GenerateToolPagesAsync(
             project,
             metadata,
@@ -245,7 +250,10 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                     await AddContentAsync(project, provider.ProviderType, row, ct);
 
                 await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, ct);
+                progressCount++;
+                reportProgress?.Invoke(progressCount, 0);
             },
+            reportTotal: total => reportProgress?.Invoke(progressCount, total),
             cancellationToken);
 
         if (generation.Outcome != ToolGenerationOutcome.Success || generation.ToolPosts.Count == 0)
@@ -297,6 +305,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         Guid projectId,
         IReadOnlyList<string> toolNames,
         string? brief = null,
+        Action<int, int>? reportProgress = null,
         CancellationToken cancellationToken = default)
     {
         var names = toolNames
@@ -334,11 +343,13 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             projectId);
 
         const int minKeepWords = 20;
+        var total = names.Count + 1;
+        reportProgress?.Invoke(0, total);
         var usedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var productRows = new List<(string Name, string Slug, string? ResearchJson)>();
         var order = 1;
+        var progressCount = 0;
 
-        // Drop tool posts we will replace; keep ones with real body text for listed names.
         foreach (var name in names)
         {
             var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(name), usedSlugs);
@@ -354,6 +365,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                 existing.SourceAppOrder = order++;
                 productRows.Add((name, existing.Slug, null));
                 _logger.LogInformation("Keeping existing tool page '{Name}' for project {ProjectId}", name, projectId);
+                progressCount++;
+                reportProgress?.Invoke(progressCount, total);
                 continue;
             }
 
@@ -400,6 +413,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                 await AddContentAsync(project, llmType, row, cancellationToken);
                 await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
                 productRows.Add((tool.Name, tool.Slug, null));
+                progressCount++;
+                reportProgress?.Invoke(progressCount, total);
             }
             catch (InvalidOperationException ex)
             {
@@ -407,7 +422,6 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             }
         }
 
-        // Remove product ToolPosts not in this name list (full names-only replace of the product set).
         var keepNames = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var orphanProducts = project.GeneratedContents
             .Where(c => c.ContentType == GeneratedContentType.ToolPost
@@ -445,6 +459,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             await AddContentAsync(project, llmType, hub, cancellationToken);
             await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
         }
+
+        progressCount++;
+        reportProgress?.Invoke(progressCount, total);
 
         if (pillar is not null)
         {
