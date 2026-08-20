@@ -457,23 +457,21 @@ public class GccGenerateService
     /// When the selected hierarchy leaf has no links, walk ancestor path segments so a barren leaf
     /// does not hide tools on the parent topic. Does not fall back to unrelated pages.
     /// </summary>
-    /// <summary>Minimum unique tools before a path attempt is accepted (avoids one category h5 as a product).</summary>
-    private const int MinAcceptedTools = 2;
-
     public static IReadOnlyList<CrawlTool> ExtractToolsFromTrees(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
         string keyword,
         string? sourcePageUrl,
         string? hierarchyPath)
     {
-        foreach (var pathAttempt in HierarchyPathAttempts(hierarchyPath))
-        {
-            var tools = ExtractToolsUnderMatch(pageTrees, keyword, sourcePageUrl, pathAttempt);
-            // Accept only a real set; a single heading-as-tool must not stop the ancestor walk.
-            if (tools.Count >= MinAcceptedTools) return tools;
-        }
+        // The saved path first; if no node carries it, fall back to matching the keyword alone.
+        // No leaf→root widening: a parent's tools are not this section's tools.
+        var tools = ExtractToolsUnderMatch(pageTrees, keyword, sourcePageUrl, hierarchyPath);
+        if (tools.Count > 0) return tools;
 
-        return [];
+        var pathWasUsed = !string.IsNullOrWhiteSpace(hierarchyPath);
+        return pathWasUsed
+            ? ExtractToolsUnderMatch(pageTrees, keyword, sourcePageUrl, null)
+            : tools;
     }
 
     private static IReadOnlyList<string?> HierarchyPathAttempts(string? hierarchyPath)
@@ -513,25 +511,10 @@ public class GccGenerateService
             }
         }
 
-        if (tools.Count >= MinAcceptedTools) return tools;
-        if (tools.Count > 0) return []; // one link is not a tool set — try a wider path
-
-        // No <a> links in TreeJson: treat deeper headings under the match as tool names.
-        // Skips container titles like "Top 5 … Tools". Require >=2 names.
-        var matchLevel = matched.Level > 0 ? matched.Level : 4;
-        foreach (var node in FlattenSections([matched]))
-        {
-            if (node.Level <= matchLevel) continue;
-            var name = (node.HeadingText ?? "").Replace('\n', ' ').Trim();
-            if (name.Length == 0 || name.Length >= 80) continue;
-            if (name.StartsWith("Top ", StringComparison.OrdinalIgnoreCase)
-                && name.Contains("Tool", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (!seen.Add(name)) continue;
-            tools.Add(new CrawlTool(name, Href: null));
-        }
-
-        return tools.Count >= MinAcceptedTools ? tools : [];
+        // Whatever is under the match is the answer. One real tool link is a valid result, and an
+        // empty section is reported as empty — never padded with invented names taken from
+        // heading text, which is what produced "6 tools" for a section that had none.
+        return tools;
     }
 
     public sealed record ToolExtractDiag(
@@ -694,9 +677,12 @@ public class GccGenerateService
             if (pathCandidates.Count > 0)
             {
                 var best = pathCandidates
-                    .OrderByDescending(c => c.DeeperHeadings)
-                    .ThenByDescending(c => c.LinkCount)
+                    // Same rule as the slug branch: a barren copy is never the better match, and
+                    // the page the operator actually selected outranks a richer one elsewhere.
+                    .OrderByDescending(c => c.LinkCount > 0)
                     .ThenByDescending(c => sourceWant.Length > 0 && NormalizePageUrl(c.PageUrl) == sourceWant)
+                    .ThenByDescending(c => c.LinkCount)
+                    .ThenByDescending(c => c.DeeperHeadings)
                     .First();
                 return (best.Node, best.PageUrl);
             }
@@ -709,8 +695,11 @@ public class GccGenerateService
             if (pages.Count == 0) pages = pageTrees;
         }
 
-        (HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int Deeper, int Links)? exactHit = null;
-        (HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int Deeper, int Links)? containsHit = null;
+        // Every slug hit, exact or partial, competes in one ranking. Bucketing exact above
+        // contains meant a barren "Ad Spend Optimization" (0 links) beat the real
+        // "Automated Ad Spend Optimization" (17 links) purely on slug equality.
+        var slugCandidates =
+            new List<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int Deeper, int Links, bool IsExact)>();
 
         foreach (var page in pages)
         {
@@ -734,26 +723,29 @@ public class GccGenerateService
                 var (deeper, links) = ScoreSubtree(node);
                 var pageUrl = page.PageUrl ?? "";
 
-                if (string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (exactHit is null
-                        || deeper > exactHit.Value.Deeper
-                        || (deeper == exactHit.Value.Deeper && links > exactHit.Value.Links))
-                        exactHit = (node, pageUrl, deeper, links);
-                }
-                else if (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
-                         || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (containsHit is null
-                        || deeper > containsHit.Value.Deeper
-                        || (deeper == containsHit.Value.Deeper && links > containsHit.Value.Links))
-                        containsHit = (node, pageUrl, deeper, links);
-                }
+                var isExact = string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase);
+                var isPartial = !isExact
+                    && (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
+                        || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase));
+
+                if (isExact || isPartial)
+                    slugCandidates.Add((node, pageUrl, deeper, links, isExact));
             }
         }
 
-        var win = exactHit ?? containsHit;
-        return win is null ? null : (win.Value.Node, win.Value.PageUrl);
+        if (slugCandidates.Count == 0)
+            return null;
+
+        var winner = slugCandidates
+            // A section with no links cannot be a tool list, however well its slug matches.
+            .OrderByDescending(c => c.Links > 0)
+            .ThenByDescending(c => sourceWant.Length > 0 && NormalizePageUrl(c.PageUrl) == sourceWant)
+            .ThenByDescending(c => c.IsExact)
+            .ThenByDescending(c => c.Links)
+            .ThenByDescending(c => c.Deeper)
+            .First();
+
+        return (winner.Node, winner.PageUrl);
     }
 
     private static (int DeeperHeadings, int LinkCount) ScoreSubtree(
