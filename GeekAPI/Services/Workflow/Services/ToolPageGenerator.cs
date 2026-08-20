@@ -19,13 +19,22 @@ public interface IToolPageGenerator
 
     Task<ToolGenerationResult> GenerateToolPagesAsync(
         Project project,
-        GeneratedContent articleRow,
         ArticleMetadataDraft metadata,
         ProjectGenerationContext context,
         IContentGenerationProvider provider,
         string pillarArticleUrl,
         string? revisionNotes = null,
         IReadOnlySet<string>? toolSlugsToRegenerate = null,
+        Func<GeneratedContent, CancellationToken, Task>? onRowReady = null,
+        CancellationToken cancellationToken = default);
+
+    Task<GeneratedContent> GenerateHubAsync(
+        Project project,
+        ArticleMetadataDraft metadata,
+        ProjectGenerationContext context,
+        IContentGenerationProvider provider,
+        string pillarArticleUrl,
+        IReadOnlyList<(string Name, string Slug, string? ResearchJson)> tools,
         CancellationToken cancellationToken = default);
 }
 
@@ -35,7 +44,7 @@ public sealed record ToolGenerationResult(
 
 public sealed class ToolPageGenerator : IToolPageGenerator
 {
-    private const int MaxTools = 5;
+    private const int MinBodyWordsToKeep = 20;
 
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly IContentPromptBuilder _promptBuilder;
@@ -59,13 +68,13 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
     public async Task<ToolGenerationResult> GenerateToolPagesAsync(
         Project project,
-        GeneratedContent articleRow,
         ArticleMetadataDraft metadata,
         ProjectGenerationContext context,
         IContentGenerationProvider provider,
         string pillarArticleUrl,
         string? revisionNotes = null,
         IReadOnlySet<string>? toolSlugsToRegenerate = null,
+        Func<GeneratedContent, CancellationToken, Task>? onRowReady = null,
         CancellationToken cancellationToken = default)
     {
         var toolSlots = await ResolveToolSlotsAsync(project, cancellationToken);
@@ -75,7 +84,6 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         }
 
         var applications = toolSlots
-            .Take(MaxTools)
             .Select(s => new SoftwareApplicationDescriptor(
                 s.Name,
                 s.Description,
@@ -100,20 +108,74 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 "None of the requested tool slugs match the crawl's tools for this hierarchy.");
         }
 
-        var rows = (await Task.WhenAll(slotsToGenerate.Select(slot => GenerateOneToolAsync(
-                project, metadata, context, provider, pillarArticleUrl,
-                slot.App, slot.ResearchJson, slot.Slug, slot.Order, revisionNotes, cancellationToken))))
-            .ToList();
+        var rows = new List<GeneratedContent>();
+        foreach (var slot in slotsToGenerate)
+        {
+            var existing = FindKeepableTool(project, slot.App.Name, slot.Slug);
+            GeneratedContent row;
+            if (existing is not null)
+            {
+                existing.SourceAppOrder = slot.Order;
+                row = existing;
+                _logger.LogInformation(
+                    "Keeping existing tool page '{Name}' ({Words} words) for project {ProjectId}",
+                    slot.App.Name,
+                    ContentDocumentText.CountWords(existing.Body),
+                    project.Id);
+            }
+            else
+            {
+                row = await GenerateOneToolAsync(
+                    project, metadata, context, provider, pillarArticleUrl,
+                    slot.App, slot.ResearchJson, slot.Slug, slot.Order, revisionNotes, cancellationToken);
+            }
 
-        // Hub page lives here, not in Write Body. Full runs only (not a single-tool rewrite).
+            rows.Add(row);
+            if (onRowReady is not null)
+                await onRowReady(row, cancellationToken);
+        }
+
         if (toolSlugsToRegenerate is null or { Count: 0 })
         {
-            var roundup = await GenerateRoundupAsync(
-                project, metadata, context, provider, pillarArticleUrl, slotted, cancellationToken);
-            rows.Insert(0, roundup);
+            var hubSlug = HubSlug(context.TargetKeyword);
+            var existingHub = FindKeepableHub(project, hubSlug);
+            GeneratedContent hub;
+            if (existingHub is not null)
+            {
+                hub = existingHub;
+            }
+            else
+            {
+                hub = await GenerateRoundupAsync(
+                    project, metadata, context, provider, pillarArticleUrl, slotted, cancellationToken);
+            }
+
+            rows.Insert(0, hub);
+            if (onRowReady is not null)
+                await onRowReady(hub, cancellationToken);
         }
 
         return new ToolGenerationResult(ToolGenerationOutcome.Success, rows);
+    }
+
+    public Task<GeneratedContent> GenerateHubAsync(
+        Project project,
+        ArticleMetadataDraft metadata,
+        ProjectGenerationContext context,
+        IContentGenerationProvider provider,
+        string pillarArticleUrl,
+        IReadOnlyList<(string Name, string Slug, string? ResearchJson)> tools,
+        CancellationToken cancellationToken = default)
+    {
+        var slotted = tools
+            .Select((t, i) => (
+                App: new SoftwareApplicationDescriptor(t.Name, null),
+                ResearchJson: t.ResearchJson,
+                Slug: t.Slug,
+                Order: i + 1))
+            .ToList();
+        return GenerateRoundupAsync(
+            project, metadata, context, provider, pillarArticleUrl, slotted, cancellationToken);
     }
 
     private sealed record ToolSlot(string Name, string? Description, string? ResearchJson, string? Href);
@@ -142,7 +204,6 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 keyword,
                 project.HierarchySourcePageUrl,
                 project.HierarchyPath)
-            .Take(MaxTools)
             .ToList();
     }
 
@@ -158,6 +219,37 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         if (string.IsNullOrWhiteSpace(tool.Href) && string.IsNullOrWhiteSpace(tool.Name))
             return null;
         return JsonSerializer.Serialize(new { name = tool.Name, href = tool.Href });
+    }
+
+    private static GeneratedContent? FindKeepableTool(Project project, string name, string slug)
+    {
+        var row = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.ToolPost
+            && (string.Equals(c.SourceAppName, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Title, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase))
+            && (c.SourceAppOrder is null or > 0));
+        if (row?.Body is null) return null;
+        return ContentDocumentText.CountWords(row.Body) >= MinBodyWordsToKeep ? row : null;
+    }
+
+    private static GeneratedContent? FindKeepableHub(Project project, string hubSlug)
+    {
+        var row = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.ToolPost
+            && (c.SourceAppOrder == 0
+                || string.Equals(c.Slug, hubSlug, StringComparison.OrdinalIgnoreCase)
+                || (c.Title?.StartsWith("Top AI Tools", StringComparison.OrdinalIgnoreCase) ?? false)));
+        if (row?.Body is null) return null;
+        return ContentDocumentText.CountWords(row.Body) >= MinBodyWordsToKeep ? row : null;
+    }
+
+    private static string HubSlug(string topic)
+    {
+        var slug = SlugHelper.Slugify($"top-ai-tools-for-{topic.Trim()}");
+        if (string.IsNullOrWhiteSpace(slug) || slug == "top-ai-tools-for")
+            return "top-ai-tools-roundup";
+        return slug;
     }
 
     private string? BearerToken()
@@ -229,7 +321,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             Body = document,
             LedeType = GeekAPI.Services.Workflow.Domain.Entities.LedeType.Summary,
             JsonLdSchema = string.IsNullOrWhiteSpace(jsonLd) ? "{}" : jsonLd,
-            RelatedArticleUrl = pillarArticleUrl,
+            RelatedArticleUrl = string.IsNullOrWhiteSpace(pillarArticleUrl) ? null : pillarArticleUrl,
             SourceAppName = app.Name,
             SourceAppOrder = order,
             WordCount = wordCount,
@@ -251,11 +343,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         var title = string.IsNullOrWhiteSpace(topic)
             ? "Top AI Tools"
             : $"Top AI Tools for {topic}";
-        var slug = SlugHelper.Slugify($"top-ai-tools-for-{topic}");
-        if (string.IsNullOrWhiteSpace(slug) || slug == "top-ai-tools-for")
-        {
-            slug = "top-ai-tools-roundup";
-        }
+        var slug = HubSlug(topic);
 
         var toolLines = slotted.Select(s =>
         {
@@ -272,7 +360,6 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         var lede = sections[0] with { Tag = "h2" };
         var document = new ContentDocument(lede, sections.Skip(1).ToList());
         var wordCount = ContentDocumentText.CountWords(document);
-        var now = DateTime.UtcNow;
 
         return new GeneratedContent
         {
@@ -287,7 +374,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             Body = document,
             LedeType = GeekAPI.Services.Workflow.Domain.Entities.LedeType.Summary,
             JsonLdSchema = "{}",
-            RelatedArticleUrl = pillarArticleUrl,
+            RelatedArticleUrl = string.IsNullOrWhiteSpace(pillarArticleUrl) ? null : pillarArticleUrl,
             SourceAppName = title,
             SourceAppOrder = 0,
             WordCount = wordCount,
@@ -329,8 +416,6 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
         var wordCount = ContentDocumentText.CountWords(sections);
 
-        // Soft gate (matches blog): out-of-range drafts still save so the user can review/regenerate.
-        // A hard throw here used to 502 the whole Step 6 batch via Task.WhenAll and discard siblings.
         if (wordCount < ContentLengthTargets.ToolMinWords || wordCount > ContentLengthTargets.ToolHardMaxWords)
         {
             _logger.LogWarning(

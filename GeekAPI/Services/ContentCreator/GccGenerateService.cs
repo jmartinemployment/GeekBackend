@@ -452,6 +452,7 @@ public class GccGenerateService
 
     /// <summary>
     /// Tools from the crawl's page-section trees (TreeJson links under the matched heading).
+    /// Every heading with two or more tool links contributes; no paragraph-ratio drop and no count cap.
     /// </summary>
     public static IReadOnlyList<CrawlTool> ExtractToolsFromTrees(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
@@ -466,17 +467,18 @@ public class GccGenerateService
         var tools = new List<CrawlTool>();
         foreach (var node in FlattenSections([matched]))
         {
-            foreach (var tool in ToolsFromSection(node))
+            var unique = UniqueToolLinks(node.Links);
+            if (unique.Count < 2) continue;
+            foreach (var tool in unique)
             {
                 if (!seen.Add(tool.Name)) continue;
                 tools.Add(tool);
             }
         }
 
-        if (tools.Count >= 2) return tools;
+        if (tools.Count > 0) return tools;
 
-        tools.Clear();
-        seen.Clear();
+        // Fallback: any unique tool links under the match when no heading had 2+.
         foreach (var node in FlattenSections([matched]))
         {
             foreach (var tool in UniqueToolLinks(node.Links))
@@ -486,7 +488,7 @@ public class GccGenerateService
             }
         }
 
-        return tools.Count >= 2 ? tools : [];
+        return tools;
     }
 
     private static HttpGeekSeoSiteAnalyzerClient.PageSectionDto? FindMatchedSection(
@@ -552,21 +554,6 @@ public class GccGenerateService
     private static string NormalizePageUrl(string? url) =>
         (url ?? "").Trim().TrimEnd('/').ToLowerInvariant();
 
-    private static IReadOnlyList<CrawlTool> ToolsFromSection(
-        HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
-    {
-        var unique = UniqueToolLinks(node.Links);
-        if (unique.Count < 2) return [];
-
-        var paraCompact = CompactAlnum(string.Join(" ", node.Paragraphs ?? []));
-        if (paraCompact.Length == 0) return unique;
-
-        var linkCompact = CompactAlnum(string.Join(" ", unique.Select(t => t.Name)));
-        if (linkCompact.Length == 0) return [];
-        if ((double)linkCompact.Length / paraCompact.Length < 0.6) return [];
-        return unique;
-    }
-
     private static IReadOnlyList<CrawlTool> UniqueToolLinks(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto>? links)
     {
@@ -583,12 +570,6 @@ public class GccGenerateService
                 string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim()));
         }
         return unique;
-    }
-
-    private static string CompactAlnum(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return "";
-        return string.Concat(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant));
     }
 
     private static IEnumerable<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, List<string> Path)> WalkSectionsWithPath(

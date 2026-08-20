@@ -196,24 +196,56 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         Guid projectId, string? revisionNotes = null, IReadOnlySet<string>? toolSlugsToRegenerate = null, CancellationToken cancellationToken = default)
     {
         var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
-        var articleRow = RequireCompletePillar(project);
+        var pillar = TryGetCompletePillar(project);
         var context = await BuildContextWithCrawlToolsAsync(project, cancellationToken);
-        context = context with { PillarBodyExcerpt = TruncatePillarExcerpt(articleRow) };
-        var provider = _providerFactory.Get(project.PreferredProvider);
-        var metadata = ToMetadataDraft(articleRow);
-        var articleUrl = CombineUrl(context.ArticleBaseUrl, context.Department, articleRow.Slug);
+        if (pillar is not null)
+            context = context with { PillarBodyExcerpt = TruncatePillarExcerpt(pillar) };
 
-        _logger.LogInformation("Generating tool pages for project {ProjectId} via {Provider}", projectId, provider.ProviderType);
+        var provider = _providerFactory.Get(project.PreferredProvider);
+        var metadata = pillar is not null
+            ? ToMetadataDraft(pillar)
+            : StubToolMetadata(project);
+        var articleUrl = pillar is not null
+            ? CombineUrl(context.ArticleBaseUrl, context.Department, pillar.Slug)
+            : string.Empty;
+
+        _logger.LogInformation(
+            "Generating tool pages for project {ProjectId} via {Provider} (pillar={HasPillar})",
+            projectId,
+            provider.ProviderType,
+            pillar is not null);
 
         var generation = await _toolPageGenerator.GenerateToolPagesAsync(
             project,
-            articleRow,
             metadata,
             context,
             provider,
             articleUrl,
             revisionNotes,
             toolSlugsToRegenerate,
+            onRowReady: async (row, ct) =>
+            {
+                var prior = project.GeneratedContents
+                    .Where(c => c.ContentType == GeneratedContentType.ToolPost
+                        && (string.Equals(c.Slug, row.Slug, StringComparison.OrdinalIgnoreCase)
+                            || (row.SourceAppOrder is > 0
+                                && string.Equals(c.SourceAppName, row.SourceAppName, StringComparison.OrdinalIgnoreCase)
+                                && (c.SourceAppOrder is null or > 0))
+                            || (row.SourceAppOrder == 0
+                                && (c.SourceAppOrder == 0
+                                    || (c.Title?.StartsWith("Top AI Tools", StringComparison.OrdinalIgnoreCase) ?? false)))))
+                    .ToList();
+                foreach (var old in prior)
+                {
+                    if (!ReferenceEquals(old, row))
+                        project.GeneratedContents.Remove(old);
+                }
+
+                if (!project.GeneratedContents.Contains(row))
+                    await AddContentAsync(project, provider.ProviderType, row, ct);
+
+                await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, ct);
+            },
             cancellationToken);
 
         if (generation.Outcome != ToolGenerationOutcome.Success || generation.ToolPosts.Count == 0)
@@ -230,37 +262,34 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             });
         }
 
-        // Only remove the rows we're actually replacing, and only now that generation has
-        // succeeded — a failed/retried-out run must never destroy tool pages that were already
-        // generated successfully in a prior run. A full run (no slug filter) still replaces the
-        // entire existing ToolPost set, same as before; a targeted rewrite only replaces the
-        // slug(s) it regenerated.
-        var newSlugs = generation.ToolPosts.Select(r => r.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Full run: drop ToolPosts that are not in this generation set.
         var replaceAllTools = toolSlugsToRegenerate is null or { Count: 0 };
-        var toRemove = project.GeneratedContents
-            .Where(c => c.ContentType == GeneratedContentType.ToolPost
-                && (replaceAllTools || newSlugs.Contains(c.Slug)))
-            .ToList();
-        foreach (var row in toRemove)
+        if (replaceAllTools)
         {
-            project.GeneratedContents.Remove(row);
+            var keep = generation.ToolPosts.Select(r => r.Id).ToHashSet();
+            var orphans = project.GeneratedContents
+                .Where(c => c.ContentType == GeneratedContentType.ToolPost && !keep.Contains(c.Id))
+                .ToList();
+            foreach (var orphan in orphans)
+                project.GeneratedContents.Remove(orphan);
         }
 
-        foreach (var toolRow in generation.ToolPosts)
+        if (pillar is not null)
         {
-            await AddContentAsync(project, provider.ProviderType, toolRow, cancellationToken);
+            var now = DateTime.UtcNow;
+            var articleMetadata = new ContentMetadata(
+                metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
+                context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount);
+            var softwareApplications = DescriptorsFromToolPosts(project, context);
+            pillar.JsonLdSchema = _articleSchemaBuilder.Build(
+                articleMetadata, pillar.RelatedArticleUrl ?? string.Empty, softwareApplications);
+            await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
+        }
+        else if (replaceAllTools)
+        {
+            await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
         }
 
-        // Build pillar SoftwareApplication JSON-LD once from real ToolPost URLs (no text scrape, no rebuild-from-pillar).
-        var now = DateTime.UtcNow;
-        var articleMetadata = new ContentMetadata(
-            metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, articleRow.WordCount);
-        var softwareApplications = DescriptorsFromToolPosts(project, context);
-        articleRow.JsonLdSchema = _articleSchemaBuilder.Build(
-            articleMetadata, articleRow.RelatedArticleUrl ?? string.Empty, softwareApplications);
-
-        await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
         return Assemble(project);
     }
 
@@ -274,7 +303,6 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Select(n => n.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(5)
             .ToList();
         if (names.Count == 0)
         {
@@ -288,23 +316,50 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             ? ContentGeneratorProvider.Anthropic
             : ContentGeneratorProvider.OpenAi;
         var llmType = _providerFactory.Get(project.PreferredProvider).ProviderType;
+        var provider = _providerFactory.Get(project.PreferredProvider);
         var department = string.IsNullOrWhiteSpace(project.Department) ? "marketing" : project.Department.Trim();
-        var relatedUrl = TryGetCompletePillar(project) is { } pillar
+        var pillar = TryGetCompletePillar(project);
+        var relatedUrl = pillar is not null
             ? CombineUrl(_companyProfile.ArticleBaseUrl, department, pillar.Slug)
-            : null;
+            : string.Empty;
         var notes = string.IsNullOrWhiteSpace(brief) ? project.TargetKeyword : brief.Trim();
+        var metadata = pillar is not null ? ToMetadataDraft(pillar) : StubToolMetadata(project);
+        var context = BuildContext(project);
+        if (pillar is not null)
+            context = context with { PillarBodyExcerpt = TruncatePillarExcerpt(pillar) };
 
         _logger.LogInformation(
             "Generating tool pages from {Count} name(s) for project {ProjectId}",
             names.Count,
             projectId);
 
+        const int minKeepWords = 20;
         var usedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var rows = new List<GeneratedContent>();
+        var productRows = new List<(string Name, string Slug, string? ResearchJson)>();
         var order = 1;
+
+        // Drop tool posts we will replace; keep ones with real body text for listed names.
         foreach (var name in names)
         {
             var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(name), usedSlugs);
+            var existing = project.GeneratedContents.FirstOrDefault(c =>
+                c.ContentType == GeneratedContentType.ToolPost
+                && (string.Equals(c.SourceAppName, name, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Title, name, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase))
+                && (c.SourceAppOrder is null or > 0));
+
+            if (existing?.Body is not null && ContentDocumentText.CountWords(existing.Body) >= minKeepWords)
+            {
+                existing.SourceAppOrder = order++;
+                productRows.Add((name, existing.Slug, null));
+                _logger.LogInformation("Keeping existing tool page '{Name}' for project {ProjectId}", name, projectId);
+                continue;
+            }
+
+            if (existing is not null)
+                project.GeneratedContents.Remove(existing);
+
             try
             {
                 var tool = await _gccGenerate.GenerateToolPageAsync(
@@ -312,11 +367,11 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                     notes,
                     sourceContext: null,
                     department,
-                    relatedUrl,
+                    string.IsNullOrWhiteSpace(relatedUrl) ? null : relatedUrl,
                     gccProvider,
                     cancellationToken,
                     slug);
-                rows.Add(new GeneratedContent
+                var row = new GeneratedContent
                 {
                     ProjectId = project.Id,
                     ContentType = GeneratedContentType.ToolPost,
@@ -341,7 +396,10 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                     WordCount = tool.WordCount,
                     GeneratedByProvider = llmType,
                     GeneratedByModel = llmType.ToString(),
-                });
+                };
+                await AddContentAsync(project, llmType, row, cancellationToken);
+                await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
+                productRows.Add((tool.Name, tool.Slug, null));
             }
             catch (InvalidOperationException ex)
             {
@@ -349,14 +407,69 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             }
         }
 
-        RemoveGeneratedContents(project, GeneratedContentType.ToolPost);
-        foreach (var row in rows)
+        // Remove product ToolPosts not in this name list (full names-only replace of the product set).
+        var keepNames = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var orphanProducts = project.GeneratedContents
+            .Where(c => c.ContentType == GeneratedContentType.ToolPost
+                && (c.SourceAppOrder is null or > 0)
+                && (c.SourceAppName is null || !keepNames.Contains(c.SourceAppName))
+                && !keepNames.Contains(c.Title))
+            .ToList();
+        foreach (var orphan in orphanProducts)
+            project.GeneratedContents.Remove(orphan);
+
+        var hubSlug = SlugHelper.Slugify($"top-ai-tools-for-{project.TargetKeyword.Trim()}");
+        if (string.IsNullOrWhiteSpace(hubSlug) || hubSlug == "top-ai-tools-for")
+            hubSlug = "top-ai-tools-roundup";
+        var existingHub = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.ToolPost
+            && (c.SourceAppOrder == 0
+                || string.Equals(c.Slug, hubSlug, StringComparison.OrdinalIgnoreCase)
+                || (c.Title?.StartsWith("Top AI Tools", StringComparison.OrdinalIgnoreCase) ?? false)));
+        if (existingHub?.Body is not null && ContentDocumentText.CountWords(existingHub.Body) >= minKeepWords)
         {
-            await AddContentAsync(project, llmType, row, cancellationToken);
+            _logger.LogInformation("Keeping existing Top AI Tools hub for project {ProjectId}", projectId);
+        }
+        else
+        {
+            if (existingHub is not null)
+                project.GeneratedContents.Remove(existingHub);
+            var hub = await _toolPageGenerator.GenerateHubAsync(
+                project,
+                metadata,
+                context,
+                provider,
+                relatedUrl,
+                productRows,
+                cancellationToken);
+            await AddContentAsync(project, llmType, hub, cancellationToken);
+            await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
         }
 
-        await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
+        if (pillar is not null)
+        {
+            var now = DateTime.UtcNow;
+            var articleMetadata = new ContentMetadata(
+                metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
+                context.PublisherLogoUrl, relatedUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount);
+            pillar.JsonLdSchema = _articleSchemaBuilder.Build(
+                articleMetadata, pillar.RelatedArticleUrl ?? string.Empty, DescriptorsFromToolPosts(project, context));
+            await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
+        }
+
         return Assemble(project);
+    }
+
+    private static ArticleMetadataDraft StubToolMetadata(Project project)
+    {
+        var title = string.IsNullOrWhiteSpace(project.TargetKeyword)
+            ? project.Name
+            : project.TargetKeyword.Trim();
+        return new ArticleMetadataDraft(
+            Title: title,
+            MetaDescription: title.Length > 160 ? title[..160] : title,
+            Keywords: string.IsNullOrWhiteSpace(project.TargetKeyword) ? [] : [project.TargetKeyword.Trim()],
+            SectionOutline: []);
     }
 
     public async Task<GeneratedContentSet> GenerateBlogAsync(Guid projectId, string? revisionNotes = null, CancellationToken cancellationToken = default)
