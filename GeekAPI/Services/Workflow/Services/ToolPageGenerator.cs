@@ -248,6 +248,24 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
     private async Task<List<ToolSlot>> ResolveToolSlotsAsync(Project project, CancellationToken cancellationToken)
     {
+        var fromHierarchy = project.HierarchyToolsByHeading
+            .SelectMany(g => g.Tools ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t.Name))
+            .GroupBy(t => t.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Select(t => new ToolSlot(t.Name.Trim(), null, null, string.IsNullOrWhiteSpace(t.Href) ? null : t.Href.Trim()))
+            .ToList();
+        if (fromHierarchy.Count > 0)
+        {
+            // #region agent log
+            _logger.LogInformation(
+                "ResolveToolSlots using HierarchyToolsByHeading count={Count} for project {ProjectId}",
+                fromHierarchy.Count,
+                project.Id);
+            // #endregion
+            return fromHierarchy;
+        }
+
         return (await ListCrawlToolsAsync(project, cancellationToken))
             .Select(t => new ToolSlot(t.Name, null, ResearchJsonFor(t), t.Href))
             .ToList();

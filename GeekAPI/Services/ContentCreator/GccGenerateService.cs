@@ -617,19 +617,61 @@ public class GccGenerateService
         string? sourcePageUrl,
         string? hierarchyPath)
     {
-        var pages = pageTrees;
-        if (!string.IsNullOrWhiteSpace(sourcePageUrl))
+        var pathWant = (hierarchyPath ?? "").Trim();
+        var topicSlug = Slugify(keyword);
+        var sourceWant = NormalizePageUrl(sourcePageUrl);
+
+        // Path match: search every returned tree and pick the richest tool-link subtree.
+        // First-page-wins was wrong when the same heading exists on multiple pages (barren vs linked).
+        if (pathWant.Length > 0)
         {
-            var want = NormalizePageUrl(sourcePageUrl);
-            pages = pageTrees.Where(p => NormalizePageUrl(p.PageUrl) == want).ToList();
+            var pathCandidates = new List<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int LinkCount)>();
+            foreach (var page in pageTrees)
+            {
+                List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
+                try
+                {
+                    roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
+                        page.TreeJson, JsonOpts);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+                if (roots is null || roots.Count == 0) continue;
+
+                foreach (var (node, path) in WalkSectionsWithPath(roots, []))
+                {
+                    if (!string.Equals(string.Join(" › ", path), pathWant, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var links = 0;
+                    foreach (var n in FlattenSections([node]))
+                        links += UniqueToolLinks(n.Links).Count;
+                    pathCandidates.Add((node, page.PageUrl ?? "", links));
+                }
+            }
+
+            if (pathCandidates.Count > 0)
+            {
+                return pathCandidates
+                    .OrderByDescending(c => c.LinkCount)
+                    .ThenByDescending(c => sourceWant.Length > 0 && NormalizePageUrl(c.PageUrl) == sourceWant)
+                    .Select(c => c.Node)
+                    .First();
+            }
+        }
+
+        var pages = pageTrees;
+        if (sourceWant.Length > 0)
+        {
+            pages = pageTrees.Where(p => NormalizePageUrl(p.PageUrl) == sourceWant).ToList();
             if (pages.Count == 0) pages = pageTrees;
         }
 
-        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? pathHit = null;
         HttpGeekSeoSiteAnalyzerClient.PageSectionDto? exactHit = null;
         HttpGeekSeoSiteAnalyzerClient.PageSectionDto? containsHit = null;
-        var pathWant = (hierarchyPath ?? "").Trim();
-        var topicSlug = Slugify(keyword);
+        var exactLinks = -1;
+        var containsLinks = -1;
 
         foreach (var page in pages)
         {
@@ -645,30 +687,36 @@ public class GccGenerateService
             }
             if (roots is null || roots.Count == 0) continue;
 
-            foreach (var (node, path) in WalkSectionsWithPath(roots, []))
+            foreach (var (node, _) in WalkSectionsWithPath(roots, []))
             {
-                if (pathWant.Length > 0
-                    && string.Equals(string.Join(" › ", path), pathWant, StringComparison.OrdinalIgnoreCase))
-                {
-                    pathHit = node;
-                    break;
-                }
-
                 var nodeSlug = Slugify(node.HeadingText);
                 if (string.IsNullOrEmpty(topicSlug) || topicSlug == "tool") continue;
-                if (exactHit is null
-                    && string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase))
-                    exactHit = node;
-                else if (containsHit is null
-                    && (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
-                        || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase)))
-                    containsHit = node;
-            }
 
-            if (pathHit is not null) break;
+                var links = 0;
+                foreach (var n in FlattenSections([node]))
+                    links += UniqueToolLinks(n.Links).Count;
+
+                if (string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (links > exactLinks)
+                    {
+                        exactHit = node;
+                        exactLinks = links;
+                    }
+                }
+                else if (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
+                         || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (links > containsLinks)
+                    {
+                        containsHit = node;
+                        containsLinks = links;
+                    }
+                }
+            }
         }
 
-        return pathHit ?? exactHit ?? containsHit;
+        return exactHit ?? containsHit;
     }
 
     private static string NormalizePageUrl(string? url) =>
