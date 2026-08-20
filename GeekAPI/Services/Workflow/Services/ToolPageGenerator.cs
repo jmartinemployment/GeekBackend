@@ -225,15 +225,22 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         // #region agent log
         var (matchedHeading, linkCount, headingCount) = GccGenerateService.DiagnoseToolExtraction(
             trees, keyword, project.HierarchySourcePageUrl, project.HierarchyPath);
+        var underMatchHeadings = GccGenerateService.ListHeadingsUnderMatch(
+            trees, keyword, project.HierarchySourcePageUrl, project.HierarchyPath);
+        var linkyHeadings = GccGenerateService.ListHeadingsWithToolLinks(trees, max: 12);
+        var pageLinkTotal = GccGenerateService.CountAllToolLinks(trees);
         _logger.LogInformation(
-            "ExtractTools project={ProjectId} trees={TreeCount} matchedHeading={MatchedHeading} headingsUnderMatch={HeadingCount} linksUnderMatch={LinkCount} tools={ToolCount} hierarchyPath={HierarchyPath}",
+            "ExtractTools project={ProjectId} trees={TreeCount} matchedHeading={MatchedHeading} headingsUnderMatch={HeadingCount} linksUnderMatch={LinkCount} tools={ToolCount} hierarchyPath={HierarchyPath} underMatchHeadings={UnderMatchHeadings} pageLinkTotal={PageLinkTotal} linkyHeadings={LinkyHeadings}",
             project.Id,
             trees.Count,
             matchedHeading ?? "(null)",
             headingCount,
             linkCount,
             tools.Count,
-            project.HierarchyPath ?? "(null)");
+            project.HierarchyPath ?? "(null)",
+            string.Join(" | ", underMatchHeadings),
+            pageLinkTotal,
+            string.Join(" || ", linkyHeadings.Select(h => $"{h.Heading}:{h.LinkCount}")));
         // #endregion
 
         return tools;

@@ -512,6 +512,73 @@ public class GccGenerateService
         return (matched.HeadingText, linkCount, headingCount);
     }
 
+    public static IReadOnlyList<string> ListHeadingsUnderMatch(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword,
+        string? sourcePageUrl,
+        string? hierarchyPath)
+    {
+        var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
+        if (matched is null) return [];
+        return FlattenSections([matched])
+            .Select(n => n.HeadingText ?? "")
+            .Where(h => h.Length > 0)
+            .Take(20)
+            .ToList();
+    }
+
+    public static int CountAllToolLinks(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees)
+    {
+        var total = 0;
+        foreach (var page in pageTrees)
+        {
+            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
+                    page.TreeJson, JsonOpts);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (roots is null) continue;
+            foreach (var node in FlattenSections(roots))
+                total += UniqueToolLinks(node.Links).Count;
+        }
+        return total;
+    }
+
+    public static IReadOnlyList<(string Heading, int LinkCount)> ListHeadingsWithToolLinks(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        int max = 12)
+    {
+        var rows = new List<(string Heading, int LinkCount)>();
+        foreach (var page in pageTrees)
+        {
+            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
+                    page.TreeJson, JsonOpts);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (roots is null) continue;
+            foreach (var node in FlattenSections(roots))
+            {
+                var n = UniqueToolLinks(node.Links).Count;
+                if (n < 2) continue;
+                rows.Add((node.HeadingText ?? "", n));
+                if (rows.Count >= max) return rows;
+            }
+        }
+        return rows;
+    }
+
     private static HttpGeekSeoSiteAnalyzerClient.PageSectionDto? FindMatchedSection(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
         string keyword,
