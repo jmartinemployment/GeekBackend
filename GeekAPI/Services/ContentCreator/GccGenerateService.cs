@@ -451,8 +451,9 @@ public class GccGenerateService
     public sealed record CrawlTool(string Name, string? Href);
 
     /// <summary>
-    /// Tools from the crawl's page-section trees (TreeJson links under the matched heading).
-    /// Every heading with two or more tool links contributes; no paragraph-ratio drop and no count cap.
+    /// Tools from the crawl's page-section trees under the matched heading (typically an h4 keyword).
+    /// Collects every unique tool link under that node and all descendant h5/h6 sections — no per-heading
+    /// 2+ gate and no count cap (sibling h5s with a single link must not be dropped).
     /// When the selected hierarchy leaf has no links, walk ancestor path segments so a barren leaf
     /// does not hide tools on the parent topic. Does not fall back to unrelated pages.
     /// </summary>
@@ -497,11 +498,13 @@ public class GccGenerateService
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var tools = new List<CrawlTool>();
+
+        // Collect EVERY tool link under the matched h4 (all descendant h5/h6 subtrees).
+        // Do not return early after the first heading with 2+ links — that dropped tools
+        // living under sibling h5s (often one link each), which is why prior runs missed tools.
         foreach (var node in FlattenSections([matched]))
         {
-            var unique = UniqueToolLinks(node.Links);
-            if (unique.Count < 2) continue;
-            foreach (var tool in unique)
+            foreach (var tool in UniqueToolLinks(node.Links))
             {
                 if (!seen.Add(tool.Name)) continue;
                 tools.Add(tool);
@@ -510,14 +513,19 @@ public class GccGenerateService
 
         if (tools.Count > 0) return tools;
 
-        // Fallback: any unique tool links under the match when no heading had 2+.
+        // No <a> links in TreeJson: treat deeper headings (h5+) under the h4 as tool names.
+        // Skips container titles like "Top 5 … Tools".
+        var matchLevel = matched.Level > 0 ? matched.Level : 4;
         foreach (var node in FlattenSections([matched]))
         {
-            foreach (var tool in UniqueToolLinks(node.Links))
-            {
-                if (!seen.Add(tool.Name)) continue;
-                tools.Add(tool);
-            }
+            if (node.Level <= matchLevel) continue;
+            var name = (node.HeadingText ?? "").Replace('\n', ' ').Trim();
+            if (name.Length == 0 || name.Length >= 80) continue;
+            if (name.StartsWith("Top ", StringComparison.OrdinalIgnoreCase)
+                && name.Contains("Tool", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!seen.Add(name)) continue;
+            tools.Add(new CrawlTool(name, Href: null));
         }
 
         return tools;
