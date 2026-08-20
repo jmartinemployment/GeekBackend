@@ -51,6 +51,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
     private readonly IContentPromptBuilder _promptBuilder;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly IHttpContextAccessor _httpContext;
+    private readonly WorkflowSeoBearerContext _seoBearer;
     private readonly ILogger<ToolPageGenerator> _logger;
 
     public ToolPageGenerator(
@@ -58,12 +59,14 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         IContentPromptBuilder promptBuilder,
         HttpGeekSeoSiteAnalyzerClient seo,
         IHttpContextAccessor httpContext,
+        WorkflowSeoBearerContext seoBearer,
         ILogger<ToolPageGenerator> logger)
     {
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _promptBuilder = promptBuilder;
         _seo = seo;
         _httpContext = httpContext;
+        _seoBearer = seoBearer;
         _logger = logger;
     }
 
@@ -197,6 +200,13 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             return [];
 
         var bearer = BearerToken();
+        // #region agent log
+        _logger.LogInformation(
+            "ListCrawlTools bearerPresent={BearerPresent} httpContextPresent={HttpContextPresent} project={ProjectId}",
+            !string.IsNullOrWhiteSpace(bearer),
+            _httpContext.HttpContext is not null,
+            project.Id);
+        // #endregion
         var result = await _seo.FindTreesByKeywordAsync(profileId, keyword, bearer, cancellationToken);
         if (!result.Ok)
         {
@@ -259,6 +269,9 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
     private string? BearerToken()
     {
+        if (!string.IsNullOrWhiteSpace(_seoBearer.BearerToken))
+            return _seoBearer.BearerToken.Trim();
+
         var auth = _httpContext.HttpContext?.Request.Headers.Authorization.ToString();
         if (string.IsNullOrWhiteSpace(auth)) return null;
         return auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)

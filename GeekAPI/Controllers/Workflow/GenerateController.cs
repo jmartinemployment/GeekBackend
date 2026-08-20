@@ -42,7 +42,7 @@ public class GenerateController : ControllerBase
     [HttpPost("tools")]
     public IActionResult GenerateToolPages(Guid projectId)
     {
-        var job = _toolsJobs.StartCrawlTools(projectId);
+        var job = _toolsJobs.StartCrawlTools(projectId, RequestBearerToken());
         return Accepted(ToResponse(job));
     }
 
@@ -62,8 +62,17 @@ public class GenerateController : ControllerBase
             return BadRequest(new { error = "toolNames required (non-empty after trim)." });
         }
 
-        var job = _toolsJobs.StartToolsFromNames(projectId, names, request?.Brief);
+        var job = _toolsJobs.StartToolsFromNames(projectId, names, request?.Brief, RequestBearerToken());
         return Accepted(ToResponse(job));
+    }
+
+    private string? RequestBearerToken()
+    {
+        var auth = Request.Headers.Authorization.ToString();
+        if (string.IsNullOrWhiteSpace(auth)) return null;
+        return auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? auth["Bearer ".Length..].Trim()
+            : auth.Trim();
     }
 
     [HttpGet("tools/jobs/{jobId:guid}")]
