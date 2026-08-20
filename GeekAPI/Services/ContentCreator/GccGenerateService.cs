@@ -491,6 +491,27 @@ public class GccGenerateService
         return tools;
     }
 
+    /// <summary>Diagnostics for Generate Tools empty-extract debugging (matched node + link density).</summary>
+    public static (string? MatchedHeading, int LinkCount, int HeadingCount) DiagnoseToolExtraction(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword,
+        string? sourcePageUrl,
+        string? hierarchyPath)
+    {
+        var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
+        if (matched is null) return (null, 0, 0);
+
+        var headingCount = 0;
+        var linkCount = 0;
+        foreach (var node in FlattenSections([matched]))
+        {
+            headingCount++;
+            linkCount += UniqueToolLinks(node.Links).Count;
+        }
+
+        return (matched.HeadingText, linkCount, headingCount);
+    }
+
     private static HttpGeekSeoSiteAnalyzerClient.PageSectionDto? FindMatchedSection(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
         string keyword,
