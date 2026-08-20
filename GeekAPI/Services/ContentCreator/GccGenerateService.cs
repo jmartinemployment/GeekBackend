@@ -457,6 +457,9 @@ public class GccGenerateService
     /// When the selected hierarchy leaf has no links, walk ancestor path segments so a barren leaf
     /// does not hide tools on the parent topic. Does not fall back to unrelated pages.
     /// </summary>
+    /// <summary>Minimum unique tools before a path attempt is accepted (avoids one category h5 as a product).</summary>
+    private const int MinAcceptedTools = 2;
+
     public static IReadOnlyList<CrawlTool> ExtractToolsFromTrees(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
         string keyword,
@@ -466,7 +469,8 @@ public class GccGenerateService
         foreach (var pathAttempt in HierarchyPathAttempts(hierarchyPath))
         {
             var tools = ExtractToolsUnderMatch(pageTrees, keyword, sourcePageUrl, pathAttempt);
-            if (tools.Count > 0) return tools;
+            // Accept only a real set; a single heading-as-tool must not stop the ancestor walk.
+            if (tools.Count >= MinAcceptedTools) return tools;
         }
 
         return [];
@@ -480,7 +484,7 @@ public class GccGenerateService
         var parts = path.Split('›', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) return [path];
 
-        // Leaf → … → root (widen the subtree until tool links appear).
+        // Leaf → … → root (widen the subtree until a usable tool set appears).
         var attempts = new List<string?>();
         for (var i = parts.Length; i >= 1; i--)
             attempts.Add(string.Join(" › ", parts.Take(i)));
@@ -499,9 +503,7 @@ public class GccGenerateService
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var tools = new List<CrawlTool>();
 
-        // Collect EVERY tool link under the matched h4 (all descendant h5/h6 subtrees).
-        // Do not return early after the first heading with 2+ links — that dropped tools
-        // living under sibling h5s (often one link each), which is why prior runs missed tools.
+        // Collect EVERY tool link under the match (all descendant subtrees).
         foreach (var node in FlattenSections([matched]))
         {
             foreach (var tool in UniqueToolLinks(node.Links))
@@ -511,10 +513,11 @@ public class GccGenerateService
             }
         }
 
-        if (tools.Count > 0) return tools;
+        if (tools.Count >= MinAcceptedTools) return tools;
+        if (tools.Count > 0) return []; // one link is not a tool set — try a wider path
 
-        // No <a> links in TreeJson: treat deeper headings (h5+) under the h4 as tool names.
-        // Skips container titles like "Top 5 … Tools".
+        // No <a> links in TreeJson: treat deeper headings under the match as tool names.
+        // Skips container titles like "Top 5 … Tools". Require >=2 names.
         var matchLevel = matched.Level > 0 ? matched.Level : 4;
         foreach (var node in FlattenSections([matched]))
         {
@@ -528,28 +531,53 @@ public class GccGenerateService
             tools.Add(new CrawlTool(name, Href: null));
         }
 
-        return tools;
+        return tools.Count >= MinAcceptedTools ? tools : [];
     }
 
+    public sealed record ToolExtractDiag(
+        string? MatchedHeading,
+        string? PageUrl,
+        int LinkCount,
+        int HeadingCount,
+        int DirectChildCount,
+        int DeeperHeadingCount,
+        IReadOnlyList<string> Headings);
+
     /// <summary>Diagnostics for Generate Tools empty-extract debugging (matched node + link density).</summary>
-    public static (string? MatchedHeading, int LinkCount, int HeadingCount) DiagnoseToolExtraction(
+    public static ToolExtractDiag DiagnoseToolExtraction(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
         string keyword,
         string? sourcePageUrl,
         string? hierarchyPath)
     {
-        var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
-        if (matched is null) return (null, 0, 0);
+        var hit = FindMatchedSectionHit(pageTrees, keyword, sourcePageUrl, hierarchyPath);
+        if (hit is null)
+            return new ToolExtractDiag(null, null, 0, 0, 0, 0, []);
 
+        var matched = hit.Value.Node;
         var headingCount = 0;
         var linkCount = 0;
+        var deeper = 0;
+        var matchLevel = matched.Level > 0 ? matched.Level : 4;
+        var headings = new List<string>();
         foreach (var node in FlattenSections([matched]))
         {
             headingCount++;
             linkCount += UniqueToolLinks(node.Links).Count;
+            var text = (node.HeadingText ?? "").Trim();
+            if (text.Length > 0) headings.Add(text);
+            if (node.Level > matchLevel)
+                deeper++;
         }
 
-        return (matched.HeadingText, linkCount, headingCount);
+        return new ToolExtractDiag(
+            matched.HeadingText,
+            hit.Value.PageUrl,
+            linkCount,
+            headingCount,
+            matched.Children?.Count ?? 0,
+            deeper,
+            headings);
     }
 
     public static IReadOnlyList<string> ListHeadingsUnderMatch(
@@ -563,7 +591,6 @@ public class GccGenerateService
         return FlattenSections([matched])
             .Select(n => n.HeadingText ?? "")
             .Where(h => h.Length > 0)
-            .Take(20)
             .ToList();
     }
 
@@ -623,17 +650,24 @@ public class GccGenerateService
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
         string keyword,
         string? sourcePageUrl,
+        string? hierarchyPath) =>
+        FindMatchedSectionHit(pageTrees, keyword, sourcePageUrl, hierarchyPath)?.Node;
+
+    private static (HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl)? FindMatchedSectionHit(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword,
+        string? sourcePageUrl,
         string? hierarchyPath)
     {
         var pathWant = (hierarchyPath ?? "").Trim();
         var topicSlug = Slugify(keyword);
         var sourceWant = NormalizePageUrl(sourcePageUrl);
 
-        // Path match: search every returned tree and pick the richest tool-link subtree.
-        // First-page-wins was wrong when the same heading exists on multiple pages (barren vs linked).
+        // Path match: among identical hierarchy paths, prefer the richest subtree
+        // (deeper headings first, then tool links) — barren copies often win on first-page order.
         if (pathWant.Length > 0)
         {
-            var pathCandidates = new List<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int LinkCount)>();
+            var pathCandidates = new List<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int DeeperHeadings, int LinkCount)>();
             foreach (var page in pageTrees)
             {
                 List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
@@ -652,20 +686,19 @@ public class GccGenerateService
                 {
                     if (!string.Equals(string.Join(" › ", path), pathWant, StringComparison.OrdinalIgnoreCase))
                         continue;
-                    var links = 0;
-                    foreach (var n in FlattenSections([node]))
-                        links += UniqueToolLinks(n.Links).Count;
-                    pathCandidates.Add((node, page.PageUrl ?? "", links));
+                    var (deeper, links) = ScoreSubtree(node);
+                    pathCandidates.Add((node, page.PageUrl ?? "", deeper, links));
                 }
             }
 
             if (pathCandidates.Count > 0)
             {
-                return pathCandidates
-                    .OrderByDescending(c => c.LinkCount)
+                var best = pathCandidates
+                    .OrderByDescending(c => c.DeeperHeadings)
+                    .ThenByDescending(c => c.LinkCount)
                     .ThenByDescending(c => sourceWant.Length > 0 && NormalizePageUrl(c.PageUrl) == sourceWant)
-                    .Select(c => c.Node)
                     .First();
+                return (best.Node, best.PageUrl);
             }
         }
 
@@ -676,10 +709,8 @@ public class GccGenerateService
             if (pages.Count == 0) pages = pageTrees;
         }
 
-        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? exactHit = null;
-        HttpGeekSeoSiteAnalyzerClient.PageSectionDto? containsHit = null;
-        var exactLinks = -1;
-        var containsLinks = -1;
+        (HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int Deeper, int Links)? exactHit = null;
+        (HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, string PageUrl, int Deeper, int Links)? containsHit = null;
 
         foreach (var page in pages)
         {
@@ -700,31 +731,44 @@ public class GccGenerateService
                 var nodeSlug = Slugify(node.HeadingText);
                 if (string.IsNullOrEmpty(topicSlug) || topicSlug == "tool") continue;
 
-                var links = 0;
-                foreach (var n in FlattenSections([node]))
-                    links += UniqueToolLinks(n.Links).Count;
+                var (deeper, links) = ScoreSubtree(node);
+                var pageUrl = page.PageUrl ?? "";
 
                 if (string.Equals(nodeSlug, topicSlug, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (links > exactLinks)
-                    {
-                        exactHit = node;
-                        exactLinks = links;
-                    }
+                    if (exactHit is null
+                        || deeper > exactHit.Value.Deeper
+                        || (deeper == exactHit.Value.Deeper && links > exactHit.Value.Links))
+                        exactHit = (node, pageUrl, deeper, links);
                 }
                 else if (nodeSlug.Contains(topicSlug, StringComparison.OrdinalIgnoreCase)
                          || topicSlug.Contains(nodeSlug, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (links > containsLinks)
-                    {
-                        containsHit = node;
-                        containsLinks = links;
-                    }
+                    if (containsHit is null
+                        || deeper > containsHit.Value.Deeper
+                        || (deeper == containsHit.Value.Deeper && links > containsHit.Value.Links))
+                        containsHit = (node, pageUrl, deeper, links);
                 }
             }
         }
 
-        return exactHit ?? containsHit;
+        var win = exactHit ?? containsHit;
+        return win is null ? null : (win.Value.Node, win.Value.PageUrl);
+    }
+
+    private static (int DeeperHeadings, int LinkCount) ScoreSubtree(
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
+    {
+        var matchLevel = node.Level > 0 ? node.Level : 4;
+        var deeper = 0;
+        var links = 0;
+        foreach (var n in FlattenSections([node]))
+        {
+            links += UniqueToolLinks(n.Links).Count;
+            if (n.Level > matchLevel)
+                deeper++;
+        }
+        return (deeper, links);
     }
 
     private static string NormalizePageUrl(string? url) =>
