@@ -223,22 +223,23 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             .ToList();
 
         // #region agent log
-        var (matchedHeading, linkCount, headingCount) = GccGenerateService.DiagnoseToolExtraction(
-            trees, keyword, project.HierarchySourcePageUrl, project.HierarchyPath);
-        var underMatchHeadings = GccGenerateService.ListHeadingsUnderMatch(
+        var diag = GccGenerateService.DiagnoseToolExtraction(
             trees, keyword, project.HierarchySourcePageUrl, project.HierarchyPath);
         var linkyHeadings = GccGenerateService.ListHeadingsWithToolLinks(trees, max: 12);
         var pageLinkTotal = GccGenerateService.CountAllToolLinks(trees);
         _logger.LogInformation(
-            "ExtractTools project={ProjectId} trees={TreeCount} matchedHeading={MatchedHeading} headingsUnderMatch={HeadingCount} linksUnderMatch={LinkCount} tools={ToolCount} hierarchyPath={HierarchyPath} underMatchHeadings={UnderMatchHeadings} pageLinkTotal={PageLinkTotal} linkyHeadings={LinkyHeadings}",
+            "ExtractTools project={ProjectId} trees={TreeCount} matchedHeading={MatchedHeading} pageUrl={PageUrl} directChildren={DirectChildren} deeperHeadings={DeeperHeadings} headingsUnderMatch={HeadingCount} linksUnderMatch={LinkCount} tools={ToolCount} hierarchyPath={HierarchyPath} underMatchHeadings={UnderMatchHeadings} pageLinkTotal={PageLinkTotal} linkyHeadings={LinkyHeadings}",
             project.Id,
             trees.Count,
-            matchedHeading ?? "(null)",
-            headingCount,
-            linkCount,
+            diag.MatchedHeading ?? "(null)",
+            diag.PageUrl ?? "(null)",
+            diag.DirectChildCount,
+            diag.DeeperHeadingCount,
+            diag.HeadingCount,
+            diag.LinkCount,
             tools.Count,
             project.HierarchyPath ?? "(null)",
-            string.Join(" | ", underMatchHeadings),
+            string.Join(" | ", diag.Headings),
             pageLinkTotal,
             string.Join(" || ", linkyHeadings.Select(h => $"{h.Heading}:{h.LinkCount}")));
         // #endregion
@@ -255,7 +256,8 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             .Select(g => g.First())
             .Select(t => new ToolSlot(t.Name.Trim(), null, null, string.IsNullOrWhiteSpace(t.Href) ? null : t.Href.Trim()))
             .ToList();
-        if (fromHierarchy.Count > 0)
+        // Single-name hierarchy snapshot is not a tool set (often one category heading).
+        if (fromHierarchy.Count >= 2)
         {
             // #region agent log
             _logger.LogInformation(

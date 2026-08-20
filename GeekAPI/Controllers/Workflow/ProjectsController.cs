@@ -136,7 +136,8 @@ public class ProjectsController : ControllerBase
                     .Select(t => new ToolInfo { Name = t.Name.Trim(), Href = t.Href?.Trim() })
                     .Distinct(new ToolInfoComparer())
                     .ToList();
-                if (tools.Count > 0)
+                // Persist only real multi-tool groups (never a single category heading as tools).
+                if (tools.Count >= 2)
                 {
                     toolsByHeading.Add(new ToolsByHeading { Heading = group.Heading.Trim(), Tools = tools });
                 }
