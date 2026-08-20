@@ -214,12 +214,29 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 result.Error ?? "Could not load crawl trees for this site analysis.");
         }
 
-        return GccGenerateService.ExtractToolsFromTrees(
-                result.Value ?? [],
+        var trees = result.Value ?? [];
+        var tools = GccGenerateService.ExtractToolsFromTrees(
+                trees,
                 keyword,
                 project.HierarchySourcePageUrl,
                 project.HierarchyPath)
             .ToList();
+
+        // #region agent log
+        var (matchedHeading, linkCount, headingCount) = GccGenerateService.DiagnoseToolExtraction(
+            trees, keyword, project.HierarchySourcePageUrl, project.HierarchyPath);
+        _logger.LogInformation(
+            "ExtractTools project={ProjectId} trees={TreeCount} matchedHeading={MatchedHeading} headingsUnderMatch={HeadingCount} linksUnderMatch={LinkCount} tools={ToolCount} hierarchyPath={HierarchyPath}",
+            project.Id,
+            trees.Count,
+            matchedHeading ?? "(null)",
+            headingCount,
+            linkCount,
+            tools.Count,
+            project.HierarchyPath ?? "(null)");
+        // #endregion
+
+        return tools;
     }
 
     private async Task<List<ToolSlot>> ResolveToolSlotsAsync(Project project, CancellationToken cancellationToken)
