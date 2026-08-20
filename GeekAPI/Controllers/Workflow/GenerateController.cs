@@ -44,7 +44,6 @@ public class GenerateController : ControllerBase
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Select(n => n.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(5)
             .ToList();
         if (names.Count == 0)
         {
