@@ -261,7 +261,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             throw new ContentGenerationException(generation.Outcome switch
             {
                 ToolGenerationOutcome.ToolsSectionEmpty =>
-                    "No tools in the crawl for this hierarchy match.",
+                    "No tool links under this hierarchy match (or its parent headings). " +
+                    "Pick a section that lists tools as links, or use Tool pages from names.",
                 ToolGenerationOutcome.NoToolsSection =>
                     "No Tools section in the pillar to generate pages from.",
                 ToolGenerationOutcome.ToolsSectionNotFoundInBody =>
