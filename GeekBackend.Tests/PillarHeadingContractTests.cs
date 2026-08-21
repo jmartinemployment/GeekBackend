@@ -150,12 +150,27 @@ public sealed class PillarPlanViolationTests
     [InlineData("Top AI Content Creation Tools")]
     [InlineData("Top 5 Automated Data Entry Processing Tools:")]
     [InlineData("Tools")]
+    [InlineData("The Right Tool for the Job")]
     public void A_tools_h2_makes_the_plan_unwritable(string heading)
     {
         var violations = PillarHeadingContract.FindPlanViolations(
             ["Opening", heading, "Benefits of AI Marketing"]);
 
         Assert.Contains(violations, v => v.Contains("Tools H2", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    // Rejecting a plan is destructive to the user's work, so the predicate must not fire on
+    // ordinary section titles. "Solutions" in particular tripped the loose classifier.
+    [InlineData("Common Challenges and Solutions")]
+    [InlineData("Choosing the Right Platform")]
+    [InlineData("Vendor Selection Criteria")]
+    [InlineData("Building Your Technology Stack")]
+    [InlineData("Software Buying Considerations")]
+    public void Ordinary_headings_are_not_treated_as_a_tools_listing(string heading)
+    {
+        var violations = PillarHeadingContract.FindPlanViolations(["Opening", heading]);
+        Assert.Empty(violations);
     }
 
     [Fact]

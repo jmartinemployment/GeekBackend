@@ -44,7 +44,7 @@ public static class PillarHeadingContract
     /// the outline means the plan is wrong.</summary>
     public static IReadOnlyList<string> FindToolsOutlineHeadings(IReadOnlyList<string>? sectionOutline) =>
         (sectionOutline ?? [])
-            .Where(h => !string.IsNullOrWhiteSpace(h) && PillarSectionClassifier.IsToolsSection(h))
+            .Where(h => !string.IsNullOrWhiteSpace(h) && PillarSectionClassifier.IsToolsListingHeading(h))
             .ToList();
 
     /// <summary>
