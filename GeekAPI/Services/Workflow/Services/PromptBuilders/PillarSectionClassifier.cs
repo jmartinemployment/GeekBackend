@@ -112,4 +112,17 @@ internal static class PillarSectionClassifier
 
         return false;
     }
+
+    /// <summary>The pillar's single FAQ section, where People Also Ask questions are answered.
+    /// Excluded from the main body sections because it is written by its own prompt.</summary>
+    public static bool IsFaqSectionTitle(string heading)
+    {
+        var text = heading.Trim();
+        return text.Equals(FaqSectionTitle, StringComparison.OrdinalIgnoreCase)
+               || text.Equals("Frequently Asked Questions", StringComparison.OrdinalIgnoreCase)
+               || text.Equals("FAQ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Canonical title for that section; the plan prompt asks for exactly this text.</summary>
+    public const string FaqSectionTitle = "People Also Ask";
 }
