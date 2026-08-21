@@ -51,9 +51,9 @@ public static class PillarHeadingContract
     /// Everything that makes a plan unwritable, as reader-facing sentences. Empty when the outline
     /// is sound.
     /// <para>
-    /// These are rejections, not repairs. PillarOutlineNormalizer used to rewrite outlines
-    /// silently and was switched off on purpose — the stored plan is what gets written, so a
-    /// malformed one is regenerated rather than quietly patched.
+    /// These are rejections, not repairs. An earlier normalizer rewrote outlines silently and
+    /// was removed on purpose — the stored plan is what gets written, so a malformed one is
+    /// regenerated rather than quietly patched.
     /// </para>
     /// </summary>
     public static IReadOnlyList<string> FindPlanViolations(IReadOnlyList<string>? sectionOutline)

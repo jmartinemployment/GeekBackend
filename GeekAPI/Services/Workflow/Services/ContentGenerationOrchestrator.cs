@@ -1295,7 +1295,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     /// <summary>Rejects a plan whose outline names the same section twice. Write Body keys sections
     /// by their planned heading, so two equivalent entries collapse to one generated section that
     /// then renders under both — duplicate H2s with identical bodies. The outline is deliberately
-    /// never rewritten (see PillarOutlineNormalizer), so a malformed plan is refused at the source
+    /// never rewritten, so a malformed plan is refused at the source
     /// and regenerated rather than silently repaired downstream.</summary>
     /// <summary>Rejects a plan that cannot be written faithfully. See
     /// <see cref="PillarHeadingContract.FindPlanViolations"/> for the rules and why they reject
@@ -1337,7 +1337,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         CancellationToken cancellationToken)
     {
         var mainSections = metadata.SectionOutline
-            .Where(s => !PillarOutlineNormalizer.IsFaqSectionTitle(s))
+            .Where(s => !PillarSectionClassifier.IsFaqSectionTitle(s))
             .ToList();
 
         // First outline entry IS the lede/opening H2 — never a mandatory "Introduction" label; do not select by keyword.
