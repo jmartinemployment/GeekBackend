@@ -172,6 +172,17 @@ public interface IContentPromptBuilder
 
 public class ContentPromptBuilder : IContentPromptBuilder
 {
+    /// <summary>Output budget for a normal pillar section — a few hundred words of prose.</summary>
+    private const int DefaultSectionMaxOutputTokens = 2048;
+
+    /// <summary>
+    /// Tools sections enumerate every platform in the matched hierarchy section with a link and
+    /// implementer positioning for each, so they run several times longer than ordinary prose.
+    /// Sized against the largest real section (23 tools on AI Content Creation Workflow) with
+    /// headroom for JSON escaping and link marks.
+    /// </summary>
+    private const int ToolsSectionMaxOutputTokens = 8192;
+
     private const string TopicFocusJsonContract =
         "{\"focus\": string[] (4-8 short topic phrases, 1-4 words each, describing the site's real services/subject matter — no generic filler words)}";
 
@@ -682,6 +693,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var outlineContext = string.Join("\n", fullOutline.Select((h, i) => $"{i + 1}. {h}"));
         var isBestPractices = PillarSectionClassifier.IsBestPracticesSection(sectionHeading);
         var isBenefits = PillarSectionClassifier.IsBenefitsSection(sectionHeading);
+        var isTools = PillarSectionClassifier.IsToolsSection(sectionHeading);
         var isIntroduction = PillarSectionClassifier.IsIntroductionSection(sectionHeading);
         var isImplementation = PillarSectionClassifier.IsImplementationSection(sectionHeading);
         var isFutureTrends = PillarSectionClassifier.IsFutureTrendsSection(sectionHeading);
@@ -777,10 +789,17 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(outlineContext)
             .ToString();
 
+        // A tools section is structurally the largest in the article: it names every platform in
+        // the matched hierarchy section, links each one, and carries the implementer positioning
+        // from CompanyProfile for each. On the 2048 budget the model was cut off mid-object and
+        // the section failed to parse ("The response looks truncated"). Everything else stays at
+        // 2048 — raising it globally would just pay for tokens the other sections never use.
+        var maxOutputTokens = isTools ? ToolsSectionMaxOutputTokens : DefaultSectionMaxOutputTokens;
+
         return WithSectionSchema(new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
             Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: 2048));
+            MaxOutputTokens: maxOutputTokens));
     }
 
     public ChatCompletionRequest BuildToolsPlatformListPrompt(
