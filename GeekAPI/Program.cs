@@ -100,12 +100,16 @@ builder.Services.AddHttpClient<GeekAPI.Services.ContentCreator.HttpGeekSeoSiteAn
 
 var imageGeneratorBaseUrl =
     Environment.GetEnvironmentVariable("IMAGE_GENERATOR_BASE_URL")
-    ?? "https://image-generator.geekatyourspot.com";
+    ?? "https://geek-image-generator.geekatyourspot.com";
+builder.Services.AddTransient<GeekAPI.Services.Auth.GeekOAuthTokenHandler>();
 builder.Services.AddHttpClient<GeekAPI.Services.Gcw.HttpImageGeneratorClient>(client =>
 {
     client.BaseAddress = new Uri(imageGeneratorBaseUrl.TrimEnd('/') + "/");
     client.Timeout = TimeSpan.FromMinutes(3);
-});
+})
+    // /api/generate spends money with paid providers, so it authenticates every caller. The
+    // handler attaches a client-credentials token, keeping HttpImageGeneratorClient unaware of it.
+    .AddHttpMessageHandler<GeekAPI.Services.Auth.GeekOAuthTokenHandler>();
 
 // Content Writer V3: Services
 // Provider-selectable generation: keyed registrations resolved via IContentGeneratorFactory.
