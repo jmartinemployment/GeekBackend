@@ -72,8 +72,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             GeneratedContentType.ImagePromptSocialLinkedIn,
             GeneratedContentType.ImagePromptSection);
 
-        var metadata = await GenerateArticleMetadataAsync(provider, context, cancellationToken);
-        RequireWritablePlan(metadata.SectionOutline);
+        var metadata = await GenerateWritablePlanAsync(provider, context, cancellationToken);
         var articleSlug = SlugHelper.Slugify(metadata.Title);
 
         await AddContentAsync(project, provider.ProviderType, new GeneratedContent
@@ -1282,10 +1281,11 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     private async Task<ArticleMetadataDraft> GenerateArticleMetadataAsync(
         IContentGenerationProvider provider,
         ProjectGenerationContext context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? previousViolations = null)
     {
         var metadataResult = await provider.CompleteAsync(
-            _promptBuilder.BuildArticleMetadataPrompt(context),
+            _promptBuilder.BuildArticleMetadataPrompt(context, previousViolations),
             cancellationToken);
         var metadata = NormalizeMetadata(ParseJson<ArticleMetadataDraft>(metadataResult.Content, "TechnicalArticle metadata"));
         // SanitizePlanMetadata / PillarPlanMetadataNormalizer.Normalize commented out — prompt only.
@@ -1297,6 +1297,48 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     /// then renders under both — duplicate H2s with identical bodies. The outline is deliberately
     /// never rewritten, so a malformed plan is refused at the source
     /// and regenerated rather than silently repaired downstream.</summary>
+    /// <summary>Attempts allowed for the model to return a plan that satisfies the contract.</summary>
+    private const int PlanGenerationAttempts = 3;
+
+    /// <summary>
+    /// Asks for a plan until it is writable, feeding the violations back so the model is told what
+    /// it broke rather than being asked again identically.
+    /// <para>
+    /// Regeneration, not repair: the outline is never rewritten in code, so the only honest way to
+    /// fix a bad plan is to get another one. Failing on the first attempt would be correct but
+    /// useless — the plan step has already cleared previous content by this point, so a hard stop
+    /// leaves the project empty and the operator with nothing to retry from.
+    /// </para>
+    /// </summary>
+    private async Task<ArticleMetadataDraft> GenerateWritablePlanAsync(
+        IContentGenerationProvider provider,
+        ProjectGenerationContext context,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> violations = [];
+
+        for (var attempt = 1; attempt <= PlanGenerationAttempts; attempt++)
+        {
+            var metadata = await GenerateArticleMetadataAsync(
+                provider, context, cancellationToken, attempt == 1 ? null : violations);
+
+            violations = PillarHeadingContract.FindPlanViolations(metadata.SectionOutline);
+            if (violations.Count == 0)
+            {
+                return metadata;
+            }
+
+            _logger.LogWarning(
+                "Pillar plan attempt {Attempt}/{Total} rejected: {Violations}",
+                attempt, PlanGenerationAttempts, string.Join(" ", violations));
+        }
+
+        throw new ContentGenerationException(
+            $"The model returned an unwritable plan {PlanGenerationAttempts} times. "
+            + string.Join(" ", violations)
+            + " Edit the outline by hand, or try a different provider.");
+    }
+
     /// <summary>Rejects a plan that cannot be written faithfully. See
     /// <see cref="PillarHeadingContract.FindPlanViolations"/> for the rules and why they reject
     /// rather than repair.</summary>
