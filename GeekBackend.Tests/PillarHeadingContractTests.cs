@@ -143,3 +143,36 @@ public class PillarHeadingContractTests
             PillarHeadingContract.HeadingKey(bound[1].Heading));
     }
 }
+
+public sealed class PillarPlanViolationTests
+{
+    [Theory]
+    [InlineData("Top AI Content Creation Tools")]
+    [InlineData("Top 5 Automated Data Entry Processing Tools:")]
+    [InlineData("Tools")]
+    public void A_tools_h2_makes_the_plan_unwritable(string heading)
+    {
+        var violations = PillarHeadingContract.FindPlanViolations(
+            ["Opening", heading, "Benefits of AI Marketing"]);
+
+        Assert.Contains(violations, v => v.Contains("Tools H2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_clean_outline_has_no_violations()
+    {
+        var violations = PillarHeadingContract.FindPlanViolations(
+            ["Opening", "Benefits of AI Marketing", "Implementation Steps"]);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Duplicates_and_tools_are_reported_together()
+    {
+        var violations = PillarHeadingContract.FindPlanViolations(
+            ["Benefits", "Benefits:", "Top AI Marketing Tools"]);
+
+        Assert.Equal(2, violations.Count);
+    }
+}

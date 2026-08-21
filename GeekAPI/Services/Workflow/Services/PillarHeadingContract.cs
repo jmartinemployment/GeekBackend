@@ -1,4 +1,5 @@
 using GeekAPI.Services.Workflow.Domain.Entities;
+using GeekAPI.Services.Workflow.Services.PromptBuilders;
 using System.Text.RegularExpressions;
 
 namespace GeekAPI.Services.Workflow.Services;
@@ -37,6 +38,45 @@ public static class PillarHeadingContract
             .Where(g => g.Count() > 1)
             .Select(g => string.Join("\" / \"", g.Distinct(StringComparer.Ordinal)))
             .ToList();
+
+    /// <summary>Outline entries that name a Tools section. The pillar weaves tool names into its
+    /// prose; the standalone "Top AI ... Tools" page comes from Generate Tools, so a Tools H2 in
+    /// the outline means the plan is wrong.</summary>
+    public static IReadOnlyList<string> FindToolsOutlineHeadings(IReadOnlyList<string>? sectionOutline) =>
+        (sectionOutline ?? [])
+            .Where(h => !string.IsNullOrWhiteSpace(h) && PillarSectionClassifier.IsToolsSection(h))
+            .ToList();
+
+    /// <summary>
+    /// Everything that makes a plan unwritable, as reader-facing sentences. Empty when the outline
+    /// is sound.
+    /// <para>
+    /// These are rejections, not repairs. PillarOutlineNormalizer used to rewrite outlines
+    /// silently and was switched off on purpose — the stored plan is what gets written, so a
+    /// malformed one is regenerated rather than quietly patched.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<string> FindPlanViolations(IReadOnlyList<string>? sectionOutline)
+    {
+        var violations = new List<string>();
+
+        var duplicates = FindDuplicateOutlineHeadings(sectionOutline);
+        if (duplicates.Count > 0)
+        {
+            violations.Add(
+                "The plan lists the same H2 more than once: \"" + string.Join("\", \"", duplicates) + "\".");
+        }
+
+        var toolsHeadings = FindToolsOutlineHeadings(sectionOutline);
+        if (toolsHeadings.Count > 0)
+        {
+            violations.Add(
+                "The plan includes a Tools H2: \"" + string.Join("\", \"", toolsHeadings)
+                + "\". Tool names belong in body sentences; the tools page comes from Generate Tools.");
+        }
+
+        return violations;
+    }
 
     /// <summary>True when the model's heading differs from the planned one in more than
     /// insignificant whitespace — i.e. the text actually drifted and is worth logging.</summary>

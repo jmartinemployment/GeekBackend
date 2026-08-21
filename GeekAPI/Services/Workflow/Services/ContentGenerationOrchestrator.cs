@@ -73,7 +73,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             GeneratedContentType.ImagePromptSection);
 
         var metadata = await GenerateArticleMetadataAsync(provider, context, cancellationToken);
-        RequireDistinctOutlineHeadings(metadata.SectionOutline);
+        RequireWritablePlan(metadata.SectionOutline);
         var articleSlug = SlugHelper.Slugify(metadata.Title);
 
         await AddContentAsync(project, provider.ProviderType, new GeneratedContent
@@ -1297,15 +1297,17 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     /// then renders under both — duplicate H2s with identical bodies. The outline is deliberately
     /// never rewritten (see PillarOutlineNormalizer), so a malformed plan is refused at the source
     /// and regenerated rather than silently repaired downstream.</summary>
-    private static void RequireDistinctOutlineHeadings(IReadOnlyList<string> sectionOutline)
+    /// <summary>Rejects a plan that cannot be written faithfully. See
+    /// <see cref="PillarHeadingContract.FindPlanViolations"/> for the rules and why they reject
+    /// rather than repair.</summary>
+    private static void RequireWritablePlan(IReadOnlyList<string> sectionOutline)
     {
-        var duplicates = PillarHeadingContract.FindDuplicateOutlineHeadings(sectionOutline);
-        if (duplicates.Count > 0)
+        var violations = PillarHeadingContract.FindPlanViolations(sectionOutline);
+        if (violations.Count > 0)
         {
             throw new ContentGenerationException(
-                "The generated plan lists the same H2 more than once: \""
-                + string.Join("\", \"", duplicates)
-                + "\". Regenerate the plan, or edit the outline so every H2 is distinct, before writing the body.");
+                string.Join(" ", violations)
+                + " Regenerate the plan, or edit the outline, before writing the body.");
         }
     }
 
