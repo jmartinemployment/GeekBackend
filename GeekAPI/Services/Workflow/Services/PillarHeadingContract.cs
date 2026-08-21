@@ -39,9 +39,15 @@ public static class PillarHeadingContract
             .Select(g => string.Join("\" / \"", g.Distinct(StringComparer.Ordinal)))
             .ToList();
 
-    /// <summary>Outline entries that name a Tools section. The pillar weaves tool names into its
-    /// prose; the standalone "Top AI ... Tools" page comes from Generate Tools, so a Tools H2 in
-    /// the outline means the plan is wrong.</summary>
+    /// <summary>
+    /// Outline entries whose heading names tools. Reported, never rejected.
+    /// <para>
+    /// Write Tools owns the standalone "Top AI ... Tools" page, so the pillar should not repeat it
+    /// — but a heading cannot be judged by its words. "Top AI Content Creation Tools" is a listing;
+    /// "Optimizing Content with AI Tools" is an ordinary section about using them. Blocking on the
+    /// word threw away valid plans, so this is a signal for the log, not a gate.
+    /// </para>
+    /// </summary>
     public static IReadOnlyList<string> FindToolsOutlineHeadings(IReadOnlyList<string>? sectionOutline) =>
         (sectionOutline ?? [])
             .Where(h => !string.IsNullOrWhiteSpace(h) && PillarSectionClassifier.IsToolsListingHeading(h))
@@ -65,14 +71,6 @@ public static class PillarHeadingContract
         {
             violations.Add(
                 "The plan lists the same H2 more than once: \"" + string.Join("\", \"", duplicates) + "\".");
-        }
-
-        var toolsHeadings = FindToolsOutlineHeadings(sectionOutline);
-        if (toolsHeadings.Count > 0)
-        {
-            violations.Add(
-                "The plan includes a Tools H2: \"" + string.Join("\", \"", toolsHeadings)
-                + "\". Tool names belong in body sentences; the tools page comes from Generate Tools.");
         }
 
         return violations;
