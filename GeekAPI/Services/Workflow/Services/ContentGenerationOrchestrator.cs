@@ -73,6 +73,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             GeneratedContentType.ImagePromptSection);
 
         var metadata = await GenerateArticleMetadataAsync(provider, context, cancellationToken);
+        RequireDistinctOutlineHeadings(metadata.SectionOutline);
         var articleSlug = SlugHelper.Slugify(metadata.Title);
 
         await AddContentAsync(project, provider.ProviderType, new GeneratedContent
@@ -1291,6 +1292,38 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         return context.UseExactKeywordAsTitle ? metadata with { Title = context.TargetKeyword } : metadata;
     }
 
+    /// <summary>Rejects a plan whose outline names the same section twice. Write Body keys sections
+    /// by their planned heading, so two equivalent entries collapse to one generated section that
+    /// then renders under both — duplicate H2s with identical bodies. The outline is deliberately
+    /// never rewritten (see PillarOutlineNormalizer), so a malformed plan is refused at the source
+    /// and regenerated rather than silently repaired downstream.</summary>
+    private static void RequireDistinctOutlineHeadings(IReadOnlyList<string> sectionOutline)
+    {
+        var duplicates = PillarHeadingContract.FindDuplicateOutlineHeadings(sectionOutline);
+        if (duplicates.Count > 0)
+        {
+            throw new ContentGenerationException(
+                "The generated plan lists the same H2 more than once: \""
+                + string.Join("\", \"", duplicates)
+                + "\". Regenerate the plan, or edit the outline so every H2 is distinct, before writing the body.");
+        }
+    }
+
+    /// <summary>Keeps the planned H2 text when the model rewrote or truncated it, and logs the
+    /// drift so it is visible rather than absorbed by EnsureUniqueSlug. See
+    /// <see cref="PillarHeadingContract"/> for why the plan owns heading text.</summary>
+    private Section BindPlannedHeading(Section section, string plannedHeading)
+    {
+        if (PillarHeadingContract.HeadingDrifted(section, plannedHeading))
+        {
+            _logger.LogWarning(
+                "Model returned heading \"{ModelHeading}\" for planned section \"{PlannedHeading}\" — keeping the planned heading.",
+                section.Heading, plannedHeading);
+        }
+
+        return PillarHeadingContract.WithPlannedHeading(section, plannedHeading);
+    }
+
     private async Task<(ContentDocument Document, LedeType LedeType)> GenerateArticleBodyAsync(
         IContentGenerationProvider provider,
         ProjectGenerationContext context,
@@ -1336,7 +1369,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         }
         else
         {
-            sectionsByHeading[introductionHeading] = introSection;
+            sectionsByHeading[introductionHeading] = BindPlannedHeading(introSection, introductionHeading);
         }
 
         // Remaining H2s except Implementation: small batches (truncation-avoidance).
@@ -1371,7 +1404,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                     var section = b < batchSections.Count ? batchSections[b] : null;
                     if (section is not null)
                     {
-                        sectionsByHeading[chunk[b]] = section;
+                        sectionsByHeading[chunk[b]] = BindPlannedHeading(section, chunk[b]);
                     }
                 }
 
@@ -1420,7 +1453,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                 cancellationToken);
             var section = LlmResponseJsonParser.ParseSection(sectionResult.Content, "h2", $"TechnicalArticle section '{heading}'");
 
-            sectionsByHeading[heading] = section;
+            sectionsByHeading[heading] = BindPlannedHeading(section, heading);
 
             var sectionMin = (int)(ContentLengthTargets.PillarSectionMinWords * 0.85);
             var sectionWords = ContentDocumentText.CountWords(section);
