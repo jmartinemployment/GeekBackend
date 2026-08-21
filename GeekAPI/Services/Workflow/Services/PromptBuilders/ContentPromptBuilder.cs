@@ -178,6 +178,19 @@ public interface IContentPromptBuilder
 
 public class ContentPromptBuilder : IContentPromptBuilder
 {
+    /// <summary>
+    /// Output budget for one pillar section.
+    /// <para>
+    /// Sections target 500-700 words (<see cref="ContentLengthTargets.PillarSectionMinWords"/>).
+    /// 700 words is roughly 1,000 tokens of prose, and the section is returned as JSON with every
+    /// paragraph wrapped in runs objects and escaped, which about doubles it — so a section written
+    /// to spec needs ~2,000 tokens. The cap was 2,048, leaving no headroom, and a section that hit
+    /// its own target was cut off mid-object: observed as completionTokens=2048 exactly, with the
+    /// parser reporting "the response looks truncated".
+    /// </para>
+    /// </summary>
+    private const int PillarSectionMaxOutputTokens = 4096;
+
     private const string TopicFocusJsonContract =
         "{\"focus\": string[] (4-8 short topic phrases, 1-4 words each, describing the site's real services/subject matter — no generic filler words)}";
 
@@ -798,7 +811,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionSchema(new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
             Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: 2048));
+            MaxOutputTokens: PillarSectionMaxOutputTokens));
     }
 
     public ChatCompletionRequest BuildToolsPlatformListPrompt(
