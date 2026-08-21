@@ -17,7 +17,13 @@ public interface IContentPromptBuilder
     /// already-published item name.</summary>
     ChatCompletionRequest BuildUseCaseExtractionPrompt(string siteName, IReadOnlyList<string> homeHeadings, IReadOnlyList<string> homeParagraphs);
 
-    ChatCompletionRequest BuildArticleMetadataPrompt(ProjectGenerationContext context);
+    /// <param name="previousViolations">
+    /// Why the last plan was rejected, when this is a retry. Passed back so the model is told what
+    /// it broke instead of being asked the same question again.
+    /// </param>
+    ChatCompletionRequest BuildArticleMetadataPrompt(
+        ProjectGenerationContext context,
+        IReadOnlyList<string>? previousViolations = null);
 
     ChatCompletionRequest BuildArticleLedePrompt(
         ProjectGenerationContext context,
@@ -377,7 +383,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string ImagePromptSectionsJsonContract =
         "{\"sections\": [" + ImagePromptSectionItemJsonContract + ", ...]}";
 
-    public ChatCompletionRequest BuildArticleMetadataPrompt(ProjectGenerationContext context)
+    public ChatCompletionRequest BuildArticleMetadataPrompt(
+        ProjectGenerationContext context,
+        IReadOnlyList<string>? previousViolations = null)
     {
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
@@ -414,6 +422,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
             $"Meta description: 140-160 characters, include \"{context.TargetKeyword}\" naturally, concise factual summary for B2B readers, no hype. " +
             "End sectionOutline with exactly one FAQ section titled \"People Also Ask\" — PAA questions are answered there in the body step, not as main H2s. " +
             "Return title, metaDescription, keywords, and sectionOutline only (body is written separately).");
+
+        if (previousViolations is { Count: > 0 })
+        {
+            // The plan is regenerated, never repaired, so a retry has to actually change the
+            // model's behaviour — restating the rule it just broke is the only lever available.
+            user += Environment.NewLine
+                + "The previous attempt was rejected: " + string.Join(" ", previousViolations)
+                + " Fix exactly that and keep everything else.";
+        }
+
 
         return new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
