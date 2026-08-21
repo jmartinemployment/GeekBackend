@@ -149,28 +149,22 @@ public sealed class PillarPlanViolationTests
     [Theory]
     [InlineData("Top AI Content Creation Tools")]
     [InlineData("Top 5 Automated Data Entry Processing Tools:")]
-    [InlineData("Tools")]
-    [InlineData("The Right Tool for the Job")]
-    public void A_tools_h2_makes_the_plan_unwritable(string heading)
+    [InlineData("Optimizing Content with AI Tools")]
+    public void Tools_named_headings_are_reported(string heading)
     {
-        var violations = PillarHeadingContract.FindPlanViolations(
-            ["Opening", heading, "Benefits of AI Marketing"]);
-
-        Assert.Contains(violations, v => v.Contains("Tools H2", StringComparison.Ordinal));
+        Assert.Contains(heading, PillarHeadingContract.FindToolsOutlineHeadings(["Opening", heading]));
     }
 
     [Theory]
-    // Rejecting a plan is destructive to the user's work, so the predicate must not fire on
-    // ordinary section titles. "Solutions" in particular tripped the loose classifier.
+    [InlineData("Top AI Content Creation Tools")]
     [InlineData("Common Challenges and Solutions")]
-    [InlineData("Choosing the Right Platform")]
-    [InlineData("Vendor Selection Criteria")]
-    [InlineData("Building Your Technology Stack")]
-    [InlineData("Software Buying Considerations")]
-    public void Ordinary_headings_are_not_treated_as_a_tools_listing(string heading)
+    [InlineData("Optimizing Content with AI Tools")]
+    public void Tools_named_headings_never_block_a_plan(string heading)
     {
-        var violations = PillarHeadingContract.FindPlanViolations(["Opening", heading]);
-        Assert.Empty(violations);
+        // Reported, not rejected: "Top AI Content Creation Tools" is a listing Write Tools owns,
+        // while "Optimizing Content with AI Tools" is an ordinary section. The wording does not
+        // distinguish them, and blocking on it discarded valid plans.
+        Assert.Empty(PillarHeadingContract.FindPlanViolations(["Opening", heading]));
     }
 
     [Fact]
@@ -183,11 +177,14 @@ public sealed class PillarPlanViolationTests
     }
 
     [Fact]
-    public void Duplicates_and_tools_are_reported_together()
+    public void Only_duplicates_block_a_plan()
     {
+        // A duplicate H2 is unambiguous: two outline entries collapse to one generated section
+        // that renders under both headings. A tools-named heading is not, so it is reported only.
         var violations = PillarHeadingContract.FindPlanViolations(
             ["Benefits", "Benefits:", "Top AI Marketing Tools"]);
 
-        Assert.Equal(2, violations.Count);
+        Assert.Single(violations);
+        Assert.Contains("same H2 more than once", violations[0], StringComparison.Ordinal);
     }
 }

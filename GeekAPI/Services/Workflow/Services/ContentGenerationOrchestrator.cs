@@ -1328,6 +1328,18 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             var metadata = await GenerateArticleMetadataAsync(
                 provider, context, cancellationToken, attempt == 1 ? null : violations);
 
+            // Visible, not blocking: Write Tools owns the standalone tools page, so a tools-ish H2
+            // is worth seeing in the log — but the wording alone cannot prove the model meant a
+            // listing, and rejecting on it discarded good plans.
+            var toolsHeadings = PillarHeadingContract.FindToolsOutlineHeadings(metadata.SectionOutline);
+            if (toolsHeadings.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Pillar plan contains tools-named H2s: {Headings}. Write Tools owns the tools page — "
+                    + "check the body does not duplicate it.",
+                    string.Join(", ", toolsHeadings));
+            }
+
             violations = PillarHeadingContract.FindPlanViolations(metadata.SectionOutline);
             if (violations.Count == 0)
             {
