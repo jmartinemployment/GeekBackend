@@ -60,6 +60,12 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
         _logger.LogInformation("Generating pillar plan for project {ProjectId} via {Provider}", projectId, provider.ProviderType);
 
+        // Generate and validate before removing anything. Clearing first meant a rejected plan
+        // left the project empty with nothing to retry from, which is what made a single failed
+        // attempt expensive rather than merely annoying.
+        var metadata = await GenerateWritablePlanAsync(provider, context, cancellationToken);
+        var articleSlug = SlugHelper.Slugify(metadata.Title);
+
         RemoveGeneratedContents(project,
             GeneratedContentType.TechnicalArticle,
             GeneratedContentType.ToolPost,
@@ -71,9 +77,6 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             GeneratedContentType.ImagePromptSocialFacebook,
             GeneratedContentType.ImagePromptSocialLinkedIn,
             GeneratedContentType.ImagePromptSection);
-
-        var metadata = await GenerateWritablePlanAsync(provider, context, cancellationToken);
-        var articleSlug = SlugHelper.Slugify(metadata.Title);
 
         await AddContentAsync(project, provider.ProviderType, new GeneratedContent
         {
@@ -1297,8 +1300,11 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     /// then renders under both — duplicate H2s with identical bodies. The outline is deliberately
     /// never rewritten, so a malformed plan is refused at the source
     /// and regenerated rather than silently repaired downstream.</summary>
-    /// <summary>Attempts allowed for the model to return a plan that satisfies the contract.</summary>
-    private const int PlanGenerationAttempts = 3;
+    /// <summary>Attempts allowed for the model to return a plan that satisfies the contract.
+    /// Each one is a billed call, so this buys a single corrected retry and no more — the project's
+    /// existing content is no longer cleared beforehand, so giving up costs nothing but the call.
+    /// </summary>
+    private const int PlanGenerationAttempts = 2;
 
     /// <summary>
     /// Asks for a plan until it is writable, feeding the violations back so the model is told what
