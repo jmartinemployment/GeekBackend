@@ -156,6 +156,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                 ContentLengthTargets.PillarTargetMaxWords);
         }
 
+        // Repair before ids are assigned: dropping a duplicated subsection changes what headings
+        // exist, and EnsureUniqueSlug would otherwise mint "-2" ids for copies that are about to go.
+        document = ContentDocumentNormalizer.Normalize(document);
         document = ContentDocumentText.AssignSectionIds(document);
         articleRow.Gaps = FindGaps(document, context);
 
