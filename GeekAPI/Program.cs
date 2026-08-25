@@ -2,10 +2,13 @@ using System.Text.Json.Serialization;
 using DotNetEnv;
 using GeekAPI.Auth;
 using GeekAPI.Controllers;
+using GeekAPI.Controllers.ContentCreatorV2.Auth;
+using GeekAPI.Controllers.ContentCreatorV2.Hubs;
 using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
+using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentWriterV3;
 using GeekAPI.Services.SiteAnalyzer2;
 using GeekAPI.Services.Workflow.Hosting;
@@ -13,7 +16,9 @@ using GeekAPI.Services.Workflow.Infrastructure;
 using GeekApplication.Interfaces;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekSa2Read.DependencyInjection;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.IdentityModel.Tokens;
 
 Env.TraversePath().Load();
 
@@ -87,6 +92,37 @@ builder.Services.AddScoped(sp =>
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
+builder.Services.AddContentCreatorV2();
+
+// GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]
+// (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade). Additive: existing
+// routes keep authenticating exactly as before via ApiKeyMiddleware.
+var gccV2HubAuthority = (Environment.GetEnvironmentVariable("GEEK_OAUTH_AUTHORITY")
+    ?? Environment.GetEnvironmentVariable("AUTH_SERVER_URL")
+    ?? string.Empty).Trim().TrimEnd('/');
+if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
+{
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.Authority = gccV2HubAuthority;
+            options.RequireHttpsMetadata = !gccV2HubAuthority.Contains("localhost", StringComparison.OrdinalIgnoreCase);
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                NameClaimType = "sub",
+                ClockSkew = TimeSpan.FromMinutes(1),
+            };
+            GccV2JwtHubQueryToken.AcceptAccessTokenFromQuery(options);
+        });
+    builder.Services.AddAuthorization();
+}
+else
+{
+    Console.WriteLine("GEEK_OAUTH_AUTHORITY/AUTH_SERVER_URL not set — /hubs/gcc-v2-realtime will reject all connections.");
+}
 
 var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
 builder.Services.AddHttpClient<GeekAPI.Services.ContentCreator.HttpGeekSeoSiteAnalyzerClient>(client =>
@@ -162,9 +198,24 @@ if (app.Environment.IsProduction())
     app.UseHttpsRedirection();
 
 app.UseCors();
+
+// Only wired when GEEK_OAUTH_AUTHORITY/AUTH_SERVER_URL is configured — see registration above.
+// Scoped to the v2 hub: ApiKeyMiddleware below still authenticates every other route exactly as
+// it did before this file was touched.
+if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
+
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
+
+if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
+{
+    app.MapHub<GccV2RealtimeHub>("/hubs/gcc-v2-realtime");
+}
 
 // Workflow: loads persisted projects/clients from GeekRepository at startup.
 await app.HydrateWorkflowAsync();

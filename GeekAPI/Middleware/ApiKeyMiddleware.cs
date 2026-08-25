@@ -33,6 +33,15 @@ public class ApiKeyMiddleware
             return;
         }
 
+        // SignalR hubs (e.g. /hubs/gcc-v2-realtime) authenticate via JWT bearer + [Authorize] on
+        // the hub itself — the WebSocket handshake can't carry X-API-Key/Authorization headers,
+        // so this middleware steps aside for /hubs/* and lets the auth pipeline handle it.
+        if (normalizedPath.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase))
+        {
+            await _next(context);
+            return;
+        }
+
         if (normalizedPath.StartsWith("/api/seo/internal", StringComparison.OrdinalIgnoreCase)
             || normalizedPath.StartsWith("/api/gtm/internal", StringComparison.OrdinalIgnoreCase))
         {

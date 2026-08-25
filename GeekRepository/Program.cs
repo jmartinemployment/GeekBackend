@@ -81,6 +81,13 @@ builder.Services.AddDbContext<GeekRepository.Data.ContentCreatorDbContext>(optio
             "content_creator"))
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+builder.Services.AddDbContext<GeekRepository.Data.ContentCreatorV2DbContext>(options => options
+    .UseNpgsql(connectionString, npgsql =>
+        npgsql.MigrationsHistoryTable(
+            "content_creator_v2_ef_migrations_history",
+            "content_creator_v2"))
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddHostedService<SqlMigrationRunner>();
@@ -93,6 +100,7 @@ await ApplyContentWriterV3MigrationsAsync(app, startupLogger);
 await ApplyContentWriterV4MigrationsAsync(app, startupLogger);
 await ApplyContentWriterV2MigrationsAsync(app, startupLogger);
 await ApplyContentCreatorMigrationsAsync(app, startupLogger);
+await ApplyContentCreatorV2MigrationsAsync(app, startupLogger);
 await RewriteRetiredSiteAnalysisHistoryNamesAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
@@ -204,6 +212,21 @@ static async Task ApplyContentCreatorMigrationsAsync(WebApplication app, ILogger
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying Content Creator EF migrations. Continuing startup.");
+    }
+}
+
+static async Task ApplyContentCreatorV2MigrationsAsync(WebApplication app, ILogger logger)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<GeekRepository.Data.ContentCreatorV2DbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        logger.LogInformation("Content Creator V2 (content_creator_v2 schema) EF migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed applying Content Creator V2 EF migrations. Continuing startup.");
     }
 }
 
