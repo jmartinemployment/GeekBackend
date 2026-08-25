@@ -14,6 +14,8 @@ public static class CorsOriginParser
         "https://content-writer-eta.vercel.app",
         "https://content-writer-jeff-martins-projects-66716453.vercel.app",
         "https://geek-content-creator.vercel.app",
+        "https://content-creator-v2.vercel.app",
+        "https://content-creator-v2-phi.vercel.app",
     ];
 
     /// <summary>
@@ -40,7 +42,7 @@ public static class CorsOriginParser
     }
 
     /// <summary>
-    /// Exact list match, plus Content Writer V3 Vercel production/preview hostnames.
+    /// Exact list match, plus Content Writer / Content Creator Vercel production/preview hostnames.
     /// </summary>
     public static bool IsOriginAllowed(string? origin)
     {
@@ -68,7 +70,14 @@ public static class CorsOriginParser
         if (string.Equals(uri.Host, "geek-content-creator.vercel.app", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        return uri.Host.StartsWith("geek-content-creator-", StringComparison.OrdinalIgnoreCase)
+        if (uri.Host.StartsWith("geek-content-creator-", StringComparison.OrdinalIgnoreCase)
+               && uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(uri.Host, "content-creator-v2.vercel.app", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return uri.Host.StartsWith("content-creator-v2-", StringComparison.OrdinalIgnoreCase)
                && uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase);
     }
 
