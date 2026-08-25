@@ -54,6 +54,43 @@ public class GccV2Controller : ControllerBase
             userId = _user.UserId == Guid.Empty ? null : _user.UserId.ToString("D"),
         });
 
+    /// <summary>Recent Geek-SEO site analysis profiles for the create-form picker (domain + date, not raw GUIDs).</summary>
+    [HttpGet("site-analyzer/profiles/recent")]
+    public async Task<IActionResult> ListRecentSiteAnalysisProfiles(
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        var bearer = ExtractBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var result = await _seo.ListRecentProfilesAsync(bearer, limit, ct);
+        if (!result.Ok)
+            return StatusCode(result.StatusCode, new { error = result.Error });
+        return Ok(result.Value ?? []);
+    }
+
+    /// <summary>Profiles for a domain host — same picker source as v1, under the v2 route prefix.</summary>
+    [HttpGet("site-analyzer/profiles/by-domain")]
+    public async Task<IActionResult> ListSiteAnalysisProfilesByDomain(
+        [FromQuery] string domain,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(domain))
+            return BadRequest(new { error = "domain required" });
+        var bearer = ExtractBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var result = await _seo.ListProfilesByDomainAsync(domain, bearer, limit, ct);
+        if (!result.Ok)
+            return StatusCode(result.StatusCode, new { error = result.Error });
+        return Ok(result.Value ?? []);
+    }
+
     [HttpPost("creates")]
     public async Task<ActionResult<GccV2CreateDto>> CreateCreate([FromBody] CreateCreateRequest? request, CancellationToken ct)
     {
