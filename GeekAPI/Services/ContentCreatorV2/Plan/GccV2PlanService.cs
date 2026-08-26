@@ -57,7 +57,7 @@ public sealed class GccV2PlanService
             ? childHeadingsOverride.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
             : ExtractHierarchyChildHeadings(brief.RawBriefJson);
-        var partnerToolNames = ExtractRecommendedToolNames(brief.RawBriefJson);
+        var partnerToolNames = ExtractPartnerToolNames(brief.RawBriefJson);
         // Partner H6 names (Intercom, …) and "Top … Tools" labels never become outline H2s.
         var topicChildren = FilterOutlineHeadings(childHeadings, partnerToolNames);
         // Stale crawl / missing recommendedTools: short product-like children are still partners, not sections.
@@ -72,15 +72,26 @@ public sealed class GccV2PlanService
         var (sectionDefs, headingsFromHierarchy) = BuildSectionDefinitions(
             contentType, keyword, topicChildren, preferSiteStructure, regenerateVariant);
         sectionDefs = DedupeByHeading(sectionDefs);
-        // Do not assign partner tool names as must-mention chips — those belong in WRITE allowlist only.
         var perSectionChildren = PartitionChildHeadings(topicChildren, sectionDefs.Count, headingsFromHierarchy);
+        // MUST-mention partner tools — distributed across sections (never as H2s).
+        var perSectionTools = PartitionChildHeadings(partnerToolNames, sectionDefs.Count, headingsFromHierarchy: false);
 
         var sections = sectionDefs
-            .Select((def, i) => new GccV2PlanOutlineSection(
-                def.Key,
-                def.Heading,
-                i == 0 ? "problem" : "advance",
-                perSectionChildren[i]))
+            .Select((def, i) =>
+            {
+                var must = new List<string>(perSectionChildren[i]);
+                foreach (var tool in perSectionTools[i])
+                {
+                    if (!must.Contains(tool, StringComparer.OrdinalIgnoreCase))
+                        must.Add(tool);
+                }
+
+                return new GccV2PlanOutlineSection(
+                    def.Key,
+                    def.Heading,
+                    i == 0 ? "problem" : "advance",
+                    must);
+            })
             .ToList();
 
         var outline = new GccV2PlanOutline(sections, topicChildren);
@@ -132,35 +143,102 @@ public sealed class GccV2PlanService
         }
     }
 
-    private static List<string> ExtractRecommendedToolNames(string? rawBriefJson)
+    private static List<string> ExtractPartnerToolNames(string? rawBriefJson)
     {
         if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
         try
         {
             using var doc = JsonDocument.Parse(rawBriefJson);
-            if (!doc.RootElement.TryGetProperty("hierarchyPlan", out var plan) || plan.ValueKind != JsonValueKind.Object)
-                return [];
-            if (!plan.TryGetProperty("recommendedTools", out var tools) || tools.ValueKind != JsonValueKind.Array)
-                return [];
+            var names = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            return tools.EnumerateArray()
-                .Select(t =>
+            void AddName(string? name)
+            {
+                var n = (name ?? "").Trim();
+                if (n.Length == 0 || !seen.Add(n)) return;
+                names.Add(n);
+            }
+
+            if (doc.RootElement.TryGetProperty("hierarchyPlan", out var plan)
+                && plan.ValueKind == JsonValueKind.Object
+                && plan.TryGetProperty("recommendedTools", out var tools)
+                && tools.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in tools.EnumerateArray())
                 {
-                    if (t.ValueKind != JsonValueKind.Object) return null;
-                    return t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
-                        ? n.GetString()?.Trim()
-                        : null;
-                })
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Select(s => s!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                    if (t.ValueKind != JsonValueKind.Object) continue;
+                    if (t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
+                        AddName(n.GetString());
+                }
+            }
+
+            JsonElement operatorTools = default;
+            var foundOps = false;
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (!string.Equals(prop.Name, "operatorTools", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                operatorTools = prop.Value;
+                foundOps = true;
+                break;
+            }
+
+            if (foundOps && operatorTools.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in operatorTools.EnumerateArray())
+                {
+                    if (t.ValueKind == JsonValueKind.String)
+                    {
+                        var url = t.GetString()?.Trim();
+                        if (string.IsNullOrWhiteSpace(url)) continue;
+                        AddName(GuessToolNameFromUrl(url));
+                        continue;
+                    }
+
+                    if (t.ValueKind != JsonValueKind.Object) continue;
+                    if (t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(n.GetString()))
+                    {
+                        AddName(n.GetString());
+                        continue;
+                    }
+
+                    var href = t.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String
+                        ? u.GetString()
+                        : t.TryGetProperty("href", out var h) && h.ValueKind == JsonValueKind.String
+                            ? h.GetString()
+                            : null;
+                    if (!string.IsNullOrWhiteSpace(href))
+                        AddName(GuessToolNameFromUrl(href!));
+                }
+            }
+
+            return names;
         }
         catch (JsonException)
         {
             return [];
         }
     }
+
+    private static string GuessToolNameFromUrl(string url)
+    {
+        try
+        {
+            var path = new Uri(url, UriKind.RelativeOrAbsolute).IsAbsoluteUri
+                ? new Uri(url).AbsolutePath
+                : url;
+            var segment = path.Trim('/').Split('/').LastOrDefault() ?? url;
+            return string.IsNullOrWhiteSpace(segment) ? url : segment.Replace('-', ' ');
+        }
+        catch (UriFormatException)
+        {
+            return url;
+        }
+    }
+
+    private static List<string> ExtractRecommendedToolNames(string? rawBriefJson) =>
+        ExtractPartnerToolNames(rawBriefJson);
 
     private static string ResolveKeyword(GccV2BriefDto brief)
     {

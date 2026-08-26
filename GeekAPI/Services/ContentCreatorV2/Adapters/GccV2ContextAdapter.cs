@@ -118,7 +118,9 @@ public sealed class GccV2ContextAdapter
 
         if (hierarchyChildHeadings is { Count: > 0 })
         {
-            notes.Add("This section only — must-mention subtopics assigned here (do not cover subtopics assigned to other sections): "
+            notes.Add(
+                "MUST MENTION in this section (required — name each item in the prose; partner tools need "
+                + "an inline link when an href was supplied in the brief allowlist): "
                 + string.Join(", ", hierarchyChildHeadings));
         }
 
@@ -204,11 +206,9 @@ public sealed class GccV2ContextAdapter
         {
             var toolList = string.Join(" | ", partnerTools.Select(t =>
                 string.IsNullOrWhiteSpace(t.Href) ? t.Name : $"{t.Name} <{t.Href}>"));
-            var mustCount = Math.Min(3, partnerTools.Count);
             paragraphs.Add(
-                "REQUIRED partner tools (not optional): weave at least "
-                + mustCount
-                + " of these into the body by product name as inline anchors with the given href when present. "
+                "MUST MENTION partner tools (required): every name below must appear at least once in the "
+                + "finished piece as an inline anchor (use the given href when present). Do not skip any. "
                 + "Do not invent unrelated tools. Do not open a \"Top N tools\" / roundup section or use a "
                 + "product name as an H2. Spread mentions across sections where solutions are discussed: "
                 + toolList);
