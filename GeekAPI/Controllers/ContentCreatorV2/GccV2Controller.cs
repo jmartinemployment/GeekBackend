@@ -286,7 +286,8 @@ public class GccV2Controller : ControllerBase
         try
         {
             object? bestPlan = null;
-            var bestToolCount = -1;
+            var bestTools = -1;
+            var bestExact = false;
             string? bestHeading = null;
             string? bestTopic = null;
 
@@ -305,14 +306,14 @@ public class GccV2Controller : ControllerBase
                     var tools = GccGenerateService.ExtractToolsFromTrees(
                         trees, topic, candidate.SourcePageUrl, pathLabel);
                     var toolCount = tools.Count;
-                    var exactBonus = string.Equals(candidate.Kind, "exact-heading", StringComparison.OrdinalIgnoreCase)
-                        ? 1000
-                        : 0;
-                    var score = toolCount + exactBonus;
-                    if (score <= bestToolCount)
+                    var isExact = string.Equals(candidate.Kind, "exact-heading", StringComparison.OrdinalIgnoreCase);
+                    var better = toolCount > bestTools
+                        || (toolCount == bestTools && isExact && !bestExact);
+                    if (!better)
                         continue;
 
-                    bestToolCount = score;
+                    bestTools = toolCount;
+                    bestExact = isExact;
                     bestHeading = candidate.MatchedHeading;
                     bestTopic = topic;
                     var toolRows = tools.Select(t => (object)new { name = t.Name, href = t.Href }).ToList();
@@ -327,12 +328,11 @@ public class GccV2Controller : ControllerBase
                         matchTopic = topic,
                     };
 
-                    // Good enough: exact heading with tools, or any match with several tools.
-                    if (toolCount >= 2 && exactBonus > 0)
+                    if (toolCount >= 2 && isExact)
                         break;
                 }
 
-                if (bestToolCount >= 2)
+                if (bestTools >= 2)
                     break;
             }
 
@@ -341,7 +341,7 @@ public class GccV2Controller : ControllerBase
 
             _logger.LogInformation(
                 "Hierarchy plan for profile {ProfileId}: matched '{Heading}' with {ToolCount} recommended tool(s) via topic '{Topic}'.",
-                profileId, bestHeading, Math.Max(0, bestToolCount % 1000), bestTopic);
+                profileId, bestHeading, bestTools, bestTopic);
 
             return MergeHierarchyPlanIntoBriefJson(rawBriefJson, bestPlan);
         }
