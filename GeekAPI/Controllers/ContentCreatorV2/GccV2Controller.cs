@@ -255,7 +255,8 @@ public class GccV2Controller : ControllerBase
     /// <summary>
     /// Prefetch hierarchy match (+ recommended tools under that heading) onto the brief.
     /// Soft grounding for WRITE: relate to the matched use-case and site-listed partner tools.
-    /// Tries target keyword, then create title from brief JSON if keyword misses.
+    /// Expands keywords (e.g. "Smart Chatbots for Marketing" → "Smart Chatbots") so site H5s
+    /// like "Smart Chatbots:" still resolve. Prefers the match with the most tool links.
     /// </summary>
     private async Task<string?> TryMergeHierarchyPlanAsync(
         string? rawBriefJson,
@@ -268,21 +269,27 @@ public class GccV2Controller : ControllerBase
         var bearer = ExtractBearerToken();
         if (string.IsNullOrWhiteSpace(bearer)) return rawBriefJson;
 
-        var attempts = new List<string>();
+        var seeds = new List<string>();
         if (!string.IsNullOrWhiteSpace(request.TargetKeyword))
-            attempts.Add(request.TargetKeyword.Trim());
+            seeds.Add(request.TargetKeyword.Trim());
         if (!string.IsNullOrWhiteSpace(createTitle)
-            && !attempts.Any(a => a.Equals(createTitle.Trim(), StringComparison.OrdinalIgnoreCase)))
-            attempts.Add(createTitle.Trim());
+            && !seeds.Any(a => a.Equals(createTitle.Trim(), StringComparison.OrdinalIgnoreCase)))
+            seeds.Add(createTitle.Trim());
         var titleFromBrief = TryReadBriefTitle(rawBriefJson);
         if (!string.IsNullOrWhiteSpace(titleFromBrief)
-            && !attempts.Any(a => a.Equals(titleFromBrief, StringComparison.OrdinalIgnoreCase)))
-            attempts.Add(titleFromBrief!);
+            && !seeds.Any(a => a.Equals(titleFromBrief, StringComparison.OrdinalIgnoreCase)))
+            seeds.Add(titleFromBrief!);
 
+        var attempts = ExpandKeywordSearchTerms(seeds).ToList();
         if (attempts.Count == 0) return rawBriefJson;
 
         try
         {
+            object? bestPlan = null;
+            var bestToolCount = -1;
+            string? bestHeading = null;
+            string? bestTopic = null;
+
             foreach (var topic in attempts)
             {
                 var treesResult = await _seo.FindTreesByKeywordAsync(profileId, topic, bearer, ct);
@@ -290,46 +297,109 @@ public class GccV2Controller : ControllerBase
                     continue;
 
                 var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(trees, topic);
-                var best = matches.FirstOrDefault();
-                if (best is null) continue;
-
-                var pathLabel = best.Path is { Length: > 0 }
-                    ? string.Join(" › ", best.Path)
-                    : null;
-                var tools = GccGenerateService.ExtractToolsFromTrees(
-                    trees, topic, best.SourcePageUrl, pathLabel);
-                var toolRows = new List<object>();
-                foreach (var t in tools)
-                    toolRows.Add(new { name = t.Name, href = t.Href });
-
-                // Do not treat "Top … Tools" H6 labels as partner names — partners are link extract
-                // (+ operator URLs on the brief). Empty toolRows is honest when the match has no links.
-
-                var hierarchyPlan = new
+                foreach (var candidate in matches.Take(8))
                 {
-                    matchedHeading = best.MatchedHeading,
-                    sourcePageUrl = best.SourcePageUrl,
-                    path = best.Path,
-                    kind = best.Kind,
-                    childHeadings = best.ChildHeadings,
-                    recommendedTools = toolRows,
-                    matchTopic = topic,
-                };
+                    var pathLabel = candidate.Path is { Length: > 0 }
+                        ? string.Join(" › ", candidate.Path)
+                        : null;
+                    var tools = GccGenerateService.ExtractToolsFromTrees(
+                        trees, topic, candidate.SourcePageUrl, pathLabel);
+                    var toolCount = tools.Count;
+                    var exactBonus = string.Equals(candidate.Kind, "exact-heading", StringComparison.OrdinalIgnoreCase)
+                        ? 1000
+                        : 0;
+                    var score = toolCount + exactBonus;
+                    if (score <= bestToolCount)
+                        continue;
 
-                _logger.LogInformation(
-                    "Hierarchy plan for profile {ProfileId}: matched '{Heading}' ({Kind}) with {ToolCount} recommended tool(s) via topic '{Topic}'.",
-                    profileId, best.MatchedHeading, best.Kind, toolRows.Count, topic);
+                    bestToolCount = score;
+                    bestHeading = candidate.MatchedHeading;
+                    bestTopic = topic;
+                    var toolRows = tools.Select(t => (object)new { name = t.Name, href = t.Href }).ToList();
+                    bestPlan = new
+                    {
+                        matchedHeading = candidate.MatchedHeading,
+                        sourcePageUrl = candidate.SourcePageUrl,
+                        path = candidate.Path,
+                        kind = candidate.Kind,
+                        childHeadings = candidate.ChildHeadings,
+                        recommendedTools = toolRows,
+                        matchTopic = topic,
+                    };
 
-                return MergeHierarchyPlanIntoBriefJson(rawBriefJson, hierarchyPlan);
+                    // Good enough: exact heading with tools, or any match with several tools.
+                    if (toolCount >= 2 && exactBonus > 0)
+                        break;
+                }
+
+                if (bestToolCount >= 2)
+                    break;
             }
 
-            return rawBriefJson;
+            if (bestPlan is null)
+                return rawBriefJson;
+
+            _logger.LogInformation(
+                "Hierarchy plan for profile {ProfileId}: matched '{Heading}' with {ToolCount} recommended tool(s) via topic '{Topic}'.",
+                profileId, bestHeading, Math.Max(0, bestToolCount % 1000), bestTopic);
+
+            return MergeHierarchyPlanIntoBriefJson(rawBriefJson, bestPlan);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Hierarchy-match prefetch failed for profile {ProfileId}; PLAN will use content-type templates instead.", profileId);
             return rawBriefJson;
         }
+    }
+
+    /// <summary>
+    /// Broadens lookup so "Smart Chatbots for Marketing" also tries "Smart Chatbots" (site H5s
+    /// often omit the trailing phrase). Drops stopwords and peels trailing words.
+    /// </summary>
+    internal static IEnumerable<string> ExpandKeywordSearchTerms(IEnumerable<string> seeds)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var seed in seeds)
+        {
+            foreach (var variant in ExpandOneKeyword(seed))
+            {
+                var v = variant.Trim();
+                if (v.Length < 3) continue;
+                if (!seen.Add(v)) continue;
+                yield return v;
+            }
+        }
+    }
+
+    private static IEnumerable<string> ExpandOneKeyword(string keyword)
+    {
+        var k = (keyword ?? "").Trim().TrimEnd(':').Trim();
+        if (k.Length == 0) yield break;
+        yield return k;
+
+        foreach (var marker in new[] { " for ", " - ", " – ", " — " })
+        {
+            var idx = k.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx > 0)
+                yield return k[..idx].Trim().TrimEnd(':').Trim();
+        }
+
+        var words = k.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (var n = words.Length - 1; n >= 2; n--)
+            yield return string.Join(' ', words.Take(n));
+
+        var significant = words
+            .Where(w => w.Length > 2
+                && !w.Equals("for", StringComparison.OrdinalIgnoreCase)
+                && !w.Equals("the", StringComparison.OrdinalIgnoreCase)
+                && !w.Equals("and", StringComparison.OrdinalIgnoreCase)
+                && !w.Equals("with", StringComparison.OrdinalIgnoreCase)
+                && !w.Equals("from", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (significant.Length >= 2 && significant.Length < words.Length)
+            yield return string.Join(' ', significant);
+        if (significant.Length >= 2)
+            yield return string.Join(' ', significant.Take(2));
     }
 
     private static string? TryReadBriefTitle(string? rawBriefJson)
@@ -497,7 +567,7 @@ public class GccV2Controller : ControllerBase
                 job.Id,
                 _user.UserId,
                 "BrandKitAccepted",
-                new { jobId = job.Id, brandKitId, viaSibling = job.Id == acceptedViaJobId ? null : acceptedViaJobId },
+                new { jobId = job.Id, brandKitId, viaSibling = job.Id == acceptedViaJobId ? (Guid?)null : acceptedViaJobId },
                 ct: ct);
             await _events.AppendAsync(job.Id, _user.UserId, "OutlineApproved", new { jobId = job.Id, auto = true }, ct: ct);
             _wake.Wake(job.Id);
@@ -512,7 +582,7 @@ public class GccV2Controller : ControllerBase
             job.Id,
             _user.UserId,
             "BrandKitAccepted",
-            new { jobId = job.Id, brandKitId, viaSibling = job.Id == acceptedViaJobId ? null : acceptedViaJobId },
+            new { jobId = job.Id, brandKitId, viaSibling = job.Id == acceptedViaJobId ? (Guid?)null : acceptedViaJobId },
             ct: ct);
         return outlineJob;
     }

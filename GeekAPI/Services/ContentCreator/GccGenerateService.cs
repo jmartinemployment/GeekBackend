@@ -442,10 +442,59 @@ public class GccGenerateService
         }
 
         return matches
-            .OrderBy(m => m.Kind == "exact-heading" ? 0 : 1)
-            .ThenByDescending(m => m.ChildHeadings.Length)
-            .ThenBy(m => string.Join(" › ", m.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(m =>
+            {
+                var node = FindNodeByPath(pageTrees, m.SourcePageUrl, m.Path);
+                var links = node is null ? 0 : CountSubtreeToolLinks(node);
+                return (Match: m, Links: links);
+            })
+            .OrderBy(x => x.Match.Kind == "exact-heading" ? 0 : 1)
+            .ThenByDescending(x => x.Links)
+            .ThenByDescending(x => x.Match.ChildHeadings.Length)
+            .ThenBy(x => string.Join(" › ", x.Match.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Match)
             .ToList();
+    }
+
+    private static HttpGeekSeoSiteAnalyzerClient.PageSectionDto? FindNodeByPath(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string? pageUrl,
+        string[] path)
+    {
+        var pathWant = string.Join(" › ", path ?? []);
+        var pageWant = NormalizePageUrl(pageUrl);
+        foreach (var page in pageTrees)
+        {
+            if (pageWant.Length > 0 && NormalizePageUrl(page.PageUrl) != pageWant)
+                continue;
+            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
+            try
+            {
+                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
+                    page.TreeJson, JsonOpts);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            if (roots is null) continue;
+            foreach (var (node, nodePath) in WalkSectionsWithPath(roots, []))
+            {
+                if (string.Equals(string.Join(" › ", nodePath), pathWant, StringComparison.OrdinalIgnoreCase))
+                    return node;
+            }
+        }
+
+        return null;
+    }
+
+    private static int CountSubtreeToolLinks(HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
+    {
+        var n = 0;
+        foreach (var s in FlattenSections([node]))
+            n += UniqueToolLinks(s.Links).Count;
+        return n;
     }
 
     public sealed record CrawlTool(string Name, string? Href);
