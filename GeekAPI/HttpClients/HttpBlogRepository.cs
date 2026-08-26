@@ -117,7 +117,13 @@ public sealed class HttpBlogRepository : IBlogRepository
     public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("repo/content/blog", command, ct);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"CMS create post failed ({(int)response.StatusCode} {response.ReasonPhrase}): {TruncateBody(body)}");
+        }
+
         var created = await response.Content.ReadFromJsonAsync<BlogPostFlatDto>(ct);
         return created?.PostId ?? 0;
     }
@@ -126,7 +132,13 @@ public sealed class HttpBlogRepository : IBlogRepository
     {
         var response = await _http.PutAsJsonAsync($"repo/content/blog/{postId}", command, ct);
         if (response.StatusCode == HttpStatusCode.NotFound) return false;
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"CMS update post failed ({(int)response.StatusCode} {response.ReasonPhrase}): {TruncateBody(body)}");
+        }
+
         return true;
     }
 
@@ -173,5 +185,12 @@ public sealed class HttpBlogRepository : IBlogRepository
 
     private static string EncodeSlugPath(string slug) =>
         string.Join('/', slug.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.EscapeDataString));
+
+    private static string TruncateBody(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "(empty body)";
+        var trimmed = body.Trim();
+        return trimmed.Length <= 800 ? trimmed : trimmed[..800] + "…";
+    }
 }
 

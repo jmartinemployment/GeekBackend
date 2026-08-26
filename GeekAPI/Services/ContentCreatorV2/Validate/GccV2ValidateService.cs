@@ -110,20 +110,9 @@ public sealed class GccV2ValidateService
             ? Array.Empty<OverlapHit>()
             : GccV2OverlapGate.Detect(overlapInputs);
 
-        string reviewVerdict;
-        string? reviewNotes;
-        if (contentType is "social" or "image-prompt")
-        {
-            reviewVerdict = "skipped";
-            reviewNotes = null;
-        }
-        else
-        {
-            var reviewResult = await _reviewAdapter.ReviewAsync(
-                wc.Job.ContentType, output.Title, output.MetaDescription, document, wc.BaseContext, wc.Provider.ProviderType, ct);
-            reviewVerdict = reviewResult.Verdict;
-            reviewNotes = reviewResult.Notes;
-        }
+        string reviewVerdict = "skipped";
+        string? reviewNotes = null;
+        // Phase D: skip Groq editorial VALIDATE for all content types — keep overlap + guardrail + polish.
 
         return new GccV2ValidationReport(
             reviewVerdict,

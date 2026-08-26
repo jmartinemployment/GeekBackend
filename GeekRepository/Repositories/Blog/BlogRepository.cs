@@ -406,6 +406,7 @@ public sealed class BlogRepository : IBlogRepository
     public async Task<int> CreatePostAsync(UpsertBlogPostCommand command, CancellationToken ct = default)
     {
         var categoryId = await ResolveCategoryIdAsync(command.CategorySlug, ct);
+        var authorId = await ResolveAuthorIdAsync(command.AuthorId, ct);
         var publishedAt = ResolvePublishedAt(command);
 
         const string insertPostSql = """
@@ -427,7 +428,7 @@ public sealed class BlogRepository : IBlogRepository
         postParams.Add("PostType", command.PostType);
         postParams.Add("SchemaType", command.SchemaType);
         postParams.Add("CategoryId", categoryId);
-        postParams.Add("AuthorId", command.AuthorId);
+        postParams.Add("AuthorId", authorId);
         postParams.Add("CwJobId", command.CwJobId);
         postParams.Add("IsPublished", command.IsPublished);
         postParams.Add("PublishedAt", publishedAt);
@@ -450,6 +451,7 @@ public sealed class BlogRepository : IBlogRepository
         if (!exists) return false;
 
         var categoryId = await ResolveCategoryIdAsync(command.CategorySlug, ct);
+        var authorId = await ResolveAuthorIdAsync(command.AuthorId, ct);
         var publishedAt = ResolvePublishedAt(command);
 
         const string updatePostSql = """
@@ -471,7 +473,7 @@ public sealed class BlogRepository : IBlogRepository
         postParams.Add("PostType", command.PostType);
         postParams.Add("SchemaType", command.SchemaType);
         postParams.Add("CategoryId", categoryId);
-        postParams.Add("AuthorId", command.AuthorId);
+        postParams.Add("AuthorId", authorId);
         postParams.Add("CwJobId", command.CwJobId);
         postParams.Add("IsPublished", command.IsPublished);
         postParams.Add("PublishedAt", publishedAt);
@@ -564,6 +566,29 @@ public sealed class BlogRepository : IBlogRepository
         return categoryId ?? throw new InvalidOperationException(
             $"Unknown category slug '{slug}' — no matching row in geek_blog.categories. " +
             "Categories are a fixed taxonomy; add it there first if it's meant to be a real category.");
+    }
+
+    private async Task<int> ResolveAuthorIdAsync(int? authorId, CancellationToken ct)
+    {
+        if (authorId is > 0)
+        {
+            const string existsSql = "SELECT EXISTS(SELECT 1 FROM geek_blog.users WHERE id = @Id)";
+            var exists = await _ambient.Connection.ExecuteScalarAsync<bool>(
+                new CommandDefinition(
+                    existsSql,
+                    new { Id = authorId.Value },
+                    _ambient.Transaction,
+                    cancellationToken: ct));
+            if (exists) return authorId.Value;
+            throw new InvalidOperationException(
+                $"AuthorId {authorId.Value} does not exist in geek_blog.users.");
+        }
+
+        const string fallbackSql = "SELECT id FROM geek_blog.users ORDER BY id LIMIT 1";
+        var fallback = await _ambient.Connection.ExecuteScalarAsync<int?>(
+            new CommandDefinition(fallbackSql, transaction: _ambient.Transaction, cancellationToken: ct));
+        return fallback ?? throw new InvalidOperationException(
+            "No geek_blog.users row exists — cannot create a post without an author_id.");
     }
 
     private async Task ReplaceSectionsAsync(

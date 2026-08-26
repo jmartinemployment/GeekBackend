@@ -101,6 +101,9 @@ public sealed class GccV2CmsPublishService
             var categorySlug = string.IsNullOrWhiteSpace(request.CategorySlug)
                 ? DefaultCategorySlug(contentType)
                 : request.CategorySlug.Trim();
+            categorySlug = await ResolveCategorySlugAsync(categorySlug, ct);
+
+            var authorId = _company.DefaultBlogAuthorId > 0 ? _company.DefaultBlogAuthorId : (int?)null;
 
             var lede = FlattenPlainText(document.Lede);
             var summary = !string.IsNullOrWhiteSpace(payload.MetaDescription)
@@ -133,6 +136,7 @@ public sealed class GccV2CmsPublishService
                 BlogSummary = summary,
                 AdvertisingSummary = summary,
                 CategorySlug = categorySlug,
+                AuthorId = authorId,
                 CwJobId = job.Id.ToString("D"),
                 Sections = sections,
             };
@@ -244,6 +248,46 @@ public sealed class GccV2CmsPublishService
         "pillar" or "tool" => "use-cases",
         _ => "blog",
     };
+
+    /// <summary>If the preferred slug is missing from the CMS taxonomy, fall back to a blog-like
+    /// category (or the first category) so publish fails with a clear message only when the
+    /// taxonomy is empty.</summary>
+    private async Task<string> ResolveCategorySlugAsync(string preferredSlug, CancellationToken ct)
+    {
+        IReadOnlyList<CategoryDto> categories;
+        try
+        {
+            categories = await _blog.GetCategoriesAsync("en", ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not list blog categories; using preferred slug {Slug}.", preferredSlug);
+            return preferredSlug;
+        }
+
+        if (categories.Count == 0)
+            throw new InvalidOperationException(
+                "geek_blog.categories is empty — seed at least one category before publishing.");
+
+        if (categories.Any(c => string.Equals(c.Slug, preferredSlug, StringComparison.OrdinalIgnoreCase)))
+            return preferredSlug;
+
+        var blogLike = categories.FirstOrDefault(c =>
+            c.Slug.Contains("blog", StringComparison.OrdinalIgnoreCase)
+            || (c.Name?.Contains("blog", StringComparison.OrdinalIgnoreCase) ?? false));
+        if (blogLike is not null)
+        {
+            _logger.LogWarning(
+                "Category slug '{Preferred}' not found; falling back to '{Fallback}'.",
+                preferredSlug, blogLike.Slug);
+            return blogLike.Slug;
+        }
+
+        _logger.LogWarning(
+            "Category slug '{Preferred}' not found; falling back to first category '{Fallback}'.",
+            preferredSlug, categories[0].Slug);
+        return categories[0].Slug;
+    }
 
     private string BuildPublicUrl(string contentType, string languageCode, string slug)
     {

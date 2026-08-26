@@ -33,9 +33,8 @@ internal sealed class OpenAiJsonSchemaSpec
     [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
 
     /// <summary>OpenAI's gpt-4o (2024-08-06+) supports strict:true (grammar-constrained, guaranteed
-    /// schema compliance). Groq's structured outputs only support strict:true on specific models
-    /// (openai/gpt-oss-20b/120b) — not the llama-3.3-70b-versatile this project is configured for —
-    /// so GroqProvider sets this to false (best-effort: schema is a strong hint, not guaranteed).</summary>
+    /// schema compliance). Groq supports strict:true on openai/gpt-oss-20b/120b (our default);
+    /// GroqProvider currently keeps this false (best-effort) until VALIDATE schemas are re-checked.</summary>
     [JsonPropertyName("strict")] public bool Strict { get; set; } = true;
 
     [JsonPropertyName("schema")] public JsonNode? Schema { get; set; }

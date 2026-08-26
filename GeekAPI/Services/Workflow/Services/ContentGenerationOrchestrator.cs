@@ -1770,6 +1770,10 @@ public class CompanyProfileOptions
     public string BlogBaseUrl { get; set; } = "https://geekatyourspot.com/blog";
     public string ToolBaseUrl { get; set; } = "https://geekatyourspot.com/tools";
 
+    /// <summary>geek_blog.users.id used when Content Creator v2 publishes without an explicit author.
+    /// Must reference an existing row (posts.author_id is NOT NULL).</summary>
+    public int DefaultBlogAuthorId { get; set; } = 1;
+
     /// <summary>Google Tag Manager container id (e.g. GTM-K5CXSQRP) injected into exported HTML
     /// head + body noscript. Empty/invalid values skip GTM entirely.</summary>
     public string GtmContainerId { get; set; } = "GTM-K5CXSQRP";

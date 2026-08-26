@@ -51,6 +51,8 @@ public class GccV2CreatesController : ControllerBase
             OwnerUserId = command.OwnerUserId,
             Title = command.Title,
             ContentType = string.IsNullOrWhiteSpace(command.ContentType) ? "blog" : command.ContentType,
+            SiteSectionJson = string.IsNullOrWhiteSpace(command.SiteSectionJson) ? null : command.SiteSectionJson,
+            SiteUrl = string.IsNullOrWhiteSpace(command.SiteUrl) ? null : command.SiteUrl.Trim(),
         };
 
         _db.GccV2Creates.Add(create);
@@ -58,5 +60,10 @@ public class GccV2CreatesController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = create.Id }, create);
     }
 
-    public record CreateGccV2CreateCommand(string OwnerUserId, string Title, string? ContentType);
+    public record CreateGccV2CreateCommand(
+        string OwnerUserId,
+        string Title,
+        string? ContentType,
+        string? SiteSectionJson = null,
+        string? SiteUrl = null);
 }

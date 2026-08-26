@@ -6,9 +6,16 @@ public sealed record GccV2CreateDto(
     string Title,
     string ContentType,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? UpdatedAtUtc);
+    DateTimeOffset? UpdatedAtUtc,
+    string? SiteSectionJson = null,
+    string? SiteUrl = null);
 
-public sealed record CreateGccV2CreateCommand(string OwnerUserId, string Title, string? ContentType);
+public sealed record CreateGccV2CreateCommand(
+    string OwnerUserId,
+    string Title,
+    string? ContentType,
+    string? SiteSectionJson = null,
+    string? SiteUrl = null);
 
 public sealed record GccV2BriefDto(
     Guid Id,

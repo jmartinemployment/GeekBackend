@@ -78,7 +78,10 @@ public class GccV2BrandKitsController : ControllerBase
 
         if (command.KitJson is not null) kit.KitJson = command.KitJson;
         if (command.VoiceStatus is not null) kit.VoiceStatus = command.VoiceStatus;
-        if (command.AcceptedAtUtc is not null) kit.AcceptedAtUtc = command.AcceptedAtUtc;
+        if (command.AcceptedAtUtc is not null)
+            kit.AcceptedAtUtc = command.AcceptedAtUtc;
+        else if (string.Equals(command.VoiceStatus, "provisional", StringComparison.OrdinalIgnoreCase))
+            kit.AcceptedAtUtc = null;
 
         await _db.SaveChangesAsync(ct);
         return Ok(kit);

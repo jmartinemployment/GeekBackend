@@ -6,6 +6,10 @@ public class GccV2Create
     public string OwnerUserId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string ContentType { get; set; } = "blog";
+    /// <summary>v1 <c>SiteSectionContext</c> JSON — required when writing for a crawled property.</summary>
+    public string? SiteSectionJson { get; set; }
+    /// <summary>Human-readable project site URL shown as Writing for: …</summary>
+    public string? SiteUrl { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAtUtc { get; set; }
 }

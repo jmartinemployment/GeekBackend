@@ -164,10 +164,17 @@ public sealed class BlogPostsController : ControllerBase
     {
         int postId = 0;
 
-        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+        try
         {
-            postId = await _blog.CreatePostAsync(command, ct);
-        }, ct);
+            await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
+            {
+                postId = await _blog.CreatePostAsync(command, ct);
+            }, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
         BlogPostFlatDto? created = null;
 

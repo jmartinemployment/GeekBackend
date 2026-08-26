@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Enums;
@@ -32,26 +33,31 @@ public sealed class GccV2ContextAdapter
         _logger = logger;
     }
 
-    /// <summary>Builds the base per-job context shared by every section call. Per-section
-    /// assignment (job/hierarchy children) is layered on with <see cref="WithSectionAssignment"/>.</summary>
+    /// Builds the base per-job context. Brand kit company/website are required — never fall back
+    /// to appsettings PublisherName (Geek At Your Spot) as the writer identity.
+    /// </summary>
     public ProjectGenerationContext BuildContext(
         GccV2BriefDto brief,
-        GccV2BrandKitContent? brandKit,
-        LlmProviderType provider)
+        GccV2BrandKitContent brandKit,
+        LlmProviderType provider,
+        SiteSectionContextDto? siteSection = null)
     {
         var fields = ParseBriefFields(brief.RawBriefJson);
         var targetKeyword = string.IsNullOrWhiteSpace(brief.TargetKeyword) ? "this topic" : brief.TargetKeyword;
 
-        var paragraphs = BuildNotesParagraphs(fields, brandKit);
-        var siteName = FirstNonEmpty(brandKit?.CompanyName, _company.PublisherName);
-        var publisherName = FirstNonEmpty(brandKit?.CompanyName, _company.PublisherName);
+        if (string.IsNullOrWhiteSpace(brandKit.CompanyName))
+            throw new InvalidOperationException("Brand kit is missing companyName — cannot write without site identity.");
+        if (string.IsNullOrWhiteSpace(brandKit.Website))
+            throw new InvalidOperationException("Brand kit is missing website — cannot write without project site URL.");
+
+        var paragraphs = BuildNotesParagraphs(fields, brandKit, siteSection);
 
         return new ProjectGenerationContext(
             ProjectName: targetKeyword,
-            ProjectUrl: FirstNonEmpty(brandKit?.Website, _company.ArticleBaseUrl)!,
+            ProjectUrl: brandKit.Website!,
             TargetKeyword: targetKeyword,
             Department: "marketing",
-            SiteName: siteName!,
+            SiteName: brandKit.CompanyName!,
             DetectedTone: "Professional, consultative",
             DetectedFocus: targetKeyword,
             CrawledHeadings: [],
@@ -59,13 +65,13 @@ public sealed class GccV2ContextAdapter
             JsonLdStructuredSummary: null,
             KeywordSources: [],
             PeopleAlsoAskQuestions: SplitLines(fields.PaaQuestions).ToList(),
-            PublisherName: publisherName!,
+            PublisherName: brandKit.CompanyName!,
             PublisherLogoUrl: _company.PublisherLogoUrl,
             AuthorName: _company.AuthorName,
-            ArticleBaseUrl: _company.ArticleBaseUrl,
+            ArticleBaseUrl: brandKit.Website!,
             BlogBaseUrl: _company.BlogBaseUrl,
             ToolBaseUrl: _company.ToolBaseUrl,
-            ImplementerPositioning: _company.ImplementerPositioning,
+            ImplementerPositioning: FirstNonEmpty(brandKit.PositioningOneLiner, _company.ImplementerPositioning)!,
             Provider: provider,
             UseExactKeywordAsTitle: false,
             DesiredHeadings: null,
@@ -120,7 +126,10 @@ public sealed class GccV2ContextAdapter
         return context with { WritingNotes = writingNotes };
     }
 
-    private static List<string> BuildNotesParagraphs(BriefFields fields, GccV2BrandKitContent? kit)
+    private static List<string> BuildNotesParagraphs(
+        BriefFields fields,
+        GccV2BrandKitContent kit,
+        SiteSectionContextDto? siteSection)
     {
         var paragraphs = new List<string>();
 
@@ -134,11 +143,6 @@ public sealed class GccV2ContextAdapter
         if (related.Count > 0)
         {
             paragraphs.Add("Related searches: " + string.Join(", ", related));
-        }
-
-        if (kit is null)
-        {
-            return paragraphs;
         }
 
         if (!string.IsNullOrWhiteSpace(kit.CompanyName))
@@ -177,7 +181,108 @@ public sealed class GccV2ContextAdapter
             paragraphs.Add("Preferred CTA phrasing already used on the site: " + string.Join(", ", kit.CtaPhrases));
         }
 
+        paragraphs.Add(
+            "Write as a coherent story for this use-case: situation and stakes, how practitioners solve it, "
+            + "where partner tools fit in context, then a clear close. Do not write a listicle or a dedicated "
+            + "\"Top N tools\" / roundup section — weave tool mentions as inline anchors in prose when natural. "
+            + "Never use a partner product name as a section heading; if a section title is a product name, "
+            + "treat that as a mistake — write narrative advancing the use-case and mention that product once inline.");
+
+        // Soft site-belonging: matched use-case (e.g. H5 under AI Use Cases) + recommended tools (H6 / links).
+        if (!string.IsNullOrWhiteSpace(fields.MatchedHeading))
+        {
+            var where = fields.HierarchyPath is { Count: > 0 }
+                ? " (on-site path: " + string.Join(" › ", fields.HierarchyPath) + ")"
+                : "";
+            paragraphs.Add(
+                $"This piece belongs to the site's use-case heading \"{fields.MatchedHeading}\"{where}. "
+                + "Relate the article to that use-case so it feels like part of this site — not a standalone generic essay.");
+        }
+
+        var partnerTools = MergePartnerTools(fields.RecommendedTools, fields.OperatorTools);
+        if (partnerTools.Count > 0)
+        {
+            var toolList = string.Join(" | ", partnerTools.Select(t =>
+                string.IsNullOrWhiteSpace(t.Href) ? t.Name : $"{t.Name} <{t.Href}>"));
+            paragraphs.Add(
+                "Partner / recommended tools allowlist (prospective partners from the site use-case and/or "
+                + "operator-supplied URLs). When discussing tools or solutions, weave several of these into the "
+                + "story with real hrefs; do not invent unrelated tools; do not open a separate tools roundup section: "
+                + toolList);
+        }
+
+        if (siteSection?.RelatedPages is { Count: > 0 } pages)
+        {
+            // Prefer use-case / methodology / non-tool pages for internal links. Tool URLs from the
+            // crawl-wide bag must not compete with the partner allowlist above.
+            var ordered = PreferNonToolInternalPages(pages);
+            if (partnerTools.Count > 0)
+            {
+                paragraphs.Add(
+                    "Internal link candidates for non-tool site pages (use-case, methodology, etc.). "
+                    + "Do not use these as tool/partner links — those must come from the allowlist above: "
+                    + string.Join(" | ", ordered.Select(p => $"{p.Title} <{p.Url}>")));
+            }
+            else
+            {
+                paragraphs.Add(
+                    "Internal link candidates from this site's related pages: "
+                    + string.Join(" | ", ordered.Select(p => $"{p.Title} <{p.Url}>")));
+            }
+
+            foreach (var page in ordered.Take(5))
+            {
+                if (!string.IsNullOrWhiteSpace(page.Excerpt))
+                    paragraphs.Add($"From {page.Url}: {page.Excerpt}");
+            }
+        }
+
+        if (siteSection?.TopicalNeighbors is { Count: > 0 } neighbors)
+        {
+            paragraphs.Add("Topical neighbors on this site: " + string.Join(", ", neighbors));
+        }
+
         return paragraphs;
+    }
+
+    private static IReadOnlyList<RecommendedTool> MergePartnerTools(
+        IReadOnlyList<RecommendedTool> recommended,
+        IReadOnlyList<RecommendedTool> operatorTools)
+    {
+        var merged = new List<RecommendedTool>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in recommended.Concat(operatorTools))
+        {
+            if (string.IsNullOrWhiteSpace(t.Name) && string.IsNullOrWhiteSpace(t.Href)) continue;
+            var key = !string.IsNullOrWhiteSpace(t.Href) ? t.Href! : t.Name;
+            if (!seen.Add(key)) continue;
+            var name = string.IsNullOrWhiteSpace(t.Name)
+                ? (t.Href ?? "tool")
+                : t.Name;
+            merged.Add(new RecommendedTool(name.Trim(), string.IsNullOrWhiteSpace(t.Href) ? null : t.Href!.Trim()));
+        }
+
+        return merged;
+    }
+
+    private static IReadOnlyList<RelatedPageDto> PreferNonToolInternalPages(IReadOnlyList<RelatedPageDto> pages) =>
+        pages
+            .OrderByDescending(p => NonToolInternalScore(p.Url, p.Title))
+            .ThenBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static int NonToolInternalScore(string? url, string? title)
+    {
+        var u = (url ?? "").ToLowerInvariant();
+        var t = (title ?? "").ToLowerInvariant();
+        var score = 0;
+        if (u.Contains("/use-case") || u.Contains("/usecase") || u.Contains("ai-use")) score += 50;
+        if (u.Contains("/methodolog") || t.Contains("methodolog")) score += 40;
+        if (u.Contains("/integration") || t.Contains("integration")) score += 30;
+        if (t.Contains("clone yourself") || t.Contains("consultation")) score += 20;
+        // Demote crawl-wide tool pages so they don't steal partner-link slots.
+        if (u.Contains("/tool")) score -= 40;
+        return score;
     }
 
     private BriefFields ParseBriefFields(string rawBriefJson)
@@ -194,6 +299,9 @@ public sealed class GccV2ContextAdapter
             {
                 return new BriefFields();
             }
+
+            var (matchedHeading, hierarchyPath, recommendedTools) = ParseHierarchyPlan(rawBriefJson);
+            var operatorTools = ParseOperatorTools(rawBriefJson);
 
             return new BriefFields
             {
@@ -214,12 +322,125 @@ public sealed class GccV2ContextAdapter
                 SerpUrls = raw.SerpUrls ?? "",
                 PaaQuestions = raw.PaaQuestions ?? "",
                 RelatedSearches = raw.RelatedSearches ?? "",
+                MatchedHeading = matchedHeading,
+                HierarchyPath = hierarchyPath,
+                RecommendedTools = recommendedTools,
+                OperatorTools = operatorTools,
             };
         }
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "Could not parse GccV2Brief.RawBriefJson; writing with an empty brief.");
             return new BriefFields();
+        }
+    }
+
+    private static (string? MatchedHeading, IReadOnlyList<string> Path, IReadOnlyList<RecommendedTool> Tools)
+        ParseHierarchyPlan(string rawBriefJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!doc.RootElement.TryGetProperty("hierarchyPlan", out var plan)
+                || plan.ValueKind != JsonValueKind.Object)
+                return (null, [], []);
+
+            string? matched = null;
+            if (plan.TryGetProperty("matchedHeading", out var mh) && mh.ValueKind == JsonValueKind.String)
+                matched = mh.GetString();
+
+            var path = new List<string>();
+            if (plan.TryGetProperty("path", out var pathEl) && pathEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var p in pathEl.EnumerateArray())
+                {
+                    if (p.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(p.GetString()))
+                        path.Add(p.GetString()!.Trim());
+                }
+            }
+
+            var tools = new List<RecommendedTool>();
+            if (plan.TryGetProperty("recommendedTools", out var toolsEl) && toolsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in toolsEl.EnumerateArray())
+                {
+                    if (t.ValueKind != JsonValueKind.Object) continue;
+                    var name = t.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    var href = t.TryGetProperty("href", out var h) && h.ValueKind == JsonValueKind.String
+                        ? h.GetString()
+                        : null;
+                    tools.Add(new RecommendedTool(name.Trim(), string.IsNullOrWhiteSpace(href) ? null : href.Trim()));
+                }
+            }
+
+            // Do not fall back to "Top … Tools" child heading labels as tool names — those are
+            // roundup labels, not partners. Partner names come from link extract (+ operator URLs).
+
+            return (matched, path, tools);
+        }
+        catch (JsonException)
+        {
+            return (null, [], []);
+        }
+    }
+
+    private static IReadOnlyList<RecommendedTool> ParseOperatorTools(string rawBriefJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!doc.RootElement.TryGetProperty("operatorTools", out var arr)
+                || arr.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var tools = new List<RecommendedTool>();
+            foreach (var t in arr.EnumerateArray())
+            {
+                if (t.ValueKind == JsonValueKind.String)
+                {
+                    var url = t.GetString()?.Trim();
+                    if (string.IsNullOrWhiteSpace(url)) continue;
+                    tools.Add(new RecommendedTool(GuessToolName(url), url));
+                    continue;
+                }
+
+                if (t.ValueKind != JsonValueKind.Object) continue;
+                var href = t.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String
+                    ? u.GetString()
+                    : t.TryGetProperty("href", out var h) && h.ValueKind == JsonValueKind.String
+                        ? h.GetString()
+                        : null;
+                var name = t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                    ? n.GetString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(href) && string.IsNullOrWhiteSpace(name)) continue;
+                tools.Add(new RecommendedTool(
+                    string.IsNullOrWhiteSpace(name) ? GuessToolName(href!) : name!.Trim(),
+                    string.IsNullOrWhiteSpace(href) ? null : href!.Trim()));
+            }
+
+            return tools;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string GuessToolName(string url)
+    {
+        try
+        {
+            var path = new Uri(url, UriKind.RelativeOrAbsolute).IsAbsoluteUri
+                ? new Uri(url).AbsolutePath
+                : url;
+            var segment = path.Trim('/').Split('/').LastOrDefault() ?? url;
+            return string.IsNullOrWhiteSpace(segment) ? url : segment.Replace('-', ' ');
+        }
+        catch (UriFormatException)
+        {
+            return url;
         }
     }
 
@@ -274,5 +495,11 @@ public sealed class GccV2ContextAdapter
         public string SerpUrls { get; init; } = "";
         public string PaaQuestions { get; init; } = "";
         public string RelatedSearches { get; init; } = "";
+        public string? MatchedHeading { get; init; }
+        public IReadOnlyList<string> HierarchyPath { get; init; } = [];
+        public IReadOnlyList<RecommendedTool> RecommendedTools { get; init; } = [];
+        public IReadOnlyList<RecommendedTool> OperatorTools { get; init; } = [];
     }
+
+    private sealed record RecommendedTool(string Name, string? Href);
 }

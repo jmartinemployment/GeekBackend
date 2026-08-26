@@ -41,6 +41,7 @@ public class GroqOptions
 {
     public string BaseUrl { get; set; } = "https://api.groq.com/openai/v1/chat/completions";
     public string ApiKey { get; set; } = string.Empty;
-    public string Model { get; set; } = "llama-3.3-70b-versatile";
+    // Groq retired llama-3.3-70b-versatile (2026-08-16); gpt-oss-120b is their recommended replacement.
+    public string Model { get; set; } = "openai/gpt-oss-120b";
     public int TimeoutSeconds { get; set; } = 120;
 }

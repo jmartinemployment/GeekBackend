@@ -111,10 +111,21 @@ public sealed class GccV2WriteService
     {
         var brief = await _repo.GetBriefAsync(job.BriefId, ct)
             ?? throw new InvalidOperationException($"Brief {job.BriefId} not found for job {job.Id}.");
-        var brandKit = await LoadBrandKitAsync(job.SiteAnalysisProfileId, ct);
+
+        if (job.SiteAnalysisProfileId is not { } profileId)
+            throw new InvalidOperationException("WRITE requires a siteAnalysisProfileId — start from Site Analyzer.");
+
+        var (brandKit, kitDto) = await LoadAcceptedBrandKitAsync(profileId, ct);
+        var create = await _repo.GetCreateAsync(job.CreateId, ct)
+            ?? throw new InvalidOperationException($"Create {job.CreateId} not found for job {job.Id}.");
+        var siteSection = GeekAPI.Services.ContentCreator.GccGenerateService.ParseSiteSection(create.SiteSectionJson);
+        if (siteSection is null || siteSection.RelatedPages is null || siteSection.RelatedPages.Count == 0)
+            throw new InvalidOperationException("WRITE requires create.SiteSectionJson with non-empty relatedPages.");
+
         var outline = await LoadOutlineAsync(job.Id, ct);
         var provider = _providers.GetDefault();
-        var baseContext = _contextAdapter.BuildContext(brief, brandKit, provider.ProviderType);
+        var baseContext = _contextAdapter.BuildContext(brief, brandKit, provider.ProviderType, siteSection);
+        _ = kitDto;
         return new GccV2WriteContext(job, brief, brandKit, outline, baseContext, provider);
     }
 
@@ -166,7 +177,6 @@ public sealed class GccV2WriteService
             string.IsNullOrWhiteSpace(title) ? wc.BaseContext.TargetKeyword : title, "", [], headings);
 
         Section section;
-        var fallback = false;
         var tokens = 0;
         try
         {
@@ -180,13 +190,12 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Rewrite of section \"{Heading}\" failed for job {JobId}; keeping a fallback stub.", target.Heading, wc.Job.Id);
-            section = BuildFallbackStubSection(target.Heading, wc.BaseContext.TargetKeyword, target.Job);
-            fallback = true;
+            _logger.LogError(ex, "Rewrite of section \"{Heading}\" failed for job {JobId}.", target.Heading, wc.Job.Id);
+            throw;
         }
 
         section = section with { Heading = target.Heading, Tag = "h2" };
-        var write = new GccV2WriteSection(target.SectionKey, target.Heading, target.Job, section, fallback);
+        var write = new GccV2WriteSection(target.SectionKey, target.Heading, target.Job, section, false);
         await PersistAndEmitAsync(wc, ownerUserId, stage, eventType, write, tokens, ct);
         return write;
     }
@@ -200,7 +209,6 @@ public sealed class GccV2WriteService
 
         var ledeContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, "Lede", "problem", null);
         Section ledeSection;
-        var ledeFallback = false;
         var ledeTokens = 0;
         try
         {
@@ -215,12 +223,11 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Pillar lede generation failed for job {JobId}; using fallback stub.", wc.Job.Id);
-            ledeSection = BuildFallbackStubSection("Opening", wc.BaseContext.TargetKeyword, "problem");
-            ledeFallback = true;
+            _logger.LogError(ex, "Pillar lede generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
 
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, ledeFallback);
+        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, ledeTokens, ct);
 
         var sections = new List<GccV2WriteSection>();
@@ -231,7 +238,6 @@ public sealed class GccV2WriteService
             var sectionContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, entry.Heading, entry.Job, entry.HierarchyChildHeadings);
 
             Section section;
-            var fallback = false;
             var tokens = 0;
             try
             {
@@ -243,13 +249,12 @@ public sealed class GccV2WriteService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Pillar section \"{Heading}\" generation failed for job {JobId}; using fallback stub.", entry.Heading, wc.Job.Id);
-                section = BuildFallbackStubSection(entry.Heading, wc.BaseContext.TargetKeyword, entry.Job);
-                fallback = true;
+                _logger.LogError(ex, "Pillar section \"{Heading}\" generation failed for job {JobId}.", entry.Heading, wc.Job.Id);
+                throw;
             }
 
             section = section with { Heading = entry.Heading, Tag = "h2" };
-            var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, fallback);
+            var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, false);
             await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, tokens, ct);
             sections.Add(write);
             tokensUsed += tokens;
@@ -275,7 +280,6 @@ public sealed class GccV2WriteService
 
         var ledeContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, "Lede", "problem", null);
         Section ledeSection;
-        var ledeFallback = false;
         var ledeTokens = 0;
         try
         {
@@ -285,12 +289,11 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Blog lede generation failed for job {JobId}; using fallback stub.", wc.Job.Id);
-            ledeSection = BuildFallbackStubSection("Opening", wc.BaseContext.TargetKeyword, "problem");
-            ledeFallback = true;
+            _logger.LogError(ex, "Blog lede generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
 
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, ledeFallback);
+        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, ledeTokens, ct);
 
         var sections = new List<GccV2WriteSection>();
@@ -301,7 +304,6 @@ public sealed class GccV2WriteService
             var sectionContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, entry.Heading, entry.Job, entry.HierarchyChildHeadings);
 
             Section section;
-            var fallback = false;
             var tokens = 0;
             try
             {
@@ -313,13 +315,12 @@ public sealed class GccV2WriteService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Blog section \"{Heading}\" generation failed for job {JobId}; using fallback stub.", entry.Heading, wc.Job.Id);
-                section = BuildFallbackStubSection(entry.Heading, wc.BaseContext.TargetKeyword, entry.Job);
-                fallback = true;
+                _logger.LogError(ex, "Blog section \"{Heading}\" generation failed for job {JobId}.", entry.Heading, wc.Job.Id);
+                throw;
             }
 
             section = section with { Heading = entry.Heading, Tag = "h2" };
-            var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, fallback);
+            var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, false);
             await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, tokens, ct);
             sections.Add(write);
             tokensUsed += tokens;
@@ -345,7 +346,6 @@ public sealed class GccV2WriteService
 
         IReadOnlyList<Section> parsedSections;
         var tokens = 0;
-        var fallback = false;
         try
         {
             var result = await wc.Provider.CompleteAsync(
@@ -355,20 +355,15 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Tool body generation failed for job {JobId}; using fallback stubs.", wc.Job.Id);
-            parsedSections =
-            [
-                BuildFallbackStubSection("Overview", keyword, "problem"),
-                BuildFallbackStubSection("Key Capabilities", keyword, "advance"),
-            ];
-            fallback = true;
+            _logger.LogError(ex, "Tool body generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
 
         if (parsedSections.Count == 0)
-            parsedSections = [BuildFallbackStubSection("Overview", keyword, "problem")];
+            throw new InvalidOperationException("Tool body generation returned no sections.");
 
         var ledeSection = parsedSections[0] with { Tag = "h2" };
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, fallback);
+        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
 
         var sections = new List<GccV2WriteSection>();
@@ -377,7 +372,7 @@ public sealed class GccV2WriteService
             var section = parsedSections[i] with { Tag = "h2" };
             var key = Slugify(section.Heading);
             if (string.IsNullOrWhiteSpace(key)) key = $"section-{i}";
-            var write = new GccV2WriteSection(key, section.Heading, "advance", section, fallback);
+            var write = new GccV2WriteSection(key, section.Heading, "advance", section, false);
             await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, 0, ct);
             sections.Add(write);
         }
@@ -398,7 +393,6 @@ public sealed class GccV2WriteService
         var articleUrl = wc.BaseContext.ArticleBaseUrl ?? "https://example.com/article";
         ColdOutreachEmailDraft draft;
         var tokens = 0;
-        var fallback = false;
         try
         {
             var result = await wc.Provider.CompleteAsync(
@@ -408,12 +402,8 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Email generation failed for job {JobId}; using fallback stub.", wc.Job.Id);
-            draft = new ColdOutreachEmailDraft(
-                $"Quick idea on {wc.BaseContext.TargetKeyword}",
-                BuildFallbackStubSection("Email", wc.BaseContext.TargetKeyword, null).Paragraphs.OfType<TextParagraph>().FirstOrDefault()?.Runs.FirstOrDefault()?.Text ?? "Stub email body.",
-                "Read more");
-            fallback = true;
+            _logger.LogError(ex, "Email generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
 
         var ledeSection = new Section(
@@ -422,7 +412,7 @@ public sealed class GccV2WriteService
             [new TextParagraph([new Run(draft.BodyText)]), new TextParagraph([new Run($"CTA: {draft.CtaLabel}")])],
             null,
             []);
-        var ledeWrite = new GccV2WriteSection("email-body", draft.Subject, "problem", ledeSection, fallback);
+        var ledeWrite = new GccV2WriteSection("email-body", draft.Subject, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
 
         return new GccV2WriteOutput
@@ -442,7 +432,6 @@ public sealed class GccV2WriteService
         var articleUrl = wc.BaseContext.ArticleBaseUrl ?? "https://example.com/article";
         string text;
         var tokens = 0;
-        var fallback = false;
         try
         {
             var result = await wc.Provider.CompleteAsync(
@@ -452,9 +441,8 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Social generation failed for job {JobId}; using fallback stub.", wc.Job.Id);
-            text = $"Stub {platform} post about {wc.BaseContext.TargetKeyword}. {articleUrl}";
-            fallback = true;
+            _logger.LogError(ex, "Social generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
 
         var ledeSection = new Section(
@@ -463,7 +451,7 @@ public sealed class GccV2WriteService
             [new TextParagraph([new Run(text)])],
             null,
             []);
-        var ledeWrite = new GccV2WriteSection("social-post", ledeSection.Heading, "problem", ledeSection, fallback);
+        var ledeWrite = new GccV2WriteSection("social-post", ledeSection.Heading, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
 
         return new GccV2WriteOutput
@@ -482,7 +470,6 @@ public sealed class GccV2WriteService
         var articleUrl = wc.BaseContext.ArticleBaseUrl ?? "https://example.com/article";
         AdvertisingDraft draft;
         var tokens = 0;
-        var fallback = false;
         try
         {
             var result = await wc.Provider.CompleteAsync(
@@ -492,12 +479,8 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Ads generation failed for job {JobId}; using fallback stub.", wc.Job.Id);
-            draft = new AdvertisingDraft(
-                source.Title,
-                $"Sponsored overview of {wc.BaseContext.TargetKeyword} for decision-makers evaluating implementation options.",
-                Truncate(source.MetaDescription, 160));
-            fallback = true;
+            _logger.LogError(ex, "Ads generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
 
         var ledeSection = new Section(
@@ -506,7 +489,7 @@ public sealed class GccV2WriteService
             [new TextParagraph([new Run(draft.BodyText)])],
             null,
             []);
-        var ledeWrite = new GccV2WriteSection("ads-body", draft.Title, "problem", ledeSection, fallback);
+        var ledeWrite = new GccV2WriteSection("ads-body", draft.Title, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
 
         return new GccV2WriteOutput
@@ -526,7 +509,6 @@ public sealed class GccV2WriteService
         var notes = wc.BaseContext.WritingNotes;
         ImagePromptDraft draft;
         var tokens = 0;
-        var fallback = false;
         try
         {
             var result = await wc.Provider.CompleteAsync(
@@ -536,14 +518,8 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Image prompt generation failed for job {JobId}; using fallback stub.", wc.Job.Id);
-            draft = new ImagePromptDraft(
-                $"Flat vector infographic illustrating {topic}, professional B2B tech aesthetic, no readable text.",
-                "Illustration",
-                "text, logos, watermarks",
-                "16:9",
-                "Stub prompt — configure LLM provider for a live image prompt.");
-            fallback = true;
+            _logger.LogError(ex, "Image prompt generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
 
         var ledeSection = new Section(
@@ -553,7 +529,7 @@ public sealed class GccV2WriteService
             null,
             [],
             draft.Prompt);
-        var ledeWrite = new GccV2WriteSection("image-prompt", topic, "problem", ledeSection, fallback);
+        var ledeWrite = new GccV2WriteSection("image-prompt", topic, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
 
         return new GccV2WriteOutput
@@ -566,39 +542,9 @@ public sealed class GccV2WriteService
         };
     }
 
-    /// <summary>Unknown content types still complete — short stub sections rather than leaving the job stuck.</summary>
-    private async Task<GccV2WriteOutput> WriteStubAsync(GccV2WriteContext wc, Guid ownerUserId, string contentType, CancellationToken ct)
-    {
-        var outlineSections = wc.Outline.Sections.Count > 0
-            ? wc.Outline.Sections
-            : [new GccV2OutlineSection("body-1", "Overview", "problem", [])];
-
-        var title = Capitalize(wc.BaseContext.TargetKeyword);
-        var ledeSection = new Section(
-            "h2",
-            title,
-            [new TextParagraph([new Run(
-                $"Short {contentType} stub for \"{wc.BaseContext.TargetKeyword}\" — unknown content type; " +
-                "this completes with a short placeholder draft so the job still reaches done.")])],
-            null,
-            []);
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, true);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, 0, ct);
-
-        var sections = new List<GccV2WriteSection>();
-        foreach (var entry in outlineSections)
-        {
-            var section = new Section(
-                "h2", entry.Heading,
-                [new TextParagraph([new Run($"Stub {contentType} content for \"{entry.Heading}\".")])],
-                null, []);
-            var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, true);
-            await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, 0, ct);
-            sections.Add(write);
-        }
-
-        return new GccV2WriteOutput { Title = title, MetaDescription = null, Lede = ledeWrite, Sections = sections, TokensUsed = 0 };
-    }
+    /// <summary>Unknown content types fail the job — no stub drafts.</summary>
+    private Task<GccV2WriteOutput> WriteStubAsync(GccV2WriteContext wc, Guid ownerUserId, string contentType, CancellationToken ct) =>
+        throw new InvalidOperationException($"Unsupported content type for WRITE: {contentType}.");
 
     private async Task<ArticleMetadataDraft> GeneratePillarMetadataAsync(GccV2WriteContext wc, List<string> headings, CancellationToken ct)
     {
@@ -665,47 +611,21 @@ public sealed class GccV2WriteService
         }
     }
 
-    /// <summary>
-    /// LLM-failure fallback. Intentionally reuses the same problem/solution boilerplate for every
-    /// section it stands in for (only the heading and a short per-section tail sentence differ) —
-    /// if two or more sections fall back at once (e.g. no provider keys configured), VALIDATE's
-    /// <see cref="Validate.GccV2OverlapGate"/> is expected to flag the resulting duplicate, exactly
-    /// as it would a real LLM writing the same pain/fix twice under two headings. See
-    /// <see cref="Validate.GccV2OverlapGate.BuildOverlappingFixture"/> for the deterministic,
-    /// LLM-free version of this same scenario used for testing the gate itself.
-    /// </summary>
-    public static Section BuildFallbackStubSection(string heading, string targetKeyword, string? job)
+    private async Task<(GccV2BrandKitContent Kit, GccV2BrandKitDto Dto)> LoadAcceptedBrandKitAsync(
+        Guid profileId,
+        CancellationToken ct)
     {
-        var keyword = string.IsNullOrWhiteSpace(targetKeyword) ? "this process" : targetKeyword;
-        var boilerplate =
-            $"Teams still lose hours every week to slow, manual, error-prone work around {keyword}, and the cost " +
-            "of that inefficiency compounds. The solution is automating the workflow with an AI-assisted system " +
-            "that eliminates repetitive manual review and reduces risk.";
-        var tail = string.IsNullOrWhiteSpace(job)
-            ? $"This stub stands in for \"{heading}\" until a live LLM call succeeds."
-            : $"This stub stands in for \"{heading}\" (assigned job: {job}) until a live LLM call succeeds.";
+        var kits = await _repo.ListBrandKitsByProfileAsync(profileId, ct);
+        var kitDto = kits.FirstOrDefault()
+            ?? throw new InvalidOperationException($"No brand kit for profile {profileId}.");
+        if (!string.Equals(kitDto.VoiceStatus, "accepted", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Brand kit must be accepted before WRITE.");
 
-        return new Section(
-            "h2", heading,
-            [new TextParagraph([new Run(boilerplate)]), new TextParagraph([new Run(tail)])],
-            null, []);
-    }
-
-    private async Task<GccV2BrandKitContent?> LoadBrandKitAsync(Guid? profileId, CancellationToken ct)
-    {
-        if (profileId is not { } id) return null;
-
-        try
-        {
-            var kits = await _repo.ListBrandKitsByProfileAsync(id, ct);
-            var kit = kits.FirstOrDefault();
-            return kit is null ? null : JsonSerializer.Deserialize<GccV2BrandKitContent>(kit.KitJson, JsonOpts);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not load brand kit for profile {ProfileId}; writing without it.", id);
-            return null;
-        }
+        var kit = JsonSerializer.Deserialize<GccV2BrandKitContent>(kitDto.KitJson, JsonOpts)
+            ?? throw new InvalidOperationException("Brand kit JSON could not be parsed.");
+        if (string.IsNullOrWhiteSpace(kit.CompanyName) || string.IsNullOrWhiteSpace(kit.Website))
+            throw new InvalidOperationException("Accepted brand kit is missing companyName or website.");
+        return (kit, kitDto);
     }
 
     private async Task<GccV2Outline> LoadOutlineAsync(Guid jobId, CancellationToken ct)

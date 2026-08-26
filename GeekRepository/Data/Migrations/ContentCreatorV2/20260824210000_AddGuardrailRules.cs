@@ -1,10 +1,14 @@
 using System;
+using GeekRepository.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace GeekRepository.Data.Migrations.ContentCreatorV2;
 
+[DbContext(typeof(ContentCreatorV2DbContext))]
+[Migration("20260824210000_AddGuardrailRules")]
 public partial class AddGuardrailRules : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

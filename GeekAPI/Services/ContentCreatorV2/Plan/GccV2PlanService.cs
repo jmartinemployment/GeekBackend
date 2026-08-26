@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using GeekAPI.HttpClients;
 
 namespace GeekAPI.Services.ContentCreatorV2.Plan;
@@ -30,6 +31,11 @@ public sealed class GccV2PlanService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    /// <summary>Homepage H6 roundup labels (e.g. "Top AI Chatbot Tools:") — never promote to outline H2s.</summary>
+    private static readonly Regex ToolRoundupHeading = new(
+        @"^\s*top\b|\btools?\s*:?\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private readonly HttpGccV2Repository _repo;
     private readonly ILogger<GccV2PlanService> _logger;
 
@@ -39,17 +45,35 @@ public sealed class GccV2PlanService
         _logger = logger;
     }
 
-    public async Task<GccV2PlanOutline> BuildOutlineAsync(GccV2JobDto job, GccV2BriefDto brief, CancellationToken ct)
+    public async Task<GccV2PlanOutline> BuildOutlineAsync(
+        GccV2JobDto job,
+        GccV2BriefDto brief,
+        CancellationToken ct,
+        IReadOnlyList<string>? childHeadingsOverride = null,
+        bool preferSiteStructure = false,
+        int regenerateVariant = 0)
     {
-        var childHeadings = ExtractHierarchyChildHeadings(brief.RawBriefJson);
+        var childHeadings = childHeadingsOverride is { Count: > 0 }
+            ? childHeadingsOverride.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+            : ExtractHierarchyChildHeadings(brief.RawBriefJson);
+        var partnerToolNames = ExtractRecommendedToolNames(brief.RawBriefJson);
+        // Partner H6 names (Intercom, …) and "Top … Tools" labels never become outline H2s.
+        var topicChildren = FilterOutlineHeadings(childHeadings, partnerToolNames);
+        // Stale crawl / missing recommendedTools: short product-like children are still partners, not sections.
+        if (partnerToolNames.Count == 0 && LookLikePartnerProductHeadings(topicChildren))
+            topicChildren = [];
         var keyword = ResolveKeyword(brief);
         var contentType = string.IsNullOrWhiteSpace(job.ContentType)
             ? (string.IsNullOrWhiteSpace(brief.ContentType) ? "blog" : brief.ContentType)
             : job.ContentType;
         contentType = contentType.Trim().ToLowerInvariant();
 
-        var (sectionDefs, headingsFromHierarchy) = BuildSectionDefinitions(contentType, keyword, childHeadings);
-        var perSectionChildren = PartitionChildHeadings(childHeadings, sectionDefs.Count, headingsFromHierarchy);
+        var (sectionDefs, headingsFromHierarchy) = BuildSectionDefinitions(
+            contentType, keyword, topicChildren, preferSiteStructure, regenerateVariant);
+        sectionDefs = DedupeByHeading(sectionDefs);
+        // Do not assign partner tool names as must-mention chips — those belong in WRITE allowlist only.
+        var perSectionChildren = PartitionChildHeadings(topicChildren, sectionDefs.Count, headingsFromHierarchy);
 
         var sections = sectionDefs
             .Select((def, i) => new GccV2PlanOutlineSection(
@@ -59,7 +83,7 @@ public sealed class GccV2PlanService
                 perSectionChildren[i]))
             .ToList();
 
-        var outline = new GccV2PlanOutline(sections, childHeadings);
+        var outline = new GccV2PlanOutline(sections, topicChildren);
 
         if (brief.Id != Guid.Empty)
         {
@@ -69,13 +93,11 @@ public sealed class GccV2PlanService
                     new CreateGccV2OutlineCommand(
                         brief.Id,
                         OutlineJson: JsonSerializer.Serialize(outline, JsonOpts),
-                        HierarchyChildHeadingsJson: JsonSerializer.Serialize(childHeadings, JsonOpts)),
+                        HierarchyChildHeadingsJson: JsonSerializer.Serialize(topicChildren, JsonOpts)),
                     ct);
             }
             catch (Exception ex)
             {
-                // PLAN's return value is what actually drives OutlineReady/WRITE — a failed
-                // secondary persist of the versioned GccV2Outline row must never fail the stage.
                 _logger.LogWarning(ex, "Could not persist GccV2Outline for brief {BriefId}; PLAN continues with the in-memory outline.", brief.Id);
             }
         }
@@ -101,6 +123,36 @@ public sealed class GccV2PlanService
                 .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() : null)
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Select(s => s!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static List<string> ExtractRecommendedToolNames(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!doc.RootElement.TryGetProperty("hierarchyPlan", out var plan) || plan.ValueKind != JsonValueKind.Object)
+                return [];
+            if (!plan.TryGetProperty("recommendedTools", out var tools) || tools.ValueKind != JsonValueKind.Array)
+                return [];
+
+            return tools.EnumerateArray()
+                .Select(t =>
+                {
+                    if (t.ValueKind != JsonValueKind.Object) return null;
+                    return t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                        ? n.GetString()?.Trim()
+                        : null;
+                })
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -136,73 +188,154 @@ public sealed class GccV2PlanService
     }
 
     /// <summary>
-    /// Content-type-aware default section headings. Pillar is the one type that will use the real
-    /// hierarchy children as its H2 headings directly (grounding the piece in the site's own
-    /// structure) when at least two are available; every other type keeps its generic template
-    /// headings and instead gets the hierarchy children partitioned across them as must-mention
-    /// subtopics (see <see cref="PartitionChildHeadings"/>).
+    /// Content-type-aware section headings. When site hierarchy children are available (or
+    /// <paramref name="preferSiteStructure"/> on regenerate), blog/pillar use those as H2s
+    /// (Writesonic-style site structure). Otherwise fall back to narrative templates. No literal
+    /// "Opening" H2 — lede is WRITE's document lede, not an outline slot.
     /// </summary>
     private static (List<(string Key, string Heading)> Defs, bool HeadingsFromHierarchy) BuildSectionDefinitions(
-        string contentType, string keyword, List<string> childHeadings)
+        string contentType,
+        string keyword,
+        List<string> childHeadings,
+        bool preferSiteStructure,
+        int regenerateVariant)
     {
         var title = Capitalize(keyword);
+        var useHierarchy = childHeadings.Count >= 2
+            && (preferSiteStructure || contentType is "pillar" or "blog");
+
+        if (useHierarchy && contentType is "pillar" or "blog")
+        {
+            var picked = childHeadings.Take(5).ToList();
+            return (MakeUniqueKeys(picked).ToList(), true);
+        }
 
         switch (contentType)
         {
             case "pillar":
             {
-                if (childHeadings.Count >= 2)
-                {
-                    var picked = childHeadings.Take(5).ToList();
-                    var defs = new List<(string, string)> { ("opening", "Opening") };
-                    defs.AddRange(MakeUniqueKeys(picked));
-                    return (defs, true);
-                }
-
-                var defsGeneric = new List<(string, string)> { ("opening", "Opening") };
-                defsGeneric.AddRange(BuildDeclarativeHeadings(title).Select((h, i) => ($"section-{i + 1}", h)));
+                var defsGeneric = BuildDeclarativeHeadings(title, regenerateVariant)
+                    .Select((h, i) => ($"section-{i + 1}", h))
+                    .ToList();
                 return (defsGeneric, false);
             }
             case "blog":
-                return (new List<(string, string)>
+                if (regenerateVariant % 2 == 1)
                 {
-                    ("opening", "Opening"),
-                    ("key-considerations", $"Key Considerations for {title}"),
+                    return (DedupeByHeading(
+                    [
+                        ("situation", $"The Situation Around {title}"),
+                        ("what-changed", $"What Changed for {title}"),
+                        ("how-to-respond", $"How to Respond on {title}"),
+                        ("checklist", $"Practical Checklist for {title}"),
+                    ]), false);
+                }
+
+                return (DedupeByHeading(
+                [
+                    ("situation", $"Why {title} Matters Now"),
+                    ("key-considerations", $"How Teams Approach {title}"),
                     ("next-steps", $"Next Steps for {title}"),
-                }, false);
+                ]), false);
             case "tool":
-                return (new List<(string, string)>
-                {
+                return (DedupeByHeading(
+                [
                     ("overview", "Overview"),
                     ("key-capabilities", "Key Capabilities"),
                     ("implementation-considerations", "Implementation Considerations"),
                     ("when-to-use", "When to Use"),
-                }, false);
+                ]), false);
             case "email":
             case "social":
             case "ads":
             case "image-prompt":
-                return (new List<(string, string)> { ("body", "Body") }, false);
+                return ([("body", "Body")], false);
             default:
-                return (new List<(string, string)> { ("overview", "Overview") }, false);
+                return ([("overview", "Overview")], false);
         }
     }
 
-    private static List<string> BuildDeclarativeHeadings(string title) =>
-    [
-        $"Understanding {title}",
-        $"Implementing {title}",
-        $"Common Challenges with {title}",
-        $"Best Practices for {title}",
-    ];
+    private static List<string> FilterOutlineHeadings(
+        IEnumerable<string> headings,
+        IReadOnlyList<string> partnerToolNames)
+    {
+        var partners = new HashSet<string>(
+            partnerToolNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        return headings
+            .Where(h => !string.IsNullOrWhiteSpace(h))
+            .Select(h => h.Trim())
+            .Where(h => !IsToolRoundupHeading(h))
+            .Where(h => !partners.Contains(h.TrimEnd(':')))
+            .Where(h => !partners.Contains(h))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    internal static bool IsToolRoundupHeading(string heading)
+    {
+        var t = heading.Trim().TrimEnd(':').Trim();
+        if (t.Length == 0) return false;
+        if (ToolRoundupHeading.IsMatch(t)) return true;
+        // "Top 5 Automated Data Entry Processing Tools" style
+        return Regex.IsMatch(t, @"^\s*top\s+\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               && t.Contains("tool", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>True when every heading looks like a product/partner name (1–3 words), not a topic sentence.</summary>
+    private static bool LookLikePartnerProductHeadings(IReadOnlyList<string> headings)
+    {
+        if (headings.Count < 2) return false;
+        foreach (var h in headings)
+        {
+            var t = h.Trim().TrimEnd(':').Trim();
+            if (t.Length is 0 or > 36) return false;
+            var words = t.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (words.Length is < 1 or > 3) return false;
+            if (IsToolRoundupHeading(t)) return false;
+        }
+
+        return true;
+    }
+
+    private static List<(string Key, string Heading)> DedupeByHeading(
+        IEnumerable<(string Key, string Heading)> defs)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = new List<(string, string)>();
+        foreach (var def in defs)
+        {
+            var heading = (def.Heading ?? "").Trim();
+            if (heading.Length == 0) continue;
+            if (!seen.Add(heading)) continue;
+            list.Add((def.Key, heading));
+        }
+
+        return list;
+    }
+
+    private static List<string> BuildDeclarativeHeadings(string title, int regenerateVariant = 0) =>
+        regenerateVariant % 2 == 1
+            ?
+            [
+                $"Why {title} Matters Now",
+                $"How Teams Approach {title}",
+                $"Risks and Tradeoffs with {title}",
+                $"A Practical Path for {title}",
+            ]
+            :
+            [
+                $"Understanding {title}",
+                $"Implementing {title}",
+                $"Common Challenges with {title}",
+                $"Best Practices for {title}",
+            ];
 
     /// <summary>
     /// Distributes real hierarchy child headings round-robin across body sections as each
-    /// section's must-mention subset — never repeated ("bag-dumped") on every section. Skips the
-    /// lede-style first slot (Opening/Overview/Body) when there is more than one section, so
-    /// must-mention subtopics land on the sections that actually advance the piece. No-op when the
-    /// section headings were themselves already derived from these same children (pillar case) —
-    /// there is nothing left one level deeper to attach.
+    /// section's must-mention subset — never repeated ("bag-dumped") on every section. When
+    /// section headings were themselves derived from these children, skip partitioning.
     /// </summary>
     private static List<List<string>> PartitionChildHeadings(
         List<string> childHeadings, int sectionCount, bool headingsFromHierarchy)

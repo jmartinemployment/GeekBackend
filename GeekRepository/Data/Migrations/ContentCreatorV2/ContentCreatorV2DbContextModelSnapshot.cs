@@ -129,6 +129,13 @@ namespace GeekRepository.Data.Migrations.ContentCreatorV2
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("SiteSectionJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SiteUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(1024)

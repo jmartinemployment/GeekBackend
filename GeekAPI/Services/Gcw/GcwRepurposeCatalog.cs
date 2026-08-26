@@ -43,6 +43,16 @@ public static class GcwRepurposeCatalog
             "Email snippet",
             1,
             "Subject-line style headline + 80–120 word body + CTA for nurture."),
+        new(
+            "blog",
+            "Blog pack",
+            1,
+            "Short blog-style piece: compelling title, 3–5 paragraph body that preserves the source story arc, soft CTA. Not a listicle."),
+        new(
+            "image_prompt",
+            "Image prompt",
+            2,
+            "Ready-to-paste image-generation prompts (Midjourney/Flux style): subject, setting, lighting, style, aspect. No marketing fluff."),
     ];
 
     public static string BuildChannelBrief(IEnumerable<string>? channelFilter)

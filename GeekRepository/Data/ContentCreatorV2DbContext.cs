@@ -33,6 +33,8 @@ public class ContentCreatorV2DbContext : DbContext
             entity.Property(c => c.OwnerUserId).IsRequired().HasMaxLength(128);
             entity.Property(c => c.Title).IsRequired().HasMaxLength(1024);
             entity.Property(c => c.ContentType).IsRequired().HasMaxLength(64);
+            entity.Property(c => c.SiteSectionJson).HasColumnType("text");
+            entity.Property(c => c.SiteUrl).HasMaxLength(2048);
             entity.Property(c => c.CreatedAtUtc).IsRequired();
             entity.HasIndex(c => c.OwnerUserId).HasDatabaseName("ix_gcc_v2_creates_owner_user_id");
         });

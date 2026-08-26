@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 
 namespace GeekAPI.Services.Workflow.Providers;
 
-/// <summary>Talks to Groq's OpenAI-compatible Chat Completions API (https://api.groq.com/openai/v1/chat/completions) — cheap/fast Llama inference.</summary>
+/// <summary>Talks to Groq's OpenAI-compatible Chat Completions API (https://api.groq.com/openai/v1/chat/completions) — cheap/fast inference (default: openai/gpt-oss-120b).</summary>
 public class GroqProvider : IContentGenerationProvider
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -53,12 +53,11 @@ public class GroqProvider : IContentGenerationProvider
             Messages = request.Messages.Select(m => new OpenAiCompatibleMessage(m.RoleString, m.Content)).ToList(),
             Temperature = request.Temperature,
             MaxTokens = request.MaxOutputTokens,
-            // Groq's structured outputs share OpenAI's response_format contract, but strict:true
-            // (grammar-constrained, guaranteed schema compliance) is only supported on
-            // openai/gpt-oss-20b/120b — not this project's configured llama-3.3-70b-versatile.
-            // strict:false ("best-effort") is what's actually available on the configured model:
-            // the schema is a strong hint, not a hard guarantee. If the configured Groq model
-            // changes to one of the gpt-oss variants, flip this to true to match OpenAiProvider.
+            // Groq's structured outputs share OpenAI's response_format contract. strict:true
+            // (grammar-constrained) works on openai/gpt-oss-20b/120b — our default after the
+            // 2026-08-16 llama-3.3 retirement — but VALIDATE/review schemas were exercised under
+            // best-effort mode; leave Strict=false until those paths are re-verified under grammar
+            // constraints. Flip to true (matching OpenAiProvider) once confirmed.
             ResponseFormat = request.JsonSchema is null
                 ? null
                 : new OpenAiResponseFormat

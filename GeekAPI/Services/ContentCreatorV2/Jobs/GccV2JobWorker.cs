@@ -156,20 +156,39 @@ public sealed class GccV2JobWorker : BackgroundService
             jobId,
             new CreateGccV2StageResultCommand("plan", null, JsonSerializer.Serialize(outline, JsonOpts), 0),
             ct);
-        await writer.AppendAsync(jobId, ownerUserId, "OutlineReady", outline, ct: ct);
 
-        await AnnounceBrandKitIfReadyAsync(jobId, ownerUserId, job, repo, writer, ct);
+        // Brand kit Accept before OutlineReady / outline Approve (product order: who → what).
+        if (job.SiteAnalysisProfileId is not null)
+        {
+            var announced = await AnnounceBrandKitIfReadyAsync(jobId, ownerUserId, job, repo, writer, ct);
+            if (!announced)
+            {
+                await FailJobAsync(
+                    repo,
+                    writer,
+                    jobId,
+                    ownerUserId,
+                    "Brand kit missing for site profile — regenerate from Site Analyzer.",
+                    ct);
+                return;
+            }
 
-        await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_outline_approval", ReleaseClaim: true), ct);
+            await writer.AppendAsync(jobId, ownerUserId, "OutlineReady", outline, ct: ct);
+            await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_brandkit_approval", ReleaseClaim: true), ct);
+        }
+        else
+        {
+            await writer.AppendAsync(jobId, ownerUserId, "OutlineReady", outline, ct: ct);
+            await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_outline_approval", ReleaseClaim: true), ct);
+        }
     }
 
     /// <summary>
-    /// If Generate supplied a <see cref="GccV2JobDto.SiteAnalysisProfileId"/>, look up the brand
-    /// kit derived for it (built/persisted synchronously in <c>GccV2Controller.Generate</c>) and
-    /// emit its summary. Missing/unbuildable kits are silently skipped — Generate already logs the
-    /// failure, and PLAN must still be able to complete without one.
+    /// Emit <c>BrandKitReady</c> for the kit built in <c>GccV2Controller.Generate</c>.
+    /// Returns false when a profile was supplied but no kit exists — callers must fail the job
+    /// (no silent skip / empty-kit continue).
     /// </summary>
-    private static async Task AnnounceBrandKitIfReadyAsync(
+    private static async Task<bool> AnnounceBrandKitIfReadyAsync(
         Guid jobId,
         Guid ownerUserId,
         GccV2JobDto job,
@@ -177,19 +196,33 @@ public sealed class GccV2JobWorker : BackgroundService
         GccV2JobEventWriter writer,
         CancellationToken ct)
     {
-        if (job.SiteAnalysisProfileId is not { } profileId) return;
+        if (job.SiteAnalysisProfileId is not { } profileId) return true;
 
         var kits = await repo.ListBrandKitsByProfileAsync(profileId, ct);
         var kit = kits.FirstOrDefault();
-        if (kit is null) return;
+        if (kit is null) return false;
 
         using var doc = JsonDocument.Parse(kit.KitJson);
         var root = doc.RootElement;
         string? companyName = root.TryGetProperty("companyName", out var cn) ? cn.GetString() : null;
         string? website = root.TryGetProperty("website", out var w) ? w.GetString() : null;
+        string? companyDescription = root.TryGetProperty("companyDescription", out var cd) ? cd.GetString() : null;
+        string? tagline = root.TryGetProperty("tagline", out var tg) ? tg.GetString() : null;
+        string? positioning = root.TryGetProperty("positioningOneLiner", out var pos) ? pos.GetString() : null;
         var notesCount = root.TryGetProperty("notes", out var notes) && notes.ValueKind == JsonValueKind.Array
             ? notes.GetArrayLength()
             : 0;
+        var voiceSamples = new List<string>();
+        if (root.TryGetProperty("voiceSamples", out var vs) && vs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in vs.EnumerateArray())
+            {
+                var s = item.GetString();
+                if (!string.IsNullOrWhiteSpace(s))
+                    voiceSamples.Add(s.Length > 400 ? s[..400].TrimEnd() + "…" : s);
+                if (voiceSamples.Count >= 3) break;
+            }
+        }
 
         await writer.AppendAsync(jobId, ownerUserId, "BrandKitReady", new
         {
@@ -198,8 +231,16 @@ public sealed class GccV2JobWorker : BackgroundService
             voiceStatus = kit.VoiceStatus,
             companyName,
             website,
+            companyDescription,
+            tagline,
+            positioningOneLiner = positioning,
+            voiceSampleCount = root.TryGetProperty("voiceSamples", out var vsAll) && vsAll.ValueKind == JsonValueKind.Array
+                ? vsAll.GetArrayLength()
+                : 0,
+            voiceSamplePreviews = voiceSamples,
             notesCount,
         }, ct: ct);
+        return true;
     }
 
     /// <summary>How long each claim lease extension buys — comfortably longer than one section's
