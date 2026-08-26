@@ -25,6 +25,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2JobEventWriter _events;
     private readonly GccV2BrandKitBuilder _brandKitBuilder;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
+    private readonly GccPartnerUrlResearchService _partnerResearch;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -34,6 +35,7 @@ public class GccV2Controller : ControllerBase
         GccV2JobEventWriter events,
         GccV2BrandKitBuilder brandKitBuilder,
         HttpGeekSeoSiteAnalyzerClient seo,
+        GccPartnerUrlResearchService partnerResearch,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -42,6 +44,7 @@ public class GccV2Controller : ControllerBase
         _events = events;
         _brandKitBuilder = brandKitBuilder;
         _seo = seo;
+        _partnerResearch = partnerResearch;
         _logger = logger;
     }
 
@@ -225,6 +228,7 @@ public class GccV2Controller : ControllerBase
 
         rawBriefJson = EnsureBriefContentTypes(rawBriefJson, contentTypes, primaryType);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
+        rawBriefJson = await TryMergePartnerResearchAsync(rawBriefJson, ct);
 
         var brief = await _repo.CreateBriefAsync(
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
@@ -432,6 +436,39 @@ public class GccV2Controller : ControllerBase
         return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             ? header[prefix.Length..].Trim()
             : header.Trim();
+    }
+
+
+    /// <summary>
+    /// Fetch partner/tool destination pages and attach full page extracts as <c>partnerResearch</c>
+    /// on the brief. Soft: failed URLs are skipped; Generate never hard-fails.
+    /// </summary>
+    private async Task<string?> TryMergePartnerResearchAsync(string? rawBriefJson, CancellationToken ct)
+    {
+        try
+        {
+            var hrefs = GccPartnerUrlResearchService.CollectPartnerHrefs(rawBriefJson);
+            if (hrefs.Count == 0) return rawBriefJson;
+
+            var pages = await _partnerResearch.FetchAsync(hrefs, ct);
+            if (pages.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Partner URL research fetched 0 of {UrlCount} href(s); continuing without partnerResearch.",
+                    hrefs.Count);
+                return rawBriefJson;
+            }
+
+            _logger.LogInformation(
+                "Partner URL research stored {PageCount} of {UrlCount} page extract(s) on brief.",
+                pages.Count, hrefs.Count);
+            return GccPartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, pages);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Partner URL research failed; continuing without partnerResearch.");
+            return rawBriefJson;
+        }
     }
 
     private static string? MergeHierarchyPlanIntoBriefJson(string? rawBriefJson, object hierarchyPlan)

@@ -73,3 +73,22 @@ public static class GccResearchCaps
     public const int MaxPaaChars = 300;
     public const int MaxRelatedChars = 200;
 }
+
+/// <summary>
+/// Caps for auto-fetched partner/tool destination pages on v2 Generate.
+/// Much higher than upload research caps — keep a full usable page extract, not a blurb.
+/// </summary>
+public static class GccPartnerResearchCaps
+{
+    public const int MaxUrls = 12;
+    public const int MaxHeadingsPerPage = 60;
+    public const int MaxParagraphsPerPage = 80;
+    public const int MaxHeadingChars = 300;
+    public const int MaxParagraphChars = 2000;
+    public const int MaxTitleChars = 300;
+    /// <summary>Soft stop once cleaned title+headings+paragraphs reach this many chars.</summary>
+    public const int MaxCharsPerPage = 16_000;
+    public const int MaxHtmlBytes = 2_000_000;
+    public const int FetchTimeoutSeconds = 15;
+    public const int MaxConcurrency = 4;
+}

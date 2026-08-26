@@ -1,5 +1,7 @@
 using GeekAPI.Controllers.ContentCreatorV2.Hubs;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreator;
+using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Geo;
@@ -34,6 +36,12 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2ProgressNotifier>();
         services.AddScoped<GccV2JobEventWriter>();
         services.AddScoped<GccV2BrandKitBuilder>();
+        services.AddHttpClient<GccPartnerUrlResearchService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(GccPartnerResearchCaps.FetchTimeoutSeconds);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "GeekContentCreatorPartnerResearch/1.0 (+https://geekatyourspot.com)");
+        });
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();

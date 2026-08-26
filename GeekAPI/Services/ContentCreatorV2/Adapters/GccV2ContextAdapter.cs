@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
+using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Enums;
@@ -220,6 +221,21 @@ public sealed class GccV2ContextAdapter
                 + "Do not invent partner product names or /tools/ links.");
         }
 
+        if (fields.PartnerResearch is { Count: > 0 } researchPages)
+        {
+            paragraphs.Add(
+                "PARTNER PAGE RESEARCH (fetched destination pages — ground claims in this extract; paraphrase; "
+                + "still inline-link with the allowlist href; do not invent features absent from the extract):");
+            foreach (var page in researchPages)
+            {
+                paragraphs.Add($"[{page.Title}] ({page.Url})");
+                foreach (var h in page.Headings)
+                    paragraphs.Add($"- H{h.Level}: {h.Text}");
+                foreach (var para in page.Paragraphs)
+                    paragraphs.Add($"- {para}");
+            }
+        }
+
         if (siteSection?.RelatedPages is { Count: > 0 } pages)
         {
             // Prefer use-case / methodology / non-tool pages for internal links. Tool URLs from the
@@ -335,6 +351,7 @@ public sealed class GccV2ContextAdapter
                 HierarchyPath = hierarchyPath,
                 RecommendedTools = recommendedTools,
                 OperatorTools = operatorTools,
+                PartnerResearch = ParsePartnerResearch(rawBriefJson),
             };
         }
         catch (JsonException ex)
@@ -391,6 +408,69 @@ public sealed class GccV2ContextAdapter
         catch (JsonException)
         {
             return (null, [], []);
+        }
+    }
+
+
+    private static IReadOnlyList<GccQuoteablePage> ParsePartnerResearch(string rawBriefJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "partnerResearch", out var arr)
+                || arr.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var pages = new List<GccQuoteablePage>();
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.Object) continue;
+                var url = TryGetPropertyIgnoreCase(el, "url", out var u) && u.ValueKind == JsonValueKind.String
+                    ? u.GetString()
+                    : null;
+                var title = TryGetPropertyIgnoreCase(el, "title", out var t) && t.ValueKind == JsonValueKind.String
+                    ? t.GetString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(url)) continue;
+
+                var headings = new List<HeadingDto>();
+                if (TryGetPropertyIgnoreCase(el, "headings", out var hs) && hs.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var h in hs.EnumerateArray())
+                    {
+                        if (h.ValueKind != JsonValueKind.Object) continue;
+                        var level = TryGetPropertyIgnoreCase(h, "level", out var lv) && lv.TryGetInt32(out var n) ? n : 2;
+                        var textVal = TryGetPropertyIgnoreCase(h, "text", out var tx) && tx.ValueKind == JsonValueKind.String
+                            ? tx.GetString()
+                            : null;
+                        if (string.IsNullOrWhiteSpace(textVal)) continue;
+                        headings.Add(new HeadingDto(level, textVal!.Trim()));
+                    }
+                }
+
+                var paragraphs = new List<string>();
+                if (TryGetPropertyIgnoreCase(el, "paragraphs", out var ps) && ps.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var p in ps.EnumerateArray())
+                    {
+                        if (p.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(p.GetString()))
+                            paragraphs.Add(p.GetString()!.Trim());
+                    }
+                }
+
+                if (headings.Count == 0 && paragraphs.Count == 0) continue;
+                pages.Add(new GccQuoteablePage(
+                    url!.Trim(),
+                    string.IsNullOrWhiteSpace(title) ? url!.Trim() : title!.Trim(),
+                    headings,
+                    paragraphs));
+            }
+
+            return pages;
+        }
+        catch (JsonException)
+        {
+            return [];
         }
     }
 
@@ -529,6 +609,7 @@ public sealed class GccV2ContextAdapter
         public IReadOnlyList<string> HierarchyPath { get; init; } = [];
         public IReadOnlyList<RecommendedTool> RecommendedTools { get; init; } = [];
         public IReadOnlyList<RecommendedTool> OperatorTools { get; init; } = [];
+        public IReadOnlyList<GccQuoteablePage> PartnerResearch { get; init; } = [];
     }
 
     private sealed record RecommendedTool(string Name, string? Href);
