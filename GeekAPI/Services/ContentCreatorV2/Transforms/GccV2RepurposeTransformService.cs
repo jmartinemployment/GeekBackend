@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekAPI.Services.Gcw;
 using GeekAPI.Services.Workflow.Providers;
 
@@ -20,21 +21,14 @@ public sealed record GccV2TransformResult(IReadOnlyList<GccV2TransformVariant> V
 /// </summary>
 public sealed class GccV2RepurposeTransformService
 {
-    /// <summary>
-    /// Phase 6 spike notes (go/no-go deferred to backlog):
-    /// <list>
-    /// <item><c>BuildToolResearchExtractionPrompt</c> — likely PLAN input, not wired yet.</item>
-    /// <item><c>BuildToolRoundupPrompt</c> — tool-page variant, not wired yet.</item>
-    /// <item><c>BuildSummaryVariantsPrompt</c> — likely Transform output enrichment, not wired yet.</item>
-    /// </list>
-    /// </summary>
     public async Task<GccV2TransformResult> ApplyAsync(
         string sourceDocumentJson,
         IReadOnlyList<string>? channels,
         IContentGenerationProvider provider,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyDictionary<string, int>? countOverrides = null)
     {
-        var channelBrief = GcwRepurposeCatalog.BuildChannelBrief(channels);
+        var channelBrief = GcwRepurposeCatalog.BuildChannelBrief(channels, countOverrides);
         var userBrief =
             "Produce ONE pack JSON for ONLY the channel slots below (one variant object per slot, same order). " +
             "Shape: { \"variants\": [ { \"channel\": string, \"title\": string, \"headline\": string|null, " +
@@ -52,7 +46,7 @@ public sealed class GccV2RepurposeTransformService
         var result = await provider.CompleteAsync(request, ct);
         var raw = result.Content?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(raw))
-            throw new InvalidOperationException("Transform LLM returned empty content.");
+            throw new InvalidOperationException("Re-Purpose LLM returned empty content.");
 
         var pack = GcwRepurposePack.Parse(raw);
         var variants = pack.Variants.Select(v => new GccV2TransformVariant(

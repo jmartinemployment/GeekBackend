@@ -51,11 +51,13 @@ public static class GcwRepurposeCatalog
         new(
             "image_prompt",
             "Image prompt",
-            2,
-            "Ready-to-paste image-generation prompts (Midjourney/Flux style): subject, setting, lighting, style, aspect. No marketing fluff."),
+            1,
+            "Ready-to-paste image-generation prompts (Midjourney/Flux style): subject, setting, lighting, style, aspect. No marketing fluff. For pillar/blog sources the count is overridden to one per H2."),
     ];
 
-    public static string BuildChannelBrief(IEnumerable<string>? channelFilter)
+    public static string BuildChannelBrief(
+        IEnumerable<string>? channelFilter,
+        IReadOnlyDictionary<string, int>? countOverrides = null)
     {
         var filter = channelFilter?
             .Select(c => c.Trim().ToLowerInvariant())
@@ -70,14 +72,23 @@ public static class GcwRepurposeCatalog
             selected = Channels.ToList();
 
         var lines = selected.Select(c =>
-            $"- {c.Slug} × {c.DefaultCount}: {c.Name}. {c.Guidance}");
+        {
+            var count = countOverrides is not null
+                && countOverrides.TryGetValue(c.Slug, out var overridden)
+                && overridden > 0
+                ? overridden
+                : c.DefaultCount;
+            return $"- {c.Slug} × {count}: {c.Name}. {c.Guidance}";
+        });
 
         return
             "Produce exactly the counts below (no more, no fewer). Each item is one variant.\n" +
             string.Join("\n", lines);
     }
 
-    public static int ExpectedVariantCount(IEnumerable<string>? channelFilter)
+    public static int ExpectedVariantCount(
+        IEnumerable<string>? channelFilter,
+        IReadOnlyDictionary<string, int>? countOverrides = null)
     {
         var filter = channelFilter?
             .Select(c => c.Trim().ToLowerInvariant())
@@ -86,6 +97,13 @@ public static class GcwRepurposeCatalog
 
         return Channels
             .Where(c => filter is null || filter.Count == 0 || filter.Contains(c.Slug))
-            .Sum(c => c.DefaultCount);
+            .Sum(c =>
+            {
+                if (countOverrides is not null
+                    && countOverrides.TryGetValue(c.Slug, out var overridden)
+                    && overridden > 0)
+                    return overridden;
+                return c.DefaultCount;
+            });
     }
 }
