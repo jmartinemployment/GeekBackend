@@ -230,7 +230,7 @@ public sealed class GccV2ContextAdapter
                     + string.Join(" | ", ordered.Select(p => $"{p.Title} <{p.Url}>")));
             }
 
-            foreach (var page in ordered.Take(5))
+            foreach (var page in ordered)
             {
                 if (!string.IsNullOrWhiteSpace(page.Excerpt))
                     paragraphs.Add($"From {page.Url}: {page.Excerpt}");

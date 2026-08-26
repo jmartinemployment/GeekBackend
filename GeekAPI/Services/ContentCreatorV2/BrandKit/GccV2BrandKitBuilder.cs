@@ -217,7 +217,7 @@ public sealed class GccV2BrandKitBuilder
         var samples = new List<string>();
         var totalChars = 0;
 
-        foreach (var page in preferred.Take(8))
+        foreach (var page in preferred)
         {
             var excerpt = FirstParagraphs(page.Markdown, maxChars: 900);
             if (string.IsNullOrWhiteSpace(excerpt) && !string.IsNullOrWhiteSpace(page.Description))
@@ -234,7 +234,7 @@ public sealed class GccV2BrandKitBuilder
 
         if (samples.Count == 0 && section?.RelatedPages is { Count: > 0 } related)
         {
-            foreach (var p in related.Take(5))
+            foreach (var p in related)
             {
                 if (string.IsNullOrWhiteSpace(p.Excerpt) && string.IsNullOrWhiteSpace(p.Title))
                     continue;

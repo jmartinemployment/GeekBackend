@@ -174,13 +174,45 @@ public sealed class GccV2JobWorker : BackgroundService
             }
 
             await writer.AppendAsync(jobId, ownerUserId, "OutlineReady", outline, ct: ct);
-            await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_brandkit_approval", ReleaseClaim: true), ct);
+
+            var kits = await repo.ListBrandKitsByProfileAsync(job.SiteAnalysisProfileId.Value, ct);
+            var kitAccepted = string.Equals(kits.FirstOrDefault()?.VoiceStatus, "accepted", StringComparison.OrdinalIgnoreCase);
+            if (kitAccepted)
+            {
+                if (IsShortFormContentType(job.ContentType))
+                {
+                    await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Stage: "write", Status: "pending", ReleaseClaim: true, Wake: true), ct);
+                    await writer.AppendAsync(jobId, ownerUserId, "OutlineApproved", new { jobId, auto = true }, ct: ct);
+                }
+                else
+                {
+                    await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_outline_approval", ReleaseClaim: true), ct);
+                }
+            }
+            else
+            {
+                await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_brandkit_approval", ReleaseClaim: true), ct);
+            }
         }
         else
         {
             await writer.AppendAsync(jobId, ownerUserId, "OutlineReady", outline, ct: ct);
-            await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_outline_approval", ReleaseClaim: true), ct);
+            if (IsShortFormContentType(job.ContentType))
+            {
+                await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Stage: "write", Status: "pending", ReleaseClaim: true, Wake: true), ct);
+                await writer.AppendAsync(jobId, ownerUserId, "OutlineApproved", new { jobId, auto = true }, ct: ct);
+            }
+            else
+            {
+                await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Status: "awaiting_outline_approval", ReleaseClaim: true), ct);
+            }
         }
+    }
+
+    private static bool IsShortFormContentType(string? contentType)
+    {
+        var t = (contentType ?? "").Trim().ToLowerInvariant();
+        return t is "email" or "social" or "ads" or "image-prompt";
     }
 
     /// <summary>

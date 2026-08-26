@@ -148,6 +148,17 @@ public class GccV2Controller : ControllerBase
         return Ok(create);
     }
 
+    /// <summary>All jobs for a create (oldest first) — multi-draft switcher on the create page.</summary>
+    [HttpGet("creates/{id:guid}/jobs")]
+    public async Task<ActionResult<IReadOnlyList<GccV2JobDto>>> ListJobsForCreate(Guid id, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null || !IsOwner(create.OwnerUserId)) return NotFound();
+        var jobs = await _repo.ListJobsByCreateAsync(id, ct);
+        return Ok(jobs);
+    }
+
     /// <summary>Most recent job for a create — used when opening Canvas without <c>?jobId=</c> in the URL.</summary>
     [HttpGet("creates/{id:guid}/latest-job")]
     public async Task<ActionResult<GccV2JobDto>> GetLatestJobForCreate(Guid id, CancellationToken ct)
@@ -159,7 +170,7 @@ public class GccV2Controller : ControllerBase
         return job is null ? NotFound() : Ok(job);
     }
 
-    /// <summary>Creates a brief stub + a pending job, wakes the worker, and returns immediately.</summary>
+    /// <summary>Creates a brief stub + one pending job per content type, wakes the worker(s).</summary>
     [HttpPost("creates/{id:guid}/generate")]
     public async Task<ActionResult<object>> Generate(Guid id, [FromBody] GenerateRequest? request, CancellationToken ct)
     {
@@ -205,21 +216,19 @@ public class GccV2Controller : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
 
+        var contentTypes = ResolveContentTypes(request, create.ContentType);
+        var primaryType = contentTypes[0];
+
         var rawBriefJson = request?.Brief is { } briefElement
             ? briefElement.GetRawText()
             : null;
 
+        rawBriefJson = EnsureBriefContentTypes(rawBriefJson, contentTypes, primaryType);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
         var brief = await _repo.CreateBriefAsync(
-            new CreateGccV2BriefCommand(id, request?.TargetKeyword, create.ContentType, RawBriefJson: rawBriefJson),
+            new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
             ct);
-
-        var job = await _repo.CreateJobAsync(
-            new CreateGccV2JobCommand(id, _user.UserId.ToString("D"), create.ContentType, brief.Id, profileId),
-            ct);
-
-        await _events.AppendAsync(job.Id, _user.UserId, "JobQueued", new { jobId = job.Id, briefId = brief.Id }, ct: ct);
 
         await _repo.CreateBrandKitAsync(
             new CreateGccV2BrandKitCommand(
@@ -229,9 +238,18 @@ public class GccV2Controller : ControllerBase
                 VoiceStatus: "provisional"),
             ct);
 
-        _wake.Wake(job.Id);
+        var jobIds = new List<Guid>();
+        foreach (var contentType in contentTypes)
+        {
+            var job = await _repo.CreateJobAsync(
+                new CreateGccV2JobCommand(id, _user.UserId.ToString("D"), contentType, brief.Id, profileId),
+                ct);
+            await _events.AppendAsync(job.Id, _user.UserId, "JobQueued", new { jobId = job.Id, briefId = brief.Id, contentType }, ct: ct);
+            _wake.Wake(job.Id);
+            jobIds.Add(job.Id);
+        }
 
-        return Accepted(new { jobId = job.Id });
+        return Accepted(new { jobId = jobIds[0], jobIds });
     }
 
     /// <summary>
@@ -448,11 +466,61 @@ public class GccV2Controller : ControllerBase
 
         await _events.AppendAsync(id, _user.UserId, "BrandKitAccepted", new { jobId = id, brandKitId = kit.Id }, ct: ct);
 
-        var updated = await _repo.PatchJobAsync(
-            id,
+        var updated = await AdvanceAfterBrandKitAsync(job, id, kit.Id, ct);
+
+        var siblings = await _repo.ListJobsByCreateAsync(job.CreateId, ct);
+        foreach (var sibling in siblings)
+        {
+            if (sibling.Id == id) continue;
+            if (!string.Equals(sibling.Status, "awaiting_brandkit_approval", StringComparison.OrdinalIgnoreCase))
+                continue;
+            await AdvanceAfterBrandKitAsync(sibling, id, kit.Id, ct);
+        }
+
+        return Ok(updated);
+    }
+
+    private async Task<GccV2JobDto> AdvanceAfterBrandKitAsync(
+        GccV2JobDto job,
+        Guid acceptedViaJobId,
+        Guid brandKitId,
+        CancellationToken ct)
+    {
+        var shortForm = IsShortFormContentType(job.ContentType);
+        if (shortForm)
+        {
+            var updated = await _repo.PatchJobAsync(
+                job.Id,
+                new PatchGccV2JobCommand(Stage: "write", Status: "pending", ReleaseClaim: true, Wake: true),
+                ct);
+            await _events.AppendAsync(
+                job.Id,
+                _user.UserId,
+                "BrandKitAccepted",
+                new { jobId = job.Id, brandKitId, viaSibling = job.Id == acceptedViaJobId ? null : acceptedViaJobId },
+                ct: ct);
+            await _events.AppendAsync(job.Id, _user.UserId, "OutlineApproved", new { jobId = job.Id, auto = true }, ct: ct);
+            _wake.Wake(job.Id);
+            return updated;
+        }
+
+        var outlineJob = await _repo.PatchJobAsync(
+            job.Id,
             new PatchGccV2JobCommand(Status: "awaiting_outline_approval", ReleaseClaim: true),
             ct);
-        return Ok(updated);
+        await _events.AppendAsync(
+            job.Id,
+            _user.UserId,
+            "BrandKitAccepted",
+            new { jobId = job.Id, brandKitId, viaSibling = job.Id == acceptedViaJobId ? null : acceptedViaJobId },
+            ct: ct);
+        return outlineJob;
+    }
+
+    private static bool IsShortFormContentType(string? contentType)
+    {
+        var t = (contentType ?? "").Trim().ToLowerInvariant();
+        return t is "email" or "social" or "ads" or "image-prompt";
     }
 
     [HttpPost("jobs/{id:guid}/reject-brandkit")]
@@ -681,9 +749,62 @@ public class GccV2Controller : ControllerBase
 
     public record CreateCreateRequest(string Title, string? ContentType, JsonElement? SiteSection = null, string? SiteUrl = null);
 
-    /// <summary><c>Brief</c> is stored verbatim as the brief's <c>RawBriefJson</c>.
-    /// <c>SiteAnalysisProfileId</c> is required with a non-empty site section on the create.</summary>
-    public record GenerateRequest(string? TargetKeyword, JsonElement? Brief, Guid? SiteAnalysisProfileId);
+    /// <summary><c>Brief</c> is stored verbatim as the brief's <c>RawBriefJson</c> (includes operatorTools).
+    /// <c>ContentTypes</c> drives one WRITE job per type; falls back to create content type / blog.</summary>
+    public record GenerateRequest(
+        string? TargetKeyword,
+        JsonElement? Brief,
+        Guid? SiteAnalysisProfileId,
+        IReadOnlyList<string>? ContentTypes = null);
+
+    private static IReadOnlyList<string> ResolveContentTypes(GenerateRequest? request, string? createContentType)
+    {
+        var raw = request?.ContentTypes?
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        if (raw.Count == 0 && !string.IsNullOrWhiteSpace(createContentType))
+            raw.Add(createContentType.Trim().ToLowerInvariant());
+        if (raw.Count == 0)
+            raw.Add("pillar");
+
+        return raw;
+    }
+
+    private static string EnsureBriefContentTypes(string? rawBriefJson, IReadOnlyList<string> contentTypes, string primaryType)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            if (!string.IsNullOrWhiteSpace(rawBriefJson))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(rawBriefJson);
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        if (prop.NameEquals("contentTypes") || prop.NameEquals("primaryDraft"))
+                            continue;
+                        prop.WriteTo(writer);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // ignore corrupt brief; write contentTypes only
+                }
+            }
+
+            writer.WritePropertyName("contentTypes");
+            JsonSerializer.Serialize(writer, contentTypes, JsonOpts);
+            writer.WriteString("primaryDraft", primaryType);
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
 
     public record AcceptBrandKitRequest(
         string? CompanyName = null,

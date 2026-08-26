@@ -47,6 +47,17 @@ public class GccV2JobsController : ControllerBase
         return job is null ? NotFound() : Ok(job);
     }
 
+    /// <summary>All jobs for a create, oldest first (Primary then Also draft).</summary>
+    [HttpGet("list-by-create/{createId:guid}")]
+    public async Task<ActionResult<IReadOnlyList<GccV2Job>>> ListByCreate(Guid createId, CancellationToken ct)
+    {
+        var jobs = await _db.GccV2Jobs.AsNoTracking()
+            .Where(j => j.CreateId == createId)
+            .OrderBy(j => j.CreatedAtUtc)
+            .ToListAsync(ct);
+        return Ok(jobs);
+    }
+
     [HttpGet("by-status/{status}")]
     public async Task<ActionResult<IReadOnlyList<GccV2Job>>> GetByStatus(
         string status,

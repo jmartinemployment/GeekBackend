@@ -58,6 +58,9 @@ public class HttpGccV2Repository
     public Task<GccV2JobDto?> GetLatestJobByCreateAsync(Guid createId, CancellationToken ct = default) =>
         GetAsync<GccV2JobDto>($"repo/content-creator-v2/jobs/by-create/{createId}", ct);
 
+    public Task<IReadOnlyList<GccV2JobDto>> ListJobsByCreateAsync(Guid createId, CancellationToken ct = default) =>
+        GetListAsync<GccV2JobDto>($"repo/content-creator-v2/jobs/list-by-create/{createId}", ct);
+
     public Task<IReadOnlyList<GccV2JobDto>> GetJobsByStatusAsync(
         string status,
         DateTimeOffset? leaseBefore = null,
