@@ -204,11 +204,20 @@ public sealed class GccV2ContextAdapter
         {
             var toolList = string.Join(" | ", partnerTools.Select(t =>
                 string.IsNullOrWhiteSpace(t.Href) ? t.Name : $"{t.Name} <{t.Href}>"));
+            var mustCount = Math.Min(3, partnerTools.Count);
             paragraphs.Add(
-                "Partner / recommended tools allowlist (prospective partners from the site use-case and/or "
-                + "operator-supplied URLs). When discussing tools or solutions, weave several of these into the "
-                + "story with real hrefs; do not invent unrelated tools; do not open a separate tools roundup section: "
+                "REQUIRED partner tools (not optional): weave at least "
+                + mustCount
+                + " of these into the body by product name as inline anchors with the given href when present. "
+                + "Do not invent unrelated tools. Do not open a \"Top N tools\" / roundup section or use a "
+                + "product name as an H2. Spread mentions across sections where solutions are discussed: "
                 + toolList);
+        }
+        else
+        {
+            paragraphs.Add(
+                "No partner-tool allowlist was resolved for this keyword from the site crawl or operator URLs. "
+                + "Do not invent partner product names or /tools/ links.");
         }
 
         if (siteSection?.RelatedPages is { Count: > 0 } pages)
@@ -390,7 +399,7 @@ public sealed class GccV2ContextAdapter
         try
         {
             using var doc = JsonDocument.Parse(rawBriefJson);
-            if (!doc.RootElement.TryGetProperty("operatorTools", out var arr)
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "operatorTools", out var arr)
                 || arr.ValueKind != JsonValueKind.Array)
                 return [];
 
@@ -426,6 +435,27 @@ public sealed class GccV2ContextAdapter
         {
             return [];
         }
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
+    {
+        if (obj.ValueKind != JsonValueKind.Object)
+        {
+            value = default;
+            return false;
+        }
+
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     private static string GuessToolName(string url)

@@ -511,10 +511,33 @@ public class GccGenerateService
             }
         }
 
-        // Whatever is under the match is the answer. One real tool link is a valid result, and an
-        // empty section is reported as empty — never padded with invented names taken from
-        // heading text, which is what produced "6 tools" for a section that had none.
+        if (tools.Count > 0) return tools;
+
+        // Fallback: deeper headings that look like product names (not "Top N Tools:" labels).
+        // Covers crawls where partner names are H6 text without harvested Links.
+        var matchLevel = matched.Level > 0 ? matched.Level : 4;
+        foreach (var node in FlattenSections([matched]))
+        {
+            if (node.Level <= matchLevel) continue;
+            var name = (node.HeadingText ?? "").Trim().TrimEnd(':').Trim();
+            if (!LooksLikePartnerProductName(name)) continue;
+            if (!seen.Add(name)) continue;
+            tools.Add(new CrawlTool(name, null));
+        }
+
         return tools;
+    }
+
+    private static bool LooksLikePartnerProductName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 48) return false;
+        if (Regex.IsMatch(name, @"^\s*top\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return false;
+        if (name.Contains("tool", StringComparison.OrdinalIgnoreCase)
+            && Regex.IsMatch(name, @"\btools?\s*:?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return false;
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return words.Length is >= 1 and <= 6;
     }
 
     public sealed record ToolExtractDiag(
