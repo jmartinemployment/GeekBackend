@@ -501,8 +501,8 @@ public class GccGenerateService
 
     /// <summary>
     /// Tools from the crawl under the matched use-case heading.
-    /// Uses v1-style tool-list detection: ≥2 anchors that dominate the paragraph (not prose links,
-    /// not site chrome). Prefers /tools/… rows when present.
+    /// v1-style: each heading node keeps its own links; a tool list is ≥2 anchors that dominate
+    /// that node's paragraph text. No /tools/ path preference and no merging every link in the subtree.
     /// </summary>
     public static IReadOnlyList<CrawlTool> ExtractToolsFromTrees(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
@@ -545,39 +545,22 @@ public class GccGenerateService
         var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
         if (matched is null) return [];
 
-        // Per-node tool lists (v1 parseHierarchyTools). Pick the best list under the match.
+        // Document order under the match only. Parse each heading's own paragraphs+links
+        // (same idea as v1 toolsInSlice) — never bag all descendant links together.
         IReadOnlyList<CrawlTool> best = [];
-        var bestScore = -1;
-        foreach (var node in FlattenSections([matched]))
+        foreach (var node in WalkSubtreeDocumentOrder(matched))
         {
             var list = ParseHierarchyTools(node.Paragraphs, node.Links);
-            if (list.Count == 0) continue;
-            var toolsPath = list.Count(t => HrefLooksLikeOnSiteToolPage(t.Href));
-            var score = toolsPath * 100 + list.Count;
-            if (score <= bestScore) continue;
-            bestScore = score;
-            best = list;
+            if (list.Count > best.Count)
+                best = list;
         }
-
         if (best.Count > 0) return best;
 
-        // Fallback: any /tools/… links under the match (chrome already filtered).
+        // Fallback: product-like child headings under the match (names only; not page chrome links).
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var tools = new List<CrawlTool>();
-        foreach (var node in FlattenSections([matched]))
-        {
-            foreach (var tool in UniqueToolLinks(node.Links))
-            {
-                if (!HrefLooksLikeOnSiteToolPage(tool.Href)) continue;
-                if (!seen.Add(tool.Name)) continue;
-                tools.Add(tool);
-            }
-        }
-        if (tools.Count > 0) return tools;
-
-        // Fallback: deeper headings that look like product names (not "Top N Tools:" labels).
         var matchLevel = matched.Level > 0 ? matched.Level : 4;
-        foreach (var node in FlattenSections([matched]))
+        foreach (var node in WalkSubtreeDocumentOrder(matched))
         {
             if (node.Level <= matchLevel) continue;
             var name = (node.HeadingText ?? "").Trim().TrimEnd(':').Trim();
@@ -587,6 +570,18 @@ public class GccGenerateService
         }
 
         return tools;
+    }
+
+    /// <summary>Matched section then descendants in document order (tree walk, not a flat link bag).</summary>
+    private static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> WalkSubtreeDocumentOrder(
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto root)
+    {
+        yield return root;
+        foreach (var child in root.Children ?? [])
+        {
+            foreach (var n in WalkSubtreeDocumentOrder(child))
+                yield return n;
+        }
     }
 
     /// <summary>
@@ -882,14 +877,10 @@ public class GccGenerateService
         var matchLevel = node.Level > 0 ? node.Level : 4;
         var deeper = 0;
         var links = 0;
-        foreach (var n in FlattenSections([node]))
+        foreach (var n in WalkSubtreeDocumentOrder(node))
         {
-            // Rank by tool-list quality (v1 detector), not raw chrome link count.
-            var toolList = ParseHierarchyTools(n.Paragraphs, n.Links);
-            if (toolList.Count > 0)
-                links += toolList.Count;
-            else
-                links += UniqueToolLinks(n.Links).Count(t => HrefLooksLikeOnSiteToolPage(t.Href));
+            // Rank by tool-list quality only — not raw or /tools/-filtered link counts.
+            links += ParseHierarchyTools(n.Paragraphs, n.Links).Count;
             if (n.Level > matchLevel)
                 deeper++;
         }
@@ -938,12 +929,10 @@ public class GccGenerateService
                 || h.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            if (HrefLooksLikeOnSiteToolPage(h)) return true;
-
             if (LooksLikeSiteChromeHref(h)) return false;
         }
 
-        // Product-ish short labels (Intercom, HubSpot AI) — reject sentence-like CTAs.
+        // Product-ish short labels — reject sentence-like CTAs. No special-case for /tools/ paths.
         var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (words.Length is < 1 or > 5) return false;
         if (name.Contains('"') || name.Contains('?')) return false;
