@@ -239,7 +239,6 @@ public class GccV2Controller : ControllerBase
                 matchedHeading,
                 matchTopic,
                 firstToolNames = tools.Take(8).Select(t => t.Name).ToList(),
-                sources = tools.Select(t => t.Source).Take(8).ToList(),
                 toolsPathCount = tools.Count(t =>
                     GccGenerateService.HrefLooksLikeOnSiteToolPage(t.Url)),
             });
@@ -401,48 +400,15 @@ public class GccV2Controller : ControllerBase
             string? bestHeading = null;
             string? bestTopic = null;
 
-            // #region agent log
-            var homeTrees = allTrees
-                .Where(t => IsLikelyHomepageUrl(t.PageUrl))
-                .ToList();
             GeekAPI.Diagnostics.AgentDebugLog.Write(
-                "A",
+                "B",
                 "GccV2Controller.TryMergeHierarchyPlanAsync",
-                "Trees loaded (mobile-stored TreeJson)",
-                new
-                {
-                    profileId,
-                    pageTreeCount = allTrees.Count,
-                    homepageTreeCount = homeTrees.Count,
-                    homepageUrls = homeTrees.Select(t => t.PageUrl).Take(5).ToList(),
-                    samplePageUrls = allTrees.Select(t => t.PageUrl).Take(8).ToList(),
-                    attempts,
-                });
-            // #endregion
+                "Full site hierarchy loaded",
+                new { profileId, pageTreeCount = allTrees.Count });
 
             foreach (var topic in attempts)
             {
                 var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(allTrees, topic);
-                // #region agent log
-                GeekAPI.Diagnostics.AgentDebugLog.Write(
-                    "B",
-                    "GccV2Controller.TryMergeHierarchyPlanAsync",
-                    "Hierarchy matches for topic",
-                    new
-                    {
-                        topic,
-                        matchCount = matches.Count,
-                        top = matches.Take(5).Select(m => new
-                        {
-                            m.MatchedHeading,
-                            m.Kind,
-                            m.SourcePageUrl,
-                            isHome = IsLikelyHomepageUrl(m.SourcePageUrl),
-                            path = m.Path is { Length: > 0 } ? string.Join(" › ", m.Path) : null,
-                            childCount = m.ChildHeadings?.Length ?? 0,
-                        }).ToList(),
-                    });
-                // #endregion
                 foreach (var candidate in matches.Take(12))
                 {
                     var pathLabel = candidate.Path is { Length: > 0 }
@@ -451,27 +417,6 @@ public class GccV2Controller : ControllerBase
                     var tools = GccGenerateService.ExtractToolsFromTrees(
                         allTrees, topic, candidate.SourcePageUrl, pathLabel);
                     var toolCount = tools.Count;
-                    // #region agent log
-                    GeekAPI.Diagnostics.AgentDebugLog.Write(
-                        "C",
-                        "GccV2Controller.TryMergeHierarchyPlanAsync",
-                        "Candidate tool harvest",
-                        new
-                        {
-                            topic,
-                            candidate.MatchedHeading,
-                            candidate.Kind,
-                            candidate.SourcePageUrl,
-                            isHome = IsLikelyHomepageUrl(candidate.SourcePageUrl),
-                            pathLabel,
-                            toolCount,
-                            toolNames = tools.Select(t => t.Name).Take(8).ToList(),
-                            hrefKinds = tools.Select(t =>
-                                string.IsNullOrWhiteSpace(t.Href) ? "none"
-                                : t.Href!.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? "abs"
-                                : "rel").Take(8).ToList(),
-                        });
-                    // #endregion
                     var isExact = string.Equals(candidate.Kind, "exact-heading", StringComparison.OrdinalIgnoreCase);
                     var better = toolCount > bestTools
                         || (toolCount == bestTools && isExact && !bestExact);
@@ -503,16 +448,7 @@ public class GccV2Controller : ControllerBase
             }
 
             if (bestPlan is null)
-            {
-                // #region agent log
-                GeekAPI.Diagnostics.AgentDebugLog.Write(
-                    "D",
-                    "GccV2Controller.TryMergeHierarchyPlanAsync",
-                    "No hierarchy plan selected",
-                    new { profileId, attempts, pageTreeCount = allTrees.Count });
-                // #endregion
                 return rawBriefJson;
-            }
 
             _logger.LogInformation(
                 "Hierarchy plan for profile {ProfileId}: matched '{Heading}' with {ToolCount} recommended tool(s) via topic '{Topic}' over {PageCount} page tree(s).",
@@ -520,18 +456,10 @@ public class GccV2Controller : ControllerBase
 
             // #region agent log
             GeekAPI.Diagnostics.AgentDebugLog.Write(
-                "E",
+                "B",
                 "GccV2Controller.TryMergeHierarchyPlanAsync",
                 "Hierarchy match selected",
-                new
-                {
-                    profileId,
-                    bestHeading,
-                    bestTools,
-                    bestTopic,
-                    pageTreeCount = allTrees.Count,
-                    selectedIsHome = bestPlan is not null,
-                });
+                new { profileId, bestHeading, bestTools, bestTopic, pageTreeCount = allTrees.Count });
             // #endregion
 
             return MergeHierarchyPlanIntoBriefJson(rawBriefJson, bestPlan);
@@ -560,14 +488,6 @@ public class GccV2Controller : ControllerBase
                 yield return v;
             }
         }
-    }
-
-    private static bool IsLikelyHomepageUrl(string? url)
-    {
-        if (string.IsNullOrWhiteSpace(url)) return false;
-        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)) return false;
-        var path = uri.AbsolutePath.TrimEnd('/');
-        return path.Length == 0 || path == "/";
     }
 
     private static IEnumerable<string> ExpandOneKeyword(string keyword)
