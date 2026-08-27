@@ -7,6 +7,7 @@ using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
+using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.Transforms;
@@ -36,6 +37,10 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2ProgressNotifier>();
         services.AddScoped<GccV2JobEventWriter>();
         services.AddScoped<GccV2BrandKitBuilder>();
+        services.AddSingleton<GccV2PlaywrightBrowserHolder>();
+        services.AddHostedService<GccV2PlaywrightStartupHostedService>();
+        services.AddScoped<GccV2PageFetcher>();
+        services.AddScoped<GccV2SiteHierarchyService>();
         services.AddHttpClient<GccPartnerUrlResearchService>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(GccPartnerResearchCaps.FetchTimeoutSeconds);

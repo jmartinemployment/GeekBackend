@@ -4,6 +4,7 @@ using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
+using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using Microsoft.AspNetCore.Mvc;
 
@@ -24,6 +25,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2JobWake _wake;
     private readonly GccV2JobEventWriter _events;
     private readonly GccV2BrandKitBuilder _brandKitBuilder;
+    private readonly GccV2SiteHierarchyService _siteHierarchy;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccPartnerUrlResearchService _partnerResearch;
     private readonly ILogger<GccV2Controller> _logger;
@@ -34,6 +36,7 @@ public class GccV2Controller : ControllerBase
         GccV2JobWake wake,
         GccV2JobEventWriter events,
         GccV2BrandKitBuilder brandKitBuilder,
+        GccV2SiteHierarchyService siteHierarchy,
         HttpGeekSeoSiteAnalyzerClient seo,
         GccPartnerUrlResearchService partnerResearch,
         ILogger<GccV2Controller> logger)
@@ -43,6 +46,7 @@ public class GccV2Controller : ControllerBase
         _wake = wake;
         _events = events;
         _brandKitBuilder = brandKitBuilder;
+        _siteHierarchy = siteHierarchy;
         _seo = seo;
         _partnerResearch = partnerResearch;
         _logger = logger;
@@ -205,6 +209,7 @@ public class GccV2Controller : ControllerBase
         var rawBriefJson = request?.Brief is { } briefElement
             ? briefElement.GetRawText()
             : null;
+        rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
         var tools = GccPartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
@@ -319,6 +324,7 @@ public class GccV2Controller : ControllerBase
             : null;
 
         rawBriefJson = EnsureBriefContentTypes(rawBriefJson, contentTypes, primaryType);
+        rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
         rawBriefJson = await TryMergePartnerResearchAsync(rawBriefJson, ct);
 
@@ -346,6 +352,38 @@ public class GccV2Controller : ControllerBase
         }
 
         return Accepted(new { jobId = jobIds[0], jobIds });
+    }
+
+    /// <summary>
+    /// Mobile homepage heading tree onto the brief as structured <c>siteHierarchy</c>. Soft-fail.
+    /// </summary>
+    private async Task<string?> TryMergeSiteHierarchyAsync(
+        string? rawBriefJson,
+        string? siteUrl,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(siteUrl))
+            return rawBriefJson;
+
+        try
+        {
+            var hierarchy = await _siteHierarchy.BuildHomepageAsync(siteUrl, ct);
+            if (hierarchy is null)
+                return rawBriefJson;
+
+            _logger.LogInformation(
+                "Attached mobile siteHierarchy for {Homepage} with {PageCount} page(s), {RootCount} root heading(s).",
+                hierarchy.HomepageUrl,
+                hierarchy.Pages.Count,
+                hierarchy.Pages.Sum(p => p.Roots.Count));
+
+            return GccV2SiteHierarchyService.MergeIntoBriefJson(rawBriefJson, hierarchy);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "siteHierarchy crawl soft-failed for siteUrl {SiteUrl}", siteUrl);
+            return rawBriefJson;
+        }
     }
 
     /// <summary>
