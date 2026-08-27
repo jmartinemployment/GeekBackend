@@ -5,8 +5,8 @@ using Microsoft.Playwright;
 namespace GeekAPI.Services.ContentCreatorV2.Hierarchy;
 
 /// <summary>
-/// Mobile Playwright fetch. Phase 1: caller requests homepage only (MaxPages=1 policy lives on the service).
-/// Returns HTML + same-origin links for a later BFS unlock — no visibility annotate.
+/// Mobile Playwright fetch (Pixel 7 only — never desktop). Phase 1: homepage only.
+/// Snapshots HTML with CSS-hidden nodes marked so twin markup is not walked.
 /// </summary>
 public sealed class GccV2PageFetcher
 {
@@ -46,8 +46,10 @@ public sealed class GccV2PageFetcher
 
             var finalUrl = response?.Url ?? page.Url ?? url;
             var status = response?.Status ?? 0;
-            var html = await page.EvaluateAsync<string>("() => document.documentElement.outerHTML")
-                       ?? string.Empty;
+            // Mobile viewport only: mark CSS-hidden nodes so the tree builder does not walk
+            // responsive twin markup that is not displayed on mobile (e.g. hidden lg:block).
+            // This is not a desktop crawl — one Pixel 7 context, one snapshot.
+            var html = await SnapshotMobileVisibleHtmlAsync(page);
 
             var links = status is >= 200 and < 300
                 ? ExtractSameOriginLinks(html, finalUrl)
@@ -67,6 +69,27 @@ public sealed class GccV2PageFetcher
             if (context is not null)
                 await context.DisposeAsync();
         }
+    }
+
+    /// <summary>
+    /// Annotate elements with display:none / visibility:hidden at the current (mobile) viewport,
+    /// then return outerHTML. Tree build skips those markers so twin copies stay out of the hierarchy.
+    /// </summary>
+    private static async Task<string> SnapshotMobileVisibleHtmlAsync(IPage page)
+    {
+        await page.EvaluateAsync(
+            """
+            () => {
+              for (const el of document.querySelectorAll('*')) {
+                const s = getComputedStyle(el);
+                if (s.display === 'none' || s.visibility === 'hidden')
+                  el.setAttribute('data-gcc-hidden', '1');
+              }
+            }
+            """);
+
+        return await page.EvaluateAsync<string>("() => document.documentElement.outerHTML")
+               ?? string.Empty;
     }
 
     /// <summary>Same-origin absolute URLs for a future inventory/BFS queue.</summary>

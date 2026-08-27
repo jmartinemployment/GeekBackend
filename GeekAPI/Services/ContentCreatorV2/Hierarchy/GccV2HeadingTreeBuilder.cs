@@ -3,7 +3,9 @@ using HtmlAgilityPack;
 namespace GeekAPI.Services.ContentCreatorV2.Hierarchy;
 
 /// <summary>
-/// DOM → nested heading tree. No prune / dedupe / visibility-label pass.
+/// DOM → nested heading tree from a <b>mobile</b> viewport snapshot.
+/// Skips nodes marked <c>data-gcc-hidden</c> (CSS-hidden at capture time) so responsive twins
+/// that are not shown on mobile are not walked. There is no desktop crawl.
 /// </summary>
 public static class GccV2HeadingTreeBuilder
 {
@@ -24,6 +26,10 @@ public static class GccV2HeadingTreeBuilder
     private static void ProcessNode(HtmlNode node, List<MutableNode> roots, List<MutableNode> stack)
     {
         if (node.NodeType != HtmlNodeType.Element)
+            return;
+
+        // Not displayed in the mobile viewport at snapshot time — do not walk (avoids twin copies).
+        if (IsHiddenAtMobileViewport(node))
             return;
 
         var tagName = node.Name.ToLowerInvariant();
@@ -159,6 +165,12 @@ public static class GccV2HeadingTreeBuilder
 
         var cleanText = GccV2TextExtractor.Extract(node);
         return (cleanText, links);
+    }
+
+    private static bool IsHiddenAtMobileViewport(HtmlNode node)
+    {
+        var flag = node.GetAttributeValue("data-gcc-hidden", "");
+        return flag == "1" || flag.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class MutableNode

@@ -365,6 +365,7 @@ public class GccV2Controller : ControllerBase
 
     /// <summary>
     /// Mobile homepage heading tree onto the brief as structured <c>siteHierarchy</c>. Soft-fail.
+    /// Skips rebuild when <paramref name="rawBriefJson"/> already has siteHierarchy (early UI fetch).
     /// </summary>
     private async Task<string?> TryMergeSiteHierarchyAsync(
         string? rawBriefJson,
@@ -372,6 +373,9 @@ public class GccV2Controller : ControllerBase
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(siteUrl))
+            return rawBriefJson;
+
+        if (BriefAlreadyHasSiteHierarchy(rawBriefJson))
             return rawBriefJson;
 
         try
@@ -394,6 +398,52 @@ public class GccV2Controller : ControllerBase
             return rawBriefJson;
         }
     }
+
+    private static bool BriefAlreadyHasSiteHierarchy(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!doc.RootElement.TryGetProperty("siteHierarchy", out var sh)
+                || sh.ValueKind != JsonValueKind.Object)
+                return false;
+            if (!sh.TryGetProperty("pages", out var pages) || pages.ValueKind != JsonValueKind.Array)
+                return false;
+            return pages.GetArrayLength() > 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Build mobile homepage hierarchy without starting WRITE / tool preflight.
+    /// </summary>
+    [HttpPost("site-hierarchy")]
+    public async Task<ActionResult<object>> BuildSiteHierarchy(
+        [FromBody] SiteHierarchyRequest? request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (request is null || string.IsNullOrWhiteSpace(request.SiteUrl))
+            return BadRequest(new { error = "siteUrl is required." });
+
+        var hierarchy = await _siteHierarchy.BuildHomepageAsync(request.SiteUrl, ct);
+        if (hierarchy is null)
+        {
+            return Ok(new
+            {
+                siteHierarchy = (object?)null,
+                message = "Mobile hierarchy crawl soft-failed (browser unavailable or fetch error).",
+            });
+        }
+
+        return Ok(new { siteHierarchy = hierarchy });
+    }
+
+    public record SiteHierarchyRequest(string SiteUrl);
 
     /// <summary>
     /// Prefetch hierarchy match (+ recommended tools under that heading) onto the brief.

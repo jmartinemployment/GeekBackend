@@ -46,6 +46,10 @@ internal static class GccV2TextExtractor
         if (SkipTags.Contains(node.Name))
             return;
 
+        var hidden = node.GetAttributeValue("data-gcc-hidden", "");
+        if (hidden == "1" || hidden.Equals("true", StringComparison.OrdinalIgnoreCase))
+            return;
+
         var block = BlockTags.Contains(node.Name);
         if (block)
             sb.Append(' ');
