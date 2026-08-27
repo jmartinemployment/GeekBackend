@@ -215,6 +215,7 @@ public class GccV2Controller : ControllerBase
         var tools = GccPartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
         string? matchedHeading = null;
         string? matchTopic = null;
+        string[]? matchedPath = null;
         object? siteHierarchy = null;
         try
         {
@@ -226,6 +227,14 @@ public class GccV2Controller : ControllerBase
                     matchedHeading = mh.GetString();
                 if (plan.TryGetProperty("matchTopic", out var mt) && mt.ValueKind == JsonValueKind.String)
                     matchTopic = mt.GetString();
+                if (plan.TryGetProperty("path", out var pathEl) && pathEl.ValueKind == JsonValueKind.Array)
+                {
+                    matchedPath = pathEl.EnumerateArray()
+                        .Where(e => e.ValueKind == JsonValueKind.String)
+                        .Select(e => e.GetString()!)
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .ToArray();
+                }
             }
 
             if (doc.RootElement.TryGetProperty("siteHierarchy", out var sh)
@@ -250,6 +259,7 @@ public class GccV2Controller : ControllerBase
                 toolCount = tools.Count,
                 matchedHeading,
                 matchTopic,
+                matchedPath,
                 hasSiteHierarchy = siteHierarchy is not null,
                 firstToolNames = tools.Take(8).Select(t => t.Name).ToList(),
                 toolsPathCount = tools.Count(t =>
@@ -262,13 +272,14 @@ public class GccV2Controller : ControllerBase
             createId = id,
             matchedHeading,
             matchTopic,
+            path = matchedPath,
             toolCount = tools.Count,
             toolsFound = tools.Count > 0,
             tools,
             siteHierarchy,
             message = tools.Count > 0
                 ? $"Found {tools.Count} partner tool(s). Each will be discussed in the draft. Confirm to start content creation."
-                : "No partner tools found from the site crawl or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.",
+                : "No partner tools found from the site hierarchy or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.",
         });
     }
 
@@ -446,25 +457,19 @@ public class GccV2Controller : ControllerBase
     public record SiteHierarchyRequest(string SiteUrl);
 
     /// <summary>
-    /// Prefetch hierarchy match (+ recommended tools under that heading) onto the brief.
-    /// Soft grounding for WRITE: relate to the matched use-case and site-listed partner tools.
-    /// Expands keywords (e.g. "Smart Chatbots for Marketing" → "Smart Chatbots") so site H5s
-    /// like "Smart Chatbots:" still resolve. Prefers the match with the most tool links.
+    /// Prefetch hierarchy match + recommended tools from CC mobile <c>siteHierarchy</c> only.
+    /// Tight heading match + structured Links — no SA TreeJson / most-tools / markdown harvest.
     /// </summary>
-    private async Task<string?> TryMergeHierarchyPlanAsync(
+    private Task<string?> TryMergeHierarchyPlanAsync(
         string? rawBriefJson,
         GenerateRequest? request,
         string? createTitle,
         CancellationToken ct)
     {
-        if (request?.SiteAnalysisProfileId is not { } profileId) return rawBriefJson;
-
-        var bearer = ExtractBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer)) return rawBriefJson;
-
+        _ = ct;
         var seeds = new List<string>();
-        if (!string.IsNullOrWhiteSpace(request.TargetKeyword))
-            seeds.Add(request.TargetKeyword.Trim());
+        if (!string.IsNullOrWhiteSpace(request?.TargetKeyword))
+            seeds.Add(request!.TargetKeyword!.Trim());
         if (!string.IsNullOrWhiteSpace(createTitle)
             && !seeds.Any(a => a.Equals(createTitle.Trim(), StringComparison.OrdinalIgnoreCase)))
             seeds.Add(createTitle.Trim());
@@ -473,149 +478,47 @@ public class GccV2Controller : ControllerBase
             && !seeds.Any(a => a.Equals(titleFromBrief, StringComparison.OrdinalIgnoreCase)))
             seeds.Add(titleFromBrief!);
 
-        var attempts = ExpandKeywordSearchTerms(seeds).ToList();
-        if (attempts.Count == 0) return rawBriefJson;
+        if (seeds.Count == 0) return Task.FromResult(rawBriefJson);
 
         try
         {
-            // Entire site hierarchy (all page TreeJson rows) — keyword-filtered trees miss
-            // sections required for correct tool harvest (same lesson as v1).
-            var allTreesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
-            if (!allTreesResult.Ok || allTreesResult.Value is not { Count: > 0 } allTrees)
+            var hierarchy = GccV2HierarchyToolMatch.TryParseSiteHierarchy(rawBriefJson);
+            var match = GccV2HierarchyToolMatch.Match(hierarchy, seeds);
+            if (match is null)
             {
-                GeekAPI.Diagnostics.AgentDebugLog.Write(
-                    "B",
-                    "GccV2Controller.TryMergeHierarchyPlanAsync",
-                    "No page section trees for profile",
-                    new { profileId, ok = allTreesResult.Ok });
-                return rawBriefJson;
+                _logger.LogInformation(
+                    "No tight siteHierarchy match for seeds [{Seeds}]; leaving hierarchyPlan unset.",
+                    string.Join(", ", seeds));
+                return Task.FromResult(rawBriefJson);
             }
 
-            object? bestPlan = null;
-            var bestTools = -1;
-            var bestExact = false;
-            string? bestHeading = null;
-            string? bestTopic = null;
-
-            GeekAPI.Diagnostics.AgentDebugLog.Write(
-                "B",
-                "GccV2Controller.TryMergeHierarchyPlanAsync",
-                "Full site hierarchy loaded",
-                new { profileId, pageTreeCount = allTrees.Count });
-
-            foreach (var topic in attempts)
+            var plan = new
             {
-                var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(allTrees, topic);
-                foreach (var candidate in matches.Take(12))
-                {
-                    var pathLabel = candidate.Path is { Length: > 0 }
-                        ? string.Join(" › ", candidate.Path)
-                        : null;
-                    var tools = GccGenerateService.ExtractToolsFromTrees(
-                        allTrees, topic, candidate.SourcePageUrl, pathLabel);
-                    var toolCount = tools.Count;
-                    var isExact = string.Equals(candidate.Kind, "exact-heading", StringComparison.OrdinalIgnoreCase);
-                    var better = toolCount > bestTools
-                        || (toolCount == bestTools && isExact && !bestExact);
-                    if (!better)
-                        continue;
-
-                    bestTools = toolCount;
-                    bestExact = isExact;
-                    bestHeading = candidate.MatchedHeading;
-                    bestTopic = topic;
-                    var toolRows = tools.Select(t => (object)new { name = t.Name, href = t.Href }).ToList();
-                    bestPlan = new
-                    {
-                        matchedHeading = candidate.MatchedHeading,
-                        sourcePageUrl = candidate.SourcePageUrl,
-                        path = candidate.Path,
-                        kind = candidate.Kind,
-                        childHeadings = candidate.ChildHeadings,
-                        recommendedTools = toolRows,
-                        matchTopic = topic,
-                    };
-
-                    if (toolCount >= 2 && isExact)
-                        break;
-                }
-
-                if (bestTools >= 2)
-                    break;
-            }
-
-            if (bestPlan is null)
-                return rawBriefJson;
+                matchedHeading = match.MatchedHeading,
+                sourcePageUrl = match.SourcePageUrl,
+                path = match.Path,
+                kind = match.Kind,
+                childHeadings = match.ChildHeadings,
+                recommendedTools = match.RecommendedTools
+                    .Select(t => new { name = t.Name, href = t.Href })
+                    .ToList(),
+                matchTopic = match.MatchTopic,
+            };
 
             _logger.LogInformation(
-                "Hierarchy plan for profile {ProfileId}: matched '{Heading}' with {ToolCount} recommended tool(s) via topic '{Topic}' over {PageCount} page tree(s).",
-                profileId, bestHeading, bestTools, bestTopic, allTrees.Count);
+                "Hierarchy plan from siteHierarchy: matched '{Heading}' ({Kind}) with {ToolCount} tool(s) via topic '{Topic}'.",
+                match.MatchedHeading,
+                match.Kind,
+                match.RecommendedTools.Count,
+                match.MatchTopic);
 
-            // #region agent log
-            GeekAPI.Diagnostics.AgentDebugLog.Write(
-                "B",
-                "GccV2Controller.TryMergeHierarchyPlanAsync",
-                "Hierarchy match selected",
-                new { profileId, bestHeading, bestTools, bestTopic, pageTreeCount = allTrees.Count });
-            // #endregion
-
-            return MergeHierarchyPlanIntoBriefJson(rawBriefJson, bestPlan);
+            return Task.FromResult(MergeHierarchyPlanIntoBriefJson(rawBriefJson, plan));
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Hierarchy-match prefetch failed for profile {ProfileId}; PLAN will use content-type templates instead.", profileId);
-            return rawBriefJson;
+            _logger.LogWarning(ex, "siteHierarchy tool match failed; PLAN will use content-type templates instead.");
+            return Task.FromResult(rawBriefJson);
         }
-    }
-
-    /// <summary>
-    /// Broadens lookup so "Smart Chatbots for Marketing" also tries "Smart Chatbots" (site H5s
-    /// often omit the trailing phrase). Drops stopwords and peels trailing words.
-    /// </summary>
-    internal static IEnumerable<string> ExpandKeywordSearchTerms(IEnumerable<string> seeds)
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var seed in seeds)
-        {
-            foreach (var variant in ExpandOneKeyword(seed))
-            {
-                var v = variant.Trim();
-                if (v.Length < 3) continue;
-                if (!seen.Add(v)) continue;
-                yield return v;
-            }
-        }
-    }
-
-    private static IEnumerable<string> ExpandOneKeyword(string keyword)
-    {
-        var k = (keyword ?? "").Trim().TrimEnd(':').Trim();
-        if (k.Length == 0) yield break;
-        yield return k;
-
-        foreach (var marker in new[] { " for ", " - ", " – ", " — " })
-        {
-            var idx = k.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (idx > 0)
-                yield return k[..idx].Trim().TrimEnd(':').Trim();
-        }
-
-        var words = k.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        for (var n = words.Length - 1; n >= 2; n--)
-            yield return string.Join(' ', words.Take(n));
-
-        var significant = words
-            .Where(w => w.Length > 2
-                && !w.Equals("for", StringComparison.OrdinalIgnoreCase)
-                && !w.Equals("the", StringComparison.OrdinalIgnoreCase)
-                && !w.Equals("and", StringComparison.OrdinalIgnoreCase)
-                && !w.Equals("with", StringComparison.OrdinalIgnoreCase)
-                && !w.Equals("from", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        if (significant.Length >= 2 && significant.Length < words.Length)
-            yield return string.Join(' ', significant);
-        if (significant.Length >= 2)
-            yield return string.Join(' ', significant.Take(2));
     }
 
     private static string? TryReadBriefTitle(string? rawBriefJson)
@@ -627,9 +530,11 @@ public class GccV2Controller : ControllerBase
             foreach (var key in new[] { "title", "Title" })
             {
                 if (doc.RootElement.TryGetProperty(key, out var t)
-                    && t.ValueKind == JsonValueKind.String
-                    && !string.IsNullOrWhiteSpace(t.GetString()))
-                    return t.GetString()!.Trim();
+                    && t.ValueKind == JsonValueKind.String)
+                {
+                    var s = t.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
             }
         }
         catch (JsonException)
@@ -649,7 +554,6 @@ public class GccV2Controller : ControllerBase
             ? header[prefix.Length..].Trim()
             : header.Trim();
     }
-
 
     /// <summary>
     /// Fetch partner/tool destination pages and attach full page extracts as <c>partnerResearch</c>
@@ -1007,37 +911,27 @@ public class GccV2Controller : ControllerBase
         var brief = await _repo.GetBriefAsync(job.BriefId, ct);
         if (brief is null) return BadRequest(new { error = "Brief not found." });
 
-        var bearer = ExtractBearerToken();
         IReadOnlyList<string>? refreshedChildren = null;
-        if (job.SiteAnalysisProfileId is { } profileId
-            && !string.IsNullOrWhiteSpace(bearer)
-            && !string.IsNullOrWhiteSpace(brief.TargetKeyword))
+        if (!string.IsNullOrWhiteSpace(brief.TargetKeyword)
+            || !string.IsNullOrWhiteSpace(TryReadBriefTitle(brief.RawBriefJson)))
         {
             try
             {
-                var treesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
-                if (treesResult.Ok && treesResult.Value is { Count: > 0 } trees)
-                {
-                    var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(trees, brief.TargetKeyword!);
-                    var best = matches
-                        .Select(m =>
-                        {
-                            var pathLabel = m.Path is { Length: > 0 } ? string.Join(" › ", m.Path) : null;
-                            var tools = GccGenerateService.ExtractToolsFromTrees(
-                                trees, brief.TargetKeyword!, m.SourcePageUrl, pathLabel);
-                            return (Match: m, ToolCount: tools.Count);
-                        })
-                        .OrderByDescending(x => x.ToolCount)
-                        .ThenBy(x => x.Match.Kind == "exact-heading" ? 0 : 1)
-                        .Select(x => x.Match)
-                        .FirstOrDefault();
-                    if (best?.ChildHeadings is { Length: > 0 })
-                        refreshedChildren = best.ChildHeadings;
-                }
+                var seeds = new List<string>();
+                if (!string.IsNullOrWhiteSpace(brief.TargetKeyword))
+                    seeds.Add(brief.TargetKeyword.Trim());
+                var title = TryReadBriefTitle(brief.RawBriefJson);
+                if (!string.IsNullOrWhiteSpace(title))
+                    seeds.Add(title!);
+
+                var hierarchy = GccV2HierarchyToolMatch.TryParseSiteHierarchy(brief.RawBriefJson);
+                var match = GccV2HierarchyToolMatch.Match(hierarchy, seeds);
+                if (match?.ChildHeadings is { Length: > 0 })
+                    refreshedChildren = match.ChildHeadings;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Hierarchy refresh failed while regenerating outline for job {JobId}.", id);
+                _logger.LogWarning(ex, "siteHierarchy refresh failed while regenerating outline for job {JobId}.", id);
             }
         }
 
