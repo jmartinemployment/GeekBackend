@@ -215,6 +215,7 @@ public class GccV2Controller : ControllerBase
         var tools = GccPartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
         string? matchedHeading = null;
         string? matchTopic = null;
+        object? siteHierarchy = null;
         try
         {
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
@@ -225,6 +226,12 @@ public class GccV2Controller : ControllerBase
                     matchedHeading = mh.GetString();
                 if (plan.TryGetProperty("matchTopic", out var mt) && mt.ValueKind == JsonValueKind.String)
                     matchTopic = mt.GetString();
+            }
+
+            if (doc.RootElement.TryGetProperty("siteHierarchy", out var sh)
+                && sh.ValueKind == JsonValueKind.Object)
+            {
+                siteHierarchy = JsonSerializer.Deserialize<JsonElement>(sh.GetRawText());
             }
         }
         catch (JsonException)
@@ -243,6 +250,7 @@ public class GccV2Controller : ControllerBase
                 toolCount = tools.Count,
                 matchedHeading,
                 matchTopic,
+                hasSiteHierarchy = siteHierarchy is not null,
                 firstToolNames = tools.Take(8).Select(t => t.Name).ToList(),
                 toolsPathCount = tools.Count(t =>
                     GccGenerateService.HrefLooksLikeOnSiteToolPage(t.Url)),
@@ -257,6 +265,7 @@ public class GccV2Controller : ControllerBase
             toolCount = tools.Count,
             toolsFound = tools.Count > 0,
             tools,
+            siteHierarchy,
             message = tools.Count > 0
                 ? $"Found {tools.Count} partner tool(s). Each will be discussed in the draft. Confirm to start content creation."
                 : "No partner tools found from the site crawl or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.",
