@@ -232,7 +232,16 @@ public class GccV2Controller : ControllerBase
             "E",
             "GccV2Controller.PreflightPartnerTools",
             "Partner tools preflight",
-            new { createId = id, toolCount = tools.Count, matchedHeading, matchTopic });
+            new
+            {
+                createId = id,
+                toolCount = tools.Count,
+                matchedHeading,
+                matchTopic,
+                firstToolNames = tools.Take(8).Select(t => t.Name).ToList(),
+                toolsPathCount = tools.Count(t =>
+                    GccGenerateService.HrefLooksLikeOnSiteToolPage(t.Url)),
+            });
         // #endregion
 
         return Ok(new

@@ -550,7 +550,9 @@ public class GccGenerateService
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var tools = new List<CrawlTool>();
 
-        // Collect EVERY tool link under the match (all descendant subtrees).
+        // Collect candidate partner links under the match (all descendant subtrees).
+        // Prefer /tools/… hrefs when present — homepage use-case blocks list partners that way,
+        // and chrome (Privacy, Call Us, CTAs) otherwise floods the allowlist.
         foreach (var node in FlattenSections([matched]))
         {
             foreach (var tool in UniqueToolLinks(node.Links))
@@ -559,6 +561,9 @@ public class GccGenerateService
                 tools.Add(tool);
             }
         }
+
+        var toolPageLinks = tools.Where(t => HrefLooksLikeOnSiteToolPage(t.Href)).ToList();
+        if (toolPageLinks.Count > 0) return toolPageLinks;
 
         if (tools.Count > 0) return tools;
 
@@ -847,13 +852,104 @@ public class GccGenerateService
         foreach (var link in links)
         {
             var name = (link.Text ?? "").Replace('\n', ' ').Trim();
-            if (name.Length == 0 || name.Length >= 80) continue;
+            var href = string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim();
+            if (!IsLikelyPartnerToolLink(name, href)) continue;
             if (!seen.Add(name)) continue;
-            unique.Add(new CrawlTool(
-                name,
-                string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim()));
+            unique.Add(new CrawlTool(name, href));
         }
         return unique;
+    }
+
+    /// <summary>
+    /// Drop site chrome / CTAs / legal / phone that sit under the same matched heading as real partners.
+    /// Runtime evidence (preflight): Privacy Policy, Call Us, Free Assessment were returned as "tools".
+    /// </summary>
+    internal static bool IsLikelyPartnerToolLink(string name, string? href)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        name = name.Replace('\n', ' ').Trim();
+        if (name.Length == 0 || name.Length >= 80) return false;
+
+        if (LooksLikeSiteChromeName(name)) return false;
+        if (Regex.IsMatch(name, @"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}")) return false;
+
+        if (!string.IsNullOrWhiteSpace(href))
+        {
+            var h = href.Trim();
+            if (h.StartsWith('#')
+                || h.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)
+                || h.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
+                || h.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (HrefLooksLikeOnSiteToolPage(h)) return true;
+
+            if (LooksLikeSiteChromeHref(h)) return false;
+        }
+
+        // Product-ish short labels (Intercom, HubSpot AI) — reject sentence-like CTAs.
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (words.Length is < 1 or > 5) return false;
+        if (name.Contains('"') || name.Contains('?')) return false;
+        return true;
+    }
+
+    internal static bool HrefLooksLikeOnSiteToolPage(string? href)
+    {
+        if (string.IsNullOrWhiteSpace(href)) return false;
+        try
+        {
+            if (Uri.TryCreate(href, UriKind.Absolute, out var abs))
+                return abs.AbsolutePath.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
+            return href.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (UriFormatException)
+        {
+            return href.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static bool LooksLikeSiteChromeName(string name)
+    {
+        ReadOnlySpan<string> needles =
+        [
+            "privacy policy", "terms of", "terms &", "cookie policy", "cookie settings",
+            "call us", "contact us", "headquarters", "get your free",
+            "free assessment", "read our", "learn more", "sign up", "log in",
+            "subscribe", "book a", "schedule a", "click here", "about us", "careers",
+            "sitemap", "follow us", "all rights reserved",
+        ];
+        foreach (var n in needles)
+        {
+            if (name.Contains(n, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    private static bool LooksLikeSiteChromeHref(string href)
+    {
+        string path;
+        try
+        {
+            path = Uri.TryCreate(href, UriKind.Absolute, out var abs)
+                ? abs.AbsolutePath
+                : href.Split('?', 2)[0];
+        }
+        catch (UriFormatException)
+        {
+            path = href;
+        }
+
+        ReadOnlySpan<string> needles =
+        [
+            "/privacy", "/terms", "/cookie", "/contact", "/about", "/login",
+            "/signup", "/sign-up", "/careers", "/sitemap", "/assessment",
+        ];
+        foreach (var n in needles)
+        {
+            if (path.Contains(n, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     private static IEnumerable<(HttpGeekSeoSiteAnalyzerClient.PageSectionDto Node, List<string> Path)> WalkSectionsWithPath(
