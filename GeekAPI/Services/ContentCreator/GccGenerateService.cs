@@ -444,12 +444,15 @@ public class GccGenerateService
         return matches
             .Select(m =>
             {
-                var node = FindNodeByPath(pageTrees, m.SourcePageUrl, m.Path);
-                var links = node is null ? 0 : CountSubtreeToolLinks(node);
-                return (Match: m, Links: links);
+                // Rank by v1 toolsInSlice count on the assignment markdown for this node.
+                var toolCount = 0;
+                if (!string.IsNullOrWhiteSpace(m.AssignmentMarkdown))
+                    toolCount = ExtractToolsFromAssignmentMarkdown(
+                        m.AssignmentMarkdown, m.MatchedHeading ?? "").Count;
+                return (Match: m, Tools: toolCount);
             })
-            .OrderBy(x => x.Match.Kind == "exact-heading" ? 0 : 1)
-            .ThenByDescending(x => x.Links)
+            .OrderByDescending(x => x.Tools)
+            .ThenBy(x => x.Match.Kind == "exact-heading" ? 0 : 1)
             .ThenByDescending(x => x.Match.ChildHeadings.Length)
             .ThenBy(x => string.Join(" › ", x.Match.Path), StringComparer.OrdinalIgnoreCase)
             .Select(x => x.Match)
@@ -487,14 +490,6 @@ public class GccGenerateService
         }
 
         return null;
-    }
-
-    private static int CountSubtreeToolLinks(HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
-    {
-        var n = 0;
-        foreach (var s in FlattenSections([node]))
-            n += UniqueToolLinks(s.Links).Count;
-        return n;
     }
 
     public sealed record CrawlTool(string Name, string? Href);
@@ -545,48 +540,114 @@ public class GccGenerateService
         var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
         if (matched is null) return [];
 
-        // Document order under the match only. Parse each heading's own paragraphs+links
-        // (same idea as v1 toolsInSlice) — never bag all descendant links together.
-        IReadOnlyList<CrawlTool> best = [];
-        foreach (var node in WalkSubtreeDocumentOrder(matched))
-        {
-            var list = ParseHierarchyTools(node.Paragraphs, node.Links);
-            if (list.Count > best.Count)
-                best = list;
-        }
-        if (best.Count > 0) return best;
-
-        // Fallback: product-like child headings under the match (names only; not page chrome links).
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var tools = new List<CrawlTool>();
-        var matchLevel = matched.Level > 0 ? matched.Level : 4;
-        foreach (var node in WalkSubtreeDocumentOrder(matched))
-        {
-            if (node.Level <= matchLevel) continue;
-            var name = (node.HeadingText ?? "").Trim().TrimEnd(':').Trim();
-            if (!LooksLikePartnerProductName(name)) continue;
-            if (!seen.Add(name)) continue;
-            tools.Add(new CrawlTool(name, null));
-        }
-
-        return tools;
-    }
-
-    /// <summary>Matched section then descendants in document order (tree walk, not a flat link bag).</summary>
-    private static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> WalkSubtreeDocumentOrder(
-        HttpGeekSeoSiteAnalyzerClient.PageSectionDto root)
-    {
-        yield return root;
-        foreach (var child in root.Children ?? [])
-        {
-            foreach (var n in WalkSubtreeDocumentOrder(child))
-                yield return n;
-        }
+        // Exact v1 path: assignment markdown → toolsInSlice → largest tool group (≥2).
+        var markdown = FormatSectionAssignment(matched);
+        return ExtractToolsFromAssignmentMarkdown(markdown, matched.HeadingText ?? keyword);
     }
 
     /// <summary>
-    /// v1 tool-list detector: ≥2 anchors that account for most of the node's paragraph text
-    /// (comma-separated names), not links embedded in prose.
+    /// v1 <c>toolsInSlice</c> + flatten: parse tools from hierarchy assignment markdown.
+    /// </summary>
+    internal static IReadOnlyList<CrawlTool> ExtractToolsFromAssignmentMarkdown(
+        string assignmentMarkdown,
+        string fallbackHeading)
+    {
+        var groups = ToolsInSlice(assignmentMarkdown, fallbackHeading);
+        IReadOnlyList<CrawlTool> best = [];
+        foreach (var g in groups)
+        {
+            if (g.Tools.Count > best.Count)
+                best = g.Tools;
+        }
+        return best;
+    }
+
+    internal sealed record ToolsByHeading(string Heading, IReadOnlyList<CrawlTool> Tools);
+
+    /// <summary>Port of v1 <c>toolsInSlice</c> (GeekContentCreator hierarchy-match.ts).</summary>
+    internal static IReadOnlyList<ToolsByHeading> ToolsInSlice(string slice, string fallbackHeading)
+    {
+        var lines = slice.Split(['\r', '\n'], StringSplitOptions.None);
+        var result = new List<ToolsByHeading>();
+        var currentHeading = fallbackHeading ?? "";
+        var paraBuf = new List<string>();
+        var links = new List<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto>();
+
+        void Flush()
+        {
+            if (links.Count >= 2 && !string.IsNullOrWhiteSpace(currentHeading))
+            {
+                var tools = ParseHierarchyTools(paraBuf, links);
+                var list = tools.Count > 0 ? tools : UniqueToolLinksLenient(links);
+                if (list.Count >= 2)
+                    result.Add(new ToolsByHeading(currentHeading, list));
+            }
+            paraBuf.Clear();
+            links.Clear();
+        }
+
+        foreach (var line in lines)
+        {
+            var hm = Regex.Match(line, @"^(#{1,6})\s+(.+?)\s*$");
+            if (hm.Success)
+            {
+                Flush();
+                currentHeading = hm.Groups[2].Value.Trim();
+                continue;
+            }
+
+            foreach (var link in ParseMarkdownLinks(line))
+                links.Add(link);
+
+            var trimmed = Regex.Replace(line, @"^[-*]\s+", "").Trim();
+            if (trimmed.Length > 0)
+            {
+                var asText = Regex.Replace(trimmed, @"\[([^\]]+)\]\([^)]+\)", "$1");
+                asText = asText.Replace("[", "").Replace("]", "");
+                paraBuf.Add(asText);
+            }
+        }
+
+        Flush();
+        return result;
+    }
+
+    private static IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto> ParseMarkdownLinks(string line)
+    {
+        var list = new List<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto>();
+        foreach (Match m in Regex.Matches(line, @"\[([^\]]+)\]\(([^)]+)\)"))
+        {
+            var name = m.Groups[1].Value.Trim();
+            var href = m.Groups[2].Value.Trim();
+            if (name.Length > 0 && href.Length > 0)
+                list.Add(new HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto(name, href));
+        }
+        return list;
+    }
+
+    /// <summary>v1 <c>uniqueToolLinks</c> — name length gate only (fallback when ratio test fails).</summary>
+    private static IReadOnlyList<CrawlTool> UniqueToolLinksLenient(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto> links)
+    {
+        var unique = new List<CrawlTool>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var link in links)
+        {
+            var name = (link.Text ?? "").Replace('\n', ' ').Trim();
+            if (name.Length == 0 || name.Length >= 80) continue;
+            if (LooksLikeSiteChromeName(name)) continue;
+            if (Regex.IsMatch(name, @"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}")) continue;
+            if (!seen.Add(name)) continue;
+            unique.Add(new CrawlTool(
+                name,
+                string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim()));
+        }
+        return unique;
+    }
+
+    /// <summary>
+    /// v1 <c>parseHierarchyTools</c>: ≥2 anchors that dominate paragraph text (not prose links).
+    /// Ratio is checked per paragraph so a use-case blurb on the same heading does not kill the tool row.
     /// </summary>
     internal static IReadOnlyList<CrawlTool> ParseHierarchyTools(
         IReadOnlyList<string>? paragraphs,
@@ -600,20 +661,33 @@ public class GccGenerateService
         {
             var name = (link.Text ?? "").Replace('\n', ' ').Trim();
             var href = string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim();
-            if (!IsLikelyPartnerToolLink(name, href)) continue;
+            if (name.Length == 0 || name.Length >= 80) continue;
+            if (LooksLikeSiteChromeName(name)) continue;
             if (!seen.Add(name)) continue;
             unique.Add(new CrawlTool(name, href));
         }
         if (unique.Count < 2) return [];
 
-        var paraCompact = CompactAlnum(string.Join(' ', paragraphs ?? []));
-        if (paraCompact.Length == 0) return unique;
-
         var linkCompact = CompactAlnum(string.Join(' ', unique.Select(t => t.Name)));
         if (linkCompact.Length == 0) return [];
-        if ((double)linkCompact.Length / paraCompact.Length < 0.6) return [];
 
-        return unique;
+        var paras = paragraphs ?? [];
+        if (paras.Count == 0) return unique;
+
+        // v1 joins all paragraphs; that rejects real tool rows after a long blurb on the same heading.
+        // Per-paragraph ratio matches toolsInSlice when the tool line is its own paragraph.
+        foreach (var para in paras)
+        {
+            var pc = CompactAlnum(para);
+            if (pc.Length == 0) continue;
+            if ((double)linkCompact.Length / pc.Length >= 0.6) return unique;
+        }
+
+        if (paras.Any(p => Regex.IsMatch(
+                p, @"\btop\b.*\btools?\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)))
+            return unique;
+
+        return [];
     }
 
     private static string CompactAlnum(string value)
@@ -875,16 +949,13 @@ public class GccGenerateService
         HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
     {
         var matchLevel = node.Level > 0 ? node.Level : 4;
-        var deeper = 0;
-        var links = 0;
-        foreach (var n in WalkSubtreeDocumentOrder(node))
-        {
-            // Rank by tool-list quality only — not raw or /tools/-filtered link counts.
-            links += ParseHierarchyTools(n.Paragraphs, n.Links).Count;
-            if (n.Level > matchLevel)
-                deeper++;
-        }
-        return (deeper, links);
+        var deeper = FlattenSections([node]).Count(n => n.Level > matchLevel);
+
+        // Same metric as BuildHierarchyMatchesFromTrees: largest toolsInSlice group.
+        var tools = ExtractToolsFromAssignmentMarkdown(
+            FormatSectionAssignment(node),
+            node.HeadingText ?? "");
+        return (deeper, tools.Count);
     }
 
     private static string NormalizePageUrl(string? url) =>

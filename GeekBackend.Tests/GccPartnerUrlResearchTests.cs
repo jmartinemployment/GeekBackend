@@ -6,7 +6,52 @@ namespace GeekBackend.Tests;
 public class GccPartnerUrlResearchTests
 {
     [Fact]
-    public void CollectPartnerHrefs_prefers_operator_destination_over_crawl()
+    public void CollectPartnerToolRows_bare_urls_alone_invent_zero_tools()
+    {
+        const string brief = """
+            {
+              "operatorTools": [
+                "https://botpenguin.com/",
+                "https://manychat.com/",
+                "https://www.pipedrive.com/en/products/sales/leads",
+                "https://customgpt.ai/",
+                "https://getchipbot.com/"
+              ]
+            }
+            """;
+
+        var rows = GccPartnerUrlResearchService.CollectPartnerToolRows(brief);
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public void CollectPartnerToolRows_crawl_five_without_paste()
+    {
+        const string brief = """
+            {
+              "hierarchyPlan": {
+                "recommendedTools": [
+                  { "name": "BotPenguin", "href": "/tools/marketing/bot-penguin" },
+                  { "name": "ManyChat", "href": "/tools/marketing/many-chat" },
+                  { "name": "Pipedrive", "href": "/tools/marketing/pipedrive" },
+                  { "name": "CustomGPT", "href": "/tools/marketing/custom-gpt" },
+                  { "name": "Get Chip Bot", "href": "/tools/marketing/getchipbot" }
+                ]
+              }
+            }
+            """;
+
+        var rows = GccPartnerUrlResearchService.CollectPartnerToolRows(brief);
+
+        Assert.Equal(5, rows.Count);
+        Assert.Contains(rows, r => r.Name == "BotPenguin");
+        Assert.Contains(rows, r => r.Name == "Get Chip Bot");
+        Assert.All(rows, r => Assert.Equal("crawl", r.Source));
+    }
+
+    [Fact]
+    public void CollectPartnerToolRows_attaches_operator_urls_onto_crawl_names()
     {
         const string brief = """
             {
@@ -26,16 +71,48 @@ public class GccPartnerUrlResearchTests
         var hrefs = GccPartnerUrlResearchService.CollectPartnerHrefs(brief);
         var rows = GccPartnerUrlResearchService.CollectPartnerToolRows(brief);
 
+        Assert.Equal(2, rows.Count);
         Assert.Equal(2, hrefs.Count);
         Assert.Contains(hrefs, h => h.Contains("botpenguin.com", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(hrefs, h => h.Contains("manychat.com", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(hrefs, h => h.Contains("geekatyourspot.com", StringComparison.OrdinalIgnoreCase));
-        Assert.All(rows.Where(r => r.Name is "BotPenguin" or "ManyChat"), r =>
-            Assert.Equal("operator", r.Source));
+        Assert.All(rows, r => Assert.Equal("operator", r.Source));
     }
 
     [Fact]
-    public void CollectPartnerHrefs_reads_hierarchy_and_operator_urls()
+    public void CollectPartnerToolRows_attaches_bare_operator_url_by_host_to_crawl_name()
+    {
+        const string brief = """
+            {
+              "hierarchyPlan": {
+                "recommendedTools": [
+                  { "name": "BotPenguin", "href": "/tools/marketing/bot-penguin" },
+                  { "name": "Pipedrive", "href": "/tools/marketing/pipedrive" }
+                ]
+              },
+              "operatorTools": [
+                "https://botpenguin.com/",
+                "https://www.pipedrive.com/en/products/sales/leads"
+              ]
+            }
+            """;
+
+        var rows = GccPartnerUrlResearchService.CollectPartnerToolRows(brief);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Contains(rows, r =>
+            r.Name == "BotPenguin"
+            && r.Url != null
+            && r.Url.Contains("botpenguin.com", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(rows, r =>
+            r.Name == "Pipedrive"
+            && r.Url != null
+            && r.Url.Contains("pipedrive.com", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(rows, r => r.Name.Equals("leads", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CollectPartnerHrefs_uses_crawl_absolute_when_no_operator_url()
     {
         const string brief = """
             {
@@ -53,11 +130,14 @@ public class GccPartnerUrlResearchTests
             """;
 
         var hrefs = GccPartnerUrlResearchService.CollectPartnerHrefs(brief);
+        var rows = GccPartnerUrlResearchService.CollectPartnerToolRows(brief);
 
-        Assert.Equal(3, hrefs.Count);
+        // Tidio/HubSpot are operator-only — not crawl tools — so they do not appear.
+        Assert.Equal(2, rows.Count);
+        Assert.Contains(rows, r => r.Name == "Intercom");
+        Assert.Contains(rows, r => r.Name == "Dup");
+        Assert.Single(hrefs);
         Assert.Contains(hrefs, h => h.Contains("intercom.com", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(hrefs, h => h.Contains("tidio.com", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(hrefs, h => h.Contains("hubspot.com", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

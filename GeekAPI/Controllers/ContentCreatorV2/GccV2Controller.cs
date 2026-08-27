@@ -381,26 +381,41 @@ public class GccV2Controller : ControllerBase
 
         try
         {
+            // Entire site hierarchy (all page TreeJson rows) — keyword-filtered trees miss
+            // sections required for correct tool harvest (same lesson as v1).
+            var allTreesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
+            if (!allTreesResult.Ok || allTreesResult.Value is not { Count: > 0 } allTrees)
+            {
+                GeekAPI.Diagnostics.AgentDebugLog.Write(
+                    "B",
+                    "GccV2Controller.TryMergeHierarchyPlanAsync",
+                    "No page section trees for profile",
+                    new { profileId, ok = allTreesResult.Ok });
+                return rawBriefJson;
+            }
+
             object? bestPlan = null;
             var bestTools = -1;
             var bestExact = false;
             string? bestHeading = null;
             string? bestTopic = null;
 
+            GeekAPI.Diagnostics.AgentDebugLog.Write(
+                "B",
+                "GccV2Controller.TryMergeHierarchyPlanAsync",
+                "Full site hierarchy loaded",
+                new { profileId, pageTreeCount = allTrees.Count });
+
             foreach (var topic in attempts)
             {
-                var treesResult = await _seo.FindTreesByKeywordAsync(profileId, topic, bearer, ct);
-                if (!treesResult.Ok || treesResult.Value is not { Count: > 0 } trees)
-                    continue;
-
-                var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(trees, topic);
-                foreach (var candidate in matches.Take(8))
+                var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(allTrees, topic);
+                foreach (var candidate in matches.Take(12))
                 {
                     var pathLabel = candidate.Path is { Length: > 0 }
                         ? string.Join(" › ", candidate.Path)
                         : null;
                     var tools = GccGenerateService.ExtractToolsFromTrees(
-                        trees, topic, candidate.SourcePageUrl, pathLabel);
+                        allTrees, topic, candidate.SourcePageUrl, pathLabel);
                     var toolCount = tools.Count;
                     var isExact = string.Equals(candidate.Kind, "exact-heading", StringComparison.OrdinalIgnoreCase);
                     var better = toolCount > bestTools
@@ -436,15 +451,15 @@ public class GccV2Controller : ControllerBase
                 return rawBriefJson;
 
             _logger.LogInformation(
-                "Hierarchy plan for profile {ProfileId}: matched '{Heading}' with {ToolCount} recommended tool(s) via topic '{Topic}'.",
-                profileId, bestHeading, bestTools, bestTopic);
+                "Hierarchy plan for profile {ProfileId}: matched '{Heading}' with {ToolCount} recommended tool(s) via topic '{Topic}' over {PageCount} page tree(s).",
+                profileId, bestHeading, bestTools, bestTopic, allTrees.Count);
 
             // #region agent log
             GeekAPI.Diagnostics.AgentDebugLog.Write(
                 "B",
                 "GccV2Controller.TryMergeHierarchyPlanAsync",
                 "Hierarchy match selected",
-                new { profileId, bestHeading, bestTools, bestTopic });
+                new { profileId, bestHeading, bestTools, bestTopic, pageTreeCount = allTrees.Count });
             // #endregion
 
             return MergeHierarchyPlanIntoBriefJson(rawBriefJson, bestPlan);
@@ -903,12 +918,22 @@ public class GccV2Controller : ControllerBase
         {
             try
             {
-                var treesResult = await _seo.FindTreesByKeywordAsync(
-                    profileId, brief.TargetKeyword!, bearer, ct);
+                var treesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
                 if (treesResult.Ok && treesResult.Value is { Count: > 0 } trees)
                 {
                     var matches = GccGenerateService.BuildHierarchyMatchesFromTrees(trees, brief.TargetKeyword!);
-                    var best = matches.FirstOrDefault();
+                    var best = matches
+                        .Select(m =>
+                        {
+                            var pathLabel = m.Path is { Length: > 0 } ? string.Join(" › ", m.Path) : null;
+                            var tools = GccGenerateService.ExtractToolsFromTrees(
+                                trees, brief.TargetKeyword!, m.SourcePageUrl, pathLabel);
+                            return (Match: m, ToolCount: tools.Count);
+                        })
+                        .OrderByDescending(x => x.ToolCount)
+                        .ThenBy(x => x.Match.Kind == "exact-heading" ? 0 : 1)
+                        .Select(x => x.Match)
+                        .FirstOrDefault();
                     if (best?.ChildHeadings is { Length: > 0 })
                         refreshedChildren = best.ChildHeadings;
                 }

@@ -25,11 +25,8 @@ public sealed class GccPartnerUrlResearchService
     }
 
     /// <summary>
-    /// Collect unique http(s) hrefs from hierarchyPlan.recommendedTools + operatorTools on the brief.
-    /// </summary>
-    /// <summary>
-    /// Hrefs to fetch for weave excerpts. Operator destination URLs first; crawl /tools/ hrefs
-    /// only for tools that have no operator URL yet.
+    /// Hrefs to fetch for weave excerpts. Prefer operator destination URLs attached to crawl
+    /// tools; fall back to absolute crawl hrefs when no operator URL is attached.
     /// </summary>
     public static IReadOnlyList<string> CollectPartnerHrefs(string? rawBriefJson) =>
         CollectPartnerToolRows(rawBriefJson)
@@ -41,8 +38,8 @@ public sealed class GccPartnerUrlResearchService
             .ToList();
 
     /// <summary>
-    /// Named tool rows for preflight UI (operator destinations + crawl tool list), merged by name.
-    /// Operator URL wins when the same tool appears in both.
+    /// Preflight tool rows = crawl <c>hierarchyPlan.recommendedTools</c> only.
+    /// Operator paste attaches destination URLs for excerpts; bare URLs alone never invent tools.
     /// </summary>
     public static IReadOnlyList<PartnerToolRow> CollectPartnerToolRows(string? rawBriefJson)
     {
@@ -52,70 +49,8 @@ public sealed class GccPartnerUrlResearchService
         {
             using var doc = JsonDocument.Parse(rawBriefJson);
             var root = doc.RootElement;
-            var byName = new Dictionary<string, PartnerToolRow>(StringComparer.OrdinalIgnoreCase);
-            var order = new List<string>();
 
-            void Upsert(string? name, string? rawUrl, string source)
-            {
-                if (byName.Count >= GccPartnerResearchCaps.MaxUrls && name is not null
-                    && !byName.ContainsKey(name.Trim()))
-                    return;
-
-                string? url = null;
-                if (!string.IsNullOrWhiteSpace(rawUrl) && TryNormalizeHttpUrl(rawUrl, out var normalized))
-                    url = normalized;
-                var displayName = !string.IsNullOrWhiteSpace(name)
-                    ? name!.Trim()
-                    : url is not null
-                        ? GuessNameFromUrl(url)
-                        : null;
-                if (string.IsNullOrWhiteSpace(displayName)) return;
-
-                if (byName.TryGetValue(displayName, out var existing))
-                {
-                    // Operator destination URL wins for excerpt fetch.
-                    if (string.Equals(source, "operator", StringComparison.OrdinalIgnoreCase)
-                        && !string.IsNullOrWhiteSpace(url))
-                    {
-                        byName[displayName] = existing with { Url = url, Source = "operator" };
-                    }
-                    else if (string.IsNullOrWhiteSpace(existing.Url) && !string.IsNullOrWhiteSpace(url))
-                    {
-                        byName[displayName] = existing with { Url = url };
-                    }
-                    return;
-                }
-
-                if (byName.Count >= GccPartnerResearchCaps.MaxUrls) return;
-                order.Add(displayName);
-                byName[displayName] = new PartnerToolRow(displayName, url, source);
-            }
-
-            // Operator destinations first (excerpt sources for weave).
-            if (TryGetPropertyIgnoreCase(root, "operatorTools", out var ops)
-                && ops.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var t in ops.EnumerateArray())
-                {
-                    if (t.ValueKind == JsonValueKind.String)
-                    {
-                        Upsert(null, t.GetString(), "operator");
-                        continue;
-                    }
-
-                    if (t.ValueKind != JsonValueKind.Object) continue;
-                    var name = TryGetPropertyIgnoreCase(t, "name", out var n) && n.ValueKind == JsonValueKind.String
-                        ? n.GetString()
-                        : null;
-                    var href = TryGetPropertyIgnoreCase(t, "url", out var u) && u.ValueKind == JsonValueKind.String
-                        ? u.GetString()
-                        : TryGetPropertyIgnoreCase(t, "href", out var h) && h.ValueKind == JsonValueKind.String
-                            ? h.GetString()
-                            : null;
-                    Upsert(name, href, "operator");
-                }
-            }
-
+            var rows = new List<PartnerToolRow>();
             if (TryGetPropertyIgnoreCase(root, "hierarchyPlan", out var plan)
                 && plan.ValueKind == JsonValueKind.Object
                 && TryGetPropertyIgnoreCase(plan, "recommendedTools", out var tools)
@@ -123,20 +58,63 @@ public sealed class GccPartnerUrlResearchService
             {
                 foreach (var t in tools.EnumerateArray())
                 {
+                    if (rows.Count >= GccPartnerResearchCaps.MaxUrls) break;
                     if (t.ValueKind != JsonValueKind.Object) continue;
                     var name = TryGetPropertyIgnoreCase(t, "name", out var n) && n.ValueKind == JsonValueKind.String
-                        ? n.GetString()
+                        ? n.GetString()?.Trim()
                         : null;
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    if (rows.Any(r => r.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
+
                     var href = TryGetPropertyIgnoreCase(t, "href", out var h) && h.ValueKind == JsonValueKind.String
                         ? h.GetString()
                         : TryGetPropertyIgnoreCase(t, "url", out var u) && u.ValueKind == JsonValueKind.String
                             ? u.GetString()
                             : null;
-                    Upsert(name, href, "crawl");
+                    string? url = null;
+                    if (!string.IsNullOrWhiteSpace(href) && TryNormalizeHttpUrl(href, out var normalized))
+                        url = normalized;
+                    rows.Add(new PartnerToolRow(name!, url, "crawl"));
                 }
             }
 
-            return order.Select(n => byName[n]).ToList();
+            if (rows.Count == 0) return [];
+
+            // Operator destinations attach onto crawl names only — never create new tool rows.
+            if (TryGetPropertyIgnoreCase(root, "operatorTools", out var ops)
+                && ops.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in ops.EnumerateArray())
+                {
+                    string? opName = null;
+                    string? opUrl = null;
+                    if (t.ValueKind == JsonValueKind.String)
+                    {
+                        opUrl = t.GetString();
+                    }
+                    else if (t.ValueKind == JsonValueKind.Object)
+                    {
+                        opName = TryGetPropertyIgnoreCase(t, "name", out var n) && n.ValueKind == JsonValueKind.String
+                            ? n.GetString()?.Trim()
+                            : null;
+                        opUrl = TryGetPropertyIgnoreCase(t, "url", out var u) && u.ValueKind == JsonValueKind.String
+                            ? u.GetString()
+                            : TryGetPropertyIgnoreCase(t, "href", out var h) && h.ValueKind == JsonValueKind.String
+                                ? h.GetString()
+                                : null;
+                    }
+                    else continue;
+
+                    if (string.IsNullOrWhiteSpace(opUrl) || !TryNormalizeHttpUrl(opUrl, out var dest))
+                        continue;
+
+                    var idx = FindCrawlToolIndex(rows, opName, dest);
+                    if (idx < 0) continue;
+                    rows[idx] = rows[idx] with { Url = dest, Source = "operator" };
+                }
+            }
+
+            return rows;
         }
         catch (JsonException)
         {
@@ -146,18 +124,56 @@ public sealed class GccPartnerUrlResearchService
 
     public sealed record PartnerToolRow(string Name, string? Url, string Source);
 
-    private static string GuessNameFromUrl(string url)
+    /// <summary>Match operator paste to a crawl tool by explicit name, then by host label.</summary>
+    private static int FindCrawlToolIndex(IReadOnlyList<PartnerToolRow> rows, string? opName, string destUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(opName))
+        {
+            for (var i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].Name.Equals(opName.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+        }
+
+        var hostGuess = HostLabelFromUrl(destUrl);
+        if (string.IsNullOrWhiteSpace(hostGuess)) return -1;
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var compactTool = CompactAlnum(rows[i].Name);
+            var compactHost = CompactAlnum(hostGuess);
+            if (compactTool.Length == 0 || compactHost.Length == 0) continue;
+            if (compactTool == compactHost
+                || compactTool.Contains(compactHost, StringComparison.Ordinal)
+                || compactHost.Contains(compactTool, StringComparison.Ordinal))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static string HostLabelFromUrl(string url)
     {
         try
         {
-            var path = new Uri(url).AbsolutePath.Trim('/');
-            var segment = path.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? url;
-            return string.IsNullOrWhiteSpace(segment) ? url : segment.Replace('-', ' ');
+            var uri = new Uri(url);
+            var host = uri.Host.Trim().TrimStart('.');
+            if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+                host = host[4..];
+            return host.Split('.', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
         }
         catch (UriFormatException)
         {
-            return url;
+            return "";
         }
+    }
+
+    private static string CompactAlnum(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        var chars = value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant);
+        return string.Concat(chars);
     }
 
     public async Task<IReadOnlyList<GccQuoteablePage>> FetchAsync(
