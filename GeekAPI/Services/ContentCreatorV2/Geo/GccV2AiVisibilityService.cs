@@ -72,23 +72,9 @@ public sealed class GccV2AiVisibilityService
     /// draft yet to score.</summary>
     public async Task<GccV2AiVisibilitySnapshotDto> BuildAndPersistAsync(GccV2CreateDto create, CancellationToken ct)
     {
-        var job = await _repo.GetLatestJobByCreateAsync(create.Id, ct);
-        if (job is null || string.IsNullOrWhiteSpace(job.ResultJson))
+        var (job, document) = await ResolveScorableJobAsync(create.Id, ct);
+        if (job is null || document is null)
             throw new InvalidOperationException("No completed draft yet for this create — generate content first.");
-
-        JobResultPayload? payload;
-        try
-        {
-            payload = JsonSerializer.Deserialize<JobResultPayload>(job.ResultJson, ContentDocJson);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "Could not parse ResultJson for job {JobId} during AI-visibility scoring.", job.Id);
-            throw new InvalidOperationException("Job result could not be parsed.");
-        }
-
-        if (payload is not { Document: { } document })
-            throw new InvalidOperationException("Job has no completed document to analyze.");
 
         var targetKeyword = await LoadTargetKeywordAsync(job.BriefId, ct);
         var analyzerJson = GccV2AnalyzerDocument.Serialize(document);
@@ -124,6 +110,45 @@ public sealed class GccV2AiVisibilityService
                 overallScore,
                 JsonSerializer.Serialize(report, JsonOpts)),
             ct);
+    }
+
+    /// <summary>
+    /// Prefer the newest job that has a parseable completed <see cref="ContentDocument"/> — not
+    /// merely the newest by CreatedAtUtc (Also-draft / short jobs can finish later without a
+    /// long-form body, which used to 422 refresh even when a pillar draft existed).
+    /// </summary>
+    private async Task<(GccV2JobDto? Job, ContentDocument? Document)> ResolveScorableJobAsync(
+        Guid createId,
+        CancellationToken ct)
+    {
+        IReadOnlyList<GccV2JobDto> jobs;
+        try
+        {
+            jobs = await _repo.ListJobsByCreateAsync(createId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not list jobs for create {CreateId}; falling back to latest.", createId);
+            var latest = await _repo.GetLatestJobByCreateAsync(createId, ct);
+            jobs = latest is null ? [] : [latest];
+        }
+
+        foreach (var job in jobs.OrderByDescending(j => j.CreatedAtUtc))
+        {
+            if (string.IsNullOrWhiteSpace(job.ResultJson)) continue;
+            try
+            {
+                var payload = JsonSerializer.Deserialize<JobResultPayload>(job.ResultJson, ContentDocJson);
+                if (payload?.Document is { } document)
+                    return (job, document);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Skipping unparsable ResultJson on job {JobId} during AI-visibility scoring.", job.Id);
+            }
+        }
+
+        return (null, null);
     }
 
     private async Task<string> LoadTargetKeywordAsync(Guid briefId, CancellationToken ct)

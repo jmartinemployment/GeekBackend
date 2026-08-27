@@ -80,7 +80,9 @@ public class GccV2AiVisibilityController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return UnprocessableEntity(new { error = ex.Message });
+            // Soft — same shape as GET when no scorable draft exists yet (multi-job race, shorts
+            // without a document, etc.). Avoids noisy 422s on Canvas auto-refresh after JobCompleted.
+            return Ok(new { ready = false, createId, message = ex.Message });
         }
         catch (Exception ex)
         {
