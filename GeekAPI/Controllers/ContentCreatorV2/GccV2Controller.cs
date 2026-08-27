@@ -173,7 +173,84 @@ public class GccV2Controller : ControllerBase
         return job is null ? NotFound() : Ok(job);
     }
 
-    /// <summary>Creates a brief stub + one pending job per content type, wakes the worker(s).</summary>
+    /// <summary>
+    /// Resolve crawl + operator partner tools for a create without starting WRITE jobs.
+    /// Operator must review/confirm this list before <c>POST .../generate</c>.
+    /// </summary>
+    [HttpPost("creates/{id:guid}/partner-tools/preflight")]
+    public async Task<ActionResult<object>> PreflightPartnerTools(
+        Guid id,
+        [FromBody] GenerateRequest? request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+        if (!IsOwner(create.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
+
+        if (request?.SiteAnalysisProfileId is not { } profileId || profileId == Guid.Empty)
+            return BadRequest(new { error = "siteAnalysisProfileId is required." });
+
+        try
+        {
+            var section = GccGenerateService.ParseSiteSection(create.SiteSectionJson);
+            GccGenerateService.ValidateSiteSectionGate(profileId, section);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+
+        var rawBriefJson = request?.Brief is { } briefElement
+            ? briefElement.GetRawText()
+            : null;
+        rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
+
+        var tools = GccPartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
+        string? matchedHeading = null;
+        string? matchTopic = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (doc.RootElement.TryGetProperty("hierarchyPlan", out var plan)
+                && plan.ValueKind == JsonValueKind.Object)
+            {
+                if (plan.TryGetProperty("matchedHeading", out var mh) && mh.ValueKind == JsonValueKind.String)
+                    matchedHeading = mh.GetString();
+                if (plan.TryGetProperty("matchTopic", out var mt) && mt.ValueKind == JsonValueKind.String)
+                    matchTopic = mt.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // ignore
+        }
+
+        // #region agent log
+        GeekAPI.Diagnostics.AgentDebugLog.Write(
+            "E",
+            "GccV2Controller.PreflightPartnerTools",
+            "Partner tools preflight",
+            new { createId = id, toolCount = tools.Count, matchedHeading, matchTopic });
+        // #endregion
+
+        return Ok(new
+        {
+            createId = id,
+            matchedHeading,
+            matchTopic,
+            toolCount = tools.Count,
+            toolsFound = tools.Count > 0,
+            tools,
+            message = tools.Count > 0
+                ? $"Found {tools.Count} partner tool(s). Confirm to start content creation."
+                : "No partner tools found from the site crawl or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.",
+        });
+    }
+
+    /// <summary>Creates a brief stub + one pending job per content type, wakes the worker(s).
+    /// Requires <see cref="GenerateRequest.PartnerToolsConfirmed"/> after preflight.</summary>
     [HttpPost("creates/{id:guid}/generate")]
     public async Task<ActionResult<object>> Generate(Guid id, [FromBody] GenerateRequest? request, CancellationToken ct)
     {
@@ -182,6 +259,12 @@ public class GccV2Controller : ControllerBase
         var create = await _repo.GetCreateAsync(id, ct);
         if (create is null) return NotFound();
         if (!IsOwner(create.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
+
+        if (request?.PartnerToolsConfirmed != true)
+            return BadRequest(new
+            {
+                error = "Confirm partner tools before starting content creation (POST .../partner-tools/preflight, then generate with partnerToolsConfirmed=true).",
+            });
 
         if (request?.SiteAnalysisProfileId is not { } profileId || profileId == Guid.Empty)
             return BadRequest(new { error = "siteAnalysisProfileId is required — start from Site Analyzer with a project site URL." });
@@ -887,7 +970,8 @@ public class GccV2Controller : ControllerBase
         string? TargetKeyword,
         JsonElement? Brief,
         Guid? SiteAnalysisProfileId,
-        IReadOnlyList<string>? ContentTypes = null);
+        IReadOnlyList<string>? ContentTypes = null,
+        bool? PartnerToolsConfirmed = null);
 
     private static IReadOnlyList<string> ResolveContentTypes(GenerateRequest? request, string? createContentType)
     {
