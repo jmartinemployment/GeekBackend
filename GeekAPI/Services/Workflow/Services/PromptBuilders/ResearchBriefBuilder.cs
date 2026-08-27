@@ -145,10 +145,18 @@ internal static class ResearchBriefBuilder
             // #region agent log
             {
                 var total = context.CrawledParagraphs.Count;
-                var mustInAll = context.CrawledParagraphs.Any(p => p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
-                var mustInTaken = taken.Any(p => p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
-                var researchInAll = context.CrawledParagraphs.Any(p => p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
-                var researchInTaken = taken.Any(p => p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
+                var mustInAll = context.CrawledParagraphs.Any(p =>
+                    p.Contains("Partner tools for this use case", StringComparison.Ordinal)
+                    || p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
+                var mustInTaken = taken.Any(p =>
+                    p.Contains("Partner tools for this use case", StringComparison.Ordinal)
+                    || p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
+                var researchInAll = context.CrawledParagraphs.Any(p =>
+                    p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal)
+                    || p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
+                var researchInTaken = taken.Any(p =>
+                    p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal)
+                    || p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
                 GeekAPI.Diagnostics.AgentDebugLog.Write(
                     "A",
                     "ResearchBriefBuilder.AppendSiteContext",
@@ -176,7 +184,7 @@ internal static class ResearchBriefBuilder
     }
 
     /// <summary>
-    /// Soft site-copy cap of 5, but never drop partner MUST MENTION / PARTNER PAGE RESEARCH blocks
+    /// Soft site-copy cap of 5, but never drop partner-tool / excerpt blocks
     /// (v2 packs those into CrawledParagraphs after brand fluff).
     /// </summary>
     internal static List<string> SelectSiteCopyParagraphs(IReadOnlyList<string> paragraphs)
@@ -187,9 +195,9 @@ internal static class ResearchBriefBuilder
         var researchIdx = -1;
         for (var i = 0; i < paragraphs.Count; i++)
         {
-            if (mustIdx < 0 && paragraphs[i].Contains("MUST MENTION partner tools", StringComparison.Ordinal))
+            if (mustIdx < 0 && IsPartnerToolsBlock(paragraphs[i]))
                 mustIdx = i;
-            if (researchIdx < 0 && paragraphs[i].Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal))
+            if (researchIdx < 0 && IsPartnerExcerptBlock(paragraphs[i]))
                 researchIdx = i;
         }
 
@@ -208,6 +216,14 @@ internal static class ResearchBriefBuilder
 
         return taken;
     }
+
+    private static bool IsPartnerToolsBlock(string p) =>
+        p.Contains("Partner tools for this use case", StringComparison.Ordinal)
+        || p.Contains("MUST MENTION partner tools", StringComparison.Ordinal);
+
+    private static bool IsPartnerExcerptBlock(string p) =>
+        p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal)
+        || p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal);
 
     private static void AppendKeywordSerpBrief(
         StringBuilder sb,

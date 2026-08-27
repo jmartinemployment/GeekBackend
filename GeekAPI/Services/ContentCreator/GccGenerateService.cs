@@ -500,11 +500,9 @@ public class GccGenerateService
     public sealed record CrawlTool(string Name, string? Href);
 
     /// <summary>
-    /// Tools from the crawl's page-section trees under the matched heading (typically an h4 keyword).
-    /// Collects every unique tool link under that node and all descendant h5/h6 sections — no per-heading
-    /// 2+ gate and no count cap (sibling h5s with a single link must not be dropped).
-    /// When the selected hierarchy leaf has no links, walk ancestor path segments so a barren leaf
-    /// does not hide tools on the parent topic. Does not fall back to unrelated pages.
+    /// Tools from the crawl under the matched use-case heading.
+    /// Uses v1-style tool-list detection: ≥2 anchors that dominate the paragraph (not prose links,
+    /// not site chrome). Prefers /tools/… rows when present.
     /// </summary>
     public static IReadOnlyList<CrawlTool> ExtractToolsFromTrees(
         IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
@@ -547,28 +545,37 @@ public class GccGenerateService
         var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
         if (matched is null) return [];
 
+        // Per-node tool lists (v1 parseHierarchyTools). Pick the best list under the match.
+        IReadOnlyList<CrawlTool> best = [];
+        var bestScore = -1;
+        foreach (var node in FlattenSections([matched]))
+        {
+            var list = ParseHierarchyTools(node.Paragraphs, node.Links);
+            if (list.Count == 0) continue;
+            var toolsPath = list.Count(t => HrefLooksLikeOnSiteToolPage(t.Href));
+            var score = toolsPath * 100 + list.Count;
+            if (score <= bestScore) continue;
+            bestScore = score;
+            best = list;
+        }
+
+        if (best.Count > 0) return best;
+
+        // Fallback: any /tools/… links under the match (chrome already filtered).
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var tools = new List<CrawlTool>();
-
-        // Collect candidate partner links under the match (all descendant subtrees).
-        // Prefer /tools/… hrefs when present — homepage use-case blocks list partners that way,
-        // and chrome (Privacy, Call Us, CTAs) otherwise floods the allowlist.
         foreach (var node in FlattenSections([matched]))
         {
             foreach (var tool in UniqueToolLinks(node.Links))
             {
+                if (!HrefLooksLikeOnSiteToolPage(tool.Href)) continue;
                 if (!seen.Add(tool.Name)) continue;
                 tools.Add(tool);
             }
         }
-
-        var toolPageLinks = tools.Where(t => HrefLooksLikeOnSiteToolPage(t.Href)).ToList();
-        if (toolPageLinks.Count > 0) return toolPageLinks;
-
         if (tools.Count > 0) return tools;
 
         // Fallback: deeper headings that look like product names (not "Top N Tools:" labels).
-        // Covers crawls where partner names are H6 text without harvested Links.
         var matchLevel = matched.Level > 0 ? matched.Level : 4;
         foreach (var node in FlattenSections([matched]))
         {
@@ -580,6 +587,50 @@ public class GccGenerateService
         }
 
         return tools;
+    }
+
+    /// <summary>
+    /// v1 tool-list detector: ≥2 anchors that account for most of the node's paragraph text
+    /// (comma-separated names), not links embedded in prose.
+    /// </summary>
+    internal static IReadOnlyList<CrawlTool> ParseHierarchyTools(
+        IReadOnlyList<string>? paragraphs,
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto>? links)
+    {
+        if (links is null || links.Count < 2) return [];
+
+        var unique = new List<CrawlTool>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var link in links)
+        {
+            var name = (link.Text ?? "").Replace('\n', ' ').Trim();
+            var href = string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim();
+            if (!IsLikelyPartnerToolLink(name, href)) continue;
+            if (!seen.Add(name)) continue;
+            unique.Add(new CrawlTool(name, href));
+        }
+        if (unique.Count < 2) return [];
+
+        var paraCompact = CompactAlnum(string.Join(' ', paragraphs ?? []));
+        if (paraCompact.Length == 0) return unique;
+
+        var linkCompact = CompactAlnum(string.Join(' ', unique.Select(t => t.Name)));
+        if (linkCompact.Length == 0) return [];
+        if ((double)linkCompact.Length / paraCompact.Length < 0.6) return [];
+
+        return unique;
+    }
+
+    private static string CompactAlnum(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        var sb = new StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            if (char.IsLetterOrDigit(c))
+                sb.Append(char.ToLowerInvariant(c));
+        }
+        return sb.ToString();
     }
 
     private static bool LooksLikePartnerProductName(string name)
@@ -833,7 +884,12 @@ public class GccGenerateService
         var links = 0;
         foreach (var n in FlattenSections([node]))
         {
-            links += UniqueToolLinks(n.Links).Count;
+            // Rank by tool-list quality (v1 detector), not raw chrome link count.
+            var toolList = ParseHierarchyTools(n.Paragraphs, n.Links);
+            if (toolList.Count > 0)
+                links += toolList.Count;
+            else
+                links += UniqueToolLinks(n.Links).Count(t => HrefLooksLikeOnSiteToolPage(t.Href));
             if (n.Level > matchLevel)
                 deeper++;
         }

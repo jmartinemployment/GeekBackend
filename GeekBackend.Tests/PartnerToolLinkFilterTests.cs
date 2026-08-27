@@ -10,16 +10,47 @@ public class PartnerToolLinkFilterTests
     [InlineData("Headquarters Delray Beach, Fl", "/contact", false)]
     [InlineData("Get Your Free AI Assessment", "/assessment", false)]
     [InlineData("read our comprehensive guide: \"How Smart Chatbots Revolutionize B2B Marketing\"", "/blog/x", false)]
-    [InlineData("Intercom", "/tools/marketing/intercom", true)]
-    [InlineData("Tidio", "/tools/marketing/tidio", true)]
-    [InlineData("HubSpot", "https://geekatyourspot.com/tools/marketing/hubspot", true)]
+    [InlineData("BotPenguin", "/tools/marketing/bot-penguin", true)]
+    [InlineData("ManyChat", "/tools/marketing/many-chat", true)]
+    [InlineData("Pipedrive", "https://geekatyourspot.com/tools/marketing/pipedrive", true)]
     public void IsLikelyPartnerToolLink_filters_chrome_keeps_tools(string name, string href, bool expected)
     {
         Assert.Equal(expected, GccGenerateService.IsLikelyPartnerToolLink(name, href));
     }
 
     [Fact]
-    public void ExtractToolsFromTrees_prefers_tools_path_over_site_chrome()
+    public void ParseHierarchyTools_accepts_comma_separated_tool_row()
+    {
+        var tools = GccGenerateService.ParseHierarchyTools(
+            ["BotPenguin, ManyChat, Pipedrive, CustomGPT, Get Chip Bot."],
+            [
+                new("BotPenguin", "/tools/marketing/bot-penguin"),
+                new("ManyChat", "/tools/marketing/many-chat"),
+                new("Pipedrive", "/tools/marketing/pipedrive"),
+                new("CustomGPT", "/tools/marketing/custom-gpt"),
+                new("Get Chip Bot", "/tools/marketing/getchipbot"),
+            ]);
+
+        Assert.Equal(5, tools.Count);
+        Assert.Contains(tools, t => t.Name == "BotPenguin");
+        Assert.Contains(tools, t => t.Name == "Get Chip Bot");
+    }
+
+    [Fact]
+    public void ParseHierarchyTools_rejects_prose_with_incidental_links()
+    {
+        var tools = GccGenerateService.ParseHierarchyTools(
+            ["Teams that already use BotPenguin for routing and ManyChat for books should start here."],
+            [
+                new("BotPenguin", "/tools/marketing/bot-penguin"),
+                new("ManyChat", "/tools/marketing/many-chat"),
+            ]);
+
+        Assert.Empty(tools);
+    }
+
+    [Fact]
+    public void ExtractToolsFromTrees_returns_tool_list_not_site_chrome()
     {
         const string treeJson = """
             [
@@ -46,9 +77,11 @@ public class PartnerToolLinkFilterTests
                         "headingText": "Top AI Chatbot Tools:",
                         "paragraphs": [],
                         "links": [
-                          { "text": "Intercom", "href": "/tools/marketing/intercom" },
-                          { "text": "Tidio", "href": "/tools/marketing/tidio" },
-                          { "text": "HubSpot", "href": "/tools/marketing/hubspot" }
+                          { "text": "BotPenguin", "href": "/tools/marketing/bot-penguin" },
+                          { "text": "ManyChat", "href": "/tools/marketing/many-chat" },
+                          { "text": "Pipedrive", "href": "/tools/marketing/pipedrive" },
+                          { "text": "CustomGPT", "href": "/tools/marketing/custom-gpt" },
+                          { "text": "Get Chip Bot", "href": "/tools/marketing/getchipbot" }
                         ],
                         "children": []
                       }
@@ -72,10 +105,12 @@ public class PartnerToolLinkFilterTests
         var tools = GccGenerateService.ExtractToolsFromTrees(
             trees, "Smart Chatbots for Marketing", null, null);
 
-        Assert.Equal(3, tools.Count);
-        Assert.Contains(tools, t => t.Name == "Intercom");
-        Assert.Contains(tools, t => t.Name == "Tidio");
-        Assert.Contains(tools, t => t.Name == "HubSpot");
+        Assert.Equal(5, tools.Count);
+        Assert.Contains(tools, t => t.Name == "BotPenguin");
+        Assert.Contains(tools, t => t.Name == "ManyChat");
+        Assert.Contains(tools, t => t.Name == "Pipedrive");
+        Assert.Contains(tools, t => t.Name == "CustomGPT");
+        Assert.Contains(tools, t => t.Name == "Get Chip Bot");
         Assert.DoesNotContain(tools, t => t.Name.Contains("Privacy", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(tools, t => t.Name.Contains("Call Us", StringComparison.OrdinalIgnoreCase));
     }

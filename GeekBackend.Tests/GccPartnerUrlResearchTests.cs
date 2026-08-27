@@ -6,6 +6,35 @@ namespace GeekBackend.Tests;
 public class GccPartnerUrlResearchTests
 {
     [Fact]
+    public void CollectPartnerHrefs_prefers_operator_destination_over_crawl()
+    {
+        const string brief = """
+            {
+              "hierarchyPlan": {
+                "recommendedTools": [
+                  { "name": "BotPenguin", "href": "https://geekatyourspot.com/tools/marketing/bot-penguin" },
+                  { "name": "ManyChat", "href": "https://geekatyourspot.com/tools/marketing/many-chat" }
+                ]
+              },
+              "operatorTools": [
+                { "name": "BotPenguin", "url": "https://botpenguin.com/" },
+                { "name": "ManyChat", "url": "https://manychat.com/" }
+              ]
+            }
+            """;
+
+        var hrefs = GccPartnerUrlResearchService.CollectPartnerHrefs(brief);
+        var rows = GccPartnerUrlResearchService.CollectPartnerToolRows(brief);
+
+        Assert.Equal(2, hrefs.Count);
+        Assert.Contains(hrefs, h => h.Contains("botpenguin.com", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(hrefs, h => h.Contains("manychat.com", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(hrefs, h => h.Contains("geekatyourspot.com", StringComparison.OrdinalIgnoreCase));
+        Assert.All(rows.Where(r => r.Name is "BotPenguin" or "ManyChat"), r =>
+            Assert.Equal("operator", r.Source));
+    }
+
+    [Fact]
     public void CollectPartnerHrefs_reads_hierarchy_and_operator_urls()
     {
         const string brief = """

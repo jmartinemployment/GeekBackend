@@ -253,7 +253,7 @@ public class GccV2Controller : ControllerBase
             toolsFound = tools.Count > 0,
             tools,
             message = tools.Count > 0
-                ? $"Found {tools.Count} partner tool(s). Confirm to start content creation."
+                ? $"Found {tools.Count} partner tool(s). Each will be discussed in the draft. Confirm to start content creation."
                 : "No partner tools found from the site crawl or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.",
         });
     }

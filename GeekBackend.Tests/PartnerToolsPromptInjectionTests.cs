@@ -10,6 +10,12 @@ namespace GeekBackend.Tests;
 /// </summary>
 public class PartnerToolsPromptInjectionTests
 {
+    private const string PartnerToolsLine =
+        "Partner tools for this use case (required): BotPenguin <https://botpenguin.com/> | ManyChat <https://manychat.com/>";
+
+    private const string PartnerExcerptsLine =
+        "PARTNER PAGE EXCERPTS (fetched destination pages for weave — when discussing a tool in a paragraph:";
+
     private static ProjectGenerationContext Ctx(List<string> crawledParagraphs, string? writingNotes = null) =>
         new(
             ProjectName: "kw",
@@ -41,25 +47,26 @@ public class PartnerToolsPromptInjectionTests
         "Positioning: implementers.",
         "Services/features: a, b, c",
         "Topics this company is known for: x",
-        "MUST MENTION partner tools (required): Intercom <https://www.intercom.com> | Tidio <https://www.tidio.com>",
-        "PARTNER PAGE RESEARCH (fetched destination pages):",
-        "[Intercom] (https://www.intercom.com)",
-        "- Intercom helps teams reply faster.",
+        PartnerToolsLine,
+        PartnerExcerptsLine,
+        "[BotPenguin] (https://botpenguin.com/)",
+        "- BotPenguin helps teams reply faster.",
     ];
 
     [Fact]
-    public void ArticleSection_brief_omits_CrawledParagraphs_partner_must_mention()
+    public void ArticleSection_brief_omits_CrawledParagraphs_partner_block()
     {
         var brief = ResearchBriefBuilder.Build(Ctx(FluffThenPartner()), ResearchBriefPhase.ArticleSection);
 
-        Assert.DoesNotContain("MUST MENTION partner tools", brief, StringComparison.Ordinal);
-        Assert.DoesNotContain("PARTNER PAGE RESEARCH", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("Partner tools for this use case", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("PARTNER PAGE EXCERPTS", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("allowlist", brief, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void ArticleSection_system_path_keeps_partner_tools_when_in_WritingNotes()
     {
-        var notes = "MUST MENTION partner tools (required): Intercom <https://www.intercom.com>";
+        var notes = PartnerToolsLine;
         var ctx = Ctx([], notes);
         var builder = new ContentPromptBuilder();
         var req = builder.BuildArticleSectionPrompt(
@@ -74,25 +81,27 @@ public class PartnerToolsPromptInjectionTests
         var system = string.Join("\n", req.Messages
             .Where(m => m.Role == GeekAPI.Services.Workflow.Providers.ChatRole.System)
             .Select(m => m.Content));
-        Assert.Contains("MUST MENTION partner tools", system, StringComparison.Ordinal);
-        Assert.Contains("Intercom", system, StringComparison.Ordinal);
+        Assert.Contains("Partner tools for this use case", system, StringComparison.Ordinal);
+        Assert.Contains("BotPenguin", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("allowlist", system, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void BlogSection_keeps_partner_must_mention_past_index_4()
+    public void BlogSection_keeps_partner_block_past_index_4()
     {
         var brief = ResearchBriefBuilder.Build(Ctx(FluffThenPartner()), ResearchBriefPhase.BlogSection);
 
-        Assert.Contains("MUST MENTION partner tools", brief, StringComparison.Ordinal);
-        Assert.Contains("PARTNER PAGE RESEARCH", brief, StringComparison.Ordinal);
-        Assert.Contains("Intercom", brief, StringComparison.Ordinal);
+        Assert.Contains("Partner tools for this use case", brief, StringComparison.Ordinal);
+        Assert.Contains("PARTNER PAGE EXCERPTS", brief, StringComparison.Ordinal);
+        Assert.Contains("BotPenguin", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("allowlist", brief, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void SelectSiteCopyParagraphs_prefers_partner_block_over_raw_Take5()
     {
         var selected = ResearchBriefBuilder.SelectSiteCopyParagraphs(FluffThenPartner());
-        Assert.Contains(selected, p => p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
-        Assert.Contains(selected, p => p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
+        Assert.Contains(selected, p => p.Contains("Partner tools for this use case", StringComparison.Ordinal));
+        Assert.Contains(selected, p => p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal));
     }
 }

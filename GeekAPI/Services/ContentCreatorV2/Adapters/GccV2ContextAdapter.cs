@@ -55,8 +55,12 @@ public sealed class GccV2ContextAdapter
 
         // #region agent log
         {
-            var mustIdx = paragraphs.FindIndex(p => p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
-            var researchIdx = paragraphs.FindIndex(p => p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
+            var mustIdx = paragraphs.FindIndex(p =>
+                p.Contains("Partner tools for this use case", StringComparison.Ordinal)
+                || p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
+            var researchIdx = paragraphs.FindIndex(p =>
+                p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal)
+                || p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
             GeekAPI.Diagnostics.AgentDebugLog.Write(
                 "A",
                 "GccV2ContextAdapter.BuildContext",
@@ -71,7 +75,8 @@ public sealed class GccV2ContextAdapter
                     recommendedToolCount = fields.RecommendedTools.Count,
                     operatorToolCount = fields.OperatorTools.Count,
                     partnerResearchPageCount = fields.PartnerResearch.Count,
-                    writingNotesHasMustMention = BuildPartnerWritingNotes(fields).Contains("MUST MENTION partner tools", StringComparison.Ordinal),
+                    writingNotesHasPartnerTools = BuildPartnerWritingNotes(fields)
+                        .Contains("Partner tools for this use case", StringComparison.Ordinal),
                     first5Prefixes = paragraphs.Take(5).Select(p => p.Length <= 80 ? p : p[..80]).ToList(),
                 });
         }
@@ -117,8 +122,8 @@ public sealed class GccV2ContextAdapter
     }
 
     /// <summary>
-    /// Partner allowlist + page research must live in WritingNotes — pillar ArticleSection prompts
-    /// omit CrawledParagraphs entirely, and blog only Take(5) of them.
+    /// Partner tools + page excerpts for weave. Pillar ArticleSection prompts omit CrawledParagraphs;
+    /// blog only Take(5) of them — so this must live in WritingNotes.
     /// </summary>
     private static string BuildPartnerWritingNotes(BriefFields fields)
     {
@@ -129,8 +134,8 @@ public sealed class GccV2ContextAdapter
             var toolList = string.Join(" | ", partnerTools.Select(t =>
                 string.IsNullOrWhiteSpace(t.Href) ? t.Name : $"{t.Name} <{t.Href}>"));
             parts.Add(
-                "MUST MENTION partner tools (required): every name below must appear at least once in the "
-                + "finished piece as an inline anchor (use the given href when present). Do not skip any. "
+                "Partner tools for this use case (required): the finished piece MUST discuss each name "
+                + "below at least once as an inline mention (use the given href when present). Do not skip any. "
                 + "Do not invent unrelated tools. Do not open a \"Top N tools\" / roundup section or use a "
                 + "product name as an H2. Spread mentions across sections where solutions are discussed: "
                 + toolList);
@@ -138,15 +143,16 @@ public sealed class GccV2ContextAdapter
         else
         {
             parts.Add(
-                "No partner-tool allowlist was resolved for this keyword from the site crawl or operator URLs. "
+                "No partner tools were resolved for this keyword from the site crawl or operator URLs. "
                 + "Do not invent partner product names or /tools/ links.");
         }
 
         if (fields.PartnerResearch is { Count: > 0 } researchPages)
         {
             parts.Add(
-                "PARTNER PAGE RESEARCH (fetched destination pages — ground claims in this extract; paraphrase; "
-                + "still inline-link with the allowlist href; do not invent features absent from the extract):");
+                "PARTNER PAGE EXCERPTS (fetched destination pages for weave — when discussing a tool in a "
+                + "paragraph, ground claims in that tool's extract; paraphrase; inline-link with the tool href "
+                + "when present; do not invent features absent from the extract):");
             var used = 0;
             const int budget = 12_000;
             foreach (var page in researchPages)
@@ -211,7 +217,7 @@ public sealed class GccV2ContextAdapter
         {
             notes.Add(
                 "MUST MENTION in this section (required — name each item in the prose; partner tools need "
-                + "an inline link when an href was supplied in the brief allowlist): "
+                + "an inline link when an href was supplied for that tool): "
                 + string.Join(", ", hierarchyChildHeadings));
         }
 
@@ -298,8 +304,8 @@ public sealed class GccV2ContextAdapter
             var toolList = string.Join(" | ", partnerTools.Select(t =>
                 string.IsNullOrWhiteSpace(t.Href) ? t.Name : $"{t.Name} <{t.Href}>"));
             paragraphs.Add(
-                "MUST MENTION partner tools (required): every name below must appear at least once in the "
-                + "finished piece as an inline anchor (use the given href when present). Do not skip any. "
+                "Partner tools for this use case (required): the finished piece MUST discuss each name "
+                + "below at least once as an inline mention (use the given href when present). Do not skip any. "
                 + "Do not invent unrelated tools. Do not open a \"Top N tools\" / roundup section or use a "
                 + "product name as an H2. Spread mentions across sections where solutions are discussed: "
                 + toolList);
@@ -307,15 +313,16 @@ public sealed class GccV2ContextAdapter
         else
         {
             paragraphs.Add(
-                "No partner-tool allowlist was resolved for this keyword from the site crawl or operator URLs. "
+                "No partner tools were resolved for this keyword from the site crawl or operator URLs. "
                 + "Do not invent partner product names or /tools/ links.");
         }
 
         if (fields.PartnerResearch is { Count: > 0 } researchPages)
         {
             paragraphs.Add(
-                "PARTNER PAGE RESEARCH (fetched destination pages — ground claims in this extract; paraphrase; "
-                + "still inline-link with the allowlist href; do not invent features absent from the extract):");
+                "PARTNER PAGE EXCERPTS (fetched destination pages for weave — when discussing a tool in a "
+                + "paragraph, ground claims in that tool's extract; paraphrase; inline-link with the tool href "
+                + "when present; do not invent features absent from the extract):");
             foreach (var page in researchPages)
             {
                 paragraphs.Add($"[{page.Title}] ({page.Url})");
@@ -329,13 +336,13 @@ public sealed class GccV2ContextAdapter
         if (siteSection?.RelatedPages is { Count: > 0 } pages)
         {
             // Prefer use-case / methodology / non-tool pages for internal links. Tool URLs from the
-            // crawl-wide bag must not compete with the partner allowlist above.
+            // crawl-wide bag must not compete with the partner tools listed above.
             var ordered = PreferNonToolInternalPages(pages);
             if (partnerTools.Count > 0)
             {
                 paragraphs.Add(
                     "Internal link candidates for non-tool site pages (use-case, methodology, etc.). "
-                    + "Do not use these as tool/partner links — those must come from the allowlist above: "
+                    + "Do not use these as tool/partner links — those must come from the partner tools above: "
                     + string.Join(" | ", ordered.Select(p => $"{p.Title} <{p.Url}>")));
             }
             else
