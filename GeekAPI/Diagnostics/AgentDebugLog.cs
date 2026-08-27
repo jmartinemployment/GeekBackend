@@ -26,6 +26,8 @@ internal static class AgentDebugLog
                 ["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             };
             var line = JsonSerializer.Serialize(payload);
+            // Railway / prod: console is the only sink we can pull via get-logs.
+            try { Console.WriteLine("[agent-debug-fa72fe] " + line); } catch { /* ignore */ }
             try { File.AppendAllText(LogPath, line + "\n"); } catch { /* ignore */ }
             try
             {
