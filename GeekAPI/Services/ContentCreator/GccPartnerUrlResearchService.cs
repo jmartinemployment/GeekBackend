@@ -1,10 +1,13 @@
+using System.Text;
 using System.Text.Json;
+using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreator.Polite;
 using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// Fetches partner/tool destination URLs and extracts full usable page content for v2 WRITE.
+/// Polite partner-destination crawl + extract + persist audit/cache rows.
 /// Soft per-URL failures — never throws for a single bad href.
 /// </summary>
 public sealed class GccPartnerUrlResearchService
@@ -15,12 +18,17 @@ public sealed class GccPartnerUrlResearchService
         PropertyNameCaseInsensitive = true,
     };
 
-    private readonly HttpClient _http;
+    private readonly IGccPoliteCrawler _crawler;
+    private readonly HttpGccV2Repository _repo;
     private readonly ILogger<GccPartnerUrlResearchService> _logger;
 
-    public GccPartnerUrlResearchService(HttpClient http, ILogger<GccPartnerUrlResearchService> logger)
+    public GccPartnerUrlResearchService(
+        IGccPoliteCrawler crawler,
+        HttpGccV2Repository repo,
+        ILogger<GccPartnerUrlResearchService> logger)
     {
-        _http = http;
+        _crawler = crawler;
+        _repo = repo;
         _logger = logger;
     }
 
@@ -80,7 +88,6 @@ public sealed class GccPartnerUrlResearchService
 
             if (rows.Count == 0) return [];
 
-            // Operator destinations attach onto crawl names only — never create new tool rows.
             if (TryGetPropertyIgnoreCase(root, "operatorTools", out var ops)
                 && ops.ValueKind == JsonValueKind.Array)
             {
@@ -124,7 +131,6 @@ public sealed class GccPartnerUrlResearchService
 
     public sealed record PartnerToolRow(string Name, string? Url, string Source);
 
-    /// <summary>Match operator paste to a crawl tool by explicit name, then by host label.</summary>
     private static int FindCrawlToolIndex(IReadOnlyList<PartnerToolRow> rows, string? opName, string destUrl)
     {
         if (!string.IsNullOrWhiteSpace(opName))
@@ -177,18 +183,19 @@ public sealed class GccPartnerUrlResearchService
     }
 
     public async Task<IReadOnlyList<GccQuoteablePage>> FetchAsync(
+        Guid createId,
         IReadOnlyList<string> urls,
         CancellationToken ct)
     {
         if (urls.Count == 0) return [];
 
-        var gate = new SemaphoreSlim(GccPartnerResearchCaps.MaxConcurrency);
+        var gate = new SemaphoreSlim(GccPartnerResearchCaps.MaxConcurrentFetches);
         var tasks = urls.Select(async url =>
         {
             await gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                return await FetchOneAsync(url, ct).ConfigureAwait(false);
+                return await FetchOneAsync(createId, url, ct).ConfigureAwait(false);
             }
             finally
             {
@@ -226,7 +233,7 @@ public sealed class GccPartnerUrlResearchService
                 writer.WriteEndObject();
             }
 
-            return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+            return Encoding.UTF8.GetString(stream.ToArray());
         }
         catch (JsonException)
         {
@@ -234,54 +241,52 @@ public sealed class GccPartnerUrlResearchService
         }
     }
 
-    private async Task<GccQuoteablePage?> FetchOneAsync(string url, CancellationToken ct)
+    private async Task<GccQuoteablePage?> FetchOneAsync(Guid createId, string url, CancellationToken ct)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            _logger.LogWarning("[partner crawl] Invalid URL skipped: {Url}", url);
+            await TryPersistAsync(createId, url, "", false, "InvalidUrl", null, null, null, ct).ConfigureAwait(false);
+            return null;
+        }
+
+        var host = uri.Host;
+
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation(
-                "Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
-
-            using var response = await _http.SendAsync(
-                request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
+            var cached = await TryGetFreshCacheAsync(url, ct).ConfigureAwait(false);
+            if (cached is not null)
             {
-                _logger.LogWarning(
-                    "Partner URL research skipped {Url}: HTTP {Status}",
-                    url, (int)response.StatusCode);
+                _logger.LogInformation("[partner crawl] Cache hit for {Url}", url);
+                return cached;
+            }
+
+            var fetch = await _crawler.GetHtmlAsync(uri, ct).ConfigureAwait(false);
+            if (!fetch.HasHtml)
+            {
+                await TryPersistAsync(createId, url, host, false, fetch.Status, null, null, null, ct)
+                    .ConfigureAwait(false);
                 return null;
             }
 
-            var media = response.Content.Headers.ContentType?.MediaType ?? "";
-            if (media.Length > 0
-                && !media.Contains("html", StringComparison.OrdinalIgnoreCase)
-                && !media.Contains("text/plain", StringComparison.OrdinalIgnoreCase)
-                && !media.Contains("xml", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogWarning("Partner URL research skipped {Url}: content-type {Media}", url, media);
-                return null;
-            }
-
-            await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            using var limited = new LimitedReadStream(stream, GccPartnerResearchCaps.MaxHtmlBytes);
-            using var reader = new StreamReader(limited);
-            var html = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(html))
-            {
-                _logger.LogWarning("Partner URL research skipped {Url}: empty body", url);
-                return null;
-            }
-
-            var page = GccArticleHtmlExtractor.ExtractPartnerPage(url, html);
+            var page = GccArticleHtmlExtractor.ExtractPartnerPage(url, fetch.Html!);
             if (GccArticleHtmlExtractor.IsEmpty(page))
             {
-                _logger.LogWarning("Partner URL research skipped {Url}: no extractable content", url);
+                await TryPersistAsync(
+                        createId, url, host, false, GccPoliteFetchResult.Statuses.ExtractFailed, null, null, null, ct)
+                    .ConfigureAwait(false);
                 return null;
             }
 
+            var pageJson = JsonSerializer.Serialize(page, JsonOpts);
+            var flat = FlattenPage(page);
+            await TryPersistAsync(
+                    createId, url, host, true, GccPoliteFetchResult.Statuses.Success,
+                    page.Title, pageJson, flat, ct)
+                .ConfigureAwait(false);
+
             _logger.LogInformation(
-                "Partner URL research ok {Url}: {HeadingCount} headings, {ParagraphCount} paragraphs",
+                "[partner crawl] ok {Url}: {HeadingCount} headings, {ParagraphCount} paragraphs",
                 url, page.Headings.Count, page.Paragraphs.Count);
             return page;
         }
@@ -291,9 +296,73 @@ public sealed class GccPartnerUrlResearchService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Partner URL research failed for {Url}", url);
+            _logger.LogWarning(ex, "[partner crawl] failed for {Url}", url);
+            await TryPersistAsync(
+                    createId, url, host, false, GccPoliteFetchResult.Statuses.RequestFailed, null, null, null, ct)
+                .ConfigureAwait(false);
             return null;
         }
+    }
+
+    private async Task<GccQuoteablePage?> TryGetFreshCacheAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            var row = await _repo.GetFreshPartnerResearchAsync(
+                url, GccPartnerResearchCaps.CacheFreshnessHours, ct).ConfigureAwait(false);
+            if (row is null || string.IsNullOrWhiteSpace(row.PageJson)) return null;
+            return JsonSerializer.Deserialize<GccQuoteablePage>(row.PageJson, JsonOpts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[partner crawl] Fresh-cache lookup failed for {Url}", url);
+            return null;
+        }
+    }
+
+    private async Task TryPersistAsync(
+        Guid createId,
+        string url,
+        string host,
+        bool success,
+        string status,
+        string? title,
+        string? pageJson,
+        string? flat,
+        CancellationToken ct)
+    {
+        if (createId == Guid.Empty) return;
+        try
+        {
+            await _repo.CreatePartnerResearchRecordAsync(
+                new CreateGccV2PartnerResearchRecordCommand(
+                    createId,
+                    url,
+                    success,
+                    status,
+                    host,
+                    JobId: null,
+                    title,
+                    pageJson,
+                    flat),
+                ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[partner crawl] Persist failed for {Url} ({Status})", url, status);
+        }
+    }
+
+    private static string FlattenPage(GccQuoteablePage page)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(page.Title))
+            sb.AppendLine(page.Title);
+        foreach (var h in page.Headings)
+            sb.AppendLine($"H{h.Level}: {h.Text}");
+        foreach (var p in page.Paragraphs)
+            sb.AppendLine(p);
+        return sb.ToString();
     }
 
     private static bool TryNormalizeHttpUrl(string? raw, out string url)
@@ -338,67 +407,5 @@ public sealed class GccPartnerUrlResearchService
 
         value = default;
         return false;
-    }
-
-    /// <summary>Stops reading after <paramref name="maxBytes"/> to avoid huge downloads.</summary>
-    private sealed class LimitedReadStream : Stream
-    {
-        private readonly Stream _inner;
-        private readonly long _maxBytes;
-        private long _read;
-
-        public LimitedReadStream(Stream inner, long maxBytes)
-        {
-            _inner = inner;
-            _maxBytes = maxBytes;
-        }
-
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position
-        {
-            get => _read;
-            set => throw new NotSupportedException();
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            if (_read >= _maxBytes) return 0;
-            var remaining = (int)Math.Min(count, _maxBytes - _read);
-            var n = _inner.Read(buffer, offset, remaining);
-            _read += n;
-            return n;
-        }
-
-        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-        {
-            if (_read >= _maxBytes) return 0;
-            var remaining = (int)Math.Min(count, _maxBytes - _read);
-            var n = await _inner.ReadAsync(buffer.AsMemory(offset, remaining), cancellationToken).ConfigureAwait(false);
-            _read += n;
-            return n;
-        }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_read >= _maxBytes) return 0;
-            var remaining = (int)Math.Min(buffer.Length, _maxBytes - _read);
-            var n = await _inner.ReadAsync(buffer[..remaining], cancellationToken).ConfigureAwait(false);
-            _read += n;
-            return n;
-        }
-
-        public override void Flush() { }
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing) _inner.Dispose();
-            base.Dispose(disposing);
-        }
     }
 }

@@ -346,7 +346,7 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = EnsureBriefContentTypes(rawBriefJson, contentTypes, primaryType);
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
-        rawBriefJson = await TryMergePartnerResearchAsync(rawBriefJson, ct);
+        rawBriefJson = await TryMergePartnerResearchAsync(rawBriefJson, id, ct);
 
         var brief = await _repo.CreateBriefAsync(
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
@@ -559,7 +559,10 @@ public class GccV2Controller : ControllerBase
     /// Fetch partner/tool destination pages and attach full page extracts as <c>partnerResearch</c>
     /// on the brief. Soft: failed URLs are skipped; Generate never hard-fails.
     /// </summary>
-    private async Task<string?> TryMergePartnerResearchAsync(string? rawBriefJson, CancellationToken ct)
+    private async Task<string?> TryMergePartnerResearchAsync(
+        string? rawBriefJson,
+        Guid createId,
+        CancellationToken ct)
     {
         try
         {
@@ -576,7 +579,7 @@ public class GccV2Controller : ControllerBase
             // #endregion
             if (hrefs.Count == 0) return rawBriefJson;
 
-            var pages = await _partnerResearch.FetchAsync(hrefs, ct);
+            var pages = await _partnerResearch.FetchAsync(createId, hrefs, ct);
             // #region agent log
             GeekAPI.Diagnostics.AgentDebugLog.Write(
                 "C",

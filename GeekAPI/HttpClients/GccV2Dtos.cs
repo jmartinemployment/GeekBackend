@@ -198,3 +198,27 @@ public sealed record CreateGccV2AiVisibilitySnapshotCommand(
     string OwnerUserId,
     int Score,
     string? ReportJson);
+
+public sealed record GccV2PartnerResearchRecordDto(
+    Guid Id,
+    Guid CreateId,
+    Guid? JobId,
+    string TargetUrl,
+    string HostDomain,
+    DateTimeOffset CrawledAtUtc,
+    bool IsSuccess,
+    string CrawlStatusLog,
+    string? ExtractedTitle,
+    string? PageJson,
+    string? FlattenedTextContent);
+
+public sealed record CreateGccV2PartnerResearchRecordCommand(
+    Guid CreateId,
+    string TargetUrl,
+    bool IsSuccess,
+    string? CrawlStatusLog = null,
+    string? HostDomain = null,
+    Guid? JobId = null,
+    string? ExtractedTitle = null,
+    string? PageJson = null,
+    string? FlattenedTextContent = null);

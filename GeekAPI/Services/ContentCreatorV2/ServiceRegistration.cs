@@ -1,6 +1,7 @@
 using GeekAPI.Controllers.ContentCreatorV2.Hubs;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.ContentCreator.Polite;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
@@ -41,12 +42,18 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<GccV2SiteHierarchyService>();
-        services.AddHttpClient<GccPartnerUrlResearchService>(client =>
+        services.AddSingleton<GccPoliteHostRegistry>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddHttpClient<IGccPoliteCrawler, GccPoliteCrawler>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(GccPartnerResearchCaps.FetchTimeoutSeconds);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd(
-                "GeekContentCreatorPartnerResearch/1.0 (+https://geekatyourspot.com)");
-        });
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(GccPartnerResearchCaps.UserAgent);
+            client.DefaultRequestHeaders.Accept.ParseAdd(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.5");
+        })
+        .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+        services.AddScoped<GccPartnerUrlResearchService>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();

@@ -90,5 +90,19 @@ public static class GccPartnerResearchCaps
     public const int MaxCharsPerPage = 16_000;
     public const int MaxHtmlBytes = 2_000_000;
     public const int FetchTimeoutSeconds = 15;
-    public const int MaxConcurrency = 4;
+    /// <summary>Default polite spacer between requests to the same host (seconds).</summary>
+    public const int DefaultHostDelaySeconds = 12;
+    /// <summary>Max in-flight HTTP fetches across all hosts (per-host still serial).</summary>
+    public const int MaxConcurrentFetches = 4;
+    /// <summary>Deprecated alias — use <see cref="MaxConcurrentFetches"/>.</summary>
+    public const int MaxConcurrency = MaxConcurrentFetches;
+    /// <summary>Reuse a successful partner crawl for the same URL within this window.</summary>
+    public const int CacheFreshnessHours = 24;
+
+    public const string BotName = "geekatyourspotbot";
+    public const string BotContactEmail = "jeffm@geekatyourspot.com";
+    public const string BotContactUrl = "https://geekatyourspot.com";
+
+    public static string UserAgent { get; } =
+        $"{BotName}/1.0 (+mailto:{BotContactEmail}; +{BotContactUrl})";
 }

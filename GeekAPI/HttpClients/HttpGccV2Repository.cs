@@ -171,6 +171,21 @@ public class HttpGccV2Repository
     public Task<GccV2AiVisibilitySnapshotDto> CreateAiVisibilitySnapshotAsync(CreateGccV2AiVisibilitySnapshotCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2AiVisibilitySnapshotDto>("repo/content-creator-v2/ai-visibility-snapshots", command, ct);
 
+    public Task<GccV2PartnerResearchRecordDto?> GetFreshPartnerResearchAsync(
+        string targetUrl,
+        int withinHours = 24,
+        CancellationToken ct = default)
+    {
+        var path =
+            $"repo/content-creator-v2/partner-research-records/fresh?targetUrl={Uri.EscapeDataString(targetUrl)}&withinHours={withinHours}";
+        return GetAsync<GccV2PartnerResearchRecordDto>(path, ct);
+    }
+
+    public Task<GccV2PartnerResearchRecordDto> CreatePartnerResearchRecordAsync(
+        CreateGccV2PartnerResearchRecordCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GccV2PartnerResearchRecordDto>("repo/content-creator-v2/partner-research-records", command, ct);
+
     private async Task<int> PostSeedCountAsync(string path, CancellationToken ct)
     {
         var res = await _http.PostAsync(path, content: null, ct);
