@@ -53,6 +53,30 @@ public sealed class GccV2ContextAdapter
 
         var paragraphs = BuildNotesParagraphs(fields, brandKit, siteSection);
 
+        // #region agent log
+        {
+            var mustIdx = paragraphs.FindIndex(p => p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
+            var researchIdx = paragraphs.FindIndex(p => p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
+            GeekAPI.Diagnostics.AgentDebugLog.Write(
+                "A",
+                "GccV2ContextAdapter.BuildContext",
+                "CrawledParagraphs built for WRITE",
+                new
+                {
+                    paragraphCount = paragraphs.Count,
+                    mustMentionPartnerIdx = mustIdx,
+                    partnerResearchIdx = researchIdx,
+                    mustMentionInFirst5 = mustIdx >= 0 && mustIdx < 5,
+                    partnerResearchInFirst5 = researchIdx >= 0 && researchIdx < 5,
+                    recommendedToolCount = fields.RecommendedTools.Count,
+                    operatorToolCount = fields.OperatorTools.Count,
+                    partnerResearchPageCount = fields.PartnerResearch.Count,
+                    writingNotesHasMustMention = BuildPartnerWritingNotes(fields).Contains("MUST MENTION partner tools", StringComparison.Ordinal),
+                    first5Prefixes = paragraphs.Take(5).Select(p => p.Length <= 80 ? p : p[..80]).ToList(),
+                });
+        }
+        // #endregion
+
         return new ProjectGenerationContext(
             ProjectName: targetKeyword,
             ProjectUrl: brandKit.Website!,
@@ -89,7 +113,73 @@ public sealed class GccV2ContextAdapter
             CtaType: NullIfEmpty(fields.CtaType),
             CtaLabel: NullIfEmpty(fields.CtaLabel),
             LengthBand: NullIfEmpty(fields.LengthBand),
-            WritingNotes: NullIfEmpty(fields.WritingNotes));
+            WritingNotes: NullIfEmpty(MergeWritingNotes(fields.WritingNotes, BuildPartnerWritingNotes(fields))));
+    }
+
+    /// <summary>
+    /// Partner allowlist + page research must live in WritingNotes — pillar ArticleSection prompts
+    /// omit CrawledParagraphs entirely, and blog only Take(5) of them.
+    /// </summary>
+    private static string BuildPartnerWritingNotes(BriefFields fields)
+    {
+        var parts = new List<string>();
+        var partnerTools = MergePartnerTools(fields.RecommendedTools, fields.OperatorTools);
+        if (partnerTools.Count > 0)
+        {
+            var toolList = string.Join(" | ", partnerTools.Select(t =>
+                string.IsNullOrWhiteSpace(t.Href) ? t.Name : $"{t.Name} <{t.Href}>"));
+            parts.Add(
+                "MUST MENTION partner tools (required): every name below must appear at least once in the "
+                + "finished piece as an inline anchor (use the given href when present). Do not skip any. "
+                + "Do not invent unrelated tools. Do not open a \"Top N tools\" / roundup section or use a "
+                + "product name as an H2. Spread mentions across sections where solutions are discussed: "
+                + toolList);
+        }
+        else
+        {
+            parts.Add(
+                "No partner-tool allowlist was resolved for this keyword from the site crawl or operator URLs. "
+                + "Do not invent partner product names or /tools/ links.");
+        }
+
+        if (fields.PartnerResearch is { Count: > 0 } researchPages)
+        {
+            parts.Add(
+                "PARTNER PAGE RESEARCH (fetched destination pages — ground claims in this extract; paraphrase; "
+                + "still inline-link with the allowlist href; do not invent features absent from the extract):");
+            var used = 0;
+            const int budget = 12_000;
+            foreach (var page in researchPages)
+            {
+                var header = $"[{page.Title}] ({page.Url})";
+                if (used + header.Length > budget) break;
+                parts.Add(header);
+                used += header.Length;
+                foreach (var h in page.Headings)
+                {
+                    var line = $"- H{h.Level}: {h.Text}";
+                    if (used + line.Length > budget) return string.Join("\n", parts);
+                    parts.Add(line);
+                    used += line.Length;
+                }
+                foreach (var para in page.Paragraphs)
+                {
+                    var line = $"- {para}";
+                    if (used + line.Length > budget) return string.Join("\n", parts);
+                    parts.Add(line);
+                    used += line.Length;
+                }
+            }
+        }
+
+        return string.Join("\n", parts);
+    }
+
+    private static string? MergeWritingNotes(string? briefNotes, string partnerNotes)
+    {
+        if (string.IsNullOrWhiteSpace(briefNotes)) return string.IsNullOrWhiteSpace(partnerNotes) ? null : partnerNotes;
+        if (string.IsNullOrWhiteSpace(partnerNotes)) return briefNotes;
+        return briefNotes.Trim() + "\n" + partnerNotes.Trim();
     }
 
     /// <summary>

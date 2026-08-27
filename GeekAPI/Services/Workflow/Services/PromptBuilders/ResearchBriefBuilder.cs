@@ -141,7 +141,31 @@ internal static class ResearchBriefBuilder
         if (context.CrawledParagraphs.Count > 0)
         {
             sb.AppendLine("Representative site copy:");
-            foreach (var p in context.CrawledParagraphs.Take(5)) sb.AppendLine($"- {p}");
+            var taken = SelectSiteCopyParagraphs(context.CrawledParagraphs);
+            // #region agent log
+            {
+                var total = context.CrawledParagraphs.Count;
+                var mustInAll = context.CrawledParagraphs.Any(p => p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
+                var mustInTaken = taken.Any(p => p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
+                var researchInAll = context.CrawledParagraphs.Any(p => p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
+                var researchInTaken = taken.Any(p => p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
+                GeekAPI.Diagnostics.AgentDebugLog.Write(
+                    "A",
+                    "ResearchBriefBuilder.AppendSiteContext",
+                    "CrawledParagraphs selection applied",
+                    new
+                    {
+                        total,
+                        takenCount = taken.Count,
+                        mustInAll,
+                        mustInTaken,
+                        researchInAll,
+                        researchInTaken,
+                        truncatedAway = mustInAll && !mustInTaken,
+                    });
+            }
+            // #endregion
+            foreach (var p in taken) sb.AppendLine($"- {p}");
         }
 
         if (includeJsonLd && !string.IsNullOrWhiteSpace(context.JsonLdStructuredSummary))
@@ -149,6 +173,40 @@ internal static class ResearchBriefBuilder
             sb.AppendLine();
             sb.AppendLine(context.JsonLdStructuredSummary);
         }
+    }
+
+    /// <summary>
+    /// Soft site-copy cap of 5, but never drop partner MUST MENTION / PARTNER PAGE RESEARCH blocks
+    /// (v2 packs those into CrawledParagraphs after brand fluff).
+    /// </summary>
+    internal static List<string> SelectSiteCopyParagraphs(IReadOnlyList<string> paragraphs)
+    {
+        if (paragraphs.Count == 0) return [];
+
+        var mustIdx = -1;
+        var researchIdx = -1;
+        for (var i = 0; i < paragraphs.Count; i++)
+        {
+            if (mustIdx < 0 && paragraphs[i].Contains("MUST MENTION partner tools", StringComparison.Ordinal))
+                mustIdx = i;
+            if (researchIdx < 0 && paragraphs[i].Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal))
+                researchIdx = i;
+        }
+
+        var start = mustIdx >= 0 ? mustIdx : researchIdx;
+        if (start < 0)
+            return paragraphs.Take(5).ToList();
+
+        // Keep brand fluff preview (up to 2) then partner block with a generous line budget.
+        var taken = new List<string>();
+        foreach (var p in paragraphs.Take(Math.Min(2, start)))
+            taken.Add(p);
+
+        const int maxPartnerLines = 80;
+        for (var i = start; i < paragraphs.Count && taken.Count < 2 + maxPartnerLines; i++)
+            taken.Add(paragraphs[i]);
+
+        return taken;
     }
 
     private static void AppendKeywordSerpBrief(

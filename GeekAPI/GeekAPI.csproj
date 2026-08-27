@@ -26,4 +26,8 @@
     <ProjectReference Include="..\GeekSa2Read\GeekSa2Read.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="GeekBackend.Tests" />
+  </ItemGroup>
+
 </Project>

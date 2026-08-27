@@ -347,6 +347,14 @@ public class GccV2Controller : ControllerBase
                 "Hierarchy plan for profile {ProfileId}: matched '{Heading}' with {ToolCount} recommended tool(s) via topic '{Topic}'.",
                 profileId, bestHeading, bestTools, bestTopic);
 
+            // #region agent log
+            GeekAPI.Diagnostics.AgentDebugLog.Write(
+                "B",
+                "GccV2Controller.TryMergeHierarchyPlanAsync",
+                "Hierarchy match selected",
+                new { profileId, bestHeading, bestTools, bestTopic });
+            // #endregion
+
             return MergeHierarchyPlanIntoBriefJson(rawBriefJson, bestPlan);
         }
         catch (Exception ex)
@@ -448,9 +456,26 @@ public class GccV2Controller : ControllerBase
         try
         {
             var hrefs = GccPartnerUrlResearchService.CollectPartnerHrefs(rawBriefJson);
+            // #region agent log
+            GeekAPI.Diagnostics.AgentDebugLog.Write(
+                "B",
+                "GccV2Controller.TryMergePartnerResearchAsync",
+                "Collected partner hrefs",
+                new { hrefCount = hrefs.Count, hrefHosts = hrefs.Select(h =>
+                {
+                    try { return new Uri(h).Host; } catch { return h; }
+                }).ToList() });
+            // #endregion
             if (hrefs.Count == 0) return rawBriefJson;
 
             var pages = await _partnerResearch.FetchAsync(hrefs, ct);
+            // #region agent log
+            GeekAPI.Diagnostics.AgentDebugLog.Write(
+                "C",
+                "GccV2Controller.TryMergePartnerResearchAsync",
+                "Partner fetch finished",
+                new { hrefCount = hrefs.Count, pageCount = pages.Count });
+            // #endregion
             if (pages.Count == 0)
             {
                 _logger.LogWarning(
