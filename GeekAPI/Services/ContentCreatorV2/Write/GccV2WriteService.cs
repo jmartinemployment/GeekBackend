@@ -327,8 +327,13 @@ public sealed class GccV2WriteService
                     ledeContext, metadata, headings.Count > 0 ? headings[0] : "Introduction", 0,
                     Math.Max(headings.Count, 1), headings, isRegeneration: false),
                 ct);
-            var (lede, _, _) = LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
-            ledeSection = lede;
+            var (lede, _, introSection) = LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
+            ledeSection = GccV2WriteOutlineRules.MergeLedeAndIntroduction(lede, introSection);
+            if (headings.Count > 0)
+            {
+                ledeSection = ledeSection with { Heading = headings[0], Tag = "h2" };
+            }
+
             ledeTokens = (ledeResult.PromptTokens ?? 0) + (ledeResult.CompletionTokens ?? 0);
         }
         catch (Exception ex)
@@ -342,7 +347,8 @@ public sealed class GccV2WriteService
 
         var sections = new List<GccV2WriteSection>();
         var tokensUsed = ledeTokens;
-        for (var i = 0; i < outlineSections.Count; i++)
+        var bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeWrite.Heading, outlineSections, pillar: true);
+        for (var i = bodyStart; i < outlineSections.Count; i++)
         {
             var entry = outlineSections[i];
             var (write, tokens) = await DraftOutlineSectionAsync(
@@ -389,7 +395,8 @@ public sealed class GccV2WriteService
 
         var sections = new List<GccV2WriteSection>();
         var tokensUsed = ledeTokens;
-        for (var i = 0; i < outlineSections.Count; i++)
+        var bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeWrite.Heading, outlineSections, pillar: false);
+        for (var i = bodyStart; i < outlineSections.Count; i++)
         {
             var entry = outlineSections[i];
             var (write, tokens) = await DraftOutlineSectionAsync(
