@@ -1,5 +1,6 @@
 using GeekAPI.Services.ContentCreator;
 using GeekApplication.Models.ContentCreator;
+using RelatedPageDto = GeekAPI.Services.ContentCreatorV2.RelatedPageDto;
 
 namespace GeekBackend.Tests;
 

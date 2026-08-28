@@ -129,7 +129,7 @@ public sealed class GccV2WriteService
         var (brandKit, kitDto) = await LoadAcceptedBrandKitAsync(profileId, ct);
         var create = await _repo.GetCreateAsync(job.CreateId, ct)
             ?? throw new InvalidOperationException($"Create {job.CreateId} not found for job {job.Id}.");
-        var siteSection = GeekAPI.Services.ContentCreator.GccGenerateService.ParseSiteSection(create.SiteSectionJson);
+        var siteSection = GccV2SiteSection.ParseSiteSection(create.SiteSectionJson);
         if (siteSection is null || siteSection.RelatedPages is null || siteSection.RelatedPages.Count == 0)
             throw new InvalidOperationException("WRITE requires create.SiteSectionJson with non-empty relatedPages.");
 

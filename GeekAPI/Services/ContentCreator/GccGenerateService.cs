@@ -15,34 +15,17 @@ using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using Microsoft.Extensions.Options;
 
+using GeekAPI.Services.GeekSeo;
+using GeekAPI.Services.ContentCreatorV2;
+
 namespace GeekAPI.Services.ContentCreator;
 
-public sealed record RelatedPageDto(string Url, string Title, HeadingDto[] Headings, string Excerpt);
-
-public sealed record SiteSectionContextDto(
-    [property: JsonPropertyName("siteAnalysisProfileId")] Guid SiteAnalysisId,
-    string GapTopic,
-    string? GapSectionPath,
-    IReadOnlyList<RelatedPageDto> RelatedPages,
-    IReadOnlyList<string> TopicalNeighbors,
-    InformationGainNote? InformationGain = null);
-
-public sealed record ContentGapDto(
-    string Id,
-    string Topic,
-    string? SectionPath,
-    string Reason,
-    IReadOnlyList<string>? Hierarchy = null,
-    string? SourcePageUrl = null);
+using RelatedPageDto = GeekAPI.Services.ContentCreatorV2.RelatedPageDto;
+using SiteSectionContextDto = GeekAPI.Services.ContentCreatorV2.SiteSectionContextDto;
+using ContentGapDto = GeekAPI.Services.ContentCreatorV2.ContentGapDto;
+using SiteAnalysisStoredPayload = GeekAPI.Services.ContentCreatorV2.SiteAnalysisStoredPayload;
 
 public sealed record SiteAnalysisDto(Guid Id, string Domain, string Status);
-
-public sealed record SiteAnalysisStoredPayload(
-    IReadOnlyList<ContentGapDto> Gaps,
-    IReadOnlyList<RelatedPageDto> SitePages,
-    IReadOnlyList<string> TopicalNeighbors,
-    Guid? SeoProfileId = null,
-    Guid? SeoProjectId = null);
 
 /// <summary>
 /// Content Creator generation helpers. Source of truth = Content Writer v2 only
@@ -86,23 +69,8 @@ public class GccGenerateService
         _logger = logger;
     }
 
-    public static SiteSectionContextDto? ParseSiteSection(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return null;
-        try
-        {
-            return JsonSerializer.Deserialize<SiteSectionContextDto>(json, JsonOpts)
-                ?? throw new InvalidOperationException("Site section JSON deserialized to null.");
-        }
-        catch (InvalidOperationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException("Site section JSON could not be parsed.", ex);
-        }
-    }
+    public static SiteSectionContextDto? ParseSiteSection(string? json) =>
+        GccV2SiteSection.ParseSiteSection(json);
 
     /// <summary>
     /// Required gate: every Generate must have a crawl id (site_analysis_profiles.Id).
@@ -111,17 +79,8 @@ public class GccGenerateService
     /// non-empty relatedPages. Applies to all types including imagePrompt/aiTool (no exemption);
     /// per-H2 image prompts must include siteSection+tree with at least one top-level section.
     /// </summary>
-    public static void ValidateSiteSectionGate(Guid? siteAnalysisProfileId, SiteSectionContextDto? section)
-    {
-        if (siteAnalysisProfileId is null || siteAnalysisProfileId == Guid.Empty)
-            throw new InvalidOperationException(
-                "site analysis required — run or reuse an analysis for this domain");
-
-        if (section is null) return;
-        if (section.RelatedPages is null || section.RelatedPages.Count == 0)
-            throw new InvalidOperationException(
-                "Site Analyzer–started Generate requires non-empty relatedPages in site section context.");
-    }
+    public static void ValidateSiteSectionGate(Guid? siteAnalysisProfileId, SiteSectionContextDto? section) =>
+        GccV2SiteSection.ValidateSiteSectionGate(siteAnalysisProfileId, section);
 
     /// <summary>
     /// Per-H2 image-prompt gate: requires a primary long-form with at least one top-level section.
@@ -1010,20 +969,8 @@ public class GccGenerateService
         return true;
     }
 
-    internal static bool HrefLooksLikeOnSiteToolPage(string? href)
-    {
-        if (string.IsNullOrWhiteSpace(href)) return false;
-        try
-        {
-            if (Uri.TryCreate(href, UriKind.Absolute, out var abs))
-                return abs.AbsolutePath.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
-            return href.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
-        }
-        catch (UriFormatException)
-        {
-            return href.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
-        }
-    }
+    internal static bool HrefLooksLikeOnSiteToolPage(string? href) =>
+        GccV2SiteSection.HrefLooksLikeOnSiteToolPage(href);
 
     private static bool LooksLikeSiteChromeName(string name)
     {
@@ -1110,16 +1057,8 @@ public class GccGenerateService
     }
 
     internal static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(
-        IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes)
-    {
-        foreach (var node in nodes)
-        {
-            yield return node;
-            if (node.Children is null) continue;
-            foreach (var child in FlattenSections(node.Children))
-                yield return child;
-        }
-    }
+        IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes) =>
+        GccV2SiteSection.FlattenSections(nodes);
 
     public async Task<string> GenerateStartingContentAsync(
         GccCreateDto create,
@@ -1900,47 +1839,8 @@ public class GccGenerateService
     public static SiteSectionContextDto? TryBuildSectionContext(
         Guid analysisId,
         SiteAnalysisStoredPayload payload,
-        string gapTopic)
-    {
-        if (string.IsNullOrWhiteSpace(gapTopic)) return null;
-
-        var gap = payload.Gaps.FirstOrDefault(g =>
-            string.Equals(g.Topic, gapTopic, StringComparison.OrdinalIgnoreCase));
-        var sectionPath = gap?.SectionPath;
-
-        IEnumerable<RelatedPageDto> candidates = payload.SitePages
-            .Where(p => !string.IsNullOrWhiteSpace(p.Url));
-
-        if (!string.IsNullOrWhiteSpace(sectionPath))
-        {
-            candidates = candidates.Where(p =>
-                string.Equals(p.Title, sectionPath, StringComparison.OrdinalIgnoreCase)
-                || (p.Excerpt?.Contains(sectionPath, StringComparison.OrdinalIgnoreCase) ?? false)
-                || p.Headings.Any(h =>
-                    h.Text.Contains(sectionPath, StringComparison.OrdinalIgnoreCase)));
-        }
-
-        var related = candidates
-            .GroupBy(p => p.Url, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .Take(12)
-            .ToList();
-
-        if (related.Count == 0) return null;
-
-        if (payload.TopicalNeighbors.Count == 0) return null;
-        var neighbors = payload.TopicalNeighbors;
-
-        var informationGain = GccSavedSerpParser.BuildPartialInformationGain(gapTopic, related);
-
-        return new SiteSectionContextDto(
-            analysisId,
-            gapTopic,
-            sectionPath,
-            related,
-            neighbors,
-            informationGain);
-    }
+        string gapTopic) =>
+        GccV2SiteSection.TryBuildSectionContext(analysisId, payload, gapTopic);
 
     public static GcwSeoAnalyzer.SeoReport AnalyzeSeo(string bodyJson, string keyword) =>
         GcwSeoAnalyzer.Analyze(bodyJson, keyword);

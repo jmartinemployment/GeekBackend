@@ -1,7 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.GeekSeo;
 
 namespace GeekAPI.Services.ContentCreatorV2.BrandKit;
 
@@ -286,7 +286,7 @@ public sealed class GccV2BrandKitBuilder
             }
 
             if (roots is null) continue;
-            foreach (var node in GccGenerateService.FlattenSections(roots))
+            foreach (var node in GccV2SiteSection.FlattenSections(roots))
             {
                 if (node.Links is null) continue;
                 foreach (var link in node.Links)
@@ -345,7 +345,7 @@ public sealed class GccV2BrandKitBuilder
             }
 
             if (roots is null) continue;
-            foreach (var node in GccGenerateService.FlattenSections(roots))
+            foreach (var node in GccV2SiteSection.FlattenSections(roots))
             {
                 var heading = node.HeadingText ?? "";
                 if (!LooksLikeWhoWeAre(heading)) continue;
@@ -379,7 +379,7 @@ public sealed class GccV2BrandKitBuilder
             }
 
             if (roots is null) continue;
-            foreach (var node in GccGenerateService.FlattenSections(roots))
+            foreach (var node in GccV2SiteSection.FlattenSections(roots))
             {
                 if (node.Level is >= 2 and <= 3 && !string.IsNullOrWhiteSpace(node.HeadingText))
                     yield return node.HeadingText.Trim();

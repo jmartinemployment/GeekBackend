@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.GeekSeo;
 
 namespace GeekBackend.Tests;
 

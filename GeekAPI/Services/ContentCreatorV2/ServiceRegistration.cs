@@ -1,7 +1,5 @@
 using GeekAPI.Controllers.ContentCreatorV2.Hubs;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreator;
-using GeekAPI.Services.ContentCreator.Polite;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
@@ -9,7 +7,9 @@ using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Plan;
+using GeekAPI.Services.ContentCreatorV2.Polite;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.Transforms;
 using GeekAPI.Services.ContentCreatorV2.Validate;
@@ -43,9 +43,9 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<GccV2SiteHierarchyService>();
-        services.AddSingleton<GccPoliteHostRegistry>();
+        services.AddSingleton<GccV2PoliteHostRegistry>();
         services.AddSingleton(TimeProvider.System);
-        services.AddHttpClient<IGccPoliteCrawler, GccPoliteCrawler>(client =>
+        services.AddHttpClient<IGccV2PoliteCrawler, GccV2PoliteCrawler>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(GccPartnerResearchCaps.FetchTimeoutSeconds);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(GccPartnerResearchCaps.UserAgent);
@@ -54,7 +54,7 @@ public static class ContentCreatorV2ServiceRegistration
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.5");
         })
         .SetHandlerLifetime(TimeSpan.FromMinutes(5));
-        services.AddScoped<GccPartnerUrlResearchService>();
+        services.AddScoped<GccV2PartnerUrlResearchService>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();

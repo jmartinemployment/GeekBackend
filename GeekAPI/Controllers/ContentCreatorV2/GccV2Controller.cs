@@ -2,10 +2,12 @@ using System.Text;
 using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.GeekSeo;
+using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.ContentCreatorV2;
@@ -27,7 +29,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2BrandKitBuilder _brandKitBuilder;
     private readonly GccV2SiteHierarchyService _siteHierarchy;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
-    private readonly GccPartnerUrlResearchService _partnerResearch;
+    private readonly GccV2PartnerUrlResearchService _partnerResearch;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -38,7 +40,7 @@ public class GccV2Controller : ControllerBase
         GccV2BrandKitBuilder brandKitBuilder,
         GccV2SiteHierarchyService siteHierarchy,
         HttpGeekSeoSiteAnalyzerClient seo,
-        GccPartnerUrlResearchService partnerResearch,
+        GccV2PartnerUrlResearchService partnerResearch,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -98,6 +100,122 @@ public class GccV2Controller : ControllerBase
         return Ok(result.Value ?? []);
     }
 
+    /// <summary>Starts a Through Coverage crawl via Geek-SEO (copied from v1 for v2 BFF).</summary>
+    [HttpPost("site-analyzer/analyze")]
+    public async Task<IActionResult> AnalyzeSite(
+        [FromBody] AnalyzeSiteRequest request,
+        CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Domain))
+            return BadRequest(new { error = "domain required" });
+
+        var bearer = ExtractBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required to run site analysis" });
+
+        var projectResult = await _seo.EnsureProjectForDomainAsync(request.Domain, bearer, ct);
+        if (!projectResult.Ok || projectResult.Value is null)
+        {
+            return StatusCode(
+                projectResult.StatusCode is >= 400 and < 600 ? projectResult.StatusCode : 502,
+                new { error = projectResult.Error ?? "Failed to ensure site analysis project" });
+        }
+
+        var startResult = await _seo.StartSiteAnalysisAsync(
+            projectResult.Value.Id, request.Domain, request.SeedTopic, bearer, ct);
+        if (!startResult.Ok)
+        {
+            return StatusCode(
+                startResult.StatusCode is >= 400 and < 600 ? startResult.StatusCode : 502,
+                new { error = startResult.Error ?? "Failed to start site analysis" });
+        }
+
+        return Ok(new { status = "queued" });
+    }
+
+    /// <summary>Load pages and gaps for a finished crawl (<c>site_analysis_profiles.Id</c>).</summary>
+    [HttpGet("site-analyzer/{id:guid}")]
+    public Task<IActionResult> GetSiteAnalysis(Guid id, CancellationToken ct) =>
+        SnapshotByProfileIdAsync(id, ct);
+
+    [HttpGet("site-analyzer/{id:guid}/section-context")]
+    public async Task<IActionResult> SectionContext(
+        Guid id,
+        [FromQuery] string gapTopic,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(gapTopic))
+            return BadRequest(new { error = "gapTopic required" });
+        var bearer = ExtractBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required" });
+
+        var model = await _seo.LoadSiteModelByProfileAsync(Guid.Empty, id, "", bearer, ct);
+        if (!model.Ok || model.Value is null)
+            return StatusCode(
+                model.StatusCode is >= 400 and < 600 ? model.StatusCode : 502,
+                new { error = model.Error ?? "Failed to load crawl" });
+
+        var snapshot = model.Value;
+        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(
+            g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
+        var payload = new SiteAnalysisStoredPayload(
+            gaps, snapshot.SitePages.ToList(), snapshot.TopicalNeighbors.ToList(), id, snapshot.SeoProjectId);
+
+        var section = GccV2SiteSection.TryBuildSectionContext(id, payload, gapTopic);
+        if (section is null || section.RelatedPages.Count == 0)
+        {
+            return UnprocessableEntity(new
+            {
+                error =
+                    "No existing site pages in this section for the chosen gap. Site Analyzer Generate requires real related pages from the site model.",
+            });
+        }
+
+        return Ok(section);
+    }
+
+    private async Task<IActionResult> SnapshotByProfileIdAsync(Guid siteAnalysisProfileId, CancellationToken ct)
+    {
+        if (siteAnalysisProfileId == Guid.Empty)
+            return BadRequest(new { error = "siteAnalysisProfileId required" });
+        var bearer = ExtractBearerToken();
+        if (string.IsNullOrWhiteSpace(bearer))
+            return Unauthorized(new { error = "Bearer token required to load site analysis" });
+
+        var model = await _seo.LoadSiteModelByProfileAsync(
+            Guid.Empty, siteAnalysisProfileId, "", bearer, ct);
+        if (!model.Ok || model.Value is null)
+            return StatusCode(
+                model.StatusCode is >= 400 and < 600 ? model.StatusCode : 502,
+                new { error = model.Error ?? "Failed to load crawl" });
+
+        var snapshot = model.Value;
+        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(
+            g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
+        var pages = snapshot.SitePages
+            .Select(sp => new
+            {
+                url = sp.Url,
+                title = sp.Title,
+                headings = sp.Headings
+                    .Select(h => new { level = h.Level, text = h.Text })
+                    .ToArray(),
+            })
+            .ToList();
+
+        return Ok(new
+        {
+            siteAnalysisProfileId,
+            status = "ready",
+            domain = snapshot.Domain,
+            gaps,
+            pages,
+        });
+    }
+
+    public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null, bool Force = false);
+
     [HttpPost("creates")]
     public async Task<ActionResult<GccV2CreateDto>> CreateCreate([FromBody] CreateCreateRequest? request, CancellationToken ct)
     {
@@ -112,7 +230,7 @@ public class GccV2Controller : ControllerBase
             siteSectionJson = sectionElement.GetRawText();
             try
             {
-                section = GccGenerateService.ParseSiteSection(siteSectionJson);
+                section = GccV2SiteSection.ParseSiteSection(siteSectionJson);
             }
             catch (Exception ex)
             {
@@ -216,8 +334,8 @@ public class GccV2Controller : ControllerBase
 
         try
         {
-            var section = GccGenerateService.ParseSiteSection(create.SiteSectionJson);
-            GccGenerateService.ValidateSiteSectionGate(profileId, section);
+            var section = GccV2SiteSection.ParseSiteSection(create.SiteSectionJson);
+            GccV2SiteSection.ValidateSiteSectionGate(profileId, section);
         }
         catch (Exception ex)
         {
@@ -230,7 +348,7 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
-        var tools = GccPartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
+        var tools = GccV2PartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
         string? matchedHeading = null;
         string? matchTopic = null;
         string[]? matchedPath = null;
@@ -281,7 +399,7 @@ public class GccV2Controller : ControllerBase
                 hasSiteHierarchy = siteHierarchy is not null,
                 firstToolNames = tools.Take(8).Select(t => t.Name).ToList(),
                 toolsPathCount = tools.Count(t =>
-                    GccGenerateService.HrefLooksLikeOnSiteToolPage(t.Url)),
+                    GccV2SiteSection.HrefLooksLikeOnSiteToolPage(t.Url)),
             });
         // #endregion
 
@@ -324,8 +442,8 @@ public class GccV2Controller : ControllerBase
         SiteSectionContextDto? section;
         try
         {
-            section = GccGenerateService.ParseSiteSection(create.SiteSectionJson);
-            GccGenerateService.ValidateSiteSectionGate(profileId, section);
+            section = GccV2SiteSection.ParseSiteSection(create.SiteSectionJson);
+            GccV2SiteSection.ValidateSiteSectionGate(profileId, section);
             if (section is null || section.RelatedPages is null || section.RelatedPages.Count == 0)
                 return BadRequest(new { error = "Create is missing siteSection with relatedPages — start from Site Analyzer." });
         }
@@ -585,7 +703,7 @@ public class GccV2Controller : ControllerBase
     {
         try
         {
-            var hrefs = GccPartnerUrlResearchService.CollectPartnerHrefs(rawBriefJson);
+            var hrefs = GccV2PartnerUrlResearchService.CollectPartnerHrefs(rawBriefJson);
             // #region agent log
             GeekAPI.Diagnostics.AgentDebugLog.Write(
                 "B",
@@ -617,7 +735,7 @@ public class GccV2Controller : ControllerBase
             _logger.LogInformation(
                 "Partner URL research stored {PageCount} of {UrlCount} page extract(s) on brief.",
                 pages.Count, hrefs.Count);
-            return GccPartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, pages);
+            return GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, pages);
         }
         catch (Exception ex)
         {
@@ -633,7 +751,7 @@ public class GccV2Controller : ControllerBase
     {
         try
         {
-            var hrefs = GccPartnerUrlResearchService.CollectCompetitorHrefs(rawBriefJson);
+            var hrefs = GccV2PartnerUrlResearchService.CollectCompetitorHrefs(rawBriefJson);
             if (hrefs.Count == 0) return rawBriefJson;
 
             var pages = await _partnerResearch.FetchAsync(createId, hrefs, ct);
@@ -648,7 +766,7 @@ public class GccV2Controller : ControllerBase
             _logger.LogInformation(
                 "Competitor URL research stored {PageCount} of {UrlCount} page extract(s) on brief.",
                 pages.Count, hrefs.Count);
-            return GccPartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, pages);
+            return GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, pages);
         }
         catch (Exception ex)
         {

@@ -91,7 +91,6 @@ builder.Services.AddScoped(sp =>
     return new HttpGccRepository(httpClient, logger);
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
-builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
 builder.Services.AddContentCreatorV2();
 
 // GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]
@@ -125,7 +124,7 @@ else
 }
 
 var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
-builder.Services.AddHttpClient<GeekAPI.Services.ContentCreator.HttpGeekSeoSiteAnalyzerClient>(client =>
+builder.Services.AddHttpClient<GeekAPI.Services.GeekSeo.HttpGeekSeoSiteAnalyzerClient>(client =>
 {
     if (!string.IsNullOrWhiteSpace(geekSeoUrl))
     {
