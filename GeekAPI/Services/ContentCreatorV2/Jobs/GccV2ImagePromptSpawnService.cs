@@ -14,6 +14,19 @@ public sealed record ImagePromptSectionMeta(
 
 public sealed record ImagePromptSpawnTarget(string SourceType, string Heading, int Order);
 
+public sealed record SpawnResult(
+    int Spawned,
+    int SkippedExisting,
+    string? FailureReason,
+    string? SkippedReason)
+{
+    public bool NotApplicable =>
+        Spawned == 0
+        && SkippedExisting == 0
+        && FailureReason is null
+        && SkippedReason is null;
+}
+
 /// <summary>
 /// After a generate job reaches <c>ready</c>, spawns one <c>image-prompt</c> job per §3.1 target.
 /// Idempotent on <c>(sourceJobId, sourceType, order)</c>.
@@ -53,11 +66,14 @@ public sealed class GccV2ImagePromptSpawnService
         _logger = logger;
     }
 
-    public async Task SpawnForReadyJobAsync(GccV2JobDto sourceJob, CancellationToken ct)
+    public async Task<SpawnResult> SpawnForReadyJobAsync(GccV2JobDto sourceJob, CancellationToken ct)
     {
         var contentType = (sourceJob.ContentType ?? "").Trim().ToLowerInvariant();
-        if (!SpawnSourceTypes.Contains(contentType)) return;
-        if (string.IsNullOrWhiteSpace(sourceJob.ResultJson)) return;
+        if (!SpawnSourceTypes.Contains(contentType))
+            return new SpawnResult(0, 0, null, null);
+
+        if (string.IsNullOrWhiteSpace(sourceJob.ResultJson))
+            return new SpawnResult(0, 0, "Source job has no ResultJson.", null);
 
         SourceResultPayload? payload;
         try
@@ -67,57 +83,79 @@ public sealed class GccV2ImagePromptSpawnService
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "Could not parse ResultJson for spawn on job {JobId}.", sourceJob.Id);
-            return;
+            return new SpawnResult(0, 0, $"Could not parse source ResultJson: {ex.Message}", null);
         }
 
-        if (payload?.Document is null) return;
+        if (payload?.Document is null)
+            return new SpawnResult(0, 0, "Source job ResultJson has no document.", null);
 
         var title = string.IsNullOrWhiteSpace(payload.Title) ? contentType : payload.Title.Trim();
         var targets = BuildTargets(contentType, title, payload.Document);
-        if (targets.Count == 0) return;
+        if (targets.Count == 0)
+        {
+            return new SpawnResult(
+                0,
+                0,
+                null,
+                $"No image-prompt targets for content type '{contentType}'.");
+        }
 
         var sourceBrief = await _repo.GetBriefAsync(sourceJob.BriefId, ct);
         var targetKeyword = sourceBrief?.TargetKeyword ?? title;
 
         var existing = await LoadExistingSpawnKeysAsync(sourceJob.CreateId, ct);
         var spawned = 0;
+        var skippedExisting = 0;
 
-        foreach (var target in targets)
+        try
         {
-            var key = (sourceJob.Id, target.SourceType, target.Order);
-            if (existing.Contains(key)) continue;
-
-            var briefJson = JsonSerializer.Serialize(new
+            foreach (var target in targets)
             {
-                imagePromptSection = new
+                var key = (sourceJob.Id, target.SourceType, target.Order);
+                if (existing.Contains(key))
                 {
-                    sourceJobId = sourceJob.Id,
-                    sourceType = target.SourceType,
-                    heading = target.Heading,
-                    order = target.Order,
-                },
-            }, JsonOpts);
+                    skippedExisting++;
+                    continue;
+                }
 
-            var brief = await _repo.CreateBriefAsync(
-                new CreateGccV2BriefCommand(
-                    sourceJob.CreateId,
-                    targetKeyword,
-                    "image-prompt",
-                    RawBriefJson: briefJson),
-                ct);
+                var briefJson = JsonSerializer.Serialize(new
+                {
+                    imagePromptSection = new
+                    {
+                        sourceJobId = sourceJob.Id,
+                        sourceType = target.SourceType,
+                        heading = target.Heading,
+                        order = target.Order,
+                    },
+                }, JsonOpts);
 
-            var child = await _repo.CreateJobAsync(
-                new CreateGccV2JobCommand(
-                    sourceJob.CreateId,
-                    sourceJob.OwnerUserId,
-                    "image-prompt",
-                    brief.Id,
-                    sourceJob.SiteAnalysisProfileId),
-                ct);
+                var brief = await _repo.CreateBriefAsync(
+                    new CreateGccV2BriefCommand(
+                        sourceJob.CreateId,
+                        targetKeyword,
+                        "image-prompt",
+                        RawBriefJson: briefJson),
+                    ct);
 
-            _wake.Wake(child.Id);
-            existing.Add(key);
-            spawned++;
+                var child = await _repo.CreateJobAsync(
+                    new CreateGccV2JobCommand(
+                        sourceJob.CreateId,
+                        sourceJob.OwnerUserId,
+                        "image-prompt",
+                        brief.Id,
+                        sourceJob.SiteAnalysisProfileId,
+                        InitialStage: "write"),
+                    ct);
+
+                _wake.Wake(child.Id);
+                existing.Add(key);
+                spawned++;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Image-prompt spawn failed partway for source job {JobId}.", sourceJob.Id);
+            return new SpawnResult(spawned, skippedExisting, ex.Message, null);
         }
 
         if (spawned > 0)
@@ -129,6 +167,8 @@ public sealed class GccV2ImagePromptSpawnService
                 sourceJob.Id,
                 sourceJob.CreateId);
         }
+
+        return new SpawnResult(spawned, skippedExisting, null, null);
     }
 
     /// <summary>§3.1 spawn table — pillar/blog heroes + H2 sections (FAQ excluded); one companion per short-form type.</summary>

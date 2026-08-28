@@ -1173,6 +1173,60 @@ public class GccV2Controller : ControllerBase
         return Ok(updated);
     }
 
+    /// <summary>Re-queue a stuck or failed job — clears error, releases claim, wakes worker.</summary>
+    [HttpPost("jobs/{id:guid}/retry")]
+    public async Task<ActionResult<GccV2JobDto>> RetryJob(Guid id, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var job = await _repo.GetJobAsync(id, ct);
+        if (job is null || !IsOwner(job.OwnerUserId)) return NotFound();
+
+        if (job.Status is not ("pending" or "failed" or "running"))
+            return BadRequest(new { error = $"Job status '{job.Status}' is not retryable." });
+
+        var updated = await _repo.PatchJobAsync(
+            id,
+            new PatchGccV2JobCommand(
+                Status: "pending",
+                Error: "",
+                ReleaseClaim: true,
+                Wake: true),
+            ct);
+
+        await _events.AppendAsync(id, _user.UserId, "JobRetried", new { jobId = id }, ct: ct);
+        return Ok(updated);
+    }
+
+    /// <summary>Retry all non-ready, non-awaiting jobs on a create (e.g. orphaned image-prompt jobs).</summary>
+    [HttpPost("creates/{id:guid}/retry-stuck-jobs")]
+    public async Task<ActionResult<object>> RetryStuckJobs(Guid id, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null || !IsOwner(create.OwnerUserId)) return NotFound();
+
+        var jobs = await _repo.ListJobsByCreateAsync(id, ct);
+        var retried = new List<Guid>();
+
+        foreach (var job in jobs.Where(GccV2JobRecovery.IsRetryableStuckJob))
+        {
+            await _repo.PatchJobAsync(
+                job.Id,
+                new PatchGccV2JobCommand(
+                    Status: "pending",
+                    Error: "",
+                    ReleaseClaim: true,
+                    Wake: true),
+                ct);
+            await _events.AppendAsync(job.Id, _user.UserId, "JobRetried", new { jobId = job.Id, bulk = true }, ct: ct);
+            retried.Add(job.Id);
+        }
+
+        return Ok(new { retriedCount = retried.Count, jobIds = retried });
+    }
+
     private bool IsOwner(string ownerUserId) =>
         _user.IsAuthenticated && string.Equals(ownerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase);
 

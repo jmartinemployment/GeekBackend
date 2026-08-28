@@ -37,4 +37,10 @@ internal static class GccV2WriteOutlineRules
         if (pillar) return 1;
         return HeadingsEqual(ledeHeading, outline[0].Heading) ? 1 : 0;
     }
+
+    /// <summary>Outline section 0 job + must-mentions belong on the lede when that section is not drafted again.</summary>
+    internal static GccV2OutlineSection? SkippedOutlineEntryForLede(
+        IReadOnlyList<GccV2OutlineSection> outline,
+        int bodyStart) =>
+        bodyStart > 0 && outline.Count > 0 ? outline[0] : null;
 }

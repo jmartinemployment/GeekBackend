@@ -1,7 +1,7 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Plan;
-using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -10,9 +10,10 @@ using GeekAPI.Services.Workflow.Services;
 namespace GeekAPI.Services.ContentCreatorV2.Jobs;
 
 /// <summary>
-/// Drives dummy multi-stage jobs end-to-end: PLAN (pauses for outline approval) then
-/// WRITE → VALIDATE → done. Wakes only from <see cref="GccV2JobWake"/> — the only "loop" here is
-/// draining that Channel, plus exactly one expired-lease scan at startup. No pending-job polling.
+/// Drives multi-stage jobs end-to-end: PLAN (pauses for outline approval) then
+/// WRITE → VALIDATE → done. Wakes from <see cref="GccV2JobWake"/> — the only "loop" here is
+/// draining that Channel, plus one expired-lease scan and one orphaned-pending scan at startup.
+/// No pending-job polling.
 /// </summary>
 public sealed class GccV2JobWorker : BackgroundService
 {
@@ -27,6 +28,7 @@ public sealed class GccV2JobWorker : BackgroundService
     }
 
     private readonly string _instanceId = Guid.NewGuid().ToString("N");
+    private readonly ConcurrentDictionary<Guid, int> _staleClaimAttempts = new();
     private readonly GccV2JobWake _wake;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GccV2JobWorker> _logger;
@@ -43,6 +45,7 @@ public sealed class GccV2JobWorker : BackgroundService
         _logger.LogInformation("GccV2JobWorker starting (instance {InstanceId}).", _instanceId);
 
         await ReclaimExpiredLeasesOnceAsync(stoppingToken);
+        await WakeOrphanedPendingOnceAsync(stoppingToken);
 
         try
         {
@@ -89,6 +92,35 @@ public sealed class GccV2JobWorker : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Exactly one scan, at startup, for jobs stuck <c>pending</c> (created but never claimed —
+    /// e.g. worker restart lost the in-memory wake). Wakes each id once; never repeats.
+    /// </summary>
+    private async Task WakeOrphanedPendingOnceAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<HttpGccV2Repository>();
+            var pending = await repo.GetJobsByStatusAsync("pending", ct: ct, limit: 200);
+            var now = DateTimeOffset.UtcNow;
+            var toWake = pending.Where(j => GccV2JobRecovery.ShouldWakeAtStartup(j, now)).ToList();
+            foreach (var job in toWake)
+                _wake.Wake(job.Id);
+
+            if (toWake.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Startup pending recovery woke {Count} orphaned job(s).",
+                    toWake.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Startup pending-job scan failed; continuing without recovery.");
+        }
+    }
+
     private async Task ProcessJobAsync(Guid jobId, CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
@@ -98,22 +130,94 @@ public sealed class GccV2JobWorker : BackgroundService
         var claimed = await repo.ClaimJobAsync(jobId, _instanceId, leaseSeconds: 120, ct);
         if (claimed is null)
         {
-            _logger.LogDebug("Job {JobId} not claimable right now (already claimed or terminal).", jobId);
+            await HandleUnclaimableJobAsync(jobId, repo, writer, ct);
             return;
         }
 
+        _staleClaimAttempts.TryRemove(jobId, out _);
         var ownerUserId = ParseOwner(claimed.OwnerUserId);
 
-        if (string.Equals(claimed.Stage, "plan", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            var planService = scope.ServiceProvider.GetRequiredService<GccV2PlanService>();
-            await RunPlanStageAsync(jobId, ownerUserId, claimed, repo, writer, planService, ct);
+            if (string.Equals(claimed.Stage, "plan", StringComparison.OrdinalIgnoreCase))
+            {
+                var planService = scope.ServiceProvider.GetRequiredService<GccV2PlanService>();
+                await RunPlanStageAsync(jobId, ownerUserId, claimed, repo, writer, planService, ct);
+                return;
+            }
+
+            var writeService = scope.ServiceProvider.GetRequiredService<GccV2WriteService>();
+            var validateService = scope.ServiceProvider.GetRequiredService<GccV2ValidateService>();
+            await RunWriteThenValidateStageAsync(jobId, ownerUserId, claimed, repo, writer, writeService, validateService, scope, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GccV2JobWorker unhandled failure for job {JobId}", jobId);
+            await FailJobAsync(repo, writer, jobId, ownerUserId, $"Unhandled worker error: {ex.Message}", ct);
+        }
+    }
+
+    private async Task HandleUnclaimableJobAsync(
+        Guid jobId,
+        HttpGccV2Repository repo,
+        GccV2JobEventWriter writer,
+        CancellationToken ct)
+    {
+        var job = await repo.GetJobAsync(jobId, ct);
+        if (job is null) return;
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (job.Status is "ready" or "failed" or "canceled"
+            or "awaiting_brandkit_approval" or "awaiting_outline_approval")
+        {
+            _staleClaimAttempts.TryRemove(jobId, out _);
             return;
         }
 
-        var writeService = scope.ServiceProvider.GetRequiredService<GccV2WriteService>();
-        var validateService = scope.ServiceProvider.GetRequiredService<GccV2ValidateService>();
-        await RunWriteThenValidateStageAsync(jobId, ownerUserId, claimed, repo, writer, writeService, validateService, scope, ct);
+        if (GccV2JobRecovery.IsActiveLease(job, now))
+        {
+            _staleClaimAttempts.TryRemove(jobId, out _);
+            return;
+        }
+
+        if (string.Equals(job.Status, "running", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Job {JobId} is running but unclaimable — waking for lease reclaim.", jobId);
+            _wake.Wake(jobId);
+            return;
+        }
+
+        if (!string.Equals(job.Status, "pending", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (!GccV2JobRecovery.IsStalePending(job, now))
+        {
+            _logger.LogDebug("Job {JobId} pending but not stale yet — waiting for next wake.", jobId);
+            return;
+        }
+
+        var attempts = _staleClaimAttempts.AddOrUpdate(jobId, 1, (_, count) => count + 1);
+        if (attempts >= GccV2JobRecovery.MaxStaleClaimWakeAttempts)
+        {
+            _staleClaimAttempts.TryRemove(jobId, out _);
+            _logger.LogError(
+                "Job {JobId} still unclaimable after {Attempts} stale wake attempts — failing.",
+                jobId,
+                attempts);
+            var ownerUserId = ParseOwner(job.OwnerUserId);
+            await FailJobAsync(
+                repo,
+                writer,
+                jobId,
+                ownerUserId,
+                $"Job never started — worker could not claim after {attempts} attempts",
+                ct);
+            return;
+        }
+
+        _logger.LogWarning("Job {JobId} stale pending (wake attempt {Attempt}) — re-waking.", jobId, attempts);
+        _wake.Wake(jobId);
     }
 
     /// <summary>
@@ -371,7 +475,6 @@ public sealed class GccV2JobWorker : BackgroundService
                 writeOnly = true,
             }, ct: ct);
 
-            await TrySpawnImagePromptsAsync(scope, jobId, repo, ct);
             return;
         }
 
@@ -417,20 +520,65 @@ public sealed class GccV2JobWorker : BackgroundService
             repairAttempts = outcome.RepairAttempts,
         }, ct: ct);
 
-        await TrySpawnImagePromptsAsync(scope, jobId, repo, ct);
+        await TrySpawnImagePromptsAsync(scope, jobId, repo, writer, ct);
     }
 
     private static async Task TrySpawnImagePromptsAsync(
         IServiceScope scope,
         Guid jobId,
         HttpGccV2Repository repo,
+        GccV2JobEventWriter writer,
         CancellationToken ct)
     {
         var job = await repo.GetJobAsync(jobId, ct);
         if (job is null || !string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase)) return;
 
+        var ownerUserId = ParseOwner(job.OwnerUserId);
         var spawn = scope.ServiceProvider.GetRequiredService<GccV2ImagePromptSpawnService>();
-        await spawn.SpawnForReadyJobAsync(job, ct);
+        SpawnResult result;
+        try
+        {
+            result = await spawn.SpawnForReadyJobAsync(job, ct);
+        }
+        catch (Exception ex)
+        {
+            result = new SpawnResult(0, 0, ex.Message, null);
+        }
+
+        if (result.NotApplicable)
+            return;
+
+        if (result.FailureReason is not null)
+        {
+            await writer.AppendAsync(jobId, ownerUserId, "ImagePromptSpawnSkipped", new
+            {
+                reason = result.FailureReason,
+                sourceJobId = jobId,
+                createId = job.CreateId,
+                spawned = result.Spawned,
+                skippedExisting = result.SkippedExisting,
+            }, ct: ct);
+            return;
+        }
+
+        if (result.SkippedReason is not null)
+        {
+            await writer.AppendAsync(jobId, ownerUserId, "ImagePromptSpawnSkipped", new
+            {
+                reason = result.SkippedReason,
+                sourceJobId = jobId,
+                createId = job.CreateId,
+            }, ct: ct);
+            return;
+        }
+
+        await writer.AppendAsync(jobId, ownerUserId, "ImagePromptSpawnCompleted", new
+        {
+            spawned = result.Spawned,
+            skippedExisting = result.SkippedExisting,
+            sourceJobId = jobId,
+            createId = job.CreateId,
+        }, ct: ct);
     }
 
     private static async Task FailJobAsync(

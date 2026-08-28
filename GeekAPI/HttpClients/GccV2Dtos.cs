@@ -54,7 +54,8 @@ public sealed record CreateGccV2JobCommand(
     string OwnerUserId,
     string? ContentType,
     Guid? BriefId,
-    Guid? SiteAnalysisProfileId = null);
+    Guid? SiteAnalysisProfileId = null,
+    string? InitialStage = null);
 
 public sealed record PatchGccV2JobCommand(
     string? Stage = null,

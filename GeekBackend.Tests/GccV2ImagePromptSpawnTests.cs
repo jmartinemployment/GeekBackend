@@ -110,4 +110,25 @@ public sealed class GccV2ImagePromptSpawnTests
         Assert.Equal("Framework", meta.Heading);
         Assert.Equal(2, meta.Order);
     }
+
+    [Fact]
+    public void SpawnResult_not_applicable_for_non_spawn_content_types()
+    {
+        var result = new SpawnResult(0, 0, null, null);
+        Assert.True(result.NotApplicable);
+    }
+
+    [Fact]
+    public void SpawnResult_failure_is_not_not_applicable()
+    {
+        var result = new SpawnResult(0, 0, "Source job has no ResultJson.", null);
+        Assert.False(result.NotApplicable);
+    }
+
+    [Fact]
+    public void SpawnResult_skip_reason_is_not_not_applicable()
+    {
+        var result = new SpawnResult(0, 0, null, "No image-prompt targets for content type 'tool'.");
+        Assert.False(result.NotApplicable);
+    }
 }

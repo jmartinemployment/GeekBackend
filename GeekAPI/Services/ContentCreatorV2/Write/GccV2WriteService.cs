@@ -317,7 +317,15 @@ public sealed class GccV2WriteService
 
         var metadata = await GeneratePillarMetadataAsync(wc, headings, ct);
 
-        var ledeContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, "Lede", "problem", null);
+        // Pillar lede replaces outline section 0 — inherit its PLAN "problem" role + must-mentions.
+        var bodyStart = outlineSections.Count > 0 ? 1 : 0;
+        var ledeOutline = GccV2WriteOutlineRules.SkippedOutlineEntryForLede(outlineSections, bodyStart);
+        var ledeContext = _contextAdapter.WithSectionAssignment(
+            wc.BaseContext,
+            ledeOutline?.Heading ?? "Lede",
+            ledeOutline?.Job ?? "problem",
+            ledeOutline?.HierarchyChildHeadings);
+
         Section ledeSection;
         var ledeTokens = 0;
         try
@@ -342,12 +350,13 @@ public sealed class GccV2WriteService
             throw;
         }
 
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
+        var ledeWrite = new GccV2WriteSection(
+            "lede", ledeSection.Heading, ledeOutline?.Job ?? "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, ledeTokens, ct);
 
         var sections = new List<GccV2WriteSection>();
         var tokensUsed = ledeTokens;
-        var bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeWrite.Heading, outlineSections, pillar: true);
+        bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeWrite.Heading, outlineSections, pillar: true);
         for (var i = bodyStart; i < outlineSections.Count; i++)
         {
             var entry = outlineSections[i];
@@ -375,12 +384,11 @@ public sealed class GccV2WriteService
         var blogMeta = await GenerateBlogMetadataAsync(wc, headings, ct);
         var articleMeta = new ArticleMetadataDraft(blogMeta.Title, blogMeta.MetaDescription, blogMeta.Keywords, headings);
 
-        var ledeContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, "Lede", "problem", null);
         Section ledeSection;
         var ledeTokens = 0;
         try
         {
-            var ledeResult = await wc.Provider.CompleteAsync(_prompts.BuildStandaloneBlogLedePrompt(ledeContext, blogMeta), ct);
+            var ledeResult = await wc.Provider.CompleteAsync(_prompts.BuildStandaloneBlogLedePrompt(wc.BaseContext, blogMeta), ct);
             (ledeSection, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
             ledeTokens = (ledeResult.PromptTokens ?? 0) + (ledeResult.CompletionTokens ?? 0);
         }
@@ -390,12 +398,14 @@ public sealed class GccV2WriteService
             throw;
         }
 
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
+        var bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeSection.Heading, outlineSections, pillar: false);
+        var ledeOutline = GccV2WriteOutlineRules.SkippedOutlineEntryForLede(outlineSections, bodyStart);
+        var ledeWrite = new GccV2WriteSection(
+            "lede", ledeSection.Heading, ledeOutline?.Job ?? "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, ledeTokens, ct);
 
         var sections = new List<GccV2WriteSection>();
         var tokensUsed = ledeTokens;
-        var bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeWrite.Heading, outlineSections, pillar: false);
         for (var i = bodyStart; i < outlineSections.Count; i++)
         {
             var entry = outlineSections[i];
@@ -801,12 +811,8 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Pillar metadata generation failed for job {JobId}; using a fallback title.", wc.Job.Id);
-            return new ArticleMetadataDraft(
-                Capitalize(wc.BaseContext.TargetKeyword),
-                $"A practical guide to {wc.BaseContext.TargetKeyword}.",
-                [wc.BaseContext.TargetKeyword],
-                headings);
+            _logger.LogError(ex, "Pillar metadata generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
     }
 
@@ -820,12 +826,8 @@ public sealed class GccV2WriteService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Blog metadata generation failed for job {JobId}; using a fallback title.", wc.Job.Id);
-            return new BlogMetadataDraft(
-                Capitalize(wc.BaseContext.TargetKeyword),
-                $"A practical guide to {wc.BaseContext.TargetKeyword}.",
-                [wc.BaseContext.TargetKeyword],
-                headings);
+            _logger.LogError(ex, "Blog metadata generation failed for job {JobId}.", wc.Job.Id);
+            throw;
         }
     }
 

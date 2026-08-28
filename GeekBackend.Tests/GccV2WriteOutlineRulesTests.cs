@@ -49,4 +49,20 @@ public class GccV2WriteOutlineRulesTests
         Assert.Equal(2, merged.Paragraphs.Count);
         Assert.Single(merged.Children);
     }
+
+    [Fact]
+    public void SkippedOutlineEntryForLede_returns_first_outline_when_body_skips_index_zero()
+    {
+        var outline = new List<GccV2OutlineSection>
+        {
+            new("intro", "Understanding AI Marketing", "problem", ["KPIs"]),
+            new("next", "Implementation Patterns", "advance", []),
+        };
+
+        var skipped = GccV2WriteOutlineRules.SkippedOutlineEntryForLede(outline, bodyStart: 1);
+
+        Assert.NotNull(skipped);
+        Assert.Equal("problem", skipped!.Job);
+        Assert.Single(skipped.HierarchyChildHeadings);
+    }
 }
