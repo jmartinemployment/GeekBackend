@@ -13,7 +13,6 @@ public static class CorsOriginParser
         "https://content-writer-v3.vercel.app",
         "https://content-writer-eta.vercel.app",
         "https://content-writer-jeff-martins-projects-66716453.vercel.app",
-        "https://geek-content-creator.vercel.app",
         "https://content-creator-v2.vercel.app",
         "https://content-creator-v2-phi.vercel.app",
     ];
@@ -64,13 +63,6 @@ public static class CorsOriginParser
             return true;
 
         if (uri.Host.StartsWith("content-writer-v3-", StringComparison.OrdinalIgnoreCase)
-               && uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (string.Equals(uri.Host, "geek-content-creator.vercel.app", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (uri.Host.StartsWith("geek-content-creator-", StringComparison.OrdinalIgnoreCase)
                && uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
             return true;
 
