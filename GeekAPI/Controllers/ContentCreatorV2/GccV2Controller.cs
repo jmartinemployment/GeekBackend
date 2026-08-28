@@ -1204,6 +1204,8 @@ public class GccV2Controller : ControllerBase
                 Wake: true),
             ct);
 
+        _wake.Wake(id);
+
         return Ok(result.Job);
     }
 
@@ -1232,6 +1234,7 @@ public class GccV2Controller : ControllerBase
                     EventPayloadJson: JsonSerializer.Serialize(new { jobId = job.Id, bulk = true }, JsonOpts),
                     Wake: true),
                 ct);
+            _wake.Wake(job.Id);
             retried.Add(job.Id);
         }
 
