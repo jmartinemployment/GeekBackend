@@ -10,6 +10,7 @@ namespace GeekRepository.Controllers.ContentCreatorV2;
 /// <summary>
 /// Content Creator v2 jobs + append-only event log + stage results. No pending-poll endpoint —
 /// callers persist then <c>NOTIFY gcc_v2_job</c> so GeekAPI's worker wakes instead of ticking.
+/// Multi-row writes use explicit transactions so job state and events never diverge.
 /// </summary>
 [ApiController]
 [Route("repo/content-creator-v2/jobs")]
@@ -90,9 +91,19 @@ public class GccV2JobsController : ControllerBase
             Status = "pending",
         };
 
-        _db.GccV2Jobs.Add(job);
-        await _db.SaveChangesAsync(ct);
-        await NotifyAsync(job.Id, ct);
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            _db.GccV2Jobs.Add(job);
+            await _db.SaveChangesAsync(ct);
+            await NotifyAsync(job.Id, ct);
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
 
         return CreatedAtAction(nameof(GetById), new { id = job.Id }, job);
     }
@@ -103,32 +114,71 @@ public class GccV2JobsController : ControllerBase
         var job = await _db.GccV2Jobs.FirstOrDefaultAsync(j => j.Id == id, ct);
         if (job is null) return NotFound();
 
-        if (command.Stage is not null) job.Stage = command.Stage;
-        if (command.Status is not null) job.Status = command.Status;
-        if (command.ResultJson is not null) job.ResultJson = command.ResultJson;
-        if (command.Error is not null) job.Error = command.Error;
-        if (command.TokensUsed is not null) job.TokensUsed = (job.TokensUsed ?? 0) + command.TokensUsed;
-        if (command.AttemptCountIncrement is true) job.AttemptCount += 1;
-        if (command.CompletedAtUtc is not null) job.CompletedAtUtc = command.CompletedAtUtc;
-
-        if (command.ReleaseClaim is true)
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
         {
-            job.ClaimedByInstanceId = null;
-            job.ClaimedAtUtc = null;
-            job.LeaseUntilUtc = null;
+            ApplyPatch(job, command);
+            await _db.SaveChangesAsync(ct);
+
+            if (command.Wake is true)
+                await NotifyAsync(id, ct);
+
+            await tx.CommitAsync(ct);
         }
-        else if (command.LeaseUntilUtc is not null)
+        catch
         {
-            job.LeaseUntilUtc = command.LeaseUntilUtc;
+            await tx.RollbackAsync(ct);
+            throw;
         }
-
-        job.UpdatedAtUtc = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(ct);
-
-        if (command.Wake is true)
-            await NotifyAsync(id, ct);
 
         return Ok(job);
+    }
+
+    /// <summary>
+    /// Atomically patch the job row and/or append one event, optionally NOTIFY — one transaction.
+    /// </summary>
+    [HttpPost("{id:guid}/transition")]
+    public async Task<ActionResult<GccV2JobTransitionResult>> Transition(
+        Guid id,
+        [FromBody] ApplyGccV2JobTransitionCommand command,
+        CancellationToken ct)
+    {
+        if (command is null)
+            return BadRequest("command is required");
+
+        var job = await _db.GccV2Jobs.FirstOrDefaultAsync(j => j.Id == id, ct);
+        if (job is null) return NotFound();
+
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            if (command.HasPatch)
+                ApplyPatch(job, command.ToPatchCommand());
+
+            GccV2JobEvent? evt = null;
+            if (!string.IsNullOrWhiteSpace(command.EventType))
+            {
+                evt = await TryAppendEventAsync(id, command.EventType, command.EventPayloadJson, ct);
+                if (evt is null)
+                {
+                    await tx.RollbackAsync(ct);
+                    return Conflict("Could not allocate a sequence number for this event after several attempts.");
+                }
+            }
+
+            await _db.SaveChangesAsync(ct);
+
+            if (command.Wake is true)
+                await NotifyAsync(id, ct);
+
+            await tx.CommitAsync(ct);
+            return Ok(new GccV2JobTransitionResult(job, evt));
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
     }
 
     /// <summary>
@@ -149,25 +199,37 @@ public class GccV2JobsController : ControllerBase
         var now = DateTimeOffset.UtcNow;
         var leaseUntil = now.AddSeconds(Math.Max(5, leaseSeconds));
 
-        var rows = await _db.Database.ExecuteSqlInterpolatedAsync($@"
-            UPDATE content_creator_v2.gcc_v2_jobs
-            SET ""ClaimedByInstanceId"" = {instanceId},
-                ""ClaimedAtUtc"" = {now},
-                ""LeaseUntilUtc"" = {leaseUntil},
-                ""Status"" = CASE WHEN ""Status"" = 'pending' THEN 'running' ELSE ""Status"" END,
-                ""AttemptCount"" = ""AttemptCount"" + 1,
-                ""UpdatedAtUtc"" = {now}
-            WHERE ""Id"" = {id}
-              AND (
-                ""Status"" = 'pending'
-                OR (""Status"" = 'running' AND ""LeaseUntilUtc"" IS NOT NULL AND ""LeaseUntilUtc"" < {now})
-              )", ct);
-
-        if (rows == 0)
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
         {
-            var exists = await _db.GccV2Jobs.AsNoTracking().AnyAsync(j => j.Id == id, ct);
-            if (!exists) return NotFound();
-            return Conflict(new { claimed = false });
+            var rows = await _db.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE content_creator_v2.gcc_v2_jobs
+                SET ""ClaimedByInstanceId"" = {instanceId},
+                    ""ClaimedAtUtc"" = {now},
+                    ""LeaseUntilUtc"" = {leaseUntil},
+                    ""Status"" = CASE WHEN ""Status"" = 'pending' THEN 'running' ELSE ""Status"" END,
+                    ""AttemptCount"" = ""AttemptCount"" + 1,
+                    ""UpdatedAtUtc"" = {now}
+                WHERE ""Id"" = {id}
+                  AND (
+                    ""Status"" = 'pending'
+                    OR (""Status"" = 'running' AND ""LeaseUntilUtc"" IS NOT NULL AND ""LeaseUntilUtc"" < {now})
+                  )", ct);
+
+            if (rows == 0)
+            {
+                await tx.RollbackAsync(ct);
+                var exists = await _db.GccV2Jobs.AsNoTracking().AnyAsync(j => j.Id == id, ct);
+                if (!exists) return NotFound();
+                return Conflict(new { claimed = false });
+            }
+
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
         }
 
         var job = await _db.GccV2Jobs.AsNoTracking().FirstAsync(j => j.Id == id, ct);
@@ -199,40 +261,29 @@ public class GccV2JobsController : ControllerBase
         var jobExists = await _db.GccV2Jobs.AsNoTracking().AnyAsync(j => j.Id == id, ct);
         if (!jobExists) return NotFound();
 
-        // Small retry loop: unique (JobId, Seq) index guards against a lost-update race on the
-        // next-seq read without needing an explicit table lock for this low-contention path.
-        for (var attempt = 0; attempt < 5; attempt++)
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
         {
-            var maxSeq = await _db.GccV2JobEvents
-                .Where(e => e.JobId == id)
-                .Select(e => (int?)e.Seq)
-                .MaxAsync(ct);
-            var nextSeq = (maxSeq ?? 0) + 1;
-
-            var evt = new GccV2JobEvent
+            var evt = await TryAppendEventAsync(id, command.Type, command.PayloadJson, ct);
+            if (evt is null)
             {
-                JobId = id,
-                Seq = nextSeq,
-                Type = command.Type,
-                PayloadJson = string.IsNullOrWhiteSpace(command.PayloadJson) ? "{}" : command.PayloadJson,
-            };
-
-            _db.GccV2JobEvents.Add(evt);
-            try
-            {
-                await _db.SaveChangesAsync(ct);
-                if (command.Wake is not false)
-                    await NotifyAsync(id, ct);
-                return CreatedAtAction(nameof(GetEvents), new { id }, evt);
+                await tx.RollbackAsync(ct);
+                return Conflict("Could not allocate a sequence number for this event after several attempts.");
             }
-            catch (DbUpdateException ex)
-            {
-                _db.Entry(evt).State = EntityState.Detached;
-                _logger.LogWarning(ex, "Seq collision appending event to job {JobId}, retrying", id);
-            }
+
+            await _db.SaveChangesAsync(ct);
+
+            if (command.Wake is not false)
+                await NotifyAsync(id, ct);
+
+            await tx.CommitAsync(ct);
+            return CreatedAtAction(nameof(GetEvents), new { id }, evt);
         }
-
-        return Conflict("Could not allocate a sequence number for this event after several attempts.");
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
     }
 
     [HttpGet("{id:guid}/stage-results")]
@@ -266,9 +317,83 @@ public class GccV2JobsController : ControllerBase
             TokensUsed = command.TokensUsed ?? 0,
         };
 
-        _db.GccV2StageResults.Add(result);
-        await _db.SaveChangesAsync(ct);
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            _db.GccV2StageResults.Add(result);
+            await _db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+
         return CreatedAtAction(nameof(GetStageResults), new { id }, result);
+    }
+
+    private static void ApplyPatch(GccV2Job job, PatchGccV2JobCommand command)
+    {
+        if (command.Stage is not null) job.Stage = command.Stage;
+        if (command.Status is not null) job.Status = command.Status;
+        if (command.ResultJson is not null) job.ResultJson = command.ResultJson;
+        if (command.Error is not null) job.Error = command.Error;
+        if (command.TokensUsed is not null) job.TokensUsed = (job.TokensUsed ?? 0) + command.TokensUsed;
+        if (command.AttemptCountIncrement is true) job.AttemptCount += 1;
+        if (command.CompletedAtUtc is not null) job.CompletedAtUtc = command.CompletedAtUtc;
+
+        if (command.ReleaseClaim is true)
+        {
+            job.ClaimedByInstanceId = null;
+            job.ClaimedAtUtc = null;
+            job.LeaseUntilUtc = null;
+        }
+        else if (command.LeaseUntilUtc is not null)
+        {
+            job.LeaseUntilUtc = command.LeaseUntilUtc;
+        }
+
+        job.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>Allocates the next seq and tracks the entity — caller SaveChanges within a transaction.</summary>
+    private async Task<GccV2JobEvent?> TryAppendEventAsync(
+        Guid jobId,
+        string type,
+        string? payloadJson,
+        CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var maxSeq = await _db.GccV2JobEvents
+                .Where(e => e.JobId == jobId)
+                .Select(e => (int?)e.Seq)
+                .MaxAsync(ct);
+            var nextSeq = (maxSeq ?? 0) + 1;
+
+            var evt = new GccV2JobEvent
+            {
+                JobId = jobId,
+                Seq = nextSeq,
+                Type = type,
+                PayloadJson = string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+            };
+
+            _db.GccV2JobEvents.Add(evt);
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                return evt;
+            }
+            catch (DbUpdateException ex)
+            {
+                _db.Entry(evt).State = EntityState.Detached;
+                _logger.LogWarning(ex, "Seq collision appending event to job {JobId}, retrying", jobId);
+            }
+        }
+
+        return null;
     }
 
     private Task NotifyAsync(Guid jobId, CancellationToken ct) =>
@@ -295,6 +420,46 @@ public class GccV2JobsController : ControllerBase
         bool? Wake);
 
     public record AppendGccV2JobEventCommand(string Type, string? PayloadJson, bool? Wake);
+
+    public record ApplyGccV2JobTransitionCommand(
+        string? Stage,
+        string? Status,
+        string? ResultJson,
+        string? Error,
+        int? TokensUsed,
+        bool? AttemptCountIncrement,
+        bool? ReleaseClaim,
+        DateTimeOffset? LeaseUntilUtc,
+        DateTimeOffset? CompletedAtUtc,
+        string? EventType,
+        string? EventPayloadJson,
+        bool? Wake)
+    {
+        public bool HasPatch =>
+            Stage is not null
+            || Status is not null
+            || ResultJson is not null
+            || Error is not null
+            || TokensUsed is not null
+            || AttemptCountIncrement is true
+            || ReleaseClaim is true
+            || LeaseUntilUtc is not null
+            || CompletedAtUtc is not null;
+
+        public PatchGccV2JobCommand ToPatchCommand() => new(
+            Stage,
+            Status,
+            ResultJson,
+            Error,
+            TokensUsed,
+            AttemptCountIncrement,
+            ReleaseClaim,
+            LeaseUntilUtc,
+            CompletedAtUtc,
+            Wake: null);
+    }
+
+    public record GccV2JobTransitionResult(GccV2Job Job, GccV2JobEvent? Event);
 
     public record CreateGccV2StageResultCommand(string Stage, string? SectionKey, string? OutputJson, int? TokensUsed);
 }

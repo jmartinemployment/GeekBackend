@@ -153,7 +153,7 @@ public sealed class GccV2JobWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "GccV2JobWorker unhandled failure for job {JobId}", jobId);
-            await FailJobAsync(repo, writer, jobId, ownerUserId, $"Unhandled worker error: {ex.Message}", ct);
+            await FailJobAsync(writer, jobId, ownerUserId, $"Unhandled worker error: {ex.Message}", ct);
         }
     }
 
@@ -207,7 +207,6 @@ public sealed class GccV2JobWorker : BackgroundService
                 attempts);
             var ownerUserId = ParseOwner(job.OwnerUserId);
             await FailJobAsync(
-                repo,
                 writer,
                 jobId,
                 ownerUserId,
@@ -242,7 +241,7 @@ public sealed class GccV2JobWorker : BackgroundService
         var brief = await repo.GetBriefAsync(job.BriefId, ct);
         if (brief is null)
         {
-            await FailJobAsync(repo, writer, jobId, ownerUserId, $"Brief {job.BriefId} not found for job {jobId}.", ct);
+            await FailJobAsync(writer, jobId, ownerUserId, $"Brief {job.BriefId} not found for job {jobId}.", ct);
             return;
         }
 
@@ -254,7 +253,7 @@ public sealed class GccV2JobWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "PLAN failed for job {JobId}; marking failed.", jobId);
-            await FailJobAsync(repo, writer, jobId, ownerUserId, $"PLAN failed: {ex.Message}", ct);
+            await FailJobAsync(writer, jobId, ownerUserId, $"PLAN failed: {ex.Message}", ct);
             return;
         }
 
@@ -270,7 +269,6 @@ public sealed class GccV2JobWorker : BackgroundService
             if (!announced)
             {
                 await FailJobAsync(
-                    repo,
                     writer,
                     jobId,
                     ownerUserId,
@@ -417,7 +415,7 @@ public sealed class GccV2JobWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "WRITE preparation failed for job {JobId}; marking failed.", jobId);
-            await FailJobAsync(repo, writer, jobId, ownerUserId, $"WRITE preparation failed: {ex.Message}", ct);
+            await FailJobAsync(writer, jobId, ownerUserId, $"WRITE preparation failed: {ex.Message}", ct);
             return;
         }
 
@@ -429,7 +427,7 @@ public sealed class GccV2JobWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "WRITE failed for job {JobId}; marking failed.", jobId);
-            await FailJobAsync(repo, writer, jobId, ownerUserId, $"WRITE failed: {ex.Message}", ct);
+            await FailJobAsync(writer, jobId, ownerUserId, $"WRITE failed: {ex.Message}", ct);
             return;
         }
 
@@ -490,7 +488,7 @@ public sealed class GccV2JobWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "VALIDATE failed for job {JobId}; marking failed.", jobId);
-            await FailJobAsync(repo, writer, jobId, ownerUserId, $"VALIDATE failed: {ex.Message}", ct);
+            await FailJobAsync(writer, jobId, ownerUserId, $"VALIDATE failed: {ex.Message}", ct);
             return;
         }
 
@@ -582,15 +580,8 @@ public sealed class GccV2JobWorker : BackgroundService
     }
 
     private static async Task FailJobAsync(
-        HttpGccV2Repository repo, GccV2JobEventWriter writer, Guid jobId, Guid ownerUserId, string error, CancellationToken ct)
-    {
-        await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(
-            Status: "failed",
-            Error: error,
-            ReleaseClaim: true,
-            CompletedAtUtc: DateTimeOffset.UtcNow), ct);
-        await writer.AppendAsync(jobId, ownerUserId, "JobFailed", new { error }, ct: ct);
-    }
+        GccV2JobEventWriter writer, Guid jobId, Guid ownerUserId, string error, CancellationToken ct) =>
+        await writer.FailAsync(jobId, ownerUserId, error, ct);
 
     private static async Task<bool> StopIfCanceledAsync(HttpGccV2Repository repo, Guid jobId, CancellationToken ct)
     {

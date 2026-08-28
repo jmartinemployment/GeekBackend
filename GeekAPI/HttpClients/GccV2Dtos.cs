@@ -73,6 +73,23 @@ public sealed record GccV2JobEventDto(Guid Id, Guid JobId, int Seq, string Type,
 
 public sealed record AppendGccV2JobEventCommand(string Type, string? PayloadJson, bool? Wake = null);
 
+/// <summary>Atomically patch a job row and/or append one event — single DB transaction.</summary>
+public sealed record ApplyGccV2JobTransitionCommand(
+    string? Stage = null,
+    string? Status = null,
+    string? ResultJson = null,
+    string? Error = null,
+    int? TokensUsed = null,
+    bool? AttemptCountIncrement = null,
+    bool? ReleaseClaim = null,
+    DateTimeOffset? LeaseUntilUtc = null,
+    DateTimeOffset? CompletedAtUtc = null,
+    string? EventType = null,
+    string? EventPayloadJson = null,
+    bool? Wake = null);
+
+public sealed record GccV2JobTransitionResultDto(GccV2JobDto Job, GccV2JobEventDto? Event);
+
 public sealed record GccV2StageResultDto(
     Guid Id,
     Guid JobId,

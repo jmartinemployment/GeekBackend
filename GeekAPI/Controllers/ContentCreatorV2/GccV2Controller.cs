@@ -1166,11 +1166,18 @@ public class GccV2Controller : ControllerBase
         if (job.Status is "ready" or "failed" or "canceled")
             return Ok(job);
 
-        var updated = await _repo.PatchJobAsync(id, new PatchGccV2JobCommand(Status: "canceled"), ct);
-        await _events.AppendAsync(id, _user.UserId, "JobCanceled", new { jobId = id }, ct: ct);
-        _wake.Wake(id);
+        await _events.TransitionAsync(
+            id,
+            _user.UserId,
+            new ApplyGccV2JobTransitionCommand(
+                Status: "canceled",
+                EventType: "JobCanceled",
+                EventPayloadJson: JsonSerializer.Serialize(new { jobId = id }, JsonOpts),
+                Wake: true),
+            ct);
 
-        return Ok(updated);
+        var updated = await _repo.GetJobAsync(id, ct);
+        return Ok(updated!);
     }
 
     /// <summary>Re-queue a stuck or failed job — clears error, releases claim, wakes worker.</summary>
@@ -1185,17 +1192,19 @@ public class GccV2Controller : ControllerBase
         if (job.Status is not ("pending" or "failed" or "running"))
             return BadRequest(new { error = $"Job status '{job.Status}' is not retryable." });
 
-        var updated = await _repo.PatchJobAsync(
+        var result = await _events.TransitionAsync(
             id,
-            new PatchGccV2JobCommand(
+            _user.UserId,
+            new ApplyGccV2JobTransitionCommand(
                 Status: "pending",
                 Error: "",
                 ReleaseClaim: true,
+                EventType: "JobRetried",
+                EventPayloadJson: JsonSerializer.Serialize(new { jobId = id }, JsonOpts),
                 Wake: true),
             ct);
 
-        await _events.AppendAsync(id, _user.UserId, "JobRetried", new { jobId = id }, ct: ct);
-        return Ok(updated);
+        return Ok(result.Job);
     }
 
     /// <summary>Retry all non-ready, non-awaiting jobs on a create (e.g. orphaned image-prompt jobs).</summary>
@@ -1212,15 +1221,17 @@ public class GccV2Controller : ControllerBase
 
         foreach (var job in jobs.Where(GccV2JobRecovery.IsRetryableStuckJob))
         {
-            await _repo.PatchJobAsync(
+            await _events.TransitionAsync(
                 job.Id,
-                new PatchGccV2JobCommand(
+                _user.UserId,
+                new ApplyGccV2JobTransitionCommand(
                     Status: "pending",
                     Error: "",
                     ReleaseClaim: true,
+                    EventType: "JobRetried",
+                    EventPayloadJson: JsonSerializer.Serialize(new { jobId = job.Id, bulk = true }, JsonOpts),
                     Wake: true),
                 ct);
-            await _events.AppendAsync(job.Id, _user.UserId, "JobRetried", new { jobId = job.Id, bulk = true }, ct: ct);
             retried.Add(job.Id);
         }
 

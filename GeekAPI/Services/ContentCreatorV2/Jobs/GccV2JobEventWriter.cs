@@ -3,7 +3,7 @@ using GeekAPI.HttpClients;
 
 namespace GeekAPI.Services.ContentCreatorV2.Jobs;
 
-/// <summary>Persists a job event then pushes it to any connected hub clients.</summary>
+/// <summary>Persists job transitions atomically, then pushes events to connected hub clients.</summary>
 public sealed class GccV2JobEventWriter
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -33,4 +33,34 @@ public sealed class GccV2JobEventWriter
         await _notifier.PushAsync(jobId, ownerUserId, evt, ct);
         return evt;
     }
+
+    /// <summary>Persist job patch + event in one repository transaction, then hub-push the event.</summary>
+    public async Task<GccV2JobTransitionResultDto> TransitionAsync(
+        Guid jobId,
+        Guid ownerUserId,
+        ApplyGccV2JobTransitionCommand command,
+        CancellationToken ct = default)
+    {
+        var result = await _repo.ApplyJobTransitionAsync(jobId, command, ct);
+        if (result.Event is not null)
+            await _notifier.PushAsync(jobId, ownerUserId, result.Event, ct);
+        return result;
+    }
+
+    public Task<GccV2JobTransitionResultDto> FailAsync(
+        Guid jobId,
+        Guid ownerUserId,
+        string error,
+        CancellationToken ct = default) =>
+        TransitionAsync(
+            jobId,
+            ownerUserId,
+            new ApplyGccV2JobTransitionCommand(
+                Status: "failed",
+                Error: error,
+                ReleaseClaim: true,
+                CompletedAtUtc: DateTimeOffset.UtcNow,
+                EventType: "JobFailed",
+                EventPayloadJson: JsonSerializer.Serialize(new { error }, JsonOpts)),
+            ct);
 }

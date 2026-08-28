@@ -78,6 +78,13 @@ public class HttpGccV2Repository
     public Task<GccV2JobDto> PatchJobAsync(Guid id, PatchGccV2JobCommand command, CancellationToken ct = default) =>
         PatchAsync<GccV2JobDto>($"repo/content-creator-v2/jobs/{id}", command, ct);
 
+    /// <summary>Atomically patch the job and/or append one event in a single DB transaction.</summary>
+    public Task<GccV2JobTransitionResultDto> ApplyJobTransitionAsync(
+        Guid id,
+        ApplyGccV2JobTransitionCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GccV2JobTransitionResultDto>($"repo/content-creator-v2/jobs/{id}/transition", command, ct);
+
     /// <summary>Claims the job if pending or its lease expired. Null when not claimable (409).</summary>
     public async Task<GccV2JobDto?> ClaimJobAsync(Guid id, string instanceId, int leaseSeconds = 120, CancellationToken ct = default)
     {
