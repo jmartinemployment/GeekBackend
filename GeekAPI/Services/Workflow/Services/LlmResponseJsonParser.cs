@@ -166,20 +166,35 @@ public static class LlmResponseJsonParser
             try
             {
                 var parsed = JsonSerializer.Deserialize<LedeAndIntroductionResponse>(candidate, SectionJsonOptions);
-                if (parsed?.Lede is { } lede
-                    && !string.IsNullOrWhiteSpace(lede.Heading)
-                    && parsed.Introduction is { } introduction
-                    && !string.IsNullOrWhiteSpace(introduction.Heading))
+                if (parsed?.Lede is not { } lede || string.IsNullOrWhiteSpace(lede.Heading))
                 {
-                    var ledeType = ParseLedeTypeStrict(lede.LedeType, label);
-                    var ledeSection = Normalize(new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
-                    ValidateContentHygiene(ledeSection, $"{label} (lede)");
+                    continue;
+                }
 
+                var ledeType = ParseLedeTypeStrict(lede.LedeType, label);
+                var ledeSection = BuildLedeSection(lede);
+                ValidateContentHygiene(ledeSection, $"{label} (lede)");
+
+                var introduction = parsed.Introduction;
+                if (introduction is not null && !string.IsNullOrWhiteSpace(introduction.Heading))
+                {
                     var introSection = Normalize(introduction) with { Tag = "h2" };
                     ValidateContentHygiene(introSection, $"{label} (introduction)");
-
                     return (ledeSection, ledeType, introSection);
                 }
+
+                // Lede-only or blank intro heading — synthesize intro for downstream merge.
+                var introChildren = introduction?.Children ?? lede.Children ?? [];
+                var introParagraphs = introduction?.Paragraphs ?? [];
+                var syntheticIntro = Normalize(new Section(
+                    "h2",
+                    lede.Heading,
+                    introParagraphs,
+                    null,
+                    introChildren,
+                    introduction?.ImagePrompt)) with { Tag = "h2" };
+                ValidateContentHygiene(syntheticIntro, $"{label} (introduction)");
+                return (ledeSection, ledeType, syntheticIntro);
             }
             catch (JsonException)
             {
@@ -191,13 +206,27 @@ public static class LlmResponseJsonParser
             }
         }
 
+        var trimmedEnd = cleaned.TrimEnd();
+        var isTruncated = cleaned.Length > 0 && !trimmedEnd.EndsWith('}') && !trimmedEnd.EndsWith(']');
+        var hint = isTruncated
+            ? " The response looks truncated — it may have hit the max output token limit."
+            : string.Empty;
+
         throw new ContentGenerationException(
-            $"Model did not return a valid lede+introduction for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+            $"Model did not return a valid lede+introduction for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
     }
+
+    private static Section BuildLedeSection(LedeResponse lede) =>
+        Normalize(new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
 
     private sealed record SectionsArrayResponse(List<Section>? Sections);
 
-    private sealed record LedeResponse(string? LedeType, string Heading, List<Paragraph>? Paragraphs, string? ImagePrompt);
+    private sealed record LedeResponse(
+        string? LedeType,
+        string Heading,
+        List<Paragraph>? Paragraphs,
+        string? ImagePrompt,
+        List<Section>? Children = null);
 
     private static LedeType ParseLedeTypeStrict(string? raw, string label)
     {

@@ -534,6 +534,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BuildIntroductionSectionGuidance(context))
             .AppendLine()
             .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary:")
+            .AppendLine("Always include both \"lede\" and \"introduction\" keys; when they share one H2, use the same heading string in both.")
             .AppendLine(LedeAndIntroductionJsonContract)
             .ToString();
 
@@ -570,7 +571,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: 3072);
+            MaxOutputTokens: 4096);
     }
 
     public ChatCompletionRequest? BuildArticleMetaRevisionPrompt(
