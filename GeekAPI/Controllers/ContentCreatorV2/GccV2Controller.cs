@@ -139,11 +139,29 @@ public class GccV2Controller : ControllerBase
     }
 
     [HttpGet("creates")]
-    public async Task<ActionResult<IReadOnlyList<GccV2CreateDto>>> ListCreates(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<object>>> ListCreates(CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         var creates = await _repo.ListCreatesAsync(_user.UserId.ToString("D"), ct);
-        return Ok(creates);
+        var summaries = new List<object>();
+        foreach (var create in creates)
+        {
+            var jobs = await _repo.ListJobsByCreateAsync(create.Id, ct);
+            summaries.Add(new
+            {
+                create.Id,
+                create.Title,
+                create.ContentType,
+                create.CreatedAtUtc,
+                create.UpdatedAtUtc,
+                jobContentTypes = jobs
+                    .Select(j => j.ContentType)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            });
+        }
+        return Ok(summaries);
     }
 
     [HttpGet("creates/{id:guid}")]
@@ -347,6 +365,7 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
         rawBriefJson = await TryMergePartnerResearchAsync(rawBriefJson, id, ct);
+        rawBriefJson = await TryMergeCompetitorResearchAsync(rawBriefJson, id, ct);
 
         var brief = await _repo.CreateBriefAsync(
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
@@ -603,6 +622,37 @@ public class GccV2Controller : ControllerBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Partner URL research failed; continuing without partnerResearch.");
+            return rawBriefJson;
+        }
+    }
+
+    private async Task<string?> TryMergeCompetitorResearchAsync(
+        string? rawBriefJson,
+        Guid createId,
+        CancellationToken ct)
+    {
+        try
+        {
+            var hrefs = GccPartnerUrlResearchService.CollectCompetitorHrefs(rawBriefJson);
+            if (hrefs.Count == 0) return rawBriefJson;
+
+            var pages = await _partnerResearch.FetchAsync(createId, hrefs, ct);
+            if (pages.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Competitor URL research fetched 0 of {UrlCount} href(s); continuing without competitorResearch.",
+                    hrefs.Count);
+                return rawBriefJson;
+            }
+
+            _logger.LogInformation(
+                "Competitor URL research stored {PageCount} of {UrlCount} page extract(s) on brief.",
+                pages.Count, hrefs.Count);
+            return GccPartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, pages);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Competitor URL research failed; continuing without competitorResearch.");
             return rawBriefJson;
         }
     }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.Gcw;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
@@ -41,6 +42,16 @@ public sealed class GccV2WriteOutput
         var sections = Sections.Select(s => s.SectionKey == replacement.SectionKey ? replacement : s).ToList();
         return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed };
     }
+
+    public GccV2WriteOutput WithAppendedSection(GccV2WriteSection section) =>
+        new()
+        {
+            Title = Title,
+            MetaDescription = MetaDescription,
+            Lede = Lede,
+            Sections = Sections.Append(section).ToList(),
+            TokensUsed = TokensUsed,
+        };
 }
 
 public sealed record GccV2OutlineSection(string Key, string Heading, string? Job, List<string> HierarchyChildHeadings);
@@ -127,6 +138,105 @@ public sealed class GccV2WriteService
         var baseContext = _contextAdapter.BuildContext(brief, brandKit, provider.ProviderType, siteSection);
         _ = kitDto;
         return new GccV2WriteContext(job, brief, brandKit, outline, baseContext, provider);
+    }
+
+    /// <summary>Rebuilds a <see cref="GccV2WriteOutput"/> from the job's persisted result + stage metadata —
+    /// used by manual readiness repair on already-<c>ready</c> jobs.</summary>
+    public async Task<GccV2WriteOutput?> ReconstructOutputAsync(GccV2JobDto job, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(job.ResultJson)) return null;
+
+        JobResultPayload? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<JobResultPayload>(job.ResultJson, ContentDocJson);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Could not parse ResultJson for job {JobId}.", job.Id);
+            return null;
+        }
+
+        if (payload?.Document is not { } document) return null;
+
+        var sectionMeta = await LoadLatestSectionMetaAsync(job.Id, ct);
+        var outline = await LoadOutlineAsync(job.Id, ct);
+
+        sectionMeta.TryGetValue("lede", out var ledeMeta);
+        var ledeWrite = new GccV2WriteSection(
+            "lede",
+            ledeMeta?.Heading ?? document.Lede.Heading,
+            ledeMeta?.Job ?? "problem",
+            document.Lede,
+            ledeMeta?.UsedFallbackStub ?? false);
+
+        var sections = new List<GccV2WriteSection>();
+        for (var i = 0; i < document.Sections.Count; i++)
+        {
+            var section = document.Sections[i];
+            var outlineEntry = i < outline.Sections.Count ? outline.Sections[i] : null;
+            var key = outlineEntry?.Key ?? $"section-{i}";
+            sectionMeta.TryGetValue(key, out var meta);
+            sections.Add(new GccV2WriteSection(
+                key,
+                meta?.Heading ?? section.Heading,
+                meta?.Job ?? outlineEntry?.Job,
+                section,
+                meta?.UsedFallbackStub ?? false));
+        }
+
+        return new GccV2WriteOutput
+        {
+            Title = payload.Title ?? "Untitled",
+            MetaDescription = payload.MetaDescription,
+            Lede = ledeWrite,
+            Sections = sections,
+            TokensUsed = 0,
+        };
+    }
+
+    /// <summary>Appends a trailing People Also Ask FAQ section from operator PAA questions.</summary>
+    public async Task<GccV2WriteOutput> AppendFaqSectionAsync(
+        GccV2WriteContext wc,
+        Guid ownerUserId,
+        GccV2WriteOutput current,
+        IReadOnlyList<string> faqQuestions,
+        CancellationToken ct)
+    {
+        var questions = (faqQuestions.Count > 0 ? faqQuestions : wc.BaseContext.PeopleAlsoAskQuestions)
+            .Where(q => !string.IsNullOrWhiteSpace(q))
+            .Take(12)
+            .ToList();
+        if (questions.Count == 0)
+            throw new InvalidOperationException("Cannot append FAQ — no PAA questions in the brief.");
+
+        var entry = new GccV2OutlineSection("people-also-ask", "People Also Ask", "faq", questions);
+        var headings = current.Sections.Select(s => s.Heading).Append(entry.Heading).ToList();
+        var metadata = new ArticleMetadataDraft(
+            current.Title,
+            current.MetaDescription ?? "",
+            [wc.BaseContext.TargetKeyword],
+            headings);
+
+        var (write, tokens) = await DraftOutlineSectionAsync(
+            wc,
+            ownerUserId,
+            entry,
+            current.Sections.Count,
+            current.Sections.Count + 1,
+            headings,
+            metadata,
+            ct);
+
+        var appended = current.WithAppendedSection(write);
+        return new GccV2WriteOutput
+        {
+            Title = appended.Title,
+            MetaDescription = appended.MetaDescription,
+            Lede = appended.Lede,
+            Sections = appended.Sections,
+            TokensUsed = current.TokensUsed + tokens,
+        };
     }
 
     public Task<GccV2WriteOutput> WriteAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
@@ -235,27 +345,8 @@ public sealed class GccV2WriteService
         for (var i = 0; i < outlineSections.Count; i++)
         {
             var entry = outlineSections[i];
-            var sectionContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, entry.Heading, entry.Job, entry.HierarchyChildHeadings);
-
-            Section section;
-            var tokens = 0;
-            try
-            {
-                var result = await wc.Provider.CompleteAsync(
-                    _prompts.BuildArticleSectionPrompt(sectionContext, metadata, entry.Heading, i, outlineSections.Count, headings, isRegeneration: false),
-                    ct);
-                section = LlmResponseJsonParser.ParseSection(result.Content, "h2", $"pillar section \"{entry.Heading}\"");
-                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Pillar section \"{Heading}\" generation failed for job {JobId}.", entry.Heading, wc.Job.Id);
-                throw;
-            }
-
-            section = section with { Heading = entry.Heading, Tag = "h2" };
-            var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, false);
-            await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, tokens, ct);
+            var (write, tokens) = await DraftOutlineSectionAsync(
+                wc, ownerUserId, entry, i, outlineSections.Count, headings, metadata, ct);
             sections.Add(write);
             tokensUsed += tokens;
         }
@@ -301,27 +392,8 @@ public sealed class GccV2WriteService
         for (var i = 0; i < outlineSections.Count; i++)
         {
             var entry = outlineSections[i];
-            var sectionContext = _contextAdapter.WithSectionAssignment(wc.BaseContext, entry.Heading, entry.Job, entry.HierarchyChildHeadings);
-
-            Section section;
-            var tokens = 0;
-            try
-            {
-                var result = await wc.Provider.CompleteAsync(
-                    _prompts.BuildArticleSectionPrompt(sectionContext, articleMeta, entry.Heading, i, outlineSections.Count, headings, isRegeneration: false),
-                    ct);
-                section = LlmResponseJsonParser.ParseSection(result.Content, "h2", $"blog section \"{entry.Heading}\"");
-                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Blog section \"{Heading}\" generation failed for job {JobId}.", entry.Heading, wc.Job.Id);
-                throw;
-            }
-
-            section = section with { Heading = entry.Heading, Tag = "h2" };
-            var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, false);
-            await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, tokens, ct);
+            var (write, tokens) = await DraftOutlineSectionAsync(
+                wc, ownerUserId, entry, i, outlineSections.Count, headings, articleMeta, ct);
             sections.Add(write);
             tokensUsed += tokens;
         }
@@ -546,6 +618,58 @@ public sealed class GccV2WriteService
     private Task<GccV2WriteOutput> WriteStubAsync(GccV2WriteContext wc, Guid ownerUserId, string contentType, CancellationToken ct) =>
         throw new InvalidOperationException($"Unsupported content type for WRITE: {contentType}.");
 
+    private async Task<(GccV2WriteSection Write, int Tokens)> DraftOutlineSectionAsync(
+        GccV2WriteContext wc,
+        Guid ownerUserId,
+        GccV2OutlineSection entry,
+        int index,
+        int totalCount,
+        IReadOnlyList<string> allHeadings,
+        ArticleMetadataDraft metadata,
+        CancellationToken ct)
+    {
+        var sectionContext = _contextAdapter.WithSectionAssignment(
+            wc.BaseContext, entry.Heading, entry.Job, entry.HierarchyChildHeadings);
+
+        Section section;
+        var tokens = 0;
+        var label = wc.Job.ContentType ?? "article";
+        try
+        {
+            if (string.Equals(entry.Job, "faq", StringComparison.OrdinalIgnoreCase))
+            {
+                var faqQuestions = entry.HierarchyChildHeadings.Count > 0
+                    ? entry.HierarchyChildHeadings
+                    : wc.BaseContext.PeopleAlsoAskQuestions;
+                var result = await wc.Provider.CompleteAsync(
+                    _prompts.BuildArticleFaqSectionPrompt(
+                        sectionContext, metadata, faqQuestions, isRegeneration: false, revisionNotes: null),
+                    ct);
+                section = LlmResponseJsonParser.ParseSection(result.Content, "h2", "FAQ section");
+                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            }
+            else
+            {
+                var result = await wc.Provider.CompleteAsync(
+                    _prompts.BuildArticleSectionPrompt(
+                        sectionContext, metadata, entry.Heading, index, totalCount, allHeadings, isRegeneration: false),
+                    ct);
+                section = LlmResponseJsonParser.ParseSection(result.Content, "h2", $"{label} section \"{entry.Heading}\"");
+                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{Label} section \"{Heading}\" generation failed for job {JobId}.", label, entry.Heading, wc.Job.Id);
+            throw;
+        }
+
+        section = section with { Heading = entry.Heading, Tag = "h2" };
+        var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, false);
+        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, tokens, ct);
+        return (write, tokens);
+    }
+
     private async Task<ArticleMetadataDraft> GeneratePillarMetadataAsync(GccV2WriteContext wc, List<string> headings, CancellationToken ct)
     {
         try
@@ -751,6 +875,39 @@ public sealed class GccV2WriteService
             root.TryGetProperty("aspectRatio", out var a) ? a.GetString() : null,
             root.TryGetProperty("notes", out var notes) ? notes.GetString() : null);
     }
+
+    private async Task<Dictionary<string, SectionMeta>> LoadLatestSectionMetaAsync(Guid jobId, CancellationToken ct)
+    {
+        var results = await _repo.GetStageResultsAsync(jobId, ct);
+        var map = new Dictionary<string, SectionMeta>(StringComparer.OrdinalIgnoreCase);
+        foreach (var result in results
+                     .Where(r => r.Stage is "write" or "repair" or "canvas" && !string.IsNullOrWhiteSpace(r.SectionKey))
+                     .OrderByDescending(r => r.CompletedAtUtc))
+        {
+            if (map.ContainsKey(result.SectionKey!)) continue;
+            try
+            {
+                var payload = JsonSerializer.Deserialize<StageSectionPayload>(result.OutputJson, ContentDocJson);
+                if (payload?.Section is null) continue;
+                map[result.SectionKey!] = new SectionMeta(
+                    payload.Heading ?? payload.Section.Heading,
+                    payload.Job,
+                    payload.UsedFallbackStub ?? false);
+            }
+            catch (JsonException)
+            {
+                // skip malformed stage payloads
+            }
+        }
+
+        return map;
+    }
+
+    private sealed record StageSectionPayload(string? Heading, string? Job, Section? Section, bool? UsedFallbackStub);
+
+    private sealed record SectionMeta(string Heading, string? Job, bool UsedFallbackStub);
+
+    private sealed record JobResultPayload(string? Title, string? MetaDescription, ContentDocument? Document);
 
     private sealed record AdvertisingDraft(string Title, string BodyText, string MetaDescription);
     private sealed record ImagePromptDraft(string Prompt, string? Style, string? NegativePrompt, string? AspectRatio, string? Notes);

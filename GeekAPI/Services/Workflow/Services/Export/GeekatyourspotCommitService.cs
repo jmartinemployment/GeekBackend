@@ -12,6 +12,11 @@ public interface IGeekatyourspotCommitService
 {
     /// <summary>Exports the project's content and commits it as one atomic Git commit to geekatyourspot's content-writer-output/ directory.</summary>
     Task<GeekatyourspotCommitResult> CommitExportAsync(Guid projectId, bool includeRevise = true, CancellationToken cancellationToken = default);
+
+    Task<GeekatyourspotCommitResult> CommitDocumentsAsync(
+        IReadOnlyList<ExportedHtmlDocument> documents,
+        string commitMessage,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record GeekatyourspotCommitResult(string CommitSha, string CommitUrl, IReadOnlyList<string> FilePaths);
@@ -53,6 +58,26 @@ public sealed class GeekatyourspotCommitService : IGeekatyourspotCommitService
         }
 
         var documents = await _htmlExportService.ExportAsync(projectId, includeRevise, cancellationToken);
+        return await CommitDocumentsAsync(
+            documents,
+            $"Content Writer export: project {projectId} ({documents.Count} file(s))",
+            cancellationToken);
+    }
+
+    public async Task<GeekatyourspotCommitResult> CommitDocumentsAsync(
+        IReadOnlyList<ExportedHtmlDocument> documents,
+        string commitMessage,
+        CancellationToken cancellationToken = default)
+    {
+        var token = Environment.GetEnvironmentVariable("GEEKATYOURSPOT_GITHUB_TOKEN");
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new ContentGenerationException(
+                "GEEKATYOURSPOT_GITHUB_TOKEN is not configured — cannot commit to geekatyourspot without a GitHub token.");
+        }
+
+        if (documents.Count == 0)
+            throw new ContentGenerationException("Nothing to commit — export produced no documents.");
 
         var http = BuildClient(token);
 
@@ -67,7 +92,6 @@ public sealed class GeekatyourspotCommitService : IGeekatyourspotCommitService
         }
 
         var newTreeSha = await CreateTreeAsync(http, baseTreeSha, treeEntries, cancellationToken);
-        var commitMessage = $"Content Writer export: project {projectId} ({documents.Count} file(s))";
         var (commitSha, commitUrl) = await CreateCommitAsync(http, commitMessage, newTreeSha, refSha, cancellationToken);
         await UpdateRefAsync(http, commitSha, cancellationToken);
 

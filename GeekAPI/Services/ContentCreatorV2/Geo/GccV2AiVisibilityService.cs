@@ -78,9 +78,9 @@ public sealed class GccV2AiVisibilityService
 
         var targetKeyword = await LoadTargetKeywordAsync(job.BriefId, ct);
         var analyzerJson = GccV2AnalyzerDocument.Serialize(document);
-        var geo = GccV2GeoAnalyzer.Analyze(analyzerJson, targetKeyword);
+        var geo = GccV2GeoAnalyzer.Analyze(analyzerJson, targetKeyword, job.ContentType);
         var validation = await LoadValidationSummaryAsync(job.Id, ct);
-        var seoScore = validation.SeoScore ?? GcwSeoAnalyzer.Analyze(analyzerJson, targetKeyword).Score;
+        var seoScore = validation.SeoScore ?? GcwSeoAnalyzer.Analyze(analyzerJson, targetKeyword, job.ContentType).Score;
 
         var publishRecords = await _repo.ListPublishRecordsByCreateAsync(create.Id, ct);
         var publishedUrls = publishRecords
@@ -157,7 +157,21 @@ public sealed class GccV2AiVisibilityService
         try
         {
             var brief = await _repo.GetBriefAsync(briefId, ct);
-            return brief?.TargetKeyword ?? "";
+            if (brief is null) return "";
+            if (!string.IsNullOrWhiteSpace(brief.TargetKeyword))
+                return brief.TargetKeyword.Trim();
+
+            if (!string.IsNullOrWhiteSpace(brief.RawBriefJson))
+            {
+                using var doc = JsonDocument.Parse(brief.RawBriefJson);
+                if (doc.RootElement.TryGetProperty("targetKeyword", out var kw) && kw.ValueKind == JsonValueKind.String)
+                {
+                    var fromJson = kw.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(fromJson)) return fromJson;
+                }
+            }
+
+            return "";
         }
         catch (Exception ex)
         {

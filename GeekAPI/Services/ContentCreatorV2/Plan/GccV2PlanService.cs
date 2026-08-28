@@ -94,6 +94,16 @@ public sealed class GccV2PlanService
             })
             .ToList();
 
+        if (contentType is "pillar" or "blog")
+        {
+            var paaQuestions = ExtractPaaQuestions(brief.RawBriefJson, keyword, partnerToolNames);
+            sections.Add(new GccV2PlanOutlineSection(
+                "people-also-ask",
+                "People Also Ask",
+                "faq",
+                paaQuestions));
+        }
+
         var outline = new GccV2PlanOutline(sections, topicChildren);
 
         if (brief.Id != Guid.Empty)
@@ -143,7 +153,7 @@ public sealed class GccV2PlanService
         }
     }
 
-    private static List<string> ExtractPartnerToolNames(string? rawBriefJson)
+    internal static List<string> ExtractPartnerToolNames(string? rawBriefJson)
     {
         if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
         try
@@ -168,48 +178,11 @@ public sealed class GccV2PlanService
                 {
                     if (t.ValueKind != JsonValueKind.Object) continue;
                     if (t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
-                        AddName(n.GetString());
-                }
-            }
-
-            JsonElement operatorTools = default;
-            var foundOps = false;
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                if (!string.Equals(prop.Name, "operatorTools", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                operatorTools = prop.Value;
-                foundOps = true;
-                break;
-            }
-
-            if (foundOps && operatorTools.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var t in operatorTools.EnumerateArray())
-                {
-                    if (t.ValueKind == JsonValueKind.String)
                     {
-                        var url = t.GetString()?.Trim();
-                        if (string.IsNullOrWhiteSpace(url)) continue;
-                        AddName(GuessToolNameFromUrl(url));
-                        continue;
+                        var name = n.GetString();
+                        if (IsRejectedOutlineName(name)) continue;
+                        AddName(name);
                     }
-
-                    if (t.ValueKind != JsonValueKind.Object) continue;
-                    if (t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
-                        && !string.IsNullOrWhiteSpace(n.GetString()))
-                    {
-                        AddName(n.GetString());
-                        continue;
-                    }
-
-                    var href = t.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String
-                        ? u.GetString()
-                        : t.TryGetProperty("href", out var h) && h.ValueKind == JsonValueKind.String
-                            ? h.GetString()
-                            : null;
-                    if (!string.IsNullOrWhiteSpace(href))
-                        AddName(GuessToolNameFromUrl(href!));
                 }
             }
 
@@ -221,20 +194,49 @@ public sealed class GccV2PlanService
         }
     }
 
-    private static string GuessToolNameFromUrl(string url)
+    private static bool IsRejectedOutlineName(string? name)
     {
-        try
+        var n = (name ?? "").Trim();
+        if (n.Length == 0) return true;
+        return n.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+               || n.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static List<string> ExtractPaaQuestions(
+        string? rawBriefJson,
+        string keyword,
+        IReadOnlyList<string> partnerToolNames)
+    {
+        var fromBrief = new List<string>();
+        if (!string.IsNullOrWhiteSpace(rawBriefJson))
         {
-            var path = new Uri(url, UriKind.RelativeOrAbsolute).IsAbsoluteUri
-                ? new Uri(url).AbsolutePath
-                : url;
-            var segment = path.Trim('/').Split('/').LastOrDefault() ?? url;
-            return string.IsNullOrWhiteSpace(segment) ? url : segment.Replace('-', ' ');
+            try
+            {
+                using var doc = JsonDocument.Parse(rawBriefJson);
+                if (doc.RootElement.TryGetProperty("paaQuestions", out var paa)
+                    && paa.ValueKind == JsonValueKind.String)
+                {
+                    foreach (var line in paa.GetString()!.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (line.Length > 0) fromBrief.Add(line);
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // fall through to fallback
+            }
         }
-        catch (UriFormatException)
-        {
-            return url;
-        }
+
+        if (fromBrief.Count > 0)
+            return fromBrief.Take(12).ToList();
+
+        var title = Capitalize(keyword);
+        var fallback = new List<string> { $"What is {title}?" };
+        foreach (var tool in partnerToolNames.Take(3))
+            fallback.Add($"How does {tool} help with {title}?");
+        fallback.Add($"What should teams prioritize for {title}?");
+        return fallback.Take(5).ToList();
     }
 
     private static List<string> ExtractRecommendedToolNames(string? rawBriefJson) =>

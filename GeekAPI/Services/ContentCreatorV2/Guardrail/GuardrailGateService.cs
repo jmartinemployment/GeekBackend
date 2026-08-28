@@ -38,9 +38,10 @@ public sealed class GuardrailGateService
     {
         var guardrail = await _guardrail.ApplyAsync(document, contentType, ct);
         var analyzerJson = GccV2AnalyzerDocument.Serialize(guardrail.Document);
-        var seo = GcwSeoAnalyzer.Analyze(analyzerJson, targetKeyword);
+        var normalizedType = (contentType ?? "").Trim().ToLowerInvariant();
+        var seo = GcwSeoAnalyzer.Analyze(analyzerJson, targetKeyword, normalizedType);
         var polish = GcwPolishAnalyzer.Analyze(analyzerJson, Array.Empty<string>());
-        var geo = GccV2GeoAnalyzer.Analyze(analyzerJson, targetKeyword);
+        var geo = GccV2GeoAnalyzer.Analyze(analyzerJson, targetKeyword, normalizedType);
         return new GuardrailGateResult(
             guardrail.Document,
             guardrail.FlaggedCount,

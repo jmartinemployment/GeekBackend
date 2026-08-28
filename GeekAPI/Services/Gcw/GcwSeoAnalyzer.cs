@@ -25,7 +25,10 @@ public static class GcwSeoAnalyzer
         IReadOnlyList<SeoCheck> Checks,
         string ApplyFeedback);
 
-    public static SeoReport Analyze(string bodyDocumentJson, string targetKeyword)
+    public static SeoReport Analyze(string bodyDocumentJson, string targetKeyword) =>
+        Analyze(bodyDocumentJson, targetKeyword, contentType: null);
+
+    public static SeoReport Analyze(string bodyDocumentJson, string targetKeyword, string? contentType)
     {
         var keyword = (targetKeyword ?? "").Trim();
         var text = ExtractPlainText(bodyDocumentJson, out var lede, out var headings, out var sectionCount);
@@ -77,23 +80,28 @@ public static class GcwSeoAnalyzer
                         : $"Reduce repetition of “{keyword}”; it reads stuffed."));
         }
 
-        var lengthOk = wordCount >= 800;
-        checks.Add(new SeoCheck(
-            "word-count",
-            "Draft length",
-            lengthOk,
-            $"{wordCount} words extracted from the document.",
-            lengthOk
-                ? null
-                : $"CRITICAL: Expand from {wordCount} words to at least 900 words. Add 2–3 new H2 sections with concrete examples, steps, and a short FAQ. Do not only rephrase — substantially increase length while keeping “{keyword}” natural (density ~0.4–2.5%)."));
+        var (minWords, minSections, applyLengthChecks) = GcwContentTypeScoring.GetSeoLengthRules(contentType);
 
-        var sectionsOk = sectionCount >= 3;
-        checks.Add(new SeoCheck(
-            "section-count",
-            "Section structure",
-            sectionsOk,
-            $"{sectionCount} top-level sections.",
-            sectionsOk ? null : "Add more H2 sections (aim for 3–6) covering subtopics."));
+        if (applyLengthChecks)
+        {
+            var lengthOk = wordCount >= minWords;
+            checks.Add(new SeoCheck(
+                "word-count",
+                "Draft length",
+                lengthOk,
+                $"{wordCount} words extracted from the document.",
+                lengthOk
+                    ? null
+                    : $"CRITICAL: Expand from {wordCount} words to at least {minWords} words. Add substantive H2 sections with concrete examples and steps. Do not only rephrase — substantially increase length while keeping “{keyword}” natural (density ~0.4–2.5%)."));
+
+            var sectionsOk = sectionCount >= minSections;
+            checks.Add(new SeoCheck(
+                "section-count",
+                "Section structure",
+                sectionsOk,
+                $"{sectionCount} top-level sections.",
+                sectionsOk ? null : $"Add more H2 sections (aim for {minSections}+) covering subtopics."));
+        }
 
         var passed = checks.Count(c => c.Passed);
         var score = checks.Count == 0 ? 0 : (int)Math.Round(100.0 * passed / checks.Count);

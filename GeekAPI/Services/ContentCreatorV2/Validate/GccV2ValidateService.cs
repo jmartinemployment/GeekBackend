@@ -5,6 +5,7 @@ using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Write;
+using GeekAPI.Services.Gcw;
 using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.ContentCreatorV2.Validate;
@@ -25,7 +26,8 @@ public sealed record GccV2ValidationReport(
     IReadOnlyList<string>? GuardrailRestructurePhrases = null,
     int GeoScore = 0,
     IReadOnlyList<GccV2GeoAnalyzer.GeoCheck>? GeoChecks = null,
-    string? GeoSummary = null)
+    string? GeoSummary = null,
+    IReadOnlyList<GcwSeoAnalyzer.SeoCheck>? SeoChecks = null)
 {
     public bool ShipReady => OverlapHits.Count == 0
         && (ReviewVerdict is "approved" or "skipped")
@@ -98,6 +100,28 @@ public sealed class GccV2ValidateService
         }
     }
 
+    /// <summary>Operator-triggered readiness repair — one evaluate/repair/evaluate pass for advisory SEO/GEO fails.</summary>
+    public async Task<GccV2ValidateOutcome> RunReadinessFixAsync(
+        GccV2WriteContext wc, Guid ownerUserId, GccV2WriteOutput current, CancellationToken ct)
+    {
+        var report = await EvaluateAsync(wc, current, ct);
+        if (!HasReadinessFailures(report))
+        {
+            await PersistAndEmitReportAsync(wc.Job.Id, ownerUserId, report, attempt: 0, ct);
+            return new GccV2ValidateOutcome(current, report, report.ShipReady, false, 0);
+        }
+
+        var repaired = await RepairAsync(wc, ownerUserId, current, report, attempt: 1, ct);
+        report = await EvaluateAsync(wc, repaired, ct);
+        await PersistAndEmitReportAsync(wc.Job.Id, ownerUserId, report, attempt: 1, ct);
+        var outstanding = !report.ShipReady || HasReadinessFailures(report);
+        return new GccV2ValidateOutcome(repaired, report, report.ShipReady, outstanding, 1);
+    }
+
+    private static bool HasReadinessFailures(GccV2ValidationReport report) =>
+        (report.SeoChecks?.Any(c => !c.Passed) ?? false)
+        || (report.GeoChecks?.Any(c => !c.Passed) ?? false);
+
     private async Task<GccV2ValidationReport> EvaluateAsync(GccV2WriteContext wc, GccV2WriteOutput output, CancellationToken ct)
     {
         var contentType = (wc.Job.ContentType ?? "blog").ToLowerInvariant();
@@ -126,7 +150,8 @@ public sealed class GccV2ValidateService
             gate.GuardrailRestructurePhrases,
             gate.Geo.Score,
             gate.Geo.Checks,
-            gate.Geo.Summary);
+            gate.Geo.Summary,
+            gate.Seo.Checks);
     }
 
     private static List<OverlapSectionInput> BuildOverlapInputs(GccV2WriteOutput output, ContentDocument document)
@@ -170,6 +195,14 @@ public sealed class GccV2ValidateService
                 detail = c.Detail,
                 fixHint = c.FixHint,
             }).ToList(),
+            seoChecks = (report.SeoChecks ?? Array.Empty<GcwSeoAnalyzer.SeoCheck>()).Select(c => new
+            {
+                id = c.Id,
+                label = c.Label,
+                passed = c.Passed,
+                detail = c.Detail,
+                fixHint = c.FixHint,
+            }).ToList(),
             overlapHits = report.OverlapHits.Select(h => new
             {
                 headingA = h.HeadingA,
@@ -193,7 +226,7 @@ public sealed class GccV2ValidateService
     private async Task<GccV2WriteOutput> RepairAsync(
         GccV2WriteContext wc, Guid ownerUserId, GccV2WriteOutput current, GccV2ValidationReport report, int attempt, CancellationToken ct)
     {
-        var targets = SelectRepairTargets(current, report);
+        var targets = SelectRepairTargets(wc, current, report);
         if (targets.Count == 0)
         {
             _logger.LogInformation(
@@ -205,6 +238,13 @@ public sealed class GccV2ValidateService
         var updated = current;
         foreach (var target in targets)
         {
+            if (target.IsAppendFaq)
+            {
+                var paa = wc.BaseContext.PeopleAlsoAskQuestions ?? [];
+                updated = await _writeService.AppendFaqSectionAsync(wc, ownerUserId, updated, paa, ct);
+                continue;
+            }
+
             var section = updated.AllSections.FirstOrDefault(s => s.SectionKey == target.SectionKey);
             if (section is null) continue;
 
@@ -232,9 +272,16 @@ public sealed class GccV2ValidateService
         return updated;
     }
 
-    private static List<RepairTarget> SelectRepairTargets(GccV2WriteOutput current, GccV2ValidationReport report)
+    private static List<RepairTarget> SelectRepairTargets(
+        GccV2WriteContext wc,
+        GccV2WriteOutput current,
+        GccV2ValidationReport report)
     {
         var targets = new Dictionary<string, string>();
+        var contentType = (wc.Job.ContentType ?? "blog").Trim().ToLowerInvariant();
+        var longForm = GcwContentTypeScoring.IsLongForm(contentType);
+        var keyword = (wc.BaseContext.TargetKeyword ?? "").Trim();
+        var paaQuestions = wc.BaseContext.PeopleAlsoAskQuestions ?? [];
 
         foreach (var hit in report.OverlapHits)
         {
@@ -280,11 +327,116 @@ public sealed class GccV2ValidateService
             }
         }
 
+        if (longForm && targets.Count < 3)
+        {
+            AddSeoGeoRepairTargets(targets, current, report, keyword, paaQuestions);
+        }
+
         return targets.Select(kv => new RepairTarget(
             kv.Key,
             kv.Value,
-            kv.Value.StartsWith("Pass-2 restructure", StringComparison.OrdinalIgnoreCase))).ToList();
+            kv.Value.StartsWith("Pass-2 restructure", StringComparison.OrdinalIgnoreCase),
+            string.Equals(kv.Key, GcwContentTypeScoring.AppendFaqSectionKey, StringComparison.OrdinalIgnoreCase))).ToList();
     }
 
-    private sealed record RepairTarget(string SectionKey, string RevisionNotes, bool IsRestructurePass = false);
+    private static void AddSeoGeoRepairTargets(
+        Dictionary<string, string> targets,
+        GccV2WriteOutput current,
+        GccV2ValidationReport report,
+        string keyword,
+        IReadOnlyList<string> paaQuestions)
+    {
+        foreach (var check in report.GeoChecks ?? [])
+        {
+            if (check.Passed || targets.Count >= 3) continue;
+            if (check.Id == "faq-or-direct-answers")
+            {
+                var faqSection = FindFaqSection(current);
+                var questions = paaQuestions.Count > 0
+                    ? string.Join("; ", paaQuestions.Take(12))
+                    : "Use 3–5 direct questions about the topic.";
+                var faqNotes =
+                    $"GEO repair — FAQ/direct answers: rewrite this section as “People Also Ask”. "
+                    + $"Each question must be an H3 with a direct one-sentence answer opener plus 2–4 sentences. "
+                    + $"Use these operator PAA questions verbatim when provided: {questions}";
+
+                if (faqSection is not null && !targets.ContainsKey(faqSection.SectionKey))
+                {
+                    targets[faqSection.SectionKey] = faqNotes;
+                }
+                else if (faqSection is null && paaQuestions.Count > 0 && !targets.ContainsKey(GcwContentTypeScoring.AppendFaqSectionKey))
+                {
+                    targets[GcwContentTypeScoring.AppendFaqSectionKey] = faqNotes;
+                }
+            }
+            else if (check.Id == "citeable-passages")
+            {
+                var body = PickBodySectionForExpansion(current, skipFaq: true);
+                if (body is not null && !targets.ContainsKey(body.SectionKey))
+                {
+                    targets[body.SectionKey] =
+                        check.FixHint
+                        ?? "Rewrite 1–2 paragraphs here as standalone, citeable claims (≥40 words each, no “this/it” openers).";
+                }
+            }
+        }
+
+        foreach (var check in report.SeoChecks ?? [])
+        {
+            if (check.Passed || targets.Count >= 3) continue;
+            switch (check.Id)
+            {
+                case "keyword-in-lede":
+                    if (!targets.ContainsKey(current.Lede.SectionKey))
+                    {
+                        targets[current.Lede.SectionKey] =
+                            check.FixHint
+                            ?? $"Include “{keyword}” naturally in the opening lede.";
+                    }
+                    break;
+                case "keyword-in-heading":
+                {
+                    var section = current.AllSections.FirstOrDefault(s =>
+                        s.Job != "faq"
+                        && !s.Heading.Contains("People Also Ask", StringComparison.OrdinalIgnoreCase));
+                    if (section is not null && !targets.ContainsKey(section.SectionKey))
+                    {
+                        targets[section.SectionKey] =
+                            check.FixHint
+                            ?? $"Use “{keyword}” in this section heading or add a sibling H2 that includes it.";
+                    }
+                    break;
+                }
+                case "word-count":
+                case "keyword-density":
+                case "section-count":
+                {
+                    var section = PickBodySectionForExpansion(current, skipFaq: true);
+                    if (section is not null && !targets.ContainsKey(section.SectionKey))
+                    {
+                        targets[section.SectionKey] =
+                            check.FixHint
+                            ?? "Expand this section with concrete examples, steps, and specifics while keeping the keyword natural.";
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    private static GccV2WriteSection? FindFaqSection(GccV2WriteOutput current) =>
+        current.AllSections.FirstOrDefault(s =>
+            string.Equals(s.Job, "faq", StringComparison.OrdinalIgnoreCase)
+            || s.Heading.Contains("People Also Ask", StringComparison.OrdinalIgnoreCase));
+
+    private static GccV2WriteSection? PickBodySectionForExpansion(GccV2WriteOutput current, bool skipFaq)
+    {
+        var candidates = current.AllSections
+            .Where(s => s.SectionKey != current.Lede.SectionKey)
+            .Where(s => !skipFaq || (s.Job != "faq" && !s.Heading.Contains("People Also Ask", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        return candidates.Count == 0 ? null : candidates[candidates.Count / 2];
+    }
+
+    private sealed record RepairTarget(string SectionKey, string RevisionNotes, bool IsRestructurePass = false, bool IsAppendFaq = false);
 }

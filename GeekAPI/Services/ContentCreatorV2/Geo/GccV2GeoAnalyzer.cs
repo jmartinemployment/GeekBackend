@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using GeekAPI.Services.Gcw;
 
 namespace GeekAPI.Services.ContentCreatorV2.Geo;
 
@@ -53,7 +54,10 @@ public static class GccV2GeoAnalyzer
         "best", "top", "vs", "versus", "review", "alternative", "pricing", "cost", "comparison", "compare",
     ];
 
-    public static GeoReport Analyze(string analyzerDocumentJson, string targetKeyword)
+    public static GeoReport Analyze(string analyzerDocumentJson, string targetKeyword) =>
+        Analyze(analyzerDocumentJson, targetKeyword, contentType: null);
+
+    public static GeoReport Analyze(string analyzerDocumentJson, string targetKeyword, string? contentType)
     {
         var keyword = (targetKeyword ?? "").Trim();
         var document = ParseDocument(analyzerDocumentJson);
@@ -66,6 +70,20 @@ public static class GccV2GeoAnalyzer
             BuildComparisonOrListCheck(document, keyword),
             BuildStructureForSnippetCheck(document),
         };
+
+        checks = checks
+            .Where(c => GcwContentTypeScoring.GeoCheckApplies(c.Id, contentType))
+            .ToList();
+
+        if (checks.Count == 0)
+        {
+            checks.Add(new GeoCheck(
+                "short-form-ready",
+                "Short-form readiness",
+                true,
+                "Short-form content skips long-article GEO structure checks.",
+                null));
+        }
 
         var passed = checks.Count(c => c.Passed);
         var score = checks.Count == 0 ? 0 : (int)Math.Round(100.0 * passed / checks.Count);

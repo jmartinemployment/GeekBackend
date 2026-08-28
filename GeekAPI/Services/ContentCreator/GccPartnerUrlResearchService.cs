@@ -45,6 +45,37 @@ public sealed class GccPartnerUrlResearchService
             .Take(GccPartnerResearchCaps.MaxUrls)
             .ToList();
 
+    /// <summary>Operator-pasted rival page URLs (one per line in <c>competitorUrls</c>).</summary>
+    public static IReadOnlyList<string> CollectCompetitorHrefs(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
+
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "competitorUrls", out var el)
+                || el.ValueKind != JsonValueKind.String)
+            {
+                return [];
+            }
+
+            var urls = new List<string>();
+            foreach (var line in el.GetString()!.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!TryNormalizeHttpUrl(line, out var normalized)) continue;
+                if (urls.Contains(normalized, StringComparer.OrdinalIgnoreCase)) continue;
+                urls.Add(normalized);
+                if (urls.Count >= 5) break;
+            }
+
+            return urls;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>
     /// Preflight tool rows = crawl <c>hierarchyPlan.recommendedTools</c> only.
     /// Operator paste attaches destination URLs for excerpts; bare URLs alone never invent tools.
@@ -229,6 +260,40 @@ public sealed class GccPartnerUrlResearchService
                 }
 
                 writer.WritePropertyName("partnerResearch");
+                JsonSerializer.Serialize(writer, pages, JsonOpts);
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return rawBriefJson;
+        }
+    }
+
+    /// <summary>Writes <c>competitorResearch</c> onto the brief JSON (replaces any prior value).</summary>
+    public static string? MergeCompetitorResearchIntoBriefJson(
+        string? rawBriefJson,
+        IReadOnlyList<GccQuoteablePage> pages)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "competitorResearch", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    prop.WriteTo(writer);
+                }
+
+                writer.WritePropertyName("competitorResearch");
                 JsonSerializer.Serialize(writer, pages, JsonOpts);
                 writer.WriteEndObject();
             }

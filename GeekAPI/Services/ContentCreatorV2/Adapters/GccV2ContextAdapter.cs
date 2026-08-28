@@ -51,7 +51,7 @@ public sealed class GccV2ContextAdapter
         if (string.IsNullOrWhiteSpace(brandKit.Website))
             throw new InvalidOperationException("Brand kit is missing website — cannot write without project site URL.");
 
-        var paragraphs = BuildNotesParagraphs(fields, brandKit, siteSection);
+        var paragraphs = BuildNotesParagraphs(fields, brandKit, siteSection, brandKit.Website!, _company.ToolBaseUrl);
 
         // #region agent log
         {
@@ -75,7 +75,7 @@ public sealed class GccV2ContextAdapter
                     recommendedToolCount = fields.RecommendedTools.Count,
                     operatorToolCount = fields.OperatorTools.Count,
                     partnerResearchPageCount = fields.PartnerResearch.Count,
-                    writingNotesHasPartnerTools = BuildPartnerWritingNotes(fields)
+                    writingNotesHasPartnerTools = BuildPartnerWritingNotes(fields, brandKit.Website!, _company.ToolBaseUrl)
                         .Contains("Partner tools for this use case", StringComparison.Ordinal),
                     first5Prefixes = paragraphs.Take(5).Select(p => p.Length <= 80 ? p : p[..80]).ToList(),
                 });
@@ -118,17 +118,17 @@ public sealed class GccV2ContextAdapter
             CtaType: NullIfEmpty(fields.CtaType),
             CtaLabel: NullIfEmpty(fields.CtaLabel),
             LengthBand: NullIfEmpty(fields.LengthBand),
-            WritingNotes: NullIfEmpty(MergeWritingNotes(fields.WritingNotes, BuildPartnerWritingNotes(fields))));
+            WritingNotes: NullIfEmpty(MergeWritingNotes(fields.WritingNotes, BuildPartnerWritingNotes(fields, brandKit.Website!, _company.ToolBaseUrl))));
     }
 
     /// <summary>
     /// Partner tools + page excerpts for weave. Pillar ArticleSection prompts omit CrawledParagraphs;
     /// blog only Take(5) of them — so this must live in WritingNotes.
     /// </summary>
-    private static string BuildPartnerWritingNotes(BriefFields fields)
+    private static string BuildPartnerWritingNotes(BriefFields fields, string siteUrl, string? toolBaseUrl)
     {
         var parts = new List<string>();
-        var partnerTools = MergePartnerTools(fields.RecommendedTools, fields.OperatorTools);
+        var partnerTools = ToolsForWritingNotes(fields.RecommendedTools, siteUrl, toolBaseUrl);
         if (partnerTools.Count > 0)
         {
             var toolList = string.Join(" | ", partnerTools.Select(t =>
@@ -178,6 +178,20 @@ public sealed class GccV2ContextAdapter
             }
         }
 
+        if (fields.CompetitorResearch is { Count: > 0 } competitorPages)
+        {
+            parts.Add(
+                "COMPETITOR PAGE EXCERPTS (research only — use to differentiate our approach; do not quote "
+                + "long passages; do not link to rival sites as product CTAs; never present competitors as "
+                + "recommended tools):");
+            foreach (var page in competitorPages.Take(5))
+            {
+                parts.Add($"[{page.Title}] ({page.Url})");
+                foreach (var para in page.Paragraphs.Take(4))
+                    parts.Add($"- {para}");
+            }
+        }
+
         return string.Join("\n", parts);
     }
 
@@ -210,7 +224,9 @@ public sealed class GccV2ContextAdapter
         {
             notes.Add(job.Equals("problem", StringComparison.OrdinalIgnoreCase)
                 ? $"This section (\"{sectionHeading}\") is the ONE place in this piece that establishes the core practitioner problem — do not assume any other section has already stated it."
-                : $"This section (\"{sectionHeading}\") must ADVANCE the argument past the problem already established elsewhere in this piece — do not re-open with the same pain point or the same fix already covered in earlier sections. Assume the reader already knows the problem; move to new ground (a distinct sub-topic, workflow step, or consideration).");
+                : job.Equals("faq", StringComparison.OrdinalIgnoreCase)
+                    ? $"This section (\"{sectionHeading}\") is the FAQ — answer each question as an H3 child with a short direct-answer opener, then 2–4 sentences. Use the target keyword naturally where it fits."
+                    : $"This section (\"{sectionHeading}\") must ADVANCE the argument past the problem already established elsewhere in this piece — do not re-open with the same pain point or the same fix already covered in earlier sections. Assume the reader already knows the problem; move to new ground (a distinct sub-topic, workflow step, or consideration).");
         }
 
         if (hierarchyChildHeadings is { Count: > 0 })
@@ -228,7 +244,9 @@ public sealed class GccV2ContextAdapter
     private static List<string> BuildNotesParagraphs(
         BriefFields fields,
         GccV2BrandKitContent kit,
-        SiteSectionContextDto? siteSection)
+        SiteSectionContextDto? siteSection,
+        string siteUrl,
+        string? toolBaseUrl)
     {
         var paragraphs = new List<string>();
 
@@ -298,7 +316,7 @@ public sealed class GccV2ContextAdapter
                 + "Relate the article to that use-case so it feels like part of this site — not a standalone generic essay.");
         }
 
-        var partnerTools = MergePartnerTools(fields.RecommendedTools, fields.OperatorTools);
+        var partnerTools = ToolsForWritingNotes(fields.RecommendedTools, siteUrl, toolBaseUrl);
         if (partnerTools.Count > 0)
         {
             var toolList = string.Join(" | ", partnerTools.Select(t =>
@@ -367,24 +385,61 @@ public sealed class GccV2ContextAdapter
         return paragraphs;
     }
 
+    /// <summary>On-site tool links for WRITE prompts — recommendedTools only; operator URLs are crawl-only.</summary>
+    internal static IReadOnlyList<RecommendedTool> ToolsForWritingNotes(
+        IReadOnlyList<RecommendedTool> recommended,
+        string siteUrl,
+        string? toolBaseUrl)
+    {
+        var merged = new List<RecommendedTool>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in recommended)
+        {
+            if (string.IsNullOrWhiteSpace(t.Name)) continue;
+            var name = t.Name.Trim();
+            if (!seen.Add(name)) continue;
+
+            var href = ResolveOnSiteToolHref(t.Href, siteUrl, toolBaseUrl);
+            merged.Add(new RecommendedTool(name, href));
+        }
+
+        return merged;
+    }
+
+    internal static bool HrefLooksLikeOnSiteToolPage(string? href)
+    {
+        if (string.IsNullOrWhiteSpace(href)) return false;
+        var h = href.Trim();
+        if (h.StartsWith("/tools/", StringComparison.OrdinalIgnoreCase)) return true;
+        if (!Uri.TryCreate(h, UriKind.Absolute, out var uri)) return false;
+        return uri.AbsolutePath.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string? ResolveOnSiteToolHref(string? href, string siteUrl, string? toolBaseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(href)) return null;
+        var h = href.Trim();
+        if (!HrefLooksLikeOnSiteToolPage(h)) return null;
+
+        if (h.StartsWith('/'))
+        {
+            var baseUrl = h.StartsWith("/tools/", StringComparison.OrdinalIgnoreCase)
+                ? siteUrl.TrimEnd('/')
+                : !string.IsNullOrWhiteSpace(toolBaseUrl)
+                    ? toolBaseUrl!.TrimEnd('/')
+                    : siteUrl.TrimEnd('/');
+            return baseUrl + h;
+        }
+
+        return h;
+    }
+
     private static IReadOnlyList<RecommendedTool> MergePartnerTools(
         IReadOnlyList<RecommendedTool> recommended,
         IReadOnlyList<RecommendedTool> operatorTools)
     {
-        var merged = new List<RecommendedTool>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in recommended.Concat(operatorTools))
-        {
-            if (string.IsNullOrWhiteSpace(t.Name) && string.IsNullOrWhiteSpace(t.Href)) continue;
-            var key = !string.IsNullOrWhiteSpace(t.Href) ? t.Href! : t.Name;
-            if (!seen.Add(key)) continue;
-            var name = string.IsNullOrWhiteSpace(t.Name)
-                ? (t.Href ?? "tool")
-                : t.Name;
-            merged.Add(new RecommendedTool(name.Trim(), string.IsNullOrWhiteSpace(t.Href) ? null : t.Href!.Trim()));
-        }
-
-        return merged;
+        // Legacy merge kept for any callers — writing notes use ToolsForWritingNotes instead.
+        return ToolsForWritingNotes(recommended, "", null);
     }
 
     private static IReadOnlyList<RelatedPageDto> PreferNonToolInternalPages(IReadOnlyList<RelatedPageDto> pages) =>
@@ -449,6 +504,7 @@ public sealed class GccV2ContextAdapter
                 RecommendedTools = recommendedTools,
                 OperatorTools = operatorTools,
                 PartnerResearch = ParsePartnerResearch(rawBriefJson),
+                CompetitorResearch = ParseResearchPages(rawBriefJson, "competitorResearch"),
             };
         }
         catch (JsonException ex)
@@ -509,12 +565,15 @@ public sealed class GccV2ContextAdapter
     }
 
 
-    private static IReadOnlyList<GccQuoteablePage> ParsePartnerResearch(string rawBriefJson)
+    private static IReadOnlyList<GccQuoteablePage> ParsePartnerResearch(string rawBriefJson) =>
+        ParseResearchPages(rawBriefJson, "partnerResearch");
+
+    private static IReadOnlyList<GccQuoteablePage> ParseResearchPages(string rawBriefJson, string propertyName)
     {
         try
         {
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
-            if (!TryGetPropertyIgnoreCase(doc.RootElement, "partnerResearch", out var arr)
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, propertyName, out var arr)
                 || arr.ValueKind != JsonValueKind.Array)
                 return [];
 
@@ -681,7 +740,8 @@ public sealed class GccV2ContextAdapter
         string? SerpTitles,
         string? SerpUrls,
         string? PaaQuestions,
-        string? RelatedSearches);
+        string? RelatedSearches,
+        string? CompetitorUrls);
 
     private sealed class BriefFields
     {
@@ -707,7 +767,8 @@ public sealed class GccV2ContextAdapter
         public IReadOnlyList<RecommendedTool> RecommendedTools { get; init; } = [];
         public IReadOnlyList<RecommendedTool> OperatorTools { get; init; } = [];
         public IReadOnlyList<GccQuoteablePage> PartnerResearch { get; init; } = [];
+        public IReadOnlyList<GccQuoteablePage> CompetitorResearch { get; init; } = [];
     }
 
-    private sealed record RecommendedTool(string Name, string? Href);
+    internal sealed record RecommendedTool(string Name, string? Href);
 }
