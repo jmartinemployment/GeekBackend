@@ -410,11 +410,9 @@ public static class LlmResponseJsonParser
         IReadOnlyList<ImagePromptSectionTarget> expectedSections,
         string label)
     {
-        if (draft.Sections.Count != expectedSections.Count)
-        {
-            throw new ContentGenerationException(
-                $"{label} must include {expectedSections.Count} section prompts (got {draft.Sections.Count}).");
-        }
+        // Match by (sourceType, heading, order) — the model may return extra sections when only
+        // one target was requested (common for spawned image-prompt jobs).
+        var matched = new List<ImagePromptSectionDraft>(expectedSections.Count);
 
         for (var i = 0; i < expectedSections.Count; i++)
         {
@@ -431,9 +429,10 @@ public static class LlmResponseJsonParser
             }
 
             ValidateSectionImagePromptItem(item, expected, label);
+            matched.Add(item);
         }
 
-        return draft;
+        return new ImagePromptSectionPromptsDraft(matched);
     }
 
     private static void ValidateSectionImagePromptItem(
