@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Publish;
@@ -12,6 +13,8 @@ namespace GeekAPI.Controllers.ContentCreatorV2;
 [Route("api/geek-content-creator-v2/creates/{createId:guid}")]
 public class GccV2ExportController : ControllerBase
 {
+    private static readonly JsonSerializerOptions SummaryJsonOpts = new(JsonSerializerDefaults.Web);
+
     private readonly ICurrentUserContext _user;
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2HtmlExportService _export;
@@ -40,11 +43,13 @@ public class GccV2ExportController : ControllerBase
 
         try
         {
-            var documents = await _export.ExportCreateAsync(createId, ct);
+            var result = await _export.ExportCreateAsync(createId, ct);
+            Response.Headers["X-GccV2-Export-Summary"] = JsonSerializer.Serialize(result.Summary, SummaryJsonOpts);
+
             using var zipStream = new MemoryStream();
             using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: true))
             {
-                foreach (var document in documents)
+                foreach (var document in result.Documents)
                 {
                     var entry = archive.CreateEntry(document.FileName, CompressionLevel.Optimal);
                     await using var entryStream = entry.Open();
@@ -71,12 +76,18 @@ public class GccV2ExportController : ControllerBase
 
         try
         {
-            var documents = await _export.ExportCreateAsync(createId, ct);
-            var result = await _commit.CommitDocumentsAsync(
-                documents,
-                $"Content Creator v2 export: create {createId} ({documents.Count} file(s))",
+            var result = await _export.ExportCreateAsync(createId, ct);
+            var commit = await _commit.CommitDocumentsAsync(
+                result.Documents,
+                $"Content Creator v2 export: create {createId} ({result.Summary.ExportedCount} file(s))",
                 ct);
-            return Ok(new { commitSha = result.CommitSha, commitUrl = result.CommitUrl, filePaths = result.FilePaths });
+            return Ok(new
+            {
+                commitSha = commit.CommitSha,
+                commitUrl = commit.CommitUrl,
+                filePaths = commit.FilePaths,
+                exportSummary = result.Summary,
+            });
         }
         catch (ContentGenerationException ex)
         {

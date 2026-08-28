@@ -1,8 +1,10 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Plan;
+using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
+using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
 
 namespace GeekAPI.Services.ContentCreatorV2.Jobs;
@@ -111,7 +113,7 @@ public sealed class GccV2JobWorker : BackgroundService
 
         var writeService = scope.ServiceProvider.GetRequiredService<GccV2WriteService>();
         var validateService = scope.ServiceProvider.GetRequiredService<GccV2ValidateService>();
-        await RunWriteThenValidateStageAsync(jobId, ownerUserId, claimed, repo, writer, writeService, validateService, ct);
+        await RunWriteThenValidateStageAsync(jobId, ownerUserId, claimed, repo, writer, writeService, validateService, scope, ct);
     }
 
     /// <summary>
@@ -292,6 +294,7 @@ public sealed class GccV2JobWorker : BackgroundService
         GccV2JobEventWriter writer,
         GccV2WriteService writeService,
         GccV2ValidateService validateService,
+        IServiceScope scope,
         CancellationToken ct)
     {
         if (await StopIfCanceledAsync(repo, jobId, ct)) return;
@@ -331,10 +334,22 @@ public sealed class GccV2JobWorker : BackgroundService
         if (string.Equals(job.ContentType, "image-prompt", StringComparison.OrdinalIgnoreCase))
         {
             var imageDocument = written.ToContentDocument();
+            var sectionMeta = GccV2ImagePromptSpawnService.ParseImagePromptSection(wc.Brief.RawBriefJson);
+            var promptText = ImagePromptPlainText(imageDocument);
             var imageResultJson = JsonSerializer.Serialize(new
             {
                 title = written.Title,
                 metaDescription = written.MetaDescription,
+                prompt = promptText,
+                imagePromptSection = sectionMeta is null
+                    ? null
+                    : new
+                    {
+                        sourceJobId = sectionMeta.SourceJobId,
+                        sourceType = sectionMeta.SourceType,
+                        heading = sectionMeta.Heading,
+                        order = sectionMeta.Order,
+                    },
                 document = imageDocument,
                 shipReady = true,
                 outstandingIssues = false,
@@ -355,6 +370,8 @@ public sealed class GccV2JobWorker : BackgroundService
                 outstandingIssues = false,
                 writeOnly = true,
             }, ct: ct);
+
+            await TrySpawnImagePromptsAsync(scope, jobId, repo, ct);
             return;
         }
 
@@ -399,6 +416,21 @@ public sealed class GccV2JobWorker : BackgroundService
             outstandingIssues = outcome.OutstandingIssues,
             repairAttempts = outcome.RepairAttempts,
         }, ct: ct);
+
+        await TrySpawnImagePromptsAsync(scope, jobId, repo, ct);
+    }
+
+    private static async Task TrySpawnImagePromptsAsync(
+        IServiceScope scope,
+        Guid jobId,
+        HttpGccV2Repository repo,
+        CancellationToken ct)
+    {
+        var job = await repo.GetJobAsync(jobId, ct);
+        if (job is null || !string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase)) return;
+
+        var spawn = scope.ServiceProvider.GetRequiredService<GccV2ImagePromptSpawnService>();
+        await spawn.SpawnForReadyJobAsync(job, ct);
     }
 
     private static async Task FailJobAsync(
@@ -423,4 +455,9 @@ public sealed class GccV2JobWorker : BackgroundService
     }
 
     private static Guid ParseOwner(string ownerUserId) => Guid.TryParse(ownerUserId, out var id) ? id : Guid.Empty;
+
+    private static string ImagePromptPlainText(ContentDocument document) =>
+        document.Lede.Paragraphs.OfType<TextParagraph>().FirstOrDefault() is { } paragraph
+            ? string.Join(" ", paragraph.Runs.Select(r => r.Text))
+            : string.Empty;
 }

@@ -2,8 +2,10 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Validate;
+using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
+using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using GeekApplication.Interfaces;
 using GeekApplication.Models.Blog;
 using HtmlAgilityPack;
@@ -49,6 +51,9 @@ public sealed class GccV2CmsPublishService
     private readonly IBlogRepository _blog;
     private readonly GccV2JobEventWriter _events;
     private readonly CompanyProfileOptions _company;
+    private readonly ITechnicalArticleSchemaBuilder _articleSchema;
+    private readonly IBlogPostingSchemaBuilder _blogSchema;
+    private readonly ISoftwareApplicationSchemaBuilder _toolSchema;
     private readonly ILogger<GccV2CmsPublishService> _logger;
 
     public GccV2CmsPublishService(
@@ -56,12 +61,18 @@ public sealed class GccV2CmsPublishService
         IBlogRepository blog,
         GccV2JobEventWriter events,
         IOptions<CompanyProfileOptions> company,
+        ITechnicalArticleSchemaBuilder articleSchema,
+        IBlogPostingSchemaBuilder blogSchema,
+        ISoftwareApplicationSchemaBuilder toolSchema,
         ILogger<GccV2CmsPublishService> logger)
     {
         _repo = repo;
         _blog = blog;
         _events = events;
         _company = company.Value;
+        _articleSchema = articleSchema;
+        _blogSchema = blogSchema;
+        _toolSchema = toolSchema;
         _logger = logger;
     }
 
@@ -106,9 +117,11 @@ public sealed class GccV2CmsPublishService
             var authorId = _company.DefaultBlogAuthorId > 0 ? _company.DefaultBlogAuthorId : (int?)null;
 
             var lede = FlattenPlainText(document.Lede);
-            var summary = !string.IsNullOrWhiteSpace(payload.MetaDescription)
-                ? payload.MetaDescription!.Trim()
-                : Truncate(lede, 155);
+            var summary = !string.IsNullOrWhiteSpace(payload.MainSummary)
+                ? payload.MainSummary!.Trim()
+                : !string.IsNullOrWhiteSpace(payload.MetaDescription)
+                    ? payload.MetaDescription!.Trim()
+                    : Truncate(lede, 155);
 
             var sections = FlattenSections(document)
                 .Select((section, index) => new PostSectionInput(
@@ -120,6 +133,18 @@ public sealed class GccV2CmsPublishService
                     null))
                 .ToList();
 
+            var completedAt = job.CompletedAtUtc ?? job.UpdatedAtUtc ?? DateTimeOffset.UtcNow;
+            var canonicalUrl = BuildPublicUrl(contentType, languageCode, slug);
+            var keywords = payload.Keywords ?? [];
+            var jsonLd = payload.JsonLdSchema ?? BuildJsonLd(
+                contentType,
+                title,
+                payload.MetaDescription ?? summary,
+                canonicalUrl,
+                document,
+                completedAt,
+                keywords);
+
             var command = new UpsertBlogPostCommand
             {
                 PostType = postType,
@@ -130,18 +155,34 @@ public sealed class GccV2CmsPublishService
                 Title = title,
                 Summary = summary,
                 MetaDescription = payload.MetaDescription,
-                MainSummary = summary,
-                HeroSummary = summary,
-                HomeSummary = summary,
-                BlogSummary = summary,
-                AdvertisingSummary = summary,
+                MainSummary = payload.MainSummary ?? summary,
+                HeroSummary = payload.HeroSummary ?? summary,
+                HomeSummary = payload.HomeSummary ?? summary,
+                BlogSummary = payload.BlogSummary ?? summary,
+                AdvertisingSummary = payload.AdvertisingSummary ?? summary,
+                JsonLdOverride = jsonLd,
                 CategorySlug = categorySlug,
                 AuthorId = authorId,
                 CwJobId = job.Id.ToString("D"),
                 Sections = sections,
             };
 
-            var postId = await _blog.CreatePostAsync(command, ct);
+            var existingPostId = await ResolveExistingPostIdAsync(create, job, slug, languageCode, ct);
+            int postId;
+            if (existingPostId is { } existingId)
+            {
+                var updated = await _blog.UpdatePostAsync(existingId, command, ct);
+                if (!updated)
+                {
+                    return await FailAsync(create, job, ownerUserId, title, slug, "CMS post could not be updated.", ct, documentJson);
+                }
+
+                postId = existingId;
+            }
+            else
+            {
+                postId = await _blog.CreatePostAsync(command, ct);
+            }
             var publicUrl = BuildPublicUrl(contentType, languageCode, slug);
             var status = request.IsPublished ? "published" : "draft";
 
@@ -408,6 +449,89 @@ public sealed class GccV2CmsPublishService
         }
     }
 
+    private async Task<int?> ResolveExistingPostIdAsync(
+        GccV2CreateDto create,
+        GccV2JobDto job,
+        string slug,
+        string languageCode,
+        CancellationToken ct)
+    {
+        var contentType = NormalizeContentType(job.ContentType);
+        var records = await _repo.ListPublishRecordsByCreateAsync(create.Id, ct);
+        var successful = records
+            .Where(r => r.ExternalPostId is > 0 && !string.Equals(r.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(r => r.CreatedAtUtc)
+            .ToList();
+
+        var sameJob = successful.FirstOrDefault(r => r.JobId == job.Id);
+        if (sameJob?.ExternalPostId is { } sameJobPostId) return sameJobPostId;
+
+        foreach (var record in successful)
+        {
+            var recordJob = await _repo.GetJobAsync(record.JobId, ct);
+            if (recordJob is not null && NormalizeContentType(recordJob.ContentType) == contentType)
+                return record.ExternalPostId;
+        }
+
+        try
+        {
+            var bySlug = await _blog.GetPostBySlugAsync(slug, languageCode, ct);
+            if (bySlug is not null)
+            {
+                if (string.Equals(bySlug.CwJobId, job.Id.ToString("D"), StringComparison.OrdinalIgnoreCase))
+                    return bySlug.PostId;
+
+                if (string.IsNullOrWhiteSpace(bySlug.CwJobId))
+                    return bySlug.PostId;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve CMS post by slug {Slug} during upsert lookup.", slug);
+        }
+
+        return null;
+    }
+
+    private static string NormalizeContentType(string? contentType) =>
+        string.IsNullOrWhiteSpace(contentType) ? "blog" : contentType.Trim().ToLowerInvariant();
+
+    private string? BuildJsonLd(
+        string contentType,
+        string title,
+        string metaDescription,
+        string canonicalUrl,
+        ContentDocument document,
+        DateTimeOffset completedAt,
+        IReadOnlyList<string> keywords)
+    {
+        if (string.IsNullOrWhiteSpace(canonicalUrl)) return null;
+
+        var metadata = new ContentMetadata(
+            title,
+            metaDescription,
+            _company.AuthorName,
+            _company.PublisherName,
+            _company.PublisherLogoUrl,
+            canonicalUrl,
+            _company.PublisherLogoUrl,
+            completedAt.UtcDateTime,
+            completedAt.UtcDateTime,
+            keywords.ToList(),
+            ContentDocumentText.CountWords(document));
+
+        return contentType switch
+        {
+            "pillar" => _articleSchema.Build(metadata, canonicalUrl),
+            "blog" => _blogSchema.Build(metadata, relatedArticleUrl: string.Empty),
+            "tool" => _toolSchema.BuildToolPage(
+                metadata,
+                pillarArticleUrl: canonicalUrl,
+                new SoftwareApplicationDescriptor(title, metaDescription, canonicalUrl)),
+            _ => null,
+        };
+    }
+
     private static Guid ParseOwner(string ownerUserId) => Guid.TryParse(ownerUserId, out var id) ? id : Guid.Empty;
 
     private sealed record JobResultPayload(
@@ -415,5 +539,12 @@ public sealed class GccV2CmsPublishService
         string? MetaDescription,
         ContentDocument? Document,
         bool? ShipReady,
-        bool? OutstandingIssues);
+        bool? OutstandingIssues,
+        string? JsonLdSchema,
+        List<string>? Keywords,
+        string? MainSummary,
+        string? HeroSummary,
+        string? HomeSummary,
+        string? BlogSummary,
+        string? AdvertisingSummary);
 }

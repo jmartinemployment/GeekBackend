@@ -31,8 +31,9 @@ public class GccV2TransformController : ControllerBase
     }
 
     /// <summary>
-    /// Sync Re-Purpose: ready draft → channel variants. Image prompts: one per H2 for pillar/blog
-    /// sources; one for all other content types.
+    /// Sync Re-Purpose: any ready generate job (<c>pillar</c>, <c>blog</c>, <c>tool</c>, <c>email</c>,
+    /// <c>social</c>, <c>ads</c>) → the same channel variant pack. Pass <c>jobId</c> for the active
+    /// draft tab. Image prompts are spawned separately per §3.1 — never via this endpoint.
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<object>> Transform(Guid createId, [FromBody] TransformRequest? request, CancellationToken ct)
@@ -43,40 +44,59 @@ public class GccV2TransformController : ControllerBase
         if (create is null) return NotFound();
         if (!IsOwner(create.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
 
-        GccV2JobDto? job = null;
-        if (request?.JobId is { } jobId && jobId != Guid.Empty)
+        if (request?.JobId is not { } requestedJobId || requestedJobId == Guid.Empty)
         {
-            job = await _repo.GetJobAsync(jobId, ct);
-            if (job is null || job.CreateId != createId || !IsOwner(job.OwnerUserId))
-                return NotFound();
-        }
-        else
-        {
-            job = await _repo.GetLatestJobByCreateAsync(createId, ct);
+            return BadRequest(new
+            {
+                error = "jobId is required — Re-Purpose runs on the active draft tab, not the latest job on the create.",
+            });
         }
 
-        if (job is null || string.IsNullOrWhiteSpace(job.ResultJson))
+        var job = await _repo.GetJobAsync(requestedJobId, ct);
+        if (job is null || job.CreateId != createId || !IsOwner(job.OwnerUserId))
+            return NotFound();
+
+        if (string.IsNullOrWhiteSpace(job.ResultJson))
             return BadRequest(new { error = "No completed job result to re-purpose — generate content first." });
+
+        if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new
+            {
+                error = $"Job is '{job.Status}' — Re-Purpose requires a ready draft.",
+            });
+        }
+
+        var contentType = (job.ContentType ?? "").Trim().ToLowerInvariant();
+        if (!GccV2RepurposeSourceTypes.IsAllowed(contentType))
+        {
+            return BadRequest(new
+            {
+                error = contentType is "image-prompt"
+                    ? "Image-prompt jobs cannot be re-purposed — switch to a generate draft tab (pillar, blog, tool, email, social, or ads)."
+                    : $"Content type '{job.ContentType}' cannot be re-purposed.",
+                allowedTypes = GccV2RepurposeSourceTypes.Allowed.OrderBy(t => t).ToArray(),
+            });
+        }
 
         var sourceJson = ExtractSourceDocumentJson(job.ResultJson);
         if (string.IsNullOrWhiteSpace(sourceJson))
             return BadRequest(new { error = "Job result has no document body to re-purpose." });
 
-        var imagePromptCount = ResolveImagePromptCount(job.ContentType, job.ResultJson);
-        var countOverrides = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["image_prompt"] = imagePromptCount,
-        };
-
         try
         {
             var provider = _providers.GetDefault();
-            var result = await _transform.ApplyAsync(sourceJson, request?.Channels, provider, ct, countOverrides);
+            var result = await _transform.ApplyAsync(
+                contentType,
+                sourceJson,
+                request?.Channels,
+                provider,
+                ct);
             return Ok(new
             {
                 createId,
                 jobId = job.Id,
-                imagePromptCount,
+                contentType = job.ContentType,
                 variants = result.Variants.Select(v => new
                 {
                     v.Channel,
@@ -94,67 +114,6 @@ public class GccV2TransformController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
     }
-
-    /// <summary>
-    /// Pillar/Blog: one image prompt per top-level H2 section (minimum 1).
-    /// All other content types: exactly one.
-    /// </summary>
-    internal static int ResolveImagePromptCount(string? contentType, string resultJson)
-    {
-        var type = (contentType ?? "").Trim().ToLowerInvariant();
-        if (type is "pillar" or "blog")
-        {
-            var h2 = CountTopLevelH2Sections(resultJson);
-            return Math.Max(1, h2);
-        }
-
-        return 1;
-    }
-
-    private static int CountTopLevelH2Sections(string resultJson)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(resultJson);
-            var root = doc.RootElement;
-            if (!TryGetDocument(root, out var document))
-                return 0;
-
-            if (!document.TryGetProperty("sections", out var sections)
-                && !document.TryGetProperty("Sections", out sections))
-                return 0;
-
-            if (sections.ValueKind != JsonValueKind.Array)
-                return 0;
-
-            var count = 0;
-            foreach (var section in sections.EnumerateArray())
-            {
-                var tag = ReadString(section, "tag") ?? ReadString(section, "Tag") ?? "";
-                if (tag.Equals("h2", StringComparison.OrdinalIgnoreCase))
-                    count++;
-            }
-
-            return count;
-        }
-        catch (JsonException)
-        {
-            return 0;
-        }
-    }
-
-    private static bool TryGetDocument(JsonElement root, out JsonElement document)
-    {
-        if (root.TryGetProperty("document", out document) || root.TryGetProperty("Document", out document))
-            return true;
-        document = root;
-        return root.TryGetProperty("sections", out _) || root.TryGetProperty("Sections", out _);
-    }
-
-    private static string? ReadString(JsonElement el, string name) =>
-        el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
-            ? p.GetString()
-            : null;
 
     private static string ExtractSourceDocumentJson(string resultJson)
     {

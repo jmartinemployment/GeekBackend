@@ -37,6 +37,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<GccV2JobWake>();
         services.AddScoped<GccV2ProgressNotifier>();
         services.AddScoped<GccV2JobEventWriter>();
+        services.AddScoped<GccV2ImagePromptSpawnService>();
         services.AddScoped<GccV2BrandKitBuilder>();
         services.AddSingleton<GccV2PlaywrightBrowserHolder>();
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();

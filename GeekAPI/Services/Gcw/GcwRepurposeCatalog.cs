@@ -1,7 +1,8 @@
 namespace GeekAPI.Services.Gcw;
 
 /// <summary>
-/// Default channel mix for pillar → short-form / ad packs (Copy.ai-class).
+/// Default channel mix for Re-Purpose packs — same output shape whether the source draft is
+/// pillar, blog, tool, email, social, or ads (Copy.ai-class).
 /// </summary>
 public static class GcwRepurposeCatalog
 {
@@ -52,7 +53,7 @@ public static class GcwRepurposeCatalog
             "image_prompt",
             "Image prompt",
             1,
-            "Ready-to-paste image-generation prompts (Midjourney/Flux style): subject, setting, lighting, style, aspect. No marketing fluff. For pillar/blog sources the count is overridden to one per H2."),
+            "Ready-to-paste image-generation prompts (Midjourney/Flux style): subject, setting, lighting, style, aspect. No marketing fluff. Not used by v2 Re-Purpose — image prompts spawn as jobs per Content Creator §3.1."),
     ];
 
     public static string BuildChannelBrief(

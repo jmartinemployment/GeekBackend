@@ -578,15 +578,39 @@ public sealed class GccV2WriteService
     private async Task<GccV2WriteOutput> WriteImagePromptAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
         var topic = Capitalize(wc.BaseContext.TargetKeyword);
-        var notes = wc.BaseContext.WritingNotes;
+        var sectionMeta = GccV2ImagePromptSpawnService.ParseImagePromptSection(wc.Brief.RawBriefJson);
         ImagePromptDraft draft;
         var tokens = 0;
+        var displayTitle = topic;
+
         try
         {
-            var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildStandaloneImagePrompt(topic, notes, artifactContext: null), ct);
-            draft = ParseImagePromptDraft(result.Content);
-            tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            if (sectionMeta is not null)
+            {
+                displayTitle = string.IsNullOrWhiteSpace(sectionMeta.Heading) ? topic : sectionMeta.Heading;
+                var sourceJob = await _repo.GetJobAsync(sectionMeta.SourceJobId, ct)
+                    ?? throw new InvalidOperationException($"Source job {sectionMeta.SourceJobId} not found for image-prompt.");
+                var sourcePayload = DeserializeJobResult(sourceJob.ResultJson);
+                var sourceType = sectionMeta.SourceType.Trim().ToLowerInvariant();
+                var sectionAware = sourceType is "pillar-hero" or "blog-hero" or "pillar" or "blog";
+
+                if (sectionAware)
+                {
+                    (draft, tokens) = await WriteSectionAwareImagePromptAsync(wc, sectionMeta, sourcePayload, ct);
+                }
+                else
+                {
+                    (draft, tokens) = await WriteCompanionImagePromptAsync(wc, sectionMeta, sourcePayload, ct);
+                }
+            }
+            else
+            {
+                var notes = wc.BaseContext.WritingNotes;
+                var result = await wc.Provider.CompleteAsync(
+                    _prompts.BuildStandaloneImagePrompt(topic, notes, artifactContext: null), ct);
+                draft = ParseImagePromptDraft(result.Content);
+                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            }
         }
         catch (Exception ex)
         {
@@ -594,25 +618,115 @@ public sealed class GccV2WriteService
             throw;
         }
 
-        var ledeSection = new Section(
-            "h2",
-            topic,
-            [new TextParagraph([new Run(draft.Prompt)]), new TextParagraph([new Run(draft.Notes ?? "")])],
-            null,
-            [],
-            draft.Prompt);
-        var ledeWrite = new GccV2WriteSection("image-prompt", topic, "problem", ledeSection, false);
+        var ledeSection = ContentDocumentText.FromPlainText(draft.Prompt).Lede;
+        var ledeWrite = new GccV2WriteSection("image-prompt", displayTitle, "problem", ledeSection, false);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
 
         return new GccV2WriteOutput
         {
-            Title = topic,
+            Title = displayTitle,
             MetaDescription = Truncate(draft.Prompt, 160),
             Lede = ledeWrite,
             Sections = [],
             TokensUsed = tokens,
         };
     }
+
+    private async Task<(ImagePromptDraft Draft, int Tokens)> WriteSectionAwareImagePromptAsync(
+        GccV2WriteContext wc,
+        ImagePromptSectionMeta sectionMeta,
+        JobResultSnapshot sourcePayload,
+        CancellationToken ct)
+    {
+        var sourceTitle = string.IsNullOrWhiteSpace(sourcePayload.Title)
+            ? wc.BaseContext.TargetKeyword
+            : sourcePayload.Title!;
+        var sourceDoc = sourcePayload.Document
+            ?? throw new InvalidOperationException("Source job has no document for section-aware image prompt.");
+        var keyword = wc.BaseContext.TargetKeyword;
+        var headings = ContentDocumentText.TopLevelHeadings(sourceDoc).ToList();
+        var target = new ImagePromptSectionTarget(sectionMeta.SourceType, sectionMeta.Heading, sectionMeta.Order);
+        var isBlog = sectionMeta.SourceType.StartsWith("blog", StringComparison.OrdinalIgnoreCase);
+
+        var article = isBlog
+            ? new ArticleDraft(string.Empty, string.Empty, EmptyPromptBody, [], 0, [])
+            : new ArticleDraft(
+                sourceTitle,
+                sourcePayload.MetaDescription ?? string.Empty,
+                sourceDoc,
+                [keyword],
+                ContentDocumentText.CountWords(sourceDoc),
+                headings);
+        var blog = isBlog
+            ? new BlogDraft(
+                sourceTitle,
+                sourcePayload.MetaDescription ?? string.Empty,
+                sourceDoc,
+                [keyword],
+                ContentDocumentText.CountWords(sourceDoc),
+                headings)
+            : new BlogDraft(string.Empty, string.Empty, EmptyPromptBody, [], 0, []);
+
+        var slug = SlugHelper.Slugify(sourceTitle);
+        var articleUrl = isBlog
+            ? string.Empty
+            : $"{wc.BaseContext.ArticleBaseUrl.TrimEnd('/')}/marketing/{slug}";
+        var blogUrl = isBlog
+            ? $"{wc.BaseContext.BlogBaseUrl.TrimEnd('/')}/marketing/{slug}"
+            : string.Empty;
+
+        var result = await wc.Provider.CompleteAsync(
+            _prompts.BuildSectionImagePromptsPrompt(
+                wc.BaseContext, article, blog, articleUrl, blogUrl, [target]),
+            ct);
+        var parsed = LlmResponseJsonParser.ParseSectionImagePrompts(result.Content, [target], "image prompt");
+        var item = parsed.Sections[0];
+        var tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+        return (new ImagePromptDraft(item.Prompt, null, null, null, item.Notes), tokens);
+    }
+
+    private async Task<(ImagePromptDraft Draft, int Tokens)> WriteCompanionImagePromptAsync(
+        GccV2WriteContext wc,
+        ImagePromptSectionMeta sectionMeta,
+        JobResultSnapshot sourcePayload,
+        CancellationToken ct)
+    {
+        var artifactContext = sourcePayload.Document is null
+            ? sourcePayload.Title
+            : JsonSerializer.Serialize(new
+            {
+                title = sourcePayload.Title,
+                metaDescription = sourcePayload.MetaDescription,
+                body = ContentDocumentText.Flatten(sourcePayload.Document),
+            }, ContentDocJson);
+
+        var result = await wc.Provider.CompleteAsync(
+            _prompts.BuildStandaloneImagePrompt(sectionMeta.Heading, wc.BaseContext.WritingNotes, artifactContext),
+            ct);
+        return (ParseImagePromptDraft(result.Content),
+            (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0));
+    }
+
+    private static JobResultSnapshot DeserializeJobResult(string? resultJson)
+    {
+        if (string.IsNullOrWhiteSpace(resultJson))
+            throw new InvalidOperationException("Source job has no completed result.");
+        try
+        {
+            return JsonSerializer.Deserialize<JobResultSnapshot>(resultJson, ContentDocJson)
+                ?? throw new InvalidOperationException("Source job result could not be parsed.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("Source job result could not be parsed.", ex);
+        }
+    }
+
+    private static readonly ContentDocument EmptyPromptBody = new(
+        new Section("h2", string.Empty, [], null, []),
+        []);
+
+    private sealed record JobResultSnapshot(string? Title, string? MetaDescription, ContentDocument? Document);
 
     /// <summary>Unknown content types fail the job — no stub drafts.</summary>
     private Task<GccV2WriteOutput> WriteStubAsync(GccV2WriteContext wc, Guid ownerUserId, string contentType, CancellationToken ct) =>

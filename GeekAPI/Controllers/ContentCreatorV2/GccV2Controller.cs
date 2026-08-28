@@ -725,6 +725,24 @@ public class GccV2Controller : ControllerBase
         await _events.AppendAsync(id, _user.UserId, "OutlineApproved", new { jobId = id }, ct: ct);
         _wake.Wake(id);
 
+        var siblings = GccV2OutlineApproval.SiblingJobsToAdvance(
+            await _repo.ListJobsByCreateAsync(job.CreateId, ct),
+            id);
+        foreach (var sibling in siblings)
+        {
+            await _repo.PatchJobAsync(
+                sibling.Id,
+                new PatchGccV2JobCommand(Stage: "write", Status: "pending"),
+                ct);
+            await _events.AppendAsync(
+                sibling.Id,
+                _user.UserId,
+                "OutlineApproved",
+                new { jobId = sibling.Id, viaSibling = id },
+                ct: ct);
+            _wake.Wake(sibling.Id);
+        }
+
         return Ok(updated);
     }
 

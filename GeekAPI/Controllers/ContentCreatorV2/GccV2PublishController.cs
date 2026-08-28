@@ -42,9 +42,26 @@ public class GccV2PublishController : ControllerBase
 
         var job = request?.JobId is { } explicitJobId
             ? await _repo.GetJobAsync(explicitJobId, ct)
-            : await _repo.GetLatestJobByCreateAsync(createId, ct);
-        if (job is null || job.CreateId != createId) return NotFound(new { error = "No job found for this create." });
+            : null;
+        if (job is null || job.CreateId != createId)
+        {
+            return BadRequest(new { error = "jobId is required — publish targets a specific draft tab." });
+        }
         if (!IsOwner(job.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
+
+        var publishType = GccV2PublishTypes.Normalize(job.ContentType);
+        if (GccV2PublishTypes.IsExportOnlyType(publishType))
+        {
+            return BadRequest(new
+            {
+                error = $"Content type '{job.ContentType}' is export-only. Use Export ZIP / Commit for channel drafts.",
+            });
+        }
+
+        if (!GccV2PublishTypes.IsCmsPublishType(publishType))
+        {
+            return BadRequest(new { error = $"Unsupported CMS publish type '{job.ContentType}'." });
+        }
 
         var hasResult = !string.IsNullOrWhiteSpace(job.ResultJson);
         if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase) && !hasResult)
@@ -113,6 +130,6 @@ public class GccV2PublishController : ControllerBase
         _user.IsAuthenticated && string.Equals(ownerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase);
 
     /// <summary><see cref="IsPublished"/> defaults to false (draft) — the caller opts into a live
-    /// publish explicitly. <see cref="JobId"/> is optional — omit to target the create's latest job.</summary>
+    /// publish explicitly. <see cref="JobId"/> is required for multi-draft creates.</summary>
     public sealed record PublishRequest(Guid? JobId, bool? IsPublished, string? CategorySlug, string? LanguageCode);
 }
