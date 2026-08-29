@@ -1,3 +1,4 @@
+using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 
@@ -38,6 +39,61 @@ public sealed class GccV2ToolPageSpawnTests
 
         var overviewBrief = GccV2ToolPageTargetParser.MergeOverviewTarget("{}", "AI Chatbots");
         Assert.Equal("Tool page", GccV2ToolPageTargetParser.ResolveTabLabel("tool", overviewBrief));
+    }
+
+    [Fact]
+    public void ShouldRewakeFailedPartner_true_for_failed_partner_job()
+    {
+        var brief = GccV2ToolPageTargetParser.SerializePartnerBriefSlice(
+            "Pipedrive", "pipedrive", "https://pipedrive.com", null, 1);
+        var target = GccV2ToolPageTargetParser.Parse(brief);
+        var job = new GccV2JobDto(
+            Guid.NewGuid(),
+            "tool",
+            Guid.NewGuid(),
+            Guid.NewGuid().ToString("D"),
+            Guid.NewGuid(),
+            "write",
+            "failed",
+            1,
+            null,
+            "WRITE failed",
+            null,
+            null,
+            null,
+            null,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            null);
+
+        Assert.True(GccV2ToolPageSpawnService.ShouldRewakeFailedPartner(job, target));
+    }
+
+    [Fact]
+    public void ShouldRewakeFailedPartner_false_for_overview_job()
+    {
+        var overviewBrief = GccV2ToolPageTargetParser.MergeOverviewTarget("{}", "AI Chatbots");
+        var target = GccV2ToolPageTargetParser.Parse(overviewBrief);
+        var job = new GccV2JobDto(
+            Guid.NewGuid(),
+            "tool",
+            Guid.NewGuid(),
+            Guid.NewGuid().ToString("D"),
+            Guid.NewGuid(),
+            "write",
+            "failed",
+            1,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            null);
+
+        Assert.False(GccV2ToolPageSpawnService.ShouldRewakeFailedPartner(job, target));
     }
 
     [Fact]

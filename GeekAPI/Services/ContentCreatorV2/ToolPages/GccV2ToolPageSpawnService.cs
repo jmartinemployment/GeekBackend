@@ -130,6 +130,15 @@ public sealed class GccV2ToolPageSpawnService
             return new SpawnResult(spawned, skippedExisting, ex.Message, null);
         }
 
+        var rewakenedFailed = await RewakeFailedPartnerJobsAsync(triggerJob.CreateId, ct);
+        if (rewakenedFailed > 0)
+        {
+            _logger.LogInformation(
+                "Re-wake {Count} failed partner tool job(s) on create {CreateId}.",
+                rewakenedFailed,
+                triggerJob.CreateId);
+        }
+
         if (spawned > 0)
         {
             _logger.LogInformation(
@@ -190,6 +199,33 @@ public sealed class GccV2ToolPageSpawnService
                 ReleaseClaim: true,
                 Wake: true), ct);
         }
+    }
+
+    internal static bool ShouldRewakeFailedPartner(GccV2JobDto job, GccV2ToolPageTarget? target) =>
+        string.Equals(job.ContentType, "tool", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(job.Status, "failed", StringComparison.OrdinalIgnoreCase)
+        && target is not null
+        && target.IsPartner;
+
+    private async Task<int> RewakeFailedPartnerJobsAsync(Guid createId, CancellationToken ct)
+    {
+        var jobs = await _repo.ListJobsByCreateAsync(createId, ct);
+        var count = 0;
+        foreach (var job in jobs)
+        {
+            var brief = await _repo.GetBriefAsync(job.BriefId, ct);
+            var target = GccV2ToolPageTargetParser.Parse(brief?.RawBriefJson);
+            if (!ShouldRewakeFailedPartner(job, target)) continue;
+
+            await _repo.PatchJobAsync(job.Id, new PatchGccV2JobCommand(
+                Status: "pending",
+                ReleaseClaim: true,
+                Wake: true), ct);
+            _wake.Wake(job.Id);
+            count++;
+        }
+
+        return count;
     }
 
     private async Task<HashSet<string>> LoadExistingPartnerSlugsAsync(Guid createId, CancellationToken ct)

@@ -1,4 +1,5 @@
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
+using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekBackend.Tests;
@@ -32,6 +33,20 @@ public sealed class GccV2ToolOverviewWriteTests
             Assert.StartsWith("/tools/", child.Href ?? "", StringComparison.Ordinal);
             Assert.DoesNotContain("http", child.Href ?? "", StringComparison.OrdinalIgnoreCase);
         });
+    }
+
+    [Fact]
+    public void ResolveToolsHeading_prefers_outline_tools_row()
+    {
+        var outline = new List<GccV2OutlineSection>
+        {
+            new("overview", "Overview", "problem", []),
+            new("tools-index", "Tools for CRM Software", "advance", ["Pipedrive"]),
+        };
+
+        Assert.Equal(
+            "Tools for CRM Software",
+            GccV2ToolOverviewWriteService.ResolveToolsHeading(outline, "CRM Software"));
     }
 
     [Fact]

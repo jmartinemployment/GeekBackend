@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -15,6 +16,7 @@ public sealed class GccV2ToolOverviewWriteService
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2ToolPagePromptBuilder _prompts;
     private readonly GccV2ToolPageSpawnService _spawn;
+    private readonly GccV2ContextAdapter _contextAdapter;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccV2ToolOverviewWriteService> _logger;
 
@@ -22,12 +24,14 @@ public sealed class GccV2ToolOverviewWriteService
         HttpGccV2Repository repo,
         GccV2ToolPagePromptBuilder prompts,
         GccV2ToolPageSpawnService spawn,
+        GccV2ContextAdapter contextAdapter,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccV2ToolOverviewWriteService> logger)
     {
         _repo = repo;
         _prompts = prompts;
         _spawn = spawn;
+        _contextAdapter = contextAdapter;
         _company = company.Value;
         _logger = logger;
     }
@@ -60,63 +64,80 @@ public sealed class GccV2ToolOverviewWriteService
                 $"Partner tool spawn failed: {spawnResult.FailureReason}");
         }
 
-        var partnerLinks = await LoadPartnerLinksAsync(wc.Job.CreateId, ct);
-        if (partnerLinks.Count == 0)
+        var partnerRows = await LoadPartnerResearchAsync(wc.Job.CreateId, ct);
+        if (partnerRows.Count == 0)
         {
             _logger.LogWarning(
                 "No partner tool jobs found for overview job {JobId} — writing keyword-only fallback.",
                 wc.Job.Id);
         }
 
+        var outlineSections = wc.Outline.Sections;
+        if (outlineSections.Count == 0)
+            throw new InvalidOperationException("Tool overview job has no approved outline sections.");
+
         var keyword = wc.BaseContext.TargetKeyword;
         var slug = string.IsNullOrWhiteSpace(target.Slug)
             ? GccV2ToolSlugHelper.SlugifyKeyword(keyword)
             : target.Slug;
-        var toolsHeading = $"Tools for {keyword}";
+        var toolsHeading = ResolveToolsHeading(outlineSections, keyword);
+        var headings = outlineSections.Select(s => s.Heading).ToList();
         var metadata = new ArticleMetadataDraft(
             $"Tools for {keyword}",
             pillar?.MetaDescription ?? $"Overview of tools and capabilities for {keyword}.",
             [keyword],
-            ["Overview", "Capabilities", "Implementation", "When to Use", toolsHeading]);
+            headings);
 
         var tokens = 0;
-        List<Section> parsedSections;
-        try
-        {
-            var bodyResult = await wc.Provider.CompleteAsync(
-                _prompts.BuildOverviewBodyPrompt(
-                    wc.BaseContext,
-                    metadata,
-                    toolsHeading,
-                    partnerLinks,
-                    pillar?.Excerpt),
-                ct);
-            parsedSections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "tool overview body").ToList();
-            tokens += (bodyResult.PromptTokens ?? 0) + (bodyResult.CompletionTokens ?? 0);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Tool overview body generation failed for job {JobId}.", wc.Job.Id);
-            throw;
-        }
-
-        if (parsedSections.Count == 0)
-            throw new InvalidOperationException("Tool overview body generation returned no sections.");
-
-        parsedSections = InjectOnSiteToolLinks(parsedSections, partnerLinks, toolsHeading);
-
-        var ledeSection = parsedSections[0] with { Tag = "h2" };
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
+        GccV2WriteSection? ledeWrite = null;
         var sections = new List<GccV2WriteSection>();
-        for (var i = 1; i < parsedSections.Count; i++)
+        var bodySections = new List<Section>();
+        var partnerNames = partnerRows.Select(p => p.Name).ToList();
+
+        for (var i = 0; i < outlineSections.Count; i++)
         {
-            var section = parsedSections[i] with { Tag = "h2" };
-            var key = SlugHelper.Slugify(section.Heading);
-            if (string.IsNullOrWhiteSpace(key)) key = $"section-{i}";
-            sections.Add(new GccV2WriteSection(key, section.Heading, "advance", section, false));
+            var entry = outlineSections[i];
+            if (string.Equals(entry.Job, "faq", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            Section section;
+            if (IsToolsIndexHeading(entry.Heading, toolsHeading))
+            {
+                var (toolsSection, toolsTokens) = await BuildToolsIndexSectionAsync(
+                    wc, metadata, entry.Heading, toolsHeading, partnerRows, partnerNames, ct);
+                section = toolsSection;
+                tokens += toolsTokens;
+            }
+            else
+            {
+                var sectionContext = _contextAdapter.WithSectionAssignment(
+                    wc.BaseContext, entry.Heading, entry.Job, entry.HierarchyChildHeadings);
+                var (drafted, sectionTokens) = await DraftOverviewSectionAsync(
+                    wc, sectionContext, metadata, entry, i, outlineSections.Count, headings, pillar?.Excerpt, ct);
+                section = drafted;
+                tokens += sectionTokens;
+            }
+
+            section = section with { Heading = entry.Heading, Tag = "h2" };
+            var write = new GccV2WriteSection(
+                entry.Key,
+                entry.Heading,
+                entry.Job ?? (i == 0 ? "problem" : "advance"),
+                section,
+                false);
+
+            if (ledeWrite is null)
+                ledeWrite = write with { SectionKey = "lede" };
+            else
+                sections.Add(write);
+
+            bodySections.Add(section);
         }
 
-        var document = new ContentDocument(ledeSection, sections.Select(s => s.Section).ToList());
+        if (ledeWrite is null)
+            throw new InvalidOperationException("Tool overview outline produced no sections.");
+
+        var document = new ContentDocument(ledeWrite.Section, bodySections.Skip(1).ToList());
         OverviewMetadataDraft summaryMeta;
         try
         {
@@ -159,6 +180,96 @@ public sealed class GccV2ToolOverviewWriteService
                 PillarArticleUrl: pillar?.CanonicalUrl),
         };
     }
+
+    private async Task<(Section Section, int Tokens)> DraftOverviewSectionAsync(
+        GccV2WriteContext wc,
+        ProjectGenerationContext sectionContext,
+        ArticleMetadataDraft metadata,
+        GccV2OutlineSection entry,
+        int index,
+        int totalCount,
+        IReadOnlyList<string> allHeadings,
+        string? pillarExcerpt,
+        CancellationToken ct)
+    {
+        try
+        {
+            var result = await wc.Provider.CompleteAsync(
+                _prompts.BuildOverviewSectionPrompt(
+                    sectionContext,
+                    metadata,
+                    entry.Heading,
+                    index,
+                    totalCount,
+                    allHeadings,
+                    pillarExcerpt),
+                ct);
+            var section = LlmResponseJsonParser.ParseSection(
+                result.Content, "h2", $"tool overview section \"{entry.Heading}\"");
+            return (section, (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Tool overview section \"{Heading}\" failed for job {JobId}.", entry.Heading, wc.Job.Id);
+            throw;
+        }
+    }
+
+    private async Task<(Section Section, int Tokens)> BuildToolsIndexSectionAsync(
+        GccV2WriteContext wc,
+        ArticleMetadataDraft metadata,
+        string sectionHeading,
+        string toolsHeading,
+        IReadOnlyList<PartnerResearchRow> partners,
+        IReadOnlyList<string> allPartnerNames,
+        CancellationToken ct)
+    {
+        var children = new List<Section>();
+        var tokens = 0;
+        for (var i = 0; i < partners.Count; i++)
+        {
+            var partner = partners[i];
+            try
+            {
+                var result = await wc.Provider.CompleteAsync(
+                    _prompts.BuildOverviewPartnerChildPrompt(
+                        wc.BaseContext,
+                        metadata,
+                        toolsHeading,
+                        partner.Name,
+                        allPartnerNames,
+                        i,
+                        partners.Count,
+                        partner.ResearchJson,
+                        partner.OnSiteHref),
+                    ct);
+                var child = LlmResponseJsonParser.ParseSection(
+                    result.Content, "h3", $"tools index \"{partner.Name}\"");
+                children.Add(child with { Heading = partner.Name, Tag = "h3" });
+                tokens += (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Tools index subsection \"{Name}\" failed for job {JobId}.", partner.Name, wc.Job.Id);
+                throw;
+            }
+        }
+
+        var toolsSection = new Section("h2", sectionHeading, [], null, children);
+        var partnerLinks = partners.Select(p => (p.Name, p.OnSiteHref)).ToList();
+        var injected = InjectOnSiteToolLinks([toolsSection], partnerLinks, toolsHeading).First();
+        return (injected, tokens);
+    }
+
+    internal static string ResolveToolsHeading(IReadOnlyList<GccV2OutlineSection> outline, string keyword)
+    {
+        var match = outline.FirstOrDefault(s =>
+            s.Heading.Contains("Tools for", StringComparison.OrdinalIgnoreCase));
+        return match?.Heading ?? $"Tools for {keyword}";
+    }
+
+    internal static bool IsToolsIndexHeading(string heading, string toolsHeading) =>
+        HeadingMatches(heading, toolsHeading);
 
     internal static List<Section> InjectOnSiteToolLinks(
         IReadOnlyList<Section> sections,
@@ -212,21 +323,23 @@ public sealed class GccV2ToolOverviewWriteService
         string.Equals(heading.Trim(), toolsHeading.Trim(), StringComparison.OrdinalIgnoreCase)
         || heading.Contains("Tools for", StringComparison.OrdinalIgnoreCase);
 
-    private async Task<IReadOnlyList<(string Name, string OnSiteHref)>> LoadPartnerLinksAsync(Guid createId, CancellationToken ct)
+    private async Task<IReadOnlyList<PartnerResearchRow>> LoadPartnerResearchAsync(Guid createId, CancellationToken ct)
     {
         var jobs = await _repo.ListJobsByCreateAsync(createId, ct);
-        var links = new List<(string Name, string OnSiteHref)>();
+        var rows = new List<PartnerResearchRow>();
         foreach (var job in jobs.Where(j => string.Equals(j.ContentType, "tool", StringComparison.OrdinalIgnoreCase)))
         {
             var brief = await _repo.GetBriefAsync(job.BriefId, ct);
             var target = GccV2ToolPageTargetParser.Parse(brief?.RawBriefJson);
             if (target is null || !target.IsPartner) continue;
             var href = target.OnSiteHref ?? GccV2ToolSlugHelper.OnSiteHref(target.Slug);
-            links.Add((target.Name, href));
+            var research = GccV2ToolResearchExtractor.DeserializeResearch(target.ExtractedResearch);
+            var researchJson = research is null ? null : GccV2ToolResearchExtractor.SerializeResearch(research);
+            rows.Add(new PartnerResearchRow(target.Name, href, researchJson));
         }
 
-        return links
-            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+        return rows
+            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -256,6 +369,8 @@ public sealed class GccV2ToolOverviewWriteService
             return null;
         }
     }
+
+    internal sealed record PartnerResearchRow(string Name, string OnSiteHref, string? ResearchJson);
 
     private sealed record PillarSnapshot(string? Title, string? MetaDescription, string CanonicalUrl, string Excerpt);
 

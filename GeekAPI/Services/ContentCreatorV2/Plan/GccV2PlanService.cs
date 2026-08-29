@@ -94,6 +94,19 @@ public sealed class GccV2PlanService
             })
             .ToList();
 
+        if (contentType is "tool")
+        {
+            var toolsHeading = $"Tools for {keyword}";
+            if (!sections.Any(s => s.Heading.Contains("Tools for", StringComparison.OrdinalIgnoreCase)))
+            {
+                sections.Add(new GccV2PlanOutlineSection(
+                    "tools-index",
+                    toolsHeading,
+                    "advance",
+                    partnerToolNames.ToList()));
+            }
+        }
+
         if (contentType is "pillar" or "blog")
         {
             var paaQuestions = ExtractPaaQuestions(brief.RawBriefJson, keyword, partnerToolNames);
@@ -282,11 +295,11 @@ public sealed class GccV2PlanService
     {
         var title = Capitalize(keyword);
         var useHierarchy = childHeadings.Count >= 2
-            && (preferSiteStructure || contentType is "pillar" or "blog");
+            && (preferSiteStructure || contentType is "pillar" or "blog" or "tool");
 
-        if (useHierarchy && contentType is "pillar" or "blog")
+        if (useHierarchy && contentType is "pillar" or "blog" or "tool")
         {
-            var picked = childHeadings.Take(5).ToList();
+            var picked = childHeadings.Take(contentType is "tool" ? 4 : 5).ToList();
             return (MakeUniqueKeys(picked).ToList(), true);
         }
 
@@ -321,8 +334,8 @@ public sealed class GccV2PlanService
                 return (DedupeByHeading(
                 [
                     ("overview", "Overview"),
-                    ("key-capabilities", "Key Capabilities"),
-                    ("implementation-considerations", "Implementation Considerations"),
+                    ("capabilities", "Capabilities"),
+                    ("implementation", "Implementation"),
                     ("when-to-use", "When to Use"),
                 ]), false);
             case "email":

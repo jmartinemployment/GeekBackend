@@ -14,14 +14,19 @@ namespace GeekAPI.Services.ContentCreatorV2.ToolPages;
 /// </summary>
 public sealed class GccV2ToolPagePromptBuilder
 {
+    public static readonly string[] PartnerSectionHeadings =
+    [
+        "Overview",
+        "Key Capabilities",
+        "Implementation Considerations",
+        "When to Use",
+    ];
+
     private const string SectionJsonContract =
         "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +
         "\"paragraphs\": [{\"type\":\"text\",\"runs\":[{\"text\": string, \"bold\": boolean, \"italic\": boolean, \"href\": null}, ...]} " +
         "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[{\"text\": string, \"bold\": boolean, \"italic\": boolean, \"href\": null}, ...], ...]}], " +
         "\"href\": null, \"children\": [Section, ...]}";
-
-    private const string SectionsArrayJsonContract =
-        "{\"sections\": [" + SectionJsonContract + ", ...] (top-level h2 sections, in order)}";
 
     private const string ToolMetadataJsonContract =
         "{\"departmentListExcerpt\": string, \"summary\": string, \"mainSummary\": string, \"heroSummary\": string, " +
@@ -44,11 +49,14 @@ public sealed class GccV2ToolPagePromptBuilder
             MaxOutputTokens: 2048);
     }
 
-    public ChatCompletionRequest BuildPartnerToolBodyPrompt(
+    public ChatCompletionRequest BuildPartnerToolSectionPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
         SoftwareApplicationDescriptor app,
         string toolSlug,
+        string sectionHeading,
+        int sectionIndex,
+        int totalSections,
         string? extractedToolResearchJson,
         string? pillarBodyExcerpt)
     {
@@ -56,25 +64,32 @@ public sealed class GccV2ToolPagePromptBuilder
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
-            .AppendLine("Respond with ONLY the sections array for this tool overview page — no markdown fences, no commentary:")
-            .AppendLine(SectionsArrayJsonContract)
-            .AppendLine("Required top-level (h2) sections, in order: Overview, Key Capabilities, Implementation Considerations, When to Use.")
-            .AppendLine($"Target at least {ContentLengthTargets.ToolMinWords:N0} words.")
+            .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary:")
+            .AppendLine(SectionJsonContract)
+            .AppendLine("This section's tag is \"h2\". Include 2-3 h3 subsections in \"children\" with substantive paragraphs and at least one list where appropriate.")
             .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent features.")
             .AppendLine("Do NOT include Sources, blockquotes, or external links — attribution is added by the pipeline.")
+            .AppendLine(PartnerSectionGuidance(sectionHeading, context, app.Name))
+            .AppendLine("There is no real case-study data available — never present a named client as if it were real.")
             .AppendLine($"Tie Overview and When to Use to this project's use-case ({context.TargetKeyword}).")
             .ToString();
 
         var user = new StringBuilder()
+            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ToolBody,
+                $"Write the \"{sectionHeading}\" section of the tool page for {app.Name}."))
+            .AppendLine()
             .AppendLine($"Target keyword context: {context.TargetKeyword}")
             .AppendLine($"Pillar topic: {pillarMetadata.Title}")
             .AppendLine($"Tool name: {app.Name}")
-            .AppendLine($"Public path: /tools/{GccV2ToolSlugHelper.DefaultDepartment}/{toolSlug}");
+            .AppendLine($"Public path: /tools/{GccV2ToolSlugHelper.DefaultDepartment}/{toolSlug}")
+            .AppendLine($"Write section {sectionIndex + 1} of {totalSections}: \"{sectionHeading}\".");
         if (!string.IsNullOrWhiteSpace(pillarBodyExcerpt))
         {
             user.AppendLine("=== PILLAR USE-CASE EXCERPT ===");
             user.AppendLine(pillarBodyExcerpt);
         }
+
         if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
         {
             user.AppendLine("=== PERSISTED TOOL RESEARCH (authoritative) ===");
@@ -85,7 +100,103 @@ public sealed class GccV2ToolPagePromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.5,
-            MaxOutputTokens: 8192);
+            MaxOutputTokens: 4096);
+    }
+
+    public ChatCompletionRequest BuildOverviewSectionPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft metadata,
+        string sectionHeading,
+        int sectionIndex,
+        int totalSections,
+        IReadOnlyList<string> fullOutline,
+        string? pillarBodyExcerpt)
+    {
+        var outlineContext = string.Join("\n", fullOutline.Select((h, i) => $"{i + 1}. {h}"));
+        var system = new StringBuilder()
+            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
+            .AppendLine(BrandTones.ForWebpages())
+            .AppendLine("Write ONE section of a keyword use-case overview page — NOT a single-product tool page.")
+            .AppendLine("Third person, expert, consultative — frame the use case for teams adopting AI in this space.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary:")
+            .AppendLine(SectionJsonContract)
+            .AppendLine("This section's tag is \"h2\". Include 2-3 h3 children with multiple paragraphs; at least one list paragraph where appropriate.")
+            .AppendLine("PROBLEM-FIRST when this section establishes the core practitioner problem: open on cost, delay, risk, or wasted effort before naming solutions.")
+            .AppendLine("ADVANCE sections must add new ground — do not repeat the same pain point or fix from earlier sections.")
+            .AppendLine("Never use external partner URLs. Never write a product roundup — this is a use-case page.")
+            .AppendLine($"Target {ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words for this section.")
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
+            .AppendLine()
+            .AppendLine($"Write section {sectionIndex + 1} of {totalSections}: \"{sectionHeading}\".")
+            .AppendLine($"Page title context: {metadata.Title}")
+            .AppendLine($"Target keyword: {context.TargetKeyword}")
+            .AppendLine()
+            .AppendLine("Full page outline (context only — write ONLY this section):")
+            .AppendLine(outlineContext);
+        if (!string.IsNullOrWhiteSpace(pillarBodyExcerpt))
+        {
+            user.AppendLine("=== PILLAR EXCERPT (ground framing; do not reprint) ===");
+            user.AppendLine(pillarBodyExcerpt);
+        }
+
+        return new ChatCompletionRequest(
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
+            Temperature: 0.55,
+            MaxOutputTokens: 4096);
+    }
+
+    public ChatCompletionRequest BuildOverviewPartnerChildPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft metadata,
+        string toolsSectionHeading,
+        string platformName,
+        IReadOnlyList<string> allPlatforms,
+        int platformIndex,
+        int platformCount,
+        string? extractedToolResearchJson,
+        string onSiteHref)
+    {
+        var perPlatformTarget =
+            $"{ContentLengthTargets.PillarToolsSectionMinWords / Math.Max(platformCount, 1)}" +
+            $"-{ContentLengthTargets.PillarToolsSectionTargetMaxWords / Math.Max(platformCount, 1)}";
+
+        var system = new StringBuilder()
+            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
+            .AppendLine(BrandTones.ForWebpages())
+            .AppendLine("Write ONE platform subsection for the Tools index of a keyword overview page — third person, expert, consultative.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary:")
+            .AppendLine(SectionJsonContract)
+            .AppendLine("This section's tag is \"h3\". Heading must be plain tool name only (no HTML, no links in heading).")
+            .AppendLine("Include: overview paragraph of what the platform does for this use case, then a list with 2-4 factual capability bullets from the research.")
+            .AppendLine($"Then one child Section (tag h4, heading \"How an AI implementer helps with {platformName}\").")
+            .AppendLine($"Target ~{perPlatformTarget} words — richer than a pillar mention, not a full tool page copy.")
+            .AppendLine("Never invent features; ground claims in persisted research. No external URLs — on-site path is applied by the pipeline.")
+            .AppendLine("CRITICAL: no real case-study data — never present a named client as if it were real.")
+            .ToString();
+
+        var platformList = string.Join(", ", allPlatforms.Select((p, i) => i == platformIndex ? $"[{p}]" : p));
+        var user = new StringBuilder()
+            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
+            .AppendLine()
+            .AppendLine($"Write Tools platform {platformIndex + 1} of {platformCount}: \"{platformName}\".")
+            .AppendLine($"Article title: {metadata.Title}")
+            .AppendLine($"Target keyword: {context.TargetKeyword}")
+            .AppendLine($"Tools section heading: {toolsSectionHeading}")
+            .AppendLine($"On-site path (mention as plain text only, e.g. See {onSiteHref}): {onSiteHref}")
+            .AppendLine($"Platforms in this Tools section (write ONLY the bracketed one): {platformList}");
+        if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
+        {
+            user.AppendLine("=== PERSISTED TOOL RESEARCH (authoritative) ===");
+            user.AppendLine(extractedToolResearchJson);
+        }
+
+        return new ChatCompletionRequest(
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
+            Temperature: 0.45,
+            MaxOutputTokens: 2048);
     }
 
     public ChatCompletionRequest BuildPartnerToolMetadataPrompt(
@@ -114,56 +225,6 @@ public sealed class GccV2ToolPagePromptBuilder
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.55,
             MaxOutputTokens: 1024);
-    }
-
-    public ChatCompletionRequest BuildOverviewBodyPrompt(
-        ProjectGenerationContext context,
-        ArticleMetadataDraft metadata,
-        string toolsSectionHeading,
-        IReadOnlyList<(string Name, string OnSiteHref)> partnerLinks,
-        string? pillarBodyExcerpt)
-    {
-        var perPlatformTarget =
-            $"{ContentLengthTargets.PillarToolsSectionMinWords / Math.Max(partnerLinks.Count, 1)}" +
-            $"-{ContentLengthTargets.PillarToolsSectionTargetMaxWords / Math.Max(partnerLinks.Count, 1)}";
-
-        var partnerBlock = partnerLinks.Count == 0
-            ? "(no partner tools resolved — write a keyword-only overview without a tools index section)"
-            : string.Join("\n", partnerLinks.Select(p => $"- {p.Name} → {p.OnSiteHref}"));
-
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine("Write a keyword use-case overview page for the target keyword — NOT a single-product page.")
-            .AppendLine("Respond with ONLY a sections array — no markdown fences, no commentary:")
-            .AppendLine(SectionsArrayJsonContract)
-            .AppendLine("Required top-level (h2) sections in order:")
-            .AppendLine("  1. Overview — what this use case means for teams adopting AI")
-            .AppendLine("  2. Capabilities — what good solutions in this space typically enable")
-            .AppendLine("  3. Implementation — how an implementer approaches rollout for this use case")
-            .AppendLine("  4. When to Use — decision criteria for pursuing this use case")
-            .AppendLine($"  5. \"{toolsSectionHeading}\" — tools index with one h3 per partner tool")
-            .AppendLine("For each tools-index h3: heading MUST be plain tool name only (no HTML). First paragraph must mention the tool and its role; include an on-site path only as plain text like \"See /tools/marketing/slug\" — do NOT use href runs or external URLs.")
-            .AppendLine($"Each platform subsection targets ~{perPlatformTarget} words — richer than a pillar mention, not a full tool page copy.")
-            .AppendLine("Never use external partner URLs anywhere in this page.")
-            .ToString();
-
-        var user = new StringBuilder()
-            .AppendLine($"Target keyword: {context.TargetKeyword}")
-            .AppendLine($"Page title context: {metadata.Title}")
-            .AppendLine($"Tools section heading: {toolsSectionHeading}")
-            .AppendLine("Partner on-site links (write richer blurbs; link targets are on-site only):")
-            .AppendLine(partnerBlock);
-        if (!string.IsNullOrWhiteSpace(pillarBodyExcerpt))
-        {
-            user.AppendLine("=== PILLAR EXCERPT (ground framing; do not reprint) ===");
-            user.AppendLine(pillarBodyExcerpt);
-        }
-
-        return new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
-            Temperature: 0.55,
-            MaxOutputTokens: 8192);
     }
 
     public ChatCompletionRequest BuildOverviewMetadataPrompt(
@@ -211,6 +272,32 @@ public sealed class GccV2ToolPagePromptBuilder
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.3,
             MaxOutputTokens: 256);
+    }
+
+    private static string PartnerSectionGuidance(string sectionHeading, ProjectGenerationContext context, string toolName)
+    {
+        if (sectionHeading.Contains("Implementation", StringComparison.OrdinalIgnoreCase))
+        {
+            return new StringBuilder()
+                .AppendLine($"Target ~450-600 words for Implementation Considerations — made concrete to {toolName}:")
+                .AppendLine($"  1. Accelerated deployment — what shortens go-live for {toolName}.")
+                .AppendLine($"  2. Data model design — {toolName}-specific mapping decisions.")
+                .AppendLine($"  3. Workflow/process configuration — routing, approval chains, automation for {toolName}.")
+                .AppendLine($"  4. Custom code/development — {toolName}'s extension mechanism if any; if config-only, say so.")
+                .AppendLine($"Frame through {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client.")
+                .ToString();
+        }
+
+        if (sectionHeading.Contains("Capabilities", StringComparison.OrdinalIgnoreCase))
+            return $"Target ~400-550 words. Cover verifiable {toolName} capabilities from research — grouped thematically with h3 children.";
+
+        if (sectionHeading.Contains("Overview", StringComparison.OrdinalIgnoreCase))
+            return $"Target ~350-450 words. Establish what {toolName} is and why it matters for {context.TargetKeyword} — use-case grounded, not marketing fluff.";
+
+        if (sectionHeading.Contains("When to Use", StringComparison.OrdinalIgnoreCase))
+            return $"Target ~300-400 words. Decision criteria for when teams pursuing {context.TargetKeyword} should evaluate {toolName}.";
+
+        return $"Target ~350-500 words for \"{sectionHeading}\" — substantive, research-grounded prose about {toolName}.";
     }
 
     private static string TruncateExcerpt(string text, int max)

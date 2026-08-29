@@ -58,36 +58,51 @@ public sealed class GccV2PartnerToolWriteService
             [wc.BaseContext.TargetKeyword],
             []);
         var pillarExcerpt = pillar?.Excerpt;
-        var pillarArticleUrl = pillar?.CanonicalUrl ?? "";
 
         var app = new SoftwareApplicationDescriptor(toolName, research?.Summary, null);
         var tokens = 0;
+        var headings = GccV2ToolPagePromptBuilder.PartnerSectionHeadings;
+        var parsedSections = new List<Section>();
 
-        List<Section> parsedSections;
-        try
+        for (var i = 0; i < headings.Length; i++)
         {
-            var bodyResult = await wc.Provider.CompleteAsync(
-                _prompts.BuildPartnerToolBodyPrompt(
-                    wc.BaseContext, pillarMetadata, app, slug, researchJson, pillarExcerpt), ct);
-            parsedSections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "partner tool body").ToList();
-            tokens += (bodyResult.PromptTokens ?? 0) + (bodyResult.CompletionTokens ?? 0);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Partner tool body generation failed for job {JobId}.", wc.Job.Id);
-            throw;
+            var heading = headings[i]!;
+            try
+            {
+                var bodyResult = await wc.Provider.CompleteAsync(
+                    _prompts.BuildPartnerToolSectionPrompt(
+                        wc.BaseContext,
+                        pillarMetadata,
+                        app,
+                        slug,
+                        heading,
+                        i,
+                        headings.Length,
+                        researchJson,
+                        pillarExcerpt),
+                    ct);
+                var section = LlmResponseJsonParser.ParseSection(
+                    bodyResult.Content, "h2", $"partner tool section \"{heading}\"");
+                parsedSections.Add(section with { Heading = heading, Tag = "h2" });
+                tokens += (bodyResult.PromptTokens ?? 0) + (bodyResult.CompletionTokens ?? 0);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Partner tool section \"{Heading}\" failed for job {JobId}.", heading, wc.Job.Id);
+                throw;
+            }
         }
 
         if (parsedSections.Count == 0)
             throw new InvalidOperationException("Partner tool body generation returned no sections.");
 
-        var ledeSection = parsedSections[0] with { Tag = "h2" };
+        var ledeSection = parsedSections[0];
         var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
 
         var sections = new List<GccV2WriteSection>();
         for (var i = 1; i < parsedSections.Count; i++)
         {
-            var section = parsedSections[i] with { Tag = "h2" };
+            var section = parsedSections[i];
             var key = SlugHelper.Slugify(section.Heading);
             if (string.IsNullOrWhiteSpace(key)) key = $"section-{i}";
             sections.Add(new GccV2WriteSection(key, section.Heading, "advance", section, false));
@@ -109,12 +124,12 @@ public sealed class GccV2PartnerToolWriteService
         }
 
         var toolUrl = $"{wc.BaseContext.ToolBaseUrl.TrimEnd('/')}/{GccV2ToolSlugHelper.DefaultDepartment}/{slug}";
+        var pillarArticleUrl = pillar?.CanonicalUrl ?? "";
         var attributionExcerpt = await BuildAttributionExcerptAsync(wc, toolName, sourceUrl, research, researchJson, ct);
         tokens += attributionExcerpt.Tokens;
-        var sourceAttributionHtml = string.IsNullOrWhiteSpace(sourceUrl)
-            ? null
-            : GccV2ToolSectionRenderer.RenderSourceAttribution(sourceUrl, attributionExcerpt.Text, toolName);
+        var sourceAttributionHtml = BuildSourceAttributionHtml(sourceUrl, attributionExcerpt.Text, toolName);
 
+        _ = ownerUserId;
         var now = DateTime.UtcNow;
         var schemaMeta = new ContentMetadata(
             toolName,
@@ -157,6 +172,15 @@ public sealed class GccV2PartnerToolWriteService
         };
     }
 
+    internal static string? BuildSourceAttributionHtml(string? sourceUrl, string excerpt, string toolName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceUrl)) return null;
+        var text = excerpt.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            text = $"Summary based on {toolName.Trim()}'s official site.";
+        return GccV2ToolSectionRenderer.RenderSourceAttribution(sourceUrl, text, toolName);
+    }
+
     private async Task<(string Text, int Tokens)> BuildAttributionExcerptAsync(
         GccV2WriteContext wc,
         string toolName,
@@ -166,6 +190,8 @@ public sealed class GccV2PartnerToolWriteService
         CancellationToken ct)
     {
         var fallback = GccV2ToolResearchExtractor.BuildAttributionExcerpt(research);
+        if (string.IsNullOrWhiteSpace(fallback) && !string.IsNullOrWhiteSpace(sourceUrl))
+            fallback = $"Summary based on {toolName}'s official site.";
         if (string.IsNullOrWhiteSpace(sourceUrl) || string.IsNullOrWhiteSpace(researchJson))
             return (fallback, 0);
 
@@ -194,12 +220,9 @@ public sealed class GccV2PartnerToolWriteService
 
         try
         {
-            var payload = System.Text.Json.JsonSerializer.Deserialize<PillarResultPayload>(
+            var payload = JsonSerializer.Deserialize<PillarResultPayload>(
                 pillarJob.ResultJson,
-                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
-                {
-                    PropertyNameCaseInsensitive = true,
-                });
+                new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true });
             if (payload?.Document is null) return null;
             var title = payload.Title ?? "";
             var slug = SlugHelper.Slugify(title);
@@ -208,7 +231,7 @@ public sealed class GccV2PartnerToolWriteService
             if (excerpt.Length > 2500) excerpt = excerpt[..2500] + "…";
             return new PillarSnapshot(title, payload.MetaDescription, canonical, excerpt);
         }
-        catch (System.Text.Json.JsonException)
+        catch (JsonException)
         {
             return null;
         }
@@ -223,21 +246,18 @@ public sealed class GccV2PartnerToolWriteService
         if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(rawBriefJson);
+            using var doc = JsonDocument.Parse(rawBriefJson);
             if (!doc.RootElement.TryGetProperty("partnerResearch", out var el)
-                || el.ValueKind != System.Text.Json.JsonValueKind.Array)
+                || el.ValueKind != JsonValueKind.Array)
             {
                 return [];
             }
 
-            return System.Text.Json.JsonSerializer.Deserialize<List<GccQuoteablePage>>(
+            return JsonSerializer.Deserialize<List<GccQuoteablePage>>(
                 el.GetRawText(),
-                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
-                {
-                    PropertyNameCaseInsensitive = true,
-                }) ?? [];
+                new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true }) ?? [];
         }
-        catch (System.Text.Json.JsonException)
+        catch (JsonException)
         {
             return [];
         }
