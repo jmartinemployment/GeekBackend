@@ -42,11 +42,23 @@ public class GccV2ToolSourceCrawlTests
     }
 
     [Fact]
+    public void SeedUrlsMatch_requires_same_url_set()
+    {
+        const string stored = """["https://a.com/","https://b.com/"]""";
+        Assert.True(GccV2ToolSourceCrawlService.SeedUrlsMatch(
+            stored,
+            ["https://b.com/", "https://a.com/"]));
+        Assert.False(GccV2ToolSourceCrawlService.SeedUrlsMatch(
+            stored,
+            ["https://a.com/"]));
+    }
+
+    [Fact]
     public void Gate_defers_when_crawl_running()
     {
         var run = new GccV2ToolSourceCrawlRunDto(
             Guid.NewGuid(),
-            Guid.NewGuid(),
+            "user-1",
             "running",
             "[]",
             null,

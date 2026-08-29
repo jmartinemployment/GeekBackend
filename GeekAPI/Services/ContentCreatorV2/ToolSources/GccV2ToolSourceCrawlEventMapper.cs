@@ -14,7 +14,6 @@ internal static class GccV2ToolSourceCrawlEventMapper
     public static object MapRun(GccV2ToolSourceCrawlRunDto run, string? currentOrigin = null) =>
         new
         {
-            createId = run.CreateId,
             runId = run.Id,
             status = run.Status,
             seedUrls = TryParseJsonArray(run.SeedUrlsJson),

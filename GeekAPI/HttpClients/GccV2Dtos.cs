@@ -243,7 +243,7 @@ public sealed record CreateGccV2PartnerResearchRecordCommand(
 
 public sealed record GccV2ToolSourceCrawlRunDto(
     Guid Id,
-    Guid CreateId,
+    string OwnerUserId,
     string Status,
     string SeedUrlsJson,
     string? HostProgressJson,
@@ -253,7 +253,7 @@ public sealed record GccV2ToolSourceCrawlRunDto(
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc);
 
-public sealed record CreateGccV2ToolSourceCrawlRunCommand(Guid CreateId, string? SeedUrlsJson);
+public sealed record CreateGccV2ToolSourceCrawlRunCommand(string OwnerUserId, string? SeedUrlsJson);
 
 public sealed record PatchGccV2ToolSourceCrawlRunCommand(
     string? Status = null,

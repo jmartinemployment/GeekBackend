@@ -199,15 +199,15 @@ public class ContentCreatorV2DbContext : DbContext
         {
             entity.ToTable("gcc_v2_tool_source_crawl_runs");
             entity.HasKey(r => r.Id);
-            entity.Property(r => r.CreateId).IsRequired();
+            entity.Property(r => r.OwnerUserId).IsRequired().HasMaxLength(128);
             entity.Property(r => r.Status).IsRequired().HasMaxLength(32).HasDefaultValue("pending");
             entity.Property(r => r.SeedUrlsJson).IsRequired().HasColumnType("text").HasDefaultValue("[]");
             entity.Property(r => r.HostProgressJson).HasColumnType("text");
             entity.Property(r => r.PartnerResearchJson).HasColumnType("text");
             entity.Property(r => r.ErrorSummary).HasMaxLength(2048);
             entity.Property(r => r.CreatedAtUtc).IsRequired();
-            entity.HasIndex(r => new { r.CreateId, r.CreatedAtUtc })
-                .HasDatabaseName("ix_gcc_v2_tool_source_crawl_runs_create_id_created");
+            entity.HasIndex(r => new { r.OwnerUserId, r.CreatedAtUtc })
+                .HasDatabaseName("ix_gcc_v2_tool_source_crawl_runs_owner_created");
         });
 
         modelBuilder.Entity<GccV2ToolSourceCrawlPage>(entity =>

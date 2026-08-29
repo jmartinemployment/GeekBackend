@@ -15,6 +15,7 @@ namespace GeekAPI.Services.ContentCreatorV2.ToolPages;
 public sealed class GccV2ToolOverviewWriteService
 {
     private readonly HttpGccV2Repository _repo;
+    private readonly GccV2ToolSourceCrawlService _toolSourceCrawl;
     private readonly GccV2ToolPagePromptBuilder _prompts;
     private readonly GccV2ToolPageSpawnService _spawn;
     private readonly GccV2ContextAdapter _contextAdapter;
@@ -23,6 +24,7 @@ public sealed class GccV2ToolOverviewWriteService
 
     public GccV2ToolOverviewWriteService(
         HttpGccV2Repository repo,
+        GccV2ToolSourceCrawlService toolSourceCrawl,
         GccV2ToolPagePromptBuilder prompts,
         GccV2ToolPageSpawnService spawn,
         GccV2ContextAdapter contextAdapter,
@@ -30,6 +32,7 @@ public sealed class GccV2ToolOverviewWriteService
         ILogger<GccV2ToolOverviewWriteService> logger)
     {
         _repo = repo;
+        _toolSourceCrawl = toolSourceCrawl;
         _prompts = prompts;
         _spawn = spawn;
         _contextAdapter = contextAdapter;
@@ -43,7 +46,7 @@ public sealed class GccV2ToolOverviewWriteService
         GccV2ToolPageTarget target,
         CancellationToken ct)
     {
-        var crawlRun = await _repo.GetLatestToolSourceCrawlRunAsync(wc.Job.CreateId, ct);
+        var crawlRun = await _toolSourceCrawl.ResolveRunForUserAsync(wc.Job.OwnerUserId, wc.Brief.RawBriefJson, ct);
         GccV2ToolSourceCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
         GccV2ToolSourceCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
 

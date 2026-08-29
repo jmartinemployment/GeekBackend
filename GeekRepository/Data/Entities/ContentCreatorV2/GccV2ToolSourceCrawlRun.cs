@@ -3,7 +3,7 @@ namespace GeekRepository.Data.Entities.ContentCreatorV2;
 public class GccV2ToolSourceCrawlRun
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid CreateId { get; set; }
+    public string OwnerUserId { get; set; } = string.Empty;
     public string Status { get; set; } = "pending";
     public string SeedUrlsJson { get; set; } = "[]";
     public string? HostProgressJson { get; set; }

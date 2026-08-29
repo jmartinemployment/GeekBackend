@@ -15,6 +15,7 @@ namespace GeekAPI.Services.ContentCreatorV2.ToolPages;
 public sealed class GccV2PartnerToolWriteService
 {
     private readonly HttpGccV2Repository _repo;
+    private readonly GccV2ToolSourceCrawlService _toolSourceCrawl;
     private readonly GccV2ToolPagePromptBuilder _prompts;
     private readonly GccV2ToolResearchExtractor _extractor;
     private readonly CompanyProfileOptions _company;
@@ -22,12 +23,14 @@ public sealed class GccV2PartnerToolWriteService
 
     public GccV2PartnerToolWriteService(
         HttpGccV2Repository repo,
+        GccV2ToolSourceCrawlService toolSourceCrawl,
         GccV2ToolPagePromptBuilder prompts,
         GccV2ToolResearchExtractor extractor,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccV2PartnerToolWriteService> logger)
     {
         _repo = repo;
+        _toolSourceCrawl = toolSourceCrawl;
         _prompts = prompts;
         _extractor = extractor;
         _company = company.Value;
@@ -40,7 +43,7 @@ public sealed class GccV2PartnerToolWriteService
         GccV2ToolPageTarget target,
         CancellationToken ct)
     {
-        var crawlRun = await _repo.GetLatestToolSourceCrawlRunAsync(wc.Job.CreateId, ct);
+        var crawlRun = await _toolSourceCrawl.ResolveRunForUserAsync(wc.Job.OwnerUserId, wc.Brief.RawBriefJson, ct);
         GccV2ToolSourceCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
         GccV2ToolSourceCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
 

@@ -37,20 +37,50 @@ public sealed class GccV2ToolSourceCrawlService
         _logger = logger;
     }
 
-    public async Task<GccV2ToolSourceCrawlRunDto?> GetLatestRunAsync(Guid createId, CancellationToken ct) =>
-        await _repo.GetLatestToolSourceCrawlRunAsync(createId, ct).ConfigureAwait(false);
+    public static bool SeedUrlsMatch(string? seedUrlsJson, IReadOnlyList<string> expectedSeeds)
+    {
+        if (expectedSeeds.Count == 0) return false;
+        List<string> stored;
+        try
+        {
+            stored = JsonSerializer.Deserialize<List<string>>(seedUrlsJson ?? "[]", JsonOpts) ?? [];
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        if (stored.Count != expectedSeeds.Count) return false;
+        var set = new HashSet<string>(stored, StringComparer.OrdinalIgnoreCase);
+        return expectedSeeds.All(u => set.Contains(u));
+    }
+
+    public async Task<GccV2ToolSourceCrawlRunDto?> ResolveRunForUserAsync(
+        string ownerUserId,
+        string? rawBriefJson,
+        CancellationToken ct)
+    {
+        var seeds = GccV2PartnerUrlResearchService.CollectOperatorSeedUrls(rawBriefJson);
+        if (seeds.Count == 0) return null;
+
+        var runs = await _repo.ListToolSourceCrawlRunsForUserAsync(ownerUserId, 50, ct).ConfigureAwait(false);
+        return runs.FirstOrDefault(r => SeedUrlsMatch(r.SeedUrlsJson, seeds));
+    }
 
     public async Task<GccV2ToolSourceCrawlRunDto> StartCrawlAsync(
-        Guid createId,
+        string ownerUserId,
         string? rawBriefJson,
         bool force,
         CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            throw new InvalidOperationException("ownerUserId is required.");
+
         var seeds = GccV2PartnerUrlResearchService.CollectOperatorSeedUrls(rawBriefJson);
         if (seeds.Count == 0)
-            throw new InvalidOperationException("No operator tool URLs on the brief — nothing to crawl.");
+            throw new InvalidOperationException("No operator tool URLs — nothing to crawl.");
 
-        var latest = await _repo.GetLatestToolSourceCrawlRunAsync(createId, ct).ConfigureAwait(false);
+        var latest = await ResolveRunForUserAsync(ownerUserId, rawBriefJson, ct).ConfigureAwait(false);
         if (latest is not null)
         {
             if (string.Equals(latest.Status, "running", StringComparison.OrdinalIgnoreCase)
@@ -64,7 +94,7 @@ public sealed class GccV2ToolSourceCrawlService
         }
 
         var run = await _repo.CreateToolSourceCrawlRunAsync(
-            new CreateGccV2ToolSourceCrawlRunCommand(createId, JsonSerializer.Serialize(seeds, JsonOpts)),
+            new CreateGccV2ToolSourceCrawlRunCommand(ownerUserId, JsonSerializer.Serialize(seeds, JsonOpts)),
             ct).ConfigureAwait(false);
 
         await PushRunAsync(run, currentOrigin: null, ct).ConfigureAwait(false);
@@ -76,6 +106,7 @@ public sealed class GccV2ToolSourceCrawlService
     {
         var run = await _repo.GetToolSourceCrawlRunAsync(runId, ct).ConfigureAwait(false);
         GccV2ToolSourceCrawlRunDto? current = null;
+        IReadOnlyList<string> seeds = [];
         try
         {
             current = run;
@@ -84,7 +115,7 @@ public sealed class GccV2ToolSourceCrawlService
             if (!string.Equals(current.Status, "pending", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            var seeds = JsonSerializer.Deserialize<List<string>>(current.SeedUrlsJson, JsonOpts) ?? [];
+            seeds = JsonSerializer.Deserialize<List<string>>(current.SeedUrlsJson, JsonOpts) ?? [];
             if (seeds.Count == 0)
             {
                 await FailRunAsync(current, "No seed URLs on crawl run.", ct).ConfigureAwait(false);
@@ -131,18 +162,6 @@ public sealed class GccV2ToolSourceCrawlService
                     if (GccV2ArticleHtmlExtractor.IsEmpty(extracted)) continue;
                     quotePages.Add(extracted);
                     originQuoteCount++;
-
-                    var pageJson = JsonSerializer.Serialize(extracted, JsonOpts);
-                    await _repo.CreatePartnerResearchRecordAsync(
-                        new CreateGccV2PartnerResearchRecordCommand(
-                            current.CreateId,
-                            page.Url,
-                            true,
-                            page.Status,
-                            HostDomain: new Uri(page.Url).Host,
-                            PageJson: pageJson,
-                            FlattenedTextContent: FlattenPage(extracted)),
-                        ct).ConfigureAwait(false);
                 }
 
                 hostProgress.Add(new
@@ -168,7 +187,7 @@ public sealed class GccV2ToolSourceCrawlService
                     $"Crawl finished but no quoteable passages were extracted from {seeds.Count} seed URL(s).",
                     ct,
                     hostProgress).ConfigureAwait(false);
-                await WakeToolJobsAsync(current.CreateId, ct).ConfigureAwait(false);
+                await WakeMatchingToolJobsAsync(current.OwnerUserId, seeds, ct).ConfigureAwait(false);
                 return;
             }
 
@@ -183,23 +202,23 @@ public sealed class GccV2ToolSourceCrawlService
                 ct).ConfigureAwait(false);
             await PushRunAsync(current, currentOrigin: null, ct).ConfigureAwait(false);
 
-            await MergeResearchOntoCreateBriefsAsync(current.CreateId, quotePages, runId, hostProgress, ct)
-                .ConfigureAwait(false);
-            await WakeToolJobsAsync(current.CreateId, ct).ConfigureAwait(false);
+            await WakeMatchingToolJobsAsync(current.OwnerUserId, seeds, ct).ConfigureAwait(false);
 
             _logger.LogInformation(
-                "Tool source crawl {RunId} complete for create {CreateId}: {QuoteCount} quote page(s).",
+                "Tool source crawl {RunId} complete for user {OwnerUserId}: {QuoteCount} quote page(s).",
                 runId,
-                current.CreateId,
+                current.OwnerUserId,
                 quotePages.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Tool source crawl {RunId} failed.", runId);
             if (current is not null)
+            {
                 await FailRunAsync(current, ex.Message, ct).ConfigureAwait(false);
-            if (current is not null)
-                await WakeToolJobsAsync(current.CreateId, ct).ConfigureAwait(false);
+                if (seeds.Count > 0)
+                    await WakeMatchingToolJobsAsync(current.OwnerUserId, seeds, ct).ConfigureAwait(false);
+            }
         }
     }
 
@@ -238,42 +257,35 @@ public sealed class GccV2ToolSourceCrawlService
         string? currentOrigin,
         CancellationToken ct)
     {
-        var create = await _repo.GetCreateAsync(run.CreateId, ct).ConfigureAwait(false);
-        if (create is null) return;
+        if (string.IsNullOrWhiteSpace(run.OwnerUserId)) return;
 
         await _crawlNotifier.PushAsync(
             GccV2ToolSourceCrawlEventMapper.MapRun(run, currentOrigin),
             run.Id,
-            create.OwnerUserId,
+            run.OwnerUserId,
             ct).ConfigureAwait(false);
     }
 
-    private async Task MergeResearchOntoCreateBriefsAsync(
-        Guid createId,
-        IReadOnlyList<GccQuoteablePage> quotePages,
-        Guid runId,
-        IReadOnlyList<object> hostProgress,
+    private async Task WakeMatchingToolJobsAsync(
+        string ownerUserId,
+        IReadOnlyList<string> seeds,
         CancellationToken ct)
     {
-        var briefs = await _repo.ListBriefsByCreateAsync(createId, ct).ConfigureAwait(false);
-        if (briefs.Count == 0) return;
-
-        var statusObj = new
+        var creates = await _repo.ListCreatesAsync(ownerUserId, ct).ConfigureAwait(false);
+        foreach (var create in creates)
         {
-            runId,
-            status = "complete",
-            hosts = hostProgress,
-        };
-
-        foreach (var brief in briefs)
-        {
-            var merged = GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(
-                brief.RawBriefJson,
-                quotePages);
-            merged = GccV2PartnerUrlResearchService.MergeToolSourceCrawlIntoBriefJson(merged, statusObj);
-            if (merged is null) continue;
-            await _repo.PatchBriefAsync(brief.Id, new PatchGccV2BriefCommand(merged), ct).ConfigureAwait(false);
+            var briefs = await _repo.ListBriefsByCreateAsync(create.Id, ct).ConfigureAwait(false);
+            if (!briefs.Any(b => SeedUrlsMatchOnBrief(b.RawBriefJson, seeds))) continue;
+            await WakeToolJobsAsync(create.Id, ct).ConfigureAwait(false);
         }
+    }
+
+    private static bool SeedUrlsMatchOnBrief(string? rawBriefJson, IReadOnlyList<string> seeds)
+    {
+        var briefSeeds = GccV2PartnerUrlResearchService.CollectOperatorSeedUrls(rawBriefJson);
+        if (briefSeeds.Count != seeds.Count) return false;
+        var set = new HashSet<string>(seeds, StringComparer.OrdinalIgnoreCase);
+        return briefSeeds.All(u => set.Contains(u));
     }
 
     private async Task WakeToolJobsAsync(Guid createId, CancellationToken ct)
@@ -291,16 +303,4 @@ public sealed class GccV2ToolSourceCrawlService
         string.Equals(status, "ready", StringComparison.OrdinalIgnoreCase)
         || string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase)
         || string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase);
-
-    private static string FlattenPage(GccQuoteablePage page)
-    {
-        var sb = new System.Text.StringBuilder();
-        if (!string.IsNullOrWhiteSpace(page.Title))
-            sb.AppendLine(page.Title);
-        foreach (var h in page.Headings)
-            sb.AppendLine($"H{h.Level}: {h.Text}");
-        foreach (var p in page.Paragraphs)
-            sb.AppendLine(p);
-        return sb.ToString();
-    }
 }

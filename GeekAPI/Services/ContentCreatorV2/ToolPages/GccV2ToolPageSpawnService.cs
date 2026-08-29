@@ -21,6 +21,7 @@ public sealed class GccV2ToolPageSpawnService
     };
 
     private readonly HttpGccV2Repository _repo;
+    private readonly GccV2ToolSourceCrawlService _toolSourceCrawl;
     private readonly GccV2JobWake _wake;
     private readonly GccV2ToolResearchExtractor _extractor;
     private readonly IContentProviderFactory _providers;
@@ -28,12 +29,14 @@ public sealed class GccV2ToolPageSpawnService
 
     public GccV2ToolPageSpawnService(
         HttpGccV2Repository repo,
+        GccV2ToolSourceCrawlService toolSourceCrawl,
         GccV2JobWake wake,
         GccV2ToolResearchExtractor extractor,
         IContentProviderFactory providers,
         ILogger<GccV2ToolPageSpawnService> logger)
     {
         _repo = repo;
+        _toolSourceCrawl = toolSourceCrawl;
         _wake = wake;
         _extractor = extractor;
         _providers = providers;
@@ -66,7 +69,7 @@ public sealed class GccV2ToolPageSpawnService
         if (!BriefIncludesToolDraft(brief.RawBriefJson))
             return new SpawnResult(0, 0, null, null);
 
-        var crawlRun = await _repo.GetLatestToolSourceCrawlRunAsync(triggerJob.CreateId, ct);
+        var crawlRun = await _toolSourceCrawl.ResolveRunForUserAsync(triggerJob.OwnerUserId, brief.RawBriefJson, ct);
         GccV2ToolSourceCrawlGate.ThrowIfDeferred(brief.RawBriefJson, crawlRun);
         GccV2ToolSourceCrawlGate.ThrowIfFailed(brief.RawBriefJson, crawlRun);
 

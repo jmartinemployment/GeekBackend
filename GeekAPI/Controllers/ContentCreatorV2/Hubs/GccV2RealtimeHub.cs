@@ -69,8 +69,7 @@ public sealed class GccV2RealtimeHub : Hub
         if (run is null)
             throw new HubException("Crawl run not found");
 
-        var create = await _repo.GetCreateAsync(run.CreateId, Context.ConnectionAborted);
-        if (create is null || !string.Equals(create.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(run.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning("User {UserId} denied JoinCrawlRun for {RunId}.", userId, runId);
             throw new HubException("Forbidden");

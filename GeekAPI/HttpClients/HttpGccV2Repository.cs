@@ -199,8 +199,13 @@ public class HttpGccV2Repository
         CancellationToken ct = default) =>
         PostAsync<GccV2PartnerResearchRecordDto>("repo/content-creator-v2/partner-research-records", command, ct);
 
-    public Task<GccV2ToolSourceCrawlRunDto?> GetLatestToolSourceCrawlRunAsync(Guid createId, CancellationToken ct = default) =>
-        GetAsync<GccV2ToolSourceCrawlRunDto>($"repo/content-creator-v2/tool-source-crawl-runs/latest?createId={createId}", ct);
+    public Task<IReadOnlyList<GccV2ToolSourceCrawlRunDto>> ListToolSourceCrawlRunsForUserAsync(
+        string ownerUserId,
+        int limit = 50,
+        CancellationToken ct = default) =>
+        GetListAsync<GccV2ToolSourceCrawlRunDto>(
+            $"repo/content-creator-v2/tool-source-crawl-runs/for-user?ownerUserId={Uri.EscapeDataString(ownerUserId)}&limit={limit}",
+            ct);
 
     public Task<GccV2ToolSourceCrawlRunDto?> GetToolSourceCrawlRunAsync(Guid runId, CancellationToken ct = default) =>
         GetAsync<GccV2ToolSourceCrawlRunDto>($"repo/content-creator-v2/tool-source-crawl-runs/{runId}", ct);

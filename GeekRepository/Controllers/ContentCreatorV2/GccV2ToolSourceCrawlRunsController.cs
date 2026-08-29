@@ -24,20 +24,23 @@ public class GccV2ToolSourceCrawlRunsController : ControllerBase
         return row is null ? NotFound() : Ok(row);
     }
 
-    [HttpGet("latest")]
-    public async Task<ActionResult<GccV2ToolSourceCrawlRun>> GetLatest(
-        [FromQuery] Guid createId,
+    [HttpGet("for-user")]
+    public async Task<ActionResult<IReadOnlyList<GccV2ToolSourceCrawlRun>>> ListForUser(
+        [FromQuery] string ownerUserId,
+        [FromQuery] int limit = 50,
         CancellationToken ct = default)
     {
-        if (createId == Guid.Empty)
-            return BadRequest("createId is required");
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            return BadRequest("ownerUserId is required");
 
-        var row = await _db.GccV2ToolSourceCrawlRuns.AsNoTracking()
-            .Where(r => r.CreateId == createId)
+        limit = Math.Clamp(limit, 1, 200);
+        var rows = await _db.GccV2ToolSourceCrawlRuns.AsNoTracking()
+            .Where(r => r.OwnerUserId == ownerUserId)
             .OrderByDescending(r => r.CreatedAtUtc)
-            .FirstOrDefaultAsync(ct);
+            .Take(limit)
+            .ToListAsync(ct);
 
-        return row is null ? NotFound() : Ok(row);
+        return Ok(rows);
     }
 
     [HttpPost]
@@ -45,13 +48,13 @@ public class GccV2ToolSourceCrawlRunsController : ControllerBase
         [FromBody] CreateGccV2ToolSourceCrawlRunCommand command,
         CancellationToken ct)
     {
-        if (command is null || command.CreateId == Guid.Empty)
-            return BadRequest("createId is required");
+        if (command is null || string.IsNullOrWhiteSpace(command.OwnerUserId))
+            return BadRequest("ownerUserId is required");
 
         var row = new GccV2ToolSourceCrawlRun
         {
             Id = Guid.NewGuid(),
-            CreateId = command.CreateId,
+            OwnerUserId = command.OwnerUserId.Trim(),
             Status = "pending",
             SeedUrlsJson = string.IsNullOrWhiteSpace(command.SeedUrlsJson) ? "[]" : command.SeedUrlsJson,
             CreatedAtUtc = DateTimeOffset.UtcNow,
@@ -88,7 +91,7 @@ public class GccV2ToolSourceCrawlRunsController : ControllerBase
         return Ok(row);
     }
 
-    public record CreateGccV2ToolSourceCrawlRunCommand(Guid CreateId, string? SeedUrlsJson);
+    public record CreateGccV2ToolSourceCrawlRunCommand(string OwnerUserId, string? SeedUrlsJson);
 
     public record PatchGccV2ToolSourceCrawlRunCommand(
         string? Status = null,
