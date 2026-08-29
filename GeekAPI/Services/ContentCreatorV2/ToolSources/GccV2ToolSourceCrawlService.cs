@@ -18,6 +18,7 @@ public sealed class GccV2ToolSourceCrawlService
     private readonly GccV2SameOriginBfsCrawler _bfs;
     private readonly GccV2ToolSourceCrawlWake _wake;
     private readonly GccV2JobWake _jobWake;
+    private readonly GccV2CrawlProgressNotifier _crawlNotifier;
     private readonly ILogger<GccV2ToolSourceCrawlService> _logger;
 
     public GccV2ToolSourceCrawlService(
@@ -25,12 +26,14 @@ public sealed class GccV2ToolSourceCrawlService
         GccV2SameOriginBfsCrawler bfs,
         GccV2ToolSourceCrawlWake wake,
         GccV2JobWake jobWake,
+        GccV2CrawlProgressNotifier crawlNotifier,
         ILogger<GccV2ToolSourceCrawlService> logger)
     {
         _repo = repo;
         _bfs = bfs;
         _wake = wake;
         _jobWake = jobWake;
+        _crawlNotifier = crawlNotifier;
         _logger = logger;
     }
 
@@ -64,6 +67,7 @@ public sealed class GccV2ToolSourceCrawlService
             new CreateGccV2ToolSourceCrawlRunCommand(createId, JsonSerializer.Serialize(seeds, JsonOpts)),
             ct).ConfigureAwait(false);
 
+        await PushRunAsync(run, currentOrigin: null, ct).ConfigureAwait(false);
         _wake.Wake(run.Id);
         return run;
     }
@@ -71,7 +75,6 @@ public sealed class GccV2ToolSourceCrawlService
     public async Task ExecuteRunAsync(Guid runId, CancellationToken ct)
     {
         var run = await _repo.GetToolSourceCrawlRunAsync(runId, ct).ConfigureAwait(false);
-        // Load run by id
         GccV2ToolSourceCrawlRunDto? current = null;
         try
         {
@@ -88,12 +91,13 @@ public sealed class GccV2ToolSourceCrawlService
                 return;
             }
 
-            await _repo.PatchToolSourceCrawlRunAsync(
+            current = await _repo.PatchToolSourceCrawlRunAsync(
                 runId,
                 new PatchGccV2ToolSourceCrawlRunCommand(
                     Status: "running",
                     StartedAtUtc: DateTimeOffset.UtcNow),
                 ct).ConfigureAwait(false);
+            await PushRunAsync(current, currentOrigin: null, ct).ConfigureAwait(false);
 
             var hostGroups = GccV2PartnerUrlResearchService.GroupOperatorSeedsByOrigin(seeds);
             var hostProgress = new List<object>();
@@ -148,6 +152,13 @@ public sealed class GccV2ToolSourceCrawlService
                     pagesWithHtml = withHtml.Count,
                     quotePages = originQuoteCount,
                 });
+
+                current = await _repo.PatchToolSourceCrawlRunAsync(
+                    runId,
+                    new PatchGccV2ToolSourceCrawlRunCommand(
+                        HostProgressJson: JsonSerializer.Serialize(hostProgress, JsonOpts)),
+                    ct).ConfigureAwait(false);
+                await PushRunAsync(current, origin, ct).ConfigureAwait(false);
             }
 
             if (quotePages.Count == 0)
@@ -162,7 +173,7 @@ public sealed class GccV2ToolSourceCrawlService
             }
 
             var partnerResearchJson = JsonSerializer.Serialize(quotePages, JsonOpts);
-            await _repo.PatchToolSourceCrawlRunAsync(
+            current = await _repo.PatchToolSourceCrawlRunAsync(
                 runId,
                 new PatchGccV2ToolSourceCrawlRunCommand(
                     Status: "complete",
@@ -170,6 +181,7 @@ public sealed class GccV2ToolSourceCrawlService
                     PartnerResearchJson: partnerResearchJson,
                     CompletedAtUtc: DateTimeOffset.UtcNow),
                 ct).ConfigureAwait(false);
+            await PushRunAsync(current, currentOrigin: null, ct).ConfigureAwait(false);
 
             await MergeResearchOntoCreateBriefsAsync(current.CreateId, quotePages, runId, hostProgress, ct)
                 .ConfigureAwait(false);
@@ -210,13 +222,29 @@ public sealed class GccV2ToolSourceCrawlService
         CancellationToken ct,
         IReadOnlyList<object>? hostProgress = null)
     {
-        await _repo.PatchToolSourceCrawlRunAsync(
+        var patched = await _repo.PatchToolSourceCrawlRunAsync(
             run.Id,
             new PatchGccV2ToolSourceCrawlRunCommand(
                 Status: "failed",
                 ErrorSummary: error.Length > 2048 ? error[..2048] : error,
                 HostProgressJson: hostProgress is null ? null : JsonSerializer.Serialize(hostProgress, JsonOpts),
                 CompletedAtUtc: DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        await PushRunAsync(patched, currentOrigin: null, ct).ConfigureAwait(false);
+    }
+
+    private async Task PushRunAsync(
+        GccV2ToolSourceCrawlRunDto run,
+        string? currentOrigin,
+        CancellationToken ct)
+    {
+        var create = await _repo.GetCreateAsync(run.CreateId, ct).ConfigureAwait(false);
+        if (create is null) return;
+
+        await _crawlNotifier.PushAsync(
+            GccV2ToolSourceCrawlEventMapper.MapRun(run, currentOrigin),
+            run.Id,
+            create.OwnerUserId,
             ct).ConfigureAwait(false);
     }
 
