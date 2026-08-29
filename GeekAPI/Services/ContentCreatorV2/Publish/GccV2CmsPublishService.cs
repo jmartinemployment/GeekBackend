@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -103,7 +104,12 @@ public sealed class GccV2CmsPublishService
         }
 
         var title = string.IsNullOrWhiteSpace(payload.Title) ? create.Title : payload.Title;
-        var slug = SlugHelper.Slugify(title);
+        var toolKind = payload.ToolPageKind?.Trim().ToLowerInvariant();
+        var slug = !string.IsNullOrWhiteSpace(payload.Slug)
+            ? payload.Slug!
+            : contentType == "tool" && toolKind == "overview"
+                ? GccV2ToolSlugHelper.SlugifyKeyword(create.Title)
+                : SlugHelper.Slugify(title);
         var documentJson = JsonSerializer.Serialize(document, ResultJsonOpts);
 
         try
@@ -133,17 +139,30 @@ public sealed class GccV2CmsPublishService
                     null))
                 .ToList();
 
+            if (!string.IsNullOrWhiteSpace(payload.SourceAttributionHtml))
+            {
+                sections.Add(new PostSectionInput(
+                    sections.Count,
+                    "div",
+                    "Sources",
+                    payload.SourceAttributionHtml,
+                    null,
+                    null));
+            }
+
             var completedAt = job.CompletedAtUtc ?? job.UpdatedAtUtc ?? DateTimeOffset.UtcNow;
             var canonicalUrl = BuildPublicUrl(contentType, languageCode, slug);
             var keywords = payload.Keywords ?? [];
             var jsonLd = payload.JsonLdSchema ?? BuildJsonLd(
                 contentType,
+                toolKind,
                 title,
                 payload.MetaDescription ?? summary,
                 canonicalUrl,
                 document,
                 completedAt,
-                keywords);
+                keywords,
+                payload.PillarArticleUrl);
 
             var command = new UpsertBlogPostCommand
             {
@@ -498,12 +517,14 @@ public sealed class GccV2CmsPublishService
 
     private string? BuildJsonLd(
         string contentType,
+        string? toolPageKind,
         string title,
         string metaDescription,
         string canonicalUrl,
         ContentDocument document,
         DateTimeOffset completedAt,
-        IReadOnlyList<string> keywords)
+        IReadOnlyList<string> keywords,
+        string? pillarArticleUrl)
     {
         if (string.IsNullOrWhiteSpace(canonicalUrl)) return null;
 
@@ -524,9 +545,11 @@ public sealed class GccV2CmsPublishService
         {
             "pillar" => _articleSchema.Build(metadata, canonicalUrl),
             "blog" => _blogSchema.Build(metadata, relatedArticleUrl: string.Empty),
+            "tool" when string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase) =>
+                _articleSchema.Build(metadata, pillarArticleUrl ?? canonicalUrl),
             "tool" => _toolSchema.BuildToolPage(
                 metadata,
-                pillarArticleUrl: canonicalUrl,
+                pillarArticleUrl: pillarArticleUrl ?? string.Empty,
                 new SoftwareApplicationDescriptor(title, metaDescription, canonicalUrl)),
             _ => null,
         };
@@ -546,5 +569,9 @@ public sealed class GccV2CmsPublishService
         string? HeroSummary,
         string? HomeSummary,
         string? BlogSummary,
-        string? AdvertisingSummary);
+        string? AdvertisingSummary,
+        string? Slug,
+        string? SourceAttributionHtml,
+        string? ToolPageKind,
+        string? PillarArticleUrl);
 }

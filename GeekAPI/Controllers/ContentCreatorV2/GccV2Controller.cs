@@ -9,6 +9,7 @@ using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Plan;
+using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.ContentCreatorV2;
@@ -294,13 +295,44 @@ public class GccV2Controller : ControllerBase
 
     /// <summary>All jobs for a create (oldest first) — multi-draft switcher on the create page.</summary>
     [HttpGet("creates/{id:guid}/jobs")]
-    public async Task<ActionResult<IReadOnlyList<GccV2JobDto>>> ListJobsForCreate(Guid id, CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<object>>> ListJobsForCreate(Guid id, CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         var create = await _repo.GetCreateAsync(id, ct);
         if (create is null || !IsOwner(create.OwnerUserId)) return NotFound();
         var jobs = await _repo.ListJobsByCreateAsync(id, ct);
-        return Ok(jobs);
+        var enriched = new List<object>();
+        foreach (var job in jobs)
+        {
+            string? tabLabel = null;
+            if (string.Equals(job.ContentType, "tool", StringComparison.OrdinalIgnoreCase))
+            {
+                var brief = await _repo.GetBriefAsync(job.BriefId, ct);
+                tabLabel = GccV2ToolPageTargetParser.ResolveTabLabel(job.ContentType, brief?.RawBriefJson);
+            }
+
+            enriched.Add(new
+            {
+                job.Id,
+                job.ContentType,
+                job.BriefId,
+                job.OwnerUserId,
+                job.CreateId,
+                job.Stage,
+                job.Status,
+                job.AttemptCount,
+                job.ResultJson,
+                job.Error,
+                job.TokensUsed,
+                job.CreatedAtUtc,
+                job.UpdatedAtUtc,
+                job.CompletedAtUtc,
+                job.SiteAnalysisProfileId,
+                tabLabel,
+            });
+        }
+
+        return Ok(enriched);
     }
 
     /// <summary>Most recent job for a create — used when opening Canvas without <c>?jobId=</c> in the URL.</summary>
@@ -481,6 +513,8 @@ public class GccV2Controller : ControllerBase
             : null;
 
         rawBriefJson = EnsureBriefContentTypes(rawBriefJson, contentTypes, primaryType);
+        if (contentTypes.Any(t => string.Equals(t, "tool", StringComparison.OrdinalIgnoreCase)))
+            rawBriefJson = GccV2ToolPageTargetParser.MergeOverviewTarget(rawBriefJson, request?.TargetKeyword);
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
         rawBriefJson = await TryMergePartnerResearchAsync(rawBriefJson, id, ct);

@@ -104,8 +104,21 @@ public class GccV2ValidateController : ControllerBase
             outstandingIssues = outcome.OutstandingIssues,
             seoScore = outcome.Report.SeoScore,
             geoScore = outcome.Report.GeoScore,
+            polishScore = outcome.Report.PolishScore,
+            polishShipReady = outcome.Report.PolishShipReady,
+            guardrailRestructureCount = outcome.Report.GuardrailRestructureCount,
+            guardrailRestructurePhrases = outcome.Report.GuardrailRestructurePhrases ?? Array.Empty<string>(),
             seoChecks = outcome.Report.SeoChecks,
             geoChecks = outcome.Report.GeoChecks,
+            overlapHits = outcome.Report.OverlapHits.Select(h => new
+            {
+                headingA = h.HeadingA,
+                headingB = h.HeadingB,
+                sharedClaim = h.SharedClaim,
+                sectionKeyA = h.SectionKeyA,
+                sectionKeyB = h.SectionKeyB,
+                repairHint = h.RepairHint,
+            }).ToList(),
             repairAttempts = outcome.RepairAttempts,
         });
     }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -85,7 +86,12 @@ public sealed class GccV2HtmlExportService
 
             var contentType = string.IsNullOrWhiteSpace(job.ContentType) ? "blog" : job.ContentType.Trim().ToLowerInvariant();
             var title = string.IsNullOrWhiteSpace(payload.Title) ? create.Title : payload.Title!;
-            var slug = SlugHelper.Slugify(title);
+            var toolKind = payload.ToolPageKind?.Trim().ToLowerInvariant();
+            var slug = !string.IsNullOrWhiteSpace(payload.Slug)
+                ? payload.Slug!
+                : contentType == "tool" && toolKind == "overview"
+                    ? GccV2ToolSlugHelper.SlugifyKeyword(create.Title)
+                    : SlugHelper.Slugify(title);
             var metaDescription = payload.MetaDescription;
 
             if (contentType == "image-prompt")
@@ -110,12 +116,21 @@ public sealed class GccV2HtmlExportService
                 continue;
             }
 
-            var canonicalUrl = CanonicalUrlFor(contentType, slug);
+            var canonicalUrl = CanonicalUrlFor(contentType, slug, toolKind);
             var keywords = payload.Keywords is { Count: > 0 }
                 ? string.Join(", ", payload.Keywords)
                 : create.Title;
             var completedAt = job.CompletedAtUtc ?? job.UpdatedAtUtc ?? job.CreatedAtUtc;
-            var jsonLd = payload.JsonLdSchema ?? BuildJsonLd(contentType, title, metaDescription ?? string.Empty, canonicalUrl, document, completedAt, keywords);
+            var jsonLd = payload.JsonLdSchema ?? BuildJsonLd(
+                contentType,
+                toolKind,
+                title,
+                metaDescription ?? string.Empty,
+                canonicalUrl,
+                document,
+                completedAt,
+                keywords,
+                payload.PillarArticleUrl);
 
             var meta = new Dictionary<string, string?>
             {
@@ -149,7 +164,11 @@ public sealed class GccV2HtmlExportService
                 yandexVerification: _company.YandexVerification,
                 yahooVerification: _company.YahooVerification);
 
-            documents.Add(new ExportedHtmlDocument($"{FolderFor(contentType)}/{slug}.html", html));
+            if (!string.IsNullOrWhiteSpace(payload.SourceAttributionHtml))
+                html = GccV2ToolSectionRenderer.InjectBeforeBodyClose(html, payload.SourceAttributionHtml);
+
+            var exportPath = ExportPathFor(contentType, slug, toolKind);
+            documents.Add(new ExportedHtmlDocument(exportPath, html));
         }
 
         var summary = new GccV2ExportSummary(documents.Count, jobs.Count, skipped);
@@ -197,12 +216,14 @@ public sealed class GccV2HtmlExportService
 
     private string? BuildJsonLd(
         string contentType,
+        string? toolPageKind,
         string title,
         string metaDescription,
         string? canonicalUrl,
         ContentDocument document,
         DateTimeOffset completedAt,
-        string keywordsCsv)
+        string keywordsCsv,
+        string? pillarArticleUrl)
     {
         if (string.IsNullOrWhiteSpace(canonicalUrl)) return null;
 
@@ -224,9 +245,11 @@ public sealed class GccV2HtmlExportService
         {
             "pillar" => _articleSchema.Build(metadata, canonicalUrl),
             "blog" => _blogSchema.Build(metadata, relatedArticleUrl: string.Empty),
+            "tool" when string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase) =>
+                _articleSchema.Build(metadata, pillarArticleUrl ?? canonicalUrl),
             "tool" => _toolSchema.BuildToolPage(
                 metadata,
-                pillarArticleUrl: canonicalUrl,
+                pillarArticleUrl: pillarArticleUrl ?? string.Empty,
                 new SoftwareApplicationDescriptor(title, metaDescription, canonicalUrl)),
             _ => null,
         };
@@ -262,13 +285,24 @@ public sealed class GccV2HtmlExportService
             ? string.Join(" ", paragraph.Runs.Select(r => r.Text))
             : string.Empty;
 
-    private string? CanonicalUrlFor(string contentType, string slug) => contentType switch
+    private string? CanonicalUrlFor(string contentType, string slug, string? toolPageKind) => contentType switch
     {
         "pillar" => CombineUrl(_company.ArticleBaseUrl, "marketing", slug),
         "blog" => CombineUrl(_company.BlogBaseUrl, "marketing", slug),
+        "tool" when string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase) =>
+            $"{_company.ToolBaseUrl.TrimEnd('/')}/{slug}",
         "tool" => CombineUrl(_company.ToolBaseUrl, "marketing", slug),
         _ => null,
     };
+
+    private static string ExportPathFor(string contentType, string slug, string? toolPageKind)
+    {
+        if (contentType == "tool" && string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase))
+            return $"tools/{slug}.html";
+        if (contentType == "tool")
+            return $"tools/marketing/{slug}.html";
+        return $"{FolderFor(contentType)}/{slug}.html";
+    }
 
     private static string CombineUrl(string baseUrl, string department, string slug) =>
         $"{baseUrl.TrimEnd('/')}/{department}/{slug}";
@@ -297,6 +331,10 @@ public sealed class GccV2HtmlExportService
         string? HomeSummary,
         string? BlogSummary,
         string? AdvertisingSummary,
+        string? Slug,
+        string? SourceAttributionHtml,
+        string? ToolPageKind,
+        string? PillarArticleUrl,
         ImagePromptSectionPayload? ImagePromptSection);
 
     private sealed record ImagePromptSectionPayload(Guid SourceJobId, string SourceType, string Heading, int Order);

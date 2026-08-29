@@ -1,0 +1,245 @@
+using System.Text.Json;
+using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Write;
+using GeekAPI.Services.Workflow.Domain.Entities;
+using GeekAPI.Services.Workflow.DTOs;
+using GeekAPI.Services.Workflow.Providers;
+using GeekAPI.Services.Workflow.Services;
+using GeekAPI.Services.Workflow.Services.SchemaBuilders;
+using GeekApplication.Models.ContentCreator;
+using Microsoft.Extensions.Options;
+
+namespace GeekAPI.Services.ContentCreatorV2.ToolPages;
+
+public sealed class GccV2PartnerToolWriteService
+{
+    private readonly HttpGccV2Repository _repo;
+    private readonly GccV2ToolPagePromptBuilder _prompts;
+    private readonly GccV2ToolResearchExtractor _extractor;
+    private readonly CompanyProfileOptions _company;
+    private readonly ILogger<GccV2PartnerToolWriteService> _logger;
+
+    public GccV2PartnerToolWriteService(
+        HttpGccV2Repository repo,
+        GccV2ToolPagePromptBuilder prompts,
+        GccV2ToolResearchExtractor extractor,
+        IOptions<CompanyProfileOptions> company,
+        ILogger<GccV2PartnerToolWriteService> logger)
+    {
+        _repo = repo;
+        _prompts = prompts;
+        _extractor = extractor;
+        _company = company.Value;
+        _logger = logger;
+    }
+
+    public async Task<GccV2WriteOutput> WriteAsync(
+        GccV2WriteContext wc,
+        Guid ownerUserId,
+        GccV2ToolPageTarget target,
+        CancellationToken ct)
+    {
+        var toolName = string.IsNullOrWhiteSpace(target.Name) ? wc.BaseContext.TargetKeyword : target.Name.Trim();
+        var slug = string.IsNullOrWhiteSpace(target.Slug) ? GccV2ToolSlugHelper.SlugifyToolName(toolName) : target.Slug;
+        var sourceUrl = target.SourceUrl;
+        var research = GccV2ToolResearchExtractor.DeserializeResearch(target.ExtractedResearch)
+            ?? await _extractor.ExtractAsync(
+                wc.Provider,
+                toolName,
+                sourceUrl,
+                ParsePartnerResearchPages(wc.Brief.RawBriefJson),
+                ct);
+        var researchJson = research is null ? null : GccV2ToolResearchExtractor.SerializeResearch(research);
+
+        var pillar = await ResolvePillarAsync(wc.Job.CreateId, ct);
+        var pillarMetadata = new ArticleMetadataDraft(
+            pillar?.Title ?? wc.BaseContext.TargetKeyword,
+            pillar?.MetaDescription ?? "",
+            [wc.BaseContext.TargetKeyword],
+            []);
+        var pillarExcerpt = pillar?.Excerpt;
+        var pillarArticleUrl = pillar?.CanonicalUrl ?? "";
+
+        var app = new SoftwareApplicationDescriptor(toolName, research?.Summary, null);
+        var tokens = 0;
+
+        List<Section> parsedSections;
+        try
+        {
+            var bodyResult = await wc.Provider.CompleteAsync(
+                _prompts.BuildPartnerToolBodyPrompt(
+                    wc.BaseContext, pillarMetadata, app, slug, researchJson, pillarExcerpt), ct);
+            parsedSections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "partner tool body").ToList();
+            tokens += (bodyResult.PromptTokens ?? 0) + (bodyResult.CompletionTokens ?? 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Partner tool body generation failed for job {JobId}.", wc.Job.Id);
+            throw;
+        }
+
+        if (parsedSections.Count == 0)
+            throw new InvalidOperationException("Partner tool body generation returned no sections.");
+
+        var ledeSection = parsedSections[0] with { Tag = "h2" };
+        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
+
+        var sections = new List<GccV2WriteSection>();
+        for (var i = 1; i < parsedSections.Count; i++)
+        {
+            var section = parsedSections[i] with { Tag = "h2" };
+            var key = SlugHelper.Slugify(section.Heading);
+            if (string.IsNullOrWhiteSpace(key)) key = $"section-{i}";
+            sections.Add(new GccV2WriteSection(key, section.Heading, "advance", section, false));
+        }
+
+        var document = new ContentDocument(ledeSection, sections.Select(s => s.Section).ToList());
+        GccV2ToolMetadataDraft metadata;
+        try
+        {
+            var metaResult = await wc.Provider.CompleteAsync(
+                _prompts.BuildPartnerToolMetadataPrompt(wc.BaseContext, pillarMetadata, app, document), ct);
+            metadata = LlmResponseJsonParser.Parse<GccV2ToolMetadataDraft>(metaResult.Content, "partner tool metadata");
+            tokens += (metaResult.PromptTokens ?? 0) + (metaResult.CompletionTokens ?? 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Partner tool metadata generation failed for job {JobId}.", wc.Job.Id);
+            throw;
+        }
+
+        var toolUrl = $"{wc.BaseContext.ToolBaseUrl.TrimEnd('/')}/{GccV2ToolSlugHelper.DefaultDepartment}/{slug}";
+        var attributionExcerpt = await BuildAttributionExcerptAsync(wc, toolName, sourceUrl, research, researchJson, ct);
+        tokens += attributionExcerpt.Tokens;
+        var sourceAttributionHtml = string.IsNullOrWhiteSpace(sourceUrl)
+            ? null
+            : GccV2ToolSectionRenderer.RenderSourceAttribution(sourceUrl, attributionExcerpt.Text, toolName);
+
+        var now = DateTime.UtcNow;
+        var schemaMeta = new ContentMetadata(
+            toolName,
+            metadata.MetaDescription,
+            _company.AuthorName,
+            _company.PublisherName,
+            _company.PublisherLogoUrl,
+            toolUrl,
+            _company.PublisherLogoUrl,
+            now,
+            now,
+            [wc.BaseContext.TargetKeyword],
+            ContentDocumentText.CountWords(document));
+
+        var jsonLd = GccV2ToolPageSchemaBuilder.BuildToolPage(
+            schemaMeta,
+            pillarArticleUrl,
+            app with { Url = toolUrl });
+
+        return new GccV2WriteOutput
+        {
+            Title = toolName,
+            MetaDescription = metadata.MetaDescription,
+            Lede = ledeWrite,
+            Sections = sections,
+            TokensUsed = tokens,
+            ToolPage = new GccV2ToolPageWriteExtras(
+                Kind: "partner",
+                Slug: slug,
+                JsonLdSchema: jsonLd,
+                Keywords: [wc.BaseContext.TargetKeyword],
+                Excerpt: metadata.Summary,
+                MainSummary: metadata.MainSummary,
+                HeroSummary: metadata.HeroSummary,
+                HomeSummary: metadata.HomeSummary,
+                BlogSummary: metadata.BlogSummary,
+                AdvertisingSummary: metadata.AdvertisingSummary,
+                SourceAttributionHtml: sourceAttributionHtml,
+                PillarArticleUrl: pillarArticleUrl),
+        };
+    }
+
+    private async Task<(string Text, int Tokens)> BuildAttributionExcerptAsync(
+        GccV2WriteContext wc,
+        string toolName,
+        string? sourceUrl,
+        GccV2ExtractedToolResearch? research,
+        string? researchJson,
+        CancellationToken ct)
+    {
+        var fallback = GccV2ToolResearchExtractor.BuildAttributionExcerpt(research);
+        if (string.IsNullOrWhiteSpace(sourceUrl) || string.IsNullOrWhiteSpace(researchJson))
+            return (fallback, 0);
+
+        try
+        {
+            var result = await wc.Provider.CompleteAsync(
+                _prompts.BuildSourceExcerptPrompt(toolName, sourceUrl, researchJson), ct);
+            var text = (result.Content ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(text)) text = fallback;
+            return (text, (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Source excerpt LLM failed for {Tool}; using research summary.", toolName);
+            return (fallback, 0);
+        }
+    }
+
+    private async Task<PillarSnapshot?> ResolvePillarAsync(Guid createId, CancellationToken ct)
+    {
+        var jobs = await _repo.ListJobsByCreateAsync(createId, ct);
+        var pillarJob = jobs.FirstOrDefault(j =>
+            string.Equals(j.ContentType, "pillar", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(j.Status, "ready", StringComparison.OrdinalIgnoreCase));
+        if (pillarJob is null || string.IsNullOrWhiteSpace(pillarJob.ResultJson)) return null;
+
+        try
+        {
+            var payload = System.Text.Json.JsonSerializer.Deserialize<PillarResultPayload>(
+                pillarJob.ResultJson,
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+                {
+                    PropertyNameCaseInsensitive = true,
+                });
+            if (payload?.Document is null) return null;
+            var title = payload.Title ?? "";
+            var slug = SlugHelper.Slugify(title);
+            var canonical = $"{_company.ArticleBaseUrl.TrimEnd('/')}/{GccV2ToolSlugHelper.DefaultDepartment}/{slug}";
+            var excerpt = ContentDocumentText.Flatten(payload.Document);
+            if (excerpt.Length > 2500) excerpt = excerpt[..2500] + "…";
+            return new PillarSnapshot(title, payload.MetaDescription, canonical, excerpt);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record PillarSnapshot(string? Title, string? MetaDescription, string CanonicalUrl, string Excerpt);
+
+    private sealed record PillarResultPayload(string? Title, string? MetaDescription, ContentDocument? Document);
+
+    private static IReadOnlyList<GccQuoteablePage> ParsePartnerResearchPages(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(rawBriefJson);
+            if (!doc.RootElement.TryGetProperty("partnerResearch", out var el)
+                || el.ValueKind != System.Text.Json.JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return System.Text.Json.JsonSerializer.Deserialize<List<GccQuoteablePage>>(
+                el.GetRawText(),
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+                {
+                    PropertyNameCaseInsensitive = true,
+                }) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+}

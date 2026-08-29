@@ -395,6 +395,7 @@ public sealed class GccV2PlanService
         return list;
     }
 
+    /// <summary>Five body H2s — row 0 becomes <c>problem</c>, rows 1–4 become <c>advance</c> (see PLAN loop).</summary>
     private static List<string> BuildDeclarativeHeadings(string title, int regenerateVariant = 0) =>
         regenerateVariant % 2 == 1
             ?
@@ -403,6 +404,7 @@ public sealed class GccV2PlanService
                 $"How Teams Approach {title}",
                 $"Risks and Tradeoffs with {title}",
                 $"A Practical Path for {title}",
+                $"Next Steps for {title}",
             ]
             :
             [
@@ -410,6 +412,7 @@ public sealed class GccV2PlanService
                 $"Implementing {title}",
                 $"Common Challenges with {title}",
                 $"Best Practices for {title}",
+                $"Measuring Success with {title}",
             ];
 
     /// <summary>

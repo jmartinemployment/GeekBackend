@@ -4,6 +4,7 @@ using GeekAPI.Services.Gcw;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Providers;
@@ -26,6 +27,7 @@ public sealed class GccV2WriteOutput
     public required GccV2WriteSection Lede { get; init; }
     public required IReadOnlyList<GccV2WriteSection> Sections { get; init; }
     public int TokensUsed { get; init; }
+    public GccV2ToolPageWriteExtras? ToolPage { get; init; }
 
     public ContentDocument ToContentDocument() => new(Lede.Section, Sections.Select(s => s.Section).ToList());
 
@@ -36,11 +38,11 @@ public sealed class GccV2WriteOutput
     {
         if (replacement.SectionKey == Lede.SectionKey)
         {
-            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed };
+            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed, ToolPage = ToolPage };
         }
 
         var sections = Sections.Select(s => s.SectionKey == replacement.SectionKey ? replacement : s).ToList();
-        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed };
+        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed, ToolPage = ToolPage };
     }
 
     public GccV2WriteOutput WithAppendedSection(GccV2WriteSection section) =>
@@ -51,6 +53,7 @@ public sealed class GccV2WriteOutput
             Lede = Lede,
             Sections = Sections.Append(section).ToList(),
             TokensUsed = TokensUsed,
+            ToolPage = ToolPage,
         };
 }
 
@@ -98,6 +101,8 @@ public sealed class GccV2WriteService
     private readonly GccV2ContextAdapter _contextAdapter;
     private readonly IContentPromptBuilder _prompts;
     private readonly IContentProviderFactory _providers;
+    private readonly GccV2PartnerToolWriteService _partnerToolWrite;
+    private readonly GccV2ToolOverviewWriteService _toolOverviewWrite;
     private readonly ILogger<GccV2WriteService> _logger;
 
     public GccV2WriteService(
@@ -106,6 +111,8 @@ public sealed class GccV2WriteService
         GccV2ContextAdapter contextAdapter,
         IContentPromptBuilder prompts,
         IContentProviderFactory providers,
+        GccV2PartnerToolWriteService partnerToolWrite,
+        GccV2ToolOverviewWriteService toolOverviewWrite,
         ILogger<GccV2WriteService> logger)
     {
         _repo = repo;
@@ -113,6 +120,8 @@ public sealed class GccV2WriteService
         _contextAdapter = contextAdapter;
         _prompts = prompts;
         _providers = providers;
+        _partnerToolWrite = partnerToolWrite;
+        _toolOverviewWrite = toolOverviewWrite;
         _logger = logger;
     }
 
@@ -236,6 +245,7 @@ public sealed class GccV2WriteService
             Lede = appended.Lede,
             Sections = appended.Sections,
             TokensUsed = current.TokensUsed + tokens,
+            ToolPage = current.ToolPage,
         };
     }
 
@@ -427,53 +437,29 @@ public sealed class GccV2WriteService
 
     private async Task<GccV2WriteOutput> WriteToolAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
-        var keyword = wc.BaseContext.TargetKeyword;
-        var toolName = Capitalize(keyword);
-        var metadata = await GeneratePillarMetadataAsync(wc, [toolName, "Overview", "Key Capabilities", "Implementation Considerations", "When to Use"], ct);
-        var app = new SoftwareApplicationDescriptor(toolName, $"Overview of {toolName}.", wc.BaseContext.ToolBaseUrl);
-        var slug = Slugify(keyword);
-
-        IReadOnlyList<Section> parsedSections;
-        var tokens = 0;
-        try
+        var target = GccV2ToolPageTargetParser.Parse(wc.Brief.RawBriefJson);
+        GccV2WriteOutput output;
+        if (target?.IsPartner == true)
         {
-            var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildToolBodyPrompt(wc.BaseContext, metadata, app, slug), ct);
-            parsedSections = LlmResponseJsonParser.ParseSections(result.Content, "tool body");
-            tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            output = await _partnerToolWrite.WriteAsync(wc, ownerUserId, target, ct);
         }
-        catch (Exception ex)
+        else if (target?.IsOverview == true)
         {
-            _logger.LogError(ex, "Tool body generation failed for job {JobId}.", wc.Job.Id);
-            throw;
+            output = await _toolOverviewWrite.WriteAsync(wc, ownerUserId, target, ct);
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                "Tool job is missing toolPageTarget.kind — expected overview (at generate) or partner (after pillar spawn).");
         }
 
-        if (parsedSections.Count == 0)
-            throw new InvalidOperationException("Tool body generation returned no sections.");
-
-        var ledeSection = parsedSections[0] with { Tag = "h2" };
-        var ledeWrite = new GccV2WriteSection("lede", ledeSection.Heading, "problem", ledeSection, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
-
-        var sections = new List<GccV2WriteSection>();
-        for (var i = 1; i < parsedSections.Count; i++)
+        foreach (var section in output.AllSections)
         {
-            var section = parsedSections[i] with { Tag = "h2" };
-            var key = Slugify(section.Heading);
-            if (string.IsNullOrWhiteSpace(key)) key = $"section-{i}";
-            var write = new GccV2WriteSection(key, section.Heading, "advance", section, false);
-            await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, 0, ct);
-            sections.Add(write);
+            var sectionTokens = section.SectionKey == output.Lede.SectionKey ? output.TokensUsed : 0;
+            await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", section, sectionTokens, ct);
         }
 
-        return new GccV2WriteOutput
-        {
-            Title = metadata.Title,
-            MetaDescription = metadata.MetaDescription,
-            Lede = ledeWrite,
-            Sections = sections,
-            TokensUsed = tokens,
-        };
+        return output;
     }
 
     private async Task<GccV2WriteOutput> WriteEmailAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)

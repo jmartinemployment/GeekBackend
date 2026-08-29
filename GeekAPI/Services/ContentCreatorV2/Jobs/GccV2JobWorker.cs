@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Plan;
+using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -424,6 +425,16 @@ public sealed class GccV2JobWorker : BackgroundService
         {
             written = await writeService.WriteAsync(wc, ownerUserId, ct);
         }
+        catch (GccV2ToolWriteDeferredException ex)
+        {
+            _logger.LogInformation(ex, "Tool WRITE deferred for job {JobId}.", jobId);
+            await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(
+                Stage: "write",
+                Status: "pending",
+                ReleaseClaim: true), ct);
+            await writer.AppendAsync(jobId, ownerUserId, "ToolWriteDeferred", new { reason = ex.Message }, ct: ct);
+            return;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "WRITE failed for job {JobId}; marking failed.", jobId);
@@ -493,11 +504,24 @@ public sealed class GccV2JobWorker : BackgroundService
         }
 
         var finalDocument = outcome.Final.ToContentDocument();
+        var toolPage = written.ToolPage ?? outcome.Final.ToolPage;
         var resultJson = JsonSerializer.Serialize(new
         {
             title = outcome.Final.Title,
             metaDescription = outcome.Final.MetaDescription,
             document = finalDocument,
+            slug = toolPage?.Slug,
+            jsonLdSchema = toolPage?.JsonLdSchema,
+            keywords = toolPage?.Keywords,
+            excerpt = toolPage?.Excerpt,
+            mainSummary = toolPage?.MainSummary,
+            heroSummary = toolPage?.HeroSummary,
+            homeSummary = toolPage?.HomeSummary,
+            blogSummary = toolPage?.BlogSummary,
+            advertisingSummary = toolPage?.AdvertisingSummary,
+            sourceAttributionHtml = toolPage?.SourceAttributionHtml,
+            toolPageKind = toolPage?.Kind,
+            pillarArticleUrl = toolPage?.PillarArticleUrl,
             shipReady = outcome.ShipReady,
             outstandingIssues = outcome.OutstandingIssues,
             repairAttempts = outcome.RepairAttempts,
@@ -519,6 +543,56 @@ public sealed class GccV2JobWorker : BackgroundService
         }, ct: ct);
 
         await TrySpawnImagePromptsAsync(scope, jobId, repo, writer, ct);
+        await TrySpawnToolPagesAsync(scope, jobId, repo, writer, ct);
+    }
+
+    private static async Task TrySpawnToolPagesAsync(
+        IServiceScope scope,
+        Guid jobId,
+        HttpGccV2Repository repo,
+        GccV2JobEventWriter writer,
+        CancellationToken ct)
+    {
+        var job = await repo.GetJobAsync(jobId, ct);
+        if (job is null || !string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase)) return;
+        if (!string.Equals(job.ContentType, "pillar", StringComparison.OrdinalIgnoreCase)) return;
+
+        var ownerUserId = ParseOwner(job.OwnerUserId);
+        var spawn = scope.ServiceProvider.GetRequiredService<GccV2ToolPageSpawnService>();
+        SpawnResult result;
+        try
+        {
+            result = await spawn.SpawnForReadyPillarAsync(job, ct);
+        }
+        catch (Exception ex)
+        {
+            result = new SpawnResult(0, 0, ex.Message, null);
+        }
+
+        if (result.NotApplicable)
+            return;
+
+        if (result.FailureReason is not null)
+        {
+            await writer.AppendAsync(jobId, ownerUserId, "ToolPageSpawnSkipped", new
+            {
+                reason = result.FailureReason,
+                sourceJobId = jobId,
+                createId = job.CreateId,
+                spawned = result.Spawned,
+                skippedExisting = result.SkippedExisting,
+            }, ct: ct);
+            return;
+        }
+
+        await writer.AppendAsync(jobId, ownerUserId, "ToolPageSpawnCompleted", new
+        {
+            spawned = result.Spawned,
+            skippedExisting = result.SkippedExisting,
+            skippedReason = result.SkippedReason,
+            sourceJobId = jobId,
+            createId = job.CreateId,
+        }, ct: ct);
     }
 
     private static async Task TrySpawnImagePromptsAsync(
