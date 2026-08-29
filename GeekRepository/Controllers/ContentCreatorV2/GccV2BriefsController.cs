@@ -63,5 +63,18 @@ public class GccV2BriefsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = brief.Id }, brief);
     }
 
+    [HttpPatch("{id:guid}")]
+    public async Task<ActionResult<GccV2Brief>> Patch(Guid id, [FromBody] PatchGccV2BriefCommand command, CancellationToken ct)
+    {
+        var brief = await _db.GccV2Briefs.FirstOrDefaultAsync(b => b.Id == id, ct);
+        if (brief is null) return NotFound();
+        if (command?.RawBriefJson is not null)
+            brief.RawBriefJson = command.RawBriefJson;
+        await _db.SaveChangesAsync(ct);
+        return Ok(brief);
+    }
+
     public record CreateGccV2BriefCommand(Guid CreateId, string? TargetKeyword, string? ContentType, string? RawBriefJson);
+
+    public record PatchGccV2BriefCommand(string? RawBriefJson);
 }

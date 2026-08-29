@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
 
@@ -65,6 +66,10 @@ public sealed class GccV2ToolPageSpawnService
         if (!BriefIncludesToolDraft(brief.RawBriefJson))
             return new SpawnResult(0, 0, null, null);
 
+        var crawlRun = await _repo.GetLatestToolSourceCrawlRunAsync(triggerJob.CreateId, ct);
+        GccV2ToolSourceCrawlGate.ThrowIfDeferred(brief.RawBriefJson, crawlRun);
+        GccV2ToolSourceCrawlGate.ThrowIfFailed(brief.RawBriefJson, crawlRun);
+
         var partnerRows = GccV2PartnerUrlResearchService.CollectPartnerToolRows(brief.RawBriefJson);
         if (partnerRows.Count == 0)
         {
@@ -99,6 +104,13 @@ public sealed class GccV2ToolPageSpawnService
                     row.Url,
                     extracted,
                     order);
+                var pagesForTool = FilterPartnerResearchForUrl(partnerResearch, row.Url);
+                if (pagesForTool.Count > 0)
+                {
+                    briefJson = GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(
+                        briefJson,
+                        pagesForTool)!;
+                }
 
                 var childBrief = await _repo.CreateBriefAsync(
                     new CreateGccV2BriefCommand(
@@ -260,5 +272,24 @@ public sealed class GccV2ToolPageSpawnService
         {
             return [];
         }
+    }
+
+    private static IReadOnlyList<GccQuoteablePage> FilterPartnerResearchForUrl(
+        IReadOnlyList<GccQuoteablePage> pages,
+        string? sourceUrl)
+    {
+        if (pages.Count == 0 || string.IsNullOrWhiteSpace(sourceUrl)) return pages;
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var sourceUri)) return pages;
+
+        var host = sourceUri.Host;
+        var matched = pages.Where(p =>
+        {
+            if (string.IsNullOrWhiteSpace(p.Url)) return false;
+            if (string.Equals(p.Url, sourceUrl, StringComparison.OrdinalIgnoreCase)) return true;
+            return Uri.TryCreate(p.Url, UriKind.Absolute, out var u)
+                   && string.Equals(u.Host, host, StringComparison.OrdinalIgnoreCase);
+        }).ToList();
+
+        return matched.Count > 0 ? matched : pages;
     }
 }

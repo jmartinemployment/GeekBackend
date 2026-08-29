@@ -93,7 +93,7 @@ public sealed class GccV2PageFetcher
     }
 
     /// <summary>Same-origin absolute URLs for a future inventory/BFS queue.</summary>
-    internal static IReadOnlyList<string> ExtractSameOriginLinks(string html, string pageUrl)
+    public static IReadOnlyList<string> ExtractSameOriginLinks(string html, string pageUrl)
     {
         if (string.IsNullOrWhiteSpace(html) || !Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri))
             return [];

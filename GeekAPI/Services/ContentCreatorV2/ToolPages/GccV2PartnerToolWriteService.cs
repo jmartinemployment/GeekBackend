@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
@@ -39,6 +40,10 @@ public sealed class GccV2PartnerToolWriteService
         GccV2ToolPageTarget target,
         CancellationToken ct)
     {
+        var crawlRun = await _repo.GetLatestToolSourceCrawlRunAsync(wc.Job.CreateId, ct);
+        GccV2ToolSourceCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
+        GccV2ToolSourceCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
+
         var toolName = string.IsNullOrWhiteSpace(target.Name) ? wc.BaseContext.TargetKeyword : target.Name.Trim();
         var slug = string.IsNullOrWhiteSpace(target.Slug) ? GccV2ToolSlugHelper.SlugifyToolName(toolName) : target.Slug;
         var sourceUrl = target.SourceUrl;
@@ -125,9 +130,11 @@ public sealed class GccV2PartnerToolWriteService
 
         var toolUrl = $"{wc.BaseContext.ToolBaseUrl.TrimEnd('/')}/{GccV2ToolSlugHelper.DefaultDepartment}/{slug}";
         var pillarArticleUrl = pillar?.CanonicalUrl ?? "";
-        var attributionExcerpt = await BuildAttributionExcerptAsync(wc, toolName, sourceUrl, research, researchJson, ct);
-        tokens += attributionExcerpt.Tokens;
-        var sourceAttributionHtml = BuildSourceAttributionHtml(sourceUrl, attributionExcerpt.Text, toolName);
+        var partnerResearchPages = ParsePartnerResearchPages(wc.Brief.RawBriefJson);
+        var attributionQuote = await BuildAttributionQuoteAsync(
+            wc, toolName, sourceUrl, research, partnerResearchPages, ct);
+        tokens += attributionQuote.Tokens;
+        var sourceAttributionHtml = RequireSourceAttributionHtml(sourceUrl, attributionQuote.Text, toolName);
 
         _ = ownerUserId;
         var now = DateTime.UtcNow;
@@ -172,42 +179,118 @@ public sealed class GccV2PartnerToolWriteService
         };
     }
 
-    internal static string? BuildSourceAttributionHtml(string? sourceUrl, string excerpt, string toolName)
+    internal static string? BuildSourceAttributionHtml(string? sourceUrl, string quoteText, string toolName)
     {
         if (string.IsNullOrWhiteSpace(sourceUrl)) return null;
-        var text = excerpt.Trim();
-        if (string.IsNullOrWhiteSpace(text))
-            text = $"Summary based on {toolName.Trim()}'s official site.";
+        var text = GccV2ToolResearchExtractor.StripWrappingQuotes(quoteText);
+        if (string.IsNullOrWhiteSpace(text)) return null;
         return GccV2ToolSectionRenderer.RenderSourceAttribution(sourceUrl, text, toolName);
     }
 
-    private async Task<(string Text, int Tokens)> BuildAttributionExcerptAsync(
+    internal static string RequireSourceAttributionHtml(string? sourceUrl, string quoteText, string toolName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceUrl))
+            return "";
+
+        var html = BuildSourceAttributionHtml(sourceUrl, quoteText, toolName);
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            throw new ContentGenerationException(
+                $"Partner tool page for {toolName.Trim()} requires a verbatim source blockquote but none could be resolved from {sourceUrl}.");
+        }
+
+        if (!html.Contains("<blockquote", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ContentGenerationException(
+                $"Partner tool page for {toolName.Trim()} is missing required source blockquote markup.");
+        }
+
+        return html;
+    }
+
+    private async Task<(string Text, int Tokens)> BuildAttributionQuoteAsync(
         GccV2WriteContext wc,
         string toolName,
         string? sourceUrl,
         GccV2ExtractedToolResearch? research,
-        string? researchJson,
+        IReadOnlyList<GccQuoteablePage> partnerResearchFromBrief,
         CancellationToken ct)
     {
-        var fallback = GccV2ToolResearchExtractor.BuildAttributionExcerpt(research);
-        if (string.IsNullOrWhiteSpace(fallback) && !string.IsNullOrWhiteSpace(sourceUrl))
-            fallback = $"Summary based on {toolName}'s official site.";
-        if (string.IsNullOrWhiteSpace(sourceUrl) || string.IsNullOrWhiteSpace(researchJson))
-            return (fallback, 0);
+        if (string.IsNullOrWhiteSpace(sourceUrl)) return ("", 0);
+
+        var partnerResearch = partnerResearchFromBrief.Count > 0
+            ? partnerResearchFromBrief
+            : await LoadPartnerResearchForCreateAsync(wc.Job.CreateId, ct);
+
+        var page = ResolvePartnerPage(sourceUrl, partnerResearch);
+        var pageText = GccV2ToolResearchExtractor.FormatPageText(page);
+        var quote = GccV2ToolResearchExtractor.ResolveAttributionQuote(
+            sourceUrl,
+            partnerResearch,
+            research?.SourceQuote,
+            pageText);
+
+        if (!string.IsNullOrWhiteSpace(quote))
+            return (quote, 0);
+
+        if (string.IsNullOrWhiteSpace(pageText))
+        {
+            throw new ContentGenerationException(
+                $"Partner tool page for {toolName.Trim()} requires a verbatim source blockquote but no research text was found for {sourceUrl}.");
+        }
 
         try
         {
             var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildSourceExcerptPrompt(toolName, sourceUrl, researchJson), ct);
-            var text = (result.Content ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(text)) text = fallback;
-            return (text, (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0));
+                _prompts.BuildSourceQuotePrompt(toolName, sourceUrl, pageText), ct);
+            var text = GccV2ToolResearchExtractor.StripWrappingQuotes((result.Content ?? "").Trim());
+            if (GccV2ToolResearchExtractor.IsMinimalVerbatimQuote(text)
+                && GccV2ToolResearchExtractor.IsVerbatimFromPage(text, pageText))
+            {
+                return (text, (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0));
+            }
+        }
+        catch (ContentGenerationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Source excerpt LLM failed for {Tool}; using research summary.", toolName);
-            return (fallback, 0);
+            _logger.LogWarning(ex, "Verbatim source quote selection failed for {Tool}.", toolName);
         }
+
+        quote = page is null ? "" : GccV2ToolResearchExtractor.PickBestVerbatimQuote(page);
+        if (!string.IsNullOrWhiteSpace(quote))
+            return (quote, 0);
+
+        throw new ContentGenerationException(
+            $"Partner tool page for {toolName.Trim()} requires a verbatim source blockquote but none could be extracted from {sourceUrl}.");
+    }
+
+    private async Task<IReadOnlyList<GccQuoteablePage>> LoadPartnerResearchForCreateAsync(Guid createId, CancellationToken ct)
+    {
+        var jobs = await _repo.ListJobsByCreateAsync(createId, ct);
+        foreach (var job in jobs)
+        {
+            var brief = await _repo.GetBriefAsync(job.BriefId, ct);
+            var pages = ParsePartnerResearchPages(brief?.RawBriefJson);
+            if (pages.Count > 0) return pages;
+        }
+
+        return [];
+    }
+
+    private static GccQuoteablePage? ResolvePartnerPage(string? sourceUrl, IReadOnlyList<GccQuoteablePage> pages)
+    {
+        if (pages.Count == 0) return null;
+        if (!string.IsNullOrWhiteSpace(sourceUrl))
+        {
+            var match = pages.FirstOrDefault(p =>
+                string.Equals(p.Url, sourceUrl, StringComparison.OrdinalIgnoreCase));
+            if (match is not null) return match;
+        }
+
+        return pages[0];
     }
 
     private async Task<PillarSnapshot?> ResolvePillarAsync(Guid createId, CancellationToken ct)

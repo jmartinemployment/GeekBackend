@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
@@ -42,6 +43,10 @@ public sealed class GccV2ToolOverviewWriteService
         GccV2ToolPageTarget target,
         CancellationToken ct)
     {
+        var crawlRun = await _repo.GetLatestToolSourceCrawlRunAsync(wc.Job.CreateId, ct);
+        GccV2ToolSourceCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
+        GccV2ToolSourceCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
+
         var jobs = await _repo.ListJobsByCreateAsync(wc.Job.CreateId, ct);
         var hasPillarJob = jobs.Any(j =>
             string.Equals(j.ContentType, "pillar", StringComparison.OrdinalIgnoreCase));

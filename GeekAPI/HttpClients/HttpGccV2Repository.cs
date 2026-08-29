@@ -48,6 +48,12 @@ public class HttpGccV2Repository
     public Task<GccV2BriefDto> CreateBriefAsync(CreateGccV2BriefCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2BriefDto>("repo/content-creator-v2/briefs", command, ct);
 
+    public Task<IReadOnlyList<GccV2BriefDto>> ListBriefsByCreateAsync(Guid createId, CancellationToken ct = default) =>
+        GetListAsync<GccV2BriefDto>($"repo/content-creator-v2/briefs?createId={createId}", ct);
+
+    public Task<GccV2BriefDto> PatchBriefAsync(Guid briefId, PatchGccV2BriefCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2BriefDto>($"repo/content-creator-v2/briefs/{briefId}", command, ct);
+
     // Jobs
 
     public Task<GccV2JobDto?> GetJobAsync(Guid id, CancellationToken ct = default) =>
@@ -192,6 +198,33 @@ public class HttpGccV2Repository
         CreateGccV2PartnerResearchRecordCommand command,
         CancellationToken ct = default) =>
         PostAsync<GccV2PartnerResearchRecordDto>("repo/content-creator-v2/partner-research-records", command, ct);
+
+    public Task<GccV2ToolSourceCrawlRunDto?> GetLatestToolSourceCrawlRunAsync(Guid createId, CancellationToken ct = default) =>
+        GetAsync<GccV2ToolSourceCrawlRunDto>($"repo/content-creator-v2/tool-source-crawl-runs/latest?createId={createId}", ct);
+
+    public Task<GccV2ToolSourceCrawlRunDto?> GetToolSourceCrawlRunAsync(Guid runId, CancellationToken ct = default) =>
+        GetAsync<GccV2ToolSourceCrawlRunDto>($"repo/content-creator-v2/tool-source-crawl-runs/{runId}", ct);
+
+    public Task<GccV2ToolSourceCrawlRunDto> CreateToolSourceCrawlRunAsync(
+        CreateGccV2ToolSourceCrawlRunCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GccV2ToolSourceCrawlRunDto>("repo/content-creator-v2/tool-source-crawl-runs", command, ct);
+
+    public Task<GccV2ToolSourceCrawlRunDto> PatchToolSourceCrawlRunAsync(
+        Guid runId,
+        PatchGccV2ToolSourceCrawlRunCommand command,
+        CancellationToken ct = default) =>
+        PatchAsync<GccV2ToolSourceCrawlRunDto>($"repo/content-creator-v2/tool-source-crawl-runs/{runId}", command, ct);
+
+    public Task<IReadOnlyList<GccV2ToolSourceCrawlPageDto>> ListToolSourceCrawlPagesAsync(
+        Guid runId,
+        CancellationToken ct = default) =>
+        GetListAsync<GccV2ToolSourceCrawlPageDto>($"repo/content-creator-v2/tool-source-crawl-pages?runId={runId}", ct);
+
+    public Task CreateToolSourceCrawlPagesBatchAsync(
+        CreateGccV2ToolSourceCrawlPageBatchCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<object>("repo/content-creator-v2/tool-source-crawl-pages/batch", command, ct);
 
     private async Task<int> PostSeedCountAsync(string path, CancellationToken ct)
     {

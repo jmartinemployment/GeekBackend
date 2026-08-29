@@ -257,20 +257,24 @@ public sealed class GccV2ToolPagePromptBuilder
             MaxOutputTokens: 1024);
     }
 
-    public ChatCompletionRequest BuildSourceExcerptPrompt(string toolName, string sourceUrl, string researchJson)
+    public ChatCompletionRequest BuildSourceQuotePrompt(
+        string toolName,
+        string sourceUrl,
+        string sourcePageText)
     {
         var system =
-            "Write 1-3 sentences paraphrasing the supplied tool research for a blockquote attribution block. " +
-            "Respond with ONLY plain text — no markdown, no HTML, no quotes wrapping the whole answer.";
+            "Select ONE verbatim sentence or short passage from the source page text below for a blockquote. " +
+            "Copy exact wording from the page — do NOT paraphrase, summarize, or rewrite. " +
+            "Respond with ONLY the quoted words — no markdown, no HTML, no surrounding quote marks (they are added by the pipeline).";
         var user = new StringBuilder()
             .AppendLine($"Tool: {toolName}")
             .AppendLine($"Source URL: {sourceUrl}")
-            .AppendLine("Research JSON:")
-            .AppendLine(researchJson)
+            .AppendLine("=== SOURCE PAGE TEXT (copy verbatim from here only) ===")
+            .AppendLine(sourcePageText)
             .ToString();
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
-            Temperature: 0.3,
+            Temperature: 0.1,
             MaxOutputTokens: 256);
     }
 

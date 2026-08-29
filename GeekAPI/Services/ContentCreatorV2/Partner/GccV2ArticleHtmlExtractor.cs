@@ -77,7 +77,40 @@ public static class GccV2ArticleHtmlExtractor
             }
         }
 
+        if (paragraphs.Count < maxParagraphs)
+        {
+            AddTextNodes(doc, "//blockquote", paragraphs, ref used, maxParagraphChars, maxParagraphs, charBudget);
+        }
+
+        if (paragraphs.Count < maxParagraphs)
+        {
+            AddTextNodes(doc, "//li", paragraphs, ref used, maxParagraphChars, maxParagraphs, charBudget);
+        }
+
         return new GccQuoteablePage(url, title, headings, paragraphs);
+    }
+
+    private static void AddTextNodes(
+        HtmlDocument doc,
+        string xpath,
+        List<string> paragraphs,
+        ref int used,
+        int maxParagraphChars,
+        int maxParagraphs,
+        int? charBudget)
+    {
+        var nodes = doc.DocumentNode.SelectNodes(xpath);
+        if (nodes is null) return;
+        foreach (var node in nodes)
+        {
+            var text = Truncate(CleanText(node.InnerText), maxParagraphChars);
+            if (text.Length <= 20) continue;
+            if (paragraphs.Contains(text, StringComparer.Ordinal)) continue;
+            if (charBudget is int budget && used + text.Length > budget) break;
+            paragraphs.Add(text);
+            used += text.Length;
+            if (paragraphs.Count >= maxParagraphs) break;
+        }
     }
 
     public static bool IsEmpty(GccQuoteablePage page) =>

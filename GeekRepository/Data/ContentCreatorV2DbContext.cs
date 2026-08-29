@@ -22,6 +22,8 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2PublishRecord> GccV2PublishRecords => Set<GccV2PublishRecord>();
     public virtual DbSet<GccV2AiVisibilitySnapshot> GccV2AiVisibilitySnapshots => Set<GccV2AiVisibilitySnapshot>();
     public virtual DbSet<GccV2PartnerResearchRecord> GccV2PartnerResearchRecords => Set<GccV2PartnerResearchRecord>();
+    public virtual DbSet<GccV2ToolSourceCrawlRun> GccV2ToolSourceCrawlRuns => Set<GccV2ToolSourceCrawlRun>();
+    public virtual DbSet<GccV2ToolSourceCrawlPage> GccV2ToolSourceCrawlPages => Set<GccV2ToolSourceCrawlPage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -191,6 +193,37 @@ public class ContentCreatorV2DbContext : DbContext
                 .HasDatabaseName("ix_gcc_v2_partner_research_records_target_url_crawled_at");
             entity.HasIndex(r => new { r.IsSuccess, r.TargetUrl, r.CrawledAtUtc })
                 .HasDatabaseName("ix_gcc_v2_partner_research_records_success_url_crawled");
+        });
+
+        modelBuilder.Entity<GccV2ToolSourceCrawlRun>(entity =>
+        {
+            entity.ToTable("gcc_v2_tool_source_crawl_runs");
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.CreateId).IsRequired();
+            entity.Property(r => r.Status).IsRequired().HasMaxLength(32).HasDefaultValue("pending");
+            entity.Property(r => r.SeedUrlsJson).IsRequired().HasColumnType("text").HasDefaultValue("[]");
+            entity.Property(r => r.HostProgressJson).HasColumnType("text");
+            entity.Property(r => r.PartnerResearchJson).HasColumnType("text");
+            entity.Property(r => r.ErrorSummary).HasMaxLength(2048);
+            entity.Property(r => r.CreatedAtUtc).IsRequired();
+            entity.HasIndex(r => new { r.CreateId, r.CreatedAtUtc })
+                .HasDatabaseName("ix_gcc_v2_tool_source_crawl_runs_create_id_created");
+        });
+
+        modelBuilder.Entity<GccV2ToolSourceCrawlPage>(entity =>
+        {
+            entity.ToTable("gcc_v2_tool_source_crawl_pages");
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.RunId).IsRequired();
+            entity.Property(p => p.Origin).IsRequired().HasMaxLength(512);
+            entity.Property(p => p.Url).IsRequired().HasMaxLength(2048);
+            entity.Property(p => p.FinalUrl).IsRequired().HasMaxLength(2048);
+            entity.Property(p => p.StatusCode).IsRequired();
+            entity.Property(p => p.RobotsAllowed).IsRequired();
+            entity.Property(p => p.Html).HasColumnType("text");
+            entity.Property(p => p.CrawledAtUtc).IsRequired();
+            entity.HasIndex(p => p.RunId).HasDatabaseName("ix_gcc_v2_tool_source_crawl_pages_run_id");
+            entity.HasIndex(p => new { p.RunId, p.Url }).HasDatabaseName("ix_gcc_v2_tool_source_crawl_pages_run_url");
         });
     }
 }

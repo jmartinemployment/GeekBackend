@@ -240,3 +240,50 @@ public sealed record CreateGccV2PartnerResearchRecordCommand(
     string? ExtractedTitle = null,
     string? PageJson = null,
     string? FlattenedTextContent = null);
+
+public sealed record GccV2ToolSourceCrawlRunDto(
+    Guid Id,
+    Guid CreateId,
+    string Status,
+    string SeedUrlsJson,
+    string? HostProgressJson,
+    string? PartnerResearchJson,
+    string? ErrorSummary,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? StartedAtUtc,
+    DateTimeOffset? CompletedAtUtc);
+
+public sealed record CreateGccV2ToolSourceCrawlRunCommand(Guid CreateId, string? SeedUrlsJson);
+
+public sealed record PatchGccV2ToolSourceCrawlRunCommand(
+    string? Status = null,
+    string? HostProgressJson = null,
+    string? PartnerResearchJson = null,
+    string? ErrorSummary = null,
+    DateTimeOffset? StartedAtUtc = null,
+    DateTimeOffset? CompletedAtUtc = null);
+
+public sealed record GccV2ToolSourceCrawlPageDto(
+    Guid Id,
+    Guid RunId,
+    string Origin,
+    string Url,
+    string FinalUrl,
+    int StatusCode,
+    bool RobotsAllowed,
+    string? Html,
+    DateTimeOffset CrawledAtUtc);
+
+public sealed record CreateGccV2ToolSourceCrawlPageItemCommand(
+    string Origin,
+    string Url,
+    string? FinalUrl,
+    int StatusCode,
+    bool RobotsAllowed,
+    string? Html);
+
+public sealed record CreateGccV2ToolSourceCrawlPageBatchCommand(
+    Guid RunId,
+    IReadOnlyList<CreateGccV2ToolSourceCrawlPageItemCommand> Pages);
+
+public sealed record PatchGccV2BriefCommand(string? RawBriefJson);

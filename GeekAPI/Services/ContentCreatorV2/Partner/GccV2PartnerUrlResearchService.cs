@@ -160,6 +160,102 @@ public sealed class GccV2PartnerUrlResearchService
         }
     }
 
+    /// <summary>Operator tool source URLs from brief — BFS seeds only (not hierarchy hrefs).</summary>
+    public static IReadOnlyList<string> CollectOperatorSeedUrls(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
+
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "operatorTools", out var ops)
+                || ops.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            var urls = new List<string>();
+            foreach (var t in ops.EnumerateArray())
+            {
+                string? opUrl = null;
+                if (t.ValueKind == JsonValueKind.String)
+                    opUrl = t.GetString();
+                else if (t.ValueKind == JsonValueKind.Object)
+                {
+                    opUrl = TryGetPropertyIgnoreCase(t, "url", out var u) && u.ValueKind == JsonValueKind.String
+                        ? u.GetString()
+                        : TryGetPropertyIgnoreCase(t, "href", out var h) && h.ValueKind == JsonValueKind.String
+                            ? h.GetString()
+                            : null;
+                }
+
+                if (string.IsNullOrWhiteSpace(opUrl) || !TryNormalizeHttpUrl(opUrl, out var normalized))
+                    continue;
+                if (!urls.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+                    urls.Add(normalized);
+            }
+
+            return urls;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> GroupOperatorSeedsByOrigin(
+        IReadOnlyList<string> seedUrls)
+    {
+        var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var url in seedUrls)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) continue;
+            var origin = uri.GetLeftPart(UriPartial.Authority);
+            if (!map.TryGetValue(origin, out var list))
+            {
+                list = [];
+                map[origin] = list;
+            }
+
+            if (!list.Contains(url, StringComparer.OrdinalIgnoreCase))
+                list.Add(url);
+        }
+
+        return map.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Writes <c>toolSourceCrawl</c> status onto brief JSON.</summary>
+    public static string? MergeToolSourceCrawlIntoBriefJson(string? rawBriefJson, object toolSourceCrawl)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "toolSourceCrawl", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    prop.WriteTo(writer);
+                }
+
+                writer.WritePropertyName("toolSourceCrawl");
+                JsonSerializer.Serialize(writer, toolSourceCrawl, JsonOpts);
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return rawBriefJson;
+        }
+    }
+
     public sealed record PartnerToolRow(string Name, string? Url, string Source);
 
     private static int FindCrawlToolIndex(IReadOnlyList<PartnerToolRow> rows, string? opName, string destUrl)
@@ -453,7 +549,7 @@ public sealed class GccV2PartnerUrlResearchService
         return true;
     }
 
-    private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
+    internal static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
     {
         if (obj.ValueKind != JsonValueKind.Object)
         {

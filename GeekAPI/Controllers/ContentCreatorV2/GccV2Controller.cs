@@ -10,6 +10,7 @@ using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
+using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.ContentCreatorV2;
@@ -32,6 +33,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2SiteHierarchyService _siteHierarchy;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccV2PartnerUrlResearchService _partnerResearch;
+    private readonly GccV2ToolSourceCrawlService _toolSourceCrawl;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -43,6 +45,7 @@ public class GccV2Controller : ControllerBase
         GccV2SiteHierarchyService siteHierarchy,
         HttpGeekSeoSiteAnalyzerClient seo,
         GccV2PartnerUrlResearchService partnerResearch,
+        GccV2ToolSourceCrawlService toolSourceCrawl,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -53,6 +56,7 @@ public class GccV2Controller : ControllerBase
         _siteHierarchy = siteHierarchy;
         _seo = seo;
         _partnerResearch = partnerResearch;
+        _toolSourceCrawl = toolSourceCrawl;
         _logger = logger;
     }
 
@@ -452,6 +456,79 @@ public class GccV2Controller : ControllerBase
         });
     }
 
+    [HttpPost("creates/{id:guid}/tool-sources/crawl")]
+    public async Task<ActionResult<object>> StartToolSourceCrawl(
+        Guid id,
+        [FromBody] ToolSourceCrawlRequest? request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+        if (!IsOwner(create.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
+
+        var rawBriefJson = request?.Brief is { } briefElement
+            ? briefElement.GetRawText()
+            : null;
+
+        try
+        {
+            var run = await _toolSourceCrawl.StartCrawlAsync(
+                id,
+                rawBriefJson,
+                request?.Force == true,
+                ct);
+            return Ok(MapToolSourceCrawlResponse(run));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("creates/{id:guid}/tool-sources/crawl")]
+    public async Task<ActionResult<object>> GetToolSourceCrawlStatus(Guid id, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+        if (!IsOwner(create.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
+
+        var run = await _toolSourceCrawl.GetLatestRunAsync(id, ct);
+        if (run is null)
+            return Ok(new { createId = id, status = "not_started" });
+
+        return Ok(MapToolSourceCrawlResponse(run));
+    }
+
+    private static object MapToolSourceCrawlResponse(GccV2ToolSourceCrawlRunDto run) =>
+        new
+        {
+            createId = run.CreateId,
+            runId = run.Id,
+            status = run.Status,
+            seedUrls = TryParseJsonArray(run.SeedUrlsJson),
+            hosts = TryParseJsonArray(run.HostProgressJson),
+            errorSummary = run.ErrorSummary,
+            startedAtUtc = run.StartedAtUtc,
+            completedAtUtc = run.CompletedAtUtc,
+        };
+
+    private static object? TryParseJsonArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<JsonElement>(json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Creates a brief stub + one pending job per content type, wakes the worker(s).
     /// Requires <see cref="GenerateRequest.PartnerToolsConfirmed"/> after preflight.</summary>
     [HttpPost("creates/{id:guid}/generate")]
@@ -738,43 +815,44 @@ public class GccV2Controller : ControllerBase
     {
         try
         {
-            var hrefs = GccV2PartnerUrlResearchService.CollectPartnerHrefs(rawBriefJson);
-            // #region agent log
-            GeekAPI.Diagnostics.AgentDebugLog.Write(
-                "B",
-                "GccV2Controller.TryMergePartnerResearchAsync",
-                "Collected partner hrefs",
-                new { hrefCount = hrefs.Count, hrefHosts = hrefs.Select(h =>
-                {
-                    try { return new Uri(h).Host; } catch { return h; }
-                }).ToList() });
-            // #endregion
-            if (hrefs.Count == 0) return rawBriefJson;
-
-            var pages = await _partnerResearch.FetchAsync(createId, hrefs, ct);
-            // #region agent log
-            GeekAPI.Diagnostics.AgentDebugLog.Write(
-                "C",
-                "GccV2Controller.TryMergePartnerResearchAsync",
-                "Partner fetch finished",
-                new { hrefCount = hrefs.Count, pageCount = pages.Count });
-            // #endregion
-            if (pages.Count == 0)
-            {
-                _logger.LogWarning(
-                    "Partner URL research fetched 0 of {UrlCount} href(s); continuing without partnerResearch.",
-                    hrefs.Count);
+            var operatorSeeds = GccV2PartnerUrlResearchService.CollectOperatorSeedUrls(rawBriefJson);
+            if (operatorSeeds.Count == 0)
                 return rawBriefJson;
+
+            var run = await _toolSourceCrawl.GetLatestRunAsync(createId, ct).ConfigureAwait(false);
+            if (run is not null
+                && string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(run.PartnerResearchJson))
+            {
+                var pages = GccV2ToolSourceCrawlService.DeserializePartnerResearch(run.PartnerResearchJson);
+                if (pages.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "Merged {PageCount} tool source page extract(s) from crawl run {RunId}.",
+                        pages.Count,
+                        run.Id);
+                    return GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, pages);
+                }
             }
 
-            _logger.LogInformation(
-                "Partner URL research stored {PageCount} of {UrlCount} page extract(s) on brief.",
-                pages.Count, hrefs.Count);
-            return GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, pages);
+            if (run is null || string.Equals(run.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    await _toolSourceCrawl.StartCrawlAsync(createId, rawBriefJson, force: false, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not auto-start tool source crawl for create {CreateId}.", createId);
+                }
+            }
+
+            return rawBriefJson;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Partner URL research failed; continuing without partnerResearch.");
+            _logger.LogWarning(ex, "Tool source research merge failed; continuing without partnerResearch.");
             return rawBriefJson;
         }
     }
@@ -1294,6 +1372,8 @@ public class GccV2Controller : ControllerBase
         Guid? SiteAnalysisProfileId,
         IReadOnlyList<string>? ContentTypes = null,
         bool? PartnerToolsConfirmed = null);
+
+    public record ToolSourceCrawlRequest(JsonElement? Brief, bool? Force = null);
 
     private static IReadOnlyList<string> ResolveContentTypes(GenerateRequest? request, string? createContentType)
     {

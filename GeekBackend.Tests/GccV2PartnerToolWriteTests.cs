@@ -4,47 +4,120 @@ using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
+using GeekApplication.Models.ContentCreator;
 
 namespace GeekBackend.Tests;
 
 public sealed class GccV2PartnerToolWriteTests
 {
     [Fact]
-    public void RenderSourceAttribution_emits_blockquote_cite_and_visit_link()
+    public void RenderSourceAttribution_emits_blockquote_cite_typographic_quotes_and_visit_link()
     {
         const string url = "https://botpenguin.com/product";
-        var html = GccV2ToolSectionRenderer.RenderSourceAttribution(
-            url,
-            "BotPenguin automates conversational support for marketing teams.",
-            "BotPenguin");
+        const string quote = "BotPenguin automates conversational support for marketing teams.";
+        var html = GccV2ToolSectionRenderer.RenderSourceAttribution(url, quote, "BotPenguin");
 
-        Assert.Contains($"<blockquote cite=\"{url}\">", html, StringComparison.Ordinal);
-        Assert.Contains("<p>BotPenguin automates conversational support for marketing teams.</p>", html, StringComparison.Ordinal);
-        Assert.Contains($"<a href=\"{url}\">Visit BotPenguin</a>", html, StringComparison.Ordinal);
+        Assert.Contains($"<blockquote cite=\"{url}\"", html, StringComparison.Ordinal);
+        Assert.Contains(
+            $"<p>\u201C{quote}\u201D</p>",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains($"<a href=\"{url}\" target=\"_blank\" rel=\"noopener noreferrer\">Visit BotPenguin</a>", html, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void BuildAttributionExcerpt_prefers_summary_then_whatItDoes()
+    public void FormatBlockQuoteText_wraps_verbatim_text_in_typographic_quotes()
+    {
+        var formatted = GccV2ToolSectionRenderer.FormatBlockQuoteText(
+            "Pipedrive is a sales CRM built for small teams.");
+        Assert.Equal("\u201CPipedrive is a sales CRM built for small teams.\u201D", formatted);
+    }
+
+    [Fact]
+    public void PickVerbatimQuote_selects_first_usable_paragraph()
+    {
+        var page = new GccQuoteablePage(
+            "https://pipedrive.com/crm",
+            "Pipedrive CRM",
+            [],
+            [
+                "Short.",
+                "Pipedrive is a sales-focused CRM that helps small teams manage pipelines and close deals faster.",
+            ]);
+
+        var quote = GccV2ToolResearchExtractor.PickVerbatimQuote(page);
+        Assert.Equal(
+            "Pipedrive is a sales-focused CRM that helps small teams manage pipelines and close deals faster.",
+            quote);
+    }
+
+    [Fact]
+    public void PickBestVerbatimQuote_falls_back_to_shorter_verbatim_paragraph()
+    {
+        var page = new GccQuoteablePage(
+            "https://pipedrive.com/crm",
+            "Pipedrive CRM",
+            [],
+            ["Pipedrive helps sales teams win today."]);
+
+        Assert.Equal("", GccV2ToolResearchExtractor.PickVerbatimQuote(page));
+        Assert.Equal(
+            "Pipedrive helps sales teams win today.",
+            GccV2ToolResearchExtractor.PickBestVerbatimQuote(page));
+    }
+
+    [Fact]
+    public void RequireSourceAttributionHtml_emits_blockquote_and_visit_link()
+    {
+        const string url = "https://pipedrive.com/product";
+        const string quote = "Pipedrive is a sales-focused CRM built for growing teams.";
+        var html = GccV2PartnerToolWriteService.RequireSourceAttributionHtml(url, quote, "Pipedrive");
+
+        Assert.Contains("<blockquote", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"cite=\"{url}\"", html, StringComparison.Ordinal);
+        Assert.Contains("Visit Pipedrive", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequireSourceAttributionHtml_throws_when_quote_missing()
+    {
+        const string url = "https://pipedrive.com/product";
+        var ex = Assert.Throws<ContentGenerationException>(() =>
+            GccV2PartnerToolWriteService.RequireSourceAttributionHtml(url, "", "Pipedrive"));
+        Assert.Contains("verbatim source blockquote", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildAttributionExcerpt_returns_source_quote_only()
     {
         var research = new GccV2ExtractedToolResearch(
             "BotPenguin",
-            "Summary line.",
+            "Paraphrased summary line.",
             "Does chat automation.",
             [],
             [],
             "",
-            "");
-        Assert.Equal("Summary line.", GccV2ToolResearchExtractor.BuildAttributionExcerpt(research));
+            "",
+            "BotPenguin helps teams automate chat on every channel.");
+        Assert.Equal(
+            "BotPenguin helps teams automate chat on every channel.",
+            GccV2ToolResearchExtractor.BuildAttributionExcerpt(research));
     }
 
     [Fact]
-    public void BuildSourceAttributionHtml_uses_fallback_when_excerpt_empty()
+    public void ResolveSourceQuote_prefers_crawled_quote_over_llm_paraphrase()
     {
-        const string url = "https://pipedrive.com/product";
-        var html = GccV2PartnerToolWriteService.BuildSourceAttributionHtml(url, "", "Pipedrive");
-        Assert.NotNull(html);
-        Assert.Contains($"<blockquote cite=\"{url}\">", html, StringComparison.Ordinal);
-        Assert.Contains("Pipedrive", html, StringComparison.Ordinal);
+        const string pageText =
+            "Pipedrive is a sales-focused CRM that helps small teams manage pipelines and close deals faster.";
+        var crawled = GccV2ToolResearchExtractor.PickVerbatimQuote(
+            new GccQuoteablePage("https://pipedrive.com", "CRM", [], [pageText]));
+
+        var resolved = GccV2ToolResearchExtractor.ResolveSourceQuote(
+            crawled,
+            "A CRM tool for managing sales pipelines.",
+            pageText);
+
+        Assert.Equal(crawled, resolved);
     }
 
     [Fact]
