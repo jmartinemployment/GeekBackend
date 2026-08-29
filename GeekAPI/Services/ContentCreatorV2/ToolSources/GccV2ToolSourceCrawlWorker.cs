@@ -1,3 +1,5 @@
+using GeekAPI.HttpClients;
+
 namespace GeekAPI.Services.ContentCreatorV2.ToolSources;
 
 public sealed class GccV2ToolSourceCrawlWorker : BackgroundService
@@ -20,6 +22,8 @@ public sealed class GccV2ToolSourceCrawlWorker : BackgroundService
     {
         _logger.LogInformation("GccV2ToolSourceCrawlWorker starting.");
 
+        await WakeOrphanedPendingOnceAsync(stoppingToken);
+
         await foreach (var runId in _wake.Reader.ReadAllAsync(stoppingToken))
         {
             try
@@ -32,6 +36,35 @@ public sealed class GccV2ToolSourceCrawlWorker : BackgroundService
             {
                 _logger.LogError(ex, "GccV2ToolSourceCrawlWorker failed for run {RunId}", runId);
             }
+        }
+    }
+
+    /// <summary>
+    /// One startup scan for crawl runs left <c>pending</c> when the in-memory wake was lost
+    /// (API restart, deploy, or wake on another instance). Matches <see cref="Jobs.GccV2JobWorker"/>.
+    /// </summary>
+    private async Task WakeOrphanedPendingOnceAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<HttpGccV2Repository>();
+            var pending = await repo.GetToolSourceCrawlRunsByStatusAsync("pending", limit: 200, ct).ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+            var toWake = pending.Where(r => GccV2ToolSourceCrawlRecovery.ShouldWakeAtStartup(r, now)).ToList();
+            foreach (var run in toWake)
+                _wake.Wake(run.Id);
+
+            if (toWake.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Startup pending recovery woke {Count} orphaned tool-source crawl run(s).",
+                    toWake.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Startup pending tool-source crawl scan failed; continuing without recovery.");
         }
     }
 }

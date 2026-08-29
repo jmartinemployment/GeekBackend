@@ -86,6 +86,7 @@ public sealed class GccV2ToolSourceCrawlService
             if (string.Equals(latest.Status, "running", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(latest.Status, "pending", StringComparison.OrdinalIgnoreCase))
             {
+                _wake.Wake(latest.Id);
                 return latest;
             }
 

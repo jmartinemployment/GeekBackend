@@ -43,6 +43,26 @@ public class GccV2ToolSourceCrawlRunsController : ControllerBase
         return Ok(rows);
     }
 
+    [HttpGet("by-status/{status}")]
+    public async Task<ActionResult<IReadOnlyList<GccV2ToolSourceCrawlRun>>> ListByStatus(
+        string status,
+        [FromQuery] int limit = 200,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return BadRequest("status is required");
+
+        limit = Math.Clamp(limit, 1, 200);
+        var normalized = status.Trim().ToLowerInvariant();
+        var rows = await _db.GccV2ToolSourceCrawlRuns.AsNoTracking()
+            .Where(r => r.Status.ToLower() == normalized)
+            .OrderBy(r => r.CreatedAtUtc)
+            .Take(limit)
+            .ToListAsync(ct);
+
+        return Ok(rows);
+    }
+
     [HttpPost]
     public async Task<ActionResult<GccV2ToolSourceCrawlRun>> Create(
         [FromBody] CreateGccV2ToolSourceCrawlRunCommand command,

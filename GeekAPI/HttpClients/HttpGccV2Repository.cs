@@ -207,6 +207,14 @@ public class HttpGccV2Repository
             $"repo/content-creator-v2/tool-source-crawl-runs/for-user?ownerUserId={Uri.EscapeDataString(ownerUserId)}&limit={limit}",
             ct);
 
+    public Task<IReadOnlyList<GccV2ToolSourceCrawlRunDto>> GetToolSourceCrawlRunsByStatusAsync(
+        string status,
+        int limit = 200,
+        CancellationToken ct = default) =>
+        GetListAsync<GccV2ToolSourceCrawlRunDto>(
+            $"repo/content-creator-v2/tool-source-crawl-runs/by-status/{Uri.EscapeDataString(status)}?limit={limit}",
+            ct);
+
     public Task<GccV2ToolSourceCrawlRunDto?> GetToolSourceCrawlRunAsync(Guid runId, CancellationToken ct = default) =>
         GetAsync<GccV2ToolSourceCrawlRunDto>($"repo/content-creator-v2/tool-source-crawl-runs/{runId}", ct);
 

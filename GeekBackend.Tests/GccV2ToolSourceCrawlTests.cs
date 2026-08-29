@@ -71,4 +71,40 @@ public class GccV2ToolSourceCrawlTests
         Assert.Throws<GccV2ToolWriteDeferredException>(() =>
             GccV2ToolSourceCrawlGate.ThrowIfDeferred("{\"operatorTools\":[{\"url\":\"https://a.com\"}]}", run));
     }
+
+    [Fact]
+    public void ShouldWakeAtStartup_skips_recent_pending()
+    {
+        var recent = new GccV2ToolSourceCrawlRunDto(
+            Guid.NewGuid(),
+            "user-1",
+            "pending",
+            "[]",
+            null,
+            null,
+            null,
+            DateTimeOffset.UtcNow,
+            null,
+            null);
+
+        Assert.False(GccV2ToolSourceCrawlRecovery.ShouldWakeAtStartup(recent, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void ShouldWakeAtStartup_wakes_old_pending()
+    {
+        var old = new GccV2ToolSourceCrawlRunDto(
+            Guid.NewGuid(),
+            "user-1",
+            "pending",
+            "[]",
+            null,
+            null,
+            null,
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            null,
+            null);
+
+        Assert.True(GccV2ToolSourceCrawlRecovery.ShouldWakeAtStartup(old, DateTimeOffset.UtcNow));
+    }
 }
