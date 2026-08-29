@@ -8,6 +8,7 @@ using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreatorV2.Plan;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.ContentCreatorV2;
@@ -1046,6 +1047,11 @@ public class GccV2Controller : ControllerBase
             return BadRequest(new { error = $"Job is '{job.Status}' — outline can only be edited while awaiting outline approval." });
         if (request?.Sections is null || request.Sections.Count == 0)
             return BadRequest(new { error = "sections required" });
+
+        var roleValidation = GccV2OutlinePutValidator.ValidatePutOutlineSections(
+            request.Sections.Select(s => s.Job).ToList());
+        if (roleValidation is not null)
+            return BadRequest(new { error = roleValidation });
 
         var outline = new
         {
