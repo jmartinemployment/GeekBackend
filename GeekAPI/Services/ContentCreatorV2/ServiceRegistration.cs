@@ -12,7 +12,6 @@ using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.Polite;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
-using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using GeekAPI.Services.ContentCreatorV2.Transforms;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
@@ -38,7 +37,6 @@ public static class ContentCreatorV2ServiceRegistration
 
         services.AddSingleton<GccV2JobWake>();
         services.AddScoped<GccV2ProgressNotifier>();
-        services.AddScoped<GccV2CrawlProgressNotifier>();
         services.AddScoped<GccV2JobEventWriter>();
         services.AddScoped<GccV2ImagePromptSpawnService>();
         services.AddScoped<GccV2ToolPagePromptBuilder>();
@@ -63,10 +61,7 @@ public static class ContentCreatorV2ServiceRegistration
         })
         .SetHandlerLifetime(TimeSpan.FromMinutes(5));
         services.AddScoped<GccV2PartnerUrlResearchService>();
-        services.AddSingleton<GccV2ToolSourceCrawlWake>();
-        services.AddScoped<GccV2SameOriginBfsCrawler>();
-        services.AddScoped<GccV2ToolSourceCrawlService>();
-        services.AddHostedService<GccV2ToolSourceCrawlWorker>();
+        services.AddScoped<GeekCrawlerToolRunResolver>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();

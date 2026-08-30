@@ -4,12 +4,15 @@ using GeekAPI.Auth;
 using GeekAPI.Controllers;
 using GeekAPI.Controllers.ContentCreatorV2.Auth;
 using GeekAPI.Controllers.ContentCreatorV2.Hubs;
+using GeekAPI.Controllers.GeekCrawler.Hubs;
+using GeekAPI.Controllers.Workflow.Hubs;
 using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentWriterV3;
+using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.SiteAnalyzer2;
 using GeekAPI.Services.Workflow.Hosting;
 using GeekAPI.Services.Workflow.Infrastructure;
@@ -92,6 +95,7 @@ builder.Services.AddScoped(sp =>
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddContentCreatorV2();
+builder.Services.AddGeekCrawler();
 
 // GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]
 // (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade). Additive: existing
@@ -214,6 +218,8 @@ app.MapControllers();
 if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
 {
     app.MapHub<GccV2RealtimeHub>("/hubs/gcc-v2-realtime");
+    app.MapHub<GeekCrawlerRealtimeHub>("/hubs/geek-crawler-realtime");
+    app.MapHub<WorkflowRealtimeHub>("/hubs/workflow-realtime");
 }
 
 // Workflow: loads persisted projects/clients from GeekRepository at startup.

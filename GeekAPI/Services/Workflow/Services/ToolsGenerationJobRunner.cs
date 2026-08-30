@@ -11,23 +11,26 @@ namespace GeekAPI.Services.Workflow.Services;
 public sealed class ToolsGenerationJobRunner
 {
     private readonly ToolsGenerationJobStore _jobs;
+    private readonly ToolsJobProgressNotifier _notifier;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ToolsGenerationJobRunner> _logger;
 
     public ToolsGenerationJobRunner(
         ToolsGenerationJobStore jobs,
+        ToolsJobProgressNotifier notifier,
         IServiceScopeFactory scopeFactory,
         ILogger<ToolsGenerationJobRunner> logger)
     {
         _jobs = jobs;
+        _notifier = notifier;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
     public ToolsGenerationJob StartCrawlTools(Guid projectId, string? bearerToken)
     {
-        // Total unknown until crawl resolve; UI shows indeterminate until SetTotal.
         var job = _jobs.Create(projectId, "tools", total: 0);
+        Push(job);
         _ = Task.Run(() => RunCrawlAsync(job.Id, projectId, bearerToken));
         return job;
     }
@@ -40,8 +43,8 @@ public sealed class ToolsGenerationJobRunner
             .Select(n => n.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        // Product pages + hub.
         var job = _jobs.Create(projectId, "tools-from-names", total: names.Count + 1);
+        Push(job);
         _ = Task.Run(() => RunFromNamesAsync(job.Id, projectId, names, brief, bearerToken));
         return job;
     }
@@ -68,14 +71,17 @@ public sealed class ToolsGenerationJobRunner
                 {
                     if (total > 0) _jobs.SetTotal(jobId, total);
                     _jobs.SetProgress(jobId, completed);
+                    PushJob(jobId);
                 },
                 cancellationToken: CancellationToken.None);
             _jobs.Complete(jobId, result);
+            PushJob(jobId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Tools generation job {JobId} failed for project {ProjectId}", jobId, projectId);
             _jobs.Fail(jobId, ex is ContentGenerationException cg ? cg.Message : ex.Message);
+            PushJob(jobId);
         }
     }
 
@@ -95,14 +101,35 @@ public sealed class ToolsGenerationJobRunner
                 {
                     if (total > 0) _jobs.SetTotal(jobId, total);
                     _jobs.SetProgress(jobId, completed);
+                    PushJob(jobId);
                 },
                 cancellationToken: CancellationToken.None);
             _jobs.Complete(jobId, result);
+            PushJob(jobId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Tools-from-names job {JobId} failed for project {ProjectId}", jobId, projectId);
             _jobs.Fail(jobId, ex is ContentGenerationException cg ? cg.Message : ex.Message);
+            PushJob(jobId);
         }
+    }
+
+    private void Push(ToolsGenerationJob job)
+    {
+        try
+        {
+            _ = _notifier.PushAsync(job);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Tools job push failed for {JobId}.", job.Id);
+        }
+    }
+
+    private void PushJob(Guid jobId)
+    {
+        var job = _jobs.Get(jobId);
+        if (job is not null) Push(job);
     }
 }

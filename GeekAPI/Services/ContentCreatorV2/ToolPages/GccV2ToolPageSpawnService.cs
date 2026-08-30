@@ -2,7 +2,6 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
-using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
 
@@ -21,7 +20,7 @@ public sealed class GccV2ToolPageSpawnService
     };
 
     private readonly HttpGccV2Repository _repo;
-    private readonly GccV2ToolSourceCrawlService _toolSourceCrawl;
+    private readonly GeekCrawlerToolRunResolver _partnerCrawl;
     private readonly GccV2JobWake _wake;
     private readonly GccV2ToolResearchExtractor _extractor;
     private readonly IContentProviderFactory _providers;
@@ -29,14 +28,14 @@ public sealed class GccV2ToolPageSpawnService
 
     public GccV2ToolPageSpawnService(
         HttpGccV2Repository repo,
-        GccV2ToolSourceCrawlService toolSourceCrawl,
+        GeekCrawlerToolRunResolver partnerCrawl,
         GccV2JobWake wake,
         GccV2ToolResearchExtractor extractor,
         IContentProviderFactory providers,
         ILogger<GccV2ToolPageSpawnService> logger)
     {
         _repo = repo;
-        _toolSourceCrawl = toolSourceCrawl;
+        _partnerCrawl = partnerCrawl;
         _wake = wake;
         _extractor = extractor;
         _providers = providers;
@@ -69,10 +68,13 @@ public sealed class GccV2ToolPageSpawnService
         if (!BriefIncludesToolDraft(brief.RawBriefJson))
             return new SpawnResult(0, 0, null, null);
 
-        var crawlRun = await _toolSourceCrawl.ResolveRunForUserAsync(triggerJob.OwnerUserId, brief.RawBriefJson, ct);
-        GccV2ToolSourceCrawlGate.ThrowIfDeferred(brief.RawBriefJson, crawlRun);
-        GccV2ToolSourceCrawlGate.ThrowIfFailed(brief.RawBriefJson, crawlRun);
+        var crawlRun = await _partnerCrawl.ResolveRunForUserAsync(triggerJob.OwnerUserId, brief.RawBriefJson, ct);
+        GeekCrawlerPartnerCrawlGate.ThrowIfDeferred(brief.RawBriefJson, crawlRun);
+        GeekCrawlerPartnerCrawlGate.ThrowIfFailed(brief.RawBriefJson, crawlRun);
 
+        var partnerResearch = crawlRun is not null
+            ? await _partnerCrawl.ExtractPartnerResearchAsync(crawlRun, ct)
+            : ParsePartnerResearch(brief.RawBriefJson);
         var partnerRows = GccV2PartnerUrlResearchService.CollectPartnerToolRows(brief.RawBriefJson);
         if (partnerRows.Count == 0)
         {
@@ -81,7 +83,6 @@ public sealed class GccV2ToolPageSpawnService
                 triggerJob.CreateId);
         }
 
-        var partnerResearch = ParsePartnerResearch(brief.RawBriefJson);
         var provider = _providers.GetDefault();
         var existing = await LoadExistingPartnerSlugsAsync(triggerJob.CreateId, ct);
         var spawned = 0;

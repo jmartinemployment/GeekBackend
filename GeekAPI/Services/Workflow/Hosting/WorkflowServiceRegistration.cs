@@ -78,6 +78,7 @@ public static class WorkflowServiceRegistration
         services.AddScoped<IToolPageGenerator, ToolPageGenerator>();
         services.AddScoped<IContentGenerationOrchestrator, ContentGenerationOrchestrator>();
         services.AddSingleton<ToolsGenerationJobStore>();
+        services.AddSingleton<ToolsJobProgressNotifier>();
         services.AddSingleton<ToolsGenerationJobRunner>();
         services.AddScoped<IHtmlExportService, HtmlExportService>();
         services.AddHttpClient("GitHub");

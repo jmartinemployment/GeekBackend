@@ -38,7 +38,7 @@ public class GenerateController : ControllerBase
     public Task<IActionResult> GeneratePillar(Guid projectId, CancellationToken cancellationToken) =>
         RunStep(projectId, _orchestrator.GeneratePillarAsync(projectId, cancellationToken), "pillar", cancellationToken);
 
-    /// <summary>Starts crawl tools generation in the background. Poll GET tools/jobs/{jobId}.</summary>
+    /// <summary>Starts crawl tools generation in the background. Subscribe via workflow hub; GET is reconnect snapshot only.</summary>
     [HttpPost("tools")]
     public IActionResult GenerateToolPages(Guid projectId)
     {
@@ -46,7 +46,7 @@ public class GenerateController : ControllerBase
         return Accepted(ToResponse(job));
     }
 
-    /// <summary>Starts names-only tools generation in the background. Poll GET tools/jobs/{jobId}.</summary>
+    /// <summary>Starts names-only tools generation in the background. Subscribe via workflow hub; GET is reconnect snapshot only.</summary>
     [HttpPost("tools-from-names")]
     public IActionResult GenerateToolPagesFromNames(
         Guid projectId,

@@ -2,7 +2,6 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
-using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
@@ -15,7 +14,7 @@ namespace GeekAPI.Services.ContentCreatorV2.ToolPages;
 public sealed class GccV2ToolOverviewWriteService
 {
     private readonly HttpGccV2Repository _repo;
-    private readonly GccV2ToolSourceCrawlService _toolSourceCrawl;
+    private readonly GeekCrawlerToolRunResolver _partnerCrawl;
     private readonly GccV2ToolPagePromptBuilder _prompts;
     private readonly GccV2ToolPageSpawnService _spawn;
     private readonly GccV2ContextAdapter _contextAdapter;
@@ -24,7 +23,7 @@ public sealed class GccV2ToolOverviewWriteService
 
     public GccV2ToolOverviewWriteService(
         HttpGccV2Repository repo,
-        GccV2ToolSourceCrawlService toolSourceCrawl,
+        GeekCrawlerToolRunResolver partnerCrawl,
         GccV2ToolPagePromptBuilder prompts,
         GccV2ToolPageSpawnService spawn,
         GccV2ContextAdapter contextAdapter,
@@ -32,7 +31,7 @@ public sealed class GccV2ToolOverviewWriteService
         ILogger<GccV2ToolOverviewWriteService> logger)
     {
         _repo = repo;
-        _toolSourceCrawl = toolSourceCrawl;
+        _partnerCrawl = partnerCrawl;
         _prompts = prompts;
         _spawn = spawn;
         _contextAdapter = contextAdapter;
@@ -46,9 +45,9 @@ public sealed class GccV2ToolOverviewWriteService
         GccV2ToolPageTarget target,
         CancellationToken ct)
     {
-        var crawlRun = await _toolSourceCrawl.ResolveRunForUserAsync(wc.Job.OwnerUserId, wc.Brief.RawBriefJson, ct);
-        GccV2ToolSourceCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
-        GccV2ToolSourceCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
+        var crawlRun = await _partnerCrawl.ResolveRunForUserAsync(wc.Job.OwnerUserId, wc.Brief.RawBriefJson, ct);
+        GeekCrawlerPartnerCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
+        GeekCrawlerPartnerCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
 
         var jobs = await _repo.ListJobsByCreateAsync(wc.Job.CreateId, ct);
         var hasPillarJob = jobs.Any(j =>

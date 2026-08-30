@@ -18,7 +18,9 @@ GeekRepository           [Data access: Dapper + EF Core, in-process]
 PostgreSQL              [Auth tables via Dapper; content via EF Core]
 ```
 
-Layer boundaries enforced at `.csproj` reference level. See [Architecture.md](./Architecture.md) for platform topology, S2S auth target (JWT, not shared repo keys), and deployment rules.
+Layer boundaries enforced at `.csproj` reference level. See [Architecture.md](./Architecture.md) for platform topology, S2S auth target (JWT, not shared repo keys), deployment rules, and **long-running job / SignalR rules** (no client or worker polling).
+
+**Platform correctness docs** (content-creator-v2): [`plan/realtime-progress.md`](../content-creator-v2/plan/realtime-progress.md), [`plan/correctness-and-fallbacks.md`](../content-creator-v2/plan/correctness-and-fallbacks.md). See also [AGENTS.md](./AGENTS.md).
 
 ## Tech Stack
 

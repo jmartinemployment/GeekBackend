@@ -1,8 +1,8 @@
 using System.Threading.Channels;
 
-namespace GeekAPI.Services.ContentCreatorV2.ToolSources;
+namespace GeekAPI.Services.GeekCrawler;
 
-public sealed class GccV2ToolSourceCrawlWake
+public sealed class GeekCrawlerWake
 {
     private readonly Channel<Guid> _channel = Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions
     {

@@ -10,7 +10,7 @@ namespace GeekAPI.Services.GeekSeo;
 
 /// <summary>
 /// Site Analyzer client for Content Creator.
-/// Starts and polls a dedicated analysis; failures are returned as errors.
+/// Starts site analysis via Geek-SEO; progress is pushed over SignalR (<c>AnalysisProgress</c>).
 /// </summary>
 public class HttpGeekSeoSiteAnalyzerClient
 {

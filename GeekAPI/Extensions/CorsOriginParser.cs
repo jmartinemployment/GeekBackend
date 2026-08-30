@@ -7,6 +7,7 @@ public static class CorsOriginParser
         "http://localhost:3000",
         "http://localhost:3003",
         "http://localhost:3004",
+        "http://localhost:3005",
         "https://geekatyourspot.com",
         "https://www.geekatyourspot.com",
         "https://admin.geekatyourspot.com",
@@ -15,6 +16,7 @@ public static class CorsOriginParser
         "https://content-writer-jeff-martins-projects-66716453.vercel.app",
         "https://content-creator-v2.vercel.app",
         "https://content-creator-v2-phi.vercel.app",
+        "https://geek-crawler.vercel.app",
     ];
 
     /// <summary>
@@ -69,7 +71,14 @@ public static class CorsOriginParser
         if (string.Equals(uri.Host, "content-creator-v2.vercel.app", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        return uri.Host.StartsWith("content-creator-v2-", StringComparison.OrdinalIgnoreCase)
+        if (uri.Host.StartsWith("content-creator-v2-", StringComparison.OrdinalIgnoreCase)
+            && uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(uri.Host, "geek-crawler.vercel.app", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return uri.Host.StartsWith("geek-crawler-", StringComparison.OrdinalIgnoreCase)
                && uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase);
     }
 

@@ -51,6 +51,20 @@ flowchart LR
 1. **Only GeekAPI talks to GeekRepository** — no product service (OrderStack, RankPilot, etc.) holds `REPO_URL` or database credentials for platform auth/content.
 2. **No authorization server in GeekBackend** — no `/connect/*`, no OpenIddict issuer on GeekAPI.
 3. **Geek SEO product APIs** (AI, SERP, scoring, SignalR) live in **Geek-SEO / GeekSeoBackend**. **Geek SEO persistence** (`geek_seo` schema, `repo/seo/*`) lives in **GeekRepository**; GeekSeoBackend reaches it only via **GeekAPI** `api/seo/internal/*`.
+4. **Long-running work uses push, not poll.** Job and crawl progress is delivered over **SignalR hubs on GeekAPI** (or Geek-SEO hubs for site analysis). Clients subscribe via hub `Join*` methods; REST GET is for snapshot, history, and reconnect catch-up only — **never on a timer**. Workers wake on `NOTIFY`/channel events with one-shot orphan recovery on startup — no continuous `SELECT pending` tickers. See [`content-creator-v2/plan/realtime-progress.md`](../content-creator-v2/plan/realtime-progress.md) and [`content-creator-v2/plan/correctness-and-fallbacks.md`](../content-creator-v2/plan/correctness-and-fallbacks.md).
+5. **Correctness over expediency.** No silent fallbacks; jobs must fail loud or reach a terminal/awaiting state.
+
+**SignalR hubs (GeekAPI)**
+
+| Product / flow | Hub | Event |
+|----------------|-----|-------|
+| Content Creator v2 jobs | `/hubs/gcc-v2-realtime` | `JobEvent` |
+| Partner crawl (Geek-Crawler) | `/hubs/geek-crawler-realtime` | `GeekCrawlerEvent` |
+| Workflow tools generation | `/hubs/workflow-realtime` | `ToolsJobEvent` |
+
+Site analysis progress: Geek-SEO `/hubs/seo-realtime` (`AnalysisProgress`).
+
+Legacy gcc-v2 `JoinCrawlRun` / `CrawlEvent` for tool-source crawl is **removed** with that stack — not a product surface.
 
 ---
 

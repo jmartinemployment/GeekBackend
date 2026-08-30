@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -24,8 +23,6 @@ public sealed class GccV2RealtimeHub : Hub
     }
 
     public static string JobGroup(Guid jobId) => $"job:{jobId:D}";
-
-    public static string CrawlGroup(Guid runId) => $"crawl:{runId:D}";
 
     public async Task JoinJob(Guid jobId, int lastSeq)
     {
@@ -54,34 +51,4 @@ public sealed class GccV2RealtimeHub : Hub
     }
 
     public Task LeaveJob(Guid jobId) => Groups.RemoveFromGroupAsync(Context.ConnectionId, JobGroup(jobId));
-
-    /// <summary>
-    /// Joins a tool-source crawl run group and sends the latest DB snapshot — no polling required.
-    /// </summary>
-    public async Task JoinCrawlRun(Guid runId)
-    {
-        var userId = Context.User?.FindFirst("sub")?.Value
-            ?? Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrWhiteSpace(userId))
-            throw new HubException("Unauthorized");
-
-        var run = await _repo.GetToolSourceCrawlRunAsync(runId, Context.ConnectionAborted);
-        if (run is null)
-            throw new HubException("Crawl run not found");
-
-        if (!string.Equals(run.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogWarning("User {UserId} denied JoinCrawlRun for {RunId}.", userId, runId);
-            throw new HubException("Forbidden");
-        }
-
-        await Groups.AddToGroupAsync(Context.ConnectionId, CrawlGroup(runId));
-        await Clients.Caller.SendAsync(
-            "CrawlEvent",
-            GccV2ToolSourceCrawlEventMapper.MapRun(run),
-            Context.ConnectionAborted);
-    }
-
-    public Task LeaveCrawlRun(Guid runId) =>
-        Groups.RemoveFromGroupAsync(Context.ConnectionId, CrawlGroup(runId));
 }

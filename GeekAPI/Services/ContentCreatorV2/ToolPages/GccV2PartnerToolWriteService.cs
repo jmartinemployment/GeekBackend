@@ -1,6 +1,5 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreatorV2.ToolSources;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
@@ -15,7 +14,7 @@ namespace GeekAPI.Services.ContentCreatorV2.ToolPages;
 public sealed class GccV2PartnerToolWriteService
 {
     private readonly HttpGccV2Repository _repo;
-    private readonly GccV2ToolSourceCrawlService _toolSourceCrawl;
+    private readonly GeekCrawlerToolRunResolver _partnerCrawl;
     private readonly GccV2ToolPagePromptBuilder _prompts;
     private readonly GccV2ToolResearchExtractor _extractor;
     private readonly CompanyProfileOptions _company;
@@ -23,14 +22,14 @@ public sealed class GccV2PartnerToolWriteService
 
     public GccV2PartnerToolWriteService(
         HttpGccV2Repository repo,
-        GccV2ToolSourceCrawlService toolSourceCrawl,
+        GeekCrawlerToolRunResolver partnerCrawl,
         GccV2ToolPagePromptBuilder prompts,
         GccV2ToolResearchExtractor extractor,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccV2PartnerToolWriteService> logger)
     {
         _repo = repo;
-        _toolSourceCrawl = toolSourceCrawl;
+        _partnerCrawl = partnerCrawl;
         _prompts = prompts;
         _extractor = extractor;
         _company = company.Value;
@@ -43,9 +42,9 @@ public sealed class GccV2PartnerToolWriteService
         GccV2ToolPageTarget target,
         CancellationToken ct)
     {
-        var crawlRun = await _toolSourceCrawl.ResolveRunForUserAsync(wc.Job.OwnerUserId, wc.Brief.RawBriefJson, ct);
-        GccV2ToolSourceCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
-        GccV2ToolSourceCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
+        var crawlRun = await _partnerCrawl.ResolveRunForUserAsync(wc.Job.OwnerUserId, wc.Brief.RawBriefJson, ct);
+        GeekCrawlerPartnerCrawlGate.ThrowIfDeferred(wc.Brief.RawBriefJson, crawlRun);
+        GeekCrawlerPartnerCrawlGate.ThrowIfFailed(wc.Brief.RawBriefJson, crawlRun);
 
         var toolName = string.IsNullOrWhiteSpace(target.Name) ? wc.BaseContext.TargetKeyword : target.Name.Trim();
         var slug = string.IsNullOrWhiteSpace(target.Slug) ? GccV2ToolSlugHelper.SlugifyToolName(toolName) : target.Slug;
