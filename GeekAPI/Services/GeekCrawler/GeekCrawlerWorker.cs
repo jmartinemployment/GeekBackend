@@ -25,7 +25,7 @@ public sealed class GeekCrawlerWorker : BackgroundService
     {
         _logger.LogInformation("GeekCrawlerWorker #{WorkerIndex} starting.", _workerIndex);
         if (_workerIndex == 0)
-            await WakeOrphanedPendingOnceAsync(stoppingToken).ConfigureAwait(false);
+            await WakeOrphanedRunsOnceAsync(stoppingToken).ConfigureAwait(false);
 
         await foreach (var runId in _wake.Reader.ReadAllAsync(stoppingToken))
         {
@@ -42,28 +42,52 @@ public sealed class GeekCrawlerWorker : BackgroundService
         }
     }
 
-    private async Task WakeOrphanedPendingOnceAsync(CancellationToken ct)
+    private async Task WakeOrphanedRunsOnceAsync(CancellationToken ct)
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<HttpGeekCrawlerRepository>();
-            var pending = await repo.GetRunsByStatusAsync("pending", limit: 200, ct).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow;
-            var toWake = pending.Where(r => GeekCrawlerRecovery.ShouldWakeAtStartup(r, now)).ToList();
-            foreach (var run in toWake)
+
+            var pending = await repo.GetRunsByStatusAsync("pending", limit: 200, ct).ConfigureAwait(false);
+            var pendingToWake = pending.Where(r => GeekCrawlerRecovery.ShouldWakeAtStartup(r, now)).ToList();
+            foreach (var run in pendingToWake)
                 _wake.Wake(run.Id);
 
-            if (toWake.Count > 0)
+            if (pendingToWake.Count > 0)
             {
                 _logger.LogInformation(
                     "Startup pending recovery woke {Count} orphaned Geek-Crawler run(s).",
-                    toWake.Count);
+                    pendingToWake.Count);
+            }
+
+            var running = await repo.GetRunsByStatusAsync("running", limit: 200, ct).ConfigureAwait(false);
+            var runningRecovered = 0;
+            foreach (var run in running.Where(r => GeekCrawlerRecovery.ShouldRecoverRunningOrphan(r, now, hasSavedPages: false)))
+            {
+                var pages = await repo.ListPagesAsync(run.Id, limit: 1, offset: 0, ct).ConfigureAwait(false);
+                if (pages.Count > 0)
+                    continue;
+
+                await repo.PatchRunAsync(
+                    run.Id,
+                    new PatchGeekCrawlerRunCommand(Status: "pending"),
+                    ct).ConfigureAwait(false);
+                _wake.Wake(run.Id);
+                runningRecovered++;
+            }
+
+            if (runningRecovered > 0)
+            {
+                _logger.LogInformation(
+                    "Startup running recovery reset and woke {Count} zero-page Geek-Crawler run(s).",
+                    runningRecovered);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Startup pending Geek-Crawler scan failed; continuing without recovery.");
+            _logger.LogError(ex, "Startup Geek-Crawler orphan scan failed; continuing without recovery.");
         }
     }
 }

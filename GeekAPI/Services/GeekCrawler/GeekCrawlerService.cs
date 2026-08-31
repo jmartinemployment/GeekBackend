@@ -62,6 +62,7 @@ public sealed class GeekCrawlerService
         var inProgress = await FindInProgressRunAsync(ownerUserId, crawlType, seeds, ct).ConfigureAwait(false);
         if (inProgress is not null)
         {
+            inProgress = await TryRecoverRunningOrphanAsync(inProgress, ct).ConfigureAwait(false);
             _wake.Wake(inProgress.Id);
             await PushRunAsync(inProgress, currentOrigin: null, ct).ConfigureAwait(false);
             return inProgress;
@@ -277,6 +278,27 @@ public sealed class GeekCrawlerService
         var failed = await _repo.GetRunAsync(run.Id, ct).ConfigureAwait(false);
         if (failed is not null)
             await PushRunAsync(failed, currentOrigin: null, ct).ConfigureAwait(false);
+    }
+
+    private async Task<GeekCrawlerRunDto> TryRecoverRunningOrphanAsync(
+        GeekCrawlerRunDto run,
+        CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (!GeekCrawlerRecovery.ShouldRecoverRunningOrphan(run, now, hasSavedPages: false))
+            return run;
+
+        var pages = await _repo.ListPagesAsync(run.Id, limit: 1, offset: 0, ct).ConfigureAwait(false);
+        if (pages.Count > 0)
+            return run;
+
+        _logger.LogInformation(
+            "Recovering zero-page running Geek-Crawler run {RunId} back to pending.",
+            run.Id);
+        return await _repo.PatchRunAsync(
+            run.Id,
+            new PatchGeekCrawlerRunCommand(Status: "pending"),
+            ct).ConfigureAwait(false);
     }
 
     private async Task PushRunAsync(GeekCrawlerRunDto run, string? currentOrigin, CancellationToken ct)

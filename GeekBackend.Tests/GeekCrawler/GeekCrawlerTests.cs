@@ -70,6 +70,45 @@ public class GeekCrawlerStartRulesTests
 
         Assert.False(GeekCrawlerRecovery.ShouldWakeAtStartup(recent, DateTimeOffset.UtcNow));
     }
+
+    [Fact]
+    public void ShouldRecoverRunningOrphan_detects_deploy_killed_run()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var orphan = new GeekAPI.HttpClients.GeekCrawlerRunDto(
+            Guid.NewGuid(),
+            "user-1",
+            CrawlTypes.Partner,
+            "running",
+            """["https://www.pipedrive.com"]""",
+            null,
+            null,
+            now.AddMinutes(-10),
+            now.AddMinutes(-5),
+            null);
+
+        Assert.True(GeekCrawlerRecovery.ShouldRecoverRunningOrphan(orphan, now, hasSavedPages: false));
+        Assert.False(GeekCrawlerRecovery.ShouldRecoverRunningOrphan(orphan, now, hasSavedPages: true));
+    }
+
+    [Fact]
+    public void ShouldRecoverRunningOrphan_skips_recent_running()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var recent = new GeekAPI.HttpClients.GeekCrawlerRunDto(
+            Guid.NewGuid(),
+            "user-1",
+            CrawlTypes.Partner,
+            "running",
+            "[]",
+            null,
+            null,
+            now,
+            now,
+            null);
+
+        Assert.False(GeekCrawlerRecovery.ShouldRecoverRunningOrphan(recent, now, hasSavedPages: false));
+    }
 }
 
 public class GeekCrawlerLinkExtractorTests
