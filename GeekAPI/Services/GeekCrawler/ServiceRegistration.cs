@@ -1,6 +1,7 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.GeekCrawler.Polite;
+using Microsoft.Extensions.Hosting;
 
 namespace GeekAPI.Services.GeekCrawler;
 
@@ -34,18 +35,23 @@ public static class GeekCrawlerServiceRegistration
         services.AddScoped<SameOriginBfsCrawler>();
         services.AddScoped<GeekCrawlerService>();
 
-        for (var i = 0; i < options.WorkerCount; i++)
+        RegisterWorkers(services, options.WorkerCount);
+
+        services.AddHostedService<GeekCrawlerConfigLogger>();
+
+        return services;
+    }
+
+    internal static void RegisterWorkers(IServiceCollection services, int workerCount)
+    {
+        for (var i = 0; i < workerCount; i++)
         {
             var workerIndex = i;
-            services.AddHostedService(sp => new GeekCrawlerWorker(
+            services.AddSingleton<IHostedService>(sp => new GeekCrawlerWorker(
                 sp.GetRequiredService<GeekCrawlerWake>(),
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<ILogger<GeekCrawlerWorker>>(),
                 workerIndex));
         }
-
-        services.AddHostedService<GeekCrawlerConfigLogger>();
-
-        return services;
     }
 }

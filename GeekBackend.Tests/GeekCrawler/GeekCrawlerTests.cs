@@ -2,6 +2,8 @@ using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.GeekCrawler.Polite;
 using GeekApplication.Models.GeekCrawler;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace GeekBackend.Tests.GeekCrawler;
 
@@ -161,6 +163,31 @@ public class GeekCrawlerOptionsTests
 
         Assert.Equal(3, options.ParallelismPerOrigin);
         Assert.Equal(5, options.HostDelaySeconds);
+    }
+}
+
+public class GeekCrawlerWorkerRegistrationTests
+{
+    [Fact]
+    public void RegisterWorkers_registers_one_hosted_service_per_worker()
+    {
+        const int workerCount = 3;
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["GEEK_CRAWLER_WORKER_COUNT"] = workerCount.ToString(),
+            })
+            .Build()));
+        services.AddSingleton<GeekCrawlerWake>();
+
+        GeekCrawlerServiceRegistration.RegisterWorkers(services, workerCount);
+
+        var provider = services.BuildServiceProvider();
+        var workers = provider.GetServices<IHostedService>().OfType<GeekCrawlerWorker>().ToList();
+
+        Assert.Equal(workerCount, workers.Count);
     }
 }
 
