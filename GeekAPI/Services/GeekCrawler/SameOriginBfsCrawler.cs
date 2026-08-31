@@ -58,12 +58,14 @@ public sealed class SameOriginBfsCrawler
         foreach (var seed in seedUrls)
             Enqueue(seed);
 
+        var batchSaveSize = _options.SeedsOnly ? 1 : GeekCrawlerCaps.BatchSaveSize;
+
         async Task FlushBatchIfReadyAsync()
         {
             List<CrawledPageResult>? toFlush = null;
             lock (batchLock)
             {
-                if (pendingBatch.Count >= GeekCrawlerCaps.BatchSaveSize)
+                if (pendingBatch.Count >= batchSaveSize)
                 {
                     toFlush = pendingBatch;
                     pendingBatch = [];
@@ -109,7 +111,10 @@ public sealed class SameOriginBfsCrawler
                     }
 
                     foreach (var link in GeekCrawlerLinkExtractor.SameOriginLinksForQueue(links))
-                        Enqueue(link);
+                    {
+                        if (!_options.SeedsOnly)
+                            Enqueue(link);
+                    }
 
                     await FlushBatchIfReadyAsync().ConfigureAwait(false);
                 }
@@ -135,7 +140,8 @@ public sealed class SameOriginBfsCrawler
             await onBatchReady(finalBatch).ConfigureAwait(false);
 
         _logger.LogInformation(
-            "Geek-Crawler BFS for {Origin} finished after {Pages} page attempt(s) with parallelism {Parallelism}.",
+            "Geek-Crawler {Mode} for {Origin} finished after {Pages} page attempt(s) with parallelism {Parallelism}.",
+            _options.SeedsOnly ? "seeds-only crawl" : "BFS",
             origin,
             seen.Count,
             workerCount);

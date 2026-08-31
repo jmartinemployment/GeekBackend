@@ -131,6 +131,21 @@ public class GeekCrawlerOptionsTests
     }
 
     [Fact]
+    public void FromConfiguration_parses_seeds_only()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["GEEK_CRAWLER_SEEDS_ONLY"] = "true",
+            })
+            .Build();
+
+        var options = GeekCrawlerOptions.FromConfiguration(config);
+
+        Assert.True(options.SeedsOnly);
+    }
+
+    [Fact]
     public void FromConfiguration_respects_explicit_overrides()
     {
         var config = new ConfigurationBuilder()

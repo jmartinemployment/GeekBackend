@@ -8,6 +8,7 @@ public sealed class GeekCrawlerOptions
     public string Mode { get; init; } = "standard";
     public int ParallelismPerOrigin { get; init; } = 1;
     public int HostDelaySeconds { get; init; } = 12;
+    public bool SeedsOnly { get; init; }
 
     public static GeekCrawlerOptions FromConfiguration(IConfiguration configuration)
     {
@@ -36,8 +37,13 @@ public sealed class GeekCrawlerOptions
                 defaultValue: defaultDelay,
                 min: 0,
                 max: 120),
+            SeedsOnly = ParseBool(configuration["GEEK_CRAWLER_SEEDS_ONLY"]),
         };
     }
+
+    private static bool ParseBool(string? raw) =>
+        string.Equals(raw?.Trim(), "true", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(raw?.Trim(), "1", StringComparison.Ordinal);
 
     private static int ParseMinInt(string? raw, int defaultValue, int min)
     {

@@ -14,11 +14,12 @@ public sealed class GeekCrawlerConfigLogger : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation(
-            "Geek-Crawler config: mode={Mode}, workerCount={WorkerCount}, parallelismPerOrigin={ParallelismPerOrigin}, hostDelaySeconds={HostDelaySeconds}",
+            "Geek-Crawler config: mode={Mode}, workerCount={WorkerCount}, parallelismPerOrigin={ParallelismPerOrigin}, hostDelaySeconds={HostDelaySeconds}, seedsOnly={SeedsOnly}",
             _options.Mode,
             _options.WorkerCount,
             _options.ParallelismPerOrigin,
-            _options.HostDelaySeconds);
+            _options.HostDelaySeconds,
+            _options.SeedsOnly);
         return Task.CompletedTask;
     }
 
