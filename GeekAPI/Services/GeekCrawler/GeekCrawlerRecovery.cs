@@ -5,6 +5,7 @@ namespace GeekAPI.Services.GeekCrawler;
 public static class GeekCrawlerRecovery
 {
     public static readonly TimeSpan PendingWakeGrace = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan StalledRunningGrace = TimeSpan.FromMinutes(5);
 
     public static bool ShouldWakeAtStartup(GeekCrawlerRunDto run, DateTimeOffset now) =>
         string.Equals(run.Status, "pending", StringComparison.OrdinalIgnoreCase)
@@ -21,4 +22,14 @@ public static class GeekCrawlerRecovery
         && !hasSavedPages
         && run.StartedAtUtc is not null
         && now - run.StartedAtUtc.Value >= PendingWakeGrace;
+
+    /// <summary>
+    /// A deploy restart can kill the worker after pages were saved but before BFS completes.
+    /// </summary>
+    public static bool ShouldRecoverStalledRunning(
+        GeekCrawlerRunDto run,
+        DateTimeOffset now,
+        DateTimeOffset lastPageCrawledAtUtc) =>
+        string.Equals(run.Status, "running", StringComparison.OrdinalIgnoreCase)
+        && now - lastPageCrawledAtUtc >= StalledRunningGrace;
 }

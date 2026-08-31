@@ -75,6 +75,11 @@ public sealed class HttpGeekCrawlerRepository
             $"repo/geek-crawler/pages?runId={runId}&limit={limit}&offset={offset}",
             ct);
 
+    public Task<GeekCrawlerPageActivityDto?> GetPageActivityAsync(
+        Guid runId,
+        CancellationToken ct = default) =>
+        GetAsync<GeekCrawlerPageActivityDto>($"repo/geek-crawler/pages/activity?runId={runId}", ct);
+
     public Task<GeekCrawlerPageBatchResult> CreatePagesBatchAsync(
         CreateGeekCrawlerPageBatchCommand command,
         CancellationToken ct = default) =>

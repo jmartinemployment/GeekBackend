@@ -109,6 +109,32 @@ public class GeekCrawlerStartRulesTests
 
         Assert.False(GeekCrawlerRecovery.ShouldRecoverRunningOrphan(recent, now, hasSavedPages: false));
     }
+
+    [Fact]
+    public void ShouldRecoverStalledRunning_detects_deploy_killed_mid_crawl()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var run = new GeekAPI.HttpClients.GeekCrawlerRunDto(
+            Guid.NewGuid(),
+            "user-1",
+            CrawlTypes.Partner,
+            "running",
+            """["https://botpenguin.com"]""",
+            null,
+            null,
+            now.AddHours(-2),
+            now.AddHours(-2),
+            null);
+
+        Assert.True(GeekCrawlerRecovery.ShouldRecoverStalledRunning(
+            run,
+            now,
+            now.AddMinutes(-10)));
+        Assert.False(GeekCrawlerRecovery.ShouldRecoverStalledRunning(
+            run,
+            now,
+            now.AddMinutes(-1)));
+    }
 }
 
 public class GeekCrawlerLinkExtractorTests

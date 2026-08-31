@@ -38,6 +38,26 @@ public class GeekCrawlerPagesController : ControllerBase
         return Ok(pages);
     }
 
+    [HttpGet("activity")]
+    public async Task<ActionResult<object>> GetRunActivity(
+        [FromQuery] Guid runId,
+        CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty)
+            return BadRequest("runId is required");
+
+        var pageCount = await _db.GeekCrawlerPages.AsNoTracking()
+            .CountAsync(p => p.RunId == runId, ct);
+
+        DateTimeOffset? lastCrawledAtUtc = pageCount == 0
+            ? null
+            : await _db.GeekCrawlerPages.AsNoTracking()
+                .Where(p => p.RunId == runId)
+                .MaxAsync(p => (DateTimeOffset?)p.CrawledAtUtc, ct);
+
+        return Ok(new { pageCount, lastCrawledAtUtc });
+    }
+
     [HttpPost("batch")]
     public async Task<ActionResult<object>> CreateBatch(
         [FromBody] CreateGeekCrawlerPageBatchCommand command,

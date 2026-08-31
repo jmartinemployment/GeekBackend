@@ -33,7 +33,8 @@ public sealed class SameOriginBfsCrawler
         string origin,
         IReadOnlyList<string> seedUrls,
         Func<IReadOnlyList<CrawledPageResult>, Task> onBatchReady,
-        CancellationToken ct)
+        CancellationToken ct,
+        GeekCrawlerBfsResume? resume = null)
     {
         if (seedUrls.Count == 0) return;
         if (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri)) return;
@@ -49,14 +50,22 @@ public sealed class SameOriginBfsCrawler
             if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return;
             if (!string.Equals(u.Host, originUri.Host, StringComparison.OrdinalIgnoreCase)) return;
             if (u.Scheme != originUri.Scheme) return;
-            var key = u.GetLeftPart(UriPartial.Path).TrimEnd('/');
-            if (key.Length == 0) key = u.GetLeftPart(UriPartial.Authority);
+            var key = GeekCrawlerUrlKeys.CrawlKey(u.AbsoluteUri);
             if (!seen.TryAdd(key, 0)) return;
             queue.Enqueue(u.AbsoluteUri);
         }
 
         foreach (var seed in seedUrls)
             Enqueue(seed);
+
+        if (resume is not null)
+        {
+            foreach (var key in resume.PreSeenUrlKeys)
+                seen.TryAdd(key, 0);
+
+            foreach (var url in resume.QueueUrls)
+                Enqueue(url);
+        }
 
         var batchSaveSize = _options.SeedsOnly ? 1 : GeekCrawlerCaps.BatchSaveSize;
 

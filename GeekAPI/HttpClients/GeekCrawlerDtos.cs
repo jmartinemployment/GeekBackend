@@ -51,6 +51,10 @@ public record GeekCrawlerPageBatchResult(
     int Count,
     IReadOnlyList<GeekCrawlerCreatedPageDto> Pages);
 
+public record GeekCrawlerPageActivityDto(
+    int PageCount,
+    DateTimeOffset? LastCrawledAtUtc);
+
 public record GeekCrawlerCreatedPageDto(string Url, Guid PageId);
 
 public record CreateGeekCrawlerLinkBatchCommand(

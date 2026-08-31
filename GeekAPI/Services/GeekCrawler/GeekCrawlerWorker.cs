@@ -64,10 +64,18 @@ public sealed class GeekCrawlerWorker : BackgroundService
 
             var running = await repo.GetRunsByStatusAsync("running", limit: 200, ct).ConfigureAwait(false);
             var runningRecovered = 0;
-            foreach (var run in running.Where(r => GeekCrawlerRecovery.ShouldRecoverRunningOrphan(r, now, hasSavedPages: false)))
+            foreach (var run in running)
             {
-                var pages = await repo.ListPagesAsync(run.Id, limit: 1, offset: 0, ct).ConfigureAwait(false);
-                if (pages.Count > 0)
+                var activity = await repo.GetPageActivityAsync(run.Id, ct).ConfigureAwait(false);
+                if (activity is null)
+                    continue;
+
+                var shouldRecover = activity.PageCount == 0
+                    ? GeekCrawlerRecovery.ShouldRecoverRunningOrphan(run, now, hasSavedPages: false)
+                    : activity.LastCrawledAtUtc is DateTimeOffset last
+                        && GeekCrawlerRecovery.ShouldRecoverStalledRunning(run, now, last);
+
+                if (!shouldRecover)
                     continue;
 
                 await repo.PatchRunAsync(
@@ -81,7 +89,7 @@ public sealed class GeekCrawlerWorker : BackgroundService
             if (runningRecovered > 0)
             {
                 _logger.LogInformation(
-                    "Startup running recovery reset and woke {Count} zero-page Geek-Crawler run(s).",
+                    "Startup running recovery reset and woke {Count} stalled Geek-Crawler run(s).",
                     runningRecovered);
             }
         }
