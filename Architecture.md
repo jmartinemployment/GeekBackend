@@ -64,6 +64,8 @@ flowchart LR
 
 Site analysis progress: Geek-SEO `/hubs/seo-realtime` (`AnalysisProgress`).
 
+Geek-Crawler is a **standalone product**: started from the Geek-Crawler UI only. Content Creator v2 does **not** start, gate on, or read Geek-Crawler runs.
+
 Legacy gcc-v2 `JoinCrawlRun` / `CrawlEvent` for tool-source crawl is **removed** with that stack — not a product surface.
 
 ---

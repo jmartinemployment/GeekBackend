@@ -31,4 +31,8 @@ When schema or API shape conflicts with a quick fix, implement the correct model
 
 Published markdown bodies have **no preamble** — content starts at the first `##`.
 
+## Long-running jobs (no polling)
+
+Jobs and crawls push live progress over **SignalR** — not client timer loops or worker pending tickers. See `AGENTS.md` § Long-running jobs and realtime progress; canonical policy in `content-creator-v2/plan/realtime-progress.md`.
+
 See `AGENTS.md` at repo root.

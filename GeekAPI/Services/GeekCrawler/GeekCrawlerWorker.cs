@@ -7,21 +7,25 @@ public sealed class GeekCrawlerWorker : BackgroundService
     private readonly GeekCrawlerWake _wake;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GeekCrawlerWorker> _logger;
+    private readonly int _workerIndex;
 
     public GeekCrawlerWorker(
         GeekCrawlerWake wake,
         IServiceScopeFactory scopeFactory,
-        ILogger<GeekCrawlerWorker> logger)
+        ILogger<GeekCrawlerWorker> logger,
+        int workerIndex = 0)
     {
         _wake = wake;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _workerIndex = workerIndex;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("GeekCrawlerWorker starting.");
-        await WakeOrphanedPendingOnceAsync(stoppingToken).ConfigureAwait(false);
+        _logger.LogInformation("GeekCrawlerWorker #{WorkerIndex} starting.", _workerIndex);
+        if (_workerIndex == 0)
+            await WakeOrphanedPendingOnceAsync(stoppingToken).ConfigureAwait(false);
 
         await foreach (var runId in _wake.Reader.ReadAllAsync(stoppingToken))
         {
@@ -33,7 +37,7 @@ public sealed class GeekCrawlerWorker : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogError(ex, "GeekCrawlerWorker failed for run {RunId}", runId);
+                _logger.LogError(ex, "GeekCrawlerWorker #{WorkerIndex} failed for run {RunId}", _workerIndex, runId);
             }
         }
     }

@@ -9,7 +9,6 @@ using GeekAPI.Services.ContentCreatorV2.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Plan;
-using GeekAPI.Services.ContentCreatorV2.Polite;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Transforms;
@@ -49,19 +48,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<GccV2SiteHierarchyService>();
-        services.AddSingleton<GccV2PoliteHostRegistry>();
-        services.AddSingleton(TimeProvider.System);
-        services.AddHttpClient<IGccV2PoliteCrawler, GccV2PoliteCrawler>(client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(GccPartnerResearchCaps.FetchTimeoutSeconds);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd(GccPartnerResearchCaps.UserAgent);
-            client.DefaultRequestHeaders.Accept.ParseAdd(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.5");
-        })
-        .SetHandlerLifetime(TimeSpan.FromMinutes(5));
-        services.AddScoped<GccV2PartnerUrlResearchService>();
-        services.AddScoped<GeekCrawlerToolRunResolver>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();

@@ -4,12 +4,17 @@ namespace GeekAPI.Services.GeekCrawler;
 
 public sealed class GeekCrawlerWake
 {
-    private readonly Channel<Guid> _channel = Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions
+    private readonly Channel<Guid> _channel;
+
+    public GeekCrawlerWake(GeekCrawlerOptions options)
     {
-        SingleReader = true,
-        SingleWriter = false,
-        AllowSynchronousContinuations = false,
-    });
+        _channel = Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions
+        {
+            SingleReader = options.WorkerCount <= 1,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+    }
 
     public ChannelReader<Guid> Reader => _channel.Reader;
 

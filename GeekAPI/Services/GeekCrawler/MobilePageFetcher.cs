@@ -1,5 +1,4 @@
 using System.Net;
-using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.GeekCrawler.Polite;
 using GeekApplication.Models.GeekCrawler;
 using Microsoft.Playwright;
@@ -8,12 +7,12 @@ namespace GeekAPI.Services.GeekCrawler;
 
 public sealed class MobilePageFetcher
 {
-    private readonly GccV2PlaywrightBrowserHolder _browserHolder;
+    private readonly GeekCrawlerPlaywrightHolder _browserHolder;
     private readonly GeekCrawlerPoliteGate _polite;
     private readonly ILogger<MobilePageFetcher> _logger;
 
     public MobilePageFetcher(
-        GccV2PlaywrightBrowserHolder browserHolder,
+        GeekCrawlerPlaywrightHolder browserHolder,
         GeekCrawlerPoliteGate polite,
         ILogger<MobilePageFetcher> logger)
     {
@@ -53,7 +52,7 @@ public sealed class MobilePageFetcher
         IPage? page = null;
         try
         {
-            context = await browser.NewContextAsync(GeekCrawlerCrawlerIdentity.MobileContext()).ConfigureAwait(false);
+            context = await browser.NewContextAsync(GeekCrawlerMobileIdentity.MobileContext()).ConfigureAwait(false);
             page = await context.NewPageAsync().ConfigureAwait(false);
             var response = await page.GotoAsync(url, new PageGotoOptions
             {
@@ -61,7 +60,7 @@ public sealed class MobilePageFetcher
                 Timeout = GeekCrawlerCaps.NavigationTimeoutMs,
             }).ConfigureAwait(false);
 
-            await GeekCrawlerCrawlerIdentity.WaitForRenderedAsync(page).ConfigureAwait(false);
+            await GeekCrawlerMobileIdentity.WaitForRenderedAsync(page).ConfigureAwait(false);
 
             var finalUrl = response?.Url ?? page.Url ?? url;
             var status = response?.Status ?? 0;
@@ -74,10 +73,7 @@ public sealed class MobilePageFetcher
 
             string? html = null;
             if (status is >= 200 and < 300)
-            {
                 html = await SnapshotMobileVisibleHtmlAsync(page).ConfigureAwait(false);
-                html = TruncateHtml(html);
-            }
 
             _polite.CompleteFetch(uri, status);
             return new FetchedPage(url, finalUrl, status, true, html);
@@ -112,12 +108,5 @@ public sealed class MobilePageFetcher
 
         return await page.EvaluateAsync<string>("() => document.documentElement.outerHTML")
                ?? string.Empty;
-    }
-
-    private static string? TruncateHtml(string? html)
-    {
-        if (string.IsNullOrEmpty(html)) return html;
-        if (html.Length <= GeekCrawlerCaps.MaxHtmlBytes) return html;
-        return html[..GeekCrawlerCaps.MaxHtmlBytes];
     }
 }

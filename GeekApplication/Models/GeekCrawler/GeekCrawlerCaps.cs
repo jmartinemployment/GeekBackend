@@ -1,10 +1,9 @@
 namespace GeekApplication.Models.GeekCrawler;
 
-/// <summary>Polite crawl timing and size limits for Geek-Crawler.</summary>
+/// <summary>Polite crawl timing limits for Geek-Crawler.</summary>
 public static class GeekCrawlerCaps
 {
     public const int BatchSaveSize = 20;
-    public const int MaxHtmlBytes = 2_000_000;
     public const int DefaultHostDelaySeconds = 12;
     public const int NavigationTimeoutMs = 15_000;
     public const int RenderQuiescenceCapMs = 5_000;

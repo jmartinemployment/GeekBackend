@@ -1,16 +1,11 @@
 using System.Text;
 using System.Text.Json;
-using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreatorV2.Polite;
 using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.Services.ContentCreatorV2.Partner;
 
-/// <summary>
-/// Polite partner-destination crawl + extract + persist audit/cache rows.
-/// Soft per-URL failures — never throws for a single bad href.
-/// </summary>
-public sealed class GccV2PartnerUrlResearchService
+/// <summary>Brief JSON helpers for partner/competitor tool rows — no crawl/fetch.</summary>
+public static class GccV2PartnerUrlResearchService
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -18,24 +13,6 @@ public sealed class GccV2PartnerUrlResearchService
         PropertyNameCaseInsensitive = true,
     };
 
-    private readonly IGccV2PoliteCrawler _crawler;
-    private readonly HttpGccV2Repository _repo;
-    private readonly ILogger<GccV2PartnerUrlResearchService> _logger;
-
-    public GccV2PartnerUrlResearchService(
-        IGccV2PoliteCrawler crawler,
-        HttpGccV2Repository repo,
-        ILogger<GccV2PartnerUrlResearchService> logger)
-    {
-        _crawler = crawler;
-        _repo = repo;
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// Hrefs to fetch for weave excerpts. Prefer operator destination URLs attached to crawl
-    /// tools; fall back to absolute crawl hrefs when no operator URL is attached.
-    /// </summary>
     public static IReadOnlyList<string> CollectPartnerHrefs(string? rawBriefJson) =>
         CollectPartnerToolRows(rawBriefJson)
             .Where(t => !string.IsNullOrWhiteSpace(t.Url))
@@ -45,7 +22,6 @@ public sealed class GccV2PartnerUrlResearchService
             .Take(GccPartnerResearchCaps.MaxUrls)
             .ToList();
 
-    /// <summary>Operator-pasted rival page URLs (one per line in <c>competitorUrls</c>).</summary>
     public static IReadOnlyList<string> CollectCompetitorHrefs(string? rawBriefJson)
     {
         if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
@@ -76,10 +52,6 @@ public sealed class GccV2PartnerUrlResearchService
         }
     }
 
-    /// <summary>
-    /// Preflight tool rows = crawl <c>hierarchyPlan.recommendedTools</c> only.
-    /// Operator paste attaches destination URLs for excerpts; bare URLs alone never invent tools.
-    /// </summary>
     public static IReadOnlyList<PartnerToolRow> CollectPartnerToolRows(string? rawBriefJson)
     {
         if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
@@ -160,7 +132,6 @@ public sealed class GccV2PartnerUrlResearchService
         }
     }
 
-    /// <summary>Operator tool source URLs from brief — BFS seeds only (not hierarchy hrefs).</summary>
     public static IReadOnlyList<string> CollectOperatorSeedUrls(string? rawBriefJson)
     {
         if (string.IsNullOrWhiteSpace(rawBriefJson)) return [];
@@ -224,8 +195,11 @@ public sealed class GccV2PartnerUrlResearchService
         return map.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Writes <c>toolSourceCrawl</c> status onto brief JSON.</summary>
-    public static string? MergeToolSourceCrawlIntoBriefJson(string? rawBriefJson, object toolSourceCrawl)
+    public sealed record PartnerToolRow(string Name, string? Url, string Source);
+
+    public static string? MergePartnerResearchIntoBriefJson(
+        string? rawBriefJson,
+        IReadOnlyList<GccQuoteablePage> pages)
     {
         try
         {
@@ -238,13 +212,13 @@ public sealed class GccV2PartnerUrlResearchService
                 writer.WriteStartObject();
                 foreach (var prop in doc.RootElement.EnumerateObject())
                 {
-                    if (string.Equals(prop.Name, "toolSourceCrawl", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(prop.Name, "partnerResearch", StringComparison.OrdinalIgnoreCase))
                         continue;
                     prop.WriteTo(writer);
                 }
 
-                writer.WritePropertyName("toolSourceCrawl");
-                JsonSerializer.Serialize(writer, toolSourceCrawl, JsonOpts);
+                writer.WritePropertyName("partnerResearch");
+                JsonSerializer.Serialize(writer, pages, JsonOpts);
                 writer.WriteEndObject();
             }
 
@@ -256,7 +230,38 @@ public sealed class GccV2PartnerUrlResearchService
         }
     }
 
-    public sealed record PartnerToolRow(string Name, string? Url, string Source);
+    public static string? MergeCompetitorResearchIntoBriefJson(
+        string? rawBriefJson,
+        IReadOnlyList<GccQuoteablePage> pages)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "competitorResearch", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    prop.WriteTo(writer);
+                }
+
+                writer.WritePropertyName("competitorResearch");
+                JsonSerializer.Serialize(writer, pages, JsonOpts);
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return rawBriefJson;
+        }
+    }
 
     private static int FindCrawlToolIndex(IReadOnlyList<PartnerToolRow> rows, string? opName, string destUrl)
     {
@@ -309,223 +314,6 @@ public sealed class GccV2PartnerUrlResearchService
         return string.Concat(chars);
     }
 
-    public async Task<IReadOnlyList<GccQuoteablePage>> FetchAsync(
-        Guid createId,
-        IReadOnlyList<string> urls,
-        CancellationToken ct)
-    {
-        if (urls.Count == 0) return [];
-
-        var gate = new SemaphoreSlim(GccPartnerResearchCaps.MaxConcurrentFetches);
-        var tasks = urls.Select(async url =>
-        {
-            await gate.WaitAsync(ct).ConfigureAwait(false);
-            try
-            {
-                return await FetchOneAsync(createId, url, ct).ConfigureAwait(false);
-            }
-            finally
-            {
-                gate.Release();
-            }
-        });
-
-        var pages = await Task.WhenAll(tasks).ConfigureAwait(false);
-        return pages.Where(p => p is not null).Cast<GccQuoteablePage>().ToList();
-    }
-
-    /// <summary>Writes <c>partnerResearch</c> onto the brief JSON (replaces any prior value).</summary>
-    public static string? MergePartnerResearchIntoBriefJson(
-        string? rawBriefJson,
-        IReadOnlyList<GccQuoteablePage> pages)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
-
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream))
-            {
-                writer.WriteStartObject();
-                foreach (var prop in doc.RootElement.EnumerateObject())
-                {
-                    if (string.Equals(prop.Name, "partnerResearch", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    prop.WriteTo(writer);
-                }
-
-                writer.WritePropertyName("partnerResearch");
-                JsonSerializer.Serialize(writer, pages, JsonOpts);
-                writer.WriteEndObject();
-            }
-
-            return Encoding.UTF8.GetString(stream.ToArray());
-        }
-        catch (JsonException)
-        {
-            return rawBriefJson;
-        }
-    }
-
-    /// <summary>Writes <c>competitorResearch</c> onto the brief JSON (replaces any prior value).</summary>
-    public static string? MergeCompetitorResearchIntoBriefJson(
-        string? rawBriefJson,
-        IReadOnlyList<GccQuoteablePage> pages)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
-
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream))
-            {
-                writer.WriteStartObject();
-                foreach (var prop in doc.RootElement.EnumerateObject())
-                {
-                    if (string.Equals(prop.Name, "competitorResearch", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    prop.WriteTo(writer);
-                }
-
-                writer.WritePropertyName("competitorResearch");
-                JsonSerializer.Serialize(writer, pages, JsonOpts);
-                writer.WriteEndObject();
-            }
-
-            return Encoding.UTF8.GetString(stream.ToArray());
-        }
-        catch (JsonException)
-        {
-            return rawBriefJson;
-        }
-    }
-
-    private async Task<GccQuoteablePage?> FetchOneAsync(Guid createId, string url, CancellationToken ct)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            _logger.LogWarning("[partner crawl] Invalid URL skipped: {Url}", url);
-            await TryPersistAsync(createId, url, "", false, "InvalidUrl", null, null, null, ct).ConfigureAwait(false);
-            return null;
-        }
-
-        var host = uri.Host;
-
-        try
-        {
-            var cached = await TryGetFreshCacheAsync(url, ct).ConfigureAwait(false);
-            if (cached is not null)
-            {
-                _logger.LogInformation("[partner crawl] Cache hit for {Url}", url);
-                return cached;
-            }
-
-            var fetch = await _crawler.GetHtmlAsync(uri, ct).ConfigureAwait(false);
-            if (!fetch.HasHtml)
-            {
-                await TryPersistAsync(createId, url, host, false, fetch.Status, null, null, null, ct)
-                    .ConfigureAwait(false);
-                return null;
-            }
-
-            var page = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, fetch.Html!);
-            if (GccV2ArticleHtmlExtractor.IsEmpty(page))
-            {
-                await TryPersistAsync(
-                        createId, url, host, false, GccV2PoliteFetchResult.Statuses.ExtractFailed, null, null, null, ct)
-                    .ConfigureAwait(false);
-                return null;
-            }
-
-            var pageJson = JsonSerializer.Serialize(page, JsonOpts);
-            var flat = FlattenPage(page);
-            await TryPersistAsync(
-                    createId, url, host, true, GccV2PoliteFetchResult.Statuses.Success,
-                    page.Title, pageJson, flat, ct)
-                .ConfigureAwait(false);
-
-            _logger.LogInformation(
-                "[partner crawl] ok {Url}: {HeadingCount} headings, {ParagraphCount} paragraphs",
-                url, page.Headings.Count, page.Paragraphs.Count);
-            return page;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[partner crawl] failed for {Url}", url);
-            await TryPersistAsync(
-                    createId, url, host, false, GccV2PoliteFetchResult.Statuses.RequestFailed, null, null, null, ct)
-                .ConfigureAwait(false);
-            return null;
-        }
-    }
-
-    private async Task<GccQuoteablePage?> TryGetFreshCacheAsync(string url, CancellationToken ct)
-    {
-        try
-        {
-            var row = await _repo.GetFreshPartnerResearchAsync(
-                url, GccPartnerResearchCaps.CacheFreshnessHours, ct).ConfigureAwait(false);
-            if (row is null || string.IsNullOrWhiteSpace(row.PageJson)) return null;
-            return JsonSerializer.Deserialize<GccQuoteablePage>(row.PageJson, JsonOpts);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[partner crawl] Fresh-cache lookup failed for {Url}", url);
-            return null;
-        }
-    }
-
-    private async Task TryPersistAsync(
-        Guid createId,
-        string url,
-        string host,
-        bool success,
-        string status,
-        string? title,
-        string? pageJson,
-        string? flat,
-        CancellationToken ct)
-    {
-        if (createId == Guid.Empty) return;
-        try
-        {
-            await _repo.CreatePartnerResearchRecordAsync(
-                new CreateGccV2PartnerResearchRecordCommand(
-                    createId,
-                    url,
-                    success,
-                    status,
-                    host,
-                    JobId: null,
-                    title,
-                    pageJson,
-                    flat),
-                ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[partner crawl] Persist failed for {Url} ({Status})", url, status);
-        }
-    }
-
-    private static string FlattenPage(GccQuoteablePage page)
-    {
-        var sb = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(page.Title))
-            sb.AppendLine(page.Title);
-        foreach (var h in page.Headings)
-            sb.AppendLine($"H{h.Level}: {h.Text}");
-        foreach (var p in page.Paragraphs)
-            sb.AppendLine(p);
-        return sb.ToString();
-    }
-
     private static bool TryNormalizeHttpUrl(string? raw, out string url)
     {
         url = "";
@@ -559,11 +347,9 @@ public sealed class GccV2PartnerUrlResearchService
 
         foreach (var prop in obj.EnumerateObject())
         {
-            if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                value = prop.Value;
-                return true;
-            }
+            if (!string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+            value = prop.Value;
+            return true;
         }
 
         value = default;

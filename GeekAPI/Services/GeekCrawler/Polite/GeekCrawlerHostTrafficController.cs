@@ -1,14 +1,19 @@
-namespace GeekAPI.Services.ContentCreatorV2.Polite;
+namespace GeekAPI.Services.GeekCrawler.Polite;
 
 /// <summary>
-/// Per-origin serial lock + <c>_nextAllowedTime</c> spacer (not last-completed subtraction).
+/// Per-origin concurrency slot pool + <c>_nextAllowedTime</c> spacer.
 /// </summary>
-public sealed class HostTrafficController
+public sealed class GeekCrawlerHostTrafficController
 {
-    private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private readonly SemaphoreSlim _semaphore;
     private DateTimeOffset _nextAllowedTime = DateTimeOffset.MinValue;
 
-    /// <summary>Exposed for deterministic tests (FakeTimeProvider).</summary>
+    public GeekCrawlerHostTrafficController(int maxParallel)
+    {
+        var slots = Math.Max(1, maxParallel);
+        _semaphore = new SemaphoreSlim(slots, slots);
+    }
+
     internal DateTimeOffset NextAllowedTime => _nextAllowedTime;
 
     public async Task<T> ExecutePolitelyAsync<T>(Func<Task<T>> action, CancellationToken ct)
@@ -31,11 +36,9 @@ public sealed class HostTrafficController
             await Task.Delay(wait, clock, ct).ConfigureAwait(false);
     }
 
-    /// <summary>After a finished robots/page attempt: next request allowed after <paramref name="chosenDelay"/>.</summary>
     public void MarkRequestCompleted(TimeSpan chosenDelay, TimeProvider clock) =>
         _nextAllowedTime = clock.GetUtcNow() + chosenDelay;
 
-    /// <summary>429/503: next request allowed after backoff (replaces Mark for that attempt).</summary>
     public void ApplyExternalCooldown(TimeSpan duration, TimeProvider clock) =>
         _nextAllowedTime = clock.GetUtcNow() + duration;
 }

@@ -31,8 +31,6 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2BrandKitBuilder _brandKitBuilder;
     private readonly GccV2SiteHierarchyService _siteHierarchy;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
-    private readonly GccV2PartnerUrlResearchService _partnerResearch;
-    private readonly GeekCrawlerToolRunResolver _partnerCrawl;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -43,8 +41,6 @@ public class GccV2Controller : ControllerBase
         GccV2BrandKitBuilder brandKitBuilder,
         GccV2SiteHierarchyService siteHierarchy,
         HttpGeekSeoSiteAnalyzerClient seo,
-        GccV2PartnerUrlResearchService partnerResearch,
-        GeekCrawlerToolRunResolver partnerCrawl,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -54,8 +50,6 @@ public class GccV2Controller : ControllerBase
         _brandKitBuilder = brandKitBuilder;
         _siteHierarchy = siteHierarchy;
         _seo = seo;
-        _partnerResearch = partnerResearch;
-        _partnerCrawl = partnerCrawl;
         _logger = logger;
     }
 
@@ -520,8 +514,6 @@ public class GccV2Controller : ControllerBase
             rawBriefJson = GccV2ToolPageTargetParser.MergeOverviewTarget(rawBriefJson, request?.TargetKeyword);
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
-        rawBriefJson = await TryMergePartnerResearchAsync(rawBriefJson, id, ct);
-        rawBriefJson = await TryMergeCompetitorResearchAsync(rawBriefJson, id, ct);
 
         var brief = await _repo.CreateBriefAsync(
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
@@ -728,81 +720,6 @@ public class GccV2Controller : ControllerBase
         return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             ? header[prefix.Length..].Trim()
             : header.Trim();
-    }
-
-    /// <summary>
-    /// Fetch partner/tool destination pages and attach full page extracts as <c>partnerResearch</c>
-    /// on the brief. Soft: failed URLs are skipped; Generate never hard-fails.
-    /// </summary>
-    private async Task<string?> TryMergePartnerResearchAsync(
-        string? rawBriefJson,
-        Guid createId,
-        CancellationToken ct)
-    {
-        try
-        {
-            var operatorSeeds = GccV2PartnerUrlResearchService.CollectOperatorSeedUrls(rawBriefJson);
-            if (operatorSeeds.Count == 0)
-                return rawBriefJson;
-
-            var create = await _repo.GetCreateAsync(createId, ct).ConfigureAwait(false);
-            if (create is null)
-                return rawBriefJson;
-
-            var run = await _partnerCrawl.ResolveRunForUserAsync(create.OwnerUserId, rawBriefJson, ct)
-                .ConfigureAwait(false);
-            if (run is not null
-                && string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase))
-            {
-                var pages = await _partnerCrawl.ExtractPartnerResearchAsync(run, ct).ConfigureAwait(false);
-                if (pages.Count > 0)
-                {
-                    _logger.LogInformation(
-                        "Merged {PageCount} partner page extract(s) from Geek-Crawler run {RunId}.",
-                        pages.Count,
-                        run.Id);
-                    return GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, pages);
-                }
-            }
-
-            return rawBriefJson;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Partner crawl research merge failed; continuing without partnerResearch.");
-            return rawBriefJson;
-        }
-    }
-
-    private async Task<string?> TryMergeCompetitorResearchAsync(
-        string? rawBriefJson,
-        Guid createId,
-        CancellationToken ct)
-    {
-        try
-        {
-            var hrefs = GccV2PartnerUrlResearchService.CollectCompetitorHrefs(rawBriefJson);
-            if (hrefs.Count == 0) return rawBriefJson;
-
-            var pages = await _partnerResearch.FetchAsync(createId, hrefs, ct);
-            if (pages.Count == 0)
-            {
-                _logger.LogWarning(
-                    "Competitor URL research fetched 0 of {UrlCount} href(s); continuing without competitorResearch.",
-                    hrefs.Count);
-                return rawBriefJson;
-            }
-
-            _logger.LogInformation(
-                "Competitor URL research stored {PageCount} of {UrlCount} page extract(s) on brief.",
-                pages.Count, hrefs.Count);
-            return GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, pages);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Competitor URL research failed; continuing without competitorResearch.");
-            return rawBriefJson;
-        }
     }
 
     private static string? MergeHierarchyPlanIntoBriefJson(string? rawBriefJson, object hierarchyPlan)

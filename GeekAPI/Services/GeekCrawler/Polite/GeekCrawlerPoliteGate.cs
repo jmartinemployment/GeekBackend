@@ -1,5 +1,4 @@
 using System.Net;
-using GeekAPI.Services.ContentCreatorV2.Polite;
 using GeekApplication.Models.GeekCrawler;
 using TurnerSoftware.RobotsExclusionTools;
 
@@ -9,27 +8,25 @@ namespace GeekAPI.Services.GeekCrawler.Polite;
 public sealed class GeekCrawlerPoliteGate
 {
     private readonly HttpClient _http;
-    private readonly GccV2PoliteHostRegistry _registry;
+    private readonly GeekCrawlerHostRegistry _registry;
     private readonly TimeProvider _clock;
     private readonly ILogger<GeekCrawlerPoliteGate> _logger;
     private readonly RobotsFileParser _robotsParser = new();
     private readonly TimeSpan _defaultHostDelay;
-    private readonly TimeSpan? _hostDelayOverride;
     private readonly string _userAgent = GeekCrawlerCaps.UserAgent;
 
     public GeekCrawlerPoliteGate(
         HttpClient http,
-        GccV2PoliteHostRegistry registry,
+        GeekCrawlerHostRegistry registry,
         TimeProvider clock,
-        ILogger<GeekCrawlerPoliteGate> logger,
-        TimeSpan? hostDelayOverride = null)
+        GeekCrawlerOptions options,
+        ILogger<GeekCrawlerPoliteGate> logger)
     {
         _http = http;
         _registry = registry;
         _clock = clock;
         _logger = logger;
-        _hostDelayOverride = hostDelayOverride;
-        _defaultHostDelay = TimeSpan.FromSeconds(GeekCrawlerCaps.DefaultHostDelaySeconds);
+        _defaultHostDelay = TimeSpan.FromSeconds(options.HostDelaySeconds);
     }
 
     public sealed record PrepareResult(bool Allowed);
@@ -70,7 +67,7 @@ public sealed class GeekCrawlerPoliteGate
 
     private async Task<RobotsFile?> EnsureRobotsAsync(
         string origin,
-        HostTrafficController controller,
+        GeekCrawlerHostTrafficController controller,
         CancellationToken ct)
     {
         if (_registry.TryGetRobots(origin, out var cached))
@@ -102,8 +99,6 @@ public sealed class GeekCrawlerPoliteGate
 
     private TimeSpan EffectiveSpacer(RobotsFile? robots)
     {
-        if (_hostDelayOverride is { } o) return o;
-
         var delay = _defaultHostDelay;
         if (robots is not null
             && robots.TryGetEntryForUserAgent(_userAgent, out var entry)
