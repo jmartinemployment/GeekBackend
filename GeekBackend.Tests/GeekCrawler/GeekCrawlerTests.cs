@@ -231,3 +231,15 @@ public class GeekCrawlerHostTrafficControllerTests
         _ = clock;
     }
 }
+
+public class GeekCrawlerSeedUrlDebugTests
+{
+    [Theory]
+    [InlineData("https://webpalmbeaches.com/ai-consulting-delray-beach.html")]
+    [InlineData("* https://webpalmbeaches.com/ai-consulting-delray-beach.html")]
+    public void NormalizeSeeds_handles_palm_beaches_url(string raw)
+    {
+        var seeds = GeekCrawlerSeedNormalizer.NormalizeSeeds([raw]);
+        Assert.NotEmpty(seeds);
+    }
+}

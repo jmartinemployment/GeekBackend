@@ -75,6 +75,7 @@ public static class GeekCrawlerSeedNormalizer
         if (string.IsNullOrWhiteSpace(raw)) return false;
 
         var trimmed = raw.Trim();
+        trimmed = StripListPrefix(trimmed);
         if (!trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             && !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
@@ -92,5 +93,23 @@ public static class GeekCrawlerSeedNormalizer
         if (url.EndsWith('/') && uri.AbsolutePath == "/")
             url = url.TrimEnd('/');
         return true;
+    }
+
+    private static string StripListPrefix(string trimmed)
+    {
+        if (trimmed.StartsWith("* ", StringComparison.Ordinal)
+            || trimmed.StartsWith("- ", StringComparison.Ordinal)
+            || trimmed.StartsWith("+ ", StringComparison.Ordinal))
+        {
+            return trimmed[2..].TrimStart();
+        }
+
+        var i = 0;
+        while (i < trimmed.Length && char.IsDigit(trimmed[i]))
+            i++;
+        if (i > 0 && i < trimmed.Length && trimmed[i] == '.' && i + 1 < trimmed.Length && trimmed[i + 1] == ' ')
+            return trimmed[(i + 2)..].TrimStart();
+
+        return trimmed;
     }
 }
