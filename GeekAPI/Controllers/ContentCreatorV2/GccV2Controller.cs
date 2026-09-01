@@ -876,32 +876,48 @@ public class GccV2Controller : ControllerBase
             hierarchyChildHeadings = request.HierarchyChildHeadings ?? [],
         };
         var outlineJson = JsonSerializer.Serialize(outline, JsonOpts);
+        var hierarchyChildHeadingsJson = JsonSerializer.Serialize(request.HierarchyChildHeadings ?? [], JsonOpts);
 
-        await _repo.AddStageResultAsync(
-            id,
-            new CreateGccV2StageResultCommand("plan", null, outlineJson, 0),
-            ct);
-
-        var existing = await _repo.ListOutlinesByBriefAsync(job.BriefId, ct);
-        var latest = existing.FirstOrDefault();
-        if (latest is not null)
+        try
         {
-            await _repo.PatchOutlineAsync(
-                latest.Id,
-                new PatchGccV2OutlineCommand(OutlineJson: outlineJson),
+            await _repo.AddStageResultAsync(
+                id,
+                new CreateGccV2StageResultCommand("plan", null, outlineJson, 0),
                 ct);
+
+            var existing = await _repo.ListOutlinesByBriefAsync(job.BriefId, ct);
+            var latest = existing.FirstOrDefault();
+            if (latest is not null)
+            {
+                await _repo.PatchOutlineAsync(
+                    latest.Id,
+                    new PatchGccV2OutlineCommand(
+                        OutlineJson: outlineJson,
+                        HierarchyChildHeadingsJson: hierarchyChildHeadingsJson),
+                    ct);
+            }
+            else
+            {
+                await _repo.CreateOutlineAsync(
+                    new CreateGccV2OutlineCommand(
+                        job.BriefId,
+                        outlineJson,
+                        hierarchyChildHeadingsJson),
+                    ct);
+            }
         }
-        else
+        catch (HttpRequestException ex)
         {
-            await _repo.CreateOutlineAsync(
-                new CreateGccV2OutlineCommand(
-                    job.BriefId,
-                    outlineJson,
-                    JsonSerializer.Serialize(request.HierarchyChildHeadings ?? [], JsonOpts)),
-                ct);
+            _logger.LogError(ex, "PutOutline persistence failed for job {JobId}.", id);
+            return StatusCode(StatusCodes.Status502BadGateway, new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "PutOutline failed for job {JobId}.", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = "Could not save outline." });
         }
 
-        await _events.AppendAsync(id, _user.UserId, "OutlineReady", outline, ct: ct);
+        // Save is silent — canvas already has local edits; avoid redundant OutlineReady hub replay.
         return Ok(outline);
     }
 

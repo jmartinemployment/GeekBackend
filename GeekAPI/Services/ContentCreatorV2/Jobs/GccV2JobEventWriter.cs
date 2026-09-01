@@ -13,11 +13,16 @@ public sealed class GccV2JobEventWriter
 
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2ProgressNotifier _notifier;
+    private readonly ILogger<GccV2JobEventWriter> _logger;
 
-    public GccV2JobEventWriter(HttpGccV2Repository repo, GccV2ProgressNotifier notifier)
+    public GccV2JobEventWriter(
+        HttpGccV2Repository repo,
+        GccV2ProgressNotifier notifier,
+        ILogger<GccV2JobEventWriter> logger)
     {
         _repo = repo;
         _notifier = notifier;
+        _logger = logger;
     }
 
     public async Task<GccV2JobEventDto> AppendAsync(
@@ -30,7 +35,7 @@ public sealed class GccV2JobEventWriter
     {
         var payloadJson = JsonSerializer.Serialize(payload, JsonOpts);
         var evt = await _repo.AppendJobEventAsync(jobId, new AppendGccV2JobEventCommand(type, payloadJson, wake), ct);
-        await _notifier.PushAsync(jobId, ownerUserId, evt, ct);
+        await TryPushAsync(jobId, ownerUserId, evt, ct);
         return evt;
     }
 
@@ -43,7 +48,7 @@ public sealed class GccV2JobEventWriter
     {
         var result = await _repo.ApplyJobTransitionAsync(jobId, command, ct);
         if (result.Event is not null)
-            await _notifier.PushAsync(jobId, ownerUserId, result.Event, ct);
+            await TryPushAsync(jobId, ownerUserId, result.Event, ct);
         return result;
     }
 
@@ -63,4 +68,24 @@ public sealed class GccV2JobEventWriter
                 EventType: "JobFailed",
                 EventPayloadJson: JsonSerializer.Serialize(new { error }, JsonOpts)),
             ct);
+
+    private async Task TryPushAsync(
+        Guid jobId,
+        Guid ownerUserId,
+        GccV2JobEventDto evt,
+        CancellationToken ct)
+    {
+        try
+        {
+            await _notifier.PushAsync(jobId, ownerUserId, evt, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Realtime hub push failed for job {JobId} event {EventType}; persistence succeeded.",
+                jobId,
+                evt.Type);
+        }
+    }
 }
