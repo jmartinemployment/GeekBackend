@@ -75,6 +75,20 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
             $"repo/geek-crawler/pages?runId={runId}&limit={limit}&offset={offset}",
             ct);
 
+    public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+        Guid runId,
+        IReadOnlyList<string> seedUrls,
+        CancellationToken ct = default)
+    {
+        if (seedUrls.Count == 0)
+            return Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
+
+        var seedsParam = string.Join(",", seedUrls.Select(Uri.EscapeDataString));
+        return GetListAsync<GeekCrawlerPageDto>(
+            $"repo/geek-crawler/pages/by-seeds?runId={runId}&seeds={seedsParam}",
+            ct);
+    }
+
     public Task<GeekCrawlerRunDto?> GetRunForSlotAsync(
         string ownerUserId,
         string crawlType,
@@ -85,9 +99,6 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
             $"&crawlType={Uri.EscapeDataString(crawlType)}" +
             $"&seedKey={Uri.EscapeDataString(seedKey)}",
             ct);
-
-    public Task<GeekCrawlerRunDto> ReplaceRunAsync(Guid runId, CancellationToken ct = default) =>
-        PostAsync<GeekCrawlerRunDto>($"repo/geek-crawler/runs/{runId}/replace", new { }, ct);
 
     public Task<IReadOnlyList<GeekCrawlerPageResumeRowDto>> ListPagesForResumeAsync(
         Guid runId,
@@ -121,6 +132,11 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
             path.Append($"&sameOrigin={sameOrigin.Value.ToString().ToLowerInvariant()}");
         return GetListAsync<GeekCrawlerLinkDto>(path.ToString(), ct);
     }
+
+    public Task<GeekCrawlerLinkActivityDto?> GetLinkActivityAsync(
+        Guid runId,
+        CancellationToken ct = default) =>
+        GetAsync<GeekCrawlerLinkActivityDto>($"repo/geek-crawler/links/activity?runId={runId}", ct);
 
     public Task CreateLinksBatchAsync(
         CreateGeekCrawlerLinkBatchCommand command,

@@ -79,24 +79,24 @@ public class GeekCrawlerController : ControllerBase
         if (normalized.Count == 0)
             return BadRequest("At least one valid seed URL is required.");
 
-        var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(normalized);
-        var run = await _repo.GetRunForSlotAsync(
+        var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
+        var run = await _repo.GetLatestRunAsync(
             _user.UserId.ToString("D"),
             crawlType.Trim(),
-            seedKey,
+            seedsJson,
             ct).ConfigureAwait(false);
 
-        if (run is null)
-        {
-            var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
-            run = await _repo.GetLatestRunAsync(
-                _user.UserId.ToString("D"),
-                crawlType.Trim(),
-                seedsJson,
-                ct).ConfigureAwait(false);
-        }
-
         return run is null ? NotFound() : Ok(GeekCrawlerService.ToSnapshot(run));
+    }
+
+    [HttpPost("crawls/{runId:guid}/rebuild-links")]
+    public async Task<IActionResult> RebuildLinks(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        var count = await _crawler.RebuildLinksAsync(runId, ct).ConfigureAwait(false);
+        return Ok(new { linksRebuilt = count });
     }
 
     [HttpGet("crawls/{runId:guid}")]

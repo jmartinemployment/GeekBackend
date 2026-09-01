@@ -62,6 +62,8 @@ public record GeekCrawlerPageResumeRowDto(
     string Url,
     bool HasHtml);
 
+public record GeekCrawlerLinkActivityDto(int LinkCount);
+
 public record GeekCrawlerCreatedPageDto(string Url, Guid PageId);
 
 public record CreateGeekCrawlerLinkBatchCommand(

@@ -226,6 +226,20 @@ public class HttpGccV2Repository
             $"repo/content-creator-v2/project-site/pages?runId={runId}&limit={limit}&offset={offset}",
             ct);
 
+    public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesBySeedsAsync(
+        Guid runId,
+        IReadOnlyList<string> seedUrls,
+        CancellationToken ct = default)
+    {
+        if (seedUrls.Count == 0)
+            return Task.FromResult<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>>([]);
+
+        var seedsParam = string.Join(",", seedUrls.Select(Uri.EscapeDataString));
+        return GetListAsync<GccV2ProjectSiteCrawlPageDto>(
+            $"repo/content-creator-v2/project-site/pages/by-seeds?runId={runId}&seeds={seedsParam}",
+            ct);
+    }
+
     public Task<GccV2ProjectSiteCrawlPageActivityDto?> GetProjectSiteCrawlPageActivityAsync(
         Guid runId,
         CancellationToken ct = default) =>

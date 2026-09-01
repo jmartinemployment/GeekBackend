@@ -13,6 +13,10 @@ public interface IGccV2ProjectSitePageReader
         int limit,
         int offset,
         CancellationToken ct = default);
+    Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesBySeedsAsync(
+        Guid runId,
+        IReadOnlyList<string> seedUrls,
+        CancellationToken ct = default);
 }
 
 internal sealed class GccV2ProjectSitePageReader(HttpGccV2Repository repo) : IGccV2ProjectSitePageReader
@@ -23,6 +27,12 @@ internal sealed class GccV2ProjectSitePageReader(HttpGccV2Repository repo) : IGc
         int offset,
         CancellationToken ct = default) =>
         repo.ListProjectSiteCrawlPagesAsync(runId, limit, offset, ct);
+
+    public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesBySeedsAsync(
+        Guid runId,
+        IReadOnlyList<string> seedUrls,
+        CancellationToken ct = default) =>
+        repo.ListProjectSiteCrawlPagesBySeedsAsync(runId, seedUrls, ct);
 }
 
 public interface IGccV2GeekCrawlerReadRepository
@@ -37,6 +47,17 @@ public interface IGccV2GeekCrawlerReadRepository
         Guid runId,
         int limit = 100,
         int offset = 0,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+        Guid runId,
+        IReadOnlyList<string> seedUrls,
+        CancellationToken ct = default);
+
+    Task<GeekCrawlerRunDto?> GetRunForSlotAsync(
+        string ownerUserId,
+        string crawlType,
+        string seedKey,
         CancellationToken ct = default);
 }
 
@@ -55,6 +76,19 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
         int offset = 0,
         CancellationToken ct = default) =>
         inner.ListPagesAsync(runId, limit, offset, ct);
+
+    public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+        Guid runId,
+        IReadOnlyList<string> seedUrls,
+        CancellationToken ct = default) =>
+        inner.ListPagesBySeedsAsync(runId, seedUrls, ct);
+
+    public Task<GeekCrawlerRunDto?> GetRunForSlotAsync(
+        string ownerUserId,
+        string crawlType,
+        string seedKey,
+        CancellationToken ct = default) =>
+        inner.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
 }
 
 /// <summary>
@@ -63,8 +97,6 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
 /// </summary>
 public sealed class GccV2GeekCrawlerResearchResolver
 {
-    private const int PageBatchSize = 100;
-
     private readonly IGccV2GeekCrawlerReadRepository _crawlerRepo;
     private readonly IGccV2ProjectSitePageReader _projectSitePages;
     private readonly ILogger<GccV2GeekCrawlerResearchResolver> _logger;
@@ -205,6 +237,12 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
         var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
         var run = await _crawlerRepo.GetLatestRunAsync(ownerUserId, crawlType, seedsJson, ct);
+        if (run is null && normalized.Count == 1)
+        {
+            var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(normalized);
+            run = await _crawlerRepo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
+        }
+
         if (run is null)
         {
             throw new InvalidOperationException(
@@ -213,8 +251,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
         if (!string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
-                $"Geek-Crawler {crawlType} run is \"{run.Status}\" — wait for completion in Geek-Crawler, then retry.");
+            throw new InvalidOperationException(DescribeIncompleteRun(run, crawlType));
         }
 
         var seedSet = BuildSeedMatchSet(normalized);
@@ -306,28 +343,20 @@ public sealed class GccV2GeekCrawlerResearchResolver
         HashSet<string> seedSet,
         CancellationToken ct)
     {
+        var lookupUrls = ExpandUrlLookupVariants(seedSet);
+        var storedPages = await _crawlerRepo.ListPagesBySeedsAsync(runId, lookupUrls, ct);
+
         var quoteable = new List<GccQuoteablePage>();
-        var offset = 0;
-        while (true)
+        foreach (var page in storedPages)
         {
-            var batch = await _crawlerRepo.ListPagesAsync(runId, PageBatchSize, offset, ct);
-            if (batch.Count == 0) break;
+            if (string.IsNullOrWhiteSpace(page.Html)) continue;
 
-            foreach (var page in batch)
-            {
-                if (string.IsNullOrWhiteSpace(page.Html)) continue;
+            var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
+            if (!PageMatchesSeed(url, seedSet)) continue;
 
-                var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
-                if (!PageMatchesSeed(url, seedSet)) continue;
-
-                var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
-                if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
-                    quoteable.Add(extracted);
-            }
-
-            if (AllSeedsSatisfied(seedSet, quoteable)) break;
-            if (batch.Count < PageBatchSize) break;
-            offset += batch.Count;
+            var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
+            if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
+                quoteable.Add(extracted);
         }
 
         return quoteable;
@@ -338,46 +367,40 @@ public sealed class GccV2GeekCrawlerResearchResolver
         HashSet<string> seedSet,
         CancellationToken ct)
     {
-        var matched = new List<GccV2ProjectSiteCrawlPageDto>();
-        var offset = 0;
-        while (true)
-        {
-            var batch = await _projectSitePages.ListProjectSiteCrawlPagesAsync(runId, PageBatchSize, offset, ct);
-            if (batch.Count == 0) break;
-
-            foreach (var page in batch)
-            {
-                if (string.IsNullOrWhiteSpace(page.Html)) continue;
-                if (page.StatusCode is < 200 or >= 300) continue;
-
-                var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
-                if (PageMatchesSeed(url, seedSet))
-                    matched.Add(page);
-            }
-
-            if (AllSeedsSatisfied(seedSet, matched.Select(p => p.FinalUrl ?? p.Url))) break;
-            if (batch.Count < PageBatchSize) break;
-            offset += batch.Count;
-        }
-
-        return matched;
+        var lookupUrls = ExpandUrlLookupVariants(seedSet);
+        return await _projectSitePages.ListProjectSiteCrawlPagesBySeedsAsync(runId, lookupUrls, ct);
     }
 
-    private static bool AllSeedsSatisfied(HashSet<string> seedSet, IEnumerable<string> matchedUrls)
+    internal static List<string> ExpandUrlLookupVariants(IEnumerable<string> seeds)
     {
-        var covered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var url in matchedUrls)
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var seed in seeds)
         {
-            foreach (var seed in seedSet)
-            {
-                if (PageMatchesSeed(url, new HashSet<string>([seed], StringComparer.OrdinalIgnoreCase)))
-                    covered.Add(seed);
-            }
+            if (string.IsNullOrWhiteSpace(seed)) continue;
+            set.Add(seed);
+            if (GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl(seed, out var normalized))
+                set.Add(normalized);
+            var trimmed = seed.TrimEnd('/');
+            set.Add(trimmed);
+            set.Add(trimmed + "/");
         }
 
-        return covered.Count == seedSet.Count;
+        return set.ToList();
     }
 
-    private static bool AllSeedsSatisfied(HashSet<string> seedSet, IReadOnlyList<GccQuoteablePage> pages) =>
-        AllSeedsSatisfied(seedSet, pages.Select(p => p.Url));
+    internal static string DescribeIncompleteRun(GeekCrawlerRunDto run, string crawlType)
+    {
+        if (string.Equals(run.Status, "failed", StringComparison.OrdinalIgnoreCase)
+            && run.ErrorSummary?.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return
+                $"Geek-Crawler {crawlType} crawl failed (out of memory — the site has too many pages for a full crawl). " +
+                "Re-run in Geek-Crawler with a lower page limit, or continue without that partner's research.";
+        }
+
+        var detail = string.IsNullOrWhiteSpace(run.ErrorSummary)
+            ? $"Geek-Crawler {crawlType} run is \"{run.Status}\" — wait for completion in Geek-Crawler, then retry."
+            : $"Geek-Crawler {crawlType} run is \"{run.Status}\" ({run.ErrorSummary.Trim()}) — fix the crawl in Geek-Crawler, then retry.";
+        return detail;
+    }
 }

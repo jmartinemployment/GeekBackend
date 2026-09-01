@@ -227,7 +227,6 @@ public class GccV2Controller : ControllerBase
         var rawBriefJson = request?.Brief is { } briefElement
             ? briefElement.GetRawText()
             : null;
-        rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
         // Partner research HTML merge runs at generate — preflight only needs hierarchyPlan tool rows.

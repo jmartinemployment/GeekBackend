@@ -16,6 +16,20 @@ public class GeekCrawlerLinksController : ControllerBase
 
     public GeekCrawlerLinksController(GeekCrawlerDbContext db) => _db = db;
 
+    [HttpGet("activity")]
+    public async Task<ActionResult<object>> GetRunActivity(
+        [FromQuery] Guid runId,
+        CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty)
+            return BadRequest("runId is required");
+
+        var linkCount = await _db.GeekCrawlerLinks.AsNoTracking()
+            .CountAsync(l => l.RunId == runId, ct);
+
+        return Ok(new { linkCount });
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<GeekCrawlerLink>>> ListByRun(
         [FromQuery] Guid runId,

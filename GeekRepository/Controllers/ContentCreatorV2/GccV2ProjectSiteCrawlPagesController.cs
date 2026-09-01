@@ -38,6 +38,33 @@ public class GccV2ProjectSiteCrawlPagesController : ControllerBase
         return Ok(pages);
     }
 
+    [HttpGet("by-seeds")]
+    public async Task<ActionResult<IReadOnlyList<GccV2ProjectSiteCrawlPage>>> ListBySeeds(
+        [FromQuery] Guid runId,
+        [FromQuery] string seeds,
+        CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty)
+            return BadRequest("runId is required");
+        if (string.IsNullOrWhiteSpace(seeds))
+            return BadRequest("seeds is required");
+
+        var urlList = seeds
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(32)
+            .ToList();
+        if (urlList.Count == 0)
+            return BadRequest("seeds is required");
+
+        var pages = await _db.GccV2ProjectSiteCrawlPages.AsNoTracking()
+            .Where(p => p.RunId == runId
+                        && (urlList.Contains(p.Url) || urlList.Contains(p.FinalUrl)))
+            .OrderBy(p => p.CrawledAtUtc)
+            .ToListAsync(ct);
+        return Ok(pages);
+    }
+
     [HttpGet("activity")]
     public async Task<ActionResult<object>> GetRunActivity(
         [FromQuery] Guid runId,

@@ -193,6 +193,28 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
         Assert.Contains("running", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void DescribeIncompleteRun_maps_out_of_memory_to_actionable_message()
+    {
+        var run = new GeekCrawlerRunDto(
+            Guid.NewGuid(),
+            "user-1",
+            "partner",
+            "failed",
+            "[\"https://www.pipedrive.com\"]",
+            null,
+            null,
+            "System.OutOfMemoryException was thrown.",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow);
+
+        var message = GccV2GeekCrawlerResearchResolver.DescribeIncompleteRun(run, "partner");
+
+        Assert.Contains("out of memory", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("page limit", message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static GccV2GeekCrawlerResearchResolver CreateResolver(
         FakeReadRepo crawlerRepo,
         FakeProjectSitePageReader? projectSitePages = null) =>
@@ -219,6 +241,19 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             int offset = 0,
             CancellationToken ct = default) =>
             Task.FromResult(Pages);
+
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+            Guid runId,
+            IReadOnlyList<string> seedUrls,
+            CancellationToken ct = default) =>
+            Task.FromResult(Pages);
+
+        public Task<GeekCrawlerRunDto?> GetRunForSlotAsync(
+            string ownerUserId,
+            string crawlType,
+            string seedKey,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRunDto?>(null);
     }
 
     private sealed class FakeProjectSitePageReader : IGccV2ProjectSitePageReader
@@ -229,6 +264,12 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             Guid runId,
             int limit,
             int offset,
+            CancellationToken ct = default) =>
+            Task.FromResult(Pages);
+
+        public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesBySeedsAsync(
+            Guid runId,
+            IReadOnlyList<string> seedUrls,
             CancellationToken ct = default) =>
             Task.FromResult(Pages);
     }
