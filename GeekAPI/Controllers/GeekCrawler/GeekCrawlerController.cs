@@ -63,6 +63,10 @@ public class GeekCrawlerController : ControllerBase
         {
             return BadRequest(ex.Message);
         }
+        catch (HttpRequestException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+        }
     }
 
     [HttpGet("crawls/latest")]
