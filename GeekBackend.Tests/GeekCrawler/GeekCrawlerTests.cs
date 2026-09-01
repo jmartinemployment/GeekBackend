@@ -401,6 +401,14 @@ public class GeekCrawlerRunResumeLoaderTests
             Task.FromResult<IReadOnlyList<GeekCrawlerPageResumeRowDto>>(
                 _pages.Skip(offset).Take(limit).ToList());
 
+        public Task<IReadOnlyList<string>> ListLinksForResumeAsync(
+            Guid runId,
+            int limit = 500,
+            int offset = 0,
+            CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<string>>(
+                _links.Skip(offset).Take(limit).Select(l => l.LinkUrl).ToList());
+
         public Task<IReadOnlyList<GeekCrawlerLinkDto>> ListLinksAsync(
             Guid runId,
             bool? sameOrigin = null,

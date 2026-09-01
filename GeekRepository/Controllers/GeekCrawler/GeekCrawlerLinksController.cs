@@ -4,6 +4,8 @@ using GeekRepository.Data.Entities.GeekCrawler;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace GeekRepository.Controllers.GeekCrawler;
 
@@ -30,6 +32,31 @@ public class GeekCrawlerLinksController : ControllerBase
         return Ok(new { linkCount });
     }
 
+    [HttpGet("for-resume")]
+    public async Task<ActionResult<IReadOnlyList<string>>> ListForResume(
+        [FromQuery] Guid runId,
+        [FromQuery] int limit = 500,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty)
+            return BadRequest("runId is required");
+
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+
+        var urls = await _db.GeekCrawlerLinks.AsNoTracking()
+            .Where(l => l.RunId == runId && l.IsSameOrigin)
+            .OrderBy(l => l.DiscoveredAtUtc)
+            .ThenBy(l => l.Id)
+            .Skip(offset)
+            .Take(limit)
+            .Select(l => l.LinkUrl)
+            .ToListAsync(ct);
+
+        return Ok(urls);
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<GeekCrawlerLink>>> ListByRun(
         [FromQuery] Guid runId,
@@ -50,6 +77,7 @@ public class GeekCrawlerLinksController : ControllerBase
 
         var links = await query
             .OrderBy(l => l.DiscoveredAtUtc)
+            .ThenBy(l => l.Id)
             .Skip(offset)
             .Take(limit)
             .ToListAsync(ct);
@@ -64,42 +92,66 @@ public class GeekCrawlerLinksController : ControllerBase
         if (command is null || command.RunId == Guid.Empty || command.Links is null || command.Links.Count == 0)
             return BadRequest("runId and links are required");
 
-        var existing = await _db.GeekCrawlerLinks.AsNoTracking()
-            .Where(l => l.RunId == command.RunId)
-            .Select(l => new { l.FromUrl, l.LinkUrl })
-            .ToListAsync(ct);
+        var inserted = await InsertLinksIgnoringDuplicatesAsync(command.RunId, command.Links, ct);
+        return Ok(new { count = inserted });
+    }
 
-        var seen = new HashSet<string>(
-            existing.Select(e => $"{e.FromUrl}\0{e.LinkUrl}"),
-            StringComparer.OrdinalIgnoreCase);
-
+    private async Task<int> InsertLinksIgnoringDuplicatesAsync(
+        Guid runId,
+        IReadOnlyList<CreateGeekCrawlerLinkItem> links,
+        CancellationToken ct)
+    {
         var now = DateTimeOffset.UtcNow;
-        var inserted = 0;
+        var ids = new Guid[links.Count];
+        var runIds = new Guid[links.Count];
+        var pageIds = new Guid[links.Count];
+        var fromUrls = new string[links.Count];
+        var linkUrls = new string[links.Count];
+        var sameOrigins = new bool[links.Count];
+        var discoveredAt = new DateTimeOffset[links.Count];
 
-        foreach (var link in command.Links)
+        for (var i = 0; i < links.Count; i++)
         {
-            var from = link.FromUrl ?? "";
-            var to = link.LinkUrl ?? "";
-            var key = $"{from}\0{to}";
-            if (!seen.Add(key)) continue;
-
-            _db.GeekCrawlerLinks.Add(new GeekCrawlerLink
-            {
-                Id = Guid.NewGuid(),
-                RunId = command.RunId,
-                PageId = link.PageId,
-                FromUrl = from,
-                LinkUrl = to,
-                IsSameOrigin = link.IsSameOrigin,
-                DiscoveredAtUtc = now,
-            });
-            inserted++;
+            var link = links[i];
+            ids[i] = Guid.NewGuid();
+            runIds[i] = runId;
+            pageIds[i] = link.PageId;
+            fromUrls[i] = link.FromUrl ?? "";
+            linkUrls[i] = link.LinkUrl ?? "";
+            sameOrigins[i] = link.IsSameOrigin;
+            discoveredAt[i] = now;
         }
 
-        if (inserted > 0)
-            await _db.SaveChangesAsync(ct);
+        const string sql = """
+            INSERT INTO geek_crawler.crawl_links
+                ("Id", "RunId", "PageId", "FromUrl", "LinkUrl", "IsSameOrigin", "DiscoveredAtUtc")
+            SELECT *
+            FROM UNNEST(
+                @ids,
+                @runIds,
+                @pageIds,
+                @fromUrls,
+                @linkUrls,
+                @sameOrigins,
+                @discoveredAt)
+            ON CONFLICT ("RunId", "FromUrl", "LinkUrl") DO NOTHING
+            """;
 
-        return Ok(new { count = inserted });
+        await using var conn = (NpgsqlConnection)_db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = ids });
+        cmd.Parameters.Add(new NpgsqlParameter("runIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = runIds });
+        cmd.Parameters.Add(new NpgsqlParameter("pageIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = pageIds });
+        cmd.Parameters.Add(new NpgsqlParameter("fromUrls", NpgsqlDbType.Array | NpgsqlDbType.Varchar) { Value = fromUrls });
+        cmd.Parameters.Add(new NpgsqlParameter("linkUrls", NpgsqlDbType.Array | NpgsqlDbType.Varchar) { Value = linkUrls });
+        cmd.Parameters.Add(new NpgsqlParameter("sameOrigins", NpgsqlDbType.Array | NpgsqlDbType.Boolean) { Value = sameOrigins });
+        cmd.Parameters.Add(new NpgsqlParameter("discoveredAt", NpgsqlDbType.Array | NpgsqlDbType.TimestampTz) { Value = discoveredAt });
+
+        var inserted = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        return inserted;
     }
 
     public record CreateGeekCrawlerLinkBatchCommand(

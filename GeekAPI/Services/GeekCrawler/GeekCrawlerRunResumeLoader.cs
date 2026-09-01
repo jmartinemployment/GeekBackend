@@ -65,32 +65,32 @@ public static class GeekCrawlerRunResumeLoader
         offset = 0;
         while (true)
         {
-            var links = await repo.ListLinksAsync(runId, sameOrigin: true, limit: 500, offset, ct)
+            var linkUrls = await repo.ListLinksForResumeAsync(runId, limit: 500, offset, ct)
                 .ConfigureAwait(false);
-            if (links.Count == 0)
+            if (linkUrls.Count == 0)
                 break;
 
-            foreach (var link in links)
+            foreach (var linkUrl in linkUrls)
             {
-                var key = GeekCrawlerUrlKeys.CrawlKey(link.LinkUrl);
+                var key = GeekCrawlerUrlKeys.CrawlKey(linkUrl);
                 foreach (var origin in origins)
                 {
                     if (!seenByOrigin.TryGetValue(origin, out var seen))
                         continue;
                     if (seen.Contains(key))
                         continue;
-                    if (!Uri.TryCreate(link.LinkUrl, UriKind.Absolute, out var uri))
+                    if (!Uri.TryCreate(linkUrl, UriKind.Absolute, out var uri))
                         continue;
                     if (!string.Equals(uri.Host, new Uri(origin).Host, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    queueByOrigin[origin].Add(link.LinkUrl);
+                    queueByOrigin[origin].Add(linkUrl);
                     break;
                 }
             }
 
-            offset += links.Count;
-            if (links.Count < 500)
+            offset += linkUrls.Count;
+            if (linkUrls.Count < 500)
                 break;
         }
 

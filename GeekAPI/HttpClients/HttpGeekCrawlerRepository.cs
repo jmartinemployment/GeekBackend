@@ -133,6 +133,15 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         return GetListAsync<GeekCrawlerLinkDto>(path.ToString(), ct);
     }
 
+    public Task<IReadOnlyList<string>> ListLinksForResumeAsync(
+        Guid runId,
+        int limit = 500,
+        int offset = 0,
+        CancellationToken ct = default) =>
+        GetListAsync<string>(
+            $"repo/geek-crawler/links/for-resume?runId={runId}&limit={limit}&offset={offset}",
+            ct);
+
     public Task<GeekCrawlerLinkActivityDto?> GetLinkActivityAsync(
         Guid runId,
         CancellationToken ct = default) =>
