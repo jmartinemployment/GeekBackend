@@ -116,14 +116,14 @@ public sealed class GccV2GeekCrawlerResearchResolver
         }
 
         var externalSeeds = CollectExternalPartnerSeeds(rawBriefJson, projectSiteUrl);
-        if (externalSeeds.Count > 0)
+        foreach (var seed in externalSeeds)
         {
             try
             {
                 var external = await ResolveQuoteablePagesAsync(
                     ownerUserId,
                     CrawlTypes.Partner,
-                    externalSeeds,
+                    [seed],
                     ct);
                 quoteable.AddRange(external);
             }
@@ -131,8 +131,8 @@ public sealed class GccV2GeekCrawlerResearchResolver
             {
                 _logger.LogWarning(
                     ex,
-                    "External Geek-Crawler partner merge skipped — {SeedCount} external seed(s) without a completed run.",
-                    externalSeeds.Count);
+                    "External Geek-Crawler partner merge skipped for seed {Seed}.",
+                    seed);
             }
         }
 
@@ -174,7 +174,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         if (seeds.Count == 0) return [];
 
         var seedSet = BuildSeedMatchSet(seeds);
-        var storedPages = await LoadProjectSitePagesAsync(projectSiteCrawlRunId, ct);
+        var storedPages = await LoadProjectSitePagesAsync(projectSiteCrawlRunId, seedSet, ct);
 
         var quoteable = new List<GccQuoteablePage>();
         foreach (var page in storedPages)
@@ -218,20 +218,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         }
 
         var seedSet = BuildSeedMatchSet(normalized);
-        var storedPages = await LoadAllCrawlerPagesAsync(run.Id, ct);
-
-        var quoteable = new List<GccQuoteablePage>();
-        foreach (var page in storedPages)
-        {
-            if (string.IsNullOrWhiteSpace(page.Html)) continue;
-
-            var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
-            if (!PageMatchesSeed(url, seedSet)) continue;
-
-            var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
-            if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
-                quoteable.Add(extracted);
-        }
+        var quoteable = await ExtractQuoteableFromCrawlerPagesAsync(run.Id, seedSet, ct);
 
         if (quoteable.Count == 0)
         {
@@ -314,37 +301,83 @@ public sealed class GccV2GeekCrawlerResearchResolver
                && seedSet.Contains(normalized);
     }
 
-    private async Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> LoadProjectSitePagesAsync(
+    private async Task<List<GccQuoteablePage>> ExtractQuoteableFromCrawlerPagesAsync(
         Guid runId,
+        HashSet<string> seedSet,
         CancellationToken ct)
     {
-        var all = new List<GccV2ProjectSiteCrawlPageDto>();
-        var offset = 0;
-        while (true)
-        {
-            var batch = await _projectSitePages.ListProjectSiteCrawlPagesAsync(runId, PageBatchSize, offset, ct);
-            if (batch.Count == 0) break;
-            all.AddRange(batch);
-            if (batch.Count < PageBatchSize) break;
-            offset += batch.Count;
-        }
-
-        return all;
-    }
-
-    private async Task<IReadOnlyList<GeekCrawlerPageDto>> LoadAllCrawlerPagesAsync(Guid runId, CancellationToken ct)
-    {
-        var all = new List<GeekCrawlerPageDto>();
+        var quoteable = new List<GccQuoteablePage>();
         var offset = 0;
         while (true)
         {
             var batch = await _crawlerRepo.ListPagesAsync(runId, PageBatchSize, offset, ct);
             if (batch.Count == 0) break;
-            all.AddRange(batch);
+
+            foreach (var page in batch)
+            {
+                if (string.IsNullOrWhiteSpace(page.Html)) continue;
+
+                var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
+                if (!PageMatchesSeed(url, seedSet)) continue;
+
+                var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
+                if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
+                    quoteable.Add(extracted);
+            }
+
+            if (AllSeedsSatisfied(seedSet, quoteable)) break;
             if (batch.Count < PageBatchSize) break;
             offset += batch.Count;
         }
 
-        return all;
+        return quoteable;
     }
+
+    private async Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> LoadProjectSitePagesAsync(
+        Guid runId,
+        HashSet<string> seedSet,
+        CancellationToken ct)
+    {
+        var matched = new List<GccV2ProjectSiteCrawlPageDto>();
+        var offset = 0;
+        while (true)
+        {
+            var batch = await _projectSitePages.ListProjectSiteCrawlPagesAsync(runId, PageBatchSize, offset, ct);
+            if (batch.Count == 0) break;
+
+            foreach (var page in batch)
+            {
+                if (string.IsNullOrWhiteSpace(page.Html)) continue;
+                if (page.StatusCode is < 200 or >= 300) continue;
+
+                var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
+                if (PageMatchesSeed(url, seedSet))
+                    matched.Add(page);
+            }
+
+            if (AllSeedsSatisfied(seedSet, matched.Select(p => p.FinalUrl ?? p.Url))) break;
+            if (batch.Count < PageBatchSize) break;
+            offset += batch.Count;
+        }
+
+        return matched;
+    }
+
+    private static bool AllSeedsSatisfied(HashSet<string> seedSet, IEnumerable<string> matchedUrls)
+    {
+        var covered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var url in matchedUrls)
+        {
+            foreach (var seed in seedSet)
+            {
+                if (PageMatchesSeed(url, new HashSet<string>([seed], StringComparer.OrdinalIgnoreCase)))
+                    covered.Add(seed);
+            }
+        }
+
+        return covered.Count == seedSet.Count;
+    }
+
+    private static bool AllSeedsSatisfied(HashSet<string> seedSet, IReadOnlyList<GccQuoteablePage> pages) =>
+        AllSeedsSatisfied(seedSet, pages.Select(p => p.Url));
 }

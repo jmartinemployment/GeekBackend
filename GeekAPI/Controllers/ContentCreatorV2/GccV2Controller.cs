@@ -230,25 +230,7 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
-        string? partnerResearchWarning = null;
-        try
-        {
-            rawBriefJson = await _researchResolver.MergePartnerResearchAsync(
-                _user.UserId.ToString("D"),
-                rawBriefJson,
-                create.SiteUrl,
-                runId,
-                ct);
-        }
-        catch (Exception ex)
-        {
-            partnerResearchWarning = ex.Message;
-            _logger.LogWarning(
-                ex,
-                "Partner research merge skipped on preflight for create {CreateId} — hierarchy tools may still apply.",
-                id);
-        }
-
+        // Partner research HTML merge runs at generate — preflight only needs hierarchyPlan tool rows.
         var tools = GccV2PartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
         string? matchedHeading = null;
         string? matchTopic = null;
@@ -307,10 +289,6 @@ public class GccV2Controller : ControllerBase
         var message = tools.Count > 0
             ? $"Found {tools.Count} partner tool(s). Each will be discussed in the draft. Confirm to start content creation."
             : "No partner tools found from the site hierarchy or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.";
-        if (!string.IsNullOrWhiteSpace(partnerResearchWarning))
-        {
-            message += $" External partner crawl not ready: {partnerResearchWarning}";
-        }
 
         return Ok(new
         {
@@ -322,7 +300,6 @@ public class GccV2Controller : ControllerBase
             toolsFound = tools.Count > 0,
             tools,
             siteHierarchy,
-            partnerResearchWarning,
             message,
         });
     }
