@@ -237,6 +237,7 @@ public class GccV2Controller : ControllerBase
                 _user.UserId.ToString("D"),
                 rawBriefJson,
                 create.SiteUrl,
+                runId,
                 ct);
         }
         catch (Exception ex)
@@ -392,6 +393,7 @@ public class GccV2Controller : ControllerBase
                 _user.UserId.ToString("D"),
                 rawBriefJson,
                 create.SiteUrl,
+                runId,
                 ct);
         }
         catch (Exception ex)

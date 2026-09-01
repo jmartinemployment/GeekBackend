@@ -39,7 +39,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             ],
         };
 
-        var resolver = new GccV2GeekCrawlerResearchResolver(repo, NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
+        var resolver = CreateResolver(repo);
         var pages = await resolver.ResolveQuoteablePagesAsync(
             "user-1",
             "partner",
@@ -51,18 +51,36 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
-    public async Task MergePartnerResearch_skips_on_site_project_tool_urls()
+    public async Task MergePartnerResearch_merges_on_site_pages_from_project_crawl()
     {
-        var resolver = new GccV2GeekCrawlerResearchResolver(
+        var crawlRunId = Guid.NewGuid();
+        const string html =
+            "<html><head><title>Fin.ai</title></head><body><h1>Fin.ai</h1><p>This is a long enough paragraph for extraction from the on-site tool page content.</p></body></html>";
+
+        var resolver = CreateResolver(
             new FakeReadRepo(),
-            NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
+            new FakeProjectSitePageReader
+            {
+                Pages =
+                [
+                    new GccV2ProjectSiteCrawlPageDto(
+                        Guid.NewGuid(),
+                        crawlRunId,
+                        "https://geekatyourspot.com",
+                        "https://geekatyourspot.com/tools/fin",
+                        "https://geekatyourspot.com/tools/fin",
+                        200,
+                        true,
+                        html,
+                        DateTimeOffset.UtcNow),
+                ],
+            });
 
         var brief = """
             {
               "hierarchyPlan": {
                 "recommendedTools": [
-                  { "name": "Fin.ai", "href": "https://geekatyourspot.com/tools/fin" },
-                  { "name": "Intercom", "href": "https://geekatyourspot.com/tools/intercom" }
+                  { "name": "Fin.ai", "href": "https://geekatyourspot.com/tools/fin" }
                 ]
               }
             }
@@ -72,6 +90,31 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             "user-1",
             brief,
             "https://geekatyourspot.com",
+            crawlRunId,
+            CancellationToken.None);
+
+        Assert.NotNull(merged);
+        Assert.Contains("partnerResearch", merged!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task MergePartnerResearch_soft_fails_missing_external_run()
+    {
+        var resolver = CreateResolver(new FakeReadRepo());
+
+        var brief = """
+            {
+              "operatorTools": [
+                { "name": "Jotform", "url": "https://www.jotform.com/" }
+              ]
+            }
+            """;
+
+        var merged = await resolver.MergePartnerResearchAsync(
+            "user-1",
+            brief,
+            "https://geekatyourspot.com",
+            null,
             CancellationToken.None);
 
         Assert.Equal(brief, merged);
@@ -98,11 +141,17 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
+    public void IsExternalPartnerSeed_treats_www_project_host_as_on_site()
+    {
+        Assert.False(GccV2GeekCrawlerResearchResolver.IsExternalPartnerSeed(
+            "https://www.geekatyourspot.com/tools/fin",
+            "https://geekatyourspot.com"));
+    }
+
+    [Fact]
     public async Task ResolveQuoteablePages_missingRun_failClosed()
     {
-        var resolver = new GccV2GeekCrawlerResearchResolver(
-            new FakeReadRepo(),
-            NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
+        var resolver = CreateResolver(new FakeReadRepo());
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             resolver.ResolveQuoteablePagesAsync(
@@ -132,7 +181,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
                 DateTimeOffset.UtcNow,
                 null),
         };
-        var resolver = new GccV2GeekCrawlerResearchResolver(repo, NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
+        var resolver = CreateResolver(repo);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             resolver.ResolveQuoteablePagesAsync(
@@ -143,6 +192,14 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
 
         Assert.Contains("running", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static GccV2GeekCrawlerResearchResolver CreateResolver(
+        FakeReadRepo crawlerRepo,
+        FakeProjectSitePageReader? projectSitePages = null) =>
+        new(
+            crawlerRepo,
+            projectSitePages ?? new FakeProjectSitePageReader(),
+            NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
     private sealed class FakeReadRepo : IGccV2GeekCrawlerReadRepository
     {
@@ -160,6 +217,18 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             Guid runId,
             int limit = 100,
             int offset = 0,
+            CancellationToken ct = default) =>
+            Task.FromResult(Pages);
+    }
+
+    private sealed class FakeProjectSitePageReader : IGccV2ProjectSitePageReader
+    {
+        public IReadOnlyList<GccV2ProjectSiteCrawlPageDto> Pages { get; init; } = [];
+
+        public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesAsync(
+            Guid runId,
+            int limit,
+            int offset,
             CancellationToken ct = default) =>
             Task.FromResult(Pages);
     }

@@ -52,6 +52,7 @@ public static class ContentCreatorV2ServiceRegistration
             var inner = sp.GetRequiredService<HttpGeekCrawlerRepository>();
             return new GccV2GeekCrawlerReadRepository(inner);
         });
+        services.AddScoped<IGccV2ProjectSitePageReader, GccV2ProjectSitePageReader>();
         services.AddScoped<GccV2GeekCrawlerResearchResolver>();
         services.AddSingleton<GccV2ProjectSiteCrawlWake>();
         services.AddScoped<GccV2ProjectSiteCrawlProgressNotifier>();
