@@ -82,34 +82,10 @@ public sealed class GeekCrawlerService
         var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(seeds);
 
         // One row per (owner, crawlType, seedKey) — re-queue the slot instead of inserting again.
-        var existing = await _repo.GetRunForSlotAsync(ownerUserId, type, seedKey, ct).ConfigureAwait(false);
+        var existing = await _repo.GetRunForSlotAsync(ownerUserId, type, seedKey, ct).ConfigureAwait(false)
+            ?? await FindLatestMatchingRunAsync(ownerUserId, type, seeds, ct).ConfigureAwait(false);
         if (existing is not null)
-        {
-            if (string.Equals(existing.Status, "running", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(existing.Status, "pending", StringComparison.OrdinalIgnoreCase))
-            {
-                existing = await TryRecoverOrphanAsync(existing, ct).ConfigureAwait(false);
-                _wake.Wake(existing.Id);
-                await PushRunAsync(existing, currentOrigin: null, ct).ConfigureAwait(false);
-                return existing;
-            }
-
-            _logger.LogInformation(
-                "Re-queuing Geek-Crawler run {RunId} (status {Status}) for seed slot.",
-                existing.Id,
-                existing.Status);
-            var requeued = await _repo.PatchRunAsync(
-                existing.Id,
-                new PatchGeekCrawlerRunCommand(
-                    Status: "pending",
-                    ErrorSummary: "",
-                    CompletedAtUtc: null,
-                    StartedAtUtc: null),
-                ct).ConfigureAwait(false);
-            _wake.Wake(requeued.Id);
-            await PushRunAsync(requeued, currentOrigin: null, ct).ConfigureAwait(false);
-            return requeued;
-        }
+            return await RequeueExistingRunAsync(existing, ct).ConfigureAwait(false);
 
         var run = await _repo.CreateRunAsync(
             new CreateGeekCrawlerRunCommand(ownerUserId, type, seedsJson, seedKey),
@@ -118,6 +94,36 @@ public sealed class GeekCrawlerService
         await PushRunAsync(run, currentOrigin: null, ct).ConfigureAwait(false);
         _wake.Wake(run.Id);
         return run;
+    }
+
+    private async Task<GeekCrawlerRunDto> RequeueExistingRunAsync(
+        GeekCrawlerRunDto existing,
+        CancellationToken ct)
+    {
+        if (string.Equals(existing.Status, "running", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(existing.Status, "pending", StringComparison.OrdinalIgnoreCase))
+        {
+            existing = await TryRecoverOrphanAsync(existing, ct).ConfigureAwait(false);
+            _wake.Wake(existing.Id);
+            await PushRunAsync(existing, currentOrigin: null, ct).ConfigureAwait(false);
+            return existing;
+        }
+
+        _logger.LogInformation(
+            "Re-queuing Geek-Crawler run {RunId} (status {Status}) for seed slot.",
+            existing.Id,
+            existing.Status);
+        var requeued = await _repo.PatchRunAsync(
+            existing.Id,
+            new PatchGeekCrawlerRunCommand(
+                Status: "pending",
+                ErrorSummary: "",
+                CompletedAtUtc: null,
+                StartedAtUtc: null),
+            ct).ConfigureAwait(false);
+        _wake.Wake(requeued.Id);
+        await PushRunAsync(requeued, currentOrigin: null, ct).ConfigureAwait(false);
+        return requeued;
     }
 
     public async Task<int> RebuildLinksAsync(Guid runId, CancellationToken ct) =>
