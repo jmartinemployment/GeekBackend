@@ -184,20 +184,64 @@ public class HttpGccV2Repository
     public Task<GccV2AiVisibilitySnapshotDto> CreateAiVisibilitySnapshotAsync(CreateGccV2AiVisibilitySnapshotCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2AiVisibilitySnapshotDto>("repo/content-creator-v2/ai-visibility-snapshots", command, ct);
 
-    public Task<GccV2PartnerResearchRecordDto?> GetFreshPartnerResearchAsync(
-        string targetUrl,
-        int withinHours = 24,
-        CancellationToken ct = default)
-    {
-        var path =
-            $"repo/content-creator-v2/partner-research-records/fresh?targetUrl={Uri.EscapeDataString(targetUrl)}&withinHours={withinHours}";
-        return GetAsync<GccV2PartnerResearchRecordDto>(path, ct);
-    }
+    // Project-site crawl
 
-    public Task<GccV2PartnerResearchRecordDto> CreatePartnerResearchRecordAsync(
-        CreateGccV2PartnerResearchRecordCommand command,
+    public Task<GccV2ProjectSiteCrawlRunDto?> GetProjectSiteCrawlRunAsync(Guid runId, CancellationToken ct = default) =>
+        GetAsync<GccV2ProjectSiteCrawlRunDto>($"repo/content-creator-v2/project-site/runs/{runId}", ct);
+
+    public Task<GccV2ProjectSiteCrawlRunDto?> GetLatestProjectSiteCrawlRunAsync(
+        string ownerUserId,
+        string siteUrl,
         CancellationToken ct = default) =>
-        PostAsync<GccV2PartnerResearchRecordDto>("repo/content-creator-v2/partner-research-records", command, ct);
+        GetAsync<GccV2ProjectSiteCrawlRunDto>(
+            $"repo/content-creator-v2/project-site/runs/latest?ownerUserId={Uri.EscapeDataString(ownerUserId)}" +
+            $"&siteUrl={Uri.EscapeDataString(siteUrl)}",
+            ct);
+
+    public Task<IReadOnlyList<GccV2ProjectSiteCrawlRunDto>> GetProjectSiteCrawlRunsByStatusAsync(
+        string status,
+        int limit = 200,
+        CancellationToken ct = default) =>
+        GetListAsync<GccV2ProjectSiteCrawlRunDto>(
+            $"repo/content-creator-v2/project-site/runs/by-status/{Uri.EscapeDataString(status)}?limit={limit}",
+            ct);
+
+    public Task<GccV2ProjectSiteCrawlRunDto> CreateProjectSiteCrawlRunAsync(
+        CreateGccV2ProjectSiteCrawlRunCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GccV2ProjectSiteCrawlRunDto>("repo/content-creator-v2/project-site/runs", command, ct);
+
+    public Task<GccV2ProjectSiteCrawlRunDto> PatchProjectSiteCrawlRunAsync(
+        Guid runId,
+        PatchGccV2ProjectSiteCrawlRunCommand command,
+        CancellationToken ct = default) =>
+        PatchAsync<GccV2ProjectSiteCrawlRunDto>($"repo/content-creator-v2/project-site/runs/{runId}", command, ct);
+
+    public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesAsync(
+        Guid runId,
+        int limit = 100,
+        int offset = 0,
+        CancellationToken ct = default) =>
+        GetListAsync<GccV2ProjectSiteCrawlPageDto>(
+            $"repo/content-creator-v2/project-site/pages?runId={runId}&limit={limit}&offset={offset}",
+            ct);
+
+    public Task<GccV2ProjectSiteCrawlPageActivityDto?> GetProjectSiteCrawlPageActivityAsync(
+        Guid runId,
+        CancellationToken ct = default) =>
+        GetAsync<GccV2ProjectSiteCrawlPageActivityDto>(
+            $"repo/content-creator-v2/project-site/pages/activity?runId={runId}",
+            ct);
+
+    public Task<GccV2ProjectSiteCrawlPageBatchResult> CreateProjectSiteCrawlPagesBatchAsync(
+        CreateGccV2ProjectSiteCrawlPageBatchCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GccV2ProjectSiteCrawlPageBatchResult>("repo/content-creator-v2/project-site/pages/batch", command, ct);
+
+    public Task CreateProjectSiteCrawlLinksBatchAsync(
+        CreateGccV2ProjectSiteCrawlLinkBatchCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<object>("repo/content-creator-v2/project-site/links/batch", command, ct);
 
     private async Task<int> PostSeedCountAsync(string path, CancellationToken ct)
     {

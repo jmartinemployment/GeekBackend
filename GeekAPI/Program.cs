@@ -94,7 +94,7 @@ builder.Services.AddScoped(sp =>
     return new HttpGccRepository(httpClient, logger);
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
-builder.Services.AddContentCreatorV2();
+builder.Services.AddContentCreatorV2(builder.Configuration);
 builder.Services.AddGeekCrawler(builder.Configuration);
 
 // GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]

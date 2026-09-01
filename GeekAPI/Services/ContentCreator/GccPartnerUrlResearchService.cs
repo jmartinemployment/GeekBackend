@@ -369,23 +369,10 @@ public sealed class GccPartnerUrlResearchService
         }
     }
 
-    private async Task<GccQuoteablePage?> TryGetFreshCacheAsync(string url, CancellationToken ct)
-    {
-        try
-        {
-            var row = await _repo.GetFreshPartnerResearchAsync(
-                url, GccPartnerResearchCaps.CacheFreshnessHours, ct).ConfigureAwait(false);
-            if (row is null || string.IsNullOrWhiteSpace(row.PageJson)) return null;
-            return JsonSerializer.Deserialize<GccQuoteablePage>(row.PageJson, JsonOpts);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[partner crawl] Fresh-cache lookup failed for {Url}", url);
-            return null;
-        }
-    }
+    private Task<GccQuoteablePage?> TryGetFreshCacheAsync(string url, CancellationToken ct) =>
+        Task.FromResult<GccQuoteablePage?>(null);
 
-    private async Task TryPersistAsync(
+    private Task TryPersistAsync(
         Guid createId,
         string url,
         string host,
@@ -394,29 +381,7 @@ public sealed class GccPartnerUrlResearchService
         string? title,
         string? pageJson,
         string? flat,
-        CancellationToken ct)
-    {
-        if (createId == Guid.Empty) return;
-        try
-        {
-            await _repo.CreatePartnerResearchRecordAsync(
-                new CreateGccV2PartnerResearchRecordCommand(
-                    createId,
-                    url,
-                    success,
-                    status,
-                    host,
-                    JobId: null,
-                    title,
-                    pageJson,
-                    flat),
-                ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[partner crawl] Persist failed for {Url} ({Status})", url, status);
-        }
-    }
+        CancellationToken ct) => Task.CompletedTask;
 
     private static string FlattenPage(GccQuoteablePage page)
     {

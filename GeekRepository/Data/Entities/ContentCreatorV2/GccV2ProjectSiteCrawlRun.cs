@@ -1,0 +1,15 @@
+namespace GeekRepository.Data.Entities.ContentCreatorV2;
+
+public class GccV2ProjectSiteCrawlRun
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string OwnerUserId { get; set; } = string.Empty;
+    public string SiteUrl { get; set; } = string.Empty;
+    public string Status { get; set; } = "pending";
+    public string SeedUrlsJson { get; set; } = "[]";
+    public string? HostProgressJson { get; set; }
+    public string? ErrorSummary { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? StartedAtUtc { get; set; }
+    public DateTimeOffset? CompletedAtUtc { get; set; }
+}

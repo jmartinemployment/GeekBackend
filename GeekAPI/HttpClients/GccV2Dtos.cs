@@ -8,14 +8,16 @@ public sealed record GccV2CreateDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? UpdatedAtUtc,
     string? SiteSectionJson = null,
-    string? SiteUrl = null);
+    string? SiteUrl = null,
+    Guid? ProjectSiteCrawlRunId = null);
 
 public sealed record CreateGccV2CreateCommand(
     string OwnerUserId,
     string Title,
     string? ContentType,
     string? SiteSectionJson = null,
-    string? SiteUrl = null);
+    string? SiteUrl = null,
+    Guid? ProjectSiteCrawlRunId = null);
 
 public sealed record GccV2BriefDto(
     Guid Id,
@@ -47,7 +49,8 @@ public sealed record GccV2JobDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? UpdatedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    Guid? SiteAnalysisProfileId = null);
+    Guid? SiteAnalysisProfileId = null,
+    Guid? ProjectSiteCrawlRunId = null);
 
 public sealed record CreateGccV2JobCommand(
     Guid CreateId,
@@ -55,6 +58,7 @@ public sealed record CreateGccV2JobCommand(
     string? ContentType,
     Guid? BriefId,
     Guid? SiteAnalysisProfileId = null,
+    Guid? ProjectSiteCrawlRunId = null,
     string? InitialStage = null);
 
 public sealed record PatchGccV2JobCommand(
@@ -217,28 +221,71 @@ public sealed record CreateGccV2AiVisibilitySnapshotCommand(
     int Score,
     string? ReportJson);
 
-public sealed record GccV2PartnerResearchRecordDto(
-    Guid Id,
-    Guid CreateId,
-    Guid? JobId,
-    string TargetUrl,
-    string HostDomain,
-    DateTimeOffset CrawledAtUtc,
-    bool IsSuccess,
-    string CrawlStatusLog,
-    string? ExtractedTitle,
-    string? PageJson,
-    string? FlattenedTextContent);
-
-public sealed record CreateGccV2PartnerResearchRecordCommand(
-    Guid CreateId,
-    string TargetUrl,
-    bool IsSuccess,
-    string? CrawlStatusLog = null,
-    string? HostDomain = null,
-    Guid? JobId = null,
-    string? ExtractedTitle = null,
-    string? PageJson = null,
-    string? FlattenedTextContent = null);
-
 public sealed record PatchGccV2BriefCommand(string? RawBriefJson);
+
+public sealed record GccV2ProjectSiteCrawlRunDto(
+    Guid Id,
+    string OwnerUserId,
+    string SiteUrl,
+    string Status,
+    string SeedUrlsJson,
+    string? HostProgressJson,
+    string? ErrorSummary,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? StartedAtUtc,
+    DateTimeOffset? CompletedAtUtc);
+
+public sealed record CreateGccV2ProjectSiteCrawlRunCommand(
+    string OwnerUserId,
+    string SiteUrl,
+    string? SeedUrlsJson);
+
+public sealed record PatchGccV2ProjectSiteCrawlRunCommand(
+    string? Status = null,
+    string? HostProgressJson = null,
+    string? ErrorSummary = null,
+    DateTimeOffset? StartedAtUtc = null,
+    DateTimeOffset? CompletedAtUtc = null);
+
+public sealed record GccV2ProjectSiteCrawlPageDto(
+    Guid Id,
+    Guid RunId,
+    string Origin,
+    string Url,
+    string FinalUrl,
+    int StatusCode,
+    bool RobotsAllowed,
+    string? Html,
+    DateTimeOffset CrawledAtUtc);
+
+public sealed record CreateGccV2ProjectSiteCrawlPageBatchCommand(
+    Guid RunId,
+    IReadOnlyList<CreateGccV2ProjectSiteCrawlPageItemCommand> Pages);
+
+public sealed record CreateGccV2ProjectSiteCrawlPageItemCommand(
+    string Origin,
+    string Url,
+    string? FinalUrl,
+    int StatusCode,
+    bool RobotsAllowed,
+    string? Html);
+
+public sealed record GccV2ProjectSiteCrawlPageBatchResult(
+    int Count,
+    IReadOnlyList<GccV2ProjectSiteCrawlCreatedPageDto> Pages);
+
+public sealed record GccV2ProjectSiteCrawlCreatedPageDto(string Url, Guid PageId);
+
+public sealed record CreateGccV2ProjectSiteCrawlLinkBatchCommand(
+    Guid RunId,
+    IReadOnlyList<CreateGccV2ProjectSiteCrawlLinkItemCommand> Links);
+
+public sealed record CreateGccV2ProjectSiteCrawlLinkItemCommand(
+    Guid PageId,
+    string FromUrl,
+    string LinkUrl,
+    bool IsSameOrigin);
+
+public sealed record GccV2ProjectSiteCrawlPageActivityDto(
+    int PageCount,
+    DateTimeOffset? LastCrawledAtUtc);

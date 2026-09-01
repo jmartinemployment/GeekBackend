@@ -7,7 +7,8 @@ using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
-using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
+using GeekAPI.Services.ContentCreatorV2.ProjectSite;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
@@ -24,8 +25,11 @@ namespace GeekAPI.Services.ContentCreatorV2;
 /// </summary>
 public static class ContentCreatorV2ServiceRegistration
 {
-    public static IServiceCollection AddContentCreatorV2(this IServiceCollection services)
+    public static IServiceCollection AddContentCreatorV2(this IServiceCollection services, IConfiguration configuration)
     {
+        var projectSiteOptions = GccV2ProjectSiteCrawlOptions.FromConfiguration(configuration);
+        services.AddSingleton(projectSiteOptions);
+
         services.AddScoped(sp =>
         {
             var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
@@ -43,6 +47,17 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2PartnerToolWriteService>();
         services.AddScoped<GccV2ToolOverviewWriteService>();
         services.AddScoped<GccV2ToolPageSpawnService>();
+        services.AddScoped<IGccV2GeekCrawlerReadRepository>(sp =>
+        {
+            var inner = sp.GetRequiredService<HttpGeekCrawlerRepository>();
+            return new GccV2GeekCrawlerReadRepository(inner);
+        });
+        services.AddScoped<GccV2GeekCrawlerResearchResolver>();
+        services.AddSingleton<GccV2ProjectSiteCrawlWake>();
+        services.AddScoped<GccV2ProjectSiteCrawlProgressNotifier>();
+        services.AddScoped<GccV2ProjectSiteBfsCrawler>();
+        services.AddScoped<GccV2ProjectSiteCrawlService>();
+        services.AddHostedService<GccV2ProjectSiteCrawlWorker>();
         services.AddScoped<GccV2BrandKitBuilder>();
         services.AddSingleton<GccV2PlaywrightBrowserHolder>();
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();

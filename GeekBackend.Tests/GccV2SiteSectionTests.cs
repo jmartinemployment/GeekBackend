@@ -10,7 +10,7 @@ public class GccV2SiteSectionTests
     {
         var json = """
             {
-              "siteAnalysisProfileId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+              "projectSiteCrawlRunId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
               "gapTopic": "AI consulting",
               "gapSectionPath": "Services",
               "relatedPages": [
@@ -37,7 +37,7 @@ public class GccV2SiteSectionTests
     {
         var ex = Assert.Throws<InvalidOperationException>(() =>
             GccV2SiteSection.ValidateSiteSectionGate(null, null));
-        Assert.Contains("site analysis required", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("project site crawl required", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class GccV2SiteSectionTests
 
         var section = GccV2SiteSection.TryBuildSectionContext(id, payload, "AI consulting");
         Assert.NotNull(section);
-        Assert.Equal(id, section!.SiteAnalysisId);
+        Assert.Equal(id, section!.ProjectSiteCrawlRunId);
         Assert.Single(section.RelatedPages);
         Assert.NotNull(section.InformationGain);
     }

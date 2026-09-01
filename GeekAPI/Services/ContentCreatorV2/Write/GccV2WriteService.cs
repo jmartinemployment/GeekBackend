@@ -132,8 +132,8 @@ public sealed class GccV2WriteService
         var brief = await _repo.GetBriefAsync(job.BriefId, ct)
             ?? throw new InvalidOperationException($"Brief {job.BriefId} not found for job {job.Id}.");
 
-        if (job.SiteAnalysisProfileId is not { } profileId)
-            throw new InvalidOperationException("WRITE requires a siteAnalysisProfileId — start from Site Analyzer.");
+        if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is not { } profileId)
+            throw new InvalidOperationException("WRITE requires a projectSiteCrawlRunId — start from a project-site crawl.");
 
         var (brandKit, kitDto) = await LoadAcceptedBrandKitAsync(profileId, ct);
         var create = await _repo.GetCreateAsync(job.CreateId, ct)

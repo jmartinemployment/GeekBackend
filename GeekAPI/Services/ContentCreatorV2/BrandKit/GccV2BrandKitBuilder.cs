@@ -1,15 +1,12 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using GeekAPI.Services.GeekSeo;
+using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 
 namespace GeekAPI.Services.ContentCreatorV2.BrandKit;
 
 /// <summary>
-/// Derives a provisional brand/voice kit from the Geek-SEO crawl attached to a create
-/// (<c>site_analysis_profiles</c>). Read-only via existing GeekRepository schema-signals and
-/// <see cref="HttpGeekSeoSiteAnalyzerClient"/> page contexts/trees — never SA2, never edits Geek-SEO.
-/// Fails hard if company/website identity cannot be grounded.
+/// Derives a provisional brand/voice kit from owned project-site crawl pages.
 /// </summary>
 public sealed class GccV2BrandKitBuilder
 {
@@ -23,193 +20,120 @@ public sealed class GccV2BrandKitBuilder
         @"\b(?:for|helping|serving)\s+([^.!?\n]{8,80})",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly HttpGeekSeoSiteAnalyzerClient _seo;
+    private readonly HttpGccV2Repository _repo;
     private readonly ILogger<GccV2BrandKitBuilder> _logger;
 
-    public GccV2BrandKitBuilder(
-        IHttpClientFactory httpClientFactory,
-        HttpGeekSeoSiteAnalyzerClient seo,
-        ILogger<GccV2BrandKitBuilder> logger)
+    public GccV2BrandKitBuilder(HttpGccV2Repository repo, ILogger<GccV2BrandKitBuilder> logger)
     {
-        _httpClientFactory = httpClientFactory;
-        _seo = seo;
+        _repo = repo;
         _logger = logger;
     }
 
     public async Task<GccV2BrandKitContent> BuildAsync(
-        Guid siteAnalysisProfileId,
-        string bearerToken,
-        Guid ownerUserId,
+        Guid projectSiteCrawlRunId,
         string? siteUrl,
         SiteSectionContextDto? section,
         CancellationToken ct)
     {
-        try
+        if (projectSiteCrawlRunId == Guid.Empty)
+            throw new InvalidOperationException("projectSiteCrawlRunId is required to build a brand kit.");
+
+        var pages = await LoadAllPagesAsync(projectSiteCrawlRunId, ct);
+        if (pages.Count == 0)
+            throw new InvalidOperationException($"No pages on project-site crawl run {projectSiteCrawlRunId}.");
+
+        var website = FirstNonEmpty(
+            NormalizeWebsite(siteUrl),
+            HomepageUrl(pages),
+            section?.RelatedPages?.Select(p => p.Url).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u)));
+
+        var homepage = PickHomepage(pages, website);
+        var about = PickAbout(pages);
+
+        var companyName = FirstNonEmpty(
+            CleanTitle(HomepageTitle(homepage)),
+            FirstHeading(homepage),
+            HostFromUrl(website));
+
+        var companyDescription = FirstNonEmpty(
+            FirstParagraph(homepage),
+            FirstParagraph(about));
+
+        var tagline = FirstNonEmpty(FirstHeading(homepage), CleanTitle(HomepageTitle(homepage)));
+
+        var positioning = FirstNonEmpty(
+            FirstParagraph(about),
+            FirstParagraph(homepage),
+            companyDescription);
+
+        var features = DistinctNonEmpty(ServiceHeadings(pages));
+        var voiceSamples = BuildVoiceSamples(pages, website, section);
+        var ctaPhrases = ExtractCtaPhrases(pages);
+        var audiences = ExtractAudiences(FirstParagraph(homepage), FirstParagraph(about));
+
+        var notes = new List<string>
         {
-            if (siteAnalysisProfileId == Guid.Empty)
-                throw new InvalidOperationException("siteAnalysisProfileId is required to build a brand kit.");
-            if (string.IsNullOrWhiteSpace(bearerToken))
-                throw new InvalidOperationException("Signed-in user required to load crawl facts for BrandKit.");
+            "Provisional kit from owned project-site crawl — review samples and Accept before write.",
+        };
+        if (voiceSamples.Count == 0)
+            notes.Add("No page body samples available — review/edit voice on Accept.");
+        if (audiences.Count == 0)
+            notes.Add("Audience not clear from homepage/about — add on Accept if needed.");
+        if (section?.RelatedPages is { Count: > 0 } related)
+            notes.Add($"{related.Count} related page(s) from create site section for internal links.");
 
-            var signals = await LoadSchemaSignalsAsync(siteAnalysisProfileId, ownerUserId, ct);
-            var pagesResult = await _seo.GetPageContextsAsync(siteAnalysisProfileId, bearerToken, ct);
-            if (!pagesResult.Ok)
-            {
-                throw new InvalidOperationException(
-                    pagesResult.Error ?? $"Could not load page contexts for profile {siteAnalysisProfileId}.");
-            }
-
-            var pages = pagesResult.Value ?? [];
-            var treesResult = await _seo.GetPageSectionTreesAsync(siteAnalysisProfileId, bearerToken, ct);
-            var trees = treesResult.Ok && treesResult.Value is not null
-                ? treesResult.Value
-                : new List<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto>();
-            if (!treesResult.Ok)
-            {
-                _logger.LogWarning(
-                    "Page-section trees unavailable for BrandKit profile {ProfileId}: {Error}",
-                    siteAnalysisProfileId,
-                    treesResult.Error);
-            }
-
-            var website = FirstNonEmpty(
-                NormalizeWebsite(siteUrl),
-                HomepageUrl(pages),
-                section?.RelatedPages?.Select(p => p.Url).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u)));
-
-            var homepage = PickHomepage(pages, website);
-            var about = PickAbout(pages);
-
-            var companyName = FirstNonEmpty(
-                SignalValue(signals, "organization", "brandName"),
-                CleanTitle(homepage?.Title),
-                FirstHeading(homepage),
-                HostFromUrl(website));
-
-            var companyDescription = FirstNonEmpty(
-                SignalValue(signals, "organization", "description"),
-                homepage?.Description,
-                about?.Description,
-                FirstParagraph(homepage?.Markdown),
-                FirstParagraph(about?.Markdown));
-
-            var tagline = FirstNonEmpty(
-                FirstHeading(homepage),
-                CleanTitle(homepage?.Title));
-
-            var positioning = FirstNonEmpty(
-                PositioningFromTrees(trees, website),
-                FirstParagraph(about?.Markdown),
-                companyDescription);
-
-            var knowsAbout = DistinctNonEmpty(
-                SignalValues(signals, "thing", "knowsAbout")
-                    .Concat(SignalValues(signals, "offer_catalog", "serviceType")));
-
-            var features = DistinctNonEmpty(
-                SignalValues(signals, "service", "name")
-                    .Concat(knowsAbout.Take(12))
-                    .Concat(ServiceHeadings(trees)));
-
-            var areaServed = DistinctNonEmpty(SignalValues(signals, "organization", "areaServed"));
-            var sameAs = DistinctNonEmpty(SignalValues(signals, "organization", "sameAs"));
-
-            var voiceSamples = BuildVoiceSamples(pages, website, section);
-            var ctaPhrases = ExtractCtaPhrases(trees);
-            var audiences = ExtractAudiences(homepage?.Markdown, about?.Markdown);
-
-            var notes = new List<string>();
-            if (signals.Count == 0)
-                notes.Add("No schema-signals on this crawl — kit fields filled from page contexts/trees where possible.");
-            if (voiceSamples.Count == 0)
-                notes.Add("No page body samples available — review/edit voice on Accept.");
-            if (audiences.Count == 0)
-                notes.Add("Audience not clear from homepage/about — add on Accept if needed.");
-            if (section?.RelatedPages is { Count: > 0 } related)
-                notes.Add($"{related.Count} related page(s) from create site section for internal links.");
-
-            var kit = new GccV2BrandKitContent
-            {
-                CompanyName = companyName,
-                Website = website,
-                CompanyDescription = companyDescription,
-                Tagline = tagline,
-                PositioningOneLiner = positioning,
-                Audiences = audiences,
-                Features = features,
-                KnowsAbout = knowsAbout,
-                AreaServed = areaServed,
-                SameAs = sameAs,
-                VoiceSamples = voiceSamples,
-                VoiceGuidance =
-                [
-                    "Provisional kit from Geek-SEO crawl — review samples and Accept before write.",
-                ],
-                VoiceStatus = "provisional",
-                CtaPhrases = ctaPhrases,
-                Notes = notes,
-            };
-
-            if (string.IsNullOrWhiteSpace(kit.CompanyName) && string.IsNullOrWhiteSpace(kit.Website))
-            {
-                throw new InvalidOperationException(
-                    "Brand kit from crawl is empty (no company name or website) — refuse to write without site identity.");
-            }
-
-            return kit;
-        }
-        catch (InvalidOperationException)
+        var kit = new GccV2BrandKitContent
         {
-            throw;
-        }
-        catch (Exception ex)
+            CompanyName = companyName,
+            Website = website,
+            CompanyDescription = companyDescription,
+            Tagline = tagline,
+            PositioningOneLiner = positioning,
+            Audiences = audiences,
+            Features = features,
+            KnowsAbout = features.Take(12).ToList(),
+            AreaServed = [],
+            SameAs = [],
+            VoiceSamples = voiceSamples,
+            VoiceGuidance = ["Provisional kit from project-site crawl — review samples and Accept before write."],
+            VoiceStatus = "provisional",
+            CtaPhrases = ctaPhrases,
+            Notes = notes,
+        };
+
+        if (string.IsNullOrWhiteSpace(kit.CompanyName) && string.IsNullOrWhiteSpace(kit.Website))
         {
-            _logger.LogWarning(ex, "Brand kit build failed for profile {ProfileId}.", siteAnalysisProfileId);
             throw new InvalidOperationException(
-                $"Brand kit build failed for profile {siteAnalysisProfileId}: {ex.Message}", ex);
+                "Brand kit from project-site crawl is empty (no company name or website) — refuse to write without site identity.");
         }
+
+        _logger.LogInformation(
+            "Built BrandKit from project-site run {RunId} ({PageCount} pages).",
+            projectSiteCrawlRunId,
+            pages.Count);
+
+        return kit;
     }
 
-    private async Task<IReadOnlyList<SchemaSignalDto>> LoadSchemaSignalsAsync(
-        Guid profileId,
-        Guid ownerUserId,
-        CancellationToken ct)
+    private async Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> LoadAllPagesAsync(Guid runId, CancellationToken ct)
     {
-        try
+        var all = new List<GccV2ProjectSiteCrawlPageDto>();
+        var offset = 0;
+        const int batch = 100;
+        while (true)
         {
-            var http = _httpClientFactory.CreateClient("GeekRepository");
-            var path =
-                $"repo/seo/site-analysis-profiles/{profileId:D}/schema-signals?userId={ownerUserId:D}";
-            using var res = await http.GetAsync(path, ct);
-            if (!res.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "schema-signals HTTP {Status} for profile {ProfileId}; continuing with page contexts.",
-                    (int)res.StatusCode,
-                    profileId);
-                return [];
-            }
-
-            var rows = await res.Content.ReadFromJsonAsync<List<SchemaSignalDto>>(JsonOpts, ct);
-            return rows ?? [];
+            var chunk = await _repo.ListProjectSiteCrawlPagesAsync(runId, batch, offset, ct);
+            if (chunk.Count == 0) break;
+            all.AddRange(chunk);
+            if (chunk.Count < batch) break;
+            offset += chunk.Count;
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "schema-signals load failed for profile {ProfileId}; continuing.", profileId);
-            return [];
-        }
-    }
 
-    private sealed class SchemaSignalDto
-    {
-        public string SchemaType { get; init; } = "";
-        public string PropertyName { get; init; } = "";
-        public string PropertyValue { get; init; } = "";
+        return all;
     }
 
     private static IReadOnlyList<string> BuildVoiceSamples(
-        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageContextDto> pages,
+        IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages,
         string? website,
         SiteSectionContextDto? section)
     {
@@ -219,17 +143,16 @@ public sealed class GccV2BrandKitBuilder
 
         foreach (var page in preferred)
         {
-            var excerpt = FirstParagraphs(page.Markdown, maxChars: 900);
-            if (string.IsNullOrWhiteSpace(excerpt) && !string.IsNullOrWhiteSpace(page.Description))
-                excerpt = page.Description.Trim();
-            if (string.IsNullOrWhiteSpace(excerpt))
-                continue;
+            if (string.IsNullOrWhiteSpace(page.Html)) continue;
+            var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
+            var extracted = Partner.GccV2ArticleHtmlExtractor.Extract(url, page.Html);
+            var excerpt = string.Join(" ", extracted.Paragraphs.Take(3));
+            if (string.IsNullOrWhiteSpace(excerpt)) continue;
 
-            var label = string.IsNullOrWhiteSpace(page.PageUrl) ? excerpt : $"{page.PageUrl}\n{excerpt}";
-            samples.Add(label);
+            excerpt = excerpt.Length > 900 ? excerpt[..900] : excerpt;
+            samples.Add($"{url}\n{excerpt}");
             totalChars += excerpt.Length;
-            if (totalChars >= 1000 && samples.Count >= 2)
-                break;
+            if (totalChars >= 1000 && samples.Count >= 2) break;
         }
 
         if (samples.Count == 0 && section?.RelatedPages is { Count: > 0 } related)
@@ -246,57 +169,35 @@ public sealed class GccV2BrandKitBuilder
         return samples;
     }
 
-    private static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageContextDto> PreferHighSignalPages(
-        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageContextDto> pages,
+    private static IEnumerable<GccV2ProjectSiteCrawlPageDto> PreferHighSignalPages(
+        IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages,
         string? website)
     {
-        static int Score(HttpGeekSeoSiteAnalyzerClient.PageContextDto p, string? site)
+        static int Score(GccV2ProjectSiteCrawlPageDto p, string? site)
         {
-            var url = (p.PageUrl ?? "").ToLowerInvariant();
+            var url = (string.IsNullOrWhiteSpace(p.FinalUrl) ? p.Url : p.FinalUrl).ToLowerInvariant();
             var score = 0;
             if (IsHomepageUrl(url, site)) score += 100;
             if (url.Contains("/about")) score += 80;
             if (url.Contains("/company") || url.Contains("/who-we")) score += 60;
             if (url.Contains("/service") || url.Contains("/product") || url.Contains("/solution")) score += 40;
-            if (url.Contains("/blog") || url.Contains("/pillar")) score += 20;
-            if (!string.IsNullOrWhiteSpace(p.Markdown)) score += Math.Min(30, p.Markdown!.Length / 200);
+            if (!string.IsNullOrWhiteSpace(p.Html)) score += Math.Min(30, p.Html!.Length / 500);
             return score;
         }
 
         return pages
-            .Where(p => !string.IsNullOrWhiteSpace(p.PageUrl))
+            .Where(p => !string.IsNullOrWhiteSpace(p.Url))
             .OrderByDescending(p => Score(p, website));
     }
 
-    private static IReadOnlyList<string> ExtractCtaPhrases(
-        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> trees)
+    private static IReadOnlyList<string> ExtractCtaPhrases(IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages)
     {
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var tree in trees)
+        foreach (var page in pages)
         {
-            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
-            try
-            {
-                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
-                    tree.TreeJson, JsonOpts);
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
-
-            if (roots is null) continue;
-            foreach (var node in GccV2SiteSection.FlattenSections(roots))
-            {
-                if (node.Links is null) continue;
-                foreach (var link in node.Links)
-                {
-                    var text = (link.Text ?? "").Trim();
-                    if (text.Length is < 2 or > 60) continue;
-                    if (text.Contains("http", StringComparison.OrdinalIgnoreCase)) continue;
-                    counts[text] = counts.TryGetValue(text, out var n) ? n + 1 : 1;
-                }
-            }
+            if (string.IsNullOrWhiteSpace(page.Html)) continue;
+            var roots = GccV2HeadingTreeBuilder.Build(page.Html);
+            CollectLinkTexts(roots, counts);
         }
 
         return counts
@@ -307,10 +208,30 @@ public sealed class GccV2BrandKitBuilder
             .ToList();
     }
 
-    private static IReadOnlyList<string> ExtractAudiences(string? homepageMd, string? aboutMd)
+    private static void CollectLinkTexts(IReadOnlyList<GccV2HeadingNode> nodes, Dictionary<string, int> counts)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Links is not null)
+            {
+                foreach (var link in node.Links)
+                {
+                    var text = (link.Text ?? "").Trim();
+                    if (text.Length is < 2 or > 60) continue;
+                    if (text.Contains("http", StringComparison.OrdinalIgnoreCase)) continue;
+                    counts[text] = counts.TryGetValue(text, out var n) ? n + 1 : 1;
+                }
+            }
+
+            if (node.Children is { Count: > 0 })
+                CollectLinkTexts(node.Children, counts);
+        }
+    }
+
+    private static IReadOnlyList<string> ExtractAudiences(string? homepageText, string? aboutText)
     {
         var found = new List<string>();
-        foreach (var text in new[] { homepageMd, aboutMd })
+        foreach (var text in new[] { homepageText, aboutText })
         {
             if (string.IsNullOrWhiteSpace(text)) continue;
             foreach (Match m in AudienceForPattern.Matches(text))
@@ -326,197 +247,115 @@ public sealed class GccV2BrandKitBuilder
         return found;
     }
 
-    private static string? PositioningFromTrees(
-        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> trees,
-        string? website)
+    private static IReadOnlyList<string> ServiceHeadings(IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages)
     {
-        foreach (var tree in trees.OrderByDescending(t => IsHomepageUrl(t.PageUrl, website) ? 1 : 0)
-                     .ThenByDescending(t => (t.PageUrl ?? "").Contains("/about", StringComparison.OrdinalIgnoreCase)))
+        var headings = new List<string>();
+        foreach (var page in pages)
         {
-            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
-            try
-            {
-                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
-                    tree.TreeJson, JsonOpts);
-            }
-            catch (JsonException)
-            {
+            if (string.IsNullOrWhiteSpace(page.Html)) continue;
+            var url = (page.FinalUrl ?? page.Url).ToLowerInvariant();
+            if (!url.Contains("/service") && !url.Contains("/product") && !url.Contains("/solution"))
                 continue;
-            }
 
-            if (roots is null) continue;
-            foreach (var node in GccV2SiteSection.FlattenSections(roots))
-            {
-                var heading = node.HeadingText ?? "";
-                if (!LooksLikeWhoWeAre(heading)) continue;
-                var para = node.Paragraphs?.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p));
-                if (!string.IsNullOrWhiteSpace(para))
-                    return Truncate(para.Trim(), 280);
-            }
+            foreach (var node in GccV2HeadingTreeBuilder.Build(page.Html))
+                CollectHeadingTexts(node, headings);
         }
 
-        return null;
+        return DistinctNonEmpty(headings).Take(12).ToList();
     }
 
-    private static IEnumerable<string> ServiceHeadings(
-        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> trees)
+    private static void CollectHeadingTexts(GccV2HeadingNode node, List<string> headings)
     {
-        foreach (var tree in trees)
-        {
-            var url = (tree.PageUrl ?? "").ToLowerInvariant();
-            if (!(url.Contains("/service") || url.Contains("/product") || url.Contains("/solution")))
-                continue;
-
-            List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>? roots;
-            try
-            {
-                roots = JsonSerializer.Deserialize<List<HttpGeekSeoSiteAnalyzerClient.PageSectionDto>>(
-                    tree.TreeJson, JsonOpts);
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
-
-            if (roots is null) continue;
-            foreach (var node in GccV2SiteSection.FlattenSections(roots))
-            {
-                if (node.Level is >= 2 and <= 3 && !string.IsNullOrWhiteSpace(node.HeadingText))
-                    yield return node.HeadingText.Trim();
-            }
-        }
+        if (!string.IsNullOrWhiteSpace(node.HeadingText) && node.HeadingText.Length > 3)
+            headings.Add(node.HeadingText.Trim());
+        if (node.Children is null) return;
+        foreach (var child in node.Children)
+            CollectHeadingTexts(child, headings);
     }
 
-    private static bool LooksLikeWhoWeAre(string heading)
-    {
-        var h = heading.ToLowerInvariant();
-        return h.Contains("who we")
-               || h.Contains("what we")
-               || h.Contains("about us")
-               || h.Contains("our mission")
-               || h.Contains("we help")
-               || h == "about";
-    }
-
-    private static string? SignalValue(
-        IReadOnlyList<SchemaSignalDto> signals,
-        string schemaType,
-        string propertyName) =>
-        SignalValues(signals, schemaType, propertyName).FirstOrDefault();
-
-    private static IEnumerable<string> SignalValues(
-        IReadOnlyList<SchemaSignalDto> signals,
-        string schemaType,
-        string propertyName) =>
-        signals
-            .Where(s =>
-                s.SchemaType.Equals(schemaType, StringComparison.OrdinalIgnoreCase)
-                && s.PropertyName.Equals(propertyName, StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(s.PropertyValue))
-            .Select(s => s.PropertyValue.Trim());
-
-    private static HttpGeekSeoSiteAnalyzerClient.PageContextDto? PickHomepage(
-        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageContextDto> pages,
+    private static GccV2ProjectSiteCrawlPageDto? PickHomepage(
+        IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages,
         string? website) =>
-        pages.FirstOrDefault(p => IsHomepageUrl(p.PageUrl, website))
-        ?? pages.OrderBy(p => (p.PageUrl ?? "").Length).FirstOrDefault();
+        pages.FirstOrDefault(p => IsHomepageUrl(p.FinalUrl ?? p.Url, website))
+        ?? pages.FirstOrDefault();
 
-    private static HttpGeekSeoSiteAnalyzerClient.PageContextDto? PickAbout(
-        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageContextDto> pages) =>
-        pages.FirstOrDefault(p => (p.PageUrl ?? "").Contains("/about", StringComparison.OrdinalIgnoreCase));
+    private static GccV2ProjectSiteCrawlPageDto? PickAbout(IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages) =>
+        pages.FirstOrDefault(p =>
+        {
+            var url = (p.FinalUrl ?? p.Url).ToLowerInvariant();
+            return url.Contains("/about") || url.Contains("/company") || url.Contains("/who-we");
+        });
 
-    private static string? HomepageUrl(IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageContextDto> pages) =>
-        pages.Select(p => p.PageUrl).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u));
+    private static string? HomepageTitle(GccV2ProjectSiteCrawlPageDto? page)
+    {
+        if (page is null || string.IsNullOrWhiteSpace(page.Html)) return null;
+        var url = page.FinalUrl ?? page.Url;
+        return Partner.GccV2ArticleHtmlExtractor.Extract(url, page.Html).Title;
+    }
+
+    private static string? FirstHeading(GccV2ProjectSiteCrawlPageDto? page)
+    {
+        if (page is null || string.IsNullOrWhiteSpace(page.Html)) return null;
+        var url = page.FinalUrl ?? page.Url;
+        return Partner.GccV2ArticleHtmlExtractor.Extract(url, page.Html).Headings.FirstOrDefault()?.Text;
+    }
+
+    private static string? FirstParagraph(GccV2ProjectSiteCrawlPageDto? page)
+    {
+        if (page is null || string.IsNullOrWhiteSpace(page.Html)) return null;
+        var url = page.FinalUrl ?? page.Url;
+        return Partner.GccV2ArticleHtmlExtractor.Extract(url, page.Html).Paragraphs.FirstOrDefault();
+    }
+
+    private static string? HomepageUrl(IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages) =>
+        pages.Select(p => p.FinalUrl ?? p.Url).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u));
 
     private static bool IsHomepageUrl(string? url, string? website)
     {
         if (string.IsNullOrWhiteSpace(url)) return false;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
-        var path = uri.AbsolutePath.TrimEnd('/');
-        if (path is "" or "/" or "/index" or "/index.html" or "/home")
-            return true;
-        if (!string.IsNullOrWhiteSpace(website)
-            && Uri.TryCreate(NormalizeWebsite(website), UriKind.Absolute, out var site)
-            && string.Equals(uri.Host, site.Host, StringComparison.OrdinalIgnoreCase)
-            && path.Length <= 1)
-            return true;
-        return false;
-    }
-
-    private static string? FirstHeading(HttpGeekSeoSiteAnalyzerClient.PageContextDto? page) =>
-        page?.Headings?.FirstOrDefault(h => !string.IsNullOrWhiteSpace(h))?.Trim();
-
-    private static string? CleanTitle(string? title)
-    {
-        if (string.IsNullOrWhiteSpace(title)) return null;
-        var t = title.Trim();
-        var parts = t.Split(['|', '—', '–', '-'], 2, StringSplitOptions.TrimEntries);
-        return parts[0].Length >= 2 ? parts[0] : t;
-    }
-
-    private static string? FirstParagraph(string? markdown)
-    {
-        if (string.IsNullOrWhiteSpace(markdown)) return null;
-        return FirstParagraphs(markdown, maxChars: 320);
-    }
-
-    private static string? FirstParagraphs(string? markdown, int maxChars)
-    {
-        if (string.IsNullOrWhiteSpace(markdown)) return null;
-        var lines = markdown
-            .Replace("\r\n", "\n")
-            .Split('\n')
-            .Select(l => l.Trim())
-            .Where(l => l.Length > 0)
-            .Where(l => !l.StartsWith('#'))
-            .Where(l => !l.StartsWith("```", StringComparison.Ordinal))
-            .Where(l => !l.StartsWith('!') && !l.StartsWith('['))
-            .ToList();
-        if (lines.Count == 0) return null;
-
-        var sb = new System.Text.StringBuilder();
-        foreach (var line in lines)
+        if (string.IsNullOrWhiteSpace(website)) return url.TrimEnd('/').Count(c => c == '/') <= 2;
+        try
         {
-            if (sb.Length > 0) sb.Append(' ');
-            sb.Append(line);
-            if (sb.Length >= maxChars) break;
+            var u = new Uri(url);
+            var w = new Uri(website.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? website : "https://" + website);
+            return string.Equals(u.Host, w.Host, StringComparison.OrdinalIgnoreCase)
+                   && (u.AbsolutePath == "/" || string.IsNullOrWhiteSpace(u.AbsolutePath));
         }
-
-        return Truncate(sb.ToString(), maxChars);
+        catch (UriFormatException)
+        {
+            return false;
+        }
     }
 
-    private static string? Truncate(string value, int max)
+    private static string? NormalizeWebsite(string? siteUrl)
     {
-        if (value.Length <= max) return value;
-        return value[..max].TrimEnd() + "…";
-    }
-
-    private static string? NormalizeWebsite(string? url)
-    {
-        if (string.IsNullOrWhiteSpace(url)) return null;
-        var trimmed = url.Trim().TrimEnd('/');
-        if (!trimmed.Contains("://", StringComparison.Ordinal))
-            trimmed = "https://" + trimmed;
-        return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
-            ? $"{uri.Scheme}://{uri.Host}{(uri.AbsolutePath is "/" or "" ? "" : uri.AbsolutePath.TrimEnd('/'))}"
-            : trimmed;
+        if (string.IsNullOrWhiteSpace(siteUrl)) return null;
+        return siteUrl.Trim().TrimEnd('/');
     }
 
     private static string? HostFromUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url)) return null;
-        return Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
+        try
+        {
+            var uri = new Uri(url.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? url : "https://" + url);
+            return uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (UriFormatException)
+        {
+            return null;
+        }
     }
+
+    private static string? CleanTitle(string? title) =>
+        string.IsNullOrWhiteSpace(title) ? null : title.Trim();
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
 
-    private static IReadOnlyList<string> DistinctNonEmpty(IEnumerable<string> values) =>
-        values
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(v => v.Trim())
+    private static IReadOnlyList<string> DistinctNonEmpty(IEnumerable<string?> values) =>
+        values.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(24)
             .ToList();
 }
 

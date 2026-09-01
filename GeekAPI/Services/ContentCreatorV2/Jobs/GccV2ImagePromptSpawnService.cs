@@ -143,7 +143,7 @@ public sealed class GccV2ImagePromptSpawnService
                         sourceJob.OwnerUserId,
                         "image-prompt",
                         brief.Id,
-                        sourceJob.SiteAnalysisProfileId,
+                        sourceJob.ProjectSiteCrawlRunId ?? sourceJob.SiteAnalysisProfileId,
                         InitialStage: "write"),
                     ct);
 

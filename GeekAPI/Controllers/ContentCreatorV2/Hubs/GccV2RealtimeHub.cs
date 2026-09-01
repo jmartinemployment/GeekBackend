@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using GeekAPI.HttpClients;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 
 namespace GeekAPI.Controllers.ContentCreatorV2.Hubs;
@@ -23,6 +24,41 @@ public sealed class GccV2RealtimeHub : Hub
     }
 
     public static string JobGroup(Guid jobId) => $"job:{jobId:D}";
+
+    public static string ProjectSiteRunGroup(Guid runId) => $"project-site:{runId:D}";
+
+    public async Task JoinProjectSiteCrawl(Guid runId)
+    {
+        var userId = Context.User?.FindFirst("sub")?.Value
+            ?? Context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new HubException("Unauthorized");
+
+        var run = await _repo.GetProjectSiteCrawlRunAsync(runId, Context.ConnectionAborted);
+        if (run is null)
+            throw new HubException("Run not found");
+
+        if (!string.Equals(run.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("User {UserId} denied JoinProjectSiteCrawl for {RunId}.", userId, runId);
+            throw new HubException("Forbidden");
+        }
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, ProjectSiteRunGroup(runId));
+        await Clients.Caller.SendAsync(
+            "ProjectSiteCrawlEvent",
+            new
+            {
+                runId = run.Id,
+                siteUrl = run.SiteUrl,
+                status = run.Status,
+                errorSummary = run.ErrorSummary,
+            },
+            Context.ConnectionAborted);
+    }
+
+    public Task LeaveProjectSiteCrawl(Guid runId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, ProjectSiteRunGroup(runId));
 
     public async Task JoinJob(Guid jobId, int lastSeq)
     {

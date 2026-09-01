@@ -264,7 +264,7 @@ public sealed class GccV2JobWorker : BackgroundService
             ct);
 
         // Brand kit Accept before OutlineReady / outline Approve (product order: who → what).
-        if (job.SiteAnalysisProfileId is not null)
+        if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is not null)
         {
             var announced = await AnnounceBrandKitIfReadyAsync(jobId, ownerUserId, job, repo, writer, ct);
             if (!announced)
@@ -273,14 +273,15 @@ public sealed class GccV2JobWorker : BackgroundService
                     writer,
                     jobId,
                     ownerUserId,
-                    "Brand kit missing for site profile — regenerate from Site Analyzer.",
+                    "Brand kit missing for project-site crawl — regenerate from project-site crawl.",
                     ct);
                 return;
             }
 
             await writer.AppendAsync(jobId, ownerUserId, "OutlineReady", outline, ct: ct);
 
-            var kits = await repo.ListBrandKitsByProfileAsync(job.SiteAnalysisProfileId.Value, ct);
+            var crawlRunId = job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId!.Value;
+            var kits = await repo.ListBrandKitsByProfileAsync(crawlRunId, ct);
             var kitAccepted = string.Equals(kits.FirstOrDefault()?.VoiceStatus, "accepted", StringComparison.OrdinalIgnoreCase);
             if (kitAccepted)
             {
@@ -333,7 +334,7 @@ public sealed class GccV2JobWorker : BackgroundService
         GccV2JobEventWriter writer,
         CancellationToken ct)
     {
-        if (job.SiteAnalysisProfileId is not { } profileId) return true;
+        if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is not { } profileId) return true;
 
         var kits = await repo.ListBrandKitsByProfileAsync(profileId, ct);
         var kit = kits.FirstOrDefault();

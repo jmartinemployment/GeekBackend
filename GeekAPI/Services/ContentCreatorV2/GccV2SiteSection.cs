@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.GeekSeo;
 using GeekApplication.Models.ContentCreator;
 
@@ -8,7 +10,7 @@ namespace GeekAPI.Services.ContentCreatorV2;
 public sealed record RelatedPageDto(string Url, string Title, HeadingDto[] Headings, string Excerpt);
 
 public sealed record SiteSectionContextDto(
-    [property: JsonPropertyName("siteAnalysisProfileId")] Guid SiteAnalysisId,
+    [property: JsonPropertyName("projectSiteCrawlRunId")] Guid ProjectSiteCrawlRunId,
     string GapTopic,
     string? GapSectionPath,
     IReadOnlyList<RelatedPageDto> RelatedPages,
@@ -31,7 +33,7 @@ public sealed record SiteAnalysisStoredPayload(
     Guid? SeoProjectId = null);
 
 /// <summary>
-/// Site section DTOs and gates copied from v1 <c>GccGenerateService</c> for v2-only orchestration.
+/// Site section DTOs and gates for v2 project-site crawl orchestration.
 /// </summary>
 public static class GccV2SiteSection
 {
@@ -59,16 +61,16 @@ public static class GccV2SiteSection
         }
     }
 
-    public static void ValidateSiteSectionGate(Guid? siteAnalysisProfileId, SiteSectionContextDto? section)
+    public static void ValidateSiteSectionGate(Guid? projectSiteCrawlRunId, SiteSectionContextDto? section)
     {
-        if (siteAnalysisProfileId is null || siteAnalysisProfileId == Guid.Empty)
+        if (projectSiteCrawlRunId is null || projectSiteCrawlRunId == Guid.Empty)
             throw new InvalidOperationException(
-                "site analysis required — run or reuse an analysis for this domain");
+                "project site crawl required — run or reuse a crawl for this project site URL");
 
         if (section is null) return;
         if (section.RelatedPages is null || section.RelatedPages.Count == 0)
             throw new InvalidOperationException(
-                "Site Analyzer–started Generate requires non-empty relatedPages in site section context.");
+                "Generate requires non-empty relatedPages in site section context.");
     }
 
     public static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(
@@ -83,6 +85,7 @@ public static class GccV2SiteSection
         }
     }
 
+    /// <summary>Legacy Site Analyzer gap picker — v1 only.</summary>
     public static SiteSectionContextDto? TryBuildSectionContext(
         Guid analysisId,
         SiteAnalysisStoredPayload payload,
@@ -115,15 +118,44 @@ public static class GccV2SiteSection
         if (related.Count == 0) return null;
         if (payload.TopicalNeighbors.Count == 0) return null;
 
-        var informationGain = BuildPartialInformationGain(gapTopic, related);
-
         return new SiteSectionContextDto(
             analysisId,
             gapTopic,
             sectionPath,
             related,
             payload.TopicalNeighbors,
-            informationGain);
+            BuildPartialInformationGain(gapTopic, related));
+    }
+
+    public static SiteSectionContextDto BuildSectionFromCrawlPages(
+        Guid runId,
+        string siteUrl,
+        IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages)
+    {
+        var relatedPages = pages
+            .Where(p => !string.IsNullOrWhiteSpace(p.Html))
+            .Select(GccV2ProjectSitePageMapper.ToRelatedPage)
+            .Where(p => !string.IsNullOrWhiteSpace(p.Url))
+            .GroupBy(p => p.Url, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderByDescending(p => ToolishScore(p.Url, p.Title))
+            .ToList();
+
+        if (relatedPages.Count == 0)
+            throw new InvalidOperationException("Project-site crawl has no extractable pages.");
+
+        var gapTopic = HostFromUrl(siteUrl) ?? siteUrl;
+        var neighbors = relatedPages.Select(p => p.Title).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        if (neighbors.Count == 0)
+            neighbors.Add(gapTopic);
+
+        return new SiteSectionContextDto(
+            runId,
+            gapTopic,
+            null,
+            relatedPages,
+            neighbors,
+            BuildPartialInformationGain(gapTopic, relatedPages));
     }
 
     public static bool HrefLooksLikeOnSiteToolPage(string? href)
@@ -138,6 +170,33 @@ public static class GccV2SiteSection
         catch (UriFormatException)
         {
             return href.Contains("/tools/", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static int ToolishScore(string url, string title)
+    {
+        var u = (url ?? "").ToLowerInvariant();
+        var t = (title ?? "").ToLowerInvariant();
+        var score = 0;
+        if (u.Contains("/tool")) score += 50;
+        if (u.Contains("/use-case") || u.Contains("/usecase") || u.Contains("ai-use")) score += 40;
+        if (u.Contains("/integration") || t.Contains("integration")) score += 30;
+        if (u.Contains("/methodolog") || t.Contains("methodolog")) score += 30;
+        if (t.Contains("tool") || t.Contains("clone yourself") || t.Contains("consultation")) score += 20;
+        return score;
+    }
+
+    private static string? HostFromUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        try
+        {
+            var uri = new Uri(url.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? url : "https://" + url);
+            return uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (UriFormatException)
+        {
+            return null;
         }
     }
 
@@ -164,4 +223,18 @@ public static class GccV2SiteSection
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
+}
+
+public static class GccV2ProjectSitePageMapper
+{
+    public static RelatedPageDto ToRelatedPage(GccV2ProjectSiteCrawlPageDto page)
+    {
+        var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
+        if (string.IsNullOrWhiteSpace(page.Html))
+            return new RelatedPageDto(url, url, [], "");
+
+        var extracted = GccV2ArticleHtmlExtractor.Extract(url, page.Html);
+        var excerpt = extracted.Paragraphs.FirstOrDefault() ?? "";
+        return new RelatedPageDto(url, extracted.Title, extracted.Headings.ToArray(), excerpt);
+    }
 }

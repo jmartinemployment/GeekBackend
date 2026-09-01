@@ -17,10 +17,11 @@ public class GccV2Job
     public string OwnerUserId { get; set; } = string.Empty;
     public Guid CreateId { get; set; }
 
-    /// <summary>Set at generate-time when the create was started with a site analysis profile —
-    /// lets the PLAN stage look up/announce the derived <see cref="GccV2BrandKit"/> without the
-    /// worker needing its own copy of the request.</summary>
+    /// <summary>Legacy Site Analyzer profile — superseded by <see cref="ProjectSiteCrawlRunId"/>.</summary>
     public Guid? SiteAnalysisProfileId { get; set; }
+
+    /// <summary>Owned project-site crawl run at generate time.</summary>
+    public Guid? ProjectSiteCrawlRunId { get; set; }
 
     /// <summary>plan | write | validate | repair | done</summary>
     public string Stage { get; set; } = "plan";

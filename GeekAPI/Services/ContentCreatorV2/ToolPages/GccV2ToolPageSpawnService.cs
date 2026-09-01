@@ -121,7 +121,7 @@ public sealed class GccV2ToolPageSpawnService
                         triggerJob.OwnerUserId,
                         "tool",
                         childBrief.Id,
-                        triggerJob.SiteAnalysisProfileId,
+                        triggerJob.ProjectSiteCrawlRunId ?? triggerJob.SiteAnalysisProfileId,
                         InitialStage: "write"),
                     ct);
 

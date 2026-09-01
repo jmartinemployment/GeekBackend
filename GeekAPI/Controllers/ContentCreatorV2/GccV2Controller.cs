@@ -2,9 +2,9 @@ using System.Text;
 using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.GeekSeo;
 using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
+using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
@@ -30,7 +30,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2JobEventWriter _events;
     private readonly GccV2BrandKitBuilder _brandKitBuilder;
     private readonly GccV2SiteHierarchyService _siteHierarchy;
-    private readonly HttpGeekSeoSiteAnalyzerClient _seo;
+    private readonly GccV2GeekCrawlerResearchResolver _researchResolver;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -40,7 +40,7 @@ public class GccV2Controller : ControllerBase
         GccV2JobEventWriter events,
         GccV2BrandKitBuilder brandKitBuilder,
         GccV2SiteHierarchyService siteHierarchy,
-        HttpGeekSeoSiteAnalyzerClient seo,
+        GccV2GeekCrawlerResearchResolver researchResolver,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -49,7 +49,7 @@ public class GccV2Controller : ControllerBase
         _events = events;
         _brandKitBuilder = brandKitBuilder;
         _siteHierarchy = siteHierarchy;
-        _seo = seo;
+        _researchResolver = researchResolver;
         _logger = logger;
     }
 
@@ -61,159 +61,6 @@ public class GccV2Controller : ControllerBase
             product = "geek-content-creator-v2",
             userId = _user.IsAuthenticated ? _user.UserId.ToString("D") : null,
         });
-
-    /// <summary>Recent Geek-SEO site analysis profiles for the create-form picker (domain + date, not raw GUIDs).</summary>
-    [HttpGet("site-analyzer/profiles/recent")]
-    public async Task<IActionResult> ListRecentSiteAnalysisProfiles(
-        [FromQuery] int limit = 50,
-        CancellationToken ct = default)
-    {
-        if (!_user.IsAuthenticated) return Unauthorized();
-        var bearer = ExtractBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return Unauthorized(new { error = "Bearer token required" });
-
-        var result = await _seo.ListRecentProfilesAsync(bearer, limit, ct);
-        if (!result.Ok)
-            return StatusCode(result.StatusCode, new { error = result.Error });
-        return Ok(result.Value ?? []);
-    }
-
-    /// <summary>Profiles for a domain host — same picker source as v1, under the v2 route prefix.</summary>
-    [HttpGet("site-analyzer/profiles/by-domain")]
-    public async Task<IActionResult> ListSiteAnalysisProfilesByDomain(
-        [FromQuery] string domain,
-        [FromQuery] int limit = 50,
-        CancellationToken ct = default)
-    {
-        if (!_user.IsAuthenticated) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(domain))
-            return BadRequest(new { error = "domain required" });
-        var bearer = ExtractBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return Unauthorized(new { error = "Bearer token required" });
-
-        var result = await _seo.ListProfilesByDomainAsync(domain, bearer, limit, ct);
-        if (!result.Ok)
-            return StatusCode(result.StatusCode, new { error = result.Error });
-        return Ok(result.Value ?? []);
-    }
-
-    /// <summary>Starts a Through Coverage crawl via Geek-SEO (copied from v1 for v2 BFF).</summary>
-    [HttpPost("site-analyzer/analyze")]
-    public async Task<IActionResult> AnalyzeSite(
-        [FromBody] AnalyzeSiteRequest request,
-        CancellationToken ct)
-    {
-        if (request is null || string.IsNullOrWhiteSpace(request.Domain))
-            return BadRequest(new { error = "domain required" });
-
-        var bearer = ExtractBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return Unauthorized(new { error = "Bearer token required to run site analysis" });
-
-        var projectResult = await _seo.EnsureProjectForDomainAsync(request.Domain, bearer, ct);
-        if (!projectResult.Ok || projectResult.Value is null)
-        {
-            return StatusCode(
-                projectResult.StatusCode is >= 400 and < 600 ? projectResult.StatusCode : 502,
-                new { error = projectResult.Error ?? "Failed to ensure site analysis project" });
-        }
-
-        var startResult = await _seo.StartSiteAnalysisAsync(
-            projectResult.Value.Id, request.Domain, request.SeedTopic, bearer, ct);
-        if (!startResult.Ok)
-        {
-            return StatusCode(
-                startResult.StatusCode is >= 400 and < 600 ? startResult.StatusCode : 502,
-                new { error = startResult.Error ?? "Failed to start site analysis" });
-        }
-
-        return Ok(new { status = "queued" });
-    }
-
-    /// <summary>Load pages and gaps for a finished crawl (<c>site_analysis_profiles.Id</c>).</summary>
-    [HttpGet("site-analyzer/{id:guid}")]
-    public Task<IActionResult> GetSiteAnalysis(Guid id, CancellationToken ct) =>
-        SnapshotByProfileIdAsync(id, ct);
-
-    [HttpGet("site-analyzer/{id:guid}/section-context")]
-    public async Task<IActionResult> SectionContext(
-        Guid id,
-        [FromQuery] string gapTopic,
-        CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(gapTopic))
-            return BadRequest(new { error = "gapTopic required" });
-        var bearer = ExtractBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return Unauthorized(new { error = "Bearer token required" });
-
-        var model = await _seo.LoadSiteModelByProfileAsync(Guid.Empty, id, "", bearer, ct);
-        if (!model.Ok || model.Value is null)
-            return StatusCode(
-                model.StatusCode is >= 400 and < 600 ? model.StatusCode : 502,
-                new { error = model.Error ?? "Failed to load crawl" });
-
-        var snapshot = model.Value;
-        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(
-            g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
-        var payload = new SiteAnalysisStoredPayload(
-            gaps, snapshot.SitePages.ToList(), snapshot.TopicalNeighbors.ToList(), id, snapshot.SeoProjectId);
-
-        var section = GccV2SiteSection.TryBuildSectionContext(id, payload, gapTopic);
-        if (section is null || section.RelatedPages.Count == 0)
-        {
-            return UnprocessableEntity(new
-            {
-                error =
-                    "No existing site pages in this section for the chosen gap. Site Analyzer Generate requires real related pages from the site model.",
-            });
-        }
-
-        return Ok(section);
-    }
-
-    private async Task<IActionResult> SnapshotByProfileIdAsync(Guid siteAnalysisProfileId, CancellationToken ct)
-    {
-        if (siteAnalysisProfileId == Guid.Empty)
-            return BadRequest(new { error = "siteAnalysisProfileId required" });
-        var bearer = ExtractBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return Unauthorized(new { error = "Bearer token required to load site analysis" });
-
-        var model = await _seo.LoadSiteModelByProfileAsync(
-            Guid.Empty, siteAnalysisProfileId, "", bearer, ct);
-        if (!model.Ok || model.Value is null)
-            return StatusCode(
-                model.StatusCode is >= 400 and < 600 ? model.StatusCode : 502,
-                new { error = model.Error ?? "Failed to load crawl" });
-
-        var snapshot = model.Value;
-        var gaps = snapshot.Gaps.Select(g => new ContentGapDto(
-            g.Id, g.Topic, g.SectionPath, g.Reason, g.Hierarchy, g.SourcePageUrl)).ToList();
-        var pages = snapshot.SitePages
-            .Select(sp => new
-            {
-                url = sp.Url,
-                title = sp.Title,
-                headings = sp.Headings
-                    .Select(h => new { level = h.Level, text = h.Text })
-                    .ToArray(),
-            })
-            .ToList();
-
-        return Ok(new
-        {
-            siteAnalysisProfileId,
-            status = "ready",
-            domain = snapshot.Domain,
-            gaps,
-            pages,
-        });
-    }
-
-    public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null, bool Force = false);
 
     [HttpPost("creates")]
     public async Task<ActionResult<GccV2CreateDto>> CreateCreate([FromBody] CreateCreateRequest? request, CancellationToken ct)
@@ -238,7 +85,11 @@ public class GccV2Controller : ControllerBase
         }
 
         if (section is null || section.RelatedPages is null || section.RelatedPages.Count == 0)
-            return BadRequest(new { error = "siteSection with non-empty relatedPages is required — start from Site Analyzer." });
+            return BadRequest(new { error = "siteSection with non-empty relatedPages is required — complete a project-site crawl first." });
+
+        var runId = section.ProjectSiteCrawlRunId;
+        if (runId == Guid.Empty)
+            return BadRequest(new { error = "siteSection.projectSiteCrawlRunId is required." });
 
         var siteUrl = string.IsNullOrWhiteSpace(request.SiteUrl)
             ? section.RelatedPages[0].Url
@@ -250,7 +101,8 @@ public class GccV2Controller : ControllerBase
                 request.Title,
                 request.ContentType,
                 siteSectionJson,
-                siteUrl),
+                siteUrl,
+                runId),
             ct);
         return Ok(create);
     }
@@ -324,7 +176,7 @@ public class GccV2Controller : ControllerBase
                 job.CreatedAtUtc,
                 job.UpdatedAtUtc,
                 job.CompletedAtUtc,
-                job.SiteAnalysisProfileId,
+                projectSiteCrawlRunId = job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId,
                 tabLabel,
             });
         }
@@ -359,13 +211,13 @@ public class GccV2Controller : ControllerBase
         if (create is null) return NotFound();
         if (!IsOwner(create.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
 
-        if (request?.SiteAnalysisProfileId is not { } profileId || profileId == Guid.Empty)
-            return BadRequest(new { error = "siteAnalysisProfileId is required." });
+        if (request?.ProjectSiteCrawlRunId is not { } runId || runId == Guid.Empty)
+            return BadRequest(new { error = "projectSiteCrawlRunId is required." });
 
         try
         {
             var section = GccV2SiteSection.ParseSiteSection(create.SiteSectionJson);
-            GccV2SiteSection.ValidateSiteSectionGate(profileId, section);
+            GccV2SiteSection.ValidateSiteSectionGate(runId, section);
         }
         catch (Exception ex)
         {
@@ -377,6 +229,18 @@ public class GccV2Controller : ControllerBase
             : null;
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
+
+        try
+        {
+            rawBriefJson = await _researchResolver.MergePartnerResearchAsync(
+                _user.UserId.ToString("D"),
+                rawBriefJson,
+                ct);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
         var tools = GccV2PartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson);
         string? matchedHeading = null;
@@ -466,33 +330,27 @@ public class GccV2Controller : ControllerBase
                 error = "Confirm partner tools before starting content creation (POST .../partner-tools/preflight, then generate with partnerToolsConfirmed=true).",
             });
 
-        if (request?.SiteAnalysisProfileId is not { } profileId || profileId == Guid.Empty)
-            return BadRequest(new { error = "siteAnalysisProfileId is required — start from Site Analyzer with a project site URL." });
+        if (request?.ProjectSiteCrawlRunId is not { } runId || runId == Guid.Empty)
+            return BadRequest(new { error = "projectSiteCrawlRunId is required — start from a project-site crawl." });
 
         SiteSectionContextDto? section;
         try
         {
             section = GccV2SiteSection.ParseSiteSection(create.SiteSectionJson);
-            GccV2SiteSection.ValidateSiteSectionGate(profileId, section);
+            GccV2SiteSection.ValidateSiteSectionGate(runId, section);
             if (section is null || section.RelatedPages is null || section.RelatedPages.Count == 0)
-                return BadRequest(new { error = "Create is missing siteSection with relatedPages — start from Site Analyzer." });
+                return BadRequest(new { error = "Create is missing siteSection with relatedPages — complete a project-site crawl first." });
         }
         catch (Exception ex)
         {
             return BadRequest(new { error = ex.Message });
         }
 
-        var bearer = ExtractBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return Unauthorized(new { error = "Bearer token required to build BrandKit from crawl." });
-
         GccV2BrandKitContent kit;
         try
         {
             kit = await _brandKitBuilder.BuildAsync(
-                profileId,
-                bearer,
-                _user.UserId,
+                runId,
                 create.SiteUrl,
                 section,
                 ct);
@@ -515,13 +373,25 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
+        try
+        {
+            rawBriefJson = await _researchResolver.MergeExternalResearchAsync(
+                _user.UserId.ToString("D"),
+                rawBriefJson,
+                ct);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+
         var brief = await _repo.CreateBriefAsync(
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
             ct);
 
         await _repo.CreateBrandKitAsync(
             new CreateGccV2BrandKitCommand(
-                profileId,
+                runId,
                 ClientId: null,
                 KitJson: JsonSerializer.Serialize(kit, JsonOpts),
                 VoiceStatus: "provisional"),
@@ -531,7 +401,7 @@ public class GccV2Controller : ControllerBase
         foreach (var contentType in contentTypes)
         {
             var job = await _repo.CreateJobAsync(
-                new CreateGccV2JobCommand(id, _user.UserId.ToString("D"), contentType, brief.Id, profileId),
+                new CreateGccV2JobCommand(id, _user.UserId.ToString("D"), contentType, brief.Id, ProjectSiteCrawlRunId: runId),
                 ct);
             await _events.AppendAsync(job.Id, _user.UserId, "JobQueued", new { jobId = job.Id, briefId = brief.Id, contentType }, ct: ct);
             _wake.Wake(job.Id);
@@ -823,10 +693,10 @@ public class GccV2Controller : ControllerBase
         if (job is null || !IsOwner(job.OwnerUserId)) return NotFound();
         if (!string.Equals(job.Status, "awaiting_brandkit_approval", StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { error = $"Job is '{job.Status}', not awaiting brand kit approval." });
-        if (job.SiteAnalysisProfileId is not { } profileId)
-            return BadRequest(new { error = "Job has no siteAnalysisProfileId." });
+        if (ResolveCrawlRunId(job) is not { } crawlRunId)
+            return BadRequest(new { error = "Job has no projectSiteCrawlRunId." });
 
-        var kits = await _repo.ListBrandKitsByProfileAsync(profileId, ct);
+        var kits = await _repo.ListBrandKitsByProfileAsync(crawlRunId, ct);
         var kit = kits.FirstOrDefault();
         if (kit is null)
             return BadRequest(new { error = "No brand kit found for this job's site profile." });
@@ -910,9 +780,9 @@ public class GccV2Controller : ControllerBase
             return BadRequest(new { error = $"Job is '{job.Status}', not awaiting brand kit approval." });
 
         // Revise in place — never fail the job. Operator edits and Accepts to continue.
-        if (job.SiteAnalysisProfileId is { } profileId)
+        if (ResolveCrawlRunId(job) is { } crawlRunId)
         {
-            var kits = await _repo.ListBrandKitsByProfileAsync(profileId, ct);
+            var kits = await _repo.ListBrandKitsByProfileAsync(crawlRunId, ct);
             var kit = kits.FirstOrDefault();
             if (kit is not null)
             {
@@ -1203,9 +1073,12 @@ public class GccV2Controller : ControllerBase
     public record GenerateRequest(
         string? TargetKeyword,
         JsonElement? Brief,
-        Guid? SiteAnalysisProfileId,
+        Guid? ProjectSiteCrawlRunId,
         IReadOnlyList<string>? ContentTypes = null,
         bool? PartnerToolsConfirmed = null);
+
+    private static Guid? ResolveCrawlRunId(GccV2JobDto job) =>
+        job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId;
 
     private static IReadOnlyList<string> ResolveContentTypes(GenerateRequest? request, string? createContentType)
     {

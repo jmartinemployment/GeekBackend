@@ -53,6 +53,7 @@ public class GccV2CreatesController : ControllerBase
             ContentType = string.IsNullOrWhiteSpace(command.ContentType) ? "blog" : command.ContentType,
             SiteSectionJson = string.IsNullOrWhiteSpace(command.SiteSectionJson) ? null : command.SiteSectionJson,
             SiteUrl = string.IsNullOrWhiteSpace(command.SiteUrl) ? null : command.SiteUrl.Trim(),
+            ProjectSiteCrawlRunId = command.ProjectSiteCrawlRunId,
         };
 
         _db.GccV2Creates.Add(create);
@@ -65,5 +66,6 @@ public class GccV2CreatesController : ControllerBase
         string Title,
         string? ContentType,
         string? SiteSectionJson = null,
-        string? SiteUrl = null);
+        string? SiteUrl = null,
+        Guid? ProjectSiteCrawlRunId = null);
 }

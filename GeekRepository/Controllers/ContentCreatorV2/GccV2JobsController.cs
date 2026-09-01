@@ -87,6 +87,7 @@ public class GccV2JobsController : ControllerBase
             OwnerUserId = command.OwnerUserId,
             CreateId = command.CreateId,
             SiteAnalysisProfileId = command.SiteAnalysisProfileId,
+            ProjectSiteCrawlRunId = command.ProjectSiteCrawlRunId,
             Stage = string.IsNullOrWhiteSpace(command.InitialStage) ? "plan" : command.InitialStage.Trim(),
             Status = "pending",
         };
@@ -405,6 +406,7 @@ public class GccV2JobsController : ControllerBase
         string? ContentType,
         Guid? BriefId,
         Guid? SiteAnalysisProfileId = null,
+        Guid? ProjectSiteCrawlRunId = null,
         string? InitialStage = null);
 
     public record PatchGccV2JobCommand(
