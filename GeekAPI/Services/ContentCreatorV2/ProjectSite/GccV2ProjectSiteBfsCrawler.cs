@@ -57,6 +57,14 @@ public sealed class GccV2ProjectSiteBfsCrawler
         }
 
         Enqueue(siteUrl);
+        if (GccV2HomepageUrl.TryNormalize(siteUrl, out var homepageUrl)
+            && !string.Equals(
+                homepageUrl.TrimEnd('/'),
+                siteUrl.TrimEnd('/'),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            Enqueue(homepageUrl);
+        }
 
         async Task FlushBatchIfReadyAsync()
         {

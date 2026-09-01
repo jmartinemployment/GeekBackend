@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using Microsoft.Extensions.Logging;
 
@@ -202,5 +203,155 @@ public class GccV2HierarchyTests
             foreach (var c in Flatten(n.Children))
                 yield return c;
         }
+    }
+
+    [Fact]
+    public void SiteHierarchyFromCrawl_Excludes_404_And_Orders_Homepage_First()
+    {
+        const string errorHtml = """
+            <html><body>
+              <h1>404</h1>
+              <h2>This page could not be found.</h2>
+            </body></html>
+            """;
+
+        const string articleHtml = """
+            <html><body>
+              <h1>Automated Accounts Payable</h1>
+              <h2>Introduction to Automated Accounts Payable</h2>
+            </body></html>
+            """;
+
+        const string homeHtml = """
+            <html><body>
+              <h2>Artificial Intelligence Use Cases</h2>
+              <h3>Marketing</h3>
+            </body></html>
+            """;
+
+        var pages = new List<GccV2ProjectSiteCrawlPageDto>
+        {
+            new(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "https://geekatyourspot.com",
+                "https://geekatyourspot.com/tools/accounting/jotform",
+                "https://geekatyourspot.com/tools/accounting/jotform",
+                404,
+                true,
+                errorHtml,
+                DateTimeOffset.UtcNow),
+            new(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "https://geekatyourspot.com",
+                "https://geekatyourspot.com/blog/ap-automation",
+                "https://geekatyourspot.com/blog/ap-automation",
+                200,
+                true,
+                articleHtml,
+                DateTimeOffset.UtcNow),
+            new(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "https://geekatyourspot.com",
+                "https://geekatyourspot.com/",
+                "https://geekatyourspot.com/",
+                200,
+                true,
+                homeHtml,
+                DateTimeOffset.UtcNow),
+        };
+
+        var hierarchy = GccV2SiteHierarchyFromCrawl.Build(
+            "https://geekatyourspot.com/tools/accounting/jotform",
+            pages);
+
+        Assert.NotNull(hierarchy);
+        Assert.Equal("https://geekatyourspot.com/", hierarchy!.HomepageUrl);
+        Assert.Single(hierarchy.Pages);
+        Assert.True(GccV2SiteHierarchyFromCrawl.IsHomepage(hierarchy.Pages[0].PageUrl, hierarchy.HomepageUrl));
+        Assert.DoesNotContain(
+            hierarchy.Pages,
+            p => p.Roots.Any(r => r.HeadingText.Contains("404", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void SiteHierarchyFromCrawl_Keeps_UseCase_Page_With_Tool_Link_Group()
+    {
+        const string useCaseHtml = """
+            <html><body>
+              <h2>Smart Chatbots for Marketing</h2>
+              <ul>
+                <li><a href="/tools/fin">Fin.ai</a></li>
+                <li><a href="/tools/intercom">Intercom</a></li>
+              </ul>
+            </body></html>
+            """;
+
+        const string homeHtml = """
+            <html><body><h2>Home</h2></body></html>
+            """;
+
+        var pages = new List<GccV2ProjectSiteCrawlPageDto>
+        {
+            new(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "https://geekatyourspot.com",
+                "https://geekatyourspot.com/",
+                "https://geekatyourspot.com/",
+                200,
+                true,
+                homeHtml,
+                DateTimeOffset.UtcNow),
+            new(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "https://geekatyourspot.com",
+                "https://geekatyourspot.com/ai-use-cases/marketing",
+                "https://geekatyourspot.com/ai-use-cases/marketing",
+                200,
+                true,
+                useCaseHtml,
+                DateTimeOffset.UtcNow),
+        };
+
+        var hierarchy = GccV2SiteHierarchyFromCrawl.Build("https://geekatyourspot.com", pages);
+
+        Assert.NotNull(hierarchy);
+        Assert.Equal(2, hierarchy!.Pages.Count);
+        Assert.Contains(
+            hierarchy.Pages,
+            p => p.PageUrl.Contains("ai-use-cases", StringComparison.OrdinalIgnoreCase));
+        Assert.True(GccV2SiteHierarchyFromCrawl.HasRichLinkGroups(hierarchy.Pages[1].Roots));
+    }
+
+    [Fact]
+    public void SiteHierarchyFromCrawl_Drops_Error_Heading_Trees_Even_When_Status_200()
+    {
+        const string soft404Html = """
+            <html><body>
+              <h1>404</h1>
+              <h2>Page not found</h2>
+            </body></html>
+            """;
+
+        var pages = new List<GccV2ProjectSiteCrawlPageDto>
+        {
+            new(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "https://example.com",
+                "https://example.com/missing",
+                "https://example.com/missing",
+                200,
+                true,
+                soft404Html,
+                DateTimeOffset.UtcNow),
+        };
+
+        var hierarchy = GccV2SiteHierarchyFromCrawl.Build("https://example.com", pages);
+        Assert.Null(hierarchy);
     }
 }

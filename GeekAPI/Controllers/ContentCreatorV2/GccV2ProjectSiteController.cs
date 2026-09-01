@@ -118,21 +118,7 @@ public class GccV2ProjectSiteController : ControllerBase
         if (run is null || !IsOwner(run.OwnerUserId)) return NotFound();
 
         var stored = await LoadAllPagesAsync(runId, ct);
-        var hierarchyPages = stored
-            .Where(p => !string.IsNullOrWhiteSpace(p.Html))
-            .Select(p => new GccV2PageHierarchy(
-                p.FinalUrl ?? p.Url,
-                GccV2HeadingTreeBuilder.Build(p.Html!)))
-            .ToList();
-
-        if (hierarchyPages.Count == 0)
-            return Ok(new { siteHierarchy = (object?)null });
-
-        var hierarchy = new GccV2SiteHierarchy(
-            run.SiteUrl,
-            GccV2CrawlerIdentity.ViewportLabel,
-            DateTimeOffset.UtcNow,
-            hierarchyPages);
+        var hierarchy = GccV2SiteHierarchyFromCrawl.Build(run.SiteUrl, stored);
 
         return Ok(new { siteHierarchy = hierarchy });
     }
