@@ -67,7 +67,7 @@ public sealed class SameOriginBfsCrawler
                 Enqueue(url);
         }
 
-        var batchSaveSize = _options.SeedsOnly ? 1 : GeekCrawlerCaps.BatchSaveSize;
+        var batchSaveSize = _options.SeedsOnly ? 1 : _options.BatchSaveSize;
 
         async Task FlushBatchIfReadyAsync()
         {

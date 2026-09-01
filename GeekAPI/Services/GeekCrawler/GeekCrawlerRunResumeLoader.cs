@@ -14,7 +14,7 @@ public static class GeekCrawlerRunResumeLoader
         Dictionary<string, GeekCrawlerBfsResume> OriginResume);
 
     public static async Task<ResumeState> LoadAsync(
-        HttpGeekCrawlerRepository repo,
+        IGeekCrawlerResumeRepository repo,
         Guid runId,
         IReadOnlyCollection<string> origins,
         CancellationToken ct)
@@ -32,7 +32,7 @@ public static class GeekCrawlerRunResumeLoader
         var offset = 0;
         while (true)
         {
-            var pages = await repo.ListPagesAsync(runId, limit: 500, offset, ct).ConfigureAwait(false);
+            var pages = await repo.ListPagesForResumeAsync(runId, limit: 500, offset, ct).ConfigureAwait(false);
             if (pages.Count == 0)
                 break;
 
@@ -44,7 +44,7 @@ public static class GeekCrawlerRunResumeLoader
 
                 var stats = originStats[origin];
                 stats.Attempted++;
-                if (!string.IsNullOrWhiteSpace(page.Html))
+                if (page.HasHtml)
                     stats.WithHtml++;
                 originStats[origin] = stats;
 

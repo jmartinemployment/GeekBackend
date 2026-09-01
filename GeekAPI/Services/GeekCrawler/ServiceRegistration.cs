@@ -30,7 +30,9 @@ public static class GeekCrawlerServiceRegistration
         services.AddSingleton<GeekCrawlerHostRegistry>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<GeekCrawlerWake>();
+        services.AddSingleton<GeekCrawlerRunCoordinator>();
         services.AddSingleton<GeekCrawlerProgressNotifier>();
+        services.AddScoped<GeekCrawlerPageBatchWriter>();
         services.AddScoped<MobilePageFetcher>();
         services.AddScoped<SameOriginBfsCrawler>();
         services.AddScoped<GeekCrawlerService>();

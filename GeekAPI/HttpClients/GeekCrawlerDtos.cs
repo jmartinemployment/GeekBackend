@@ -6,6 +6,7 @@ public record GeekCrawlerRunDto(
     string CrawlType,
     string Status,
     string SeedUrlsJson,
+    string? SeedKey,
     string? HostProgressJson,
     string? ErrorSummary,
     DateTimeOffset CreatedAtUtc,
@@ -15,7 +16,8 @@ public record GeekCrawlerRunDto(
 public record CreateGeekCrawlerRunCommand(
     string OwnerUserId,
     string CrawlType,
-    string? SeedUrlsJson);
+    string? SeedUrlsJson,
+    string? SeedKey = null);
 
 public record PatchGeekCrawlerRunCommand(
     string? Status = null,
@@ -54,6 +56,11 @@ public record GeekCrawlerPageBatchResult(
 public record GeekCrawlerPageActivityDto(
     int PageCount,
     DateTimeOffset? LastCrawledAtUtc);
+
+public record GeekCrawlerPageResumeRowDto(
+    string Origin,
+    string Url,
+    bool HasHtml);
 
 public record GeekCrawlerCreatedPageDto(string Url, Guid PageId);
 

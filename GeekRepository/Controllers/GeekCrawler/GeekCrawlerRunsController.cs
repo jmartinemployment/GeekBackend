@@ -52,6 +52,29 @@ public class GeekCrawlerRunsController : ControllerBase
         return Ok(rows);
     }
 
+    [HttpGet("for-slot")]
+    public async Task<ActionResult<GeekCrawlerRun>> GetForSlot(
+        [FromQuery] string ownerUserId,
+        [FromQuery] string crawlType,
+        [FromQuery] string seedKey,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            return BadRequest("ownerUserId is required");
+        if (string.IsNullOrWhiteSpace(crawlType))
+            return BadRequest("crawlType is required");
+        if (string.IsNullOrWhiteSpace(seedKey))
+            return BadRequest("seedKey is required");
+
+        var row = await _db.GeekCrawlerRuns.AsNoTracking()
+            .Where(r => r.OwnerUserId == ownerUserId
+                        && r.CrawlType == crawlType.Trim()
+                        && r.SeedKey == seedKey)
+            .FirstOrDefaultAsync(ct);
+
+        return row is null ? NotFound() : Ok(row);
+    }
+
     [HttpGet("latest")]
     public async Task<ActionResult<GeekCrawlerRun>> GetLatest(
         [FromQuery] string ownerUserId,
@@ -112,6 +135,7 @@ public class GeekCrawlerRunsController : ControllerBase
             CrawlType = command.CrawlType.Trim(),
             Status = "pending",
             SeedUrlsJson = string.IsNullOrWhiteSpace(command.SeedUrlsJson) ? "[]" : command.SeedUrlsJson,
+            SeedKey = string.IsNullOrWhiteSpace(command.SeedKey) ? null : command.SeedKey.Trim(),
             CreatedAtUtc = DateTimeOffset.UtcNow,
         };
 
@@ -144,7 +168,30 @@ public class GeekCrawlerRunsController : ControllerBase
         return Ok(row);
     }
 
-    public record CreateGeekCrawlerRunCommand(string OwnerUserId, string CrawlType, string? SeedUrlsJson);
+    [HttpPost("{id:guid}/replace")]
+    public async Task<ActionResult<GeekCrawlerRun>> Replace(Guid id, CancellationToken ct)
+    {
+        var row = await _db.GeekCrawlerRuns.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (row is null) return NotFound();
+
+        await _db.GeekCrawlerLinks.Where(l => l.RunId == id).ExecuteDeleteAsync(ct);
+        await _db.GeekCrawlerPages.Where(p => p.RunId == id).ExecuteDeleteAsync(ct);
+
+        row.Status = "pending";
+        row.HostProgressJson = null;
+        row.ErrorSummary = null;
+        row.StartedAtUtc = null;
+        row.CompletedAtUtc = null;
+
+        await _db.SaveChangesAsync(ct);
+        return Ok(row);
+    }
+
+    public record CreateGeekCrawlerRunCommand(
+        string OwnerUserId,
+        string CrawlType,
+        string? SeedUrlsJson,
+        string? SeedKey = null);
 
     public record PatchGeekCrawlerRunCommand(
         string? Status = null,

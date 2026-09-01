@@ -63,7 +63,10 @@ builder.Services.AddCors(options =>
 var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhost:5050";
 var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY") ?? string.Empty;
 var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", client =>
-    client.BaseAddress = new Uri(repoUrl));
+{
+    client.BaseAddress = new Uri(repoUrl);
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
 if (!string.IsNullOrWhiteSpace(repoApiKey))
 {
     repositoryClientBuilder.ConfigureHttpClient(client =>

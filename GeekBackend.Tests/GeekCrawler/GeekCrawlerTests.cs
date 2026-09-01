@@ -1,3 +1,4 @@
+using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.GeekCrawler.Polite;
 using GeekApplication.Models.GeekCrawler;
@@ -64,6 +65,7 @@ public class GeekCrawlerStartRulesTests
             "[]",
             null,
             null,
+            null,
             DateTimeOffset.UtcNow,
             null,
             null);
@@ -81,6 +83,7 @@ public class GeekCrawlerStartRulesTests
             CrawlTypes.Partner,
             "running",
             """["https://www.pipedrive.com"]""",
+            null,
             null,
             null,
             now.AddMinutes(-10),
@@ -103,6 +106,7 @@ public class GeekCrawlerStartRulesTests
             "[]",
             null,
             null,
+            null,
             now,
             now,
             null);
@@ -120,6 +124,7 @@ public class GeekCrawlerStartRulesTests
             CrawlTypes.Partner,
             "running",
             """["https://botpenguin.com"]""",
+            null,
             null,
             null,
             now.AddHours(-2),
@@ -228,6 +233,22 @@ public class GeekCrawlerOptionsTests
 
         Assert.Equal(3, options.ParallelismPerOrigin);
         Assert.Equal(5, options.HostDelaySeconds);
+        Assert.Equal(5, options.BatchSaveSize);
+    }
+
+    [Fact]
+    public void FromConfiguration_parses_batch_save_size()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["GEEK_CRAWLER_BATCH_SAVE_SIZE"] = "10",
+            })
+            .Build();
+
+        var options = GeekCrawlerOptions.FromConfiguration(config);
+
+        Assert.Equal(10, options.BatchSaveSize);
     }
 }
 
@@ -306,5 +327,117 @@ public class GeekCrawlerSeedUrlDebugTests
     {
         var seeds = GeekCrawlerSeedNormalizer.NormalizeSeeds([raw]);
         Assert.NotEmpty(seeds);
+    }
+
+    [Fact]
+    public void ComputeSeedKey_is_stable_across_seed_order()
+    {
+        var a = GeekCrawlerSeedNormalizer.ComputeSeedKey(["https://a.com", "https://b.com"]);
+        var b = GeekCrawlerSeedNormalizer.ComputeSeedKey(["https://b.com", "https://a.com"]);
+        Assert.Equal(a, b);
+    }
+
+    [Fact]
+    public void TryNormalizeSeedUrl_rejects_host_without_dot()
+    {
+        Assert.False(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("https://activecampaign", out _));
+        Assert.True(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("https://www.activecampaign.com", out _));
+        Assert.True(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("http://localhost", out _));
+    }
+
+    [Fact]
+    public void ValidateRawSeeds_returns_error_for_invalid_host()
+    {
+        var error = GeekCrawlerSeedNormalizer.ValidateRawSeeds(["https://activecampaign"]);
+        Assert.NotNull(error);
+    }
+}
+
+public class GeekCrawlerRunResumeLoaderTests
+{
+    [Fact]
+    public async Task LoadAsync_builds_seen_and_queue_from_resume_rows_without_html()
+    {
+        var runId = Guid.NewGuid();
+        var repo = new FakeResumeRepo(runId);
+        repo.AddPage("https://example.com", "https://example.com/", hasHtml: true);
+        repo.AddPage("https://example.com", "https://example.com/about", hasHtml: false);
+        repo.AddLink("https://example.com/about", "https://example.com/contact");
+
+        var state = await GeekCrawlerRunResumeLoader.LoadAsync(
+            repo,
+            runId,
+            ["https://example.com"],
+            CancellationToken.None);
+
+        Assert.Equal(2, state.OriginStats["https://example.com"].Attempted);
+        Assert.Equal(1, state.OriginStats["https://example.com"].WithHtml);
+        Assert.Contains("https://example.com/contact", state.OriginResume["https://example.com"].QueueUrls);
+    }
+
+    private sealed class FakeResumeRepo(Guid runId) : IGeekCrawlerResumeRepository
+    {
+        private readonly List<GeekCrawlerPageResumeRowDto> _pages = [];
+        private readonly List<GeekCrawlerLinkDto> _links = [];
+
+        public void AddPage(string origin, string url, bool hasHtml) =>
+            _pages.Add(new GeekCrawlerPageResumeRowDto(origin, url, hasHtml));
+
+        public void AddLink(string fromUrl, string linkUrl) =>
+            _links.Add(new GeekCrawlerLinkDto(
+                Guid.NewGuid(),
+                runId,
+                Guid.NewGuid(),
+                fromUrl,
+                linkUrl,
+                true,
+                DateTimeOffset.UtcNow));
+
+        public Task<IReadOnlyList<GeekCrawlerPageResumeRowDto>> ListPagesForResumeAsync(
+            Guid runId,
+            int limit = 500,
+            int offset = 0,
+            CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageResumeRowDto>>(
+                _pages.Skip(offset).Take(limit).ToList());
+
+        public Task<IReadOnlyList<GeekCrawlerLinkDto>> ListLinksAsync(
+            Guid runId,
+            bool? sameOrigin = null,
+            int limit = 100,
+            int offset = 0,
+            CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerLinkDto>>(
+                _links.Skip(offset).Take(limit).ToList());
+    }
+}
+
+public class GeekCrawlerHostProgressTests
+{
+    [Fact]
+    public void AllOriginsHaveZeroHtml_when_no_html_saved()
+    {
+        var stats = new Dictionary<string, OriginProgressStats>
+        {
+            ["https://a.com"] = new() { Attempted = 1, WithHtml = 0 },
+        };
+        Assert.True(GeekCrawlerHostProgress.AllOriginsHaveZeroHtml(stats));
+    }
+
+    [Fact]
+    public void BuildHostProgress_includes_status_counts()
+    {
+        var stats = new Dictionary<string, OriginProgressStats>
+        {
+            ["https://a.com"] = new(),
+        };
+        stats["https://a.com"].AddPage(200, hasHtml: true);
+        stats["https://a.com"].AddPage(0, hasHtml: false);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            GeekCrawlerHostProgress.BuildHostProgress(["https://a.com"], stats));
+
+        Assert.Contains("statusCounts", json);
+        Assert.Contains("pagesWithoutHtml", json);
     }
 }

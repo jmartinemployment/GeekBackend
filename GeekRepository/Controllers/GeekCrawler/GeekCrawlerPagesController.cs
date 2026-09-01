@@ -38,6 +38,33 @@ public class GeekCrawlerPagesController : ControllerBase
         return Ok(pages);
     }
 
+    [HttpGet("for-resume")]
+    public async Task<ActionResult<IReadOnlyList<GeekCrawlerPageResumeRow>>> ListForResume(
+        [FromQuery] Guid runId,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty)
+            return BadRequest("runId is required");
+
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+
+        var rows = await _db.GeekCrawlerPages.AsNoTracking()
+            .Where(p => p.RunId == runId)
+            .OrderBy(p => p.CrawledAtUtc)
+            .Skip(offset)
+            .Take(limit)
+            .Select(p => new GeekCrawlerPageResumeRow(
+                p.Origin,
+                p.Url,
+                p.Html != null && p.Html != ""))
+            .ToListAsync(ct);
+
+        return Ok(rows);
+    }
+
     [HttpGet("activity")]
     public async Task<ActionResult<object>> GetRunActivity(
         [FromQuery] Guid runId,
@@ -104,4 +131,6 @@ public class GeekCrawlerPagesController : ControllerBase
         string? Html);
 
     public record CreatedGeekCrawlerPageItem(string Url, Guid PageId);
+
+    public record GeekCrawlerPageResumeRow(string Origin, string Url, bool HasHtml);
 }

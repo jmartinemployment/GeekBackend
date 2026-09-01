@@ -7,6 +7,7 @@ public class GeekCrawlerRun
     public string CrawlType { get; set; } = string.Empty;
     public string Status { get; set; } = "pending";
     public string SeedUrlsJson { get; set; } = "[]";
+    public string? SeedKey { get; set; }
     public string? HostProgressJson { get; set; }
     public string? ErrorSummary { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;

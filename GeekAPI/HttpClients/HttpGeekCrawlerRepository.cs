@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace GeekAPI.HttpClients;
 
-public sealed class HttpGeekCrawlerRepository
+public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -73,6 +73,29 @@ public sealed class HttpGeekCrawlerRepository
         CancellationToken ct = default) =>
         GetListAsync<GeekCrawlerPageDto>(
             $"repo/geek-crawler/pages?runId={runId}&limit={limit}&offset={offset}",
+            ct);
+
+    public Task<GeekCrawlerRunDto?> GetRunForSlotAsync(
+        string ownerUserId,
+        string crawlType,
+        string seedKey,
+        CancellationToken ct = default) =>
+        GetAsync<GeekCrawlerRunDto>(
+            $"repo/geek-crawler/runs/for-slot?ownerUserId={Uri.EscapeDataString(ownerUserId)}" +
+            $"&crawlType={Uri.EscapeDataString(crawlType)}" +
+            $"&seedKey={Uri.EscapeDataString(seedKey)}",
+            ct);
+
+    public Task<GeekCrawlerRunDto> ReplaceRunAsync(Guid runId, CancellationToken ct = default) =>
+        PostAsync<GeekCrawlerRunDto>($"repo/geek-crawler/runs/{runId}/replace", new { }, ct);
+
+    public Task<IReadOnlyList<GeekCrawlerPageResumeRowDto>> ListPagesForResumeAsync(
+        Guid runId,
+        int limit = 500,
+        int offset = 0,
+        CancellationToken ct = default) =>
+        GetListAsync<GeekCrawlerPageResumeRowDto>(
+            $"repo/geek-crawler/pages/for-resume?runId={runId}&limit={limit}&offset={offset}",
             ct);
 
     public Task<GeekCrawlerPageActivityDto?> GetPageActivityAsync(

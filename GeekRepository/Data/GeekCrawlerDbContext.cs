@@ -27,6 +27,7 @@ public class GeekCrawlerDbContext : DbContext
             entity.Property(r => r.CrawlType).IsRequired().HasMaxLength(32);
             entity.Property(r => r.Status).IsRequired().HasMaxLength(32);
             entity.Property(r => r.SeedUrlsJson).IsRequired().HasColumnType("text");
+            entity.Property(r => r.SeedKey).HasMaxLength(64);
             entity.Property(r => r.HostProgressJson).HasColumnType("text");
             entity.Property(r => r.ErrorSummary).HasMaxLength(2048);
             entity.Property(r => r.CreatedAtUtc).IsRequired();

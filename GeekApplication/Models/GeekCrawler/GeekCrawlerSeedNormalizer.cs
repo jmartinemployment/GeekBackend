@@ -1,3 +1,6 @@
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace GeekApplication.Models.GeekCrawler;
@@ -69,6 +72,31 @@ public static class GeekCrawlerSeedNormalizer
     public static string SerializeSeeds(IReadOnlyList<string> seeds) =>
         JsonSerializer.Serialize(seeds, JsonOpts);
 
+    public static string ComputeSeedKey(IReadOnlyList<string> normalizedSeeds)
+    {
+        var sorted = normalizedSeeds.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+        var json = SerializeSeeds(sorted);
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(json));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>Returns an error message when any raw seed is invalid; otherwise null.</summary>
+    public static string? ValidateRawSeeds(IEnumerable<string>? rawSeeds)
+    {
+        if (rawSeeds is null)
+            return "At least one seed URL is required.";
+
+        foreach (var raw in rawSeeds)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            if (!TryNormalizeSeedUrl(raw, out _))
+                return $"Invalid seed URL: {raw.Trim()}";
+        }
+
+        return null;
+    }
+
     public static bool TryNormalizeSeedUrl(string? raw, out string url)
     {
         url = "";
@@ -88,6 +116,7 @@ public static class GeekCrawlerSeedNormalizer
         if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)) return false;
         if (uri.Scheme is not ("http" or "https")) return false;
         if (string.IsNullOrWhiteSpace(uri.Host)) return false;
+        if (!IsValidCrawlHost(uri.Host)) return false;
 
         url = uri.GetLeftPart(UriPartial.Query);
         if (url.EndsWith('/') && uri.AbsolutePath == "/")
@@ -111,5 +140,14 @@ public static class GeekCrawlerSeedNormalizer
             return trimmed[(i + 2)..].TrimStart();
 
         return trimmed;
+    }
+
+    private static bool IsValidCrawlHost(string host)
+    {
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (IPAddress.TryParse(host, out _))
+            return true;
+        return host.Contains('.');
     }
 }

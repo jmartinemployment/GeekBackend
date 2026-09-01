@@ -246,6 +246,7 @@ static async Task ApplyGeekCrawlerMigrationsAsync(WebApplication app, ILogger lo
     {
         await db.Database.MigrateAsync();
         logger.LogInformation("Geek-Crawler (geek_crawler schema) EF migrations applied successfully.");
+        await GeekRepository.Services.GeekCrawler.GeekCrawlerSeedKeyBackfill.ApplyAsync(db, logger);
     }
     catch (Exception ex)
     {

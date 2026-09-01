@@ -42,6 +42,10 @@ public class GeekCrawlerController : ControllerBase
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
             return BadRequest("crawlType must be one of: competitors, partner, local.");
 
+        var validationError = GeekCrawlerSeedNormalizer.ValidateRawSeeds(request.Seeds);
+        if (validationError is not null)
+            return BadRequest(validationError);
+
         var seeds = GeekCrawlerSeedNormalizer.NormalizeSeeds(request.Seeds);
         if (seeds.Count == 0)
             return BadRequest("At least one valid seed URL is required.");
@@ -75,12 +79,22 @@ public class GeekCrawlerController : ControllerBase
         if (normalized.Count == 0)
             return BadRequest("At least one valid seed URL is required.");
 
-        var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
-        var run = await _repo.GetLatestRunAsync(
+        var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(normalized);
+        var run = await _repo.GetRunForSlotAsync(
             _user.UserId.ToString("D"),
             crawlType.Trim(),
-            seedsJson,
+            seedKey,
             ct).ConfigureAwait(false);
+
+        if (run is null)
+        {
+            var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
+            run = await _repo.GetLatestRunAsync(
+                _user.UserId.ToString("D"),
+                crawlType.Trim(),
+                seedsJson,
+                ct).ConfigureAwait(false);
+        }
 
         return run is null ? NotFound() : Ok(GeekCrawlerService.ToSnapshot(run));
     }

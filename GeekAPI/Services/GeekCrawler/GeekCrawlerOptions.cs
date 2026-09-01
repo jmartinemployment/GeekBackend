@@ -1,5 +1,7 @@
 namespace GeekAPI.Services.GeekCrawler;
 
+using GeekApplication.Models.GeekCrawler;
+
 public sealed class GeekCrawlerOptions
 {
     public const int MaxParallelismPerOrigin = 8;
@@ -8,6 +10,7 @@ public sealed class GeekCrawlerOptions
     public string Mode { get; init; } = "standard";
     public int ParallelismPerOrigin { get; init; } = 1;
     public int HostDelaySeconds { get; init; } = 12;
+    public int BatchSaveSize { get; init; } = GeekCrawlerCaps.BatchSaveSize;
     public bool SeedsOnly { get; init; }
 
     public static GeekCrawlerOptions FromConfiguration(IConfiguration configuration)
@@ -37,6 +40,11 @@ public sealed class GeekCrawlerOptions
                 defaultValue: defaultDelay,
                 min: 0,
                 max: 120),
+            BatchSaveSize = ParseBoundedInt(
+                configuration["GEEK_CRAWLER_BATCH_SAVE_SIZE"],
+                defaultValue: GeekCrawlerCaps.BatchSaveSize,
+                min: 1,
+                max: GeekCrawlerCaps.MaxBatchSaveSize),
             SeedsOnly = ParseBool(configuration["GEEK_CRAWLER_SEEDS_ONLY"]),
         };
     }
