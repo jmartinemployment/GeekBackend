@@ -133,14 +133,23 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         return GetListAsync<GeekCrawlerLinkDto>(path.ToString(), ct);
     }
 
-    public Task<IReadOnlyList<string>> ListLinksForResumeAsync(
+    public Task<IReadOnlyList<GeekCrawlerLinkResumeRowDto>> ListLinksForResumeAsync(
         Guid runId,
         int limit = 500,
-        int offset = 0,
-        CancellationToken ct = default) =>
-        GetListAsync<string>(
-            $"repo/geek-crawler/links/for-resume?runId={runId}&limit={limit}&offset={offset}",
-            ct);
+        DateTimeOffset? afterDiscoveredAtUtc = null,
+        Guid? afterId = null,
+        CancellationToken ct = default)
+    {
+        var path = new StringBuilder(
+            $"repo/geek-crawler/links/for-resume?runId={runId}&limit={limit}");
+        if (afterDiscoveredAtUtc is not null && afterId is not null)
+        {
+            path.Append($"&afterDiscoveredAtUtc={Uri.EscapeDataString(afterDiscoveredAtUtc.Value.ToString("O"))}");
+            path.Append($"&afterId={afterId.Value:D}");
+        }
+
+        return GetListAsync<GeekCrawlerLinkResumeRowDto>(path.ToString(), ct);
+    }
 
     public Task<GeekCrawlerLinkActivityDto?> GetLinkActivityAsync(
         Guid runId,

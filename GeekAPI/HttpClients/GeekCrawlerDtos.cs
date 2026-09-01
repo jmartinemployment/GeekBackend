@@ -64,6 +64,11 @@ public record GeekCrawlerPageResumeRowDto(
 
 public record GeekCrawlerLinkActivityDto(int LinkCount);
 
+public record GeekCrawlerLinkResumeRowDto(
+    string LinkUrl,
+    DateTimeOffset DiscoveredAtUtc,
+    Guid Id);
+
 public record GeekCrawlerCreatedPageDto(string Url, Guid PageId);
 
 public record CreateGeekCrawlerLinkBatchCommand(

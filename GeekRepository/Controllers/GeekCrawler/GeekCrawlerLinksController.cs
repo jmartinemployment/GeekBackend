@@ -33,28 +33,36 @@ public class GeekCrawlerLinksController : ControllerBase
     }
 
     [HttpGet("for-resume")]
-    public async Task<ActionResult<IReadOnlyList<string>>> ListForResume(
+    public async Task<ActionResult<IReadOnlyList<GeekCrawlerLinkResumeRow>>> ListForResume(
         [FromQuery] Guid runId,
         [FromQuery] int limit = 500,
-        [FromQuery] int offset = 0,
+        [FromQuery] DateTimeOffset? afterDiscoveredAtUtc = null,
+        [FromQuery] Guid? afterId = null,
         CancellationToken ct = default)
     {
         if (runId == Guid.Empty)
             return BadRequest("runId is required");
 
         limit = Math.Clamp(limit, 1, 500);
-        offset = Math.Max(0, offset);
 
-        var urls = await _db.GeekCrawlerLinks.AsNoTracking()
-            .Where(l => l.RunId == runId && l.IsSameOrigin)
+        var query = _db.GeekCrawlerLinks.AsNoTracking()
+            .Where(l => l.RunId == runId && l.IsSameOrigin);
+
+        if (afterDiscoveredAtUtc is not null && afterId is not null)
+        {
+            query = query.Where(l =>
+                l.DiscoveredAtUtc > afterDiscoveredAtUtc.Value
+                || (l.DiscoveredAtUtc == afterDiscoveredAtUtc.Value && l.Id > afterId.Value));
+        }
+
+        var rows = await query
             .OrderBy(l => l.DiscoveredAtUtc)
             .ThenBy(l => l.Id)
-            .Skip(offset)
             .Take(limit)
-            .Select(l => l.LinkUrl)
+            .Select(l => new GeekCrawlerLinkResumeRow(l.LinkUrl, l.DiscoveredAtUtc, l.Id))
             .ToListAsync(ct);
 
-        return Ok(urls);
+        return Ok(rows);
     }
 
     [HttpGet]
@@ -153,6 +161,11 @@ public class GeekCrawlerLinksController : ControllerBase
         var inserted = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         return inserted;
     }
+
+    public record GeekCrawlerLinkResumeRow(
+        string LinkUrl,
+        DateTimeOffset DiscoveredAtUtc,
+        Guid Id);
 
     public record CreateGeekCrawlerLinkBatchCommand(
         Guid RunId,

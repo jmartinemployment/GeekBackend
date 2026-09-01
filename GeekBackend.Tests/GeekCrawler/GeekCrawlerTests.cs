@@ -379,19 +379,25 @@ public class GeekCrawlerRunResumeLoaderTests
     {
         private readonly List<GeekCrawlerPageResumeRowDto> _pages = [];
         private readonly List<GeekCrawlerLinkDto> _links = [];
+        private readonly List<GeekCrawlerLinkResumeRowDto> _resumeLinks = [];
 
         public void AddPage(string origin, string url, bool hasHtml) =>
             _pages.Add(new GeekCrawlerPageResumeRowDto(origin, url, hasHtml));
 
-        public void AddLink(string fromUrl, string linkUrl) =>
+        public void AddLink(string fromUrl, string linkUrl)
+        {
+            var id = Guid.NewGuid();
+            var discoveredAt = DateTimeOffset.UtcNow;
             _links.Add(new GeekCrawlerLinkDto(
-                Guid.NewGuid(),
+                id,
                 runId,
                 Guid.NewGuid(),
                 fromUrl,
                 linkUrl,
                 true,
-                DateTimeOffset.UtcNow));
+                discoveredAt));
+            _resumeLinks.Add(new GeekCrawlerLinkResumeRowDto(linkUrl, discoveredAt, id));
+        }
 
         public Task<IReadOnlyList<GeekCrawlerPageResumeRowDto>> ListPagesForResumeAsync(
             Guid runId,
@@ -401,13 +407,27 @@ public class GeekCrawlerRunResumeLoaderTests
             Task.FromResult<IReadOnlyList<GeekCrawlerPageResumeRowDto>>(
                 _pages.Skip(offset).Take(limit).ToList());
 
-        public Task<IReadOnlyList<string>> ListLinksForResumeAsync(
+        public Task<IReadOnlyList<GeekCrawlerLinkResumeRowDto>> ListLinksForResumeAsync(
             Guid runId,
             int limit = 500,
-            int offset = 0,
-            CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<string>>(
-                _links.Skip(offset).Take(limit).Select(l => l.LinkUrl).ToList());
+            DateTimeOffset? afterDiscoveredAtUtc = null,
+            Guid? afterId = null,
+            CancellationToken ct = default)
+        {
+            IEnumerable<GeekCrawlerLinkResumeRowDto> rows = _resumeLinks
+                .OrderBy(l => l.DiscoveredAtUtc)
+                .ThenBy(l => l.Id);
+
+            if (afterDiscoveredAtUtc is not null && afterId is not null)
+            {
+                rows = rows.Where(l =>
+                    l.DiscoveredAtUtc > afterDiscoveredAtUtc.Value
+                    || (l.DiscoveredAtUtc == afterDiscoveredAtUtc.Value && l.Id > afterId.Value));
+            }
+
+            return Task.FromResult<IReadOnlyList<GeekCrawlerLinkResumeRowDto>>(
+                rows.Take(limit).ToList());
+        }
 
         public Task<IReadOnlyList<GeekCrawlerLinkDto>> ListLinksAsync(
             Guid runId,

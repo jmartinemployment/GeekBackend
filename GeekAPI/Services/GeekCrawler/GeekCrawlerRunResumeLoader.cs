@@ -62,35 +62,43 @@ public static class GeekCrawlerRunResumeLoader
             _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             StringComparer.OrdinalIgnoreCase);
 
-        offset = 0;
+        DateTimeOffset? afterDiscoveredAtUtc = null;
+        Guid? afterId = null;
         while (true)
         {
-            var linkUrls = await repo.ListLinksForResumeAsync(runId, limit: 500, offset, ct)
+            var linkRows = await repo.ListLinksForResumeAsync(
+                    runId,
+                    limit: 500,
+                    afterDiscoveredAtUtc,
+                    afterId,
+                    ct)
                 .ConfigureAwait(false);
-            if (linkUrls.Count == 0)
+            if (linkRows.Count == 0)
                 break;
 
-            foreach (var linkUrl in linkUrls)
+            foreach (var link in linkRows)
             {
-                var key = GeekCrawlerUrlKeys.CrawlKey(linkUrl);
+                var key = GeekCrawlerUrlKeys.CrawlKey(link.LinkUrl);
                 foreach (var origin in origins)
                 {
                     if (!seenByOrigin.TryGetValue(origin, out var seen))
                         continue;
                     if (seen.Contains(key))
                         continue;
-                    if (!Uri.TryCreate(linkUrl, UriKind.Absolute, out var uri))
+                    if (!Uri.TryCreate(link.LinkUrl, UriKind.Absolute, out var uri))
                         continue;
                     if (!string.Equals(uri.Host, new Uri(origin).Host, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    queueByOrigin[origin].Add(linkUrl);
+                    queueByOrigin[origin].Add(link.LinkUrl);
                     break;
                 }
             }
 
-            offset += linkUrls.Count;
-            if (linkUrls.Count < 500)
+            var last = linkRows[^1];
+            afterDiscoveredAtUtc = last.DiscoveredAtUtc;
+            afterId = last.Id;
+            if (linkRows.Count < 500)
                 break;
         }
 

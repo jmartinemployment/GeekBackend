@@ -8,10 +8,11 @@ public interface IGeekCrawlerResumeRepository
         int offset = 0,
         CancellationToken ct = default);
 
-    Task<IReadOnlyList<string>> ListLinksForResumeAsync(
+    Task<IReadOnlyList<GeekCrawlerLinkResumeRowDto>> ListLinksForResumeAsync(
         Guid runId,
         int limit = 500,
-        int offset = 0,
+        DateTimeOffset? afterDiscoveredAtUtc = null,
+        Guid? afterId = null,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<GeekCrawlerLinkDto>> ListLinksAsync(

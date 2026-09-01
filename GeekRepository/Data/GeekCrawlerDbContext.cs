@@ -60,8 +60,8 @@ public class GeekCrawlerDbContext : DbContext
             entity.HasIndex(l => l.RunId).HasDatabaseName("ix_crawl_links_run_id");
             entity.HasIndex(l => new { l.RunId, l.FromUrl }).HasDatabaseName("ix_crawl_links_run_from");
             entity.HasIndex(l => new { l.RunId, l.IsSameOrigin }).HasDatabaseName("ix_crawl_links_run_same_origin");
-            entity.HasIndex(l => new { l.RunId, l.IsSameOrigin, l.DiscoveredAtUtc })
-                .HasDatabaseName("ix_crawl_links_run_same_origin_discovered");
+            entity.HasIndex(l => new { l.RunId, l.IsSameOrigin, l.DiscoveredAtUtc, l.Id })
+                .HasDatabaseName("ix_crawl_links_run_same_origin_discovered_id");
             entity.HasIndex(l => new { l.RunId, l.FromUrl, l.LinkUrl })
                 .IsUnique()
                 .HasDatabaseName("ux_crawl_links_run_from_link");
