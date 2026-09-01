@@ -289,6 +289,9 @@ public class GccV2Controller : ControllerBase
             ? $"Found {tools.Count} partner tool(s). Each will be discussed in the draft. Confirm to start content creation."
             : "No partner tools found from the site hierarchy or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.";
 
+        const string externalResearchNote =
+            "On-site tools come from your project crawl. External partners are pulled from stored crawl pages when available; if a partner crawl did not finish, that partner is skipped and generate still runs.";
+
         return Ok(new
         {
             createId = id,
@@ -300,6 +303,7 @@ public class GccV2Controller : ControllerBase
             tools,
             siteHierarchy,
             message,
+            externalResearchNote,
         });
     }
 
@@ -363,19 +367,13 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
-        try
-        {
-            rawBriefJson = await _researchResolver.MergeExternalResearchAsync(
-                _user.UserId.ToString("D"),
-                rawBriefJson,
-                create.SiteUrl,
-                runId,
-                ct);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        var mergeResult = await _researchResolver.MergeExternalResearchAsync(
+            _user.UserId.ToString("D"),
+            rawBriefJson,
+            create.SiteUrl,
+            runId,
+            ct);
+        rawBriefJson = mergeResult.BriefJson;
 
         var brief = await _repo.CreateBriefAsync(
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
@@ -400,7 +398,12 @@ public class GccV2Controller : ControllerBase
             jobIds.Add(job.Id);
         }
 
-        return Accepted(new { jobId = jobIds[0], jobIds });
+        return Accepted(new
+        {
+            jobId = jobIds[0],
+            jobIds,
+            partnerResearchWarnings = mergeResult.PartnerResearchWarnings,
+        });
     }
 
     /// <summary>

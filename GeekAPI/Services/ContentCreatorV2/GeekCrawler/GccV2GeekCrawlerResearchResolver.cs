@@ -92,8 +92,9 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
 }
 
 /// <summary>
-/// Partner/competitor research at preflight/generate: on-site tool pages from the owned project-site
-/// crawl; external URLs from Geek-Crawler (soft-fail when missing on preflight/generate).
+/// Partner/competitor research at generate: on-site tool pages from the owned project-site
+/// crawl; external URLs from Geek-Crawler stored pages when available (partial runs OK).
+/// Missing external research is warned and skipped — generate continues.
 /// </summary>
 public sealed class GccV2GeekCrawlerResearchResolver
 {
@@ -111,24 +112,30 @@ public sealed class GccV2GeekCrawlerResearchResolver
         _logger = logger;
     }
 
-    public async Task<string?> MergeExternalResearchAsync(
+    public async Task<GccV2ExternalResearchMergeResult> MergeExternalResearchAsync(
         string ownerUserId,
         string? rawBriefJson,
         string? projectSiteUrl,
         Guid? projectSiteCrawlRunId,
         CancellationToken ct)
     {
-        rawBriefJson = await MergePartnerResearchAsync(
+        var partner = await MergePartnerResearchAsync(
             ownerUserId,
             rawBriefJson,
             projectSiteUrl,
             projectSiteCrawlRunId,
             ct);
-        rawBriefJson = await MergeCompetitorResearchAsync(ownerUserId, rawBriefJson, ct);
-        return rawBriefJson;
+        var competitor = await MergeCompetitorResearchAsync(
+            ownerUserId,
+            partner.BriefJson,
+            ct);
+
+        return new GccV2ExternalResearchMergeResult(
+            competitor.BriefJson,
+            partner.PartnerResearchWarnings.Concat(competitor.PartnerResearchWarnings).ToList());
     }
 
-    public async Task<string?> MergePartnerResearchAsync(
+    public async Task<GccV2ExternalResearchMergeResult> MergePartnerResearchAsync(
         string ownerUserId,
         string? rawBriefJson,
         string? projectSiteUrl,
@@ -136,6 +143,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         CancellationToken ct)
     {
         var quoteable = new List<GccQuoteablePage>();
+        var warnings = new List<string>();
 
         if (projectSiteCrawlRunId is { } runId && runId != Guid.Empty)
         {
@@ -150,50 +158,65 @@ public sealed class GccV2GeekCrawlerResearchResolver
         var externalSeeds = CollectExternalPartnerSeeds(rawBriefJson, projectSiteUrl);
         foreach (var seed in externalSeeds)
         {
-            try
-            {
-                var external = await ResolveQuoteablePagesAsync(
-                    ownerUserId,
-                    CrawlTypes.Partner,
-                    [seed],
-                    ct);
-                quoteable.AddRange(external);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "External Geek-Crawler partner merge skipped for seed {Seed}.",
-                    seed);
-            }
+            var (pages, warning) = await TryResolveExternalSeedAsync(
+                ownerUserId,
+                CrawlTypes.Partner,
+                seed,
+                ct);
+            if (pages.Count > 0)
+                quoteable.AddRange(pages);
+            else if (warning is not null)
+                warnings.Add(warning);
         }
 
         if (quoteable.Count == 0)
-            return rawBriefJson;
+            return new GccV2ExternalResearchMergeResult(rawBriefJson, warnings);
 
         _logger.LogInformation(
             "Merged {Count} partner research page(s) for project site {SiteUrl}.",
             quoteable.Count,
             projectSiteUrl);
 
-        return GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, quoteable);
+        return new GccV2ExternalResearchMergeResult(
+            GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, quoteable),
+            warnings);
     }
 
-    public async Task<string?> MergeCompetitorResearchAsync(
+    public async Task<GccV2ExternalResearchMergeResult> MergeCompetitorResearchAsync(
         string ownerUserId,
         string? rawBriefJson,
         CancellationToken ct)
     {
         var seeds = GccV2PartnerUrlResearchService.CollectCompetitorHrefs(rawBriefJson);
-        if (seeds.Count == 0) return rawBriefJson;
+        if (seeds.Count == 0)
+            return new GccV2ExternalResearchMergeResult(rawBriefJson, []);
 
-        var pages = await ResolveQuoteablePagesAsync(ownerUserId, CrawlTypes.Competitors, seeds, ct);
+        var quoteable = new List<GccQuoteablePage>();
+        var warnings = new List<string>();
+        foreach (var seed in seeds)
+        {
+            var (pages, warning) = await TryResolveExternalSeedAsync(
+                ownerUserId,
+                CrawlTypes.Competitors,
+                seed,
+                ct);
+            if (pages.Count > 0)
+                quoteable.AddRange(pages);
+            else if (warning is not null)
+                warnings.Add(warning);
+        }
+
+        if (quoteable.Count == 0)
+            return new GccV2ExternalResearchMergeResult(rawBriefJson, warnings);
+
         _logger.LogInformation(
-            "Merged {Count} competitor research page(s) from Geek-Crawler competitors run for {SeedCount} seed(s).",
-            pages.Count,
+            "Merged {Count} competitor research page(s) from Geek-Crawler for {SeedCount} seed(s).",
+            quoteable.Count,
             seeds.Count);
 
-        return GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, pages);
+        return new GccV2ExternalResearchMergeResult(
+            GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, quoteable),
+            warnings);
     }
 
     private async Task<IReadOnlyList<GccQuoteablePage>> ResolveOnSiteQuoteablePagesAsync(
@@ -231,10 +254,67 @@ public sealed class GccV2GeekCrawlerResearchResolver
         IReadOnlyList<string> seeds,
         CancellationToken ct)
     {
-        var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds(seeds);
-        if (normalized.Count == 0)
-            throw new InvalidOperationException($"No valid seed URLs for Geek-Crawler {crawlType} lookup.");
+        var quoteable = new List<GccQuoteablePage>();
+        foreach (var seed in seeds)
+        {
+            var (pages, _) = await TryResolveExternalSeedAsync(ownerUserId, crawlType, seed, ct);
+            quoteable.AddRange(pages);
+        }
 
+        return quoteable;
+    }
+
+    private async Task<(IReadOnlyList<GccQuoteablePage> Pages, string? Warning)> TryResolveExternalSeedAsync(
+        string ownerUserId,
+        string crawlType,
+        string seed,
+        CancellationToken ct)
+    {
+        var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds([seed]);
+        if (normalized.Count == 0)
+            return ([], DescribeUnavailableResearch(seed, crawlType));
+
+        var run = await FindRunForSeedsAsync(ownerUserId, crawlType, normalized, ct);
+        if (run is null)
+        {
+            _logger.LogInformation(
+                "No Geek-Crawler {CrawlType} run for {Seed}; skipping external research.",
+                crawlType,
+                seed);
+            return ([], DescribeUnavailableResearch(seed, crawlType));
+        }
+
+        var seedSet = BuildSeedMatchSet(normalized);
+        var quoteable = await ExtractQuoteableFromCrawlerPagesAsync(run.Id, seedSet, ct);
+        if (quoteable.Count > 0)
+        {
+            if (!string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation(
+                    "Using partial Geek-Crawler {CrawlType} run ({Status}) for {Seed}.",
+                    crawlType,
+                    run.Status,
+                    seed);
+            }
+
+            return (quoteable, null);
+        }
+
+        _logger.LogInformation(
+            "Geek-Crawler {CrawlType} run {RunId} ({Status}) has no extractable page for {Seed}.",
+            crawlType,
+            run.Id,
+            run.Status,
+            seed);
+        return ([], DescribeUnavailableResearch(seed, crawlType));
+    }
+
+    private async Task<GeekCrawlerRunDto?> FindRunForSeedsAsync(
+        string ownerUserId,
+        string crawlType,
+        IReadOnlyList<string> normalized,
+        CancellationToken ct)
+    {
         var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
         var run = await _crawlerRepo.GetLatestRunAsync(ownerUserId, crawlType, seedsJson, ct);
         if (run is null && normalized.Count == 1)
@@ -243,27 +323,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             run = await _crawlerRepo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
         }
 
-        if (run is null)
-        {
-            throw new InvalidOperationException(
-                $"No Geek-Crawler {crawlType} run found for the requested URLs — start the crawl in Geek-Crawler, then retry.");
-        }
-
-        if (!string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(DescribeIncompleteRun(run, crawlType));
-        }
-
-        var seedSet = BuildSeedMatchSet(normalized);
-        var quoteable = await ExtractQuoteableFromCrawlerPagesAsync(run.Id, seedSet, ct);
-
-        if (quoteable.Count == 0)
-        {
-            throw new InvalidOperationException(
-                $"Geek-Crawler {crawlType} run completed but no extractable pages matched the requested URLs.");
-        }
-
-        return quoteable;
+        return run;
     }
 
     internal static IReadOnlyList<string> CollectExternalPartnerSeeds(
@@ -315,6 +375,14 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
     private static string NormalizeHost(string host) =>
         host.Trim().ToLowerInvariant().Replace("www.", "", StringComparison.Ordinal);
+
+    internal static string DescribeUnavailableResearch(string seed, string crawlType)
+    {
+        var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
+        return crawlType == CrawlTypes.Competitors
+            ? $"Competitor research for {host} unavailable (external crawl did not finish). Continuing without it."
+            : $"Partner research for {host} unavailable (external crawl did not finish). Continuing without it.";
+    }
 
     private static HashSet<string> BuildSeedMatchSet(IEnumerable<string> seeds)
     {
@@ -386,21 +454,5 @@ public sealed class GccV2GeekCrawlerResearchResolver
         }
 
         return set.ToList();
-    }
-
-    internal static string DescribeIncompleteRun(GeekCrawlerRunDto run, string crawlType)
-    {
-        if (string.Equals(run.Status, "failed", StringComparison.OrdinalIgnoreCase)
-            && run.ErrorSummary?.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase) == true)
-        {
-            return
-                $"Geek-Crawler {crawlType} crawl failed (out of memory — the site has too many pages for a full crawl). " +
-                "Re-run in Geek-Crawler with a lower page limit, or continue without that partner's research.";
-        }
-
-        var detail = string.IsNullOrWhiteSpace(run.ErrorSummary)
-            ? $"Geek-Crawler {crawlType} run is \"{run.Status}\" — wait for completion in Geek-Crawler, then retry."
-            : $"Geek-Crawler {crawlType} run is \"{run.Status}\" ({run.ErrorSummary.Trim()}) — fix the crawl in Geek-Crawler, then retry.";
-        return detail;
     }
 }

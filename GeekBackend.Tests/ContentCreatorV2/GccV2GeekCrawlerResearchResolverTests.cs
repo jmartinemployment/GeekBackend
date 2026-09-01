@@ -48,6 +48,52 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
 
         Assert.Single(pages);
         Assert.Contains("Partner Tool", pages[0].Title);
+        Assert.Equal(0, repo.ListPagesAsyncCallCount);
+        Assert.Equal(1, repo.ListPagesBySeedsAsyncCallCount);
+    }
+
+    [Fact]
+    public async Task ResolveQuoteablePages_failedRun_withMatchingPage_returnsExtractedPages()
+    {
+        var runId = Guid.NewGuid();
+        var repo = new FakeReadRepo
+        {
+            LatestRun = new GeekCrawlerRunDto(
+                runId,
+                "user-1",
+                "partner",
+                "failed",
+                "[\"https://www.pipedrive.com\"]",
+                null,
+                null,
+                "System.OutOfMemoryException was thrown.",
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow),
+            Pages =
+            [
+                new GeekCrawlerPageDto(
+                    Guid.NewGuid(),
+                    runId,
+                    "https://www.pipedrive.com",
+                    "https://www.pipedrive.com/",
+                    "https://www.pipedrive.com/",
+                    200,
+                    true,
+                    "<html><head><title>Pipedrive</title></head><body><h1>Pipedrive</h1><p>This is a long enough paragraph for extraction from the partner homepage content.</p></body></html>",
+                    DateTimeOffset.UtcNow),
+            ],
+        };
+
+        var resolver = CreateResolver(repo);
+        var pages = await resolver.ResolveQuoteablePagesAsync(
+            "user-1",
+            "partner",
+            ["https://www.pipedrive.com"],
+            CancellationToken.None);
+
+        Assert.Single(pages);
+        Assert.Contains("Pipedrive", pages[0].Title);
     }
 
     [Fact]
@@ -93,12 +139,13 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             crawlRunId,
             CancellationToken.None);
 
-        Assert.NotNull(merged);
-        Assert.Contains("partnerResearch", merged!, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(merged.BriefJson);
+        Assert.Contains("partnerResearch", merged.BriefJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(merged.PartnerResearchWarnings);
     }
 
     [Fact]
-    public async Task MergePartnerResearch_soft_fails_missing_external_run()
+    public async Task MergePartnerResearch_missing_external_run_warns_and_skips()
     {
         var resolver = CreateResolver(new FakeReadRepo());
 
@@ -117,7 +164,88 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             null,
             CancellationToken.None);
 
-        Assert.Equal(brief, merged);
+        Assert.Equal(brief, merged.BriefJson);
+        Assert.Single(merged.PartnerResearchWarnings);
+        Assert.Contains("jotform.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Continuing without it", merged.PartnerResearchWarnings[0]);
+    }
+
+    [Fact]
+    public async Task MergePartnerResearch_failedRun_withoutMatchingPage_warns_and_skips()
+    {
+        var runId = Guid.NewGuid();
+        var resolver = CreateResolver(new FakeReadRepo
+        {
+            LatestRun = new GeekCrawlerRunDto(
+                runId,
+                "user-1",
+                "partner",
+                "failed",
+                "[\"https://www.pipedrive.com\"]",
+                null,
+                null,
+                "System.OutOfMemoryException was thrown.",
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow),
+            Pages = [],
+        });
+
+        var brief = """
+            {
+              "operatorTools": [
+                { "name": "Pipedrive", "url": "https://www.pipedrive.com/" }
+              ]
+            }
+            """;
+
+        var merged = await resolver.MergePartnerResearchAsync(
+            "user-1",
+            brief,
+            "https://geekatyourspot.com",
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(brief, merged.BriefJson);
+        Assert.Single(merged.PartnerResearchWarnings);
+        Assert.Contains("pipedrive.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task MergeCompetitorResearch_incompleteRun_warns_and_skips()
+    {
+        var runId = Guid.NewGuid();
+        var resolver = CreateResolver(new FakeReadRepo
+        {
+            LatestRun = new GeekCrawlerRunDto(
+                runId,
+                "user-1",
+                "competitors",
+                "running",
+                "[\"https://rival.example/page\"]",
+                null,
+                null,
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                null),
+            Pages = [],
+        });
+
+        var brief = """
+            {
+              "competitorUrls": "https://rival.example/page"
+            }
+            """;
+
+        var merged = await resolver.MergeCompetitorResearchAsync(
+            "user-1",
+            brief,
+            CancellationToken.None);
+
+        Assert.Equal(brief, merged.BriefJson);
+        Assert.Single(merged.PartnerResearchWarnings);
+        Assert.Contains("Competitor research", merged.PartnerResearchWarnings[0]);
     }
 
     [Fact]
@@ -149,22 +277,21 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
-    public async Task ResolveQuoteablePages_missingRun_failClosed()
+    public async Task ResolveQuoteablePages_missingRun_returnsEmpty()
     {
         var resolver = CreateResolver(new FakeReadRepo());
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            resolver.ResolveQuoteablePagesAsync(
-                "user-1",
-                "partner",
-                ["https://partner.example/tools"],
-                CancellationToken.None));
+        var pages = await resolver.ResolveQuoteablePagesAsync(
+            "user-1",
+            "partner",
+            ["https://partner.example/tools"],
+            CancellationToken.None);
 
-        Assert.Contains("No Geek-Crawler partner run", ex.Message);
+        Assert.Empty(pages);
     }
 
     [Fact]
-    public async Task ResolveQuoteablePages_incompleteRun_failClosed()
+    public async Task ResolveQuoteablePages_incompleteRun_withoutPages_returnsEmpty()
     {
         var repo = new FakeReadRepo
         {
@@ -183,36 +310,25 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
         };
         var resolver = CreateResolver(repo);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            resolver.ResolveQuoteablePagesAsync(
-                "user-1",
-                "partner",
-                ["https://partner.example/tools"],
-                CancellationToken.None));
+        var pages = await resolver.ResolveQuoteablePagesAsync(
+            "user-1",
+            "partner",
+            ["https://partner.example/tools"],
+            CancellationToken.None);
 
-        Assert.Contains("running", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(pages);
     }
 
     [Fact]
-    public void DescribeIncompleteRun_maps_out_of_memory_to_actionable_message()
+    public void DescribeUnavailableResearch_uses_creator_scope_copy()
     {
-        var run = new GeekCrawlerRunDto(
-            Guid.NewGuid(),
-            "user-1",
-            "partner",
-            "failed",
-            "[\"https://www.pipedrive.com\"]",
-            null,
-            null,
-            "System.OutOfMemoryException was thrown.",
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow);
+        var message = GccV2GeekCrawlerResearchResolver.DescribeUnavailableResearch(
+            "https://www.pipedrive.com/",
+            "partner");
 
-        var message = GccV2GeekCrawlerResearchResolver.DescribeIncompleteRun(run, "partner");
-
-        Assert.Contains("out of memory", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("page limit", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pipedrive.com", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Continuing without it", message);
+        Assert.DoesNotContain("page limit", message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static GccV2GeekCrawlerResearchResolver CreateResolver(
@@ -227,6 +343,8 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     {
         public GeekCrawlerRunDto? LatestRun { get; init; }
         public IReadOnlyList<GeekCrawlerPageDto> Pages { get; init; } = [];
+        public int ListPagesAsyncCallCount { get; private set; }
+        public int ListPagesBySeedsAsyncCallCount { get; private set; }
 
         public Task<GeekCrawlerRunDto?> GetLatestRunAsync(
             string ownerUserId,
@@ -239,14 +357,20 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             Guid runId,
             int limit = 100,
             int offset = 0,
-            CancellationToken ct = default) =>
-            Task.FromResult(Pages);
+            CancellationToken ct = default)
+        {
+            ListPagesAsyncCallCount++;
+            return Task.FromResult(Pages);
+        }
 
         public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
             Guid runId,
             IReadOnlyList<string> seedUrls,
-            CancellationToken ct = default) =>
-            Task.FromResult(Pages);
+            CancellationToken ct = default)
+        {
+            ListPagesBySeedsAsyncCallCount++;
+            return Task.FromResult(Pages);
+        }
 
         public Task<GeekCrawlerRunDto?> GetRunForSlotAsync(
             string ownerUserId,
