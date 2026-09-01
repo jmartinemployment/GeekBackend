@@ -50,6 +50,53 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
+    public async Task MergePartnerResearch_skips_on_site_project_tool_urls()
+    {
+        var resolver = new GccV2GeekCrawlerResearchResolver(
+            new FakeReadRepo(),
+            NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
+
+        var brief = """
+            {
+              "hierarchyPlan": {
+                "recommendedTools": [
+                  { "name": "Fin.ai", "href": "https://geekatyourspot.com/tools/fin" },
+                  { "name": "Intercom", "href": "https://geekatyourspot.com/tools/intercom" }
+                ]
+              }
+            }
+            """;
+
+        var merged = await resolver.MergePartnerResearchAsync(
+            "user-1",
+            brief,
+            "https://geekatyourspot.com",
+            CancellationToken.None);
+
+        Assert.Equal(brief, merged);
+    }
+
+    [Fact]
+    public void CollectExternalPartnerSeeds_excludes_project_site_host()
+    {
+        var brief = """
+            {
+              "operatorTools": [
+                { "name": "Fin", "url": "https://geekatyourspot.com/tools/fin" },
+                { "name": "Jotform", "url": "https://www.jotform.com/" }
+              ]
+            }
+            """;
+
+        var seeds = GccV2GeekCrawlerResearchResolver.CollectExternalPartnerSeeds(
+            brief,
+            "https://geekatyourspot.com");
+
+        Assert.Single(seeds);
+        Assert.Contains("jotform.com", seeds[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ResolveQuoteablePages_missingRun_failClosed()
     {
         var resolver = new GccV2GeekCrawlerResearchResolver(

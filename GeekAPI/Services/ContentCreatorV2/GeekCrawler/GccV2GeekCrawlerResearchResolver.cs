@@ -1,4 +1,5 @@
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekApplication.Models.ContentCreator;
 using GeekApplication.Models.GeekCrawler;
@@ -59,9 +60,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
     public async Task<string?> MergeExternalResearchAsync(
         string ownerUserId,
         string? rawBriefJson,
+        string? projectSiteUrl,
         CancellationToken ct)
     {
-        rawBriefJson = await MergePartnerResearchAsync(ownerUserId, rawBriefJson, ct);
+        rawBriefJson = await MergePartnerResearchAsync(ownerUserId, rawBriefJson, projectSiteUrl, ct);
         rawBriefJson = await MergeCompetitorResearchAsync(ownerUserId, rawBriefJson, ct);
         return rawBriefJson;
     }
@@ -69,9 +71,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
     public async Task<string?> MergePartnerResearchAsync(
         string ownerUserId,
         string? rawBriefJson,
+        string? projectSiteUrl,
         CancellationToken ct)
     {
-        var seeds = CollectPartnerSeeds(rawBriefJson);
+        var seeds = CollectExternalPartnerSeeds(rawBriefJson, projectSiteUrl);
         if (seeds.Count == 0) return rawBriefJson;
 
         var pages = await ResolveQuoteablePagesAsync(ownerUserId, CrawlTypes.Partner, seeds, ct);
@@ -148,17 +151,41 @@ public sealed class GccV2GeekCrawlerResearchResolver
         return quoteable;
     }
 
-    private static IReadOnlyList<string> CollectPartnerSeeds(string? rawBriefJson)
+    /// <summary>
+    /// Partner seeds for Geek-Crawler — external tool URLs only.
+    /// On-site <c>/tools/…</c> pages on the project site are covered by the owned project-site crawl.
+    /// </summary>
+    internal static IReadOnlyList<string> CollectExternalPartnerSeeds(
+        string? rawBriefJson,
+        string? projectSiteUrl)
     {
         var merged = new List<string>();
         foreach (var url in GccV2PartnerUrlResearchService.CollectPartnerHrefs(rawBriefJson)
                      .Concat(GccV2PartnerUrlResearchService.CollectOperatorSeedUrls(rawBriefJson)))
         {
+            if (!IsExternalPartnerSeed(url, projectSiteUrl)) continue;
             if (!merged.Contains(url, StringComparer.OrdinalIgnoreCase))
                 merged.Add(url);
         }
 
         return merged;
+    }
+
+    internal static bool IsExternalPartnerSeed(string url, string? projectSiteUrl)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(projectSiteUrl))
+            return true;
+
+        if (!GccV2HomepageUrl.TryNormalize(projectSiteUrl, out var homepage))
+            return true;
+
+        if (!Uri.TryCreate(homepage, UriKind.Absolute, out var site))
+            return true;
+
+        return !string.Equals(uri.Host, site.Host, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool PageMatchesSeed(GeekCrawlerPageDto page, HashSet<string> seedSet)
