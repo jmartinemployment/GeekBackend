@@ -38,7 +38,7 @@ public sealed class GccV2LinkedInCarouselSpawnService
 
             return types.EnumerateArray().Any(t =>
                 t.ValueKind == JsonValueKind.String
-                && GccV2ChannelTypes.IsLinkedInCarousel(t.GetString()));
+                && GccV2ChannelTypes.IsLinkedIn(t.GetString()));
         }
         catch (JsonException)
         {
@@ -56,7 +56,7 @@ public sealed class GccV2LinkedInCarouselSpawnService
             return new SpawnResult(0, 0, null, null);
 
         var existing = await _repo.ListJobsByCreateAsync(sourceJob.CreateId, ct);
-        if (existing.Any(j => GccV2ChannelTypes.IsLinkedInCarousel(j.ContentType)))
+        if (existing.Any(j => GccV2ChannelTypes.IsLinkedIn(j.ContentType)))
             return new SpawnResult(0, 1, null, "LinkedIn carousel job already exists on this create.");
 
         var job = await _repo.CreateJobAsync(

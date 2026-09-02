@@ -89,7 +89,7 @@ public sealed class GccV2HtmlExportService
                     : SlugHelper.Slugify(title);
             var metaDescription = payload.MetaDescription;
 
-            if (GccV2ChannelTypes.IsLinkedInCarousel(contentType))
+            if (GccV2ChannelTypes.IsLinkedIn(contentType))
             {
                 var draft = GccV2LinkedInCarouselDocumentConverter.FromContentDocument(document, title);
                 var folder = "social/linkedin/carousels";

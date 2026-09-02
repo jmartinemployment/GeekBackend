@@ -13,9 +13,7 @@ public static class GccV2ChannelTypes
             || string.Equals(normalized, LinkedInCarousel, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static bool IsLinkedIn(string? contentType) => IsLinkedInDocument(contentType);
-
-    public static bool IsLinkedInCarousel(string? contentType)
+    public static bool IsLinkedIn(string? contentType)
     {
         var normalized = contentType?.Trim();
         return string.Equals(normalized, LinkedInCarousel, StringComparison.OrdinalIgnoreCase);

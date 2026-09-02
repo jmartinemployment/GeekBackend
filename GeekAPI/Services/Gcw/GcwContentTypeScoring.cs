@@ -11,7 +11,7 @@ public static class GcwContentTypeScoring
         contentType is "email" or "social" or "ads" or "image-prompt";
 
     public static bool IsCarouselJob(string? contentType) =>
-        GccV2ChannelTypes.IsLinkedInCarousel(contentType);
+        GccV2ChannelTypes.IsLinkedIn(contentType);
 
     public static bool ExpectsFaqSection(string? contentType) =>
         GccV2LongFormTypes.ExpectsFaqSection(contentType);

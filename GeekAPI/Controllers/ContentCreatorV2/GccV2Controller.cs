@@ -390,7 +390,7 @@ public class GccV2Controller : ControllerBase
             ct);
 
         var jobIds = new List<Guid>();
-        foreach (var contentType in contentTypes.Where(t => !GccV2ChannelTypes.IsLinkedInCarousel(t)))
+        foreach (var contentType in contentTypes.Where(t => !GccV2ChannelTypes.IsLinkedIn(t)))
         {
             var job = await _repo.CreateJobAsync(
                 new CreateGccV2JobCommand(id, _user.UserId.ToString("D"), contentType, brief.Id, ProjectSiteCrawlRunId: runId),
