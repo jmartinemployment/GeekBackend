@@ -440,6 +440,18 @@ public sealed class GccV2PlanService
                     ("implementation", "Implementation"),
                     ("when-to-use", "When to Use"),
                 ]), false);
+            case GccV2ChannelTypes.LinkedInCarousel:
+                return (DedupeByHeading(
+                [
+                    ("cover", $"Hook — {title}"),
+                    ("problem", "Why This Matters Now"),
+                    ("teach-1", "Insight 1"),
+                    ("teach-2", "Insight 2"),
+                    ("teach-3", "Insight 3"),
+                    ("teach-4", "Insight 4"),
+                    ("framework", "Mini-Playbook Summary"),
+                    ("cta", "Your Next Step"),
+                ]), false);
             case "email":
             case "social":
             case "ads":

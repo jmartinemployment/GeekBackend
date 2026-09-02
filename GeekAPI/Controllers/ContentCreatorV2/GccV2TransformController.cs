@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Carousel;
 using GeekAPI.Services.ContentCreatorV2.Transforms;
 using GeekAPI.Services.Workflow.Providers;
 using Microsoft.AspNetCore.Mvc;
@@ -16,17 +17,20 @@ public class GccV2TransformController : ControllerBase
     private readonly ICurrentUserContext _user;
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2RepurposeTransformService _transform;
+    private readonly GccV2LinkedInCarouselService _carousel;
     private readonly IContentProviderFactory _providers;
 
     public GccV2TransformController(
         ICurrentUserContext user,
         HttpGccV2Repository repo,
         GccV2RepurposeTransformService transform,
+        GccV2LinkedInCarouselService carousel,
         IContentProviderFactory providers)
     {
         _user = user;
         _repo = repo;
         _transform = transform;
+        _carousel = carousel;
         _providers = providers;
     }
 
@@ -106,6 +110,63 @@ public class GccV2TransformController : ControllerBase
                     v.Cta,
                     v.Hashtags,
                     v.ContentDocumentJson,
+                }),
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Generate a LinkedIn document carousel PDF from a ready long-form draft tab.
+    /// Persists slide structure on the source job's <c>ResultJson.linkedInCarousel</c>.
+    /// </summary>
+    [HttpPost("linkedin-carousel")]
+    public async Task<ActionResult<object>> LinkedInCarousel(Guid createId, [FromBody] TransformRequest? request, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var create = await _repo.GetCreateAsync(createId, ct);
+        if (create is null) return NotFound();
+        if (!IsOwner(create.OwnerUserId)) return StatusCode(StatusCodes.Status403Forbidden);
+
+        if (request?.JobId is not { } requestedJobId || requestedJobId == Guid.Empty)
+        {
+            return BadRequest(new
+            {
+                error = "jobId is required — carousel runs on the active long-form draft tab.",
+            });
+        }
+
+        var job = await _repo.GetJobAsync(requestedJobId, ct);
+        if (job is null || job.CreateId != createId || !IsOwner(job.OwnerUserId))
+            return NotFound();
+
+        try
+        {
+            var provider = _providers.GetDefault();
+            var result = await _carousel.GenerateAsync(createId, job.Id, provider, ct);
+            var draft = result.Artifact.Draft;
+            return Ok(new
+            {
+                createId,
+                jobId = job.Id,
+                contentType = job.ContentType,
+                slug = result.Artifact.Slug,
+                slideCount = draft.Slides.Count,
+                caption = draft.Caption,
+                hashtags = draft.Hashtags,
+                suggestedFilename = draft.SuggestedFilename,
+                pdfBase64 = Convert.ToBase64String(result.PdfBytes),
+                slides = draft.Slides.Select(s => new
+                {
+                    s.Index,
+                    s.Role,
+                    s.Title,
+                    s.Subtitle,
+                    s.Bullets,
                 }),
             });
         }

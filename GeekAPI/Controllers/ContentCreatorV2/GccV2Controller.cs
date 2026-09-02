@@ -3,6 +3,7 @@ using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
@@ -389,7 +390,7 @@ public class GccV2Controller : ControllerBase
             ct);
 
         var jobIds = new List<Guid>();
-        foreach (var contentType in contentTypes)
+        foreach (var contentType in contentTypes.Where(t => !GccV2ChannelTypes.IsLinkedInCarousel(t)))
         {
             var job = await _repo.CreateJobAsync(
                 new CreateGccV2JobCommand(id, _user.UserId.ToString("D"), contentType, brief.Id, ProjectSiteCrawlRunId: runId),

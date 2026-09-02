@@ -3,6 +3,7 @@ using GeekAPI.HttpClients;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
+using GeekAPI.Services.ContentCreatorV2.Carousel;
 using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
@@ -75,6 +76,8 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2WriteService>();
         services.AddScoped<GccV2ValidateService>();
         services.AddScoped<GccV2RepurposeTransformService>();
+        services.AddScoped<GccV2LinkedInCarouselService>();
+        services.AddScoped<GccV2LinkedInCarouselSpawnService>();
         services.AddScoped<GccV2CmsPublishService>();
         services.AddScoped<GccV2JsonLdBuilder>();
         services.AddScoped<GccV2HtmlExportService>();

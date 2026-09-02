@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Carousel;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
@@ -88,6 +89,24 @@ public sealed class GccV2HtmlExportService
                     : SlugHelper.Slugify(title);
             var metaDescription = payload.MetaDescription;
 
+            if (GccV2ChannelTypes.IsLinkedInCarousel(contentType))
+            {
+                var draft = GccV2LinkedInCarouselDocumentConverter.FromContentDocument(document, title);
+                var folder = "social/linkedin/carousels";
+                var style = GccV2LinkedInCarouselService.BuildBrandStyle(null);
+                documents.Add(new ExportedHtmlDocument(
+                    $"{folder}/{slug}.pdf",
+                    BinaryContent: GccV2LinkedInCarouselPdfService.Render(draft, style)));
+                var hashtagLine = draft.Hashtags.Count > 0
+                    ? "\n\n" + string.Join(" ", draft.Hashtags.Select(h => $"#{h.TrimStart('#')}"))
+                    : "";
+                documents.Add(new ExportedHtmlDocument($"{folder}/{slug}-caption.txt", draft.Caption + hashtagLine));
+                documents.Add(new ExportedHtmlDocument(
+                    $"{folder}/{slug}-slides.json",
+                    GccV2LinkedInCarouselParser.SerializeDraft(draft)));
+                continue;
+            }
+
             if (contentType == "image-prompt")
             {
                 var sectionMeta = ResolveImagePromptSection(payload, job, await _repo.GetBriefAsync(job.BriefId, ct));
@@ -166,6 +185,8 @@ public sealed class GccV2HtmlExportService
 
             var exportPath = ExportPathFor(contentType, slug, toolKind);
             documents.Add(new ExportedHtmlDocument(exportPath, html));
+
+            AppendLinkedInCarouselExports(documents, job);
         }
 
         var summary = new GccV2ExportSummary(documents.Count, jobs.Count, skipped);
@@ -209,6 +230,32 @@ public sealed class GccV2HtmlExportService
         {
             return fallbackSlug;
         }
+    }
+
+    private static void AppendLinkedInCarouselExports(
+        List<ExportedHtmlDocument> documents,
+        GccV2JobDto job)
+    {
+        var artifact = GccV2LinkedInCarouselService.TryParseArtifactFromResultJson(job.ResultJson);
+        if (artifact is null) return;
+
+        var slug = artifact.Slug;
+        var folder = "social/linkedin/carousels";
+        var style = GccV2LinkedInCarouselService.BuildBrandStyle(null);
+        var pdfBytes = GccV2LinkedInCarouselPdfService.Render(artifact.Draft, style);
+
+        documents.Add(new ExportedHtmlDocument($"{folder}/{slug}.pdf", BinaryContent: pdfBytes));
+
+        var hashtagLine = artifact.Draft.Hashtags.Count > 0
+            ? "\n\n" + string.Join(" ", artifact.Draft.Hashtags.Select(h => h.StartsWith('#') ? h : $"#{h}"))
+            : "";
+        documents.Add(new ExportedHtmlDocument(
+            $"{folder}/{slug}-caption.txt",
+            artifact.Draft.Caption + hashtagLine));
+
+        documents.Add(new ExportedHtmlDocument(
+            $"{folder}/{slug}-slides.json",
+            GccV2LinkedInCarouselParser.SerializeDraft(artifact.Draft)));
     }
 
     public static string ImagePromptFolderFor(string? sourceType)

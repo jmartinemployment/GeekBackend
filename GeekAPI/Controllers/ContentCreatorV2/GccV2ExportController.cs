@@ -53,8 +53,15 @@ public class GccV2ExportController : ControllerBase
                 {
                     var entry = archive.CreateEntry(document.FileName, CompressionLevel.Optimal);
                     await using var entryStream = entry.Open();
-                    await using var writer = new StreamWriter(entryStream);
-                    await writer.WriteAsync(document.Content);
+                    if (document.BinaryContent is { Length: > 0 } bytes)
+                    {
+                        await entryStream.WriteAsync(bytes, ct);
+                    }
+                    else
+                    {
+                        await using var writer = new StreamWriter(entryStream);
+                        await writer.WriteAsync(document.Content ?? string.Empty);
+                    }
                 }
             }
 

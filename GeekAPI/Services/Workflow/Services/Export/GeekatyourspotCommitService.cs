@@ -87,7 +87,9 @@ public sealed class GeekatyourspotCommitService : IGeekatyourspotCommitService
         var treeEntries = new List<TreeEntry>();
         foreach (var document in documents)
         {
-            var blobSha = await CreateBlobAsync(http, document.Content, cancellationToken);
+            var blobSha = document.BinaryContent is { Length: > 0 } bytes
+                ? await CreateBlobAsync(http, bytes, cancellationToken)
+                : await CreateBlobAsync(http, document.Content ?? string.Empty, cancellationToken);
             treeEntries.Add(new TreeEntry($"{BasePath}/{document.FileName}", "100644", "blob", blobSha));
         }
 
@@ -133,6 +135,15 @@ public sealed class GeekatyourspotCommitService : IGeekatyourspotCommitService
     private static async Task<string> CreateBlobAsync(HttpClient http, string content, CancellationToken cancellationToken)
     {
         var payload = new BlobRequest(Convert.ToBase64String(Encoding.UTF8.GetBytes(content)), "base64");
+        var response = await http.PostAsJsonAsync($"repos/{Owner}/{Repo}/git/blobs", payload, JsonOptions, cancellationToken);
+        await EnsureSuccess(response, "creating blob", cancellationToken);
+        var body = await response.Content.ReadFromJsonAsync<ShaResponse>(JsonOptions, cancellationToken);
+        return body?.Sha ?? throw new ContentGenerationException("GitHub blob response missing sha.");
+    }
+
+    private static async Task<string> CreateBlobAsync(HttpClient http, byte[] content, CancellationToken cancellationToken)
+    {
+        var payload = new BlobRequest(Convert.ToBase64String(content), "base64");
         var response = await http.PostAsJsonAsync($"repos/{Owner}/{Repo}/git/blobs", payload, JsonOptions, cancellationToken);
         await EnsureSuccess(response, "creating blob", cancellationToken);
         var body = await response.Content.ReadFromJsonAsync<ShaResponse>(JsonOptions, cancellationToken);

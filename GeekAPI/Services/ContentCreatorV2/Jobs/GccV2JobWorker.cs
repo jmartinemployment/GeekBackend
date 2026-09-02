@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Carousel;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
@@ -558,6 +559,28 @@ public sealed class GccV2JobWorker : BackgroundService
 
         await TrySpawnImagePromptsAsync(scope, jobId, repo, writer, ct);
         await TrySpawnToolPagesAsync(scope, jobId, repo, writer, ct);
+        await TrySpawnLinkedInCarouselAsync(scope, jobId, repo, ct);
+    }
+
+    private static async Task TrySpawnLinkedInCarouselAsync(
+        IServiceScope scope,
+        Guid jobId,
+        HttpGccV2Repository repo,
+        CancellationToken ct)
+    {
+        var job = await repo.GetJobAsync(jobId, ct);
+        if (job is null || !string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase)) return;
+
+        var spawn = scope.ServiceProvider.GetRequiredService<GccV2LinkedInCarouselSpawnService>();
+        try
+        {
+            await spawn.SpawnForReadyLongFormAsync(job, ct);
+        }
+        catch (Exception ex)
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<GccV2JobWorker>>();
+            logger.LogWarning(ex, "LinkedIn carousel spawn failed for job {JobId}.", jobId);
+        }
     }
 
     private static async Task TrySpawnToolPagesAsync(
