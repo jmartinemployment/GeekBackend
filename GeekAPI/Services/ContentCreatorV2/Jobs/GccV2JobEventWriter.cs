@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.Workflow.Services;
 
 namespace GeekAPI.Services.ContentCreatorV2.Jobs;
 
@@ -9,6 +11,7 @@ public sealed class GccV2JobEventWriter
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new ParagraphJsonConverter() },
     };
 
     private readonly HttpGccV2Repository _repo;
