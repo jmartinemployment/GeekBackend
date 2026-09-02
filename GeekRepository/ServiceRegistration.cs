@@ -6,6 +6,7 @@ using GeekApplication.Interfaces.ContentWriterV4;
 using GeekRepository.Infrastructure;
 using GeekRepository.Repositories;
 using GeekRepository.Repositories.Blog;
+using GeekRepository.Repositories.Glossary;
 using GeekRepository.Repositories.Content;
 using GeekRepository.Repositories.ContentCreator;
 using GeekRepository.Repositories.ContentWriterV3;
@@ -30,6 +31,7 @@ public static class ServiceRegistration
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IUseCaseRepository, UseCaseRepository>();
         services.AddScoped<IBlogRepository, BlogRepository>();
+        services.AddScoped<IGlossaryRepository, GlossaryRepository>();
         services.AddScoped<IWebPostRepository, WebPostRepository>();
 
         // Content Writer V3 Repositories

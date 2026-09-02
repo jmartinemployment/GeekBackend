@@ -367,12 +367,21 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
-        var mergeResult = await _researchResolver.MergeExternalResearchAsync(
-            _user.UserId.ToString("D"),
-            rawBriefJson,
-            create.SiteUrl,
-            runId,
-            ct);
+        GccV2ExternalResearchMergeResult mergeResult;
+        try
+        {
+            mergeResult = await _researchResolver.MergeExternalResearchAsync(
+                _user.UserId.ToString("D"),
+                rawBriefJson,
+                create.SiteUrl,
+                runId,
+                ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+
         rawBriefJson = mergeResult.BriefJson;
 
         var brief = await _repo.CreateBriefAsync(

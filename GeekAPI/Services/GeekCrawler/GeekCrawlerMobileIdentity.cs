@@ -37,9 +37,9 @@ internal static class GeekCrawlerMobileIdentity
                 new PageWaitForLoadStateOptions { Timeout = GeekCrawlerCaps.RenderQuiescenceCapMs })
                 .ConfigureAwait(false);
         }
-        catch (PlaywrightException)
+        catch (Exception)
         {
-            // Cap reached — snapshot anyway.
+            // Cap reached or render wait failed — snapshot anyway.
         }
     }
 

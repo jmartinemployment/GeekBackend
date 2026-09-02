@@ -136,6 +136,7 @@ public class GeekCrawlerPagesController : ControllerBase
                 StatusCode = p.StatusCode,
                 RobotsAllowed = p.RobotsAllowed,
                 Html = p.Html,
+                FailureReason = TruncateFailureReason(p.FailureReason),
                 CrawledAtUtc = now,
             });
             created.Add(new CreatedGeekCrawlerPageItem(p.Url ?? "", id));
@@ -155,7 +156,11 @@ public class GeekCrawlerPagesController : ControllerBase
         string? FinalUrl,
         int StatusCode,
         bool RobotsAllowed,
-        string? Html);
+        string? Html,
+        string? FailureReason = null);
+
+    private static string? TruncateFailureReason(string? reason) =>
+        string.IsNullOrWhiteSpace(reason) ? null : reason.Length <= 512 ? reason : reason[..512];
 
     public record CreatedGeekCrawlerPageItem(string Url, Guid PageId);
 

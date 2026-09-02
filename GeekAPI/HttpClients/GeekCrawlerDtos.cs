@@ -35,6 +35,7 @@ public record GeekCrawlerPageDto(
     int StatusCode,
     bool RobotsAllowed,
     string? Html,
+    string? FailureReason,
     DateTimeOffset CrawledAtUtc);
 
 public record CreateGeekCrawlerPageBatchCommand(
@@ -47,7 +48,8 @@ public record CreateGeekCrawlerPageItemCommand(
     string? FinalUrl,
     int StatusCode,
     bool RobotsAllowed,
-    string? Html);
+    string? Html,
+    string? FailureReason = null);
 
 public record GeekCrawlerPageBatchResult(
     int Count,
@@ -89,3 +91,37 @@ public record GeekCrawlerLinkDto(
     string LinkUrl,
     bool IsSameOrigin,
     DateTimeOffset DiscoveredAtUtc);
+
+public record GeekCrawlerScheduleDto(
+    Guid Id,
+    string OwnerUserId,
+    string CrawlType,
+    string SeedUrlsJson,
+    string? SeedKey,
+    int IntervalHours,
+    bool Enabled,
+    DateTimeOffset NextRunUtc,
+    DateTimeOffset? LastStartedUtc,
+    Guid? LastRunId,
+    DateTimeOffset CreatedAtUtc);
+
+public record CreateGeekCrawlerScheduleCommand(
+    string OwnerUserId,
+    string CrawlType,
+    string SeedUrlsJson,
+    string? SeedKey = null,
+    int? IntervalHours = null,
+    bool? Enabled = null,
+    DateTimeOffset? NextRunUtc = null);
+
+public record PatchGeekCrawlerScheduleCommand(
+    bool? Enabled = null,
+    int? IntervalHours = null,
+    DateTimeOffset? NextRunUtc = null,
+    DateTimeOffset? LastStartedUtc = null,
+    Guid? LastRunId = null);
+
+public record ClaimGeekCrawlerScheduleCommand(
+    DateTimeOffset ExpectedNextRunUtc,
+    DateTimeOffset NewNextRunUtc,
+    DateTimeOffset? LastStartedUtc = null);

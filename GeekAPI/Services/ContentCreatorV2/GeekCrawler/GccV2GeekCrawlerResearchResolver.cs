@@ -166,7 +166,13 @@ public sealed class GccV2GeekCrawlerResearchResolver
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
             else if (warning is not null)
-                warnings.Add(warning);
+                throw new InvalidOperationException(warning);
+        }
+
+        if (quoteable.Count == 0 && externalSeeds.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Partner research required but no extractable pages were found for external tool URLs.");
         }
 
         if (quoteable.Count == 0)
@@ -203,11 +209,14 @@ public sealed class GccV2GeekCrawlerResearchResolver
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
             else if (warning is not null)
-                warnings.Add(warning);
+                throw new InvalidOperationException(warning);
         }
 
         if (quoteable.Count == 0)
-            return new GccV2ExternalResearchMergeResult(rawBriefJson, warnings);
+        {
+            throw new InvalidOperationException(
+                "Competitor research required but no extractable pages were found.");
+        }
 
         _logger.LogInformation(
             "Merged {Count} competitor research page(s) from Geek-Crawler for {SeedCount} seed(s).",
@@ -380,8 +389,8 @@ public sealed class GccV2GeekCrawlerResearchResolver
     {
         var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
         return crawlType == CrawlTypes.Competitors
-            ? $"Competitor research for {host} unavailable (external crawl did not finish). Continuing without it."
-            : $"Partner research for {host} unavailable (external crawl did not finish). Continuing without it.";
+            ? $"Competitor research for {host} unavailable — Geek-Crawler crawl did not finish or has no extractable pages."
+            : $"Partner research for {host} unavailable — Geek-Crawler crawl did not finish or has no extractable pages.";
     }
 
     private static HashSet<string> BuildSeedMatchSet(IEnumerable<string> seeds)

@@ -50,6 +50,10 @@ internal static class GccV2TextExtractor
         if (hidden == "1" || hidden.Equals("true", StringComparison.OrdinalIgnoreCase))
             return;
 
+        hidden = node.GetAttributeValue("data-geek-hidden", "");
+        if (hidden == "1" || hidden.Equals("true", StringComparison.OrdinalIgnoreCase))
+            return;
+
         var block = BlockTags.Contains(node.Name);
         if (block)
             sb.Append(' ');

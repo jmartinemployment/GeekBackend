@@ -77,6 +77,7 @@ builder.Services.AddScoped<ICaseStudyRepository, HttpCaseStudyRepository>();
 builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();
 builder.Services.AddScoped<IUseCaseRepository, HttpUseCaseRepository>();
 builder.Services.AddScoped<IBlogRepository, HttpBlogRepository>();
+builder.Services.AddScoped<IGlossaryRepository, HttpGlossaryRepository>();
 builder.Services.AddScoped<IWebPostRepository, HttpWebPostRepository>();
 builder.Services.AddScoped<IAssetUploadService, NoOpAssetUploadService>();
 
@@ -98,7 +99,7 @@ builder.Services.AddScoped(sp =>
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddContentCreatorV2(builder.Configuration);
-builder.Services.AddGeekCrawler(builder.Configuration);
+builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
 
 // GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]
 // (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade). Additive: existing

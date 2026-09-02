@@ -16,8 +16,10 @@ public sealed class GeekCrawlerService
     private readonly SameOriginBfsCrawler _bfs;
     private readonly GeekCrawlerPageBatchWriter _batchWriter;
     private readonly GeekCrawlerLinkRebuilder _linkRebuilder;
+    private readonly GeekCrawlerSitemapSeeder _sitemapSeeder;
     private readonly GeekCrawlerWake _wake;
     private readonly GeekCrawlerProgressNotifier _notifier;
+    private readonly GeekCrawlerRunCoordinator _coordinator;
     private readonly ILogger<GeekCrawlerService> _logger;
 
     public GeekCrawlerService(
@@ -25,16 +27,20 @@ public sealed class GeekCrawlerService
         SameOriginBfsCrawler bfs,
         GeekCrawlerPageBatchWriter batchWriter,
         GeekCrawlerLinkRebuilder linkRebuilder,
+        GeekCrawlerSitemapSeeder sitemapSeeder,
         GeekCrawlerWake wake,
         GeekCrawlerProgressNotifier notifier,
+        GeekCrawlerRunCoordinator coordinator,
         ILogger<GeekCrawlerService> logger)
     {
         _repo = repo;
         _bfs = bfs;
         _batchWriter = batchWriter;
         _linkRebuilder = linkRebuilder;
+        _sitemapSeeder = sitemapSeeder;
         _wake = wake;
         _notifier = notifier;
+        _coordinator = coordinator;
         _logger = logger;
     }
 
@@ -64,6 +70,13 @@ public sealed class GeekCrawlerService
             .FirstOrDefault();
     }
 
+    public async Task<IReadOnlyList<GeekCrawlerRunDto>> ListRunsForUserAsync(
+        string ownerUserId,
+        string? crawlType,
+        int limit,
+        CancellationToken ct) =>
+        await _repo.ListRunsForUserAsync(ownerUserId, crawlType, limit, ct).ConfigureAwait(false);
+
     public async Task<GeekCrawlerRunDto> StartCrawlAsync(
         string ownerUserId,
         string crawlType,
@@ -81,7 +94,6 @@ public sealed class GeekCrawlerService
         var type = crawlType.Trim();
         var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(seeds);
 
-        // One row per (owner, crawlType, seedKey) — re-queue the slot instead of inserting again.
         var existing = await _repo.GetRunForSlotAsync(ownerUserId, type, seedKey, ct).ConfigureAwait(false)
             ?? await FindLatestMatchingRunAsync(ownerUserId, type, seeds, ct).ConfigureAwait(false);
         if (existing is not null)
@@ -96,6 +108,27 @@ public sealed class GeekCrawlerService
         return run;
     }
 
+    public async Task CancelRunAsync(Guid runId, CancellationToken ct)
+    {
+        _coordinator.Cancel(runId);
+
+        var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+        if (run is null) return;
+
+        if (string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(run.Status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var cancelled = await _repo.PatchRunAsync(
+            runId,
+            new PatchGeekCrawlerRunCommand(
+                Status: "cancelled",
+                CompletedAtUtc: DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+
+        await PushRunAsync(cancelled, currentOrigin: null, ct).ConfigureAwait(false);
+    }
+
     private async Task<GeekCrawlerRunDto> RequeueExistingRunAsync(
         GeekCrawlerRunDto existing,
         CancellationToken ct)
@@ -103,21 +136,46 @@ public sealed class GeekCrawlerService
         if (string.Equals(existing.Status, "running", StringComparison.OrdinalIgnoreCase)
             || string.Equals(existing.Status, "pending", StringComparison.OrdinalIgnoreCase))
         {
+            _coordinator.Cancel(existing.Id);
             existing = await TryRecoverOrphanAsync(existing, ct).ConfigureAwait(false);
             _wake.Wake(existing.Id);
             await PushRunAsync(existing, currentOrigin: null, ct).ConfigureAwait(false);
             return existing;
         }
 
-        _logger.LogInformation(
-            "Re-queuing Geek-Crawler run {RunId} (status {Status}) for seed slot.",
-            existing.Id,
-            existing.Status);
+        if (string.Equals(existing.Status, "failed", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Resuming failed Geek-Crawler run {RunId} (keeping saved pages).",
+                existing.Id);
+            var resumed = await _repo.PatchRunAsync(
+                existing.Id,
+                new PatchGeekCrawlerRunCommand(
+                    Status: "pending",
+                    ErrorSummary: "",
+                    CompletedAtUtc: null),
+                ct).ConfigureAwait(false);
+            _wake.Wake(resumed.Id);
+            await PushRunAsync(resumed, currentOrigin: null, ct).ConfigureAwait(false);
+            return resumed;
+        }
+
+        if (string.Equals(existing.Status, "complete", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(existing.Status, "cancelled", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Re-starting Geek-Crawler run {RunId} (status {Status}) — clearing crawl data.",
+                existing.Id,
+                existing.Status);
+            await _repo.ClearRunCrawlDataAsync(existing.Id, ct).ConfigureAwait(false);
+        }
+
         var requeued = await _repo.PatchRunAsync(
             existing.Id,
             new PatchGeekCrawlerRunCommand(
                 Status: "pending",
                 ErrorSummary: "",
+                HostProgressJson: "[]",
                 CompletedAtUtc: null,
                 StartedAtUtc: null),
             ct).ConfigureAwait(false);
@@ -158,8 +216,6 @@ public sealed class GeekCrawlerService
                 ct).ConfigureAwait(false);
             await PushRunAsync(current, currentOrigin: null, ct).ConfigureAwait(false);
 
-            await _linkRebuilder.RebuildMissingLinksAsync(runId, ct).ConfigureAwait(false);
-
             var hostGroups = GeekCrawlerSeedNormalizer.GroupSeedsByOrigin(seeds);
             GeekCrawlerRunResumeLoader.ResumeState? resume = null;
             var activity = await _repo.GetPageActivityAsync(runId, ct).ConfigureAwait(false);
@@ -178,6 +234,9 @@ public sealed class GeekCrawlerService
                     o => o,
                     _ => new OriginProgressStats(),
                     StringComparer.OrdinalIgnoreCase);
+
+            var crawlStartedAt = DateTimeOffset.UtcNow;
+            var liveMetrics = new OriginCrawlLiveMetrics();
 
             if (resume is not null)
             {
@@ -199,6 +258,9 @@ public sealed class GeekCrawlerService
                 GeekCrawlerBfsResume? originResume = null;
                 if (resume is not null && resume.OriginResume.TryGetValue(origin, out var loaded))
                     originResume = loaded;
+
+                var sitemapUrls = await _sitemapSeeder.CollectAllowedUrlsAsync(origin, ct)
+                    .ConfigureAwait(false);
 
                 await _bfs.CrawlOriginAsync(
                     origin,
@@ -231,7 +293,16 @@ public sealed class GeekCrawlerService
 
                         var stats = originStats[origin];
                         foreach (var page in batch)
-                            stats.AddPage(page.StatusCode, !string.IsNullOrWhiteSpace(page.Html));
+                            stats.AddPage(
+                                page.StatusCode,
+                                !string.IsNullOrWhiteSpace(page.Html),
+                                page.FailureReason);
+
+                        stats.PagesInQueue = liveMetrics.QueueDepth;
+                        stats.InFlightCount = liveMetrics.InFlightCount;
+                        var elapsedMinutes = (DateTimeOffset.UtcNow - crawlStartedAt).TotalMinutes;
+                        if (elapsedMinutes > 0 && stats.Attempted > 0)
+                            stats.PagesPerMinute = Math.Round(stats.Attempted / elapsedMinutes, 1);
 
                         hostProgress = GeekCrawlerHostProgress.BuildHostProgress(hostGroups.Keys, originStats);
                         current = await _repo.PatchRunAsync(
@@ -242,7 +313,9 @@ public sealed class GeekCrawlerService
                         await PushRunAsync(current, origin, ct).ConfigureAwait(false);
                     },
                     ct,
-                    originResume).ConfigureAwait(false);
+                    originResume,
+                    sitemapUrls,
+                    liveMetrics).ConfigureAwait(false);
             }
 
             hostProgress = GeekCrawlerHostProgress.BuildHostProgress(hostGroups.Keys, originStats);
@@ -251,7 +324,7 @@ public sealed class GeekCrawlerService
             {
                 await FailRunAsync(
                     current,
-                    "Crawl finished with no HTML on any page.",
+                    GeekCrawlerHostProgress.DescribeZeroHtmlFailure(originStats),
                     ct,
                     hostProgress).ConfigureAwait(false);
                 return;
@@ -271,7 +344,18 @@ public sealed class GeekCrawlerService
                 runId,
                 current.OwnerUserId);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (GeekCrawlerPlaywrightUnavailableException ex)
+        {
+            _logger.LogError(ex, "Geek-Crawler run {RunId} failed — Playwright unavailable.", runId);
+            if (current is not null)
+                await FailRunAsync(current, ex.Message, ct, hostProgress).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Geek-Crawler run {RunId} cancelled.", runId);
+            throw;
+        }
+        catch (Exception ex)
         {
             _logger.LogError(ex, "Geek-Crawler run {RunId} failed.", runId);
             if (current is not null)

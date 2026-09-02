@@ -161,6 +161,72 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         CancellationToken ct = default) =>
         PostAsync<object>("repo/geek-crawler/links/batch", command, ct);
 
+    public async Task ClearRunCrawlDataAsync(Guid runId, CancellationToken ct = default)
+    {
+        var res = await _http.DeleteAsync($"repo/geek-crawler/runs/{runId}/crawl-data", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return;
+        res.EnsureSuccessStatusCode();
+    }
+
+    public Task<GeekCrawlerScheduleDto?> GetScheduleAsync(Guid scheduleId, CancellationToken ct = default) =>
+        GetAsync<GeekCrawlerScheduleDto>($"repo/geek-crawler/schedules/{scheduleId}", ct);
+
+    public async Task<GeekCrawlerScheduleDto?> ClaimScheduleAsync(
+        Guid scheduleId,
+        ClaimGeekCrawlerScheduleCommand command,
+        CancellationToken ct = default)
+    {
+        var json = JsonSerializer.Serialize(command, JsonOpts);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var res = await _http.PostAsync($"repo/geek-crawler/schedules/{scheduleId}/claim", content, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+        res.EnsureSuccessStatusCode();
+        var responseJson = await res.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<GeekCrawlerScheduleDto>(responseJson, JsonOpts);
+    }
+
+    public Task<IReadOnlyList<GeekCrawlerScheduleDto>> ListDueSchedulesAsync(
+        DateTimeOffset beforeUtc,
+        int limit = 50,
+        CancellationToken ct = default) =>
+        GetListAsync<GeekCrawlerScheduleDto>(
+            $"repo/geek-crawler/schedules/due?beforeUtc={Uri.EscapeDataString(beforeUtc.ToString("O"))}&limit={limit}",
+            ct);
+
+    public Task<IReadOnlyList<GeekCrawlerScheduleDto>> ListSchedulesForUserAsync(
+        string ownerUserId,
+        string? crawlType = null,
+        int limit = 50,
+        CancellationToken ct = default)
+    {
+        var path = new StringBuilder(
+            $"repo/geek-crawler/schedules/for-user?ownerUserId={Uri.EscapeDataString(ownerUserId)}&limit={limit}");
+        if (!string.IsNullOrWhiteSpace(crawlType))
+            path.Append($"&crawlType={Uri.EscapeDataString(crawlType)}");
+        return GetListAsync<GeekCrawlerScheduleDto>(path.ToString(), ct);
+    }
+
+    public Task<GeekCrawlerScheduleDto> CreateScheduleAsync(
+        CreateGeekCrawlerScheduleCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GeekCrawlerScheduleDto>("repo/geek-crawler/schedules", command, ct);
+
+    public Task<GeekCrawlerScheduleDto> PatchScheduleAsync(
+        Guid scheduleId,
+        PatchGeekCrawlerScheduleCommand command,
+        CancellationToken ct = default) =>
+        PatchAsync<GeekCrawlerScheduleDto>($"repo/geek-crawler/schedules/{scheduleId}", command, ct);
+
+    public async Task DeleteScheduleAsync(Guid scheduleId, CancellationToken ct = default)
+    {
+        var res = await _http.DeleteAsync($"repo/geek-crawler/schedules/{scheduleId}", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return;
+        res.EnsureSuccessStatusCode();
+    }
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try

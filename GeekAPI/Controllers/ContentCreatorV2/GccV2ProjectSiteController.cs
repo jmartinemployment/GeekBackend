@@ -87,6 +87,25 @@ public class GccV2ProjectSiteController : ControllerBase
         });
     }
 
+    [HttpPost("runs/{runId:guid}/cancel")]
+    public async Task<ActionResult<object>> CancelCrawl(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        var run = await _repo.GetProjectSiteCrawlRunAsync(runId, ct);
+        if (run is null || !IsOwner(run.OwnerUserId)) return NotFound();
+
+        await _crawlService.CancelRunAsync(runId, ct);
+        run = await _repo.GetProjectSiteCrawlRunAsync(runId, ct);
+        if (run is null) return NotFound();
+
+        return Ok(new
+        {
+            runId = run.Id,
+            siteUrl = run.SiteUrl,
+            status = run.Status,
+        });
+    }
+
     [HttpGet("runs/{runId:guid}/pages")]
     public async Task<ActionResult<object>> ListPages(Guid runId, CancellationToken ct)
     {

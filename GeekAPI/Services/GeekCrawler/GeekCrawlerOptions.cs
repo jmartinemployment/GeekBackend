@@ -1,6 +1,8 @@
-namespace GeekAPI.Services.GeekCrawler;
-
+using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
+using Microsoft.Extensions.Hosting;
+
+namespace GeekAPI.Services.GeekCrawler;
 
 public sealed class GeekCrawlerOptions
 {
@@ -13,7 +15,7 @@ public sealed class GeekCrawlerOptions
     public int BatchSaveSize { get; init; } = GeekCrawlerCaps.BatchSaveSize;
     public bool SeedsOnly { get; init; }
 
-    public static GeekCrawlerOptions FromConfiguration(IConfiguration configuration)
+    public static GeekCrawlerOptions FromConfiguration(IConfiguration configuration, IHostEnvironment? environment = null)
     {
         var mode = configuration["GEEK_CRAWLER_MODE"]?.Trim().ToLowerInvariant() ?? "standard";
         var accelerated = string.Equals(mode, "accelerated", StringComparison.Ordinal);
@@ -25,6 +27,10 @@ public sealed class GeekCrawlerOptions
 
         var defaultParallelism = accelerated ? 4 : 1;
         var defaultDelay = accelerated ? 3 : 12;
+
+        var seedsOnly = ParseBool(configuration["GEEK_CRAWLER_SEEDS_ONLY"]);
+        if (seedsOnly && environment is not null && !environment.IsDevelopment())
+            seedsOnly = false;
 
         return new GeekCrawlerOptions
         {
@@ -45,7 +51,7 @@ public sealed class GeekCrawlerOptions
                 defaultValue: GeekCrawlerCaps.BatchSaveSize,
                 min: 1,
                 max: GeekCrawlerCaps.MaxBatchSaveSize),
-            SeedsOnly = ParseBool(configuration["GEEK_CRAWLER_SEEDS_ONLY"]),
+            SeedsOnly = seedsOnly,
         };
     }
 

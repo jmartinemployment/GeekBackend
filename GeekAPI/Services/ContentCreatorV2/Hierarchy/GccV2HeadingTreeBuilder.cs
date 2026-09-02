@@ -169,8 +169,12 @@ public static class GccV2HeadingTreeBuilder
 
     private static bool IsHiddenAtMobileViewport(HtmlNode node)
     {
-        var flag = node.GetAttributeValue("data-gcc-hidden", "");
-        return flag == "1" || flag.Equals("true", StringComparison.OrdinalIgnoreCase);
+        var gcc = node.GetAttributeValue("data-gcc-hidden", "");
+        if (gcc == "1" || gcc.Equals("true", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var geek = node.GetAttributeValue("data-geek-hidden", "");
+        return geek == "1" || geek.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class MutableNode

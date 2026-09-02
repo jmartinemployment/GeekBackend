@@ -6,8 +6,9 @@ public static class GeekCrawlerCaps
     public const int BatchSaveSize = 5;
     public const int MaxBatchSaveSize = 20;
     public const int DefaultHostDelaySeconds = 12;
-    public const int NavigationTimeoutMs = 15_000;
+    public const int NavigationTimeoutMs = 30_000;
     public const int RenderQuiescenceCapMs = 5_000;
+    public const int MaxSitemapUrlsPerOrigin = 5_000;
 
     public const string BotName = "geekatyourspotbot";
     public const string BotContactEmail = "jeffm@geekatyourspot.com";

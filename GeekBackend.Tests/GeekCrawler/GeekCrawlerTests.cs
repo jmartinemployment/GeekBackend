@@ -1,3 +1,4 @@
+using System.Net;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.GeekCrawler.Polite;
@@ -5,6 +6,7 @@ using GeekApplication.Models.GeekCrawler;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GeekBackend.Tests.GeekCrawler;
 
@@ -218,6 +220,32 @@ public class GeekCrawlerOptionsTests
     }
 
     [Fact]
+    public void FromConfiguration_ignores_seeds_only_outside_development()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["GEEK_CRAWLER_SEEDS_ONLY"] = "true",
+            })
+            .Build();
+
+        var options = GeekCrawlerOptions.FromConfiguration(
+            config,
+            new FakeHostEnvironment { EnvironmentName = Environments.Production });
+
+        Assert.False(options.SeedsOnly);
+    }
+
+    private sealed class FakeHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Development;
+        public string ApplicationName { get; set; } = "GeekBackend.Tests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
+    }
+
+    [Fact]
     public void FromConfiguration_respects_explicit_overrides()
     {
         var config = new ConfigurationBuilder()
@@ -267,6 +295,7 @@ public class GeekCrawlerWorkerRegistrationTests
             })
             .Build()));
         services.AddSingleton<GeekCrawlerWake>();
+        services.AddSingleton<GeekCrawlerRunCoordinator>();
 
         GeekCrawlerServiceRegistration.RegisterWorkers(services, workerCount);
 
@@ -467,5 +496,299 @@ public class GeekCrawlerHostProgressTests
 
         Assert.Contains("statusCounts", json);
         Assert.Contains("pagesWithoutHtml", json);
+    }
+
+    [Fact]
+    public void DescribeZeroHtmlFailure_distinguishes_status_zero_from_empty_2xx()
+    {
+        var allZero = new Dictionary<string, OriginProgressStats>
+        {
+            ["https://a.com"] = new(),
+        };
+        allZero["https://a.com"].AddPage(0, hasHtml: false, failureReason: "TimeoutException");
+
+        var empty2xx = new Dictionary<string, OriginProgressStats>
+        {
+            ["https://b.com"] = new(),
+        };
+        empty2xx["https://b.com"].AddPage(200, hasHtml: false);
+
+        Assert.Contains("status 0", GeekCrawlerHostProgress.DescribeZeroHtmlFailure(allZero));
+        Assert.Contains("empty", GeekCrawlerHostProgress.DescribeZeroHtmlFailure(empty2xx));
+        Assert.Contains("2xx", GeekCrawlerHostProgress.DescribeZeroHtmlFailure(empty2xx));
+    }
+}
+
+public class GeekCrawlerSeedOriginGroupingTests
+{
+    [Fact]
+    public void GroupSeedsByOrigin_merges_www_and_bare_domain()
+    {
+        var grouped = GeekCrawlerSeedNormalizer.GroupSeedsByOrigin(
+        [
+            "https://www.example.com/page",
+            "https://example.com/other",
+        ]);
+
+        Assert.Single(grouped);
+        Assert.Equal(2, grouped.First().Value.Count);
+    }
+
+    [Fact]
+    public void NormalizeOriginAuthority_strips_www_prefix()
+    {
+        Assert.Equal(
+            "https://example.com",
+            GeekCrawlerSeedNormalizer.NormalizeOriginAuthority("https://www.example.com"));
+    }
+}
+
+public class GeekCrawlerHomepageUrlTests
+{
+    [Fact]
+    public void TryNormalize_returns_origin_homepage()
+    {
+        Assert.True(GeekCrawlerHomepageUrl.TryNormalize("example.com/pricing", out var url));
+        Assert.Equal("https://example.com/", url);
+    }
+}
+
+public class GeekCrawlerPoliteGateRobotsTests
+{
+    [Fact]
+    public void IsUrlAllowed_returns_false_when_robots_forbidden()
+    {
+        var registry = new GeekCrawlerHostRegistry(GeekCrawlerOptions.FromConfiguration(
+            new ConfigurationBuilder().Build()));
+        registry.SetRobotsForbidden("https://blocked.com");
+
+        var gate = new GeekCrawlerPoliteGate(
+            new HttpClient(),
+            registry,
+            TimeProvider.System,
+            GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder().Build()),
+            NullLogger<GeekCrawlerPoliteGate>.Instance);
+
+        var url = new Uri("https://blocked.com/page");
+        Assert.False(gate.IsUrlAllowed(url));
+    }
+}
+
+public class GeekCrawlerRunCoordinatorTests
+{
+    [Fact]
+    public void Register_replaces_prior_token_and_cancels_old()
+    {
+        var coordinator = new GeekCrawlerRunCoordinator();
+        var runId = Guid.NewGuid();
+        var first = coordinator.Register(runId);
+        var second = coordinator.Register(runId);
+
+        Assert.NotEqual(default, first);
+        Assert.NotEqual(default, second);
+        Assert.True(first.IsCancellationRequested);
+        Assert.False(second.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void Cancel_cancels_registered_token()
+    {
+        var coordinator = new GeekCrawlerRunCoordinator();
+        var runId = Guid.NewGuid();
+        var token = coordinator.Register(runId);
+        coordinator.Cancel(runId);
+        Assert.True(token.IsCancellationRequested);
+    }
+}
+
+public class GeekCrawlerStallRecoveryTests
+{
+    [Fact]
+    public void ScanInterval_is_two_minutes() =>
+        Assert.Equal(TimeSpan.FromMinutes(2), GeekCrawlerStallRecoveryHostedService.ScanInterval);
+}
+
+public class GeekCrawlerCapsTests
+{
+    [Fact]
+    public void NavigationTimeout_is_30_seconds() =>
+        Assert.Equal(30_000, GeekCrawlerCaps.NavigationTimeoutMs);
+}
+
+public class GeekCrawlerSitemapSeederTests
+{
+    [Fact]
+    public async Task CollectAllowedUrlsAsync_parses_urlset_and_filters_robots()
+    {
+        const string sitemapXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>https://example.com/</loc></url>
+              <url><loc>https://example.com/pricing</loc></url>
+              <url><loc>https://other.com/page</loc></url>
+            </urlset>
+            """;
+
+        var handler = new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(sitemapXml),
+        });
+        var http = new HttpClient(handler);
+        var registry = new GeekCrawlerHostRegistry(GeekCrawlerOptions.FromConfiguration(
+            new ConfigurationBuilder().Build()));
+        var gate = new GeekCrawlerPoliteGate(
+            new HttpClient(),
+            registry,
+            TimeProvider.System,
+            GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder().Build()),
+            NullLogger<GeekCrawlerPoliteGate>.Instance);
+        var seeder = new GeekCrawlerSitemapSeeder(
+            http,
+            gate,
+            NullLogger<GeekCrawlerSitemapSeeder>.Instance);
+
+        var urls = await seeder.CollectAllowedUrlsAsync("https://example.com", CancellationToken.None);
+
+        Assert.Equal(2, urls.Count);
+        Assert.Contains(urls, u => u.Contains("/pricing", StringComparison.Ordinal));
+        Assert.DoesNotContain(urls, u => u.Contains("other.com", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CollectAllowedUrlsAsync_truncates_at_MaxSitemapUrlsPerOrigin()
+    {
+        var urlEntries = string.Join(
+            Environment.NewLine,
+            Enumerable.Range(0, GeekCrawlerCaps.MaxSitemapUrlsPerOrigin + 2)
+                .Select(i => $"<url><loc>https://example.com/page-{i}</loc></url>"));
+        var sitemapXml = $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+            {urlEntries}
+            </urlset>
+            """;
+
+        var handler = new StubHttpHandler(req =>
+        {
+            var path = req.RequestUri?.AbsolutePath ?? "";
+            if (path.EndsWith("/robots.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("User-agent: *\nAllow: /\n"),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(sitemapXml),
+            };
+        });
+        var http = new HttpClient(handler);
+        var registry = new GeekCrawlerHostRegistry(GeekCrawlerOptions.FromConfiguration(
+            new ConfigurationBuilder().Build()));
+        var gate = new GeekCrawlerPoliteGate(
+            http,
+            registry,
+            TimeProvider.System,
+            GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder().Build()),
+            NullLogger<GeekCrawlerPoliteGate>.Instance);
+        var seeder = new GeekCrawlerSitemapSeeder(
+            http,
+            gate,
+            NullLogger<GeekCrawlerSitemapSeeder>.Instance);
+
+        var urls = await seeder.CollectAllowedUrlsAsync("https://example.com", CancellationToken.None);
+
+        Assert.Equal(GeekCrawlerCaps.MaxSitemapUrlsPerOrigin, urls.Count);
+    }
+
+    private sealed class StubHttpHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
+
+        public StubHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) =>
+            _responder = responder;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(_responder(request));
+    }
+}
+
+public class GeekCrawlerPlaywrightIntegrationTests
+{
+    [Fact]
+    public async Task Mobile_fetch_returns_html_when_integration_enabled()
+    {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("RUN_PLAYWRIGHT_INTEGRATION"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await using var holder = new GeekCrawlerPlaywrightHolder();
+        await holder.InitializeAsync();
+        Assert.NotNull(holder.Browser);
+
+        var registry = new GeekCrawlerHostRegistry(GeekCrawlerOptions.FromConfiguration(
+            new ConfigurationBuilder().Build()));
+        var gate = new GeekCrawlerPoliteGate(
+            new HttpClient(),
+            registry,
+            TimeProvider.System,
+            GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder().Build()),
+            NullLogger<GeekCrawlerPoliteGate>.Instance);
+        var fetcher = new MobilePageFetcher(
+            holder,
+            gate,
+            registry,
+            NullLogger<MobilePageFetcher>.Instance);
+
+        var result = await fetcher.FetchAsync("https://example.com/", CancellationToken.None);
+
+        Assert.NotNull(result.Html);
+        Assert.True(result.StatusCode is >= 200 and < 300);
+    }
+}
+
+public class GeekCrawlerScheduleTests
+{
+    [Fact]
+    public void ScheduleScanInterval_is_one_minute() =>
+        Assert.Equal(TimeSpan.FromMinutes(1), GeekCrawlerScheduleHostedService.ScanInterval);
+}
+
+public class GeekCrawlerUrlKeysTests
+{
+    [Fact]
+    public void CrawlKey_includes_query_string()
+    {
+        var withQuery = GeekCrawlerUrlKeys.CrawlKey("https://example.com/pricing?tab=annual");
+        var withoutQuery = GeekCrawlerUrlKeys.CrawlKey("https://example.com/pricing");
+        Assert.NotEqual(withQuery, withoutQuery);
+    }
+}
+
+public class GeekCrawlerChallengeDetectorTests
+{
+    [Fact]
+    public void IsCloudflareChallenge_detects_challenge_html()
+    {
+        const string html = """
+            <html><head><title>Just a moment...</title></head>
+            <body><div id="challenge-platform">Checking your browser</div></body></html>
+            """;
+        Assert.True(GeekCrawlerChallengeDetector.IsCloudflareChallenge(403, html));
+    }
+
+    [Fact]
+    public void IsCloudflareChallenge_ignores_normal_page()
+    {
+        const string html = "<html><body><h1>Hello</h1></body></html>";
+        Assert.False(GeekCrawlerChallengeDetector.IsCloudflareChallenge(200, html));
     }
 }

@@ -61,9 +61,9 @@ internal static class GccV2CrawlerIdentity
                 LoadState.NetworkIdle,
                 new PageWaitForLoadStateOptions { Timeout = RenderQuiescenceCapMs });
         }
-        catch (PlaywrightException)
+        catch (Exception)
         {
-            // Cap reached — snapshot anyway.
+            // Cap reached or render wait failed — snapshot anyway.
         }
     }
 

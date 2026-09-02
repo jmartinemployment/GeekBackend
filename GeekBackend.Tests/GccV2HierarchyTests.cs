@@ -132,6 +132,28 @@ public class GccV2HierarchyTests
     }
 
     [Fact]
+    public void HeadingTreeBuilder_Skips_GeekHidden_Twin_Markup()
+    {
+        const string html = """
+            <html><body>
+              <div data-geek-hidden="1">
+                <h2>Desktop twin Use Cases</h2>
+                <a href="/tools/desktop-only">DesktopTool</a>
+              </div>
+              <div>
+                <h2>Mobile Use Cases</h2>
+                <p>Visible <a href="/tools/mobile">MobileTool</a></p>
+              </div>
+            </body></html>
+            """;
+
+        var roots = GccV2HeadingTreeBuilder.Build(html);
+        Assert.Single(roots);
+        Assert.Equal("Mobile Use Cases", roots[0].HeadingText);
+        Assert.DoesNotContain(roots, r => r.HeadingText.Contains("Desktop", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void HeadingTreeBuilder_Skips_CssHidden_Twin_Markup()
     {
         const string html = """

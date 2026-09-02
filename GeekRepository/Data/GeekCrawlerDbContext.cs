@@ -14,6 +14,7 @@ public class GeekCrawlerDbContext : DbContext
     public virtual DbSet<GeekCrawlerRun> GeekCrawlerRuns => Set<GeekCrawlerRun>();
     public virtual DbSet<GeekCrawlerPage> GeekCrawlerPages => Set<GeekCrawlerPage>();
     public virtual DbSet<GeekCrawlerLink> GeekCrawlerLinks => Set<GeekCrawlerLink>();
+    public virtual DbSet<GeekCrawlerSchedule> GeekCrawlerSchedules => Set<GeekCrawlerSchedule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -45,6 +46,7 @@ public class GeekCrawlerDbContext : DbContext
             entity.Property(p => p.Url).IsRequired().HasMaxLength(2048);
             entity.Property(p => p.FinalUrl).IsRequired().HasMaxLength(2048);
             entity.Property(p => p.Html).HasColumnType("text");
+            entity.Property(p => p.FailureReason).HasMaxLength(512);
             entity.Property(p => p.CrawledAtUtc).IsRequired();
             entity.HasIndex(p => p.RunId).HasDatabaseName("ix_crawl_pages_run_id");
             entity.HasIndex(p => new { p.RunId, p.Url }).HasDatabaseName("ix_crawl_pages_run_url");
@@ -65,6 +67,26 @@ public class GeekCrawlerDbContext : DbContext
             entity.HasIndex(l => new { l.RunId, l.FromUrl, l.LinkUrl })
                 .IsUnique()
                 .HasDatabaseName("ux_crawl_links_run_from_link");
+        });
+
+        modelBuilder.Entity<GeekCrawlerSchedule>(entity =>
+        {
+            entity.ToTable("crawl_schedules");
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.OwnerUserId).IsRequired().HasMaxLength(128);
+            entity.Property(s => s.CrawlType).IsRequired().HasMaxLength(32);
+            entity.Property(s => s.SeedUrlsJson).IsRequired().HasColumnType("text");
+            entity.Property(s => s.SeedKey).HasMaxLength(64);
+            entity.Property(s => s.IntervalHours).IsRequired();
+            entity.Property(s => s.Enabled).IsRequired();
+            entity.Property(s => s.NextRunUtc).IsRequired();
+            entity.Property(s => s.CreatedAtUtc).IsRequired();
+            entity.HasIndex(s => new { s.Enabled, s.NextRunUtc })
+                .HasDatabaseName("ix_crawl_schedules_due");
+            entity.HasIndex(s => new { s.OwnerUserId, s.CrawlType, s.SeedKey })
+                .IsUnique()
+                .HasDatabaseName("ix_crawl_schedules_owner_slot")
+                .HasFilter("\"SeedKey\" IS NOT NULL");
         });
     }
 }

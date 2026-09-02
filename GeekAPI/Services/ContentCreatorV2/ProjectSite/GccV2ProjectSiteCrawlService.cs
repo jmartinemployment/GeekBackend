@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
 
 namespace GeekAPI.Services.ContentCreatorV2.ProjectSite;
@@ -13,20 +14,26 @@ public sealed class GccV2ProjectSiteCrawlService
 
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2ProjectSiteBfsCrawler _bfs;
+    private readonly GeekCrawlerSitemapSeeder _sitemapSeeder;
     private readonly GccV2ProjectSiteCrawlWake _wake;
+    private readonly GccV2ProjectSiteCrawlRunCoordinator _coordinator;
     private readonly GccV2ProjectSiteCrawlProgressNotifier _notifier;
     private readonly ILogger<GccV2ProjectSiteCrawlService> _logger;
 
     public GccV2ProjectSiteCrawlService(
         HttpGccV2Repository repo,
         GccV2ProjectSiteBfsCrawler bfs,
+        GeekCrawlerSitemapSeeder sitemapSeeder,
         GccV2ProjectSiteCrawlWake wake,
+        GccV2ProjectSiteCrawlRunCoordinator coordinator,
         GccV2ProjectSiteCrawlProgressNotifier notifier,
         ILogger<GccV2ProjectSiteCrawlService> logger)
     {
         _repo = repo;
         _bfs = bfs;
+        _sitemapSeeder = sitemapSeeder;
         _wake = wake;
+        _coordinator = coordinator;
         _notifier = notifier;
         _logger = logger;
     }
@@ -81,6 +88,26 @@ public sealed class GccV2ProjectSiteCrawlService
         return run;
     }
 
+    public async Task CancelRunAsync(Guid runId, CancellationToken ct)
+    {
+        _coordinator.Cancel(runId);
+
+        var run = await _repo.GetProjectSiteCrawlRunAsync(runId, ct).ConfigureAwait(false);
+        if (run is null) return;
+
+        if (string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(run.Status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        run = await _repo.PatchProjectSiteCrawlRunAsync(
+            runId,
+            new PatchGccV2ProjectSiteCrawlRunCommand(
+                Status: "cancelled",
+                CompletedAtUtc: DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        await PushRunAsync(run, ct).ConfigureAwait(false);
+    }
+
     public async Task ExecuteRunAsync(Guid runId, CancellationToken ct)
     {
         var run = await _repo.GetProjectSiteCrawlRunAsync(runId, ct).ConfigureAwait(false);
@@ -100,6 +127,9 @@ public sealed class GccV2ProjectSiteCrawlService
 
             var pagesAttempted = 0;
             var pagesWithHtml = 0;
+
+            var sitemapUrls = await _sitemapSeeder.CollectAllowedUrlsAsync(run.SiteUrl, ct)
+                .ConfigureAwait(false);
 
             await _bfs.CrawlSiteAsync(
                 run.SiteUrl,
@@ -162,7 +192,21 @@ public sealed class GccV2ProjectSiteCrawlService
                         ct).ConfigureAwait(false);
                     await PushRunAsync(run, pagesWithHtml, ct).ConfigureAwait(false);
                 },
-                ct).ConfigureAwait(false);
+                ct,
+                sitemapUrls).ConfigureAwait(false);
+
+            if (pagesWithHtml == 0)
+            {
+                run = await _repo.PatchProjectSiteCrawlRunAsync(
+                    runId,
+                    new PatchGccV2ProjectSiteCrawlRunCommand(
+                        Status: "failed",
+                        ErrorSummary: "Project-site crawl finished with no HTML on any page.",
+                        CompletedAtUtc: DateTimeOffset.UtcNow),
+                    ct).ConfigureAwait(false);
+                await PushRunAsync(run, pagesWithHtml, ct).ConfigureAwait(false);
+                return;
+            }
 
             run = await _repo.PatchProjectSiteCrawlRunAsync(
                 runId,
@@ -171,6 +215,17 @@ public sealed class GccV2ProjectSiteCrawlService
                     CompletedAtUtc: DateTimeOffset.UtcNow),
                 ct).ConfigureAwait(false);
             await PushRunAsync(run, pagesWithHtml, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Project-site crawl run {RunId} cancelled.", runId);
+            run = await _repo.PatchProjectSiteCrawlRunAsync(
+                runId,
+                new PatchGccV2ProjectSiteCrawlRunCommand(
+                    Status: "cancelled",
+                    CompletedAtUtc: DateTimeOffset.UtcNow),
+                ct).ConfigureAwait(false);
+            await PushRunAsync(run, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

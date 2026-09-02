@@ -168,6 +168,19 @@ public class GeekCrawlerRunsController : ControllerBase
         return Ok(row);
     }
 
+    [HttpDelete("{id:guid}/crawl-data")]
+    public async Task<IActionResult> ClearCrawlData(Guid id, CancellationToken ct)
+    {
+        var exists = await _db.GeekCrawlerRuns.AsNoTracking()
+            .AnyAsync(r => r.Id == id, ct);
+        if (!exists)
+            return NotFound();
+
+        await _db.GeekCrawlerLinks.Where(l => l.RunId == id).ExecuteDeleteAsync(ct);
+        await _db.GeekCrawlerPages.Where(p => p.RunId == id).ExecuteDeleteAsync(ct);
+        return NoContent();
+    }
+
     public record CreateGeekCrawlerRunCommand(
         string OwnerUserId,
         string CrawlType,

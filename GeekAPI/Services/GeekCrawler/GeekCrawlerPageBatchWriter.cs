@@ -26,7 +26,8 @@ public sealed class GeekCrawlerPageBatchWriter
             p.FinalUrl,
             p.StatusCode,
             p.RobotsAllowed,
-            p.Html)).ToList();
+            p.Html,
+            p.FailureReason)).ToList();
 
         try
         {

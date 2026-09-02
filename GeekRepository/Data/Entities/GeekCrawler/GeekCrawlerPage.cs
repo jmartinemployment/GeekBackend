@@ -10,5 +10,6 @@ public class GeekCrawlerPage
     public int StatusCode { get; set; }
     public bool RobotsAllowed { get; set; }
     public string? Html { get; set; }
+    public string? FailureReason { get; set; }
     public DateTimeOffset CrawledAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

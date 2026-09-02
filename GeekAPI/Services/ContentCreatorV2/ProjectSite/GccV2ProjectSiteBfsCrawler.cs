@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
+using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.GeekCrawler.Polite;
 
 namespace GeekAPI.Services.ContentCreatorV2.ProjectSite;
 
@@ -7,15 +9,18 @@ namespace GeekAPI.Services.ContentCreatorV2.ProjectSite;
 public sealed class GccV2ProjectSiteBfsCrawler
 {
     private readonly GccV2PageFetcher _fetcher;
+    private readonly GeekCrawlerPoliteGate _polite;
     private readonly GccV2ProjectSiteCrawlOptions _options;
     private readonly ILogger<GccV2ProjectSiteBfsCrawler> _logger;
 
     public GccV2ProjectSiteBfsCrawler(
         GccV2PageFetcher fetcher,
+        GeekCrawlerPoliteGate polite,
         GccV2ProjectSiteCrawlOptions options,
         ILogger<GccV2ProjectSiteBfsCrawler> logger)
     {
         _fetcher = fetcher;
+        _polite = polite;
         _options = options;
         _logger = logger;
     }
@@ -32,7 +37,8 @@ public sealed class GccV2ProjectSiteBfsCrawler
     public async Task CrawlSiteAsync(
         string siteUrl,
         Func<IReadOnlyList<CrawledPageResult>, Task> onBatchReady,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<string>? extraSeedUrls = null)
     {
         if (!Uri.TryCreate(siteUrl, UriKind.Absolute, out var originUri))
             return;
@@ -65,6 +71,14 @@ public sealed class GccV2ProjectSiteBfsCrawler
         {
             Enqueue(homepageUrl);
         }
+
+        if (extraSeedUrls is not null)
+        {
+            foreach (var url in extraSeedUrls)
+                Enqueue(url);
+        }
+
+        await _polite.EnsureRobotsForOriginAsync(origin, ct).ConfigureAwait(false);
 
         async Task FlushBatchIfReadyAsync()
         {
@@ -109,6 +123,17 @@ public sealed class GccV2ProjectSiteBfsCrawler
                     ct.ThrowIfCancellationRequested();
                     if (_options.HostDelayMs > 0)
                         await Task.Delay(_options.HostDelayMs, ct).ConfigureAwait(false);
+
+                    if (!Uri.TryCreate(url, UriKind.Absolute, out var requestUri)
+                        || !_polite.IsUrlAllowed(requestUri))
+                    {
+                        lock (batchLock)
+                        {
+                            pendingBatch.Add(new CrawledPageResult(
+                                origin, url, url, 0, false, null, []));
+                        }
+                        continue;
+                    }
 
                     var fetched = await _fetcher.FetchAsync(url, ct).ConfigureAwait(false);
                     if (fetched is null)

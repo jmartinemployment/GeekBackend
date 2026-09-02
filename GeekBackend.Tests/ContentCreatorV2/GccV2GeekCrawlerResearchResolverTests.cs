@@ -35,6 +35,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
                     200,
                     true,
                     "<html><head><title>Partner Tool</title></head><body><h1>Partner Tool</h1><p>This is a long enough paragraph for extraction from partner page content.</p></body></html>",
+                    null,
                     DateTimeOffset.UtcNow),
             ],
         };
@@ -81,6 +82,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
                     200,
                     true,
                     "<html><head><title>Pipedrive</title></head><body><h1>Pipedrive</h1><p>This is a long enough paragraph for extraction from the partner homepage content.</p></body></html>",
+                    null,
                     DateTimeOffset.UtcNow),
             ],
         };
@@ -145,7 +147,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
-    public async Task MergePartnerResearch_missing_external_run_warns_and_skips()
+    public async Task MergePartnerResearch_missing_external_run_throws()
     {
         var resolver = CreateResolver(new FakeReadRepo());
 
@@ -157,21 +159,19 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             }
             """;
 
-        var merged = await resolver.MergePartnerResearchAsync(
-            "user-1",
-            brief,
-            "https://geekatyourspot.com",
-            null,
-            CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            resolver.MergePartnerResearchAsync(
+                "user-1",
+                brief,
+                "https://geekatyourspot.com",
+                null,
+                CancellationToken.None));
 
-        Assert.Equal(brief, merged.BriefJson);
-        Assert.Single(merged.PartnerResearchWarnings);
-        Assert.Contains("jotform.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Continuing without it", merged.PartnerResearchWarnings[0]);
+        Assert.Contains("jotform.com", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task MergePartnerResearch_failedRun_withoutMatchingPage_warns_and_skips()
+    public async Task MergePartnerResearch_failedRun_withoutMatchingPage_throws()
     {
         var runId = Guid.NewGuid();
         var resolver = CreateResolver(new FakeReadRepo
@@ -199,20 +199,19 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             }
             """;
 
-        var merged = await resolver.MergePartnerResearchAsync(
-            "user-1",
-            brief,
-            "https://geekatyourspot.com",
-            null,
-            CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            resolver.MergePartnerResearchAsync(
+                "user-1",
+                brief,
+                "https://geekatyourspot.com",
+                null,
+                CancellationToken.None));
 
-        Assert.Equal(brief, merged.BriefJson);
-        Assert.Single(merged.PartnerResearchWarnings);
-        Assert.Contains("pipedrive.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pipedrive.com", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task MergeCompetitorResearch_incompleteRun_warns_and_skips()
+    public async Task MergeCompetitorResearch_incompleteRun_throws()
     {
         var runId = Guid.NewGuid();
         var resolver = CreateResolver(new FakeReadRepo
@@ -238,14 +237,13 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             }
             """;
 
-        var merged = await resolver.MergeCompetitorResearchAsync(
-            "user-1",
-            brief,
-            CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            resolver.MergeCompetitorResearchAsync(
+                "user-1",
+                brief,
+                CancellationToken.None));
 
-        Assert.Equal(brief, merged.BriefJson);
-        Assert.Single(merged.PartnerResearchWarnings);
-        Assert.Contains("Competitor research", merged.PartnerResearchWarnings[0]);
+        Assert.Contains("Competitor research", ex.Message);
     }
 
     [Fact]
@@ -327,8 +325,8 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             "partner");
 
         Assert.Contains("pipedrive.com", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Continuing without it", message);
-        Assert.DoesNotContain("page limit", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unavailable", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Continuing without it", message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static GccV2GeekCrawlerResearchResolver CreateResolver(

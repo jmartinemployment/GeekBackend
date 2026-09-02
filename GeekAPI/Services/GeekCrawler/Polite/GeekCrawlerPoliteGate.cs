@@ -37,6 +37,12 @@ public sealed class GeekCrawlerPoliteGate
         var controller = _registry.GetController(origin);
         var robots = await EnsureRobotsAsync(origin, controller, ct).ConfigureAwait(false);
 
+        if (_registry.IsRobotsForbidden(origin))
+        {
+            _logger.LogInformation("[geek-crawler] Skipping url — robots.txt forbidden for {Origin}", origin);
+            return new PrepareResult(false);
+        }
+
         if (robots is not null && !robots.IsAllowedAccess(url, _userAgent))
         {
             _logger.LogInformation("[geek-crawler] Skipping url blocked by robots.txt: {Url}", url);
@@ -65,11 +71,33 @@ public sealed class GeekCrawlerPoliteGate
         controller.ApplyExternalCooldown(backoff, _clock);
     }
 
+    /// <summary>Checks cached robots rules; returns false when robots.txt returned HTTP 403.</summary>
+    public bool IsUrlAllowed(Uri url)
+    {
+        var origin = url.GetLeftPart(UriPartial.Authority);
+        if (_registry.IsRobotsForbidden(origin))
+            return false;
+
+        if (_registry.TryGetRobots(origin, out var robots) && robots is not null)
+            return robots.IsAllowedAccess(url, _userAgent);
+
+        return true;
+    }
+
+    public async Task EnsureRobotsForOriginAsync(string origin, CancellationToken ct)
+    {
+        var controller = _registry.GetController(origin);
+        await EnsureRobotsAsync(origin, controller, ct).ConfigureAwait(false);
+    }
+
     private async Task<RobotsFile?> EnsureRobotsAsync(
         string origin,
         GeekCrawlerHostTrafficController controller,
         CancellationToken ct)
     {
+        if (_registry.IsRobotsForbidden(origin))
+            return null;
+
         if (_registry.TryGetRobots(origin, out var cached))
             return cached;
 
@@ -80,7 +108,15 @@ public sealed class GeekCrawlerPoliteGate
         {
             var robotsUri = new Uri(new Uri(origin + "/", UriKind.Absolute), "/robots.txt");
             using var response = await _http.GetAsync(robotsUri, ct).ConfigureAwait(false);
-            if (response.IsSuccessStatusCode)
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _logger.LogInformation(
+                    "[geek-crawler] robots.txt forbidden (403) for {Origin}; blocking all URLs.",
+                    origin);
+                _registry.SetRobotsForbidden(origin);
+                parsed = null;
+            }
+            else if (response.IsSuccessStatusCode)
             {
                 var contents = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 parsed = _robotsParser.FromString(contents, new Uri(origin));

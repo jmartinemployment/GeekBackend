@@ -7,9 +7,12 @@ namespace GeekAPI.Services.GeekCrawler;
 
 public static class GeekCrawlerServiceRegistration
 {
-    public static IServiceCollection AddGeekCrawler(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddGeekCrawler(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment? environment = null)
     {
-        var options = GeekCrawlerOptions.FromConfiguration(configuration);
+        var options = GeekCrawlerOptions.FromConfiguration(configuration, environment);
         services.AddSingleton(options);
 
         services.AddScoped(sp =>
@@ -25,9 +28,15 @@ public static class GeekCrawlerServiceRegistration
             client.Timeout = TimeSpan.FromSeconds(options.HostDelaySeconds + 5);
         });
 
+        services.AddHttpClient<GeekCrawlerSitemapSeeder>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
         services.AddSingleton<GeekCrawlerPlaywrightHolder>();
         services.AddHostedService<GeekCrawlerPlaywrightStartupHostedService>();
         services.AddSingleton<GeekCrawlerHostRegistry>();
+        services.AddSingleton<GeekCrawlerRunCoordinator>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<GeekCrawlerWake>();
         services.AddSingleton<GeekCrawlerProgressNotifier>();
@@ -35,11 +44,14 @@ public static class GeekCrawlerServiceRegistration
         services.AddScoped<GeekCrawlerLinkRebuilder>();
         services.AddScoped<MobilePageFetcher>();
         services.AddScoped<SameOriginBfsCrawler>();
+        services.AddScoped<GeekCrawlerSitemapSeeder>();
         services.AddScoped<GeekCrawlerService>();
 
         RegisterWorkers(services, options.WorkerCount);
 
         services.AddHostedService<GeekCrawlerConfigLogger>();
+        services.AddHostedService<GeekCrawlerStallRecoveryHostedService>();
+        services.AddHostedService<GeekCrawlerScheduleHostedService>();
 
         return services;
     }
@@ -52,6 +64,7 @@ public static class GeekCrawlerServiceRegistration
             services.AddSingleton<IHostedService>(sp => new GeekCrawlerWorker(
                 sp.GetRequiredService<GeekCrawlerWake>(),
                 sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<GeekCrawlerRunCoordinator>(),
                 sp.GetRequiredService<ILogger<GeekCrawlerWorker>>(),
                 workerIndex));
         }

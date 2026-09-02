@@ -94,6 +94,7 @@ public class GeekCrawlerController : ControllerBase
     }
 
     [HttpPost("crawls/{runId:guid}/rebuild-links")]
+    [Obsolete("Admin repair only — replace-on-start clears links on re-queue; normal runs rebuild links during BFS.")]
     public async Task<IActionResult> RebuildLinks(Guid runId, CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
@@ -112,6 +113,35 @@ public class GeekCrawlerController : ControllerBase
         if (!string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.Ordinal))
             return NotFound();
         return Ok(GeekCrawlerService.ToSnapshot(run));
+    }
+
+    [HttpGet("crawls")]
+    public async Task<IActionResult> ListCrawls(
+        [FromQuery] string? crawlType = null,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        limit = Math.Clamp(limit, 1, 200);
+        var runs = await _crawler.ListRunsForUserAsync(
+            _user.UserId.ToString("D"),
+            crawlType,
+            limit,
+            ct).ConfigureAwait(false);
+
+        return Ok(runs.Select(GeekCrawlerService.ToSnapshot));
+    }
+
+    [HttpPost("crawls/{runId:guid}/cancel")]
+    public async Task<IActionResult> CancelCrawl(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        await _crawler.CancelRunAsync(runId, ct).ConfigureAwait(false);
+        var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+        return run is null ? NotFound() : Ok(GeekCrawlerService.ToSnapshot(run));
     }
 
     [HttpGet("crawls/{runId:guid}/pages")]
@@ -155,4 +185,103 @@ public class GeekCrawlerController : ControllerBase
     }
 
     public record StartGeekCrawlerRequest(string CrawlType, string[]? Seeds);
+
+    [HttpGet("schedules")]
+    public async Task<IActionResult> ListSchedules(
+        [FromQuery] string? crawlType = null,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        limit = Math.Clamp(limit, 1, 200);
+        var schedules = await _repo.ListSchedulesForUserAsync(
+            _user.UserId.ToString("D"),
+            crawlType,
+            limit,
+            ct).ConfigureAwait(false);
+
+        return Ok(schedules);
+    }
+
+    [HttpPost("schedules")]
+    public async Task<IActionResult> CreateSchedule(
+        [FromBody] CreateGeekCrawlerScheduleRequest request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (request is null || !CrawlTypes.IsValid(request.CrawlType))
+            return BadRequest("crawlType must be one of: competitors, partner, local.");
+
+        var validationError = GeekCrawlerSeedNormalizer.ValidateRawSeeds(request.Seeds);
+        if (validationError is not null)
+            return BadRequest(validationError);
+
+        var seeds = GeekCrawlerSeedNormalizer.NormalizeSeeds(request.Seeds);
+        if (seeds.Count == 0)
+            return BadRequest("At least one valid seed URL is required.");
+
+        var intervalHours = Math.Clamp(request.IntervalHours ?? 168, 1, 24 * 365);
+        var schedule = await _repo.CreateScheduleAsync(
+            new CreateGeekCrawlerScheduleCommand(
+                _user.UserId.ToString("D"),
+                request.CrawlType.Trim(),
+                GeekCrawlerSeedNormalizer.SerializeSeeds(seeds),
+                GeekCrawlerSeedNormalizer.ComputeSeedKey(seeds),
+                intervalHours,
+                request.Enabled ?? true,
+                request.StartAtUtc ?? DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+
+        return Ok(schedule);
+    }
+
+    [HttpPatch("schedules/{scheduleId:guid}")]
+    public async Task<IActionResult> PatchSchedule(
+        Guid scheduleId,
+        [FromBody] PatchGeekCrawlerScheduleRequest request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsScheduleAsync(scheduleId, ct)) return NotFound();
+
+        var schedule = await _repo.PatchScheduleAsync(
+            scheduleId,
+            new PatchGeekCrawlerScheduleCommand(
+                request.Enabled,
+                request.IntervalHours is null ? null : Math.Clamp(request.IntervalHours.Value, 1, 24 * 365),
+                request.NextRunUtc),
+            ct).ConfigureAwait(false);
+
+        return Ok(schedule);
+    }
+
+    [HttpDelete("schedules/{scheduleId:guid}")]
+    public async Task<IActionResult> DeleteSchedule(Guid scheduleId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsScheduleAsync(scheduleId, ct)) return NotFound();
+
+        await _repo.DeleteScheduleAsync(scheduleId, ct).ConfigureAwait(false);
+        return NoContent();
+    }
+
+    private async Task<bool> OwnsScheduleAsync(Guid scheduleId, CancellationToken ct)
+    {
+        var schedule = await _repo.GetScheduleAsync(scheduleId, ct).ConfigureAwait(false);
+        return schedule is not null
+               && string.Equals(schedule.OwnerUserId, _user.UserId.ToString("D"), StringComparison.Ordinal);
+    }
+
+    public record CreateGeekCrawlerScheduleRequest(
+        string CrawlType,
+        string[]? Seeds,
+        int? IntervalHours = null,
+        bool? Enabled = null,
+        DateTimeOffset? StartAtUtc = null);
+
+    public record PatchGeekCrawlerScheduleRequest(
+        bool? Enabled = null,
+        int? IntervalHours = null,
+        DateTimeOffset? NextRunUtc = null);
 }

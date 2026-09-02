@@ -27,36 +27,62 @@ public sealed class SameOriginBfsCrawler
         int StatusCode,
         bool RobotsAllowed,
         string? Html,
-        IReadOnlyList<GeekCrawlerExtractedLink> Links);
+        IReadOnlyList<GeekCrawlerExtractedLink> Links,
+        string? FailureReason = null);
 
     public async Task CrawlOriginAsync(
         string origin,
         IReadOnlyList<string> seedUrls,
         Func<IReadOnlyList<CrawledPageResult>, Task> onBatchReady,
         CancellationToken ct,
-        GeekCrawlerBfsResume? resume = null)
+        GeekCrawlerBfsResume? resume = null,
+        IReadOnlyList<string>? extraSeedUrls = null,
+        OriginCrawlLiveMetrics? liveMetrics = null)
     {
         if (seedUrls.Count == 0) return;
         if (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri)) return;
 
+        var normalizedOrigin = GeekCrawlerSeedNormalizer.NormalizeOriginAuthority(origin);
         var queue = new ConcurrentQueue<string>();
         var seen = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
         var pendingBatch = new List<CrawledPageResult>();
         var batchLock = new object();
         var inFlight = 0;
 
+        bool IsSameOrigin(Uri u) =>
+            string.Equals(
+                GeekCrawlerSeedNormalizer.NormalizeOriginAuthority(u.GetLeftPart(UriPartial.Authority)),
+                normalizedOrigin,
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(u.Scheme, originUri.Scheme, StringComparison.OrdinalIgnoreCase);
+
         void Enqueue(string url)
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return;
-            if (!string.Equals(u.Host, originUri.Host, StringComparison.OrdinalIgnoreCase)) return;
-            if (u.Scheme != originUri.Scheme) return;
+            if (!IsSameOrigin(u)) return;
             var key = GeekCrawlerUrlKeys.CrawlKey(u.AbsoluteUri);
             if (!seen.TryAdd(key, 0)) return;
             queue.Enqueue(u.AbsoluteUri);
         }
 
         foreach (var seed in seedUrls)
+        {
             Enqueue(seed);
+            if (GeekCrawlerHomepageUrl.TryNormalize(seed, out var homepage)
+                && !string.Equals(
+                    homepage.TrimEnd('/'),
+                    seed.TrimEnd('/'),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Enqueue(homepage);
+            }
+        }
+
+        if (extraSeedUrls is not null)
+        {
+            foreach (var url in extraSeedUrls)
+                Enqueue(url);
+        }
 
         if (resume is not null)
         {
@@ -71,6 +97,12 @@ public sealed class SameOriginBfsCrawler
 
         async Task FlushBatchIfReadyAsync()
         {
+            if (liveMetrics is not null)
+            {
+                liveMetrics.QueueDepth = queue.Count;
+                liveMetrics.InFlightCount = Volatile.Read(ref inFlight);
+            }
+
             List<CrawledPageResult>? toFlush = null;
             lock (batchLock)
             {
@@ -116,7 +148,8 @@ public sealed class SameOriginBfsCrawler
                             fetched.StatusCode,
                             fetched.RobotsAllowed,
                             fetched.Html,
-                            links));
+                            links,
+                            fetched.FailureReason));
                     }
 
                     foreach (var link in GeekCrawlerLinkExtractor.SameOriginLinksForQueue(links))

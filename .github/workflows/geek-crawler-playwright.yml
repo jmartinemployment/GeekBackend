@@ -1,0 +1,30 @@
+name: Geek-Crawler Playwright
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  playwright-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Playwright browsers
+        run: |
+          cd GeekBackend/GeekBackend.Tests
+          dotnet build
+          pwsh ../GeekAPI/bin/Debug/net10.0/playwright.ps1 install chromium
+        working-directory: .
+
+      - name: Run Playwright integration tests
+        env:
+          RUN_PLAYWRIGHT_INTEGRATION: "1"
+        run: dotnet test --filter "FullyQualifiedName~GeekCrawlerPlaywrightIntegrationTests"
+        working-directory: GeekBackend/GeekBackend.Tests

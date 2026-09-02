@@ -55,10 +55,12 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<IGccV2ProjectSitePageReader, GccV2ProjectSitePageReader>();
         services.AddScoped<GccV2GeekCrawlerResearchResolver>();
         services.AddSingleton<GccV2ProjectSiteCrawlWake>();
+        services.AddSingleton<GccV2ProjectSiteCrawlRunCoordinator>();
         services.AddScoped<GccV2ProjectSiteCrawlProgressNotifier>();
         services.AddScoped<GccV2ProjectSiteBfsCrawler>();
         services.AddScoped<GccV2ProjectSiteCrawlService>();
         services.AddHostedService<GccV2ProjectSiteCrawlWorker>();
+        services.AddHostedService<GccV2ProjectSiteStallRecoveryHostedService>();
         services.AddScoped<GccV2BrandKitBuilder>();
         services.AddSingleton<GccV2PlaywrightBrowserHolder>();
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();

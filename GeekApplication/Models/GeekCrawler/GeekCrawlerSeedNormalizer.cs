@@ -27,6 +27,18 @@ public static class GeekCrawlerSeedNormalizer
         return urls;
     }
 
+    public static string NormalizeOriginAuthority(string origin)
+    {
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+            return origin;
+
+        var host = uri.Host;
+        if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+            host = host[4..];
+
+        return $"{uri.Scheme}://{host}";
+    }
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> GroupSeedsByOrigin(
         IReadOnlyList<string> seedUrls)
     {
@@ -34,7 +46,7 @@ public static class GeekCrawlerSeedNormalizer
         foreach (var url in seedUrls)
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) continue;
-            var origin = uri.GetLeftPart(UriPartial.Authority);
+            var origin = NormalizeOriginAuthority(uri.GetLeftPart(UriPartial.Authority));
             if (!map.TryGetValue(origin, out var list))
             {
                 list = [];

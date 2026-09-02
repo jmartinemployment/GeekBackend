@@ -6,17 +6,20 @@ public sealed class GeekCrawlerWorker : BackgroundService
 {
     private readonly GeekCrawlerWake _wake;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly GeekCrawlerRunCoordinator _coordinator;
     private readonly ILogger<GeekCrawlerWorker> _logger;
     private readonly int _workerIndex;
 
     public GeekCrawlerWorker(
         GeekCrawlerWake wake,
         IServiceScopeFactory scopeFactory,
+        GeekCrawlerRunCoordinator coordinator,
         ILogger<GeekCrawlerWorker> logger,
         int workerIndex = 0)
     {
         _wake = wake;
         _scopeFactory = scopeFactory;
+        _coordinator = coordinator;
         _logger = logger;
         _workerIndex = workerIndex;
     }
@@ -29,15 +32,27 @@ public sealed class GeekCrawlerWorker : BackgroundService
 
         await foreach (var runId in _wake.Reader.ReadAllAsync(stoppingToken))
         {
+            var runCt = _coordinator.Register(runId);
             try
             {
                 using var scope = _scopeFactory.CreateScope();
                 var service = scope.ServiceProvider.GetRequiredService<GeekCrawlerService>();
-                await service.ExecuteRunAsync(runId, stoppingToken).ConfigureAwait(false);
+                await service.ExecuteRunAsync(runId, runCt).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation(
+                    "GeekCrawlerWorker #{WorkerIndex} run {RunId} cancelled.",
+                    _workerIndex,
+                    runId);
+            }
+            catch (Exception ex)
             {
                 _logger.LogError(ex, "GeekCrawlerWorker #{WorkerIndex} failed for run {RunId}", _workerIndex, runId);
+            }
+            finally
+            {
+                _coordinator.Unregister(runId);
             }
         }
     }
