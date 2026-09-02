@@ -100,7 +100,7 @@ public sealed class SqlMigrationRunner : IHostedService
                 await using var tx = await npg.BeginTransactionAsync(cancellationToken);
                 try
                 {
-                    await npg.ExecuteAsync(sql);
+                    await npg.ExecuteAsync(StripExplicitTransaction(sql), transaction: tx);
                     await npg.ExecuteAsync(
                         "INSERT INTO schema_migrations (script_name) VALUES (@scriptName)",
                         new { scriptName },
@@ -109,7 +109,18 @@ public sealed class SqlMigrationRunner : IHostedService
                 }
                 catch
                 {
-                    await tx.RollbackAsync(cancellationToken);
+                    try
+                    {
+                        await tx.RollbackAsync(cancellationToken);
+                    }
+                    catch (Exception rollbackEx)
+                    {
+                        _logger.LogWarning(
+                            rollbackEx,
+                            "Could not roll back after SQL migration {Script} failed",
+                            scriptName);
+                    }
+
                     throw;
                 }
             }
@@ -132,5 +143,27 @@ public sealed class SqlMigrationRunner : IHostedService
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Scripts copied from generators may include BEGIN/COMMIT; the runner owns the transaction.
+    /// </summary>
+    private static string StripExplicitTransaction(string sql)
+    {
+        var lines = sql.Split('\n');
+        var kept = new List<string>(lines.Length);
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Equals("BEGIN;", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Equals("COMMIT;", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            kept.Add(line);
+        }
+
+        return string.Join('\n', kept);
     }
 }
