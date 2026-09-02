@@ -134,6 +134,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             ownerUserId,
             competitor.BriefJson,
             projectSiteUrl,
+            projectSiteCrawlRunId,
             ct);
 
         return new GccV2ExternalResearchMergeResult(
@@ -148,15 +149,26 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string ownerUserId,
         string? rawBriefJson,
         string? projectSiteUrl,
+        Guid? projectSiteCrawlRunId,
         CancellationToken ct)
     {
-        var seeds = CollectLocalSeeds(rawBriefJson, projectSiteUrl);
-        if (seeds.Count == 0)
-            return new GccV2ExternalResearchMergeResult(rawBriefJson, []);
-
         var quoteable = new List<GccQuoteablePage>();
         var warnings = new List<string>();
-        foreach (var seed in seeds)
+
+        // Resolve on-site local seeds from the project-site crawl.
+        if (projectSiteCrawlRunId is { } runId && runId != Guid.Empty)
+        {
+            var onSite = await ResolveOnSiteLocalSeedsAsync(
+                runId,
+                rawBriefJson,
+                projectSiteUrl,
+                ct);
+            quoteable.AddRange(onSite);
+        }
+
+        // Resolve external local seeds (e.g., Google Business Profile, Yelp) from Geek-Crawler.
+        var externalSeeds = CollectExternalLocalSeeds(rawBriefJson, projectSiteUrl);
+        foreach (var seed in externalSeeds)
         {
             var (pages, warning) = await TryResolveExternalSeedAsync(
                 ownerUserId,
@@ -173,9 +185,9 @@ public sealed class GccV2GeekCrawlerResearchResolver
             return new GccV2ExternalResearchMergeResult(rawBriefJson, warnings);
 
         _logger.LogInformation(
-            "Merged {Count} local research page(s) from Geek-Crawler for {SeedCount} seed(s).",
+            "Merged {Count} local research page(s) for {SeedCount} seed(s).",
             quoteable.Count,
-            seeds.Count);
+            (projectSiteCrawlRunId != Guid.Empty ? 1 : 0) + externalSeeds.Count);
 
         return new GccV2ExternalResearchMergeResult(
             GccV2PartnerUrlResearchService.MergeLocalResearchIntoBriefJson(rawBriefJson, quoteable),
@@ -211,6 +223,45 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
         return seeds;
     }
+
+    private async Task<IReadOnlyList<GccQuoteablePage>> ResolveOnSiteLocalSeedsAsync(
+        Guid projectSiteCrawlRunId,
+        string? rawBriefJson,
+        string? projectSiteUrl,
+        CancellationToken ct)
+    {
+        // Collect on-site local seeds (project homepage matches projectSiteUrl).
+        var seeds = CollectLocalSeeds(rawBriefJson, projectSiteUrl)
+            .Where(seed => !IsExternalPartnerSeed(seed, projectSiteUrl))
+            .ToList();
+        if (seeds.Count == 0) return [];
+
+        var seedSet = BuildSeedMatchSet(seeds);
+        var storedPages = await LoadProjectSitePagesAsync(projectSiteCrawlRunId, seedSet, ct);
+
+        var quoteable = new List<GccQuoteablePage>();
+        foreach (var page in storedPages)
+        {
+            if (string.IsNullOrWhiteSpace(page.Html)) continue;
+            if (page.StatusCode is < 200 or >= 300) continue;
+
+            var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
+            if (!PageMatchesSeed(url, seedSet)) continue;
+
+            var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
+            if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
+                quoteable.Add(extracted);
+        }
+
+        return quoteable;
+    }
+
+    internal static IReadOnlyList<string> CollectExternalLocalSeeds(
+        string? rawBriefJson,
+        string? projectSiteUrl) =>
+        CollectLocalSeeds(rawBriefJson, projectSiteUrl)
+            .Where(url => IsExternalPartnerSeed(url, projectSiteUrl))
+            .ToList();
 
     public async Task<GccV2ExternalResearchMergeResult> MergePartnerResearchAsync(
         string ownerUserId,

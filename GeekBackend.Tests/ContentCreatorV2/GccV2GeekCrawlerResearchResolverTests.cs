@@ -223,6 +223,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             "user-1",
             brief,
             "https://miami-hvac.example",
+            null,
             CancellationToken.None);
 
         Assert.Equal(brief, merged.BriefJson);
