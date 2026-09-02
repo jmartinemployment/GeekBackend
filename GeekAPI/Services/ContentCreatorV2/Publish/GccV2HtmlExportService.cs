@@ -69,15 +69,17 @@ public sealed class GccV2HtmlExportService
 
         foreach (var job in jobs.OrderBy(j => j.ContentType).ThenBy(j => j.CreatedAtUtc))
         {
-            var skipReason = GccV2ExportSkipEvaluator.TryGetSkipReason(job.ResultJson);
-            if (skipReason is not null)
+            try
             {
-                skipped.Add(new GccV2ExportSkippedJob(job.Id, job.ContentType ?? "unknown", skipReason));
-                continue;
-            }
+                var skipReason = GccV2ExportSkipEvaluator.TryGetSkipReason(job.ResultJson);
+                if (skipReason is not null)
+                {
+                    skipped.Add(new GccV2ExportSkippedJob(job.Id, job.ContentType ?? "unknown", skipReason));
+                    continue;
+                }
 
-            var payload = JsonSerializer.Deserialize<JobResultPayload>(job.ResultJson, ResultJsonOpts)!;
-            var document = payload.Document!;
+                var payload = JsonSerializer.Deserialize<JobResultPayload>(job.ResultJson, ResultJsonOpts)!;
+                var document = payload.Document!;
 
             var contentType = string.IsNullOrWhiteSpace(job.ContentType) ? "blog" : job.ContentType.Trim().ToLowerInvariant();
             var title = string.IsNullOrWhiteSpace(payload.Title) ? create.Title : payload.Title!;
@@ -186,7 +188,15 @@ public sealed class GccV2HtmlExportService
             var exportPath = ExportPathFor(contentType, slug, toolKind);
             documents.Add(new ExportedHtmlDocument(exportPath, html));
 
-            AppendLinkedInCarouselExports(documents, job);
+                AppendLinkedInCarouselExports(documents, job);
+            }
+            catch (Exception ex)
+            {
+                skipped.Add(new GccV2ExportSkippedJob(
+                    job.Id,
+                    job.ContentType ?? "unknown",
+                    $"Export error: {ex.GetType().Name}: {ex.Message}"));
+            }
         }
 
         var summary = new GccV2ExportSummary(documents.Count, jobs.Count, skipped);
