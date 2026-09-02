@@ -4,11 +4,20 @@ namespace GeekAPI.Services.ContentCreatorV2.ContentTypes;
 public static class GccV2ChannelTypes
 {
     public const string LinkedInDocument = "linkedin-document";
+    public const string LinkedInCarousel = "linkedin-carousel";
 
     public static bool IsLinkedInDocument(string? contentType)
     {
         var normalized = contentType?.Trim();
         return string.Equals(normalized, LinkedInDocument, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(normalized, "linkedin-carousel", StringComparison.OrdinalIgnoreCase);
+            || string.Equals(normalized, LinkedInCarousel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsLinkedIn(string? contentType) => IsLinkedInDocument(contentType);
+
+    public static bool IsLinkedInCarousel(string? contentType)
+    {
+        var normalized = contentType?.Trim();
+        return string.Equals(normalized, LinkedInCarousel, StringComparison.OrdinalIgnoreCase);
     }
 }
