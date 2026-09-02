@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -7,7 +8,6 @@ using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Services.Export;
-using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using Microsoft.Extensions.Options;
 
 namespace GeekAPI.Services.ContentCreatorV2.Publish;
@@ -36,22 +36,16 @@ public sealed class GccV2HtmlExportService
 
     private readonly HttpGccV2Repository _repo;
     private readonly CompanyProfileOptions _company;
-    private readonly ITechnicalArticleSchemaBuilder _articleSchema;
-    private readonly IBlogPostingSchemaBuilder _blogSchema;
-    private readonly ISoftwareApplicationSchemaBuilder _toolSchema;
+    private readonly GccV2JsonLdBuilder _jsonLd;
 
     public GccV2HtmlExportService(
         HttpGccV2Repository repo,
         IOptions<CompanyProfileOptions> company,
-        ITechnicalArticleSchemaBuilder articleSchema,
-        IBlogPostingSchemaBuilder blogSchema,
-        ISoftwareApplicationSchemaBuilder toolSchema)
+        GccV2JsonLdBuilder jsonLd)
     {
         _repo = repo;
         _company = company.Value;
-        _articleSchema = articleSchema;
-        _blogSchema = blogSchema;
-        _toolSchema = toolSchema;
+        _jsonLd = jsonLd;
     }
 
     public Task<GccV2HtmlExportResult> ExportCreateAsync(Guid createId, CancellationToken ct) =>
@@ -116,12 +110,15 @@ public sealed class GccV2HtmlExportService
                 continue;
             }
 
-            var canonicalUrl = CanonicalUrlFor(contentType, slug, toolKind);
+            var canonicalUrl = _jsonLd.CanonicalUrlFor(contentType, slug, toolKind);
             var keywords = payload.Keywords is { Count: > 0 }
                 ? string.Join(", ", payload.Keywords)
                 : create.Title;
             var completedAt = job.CompletedAtUtc ?? job.UpdatedAtUtc ?? job.CreatedAtUtc;
-            var jsonLd = payload.JsonLdSchema ?? BuildJsonLd(
+            var keywordList = payload.Keywords is { Count: > 0 }
+                ? payload.Keywords
+                : keywords.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            var jsonLd = payload.JsonLdSchema ?? _jsonLd.Build(
                 contentType,
                 toolKind,
                 title,
@@ -129,7 +126,7 @@ public sealed class GccV2HtmlExportService
                 canonicalUrl,
                 document,
                 completedAt,
-                keywords,
+                keywordList,
                 payload.PillarArticleUrl);
 
             var meta = new Dictionary<string, string?>
@@ -214,67 +211,35 @@ public sealed class GccV2HtmlExportService
         }
     }
 
-    private string? BuildJsonLd(
-        string contentType,
-        string? toolPageKind,
-        string title,
-        string metaDescription,
-        string? canonicalUrl,
-        ContentDocument document,
-        DateTimeOffset completedAt,
-        string keywordsCsv,
-        string? pillarArticleUrl)
+    public static string ImagePromptFolderFor(string? sourceType)
     {
-        if (string.IsNullOrWhiteSpace(canonicalUrl)) return null;
-
-        var keywords = keywordsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-        var metadata = new ContentMetadata(
-            title,
-            metaDescription,
-            _company.AuthorName,
-            _company.PublisherName,
-            _company.PublisherLogoUrl,
-            canonicalUrl,
-            _company.PublisherLogoUrl,
-            completedAt.UtcDateTime,
-            completedAt.UtcDateTime,
-            keywords,
-            ContentDocumentText.CountWords(document));
-
-        return contentType switch
+        var normalized = (sourceType ?? "").Trim().ToLowerInvariant();
+        return normalized switch
         {
-            "pillar" => _articleSchema.Build(metadata, canonicalUrl),
-            "blog" => _blogSchema.Build(metadata, relatedArticleUrl: string.Empty),
-            "tool" when string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase) =>
-                _articleSchema.Build(metadata, pillarArticleUrl ?? canonicalUrl),
-            "tool" => _toolSchema.BuildToolPage(
-                metadata,
-                pillarArticleUrl: pillarArticleUrl ?? string.Empty,
-                new SoftwareApplicationDescriptor(title, metaDescription, canonicalUrl)),
-            _ => null,
+            "pillar-hero" => "image-prompts/pillar",
+            "blog-hero" => "image-prompts/blog",
+            "tool" => "image-prompts/sections",
+            "email" => "image-prompts/email",
+            "social" => "image-prompts/social/linkedin",
+            "ads" => "image-prompts/ads",
+            _ when normalized.EndsWith("-hero", StringComparison.Ordinal) =>
+                $"image-prompts/{normalized[..^"-hero".Length]}",
+            "pillar" or "blog" => "image-prompts/sections",
+            _ when GccV2LongFormTypes.IsLongForm(normalized) => $"image-prompts/{GccV2LongFormTypes.ExportFolder(normalized)}",
+            _ => "image-prompts/sections",
         };
     }
-
-    public static string ImagePromptFolderFor(string? sourceType) => (sourceType ?? "").Trim().ToLowerInvariant() switch
-    {
-        "pillar-hero" => "image-prompts/pillar",
-        "blog-hero" => "image-prompts/blog",
-        "pillar" or "blog" or "tool" => "image-prompts/sections",
-        "email" => "image-prompts/email",
-        "social" => "image-prompts/social/linkedin",
-        "ads" => "image-prompts/ads",
-        _ => "image-prompts/sections",
-    };
 
     public static string ImagePromptExportSlug(string articleSlug, ImagePromptSectionMeta? sectionMeta)
     {
         if (sectionMeta is null) return articleSlug;
 
         var sourceType = sectionMeta.SourceType.Trim().ToLowerInvariant();
-        if (sourceType is "pillar-hero" or "blog-hero" or "tool" or "email" or "social" or "ads")
+        if (sourceType.EndsWith("-hero", StringComparison.Ordinal)
+            || sourceType is "tool" or "email" or "social" or "ads")
             return $"{articleSlug}-{sourceType}";
 
-        if (sourceType is "pillar" or "blog")
+        if (sourceType is "pillar" or "blog" || GccV2LongFormTypes.IsLongForm(sourceType))
             return $"{articleSlug}-{sourceType}-h2-{SlugHelper.Slugify(sectionMeta.Heading)}";
 
         return $"{articleSlug}-{sourceType}";
@@ -285,16 +250,6 @@ public sealed class GccV2HtmlExportService
             ? string.Join(" ", paragraph.Runs.Select(r => r.Text))
             : string.Empty;
 
-    private string? CanonicalUrlFor(string contentType, string slug, string? toolPageKind) => contentType switch
-    {
-        "pillar" => CombineUrl(_company.ArticleBaseUrl, "marketing", slug),
-        "blog" => CombineUrl(_company.BlogBaseUrl, "marketing", slug),
-        "tool" when string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase) =>
-            $"{_company.ToolBaseUrl.TrimEnd('/')}/{slug}",
-        "tool" => CombineUrl(_company.ToolBaseUrl, "marketing", slug),
-        _ => null,
-    };
-
     private static string ExportPathFor(string contentType, string slug, string? toolPageKind)
     {
         if (contentType == "tool" && string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase))
@@ -304,19 +259,18 @@ public sealed class GccV2HtmlExportService
         return $"{FolderFor(contentType)}/{slug}.html";
     }
 
-    private static string CombineUrl(string baseUrl, string department, string slug) =>
-        $"{baseUrl.TrimEnd('/')}/{department}/{slug}";
-
-    private static string FolderFor(string contentType) => contentType switch
+    private static string FolderFor(string contentType)
     {
-        "pillar" => "use-cases",
-        "blog" => "blog",
-        "tool" => "tools",
-        "email" => "email",
-        "social" => "social/linkedin",
-        "ads" => "ads",
-        _ => "misc",
-    };
+        if (GccV2LongFormTypes.IsLongForm(contentType))
+            return GccV2LongFormTypes.ExportFolder(contentType);
+        return contentType switch
+        {
+            "email" => "email",
+            "social" => "social/linkedin",
+            "ads" => "ads",
+            _ => "misc",
+        };
+    }
 
     private sealed record JobResultPayload(
         string? Title,

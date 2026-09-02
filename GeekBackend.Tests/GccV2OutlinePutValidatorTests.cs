@@ -41,4 +41,24 @@ public class GccV2OutlinePutValidatorTests
 
         Assert.Null(error);
     }
+
+    [Fact]
+    public void ValidatePutOutlineSections_requires_two_options_for_comparison()
+    {
+        Assert.Equal(
+            "Comparison and alternatives outlines need at least two option sections.",
+            GccV2OutlinePutValidator.ValidatePutOutlineSections(
+                ["problem", "advance", "faq"],
+                "comparison"));
+    }
+
+    [Fact]
+    public void ValidatePutOutlineSections_requires_two_steps_for_guide()
+    {
+        Assert.Equal(
+            "Guide outlines need at least two step sections.",
+            GccV2OutlinePutValidator.ValidatePutOutlineSections(
+                ["problem", "advance", "faq"],
+                "guide"));
+    }
 }

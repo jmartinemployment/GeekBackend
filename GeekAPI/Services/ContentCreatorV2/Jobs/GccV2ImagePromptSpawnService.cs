@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 
 namespace GeekAPI.Services.ContentCreatorV2.Jobs;
@@ -49,7 +50,8 @@ public sealed class GccV2ImagePromptSpawnService
 
     private static readonly HashSet<string> SpawnSourceTypes =
     [
-        "pillar", "blog", "tool", "email", "social", "ads",
+        ..GccV2LongFormTypes.AllTypes,
+        "email", "social", "ads",
     ];
 
     private readonly HttpGccV2Repository _repo;
@@ -182,28 +184,31 @@ public sealed class GccV2ImagePromptSpawnService
 
         switch (normalized)
         {
-            case "pillar":
-                targets.Add(new ImagePromptSpawnTarget("pillar-hero", title, 0));
-                var pillarOrder = 1;
-                foreach (var section in document?.Sections ?? [])
-                {
-                    if (PillarSectionClassifier.IsFaqSectionTitle(section.Heading)) continue;
-                    targets.Add(new ImagePromptSpawnTarget("pillar", section.Heading, pillarOrder++));
-                }
+            case GccV2LongFormTypes.Pillar:
+                AddHeroAndSections(targets, "pillar", title, document);
                 break;
 
-            case "blog":
-                targets.Add(new ImagePromptSpawnTarget("blog-hero", title, 0));
-                var blogOrder = 1;
-                foreach (var section in document?.Sections ?? [])
-                {
-                    if (PillarSectionClassifier.IsFaqSectionTitle(section.Heading)) continue;
-                    targets.Add(new ImagePromptSpawnTarget("blog", section.Heading, blogOrder++));
-                }
+            case GccV2LongFormTypes.Blog:
+                AddHeroAndSections(targets, "blog", title, document);
                 break;
 
-            case "tool":
+            case GccV2LongFormTypes.Tool:
                 targets.Add(new ImagePromptSpawnTarget("tool", title, 1));
+                break;
+
+            case GccV2LongFormTypes.Comparison:
+            case GccV2LongFormTypes.CaseStudy:
+            case GccV2LongFormTypes.Alternatives:
+            case GccV2LongFormTypes.TechArticle:
+            case GccV2LongFormTypes.Service:
+            case GccV2LongFormTypes.Local:
+            case GccV2LongFormTypes.Whitepaper:
+                AddHeroAndSections(targets, normalized, title, document);
+                break;
+
+            case GccV2LongFormTypes.Guide:
+            case GccV2LongFormTypes.Listicle:
+                AddHeroAndSections(targets, normalized, title, document);
                 break;
 
             case "email":
@@ -220,6 +225,21 @@ public sealed class GccV2ImagePromptSpawnService
         }
 
         return targets;
+    }
+
+    private static void AddHeroAndSections(
+        List<ImagePromptSpawnTarget> targets,
+        string sourceType,
+        string title,
+        ContentDocument? document)
+    {
+        targets.Add(new ImagePromptSpawnTarget($"{sourceType}-hero", title, 0));
+        var order = 1;
+        foreach (var section in document?.Sections ?? [])
+        {
+            if (PillarSectionClassifier.IsFaqSectionTitle(section.Heading)) continue;
+            targets.Add(new ImagePromptSpawnTarget(sourceType, section.Heading, order++));
+        }
     }
 
     private async Task<HashSet<(Guid SourceJobId, string SourceType, int Order)>> LoadExistingSpawnKeysAsync(

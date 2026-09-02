@@ -263,6 +263,39 @@ public static class GccV2PartnerUrlResearchService
         }
     }
 
+    public static string? MergeLocalResearchIntoBriefJson(
+        string? rawBriefJson,
+        IReadOnlyList<GccQuoteablePage> pages)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "localResearch", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    prop.WriteTo(writer);
+                }
+
+                writer.WritePropertyName("localResearch");
+                JsonSerializer.Serialize(writer, pages, JsonOpts);
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return rawBriefJson;
+        }
+    }
+
     private static int FindCrawlToolIndex(IReadOnlyList<PartnerToolRow> rows, string? opName, string destUrl)
     {
         if (!string.IsNullOrWhiteSpace(opName))

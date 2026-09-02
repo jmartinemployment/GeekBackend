@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Plan;
+using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
@@ -506,14 +507,26 @@ public sealed class GccV2JobWorker : BackgroundService
 
         var finalDocument = outcome.Final.ToContentDocument();
         var toolPage = written.ToolPage ?? outcome.Final.ToolPage;
+        var jsonLdBuilder = scope.ServiceProvider.GetRequiredService<GccV2JsonLdBuilder>();
+        var keywordsList = toolPage?.Keywords ?? outcome.Final.Keywords ?? [];
+        var jsonLdSchema = toolPage?.JsonLdSchema ?? jsonLdBuilder.BuildForJob(
+            job.ContentType ?? "blog",
+            toolPage?.Kind,
+            outcome.Final.Title,
+            outcome.Final.MetaDescription ?? string.Empty,
+            finalDocument,
+            DateTimeOffset.UtcNow,
+            keywordsList,
+            toolPage?.PillarArticleUrl,
+            toolPage?.Slug);
         var resultJson = JsonSerializer.Serialize(new
         {
             title = outcome.Final.Title,
             metaDescription = outcome.Final.MetaDescription,
             document = finalDocument,
             slug = toolPage?.Slug,
-            jsonLdSchema = toolPage?.JsonLdSchema,
-            keywords = toolPage?.Keywords,
+            jsonLdSchema,
+            keywords = keywordsList,
             excerpt = toolPage?.Excerpt,
             mainSummary = toolPage?.MainSummary,
             heroSummary = toolPage?.HeroSummary,

@@ -76,6 +76,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2ValidateService>();
         services.AddScoped<GccV2RepurposeTransformService>();
         services.AddScoped<GccV2CmsPublishService>();
+        services.AddScoped<GccV2JsonLdBuilder>();
         services.AddScoped<GccV2HtmlExportService>();
         services.AddScoped<GccV2AiVisibilityService>();
         services.AddMemoryCache();

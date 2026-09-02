@@ -7,7 +7,7 @@ public static class GccV2OutlinePutValidator
     /// Returns an error message when roles are invalid; null when acceptable.
     /// When no section declares a job, legacy outlines pass through unchanged.
     /// </summary>
-    public static string? ValidatePutOutlineSections(IReadOnlyList<string?> jobs)
+    public static string? ValidatePutOutlineSections(IReadOnlyList<string?> jobs, string? contentType = null)
     {
         if (jobs.Count == 0) return null;
 
@@ -21,6 +21,13 @@ public static class GccV2OutlinePutValidator
 
         if (!string.Equals(jobs[0], "problem", StringComparison.OrdinalIgnoreCase))
             return "First outline section must be the problem role.";
+
+        var normalizedType = (contentType ?? "").Trim().ToLowerInvariant();
+        var advanceCount = jobs.Count(j => string.Equals(j, "advance", StringComparison.OrdinalIgnoreCase));
+        if (normalizedType is "comparison" or "alternatives" && advanceCount < 2)
+            return "Comparison and alternatives outlines need at least two option sections.";
+        if (normalizedType == "guide" && advanceCount < 2)
+            return "Guide outlines need at least two step sections.";
 
         return null;
     }

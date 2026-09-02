@@ -367,20 +367,12 @@ public class GccV2Controller : ControllerBase
         rawBriefJson = await TryMergeSiteHierarchyAsync(rawBriefJson, create.SiteUrl, ct);
         rawBriefJson = await TryMergeHierarchyPlanAsync(rawBriefJson, request, create.Title, ct);
 
-        GccV2ExternalResearchMergeResult mergeResult;
-        try
-        {
-            mergeResult = await _researchResolver.MergeExternalResearchAsync(
-                _user.UserId.ToString("D"),
-                rawBriefJson,
-                create.SiteUrl,
-                runId,
-                ct);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        GccV2ExternalResearchMergeResult mergeResult = await _researchResolver.MergeExternalResearchAsync(
+            _user.UserId.ToString("D"),
+            rawBriefJson,
+            create.SiteUrl,
+            runId,
+            ct);
 
         rawBriefJson = mergeResult.BriefJson;
 
@@ -869,7 +861,8 @@ public class GccV2Controller : ControllerBase
             return BadRequest(new { error = "sections required" });
 
         var roleValidation = GccV2OutlinePutValidator.ValidatePutOutlineSections(
-            request.Sections.Select(s => s.Job).ToList());
+            request.Sections.Select(s => s.Job).ToList(),
+            job.ContentType);
         if (roleValidation is not null)
             return BadRequest(new { error = roleValidation });
 

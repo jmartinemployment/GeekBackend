@@ -1,12 +1,12 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
-using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using GeekApplication.Interfaces;
 using GeekApplication.Models.Blog;
 using HtmlAgilityPack;
@@ -52,9 +52,7 @@ public sealed class GccV2CmsPublishService
     private readonly IBlogRepository _blog;
     private readonly GccV2JobEventWriter _events;
     private readonly CompanyProfileOptions _company;
-    private readonly ITechnicalArticleSchemaBuilder _articleSchema;
-    private readonly IBlogPostingSchemaBuilder _blogSchema;
-    private readonly ISoftwareApplicationSchemaBuilder _toolSchema;
+    private readonly GccV2JsonLdBuilder _jsonLd;
     private readonly ILogger<GccV2CmsPublishService> _logger;
 
     public GccV2CmsPublishService(
@@ -62,18 +60,14 @@ public sealed class GccV2CmsPublishService
         IBlogRepository blog,
         GccV2JobEventWriter events,
         IOptions<CompanyProfileOptions> company,
-        ITechnicalArticleSchemaBuilder articleSchema,
-        IBlogPostingSchemaBuilder blogSchema,
-        ISoftwareApplicationSchemaBuilder toolSchema,
+        GccV2JsonLdBuilder jsonLd,
         ILogger<GccV2CmsPublishService> logger)
     {
         _repo = repo;
         _blog = blog;
         _events = events;
         _company = company.Value;
-        _articleSchema = articleSchema;
-        _blogSchema = blogSchema;
-        _toolSchema = toolSchema;
+        _jsonLd = jsonLd;
         _logger = logger;
     }
 
@@ -153,7 +147,7 @@ public sealed class GccV2CmsPublishService
             var completedAt = job.CompletedAtUtc ?? job.UpdatedAtUtc ?? DateTimeOffset.UtcNow;
             var canonicalUrl = BuildPublicUrl(contentType, languageCode, slug);
             var keywords = payload.Keywords ?? [];
-            var jsonLd = payload.JsonLdSchema ?? BuildJsonLd(
+            var jsonLd = payload.JsonLdSchema ?? _jsonLd.Build(
                 contentType,
                 toolKind,
                 title,
@@ -292,20 +286,22 @@ public sealed class GccV2CmsPublishService
         return new GccV2CmsPublishResult(false, "failed", null, null, null, error, null, recordId);
     }
 
-    /// <summary>blog → geek_blog.post_type_enum "Blog"/"BlogPosting"; pillar/tool → "Pillar"/"Tool"
-    /// with schema "TechnicalArticle" (matches <c>IBlogRepository.GetTechnicalArticlesOnlyAsync</c>,
-    /// which filters on that schema type). Any other v2 content type (email/social/ads/…) falls back
-    /// to Blog/BlogPosting since the CMS has no other post type for it.</summary>
+    /// <summary>Long-form article-like types map to Pillar/TechnicalArticle; guide/listicle/blog to Blog/BlogPosting.</summary>
     private static (string PostType, string SchemaType) MapContentType(string contentType) => contentType switch
     {
-        "pillar" => ("Pillar", "TechnicalArticle"),
-        "tool" => ("Tool", "TechnicalArticle"),
+        GccV2LongFormTypes.Pillar or GccV2LongFormTypes.Comparison or GccV2LongFormTypes.CaseStudy
+            or GccV2LongFormTypes.Alternatives or GccV2LongFormTypes.TechArticle
+            or GccV2LongFormTypes.Service or GccV2LongFormTypes.Local => ("Pillar", "TechnicalArticle"),
+        GccV2LongFormTypes.Tool => ("Tool", "TechnicalArticle"),
         _ => ("Blog", "BlogPosting"),
     };
 
     private static string DefaultCategorySlug(string contentType) => contentType switch
     {
-        "pillar" or "tool" => "use-cases",
+        GccV2LongFormTypes.Pillar or GccV2LongFormTypes.Tool
+            or GccV2LongFormTypes.Comparison or GccV2LongFormTypes.CaseStudy
+            or GccV2LongFormTypes.Alternatives or GccV2LongFormTypes.TechArticle
+            or GccV2LongFormTypes.Service or GccV2LongFormTypes.Local => "use-cases",
         _ => "blog",
     };
 
@@ -351,10 +347,12 @@ public sealed class GccV2CmsPublishService
 
     private string BuildPublicUrl(string contentType, string languageCode, string slug)
     {
-        var baseUrl = contentType switch
+        var normalized = GccV2LongFormTypes.Normalize(contentType);
+        var baseUrl = normalized switch
         {
-            "pillar" or "tool" => _company.ArticleBaseUrl,
-            _ => _company.BlogBaseUrl,
+            GccV2LongFormTypes.Blog or GccV2LongFormTypes.Guide or GccV2LongFormTypes.Listicle =>
+                _company.BlogBaseUrl,
+            _ => _company.ArticleBaseUrl,
         };
 
         if (string.IsNullOrWhiteSpace(baseUrl)) return string.Empty;
@@ -514,46 +512,6 @@ public sealed class GccV2CmsPublishService
 
     private static string NormalizeContentType(string? contentType) =>
         string.IsNullOrWhiteSpace(contentType) ? "blog" : contentType.Trim().ToLowerInvariant();
-
-    private string? BuildJsonLd(
-        string contentType,
-        string? toolPageKind,
-        string title,
-        string metaDescription,
-        string canonicalUrl,
-        ContentDocument document,
-        DateTimeOffset completedAt,
-        IReadOnlyList<string> keywords,
-        string? pillarArticleUrl)
-    {
-        if (string.IsNullOrWhiteSpace(canonicalUrl)) return null;
-
-        var metadata = new ContentMetadata(
-            title,
-            metaDescription,
-            _company.AuthorName,
-            _company.PublisherName,
-            _company.PublisherLogoUrl,
-            canonicalUrl,
-            _company.PublisherLogoUrl,
-            completedAt.UtcDateTime,
-            completedAt.UtcDateTime,
-            keywords.ToList(),
-            ContentDocumentText.CountWords(document));
-
-        return contentType switch
-        {
-            "pillar" => _articleSchema.Build(metadata, canonicalUrl),
-            "blog" => _blogSchema.Build(metadata, relatedArticleUrl: string.Empty),
-            "tool" when string.Equals(toolPageKind, "overview", StringComparison.OrdinalIgnoreCase) =>
-                _articleSchema.Build(metadata, pillarArticleUrl ?? canonicalUrl),
-            "tool" => _toolSchema.BuildToolPage(
-                metadata,
-                pillarArticleUrl: pillarArticleUrl ?? string.Empty,
-                new SoftwareApplicationDescriptor(title, metaDescription, canonicalUrl)),
-            _ => null,
-        };
-    }
 
     private static Guid ParseOwner(string ownerUserId) => Guid.TryParse(ownerUserId, out var id) ? id : Guid.Empty;
 

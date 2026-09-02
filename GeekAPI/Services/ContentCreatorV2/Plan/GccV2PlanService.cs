@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 
 namespace GeekAPI.Services.ContentCreatorV2.Plan;
 
@@ -70,7 +72,8 @@ public sealed class GccV2PlanService
         contentType = contentType.Trim().ToLowerInvariant();
 
         var (sectionDefs, headingsFromHierarchy) = BuildSectionDefinitions(
-            contentType, keyword, topicChildren, preferSiteStructure, regenerateVariant);
+            contentType, keyword, topicChildren, preferSiteStructure, regenerateVariant, partnerToolNames,
+            brief.RawBriefJson);
         sectionDefs = DedupeByHeading(sectionDefs);
         var perSectionChildren = PartitionChildHeadings(topicChildren, sectionDefs.Count, headingsFromHierarchy);
         // MUST-mention partner tools — distributed across sections (never as H2s).
@@ -107,7 +110,7 @@ public sealed class GccV2PlanService
             }
         }
 
-        if (contentType is "pillar" or "blog")
+        if (GccV2LongFormTypes.ExpectsFaqSection(contentType))
         {
             var paaQuestions = ExtractPaaQuestions(brief.RawBriefJson, keyword, partnerToolNames);
             sections.Add(new GccV2PlanOutlineSection(
@@ -291,20 +294,119 @@ public sealed class GccV2PlanService
         string keyword,
         List<string> childHeadings,
         bool preferSiteStructure,
-        int regenerateVariant)
+        int regenerateVariant,
+        IReadOnlyList<string> partnerToolNames,
+        string? rawBriefJson)
     {
         var title = Capitalize(keyword);
         var useHierarchy = childHeadings.Count >= 2
-            && (preferSiteStructure || contentType is "pillar" or "blog" or "tool");
+            && (preferSiteStructure || contentType is "pillar" or "blog" or "tool"
+                or GccV2LongFormTypes.Guide or GccV2LongFormTypes.Comparison);
 
-        if (useHierarchy && contentType is "pillar" or "blog" or "tool")
+        if (useHierarchy && contentType is "pillar" or "blog" or "tool"
+            or GccV2LongFormTypes.Guide or GccV2LongFormTypes.Comparison)
         {
-            var picked = childHeadings.Take(contentType is "tool" ? 4 : 5).ToList();
+            var max = contentType switch
+            {
+                "tool" => 4,
+                GccV2LongFormTypes.Guide => 8,
+                _ => 5,
+            };
+            var picked = childHeadings.Take(max).ToList();
             return (MakeUniqueKeys(picked).ToList(), true);
         }
 
         switch (contentType)
         {
+            case GccV2LongFormTypes.Comparison:
+            {
+                var options = ExtractComparisonOptionNames(keyword, childHeadings, partnerToolNames, rawBriefJson);
+                return (DedupeByHeading(
+                [
+                    ("criteria", $"How We Evaluated {title} Options"),
+                    ..options.Select((o, i) => ($"option-{i + 1}", o)),
+                    ("verdict", $"Which {title} Option Fits Best"),
+                ]), false);
+            }
+            case GccV2LongFormTypes.CaseStudy:
+                return (DedupeByHeading(
+                [
+                    ("context", "Client Context"),
+                    ("challenge", "Challenge"),
+                    ("approach", "Approach"),
+                    ("implementation", "Implementation"),
+                    ("results", "Results"),
+                    ("lessons", "Lessons Learned"),
+                ]), false);
+            case GccV2LongFormTypes.Guide:
+            {
+                var steps = childHeadings.Count >= 2
+                    ? childHeadings.Take(8).Select((h, i) => ($"step-{i + 1}", h)).ToList()
+                    : Enumerable.Range(1, 5).Select(i => ($"step-{i}", $"Step {i}: {title}")).ToList();
+                return (DedupeByHeading(
+                [
+                    ("prerequisites", "Prerequisites and What You'll Learn"),
+                    ..steps,
+                ]), childHeadings.Count >= 2);
+            }
+            case GccV2LongFormTypes.Alternatives:
+            {
+                var alts = partnerToolNames.Count > 0
+                    ? partnerToolNames.Take(6).ToList()
+                    : ["Alternative 1", "Alternative 2", "Alternative 3"];
+                return (DedupeByHeading(
+                [
+                    ("why-alternatives", $"Why Teams Seek Alternatives to {title}"),
+                    ..alts.Select((a, i) => ($"alt-{i + 1}", a)),
+                ]), false);
+            }
+            case GccV2LongFormTypes.TechArticle:
+                return (DedupeByHeading(
+                [
+                    ("architecture", $"Architecture Overview for {title}"),
+                    ("components", "Core Components"),
+                    ("integration", "Integration Patterns"),
+                    ("tradeoffs", "Tradeoffs and Decisions"),
+                    ("operations", "Operations and Maintenance"),
+                ]), false);
+            case GccV2LongFormTypes.Listicle:
+                return (DedupeByHeading(
+                [
+                    ("intro", $"Top Picks for {title}"),
+                    ("item-1", $"#1 — {title} Option One"),
+                    ("item-2", $"#2 — {title} Option Two"),
+                    ("item-3", $"#3 — {title} Option Three"),
+                    ("item-4", $"#4 — {title} Option Four"),
+                    ("item-5", $"#5 — {title} Option Five"),
+                    ("verdict", "Final Verdict"),
+                ]), false);
+            case GccV2LongFormTypes.Service:
+                return (DedupeByHeading(
+                [
+                    ("who-for", "Who This Service Is For"),
+                    ("deliverables", "What You Get"),
+                    ("process", "Our Process"),
+                    ("proof", "Proof and Outcomes"),
+                    ("next-step", "Next Step"),
+                ]), false);
+            case GccV2LongFormTypes.Local:
+                return (DedupeByHeading(
+                [
+                    ("area", "Service Area"),
+                    ("offer", "What We Offer Locally"),
+                    ("proof", "Local Proof"),
+                    ("faq-local", "Local FAQ"),
+                ]), false);
+            case GccV2LongFormTypes.Whitepaper:
+                return (DedupeByHeading(
+                [
+                    ("executive-summary", "Executive Summary"),
+                    ("problem-space", "Problem Space"),
+                    ("methodology", "Methodology"),
+                    ("findings", "Findings"),
+                    ("recommendations", "Recommendations"),
+                    ("cta", "Get the Full Report"),
+                ]), false);
             case "pillar":
             {
                 var defsGeneric = BuildDeclarativeHeadings(title, regenerateVariant)
@@ -475,6 +577,52 @@ public sealed class GccV2PlanService
             slug = slug.Replace("--", "-", StringComparison.Ordinal);
         slug = slug.Trim('-');
         return string.IsNullOrWhiteSpace(slug) ? $"section-{fallbackIndex}" : slug;
+    }
+
+    private static List<string> ExtractComparisonOptionNames(
+        string keyword,
+        IReadOnlyList<string> childHeadings,
+        IReadOnlyList<string> partnerToolNames,
+        string? rawBriefJson)
+    {
+        var options = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in partnerToolNames)
+        {
+            var n = name.Trim();
+            if (n.Length == 0 || !seen.Add(n)) continue;
+            options.Add(n);
+        }
+
+        foreach (var href in GccV2PartnerUrlResearchService.CollectCompetitorHrefs(rawBriefJson))
+        {
+            var label = CompetitorLabelFromHref(href);
+            if (label.Length == 0 || !seen.Add(label)) continue;
+            options.Add(label);
+        }
+
+        foreach (var h in childHeadings)
+        {
+            var n = h.Trim();
+            if (n.Length == 0 || !seen.Add(n)) continue;
+            options.Add(n);
+        }
+
+        if (options.Count >= 2) return options.Take(6).ToList();
+
+        var title = Capitalize(keyword);
+        return [$"{title} Option A", $"{title} Option B", $"{title} Option C"];
+    }
+
+    private static string CompetitorLabelFromHref(string href)
+    {
+        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri))
+            return href.Trim();
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+        var segment = uri.AbsolutePath.Trim('/').Split('/').LastOrDefault();
+        if (!string.IsNullOrWhiteSpace(segment) && segment.Length > 2)
+            return char.ToUpperInvariant(segment[0]) + segment[1..].Replace('-', ' ');
+        return char.ToUpperInvariant(host[0]) + host[1..].Split('.')[0];
     }
 
     private static string Capitalize(string value)

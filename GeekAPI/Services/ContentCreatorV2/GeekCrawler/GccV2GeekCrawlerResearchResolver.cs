@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Partner;
@@ -129,10 +130,86 @@ public sealed class GccV2GeekCrawlerResearchResolver
             ownerUserId,
             partner.BriefJson,
             ct);
+        var local = await MergeLocalResearchAsync(
+            ownerUserId,
+            competitor.BriefJson,
+            projectSiteUrl,
+            ct);
 
         return new GccV2ExternalResearchMergeResult(
-            competitor.BriefJson,
-            partner.PartnerResearchWarnings.Concat(competitor.PartnerResearchWarnings).ToList());
+            local.BriefJson,
+            partner.PartnerResearchWarnings
+                .Concat(competitor.PartnerResearchWarnings)
+                .Concat(local.PartnerResearchWarnings)
+                .ToList());
+    }
+
+    public async Task<GccV2ExternalResearchMergeResult> MergeLocalResearchAsync(
+        string ownerUserId,
+        string? rawBriefJson,
+        string? projectSiteUrl,
+        CancellationToken ct)
+    {
+        var seeds = CollectLocalSeeds(rawBriefJson, projectSiteUrl);
+        if (seeds.Count == 0)
+            return new GccV2ExternalResearchMergeResult(rawBriefJson, []);
+
+        var quoteable = new List<GccQuoteablePage>();
+        var warnings = new List<string>();
+        foreach (var seed in seeds)
+        {
+            var (pages, warning) = await TryResolveExternalSeedAsync(
+                ownerUserId,
+                CrawlTypes.Local,
+                seed,
+                ct);
+            if (pages.Count > 0)
+                quoteable.AddRange(pages);
+            else if (warning is not null)
+                warnings.Add(warning);
+        }
+
+        if (quoteable.Count == 0)
+            return new GccV2ExternalResearchMergeResult(rawBriefJson, warnings);
+
+        _logger.LogInformation(
+            "Merged {Count} local research page(s) from Geek-Crawler for {SeedCount} seed(s).",
+            quoteable.Count,
+            seeds.Count);
+
+        return new GccV2ExternalResearchMergeResult(
+            GccV2PartnerUrlResearchService.MergeLocalResearchIntoBriefJson(rawBriefJson, quoteable),
+            warnings);
+    }
+
+    internal static IReadOnlyList<string> CollectLocalSeeds(string? rawBriefJson, string? projectSiteUrl)
+    {
+        var seeds = new List<string>();
+        if (GccV2HomepageUrl.TryNormalize(projectSiteUrl, out var homepage))
+            seeds.Add(homepage);
+
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return seeds;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (doc.RootElement.TryGetProperty("localBusinessUrls", out var urls) && urls.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in urls.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.String) continue;
+                    var url = item.GetString();
+                    if (!string.IsNullOrWhiteSpace(url) && !seeds.Contains(url, StringComparer.OrdinalIgnoreCase))
+                        seeds.Add(url.Trim());
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // ignore malformed brief
+        }
+
+        return seeds;
     }
 
     public async Task<GccV2ExternalResearchMergeResult> MergePartnerResearchAsync(
@@ -166,13 +243,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
             else if (warning is not null)
-                throw new InvalidOperationException(warning);
-        }
-
-        if (quoteable.Count == 0 && externalSeeds.Count > 0)
-        {
-            throw new InvalidOperationException(
-                "Partner research required but no extractable pages were found for external tool URLs.");
+                warnings.Add(warning);
         }
 
         if (quoteable.Count == 0)
@@ -209,14 +280,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
             else if (warning is not null)
-                throw new InvalidOperationException(warning);
+                warnings.Add(warning);
         }
 
         if (quoteable.Count == 0)
-        {
-            throw new InvalidOperationException(
-                "Competitor research required but no extractable pages were found.");
-        }
+            return new GccV2ExternalResearchMergeResult(rawBriefJson, warnings);
 
         _logger.LogInformation(
             "Merged {Count} competitor research page(s) from Geek-Crawler for {SeedCount} seed(s).",
@@ -388,9 +456,13 @@ public sealed class GccV2GeekCrawlerResearchResolver
     internal static string DescribeUnavailableResearch(string seed, string crawlType)
     {
         var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
-        return crawlType == CrawlTypes.Competitors
-            ? $"Competitor research for {host} unavailable — Geek-Crawler crawl did not finish or has no extractable pages."
-            : $"Partner research for {host} unavailable — Geek-Crawler crawl did not finish or has no extractable pages.";
+        var prefix = crawlType switch
+        {
+            CrawlTypes.Competitors => $"Competitor research for {host} unavailable",
+            CrawlTypes.Local => $"Local research for {host} unavailable",
+            _ => $"Partner research for {host} unavailable",
+        };
+        return $"{prefix} (external crawl did not finish or has no extractable pages). Continuing without it.";
     }
 
     private static HashSet<string> BuildSeedMatchSet(IEnumerable<string> seeds)

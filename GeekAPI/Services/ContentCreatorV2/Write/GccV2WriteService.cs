@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Gcw;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
@@ -27,6 +28,7 @@ public sealed class GccV2WriteOutput
     public required GccV2WriteSection Lede { get; init; }
     public required IReadOnlyList<GccV2WriteSection> Sections { get; init; }
     public int TokensUsed { get; init; }
+    public IReadOnlyList<string> Keywords { get; init; } = [];
     public GccV2ToolPageWriteExtras? ToolPage { get; init; }
 
     public ContentDocument ToContentDocument() => new(Lede.Section, Sections.Select(s => s.Section).ToList());
@@ -38,11 +40,11 @@ public sealed class GccV2WriteOutput
     {
         if (replacement.SectionKey == Lede.SectionKey)
         {
-            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed, ToolPage = ToolPage };
+            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage };
         }
 
         var sections = Sections.Select(s => s.SectionKey == replacement.SectionKey ? replacement : s).ToList();
-        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed, ToolPage = ToolPage };
+        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage };
     }
 
     public GccV2WriteOutput WithAppendedSection(GccV2WriteSection section) =>
@@ -53,6 +55,7 @@ public sealed class GccV2WriteOutput
             Lede = Lede,
             Sections = Sections.Append(section).ToList(),
             TokensUsed = TokensUsed,
+            Keywords = Keywords,
             ToolPage = ToolPage,
         };
 }
@@ -251,12 +254,21 @@ public sealed class GccV2WriteService
 
     public Task<GccV2WriteOutput> WriteAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
-        var contentType = string.IsNullOrWhiteSpace(wc.Job.ContentType) ? "blog" : wc.Job.ContentType.ToLowerInvariant();
+        var contentType = GccV2LongFormTypes.Normalize(wc.Job.ContentType);
         return contentType switch
         {
-            "pillar" => WritePillarAsync(wc, ownerUserId, ct),
-            "blog" => WriteBlogAsync(wc, ownerUserId, ct),
-            "tool" => WriteToolAsync(wc, ownerUserId, ct),
+            GccV2LongFormTypes.Pillar
+                or GccV2LongFormTypes.Comparison
+                or GccV2LongFormTypes.CaseStudy
+                or GccV2LongFormTypes.Alternatives
+                or GccV2LongFormTypes.TechArticle
+                or GccV2LongFormTypes.Service
+                or GccV2LongFormTypes.Local
+                or GccV2LongFormTypes.Whitepaper => WritePillarAsync(wc, ownerUserId, ct),
+            GccV2LongFormTypes.Blog
+                or GccV2LongFormTypes.Guide
+                or GccV2LongFormTypes.Listicle => WriteBlogAsync(wc, ownerUserId, ct),
+            GccV2LongFormTypes.Tool => WriteToolAsync(wc, ownerUserId, ct),
             "email" => WriteEmailAsync(wc, ownerUserId, ct),
             "social" => WriteSocialAsync(wc, ownerUserId, ct),
             "ads" => WriteAdsAsync(wc, ownerUserId, ct),
@@ -383,6 +395,7 @@ public sealed class GccV2WriteService
             Lede = ledeWrite,
             Sections = sections,
             TokensUsed = tokensUsed,
+            Keywords = metadata.Keywords,
         };
     }
 
@@ -432,6 +445,7 @@ public sealed class GccV2WriteService
             Lede = ledeWrite,
             Sections = sections,
             TokensUsed = tokensUsed,
+            Keywords = blogMeta.Keywords,
         };
     }
 
