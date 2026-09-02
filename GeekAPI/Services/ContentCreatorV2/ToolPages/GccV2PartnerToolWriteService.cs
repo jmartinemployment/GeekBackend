@@ -298,9 +298,11 @@ public sealed class GccV2PartnerToolWriteService
 
         try
         {
+            var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
+            options.Converters.Add(new ParagraphJsonConverter());
             var payload = JsonSerializer.Deserialize<PillarResultPayload>(
                 pillarJob.ResultJson,
-                new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true });
+                options);
             if (payload?.Document is null) return null;
             var title = payload.Title ?? "";
             var slug = SlugHelper.Slugify(title);
@@ -310,6 +312,10 @@ public sealed class GccV2PartnerToolWriteService
             return new PillarSnapshot(title, payload.MetaDescription, canonical, excerpt);
         }
         catch (JsonException)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
         {
             return null;
         }
