@@ -425,7 +425,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         {
             var collection = _db.GetCollection<BsonDocument>("crawl_links");
             var fb = Builders<BsonDocument>.Filter;
-            var filter = fb.Eq("RunId", runId.ToString()) & fb.Eq("IsSameOrigin", "t");
+            var filter = fb.Eq("RunId", runId.ToString());
 
             // Compound keyset cursor: (time > after) OR (time == after AND id > afterId)
             if (afterDiscoveredAtUtc.HasValue && afterId.HasValue)
