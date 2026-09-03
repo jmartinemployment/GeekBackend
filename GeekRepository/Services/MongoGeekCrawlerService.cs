@@ -443,17 +443,25 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                     .Include("DiscoveredAtUtc"))
                 .ToListAsync(ct);
 
-            return links.Select(doc =>
+            return links.Select((doc, idx) =>
             {
-                var linkUrl = doc.GetValue("LinkUrl", BsonNull.Value);
-                var discoveredAtUtc = doc.GetValue("DiscoveredAtUtc", BsonNull.Value);
-                var id = doc.GetValue("Id", BsonNull.Value);
+                try
+                {
+                    var linkUrl = doc.GetValue("LinkUrl", BsonNull.Value);
+                    var discoveredAtUtc = doc.GetValue("DiscoveredAtUtc", BsonNull.Value);
+                    var id = doc.GetValue("Id", BsonNull.Value);
 
-                return new GeekCrawlerLinkResumeRow(
-                    linkUrl.IsString ? linkUrl.AsString : "",
-                    discoveredAtUtc.IsString ? DateTimeOffset.ParseExact(discoveredAtUtc.AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow,
-                    id.IsString ? Guid.ParseExact(id.AsString, "D") : Guid.Empty
-                );
+                    return new GeekCrawlerLinkResumeRow(
+                        linkUrl.IsString ? linkUrl.AsString : "",
+                        discoveredAtUtc.IsString ? DateTimeOffset.ParseExact(discoveredAtUtc.AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow,
+                        id.IsString ? Guid.ParseExact(id.AsString, "D") : Guid.Empty
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to parse link document at index {Index} for run {RunId}: {@Document}", idx, runId, doc.ToJson());
+                    throw;
+                }
             }).ToList();
         }
         catch (Exception ex)
