@@ -427,28 +427,15 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             var fb = Builders<BsonDocument>.Filter;
             var filter = fb.Eq("RunId", runId.ToString()) & fb.Eq("IsSameOrigin", "t");
 
-            if (afterDiscoveredAtUtc.HasValue && afterId.HasValue)
-            {
-                var afterStr = afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture);
-                var afterIdStr = afterId.Value.ToString("D");
-                filter &= fb.Or(
-                    fb.Gt("DiscoveredAtUtc", afterStr),
-                    fb.And(fb.Eq("DiscoveredAtUtc", afterStr), fb.Gt("Id", afterIdStr))
-                );
-            }
-            else if (afterDiscoveredAtUtc.HasValue)
-            {
-                var afterStr = afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture);
-                filter &= fb.Gt("DiscoveredAtUtc", afterStr);
-            }
-            else if (afterId.HasValue)
-            {
-                filter &= fb.Gt("Id", afterId.Value.ToString("D"));
-            }
+            if (afterDiscoveredAtUtc.HasValue)
+                filter &= fb.Gt("DiscoveredAtUtc", afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture));
+
+            if (afterId.HasValue)
+                filter &= fb.Gt("Id", afterId.Value.ToString());
 
             var links = await collection
                 .Find(filter)
-                .Sort(Builders<BsonDocument>.Sort.Ascending("DiscoveredAtUtc").Ascending("Id"))
+                .Sort(Builders<BsonDocument>.Sort.Ascending("Id"))
                 .Limit(limit)
                 .Project(Builders<BsonDocument>.Projection
                     .Include("Id")
@@ -464,35 +451,15 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                     var discoveredAtUtc = doc.GetValue("DiscoveredAtUtc", BsonNull.Value);
                     var id = doc.GetValue("Id", BsonNull.Value);
 
-                    var parsedTime = DateTimeOffset.UtcNow;
-                    if (discoveredAtUtc.IsString)
-                    {
-                        if (!DateTimeOffset.TryParse(discoveredAtUtc.AsString, CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
-                            _logger.LogWarning("Failed to parse DiscoveredAtUtc '{Value}' for run {RunId}, doc {Index}; using now", discoveredAtUtc.AsString, runId, idx);
-                        else
-                            parsedTime = parsed;
-                    }
-
-                    var parsedId = Guid.Empty;
-                    if (id.IsString)
-                    {
-                        if (!Guid.TryParseExact(id.AsString, "D", out var parsed))
-                        {
-                            _logger.LogWarning("Failed to parse Id '{Value}' for run {RunId}, doc {Index}; using empty", id.AsString, runId, idx);
-                        }
-                        else
-                            parsedId = parsed;
-                    }
-
                     return new GeekCrawlerLinkResumeRow(
                         linkUrl.IsString ? linkUrl.AsString : "",
-                        parsedTime,
-                        parsedId
+                        discoveredAtUtc.IsString ? DateTimeOffset.ParseExact(discoveredAtUtc.AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow,
+                        id.IsString ? Guid.ParseExact(id.AsString, "D") : Guid.Empty
                     );
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to process link document at index {Index} for run {RunId}: {@Document}", idx, runId, doc.ToJson());
+                    _logger.LogError(ex, "Failed to parse link document at index {Index} for run {RunId}: {@Document}", idx, runId, doc.ToJson());
                     throw;
                 }
             }).ToList();
