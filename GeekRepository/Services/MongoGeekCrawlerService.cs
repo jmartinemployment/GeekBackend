@@ -423,20 +423,20 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
 
         try
         {
+            // Keyset pagination on Id alone: the resume loader only accumulates link URLs, so
+            // ordering by Id (unique, string-comparable) is safe and avoids boundary skips that
+            // timestamp cursors would hit with the imported trimmed-fraction date strings.
             var collection = _db.GetCollection<GeekCrawlerLink>("crawl_links");
             var filterBuilder = Builders<GeekCrawlerLink>.Filter;
-            var filter = filterBuilder.Eq(l => l.RunId, runId);
+            var filter = filterBuilder.Eq(l => l.RunId, runId)
+                & filterBuilder.Eq(l => l.IsSameOrigin, true);
 
-            if (afterDiscoveredAtUtc.HasValue && afterId.HasValue)
-            {
-                filter = filter & filterBuilder.Or(
-                    filterBuilder.Gte(l => l.DiscoveredAtUtc, afterDiscoveredAtUtc.Value),
-                    filterBuilder.Eq(l => l.Id, afterId.Value));
-            }
+            if (afterId.HasValue)
+                filter &= filterBuilder.Gt(l => l.Id, afterId.Value);
 
             var links = await collection
                 .Find(filter)
-                .Sort(Builders<GeekCrawlerLink>.Sort.Ascending(l => l.DiscoveredAtUtc).Ascending(l => l.Id))
+                .Sort(Builders<GeekCrawlerLink>.Sort.Ascending(l => l.Id))
                 .Limit(limit)
                 .ToListAsync(ct);
 
