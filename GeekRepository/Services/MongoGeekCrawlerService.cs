@@ -427,15 +427,31 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             var fb = Builders<BsonDocument>.Filter;
             var filter = fb.Eq("RunId", runId.ToString()) & fb.Eq("IsSameOrigin", "t");
 
-            if (afterDiscoveredAtUtc.HasValue)
-                filter &= fb.Gt("DiscoveredAtUtc", afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture));
-
-            if (afterId.HasValue)
-                filter &= fb.Gt("Id", afterId.Value.ToString());
+            // Compound keyset pagination on (DiscoveredAtUtc, Id) — matches GeekCrawlerRunResumeLoader
+            // and FakeResumeRepo: > afterTime OR (= afterTime AND Id > afterId). Stored timestamps
+            // are strings "yyyy-MM-dd HH:mm:ss.ffffff+00", so string comparison with same format stays ordered.
+            // Tolerant parsing on read handles trimmed fractional zeros from PG import.
+            if (afterDiscoveredAtUtc.HasValue && afterId.HasValue)
+            {
+                var afterStr = afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture);
+                var afterIdStr = afterId.Value.ToString("D");
+                filter &= fb.Or(
+                    fb.Gt("DiscoveredAtUtc", afterStr),
+                    fb.And(fb.Eq("DiscoveredAtUtc", afterStr), fb.Gt("Id", afterIdStr)));
+            }
+            else if (afterDiscoveredAtUtc.HasValue)
+            {
+                var afterStr = afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture);
+                filter &= fb.Gt("DiscoveredAtUtc", afterStr);
+            }
+            else if (afterId.HasValue)
+            {
+                filter &= fb.Gt("Id", afterId.Value.ToString("D"));
+            }
 
             var links = await collection
                 .Find(filter)
-                .Sort(Builders<BsonDocument>.Sort.Ascending("Id"))
+                .Sort(Builders<BsonDocument>.Sort.Ascending("DiscoveredAtUtc").Ascending("Id"))
                 .Limit(limit)
                 .Project(Builders<BsonDocument>.Projection
                     .Include("Id")
@@ -449,10 +465,22 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                 var discoveredAtUtc = doc.GetValue("DiscoveredAtUtc", BsonNull.Value);
                 var id = doc.GetValue("Id", BsonNull.Value);
 
+                DateTimeOffset parsedTime;
+                if (discoveredAtUtc.IsString)
+                {
+                    var s = discoveredAtUtc.AsString;
+                    if (!DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out parsedTime))
+                        parsedTime = DateTimeOffset.UtcNow;
+                }
+                else
+                {
+                    parsedTime = DateTimeOffset.UtcNow;
+                }
+
                 return new GeekCrawlerLinkResumeRow(
                     linkUrl.IsString ? linkUrl.AsString : "",
-                    discoveredAtUtc.IsString ? DateTimeOffset.ParseExact(discoveredAtUtc.AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow,
-                    id.IsString ? Guid.ParseExact(id.AsString, "D") : Guid.Empty
+                    parsedTime,
+                    id.IsString && Guid.TryParseExact(id.AsString, "D", out var g) ? g : Guid.Empty
                 );
             }).ToList();
         }
