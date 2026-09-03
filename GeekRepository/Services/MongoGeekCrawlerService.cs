@@ -423,24 +423,25 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
 
         try
         {
-            // Keyset pagination on Id alone: the resume loader only accumulates link URLs, so
-            // ordering by Id (unique, string-comparable) is safe and avoids boundary skips that
-            // timestamp cursors would hit with the imported trimmed-fraction date strings.
-            var collection = _db.GetCollection<GeekCrawlerLink>("crawl_links");
-            var filterBuilder = Builders<GeekCrawlerLink>.Filter;
-            var filter = filterBuilder.Eq(l => l.RunId, runId)
-                & filterBuilder.Eq(l => l.IsSameOrigin, true);
+            var collection = _db.GetCollection<BsonDocument>("crawl_links");
+            var fb = Builders<BsonDocument>.Filter;
+            var filter = fb.Eq("RunId", runId.ToString()) & fb.Eq("IsSameOrigin", "t");
 
             if (afterId.HasValue)
-                filter &= filterBuilder.Gt(l => l.Id, afterId.Value);
+                filter &= fb.Gt("Id", afterId.Value.ToString());
 
             var links = await collection
                 .Find(filter)
-                .Sort(Builders<GeekCrawlerLink>.Sort.Ascending(l => l.Id))
+                .Sort(Builders<BsonDocument>.Sort.Ascending("Id"))
                 .Limit(limit)
                 .ToListAsync(ct);
 
-            return links.Select(l => new GeekCrawlerLinkResumeRow(l.LinkUrl, l.DiscoveredAtUtc, l.Id)).ToList();
+            return links.Select(doc =>
+                new GeekCrawlerLinkResumeRow(
+                    doc["LinkUrl"].AsString,
+                    DateTimeOffset.ParseExact(doc["DiscoveredAtUtc"].AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture),
+                    Guid.ParseExact(doc["Id"].AsString, "D")
+                )).ToList();
         }
         catch (Exception ex)
         {
