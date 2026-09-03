@@ -427,6 +427,9 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             var fb = Builders<BsonDocument>.Filter;
             var filter = fb.Eq("RunId", runId.ToString()) & fb.Eq("IsSameOrigin", "t");
 
+            if (afterDiscoveredAtUtc.HasValue)
+                filter &= fb.Gt("DiscoveredAtUtc", afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture));
+
             if (afterId.HasValue)
                 filter &= fb.Gt("Id", afterId.Value.ToString());
 
@@ -434,14 +437,24 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                 .Find(filter)
                 .Sort(Builders<BsonDocument>.Sort.Ascending("Id"))
                 .Limit(limit)
+                .Project(Builders<BsonDocument>.Projection
+                    .Include("Id")
+                    .Include("LinkUrl")
+                    .Include("DiscoveredAtUtc"))
                 .ToListAsync(ct);
 
             return links.Select(doc =>
-                new GeekCrawlerLinkResumeRow(
-                    doc["LinkUrl"].AsString,
-                    DateTimeOffset.ParseExact(doc["DiscoveredAtUtc"].AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture),
-                    Guid.ParseExact(doc["Id"].AsString, "D")
-                )).ToList();
+            {
+                var linkUrl = doc.GetValue("LinkUrl", BsonNull.Value);
+                var discoveredAtUtc = doc.GetValue("DiscoveredAtUtc", BsonNull.Value);
+                var id = doc.GetValue("Id", BsonNull.Value);
+
+                return new GeekCrawlerLinkResumeRow(
+                    linkUrl.IsString ? linkUrl.AsString : "",
+                    discoveredAtUtc.IsString ? DateTimeOffset.ParseExact(discoveredAtUtc.AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow,
+                    id.IsString ? Guid.ParseExact(id.AsString, "D") : Guid.Empty
+                );
+            }).ToList();
         }
         catch (Exception ex)
         {
