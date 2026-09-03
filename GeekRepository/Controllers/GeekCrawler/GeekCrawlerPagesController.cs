@@ -1,9 +1,8 @@
 using GeekRepository.Auth;
-using GeekRepository.Data;
 using GeekRepository.Data.Entities.GeekCrawler;
+using GeekRepository.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Controllers.GeekCrawler;
 
@@ -12,9 +11,9 @@ namespace GeekRepository.Controllers.GeekCrawler;
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
 public class GeekCrawlerPagesController : ControllerBase
 {
-    private readonly GeekCrawlerDbContext _db;
+    private readonly IMongoGeekCrawlerService _mongo;
 
-    public GeekCrawlerPagesController(GeekCrawlerDbContext db) => _db = db;
+    public GeekCrawlerPagesController(IMongoGeekCrawlerService mongo) => _mongo = mongo;
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<GeekCrawlerPage>>> ListByRun(
@@ -29,12 +28,7 @@ public class GeekCrawlerPagesController : ControllerBase
         limit = Math.Clamp(limit, 1, 500);
         offset = Math.Max(0, offset);
 
-        var pages = await _db.GeekCrawlerPages.AsNoTracking()
-            .Where(p => p.RunId == runId)
-            .OrderBy(p => p.CrawledAtUtc)
-            .Skip(offset)
-            .Take(limit)
-            .ToListAsync(ct);
+        var pages = await _mongo.ListPagesByRunAsync(runId, limit, offset, ct);
         return Ok(pages);
     }
 
@@ -57,11 +51,7 @@ public class GeekCrawlerPagesController : ControllerBase
         if (urlList.Count == 0)
             return BadRequest("seeds is required");
 
-        var pages = await _db.GeekCrawlerPages.AsNoTracking()
-            .Where(p => p.RunId == runId
-                        && (urlList.Contains(p.Url) || urlList.Contains(p.FinalUrl)))
-            .OrderBy(p => p.CrawledAtUtc)
-            .ToListAsync(ct);
+        var pages = await _mongo.ListPagesBySeedsAsync(runId, urlList, ct);
         return Ok(pages);
     }
 
@@ -78,17 +68,7 @@ public class GeekCrawlerPagesController : ControllerBase
         limit = Math.Clamp(limit, 1, 500);
         offset = Math.Max(0, offset);
 
-        var rows = await _db.GeekCrawlerPages.AsNoTracking()
-            .Where(p => p.RunId == runId)
-            .OrderBy(p => p.CrawledAtUtc)
-            .Skip(offset)
-            .Take(limit)
-            .Select(p => new GeekCrawlerPageResumeRow(
-                p.Origin,
-                p.Url,
-                p.Html != null && p.Html != ""))
-            .ToListAsync(ct);
-
+        var rows = await _mongo.ListPagesByRunForResumeAsync(runId, limit, offset, ct);
         return Ok(rows);
     }
 
@@ -100,15 +80,8 @@ public class GeekCrawlerPagesController : ControllerBase
         if (runId == Guid.Empty)
             return BadRequest("runId is required");
 
-        var pageCount = await _db.GeekCrawlerPages.AsNoTracking()
-            .CountAsync(p => p.RunId == runId, ct);
-
-        DateTimeOffset? lastCrawledAtUtc = pageCount == 0
-            ? null
-            : await _db.GeekCrawlerPages.AsNoTracking()
-                .Where(p => p.RunId == runId)
-                .MaxAsync(p => (DateTimeOffset?)p.CrawledAtUtc, ct);
-
+        var pageCount = await _mongo.CountPagesByRunAsync(runId, ct);
+        var lastCrawledAtUtc = pageCount == 0 ? null : await _mongo.GetLastCrawledTimeAsync(runId, ct);
         return Ok(new { pageCount, lastCrawledAtUtc });
     }
 
@@ -120,13 +93,13 @@ public class GeekCrawlerPagesController : ControllerBase
         if (command is null || command.RunId == Guid.Empty || command.Pages is null || command.Pages.Count == 0)
             return BadRequest("runId and pages are required");
 
-        var created = new List<CreatedGeekCrawlerPageItem>(command.Pages.Count);
         var now = DateTimeOffset.UtcNow;
+        var pagesToInsert = new List<GeekCrawlerPage>(command.Pages.Count);
 
         foreach (var p in command.Pages)
         {
             var id = Guid.NewGuid();
-            _db.GeekCrawlerPages.Add(new GeekCrawlerPage
+            pagesToInsert.Add(new GeekCrawlerPage
             {
                 Id = id,
                 RunId = command.RunId,
@@ -139,11 +112,11 @@ public class GeekCrawlerPagesController : ControllerBase
                 FailureReason = TruncateFailureReason(p.FailureReason),
                 CrawledAtUtc = now,
             });
-            created.Add(new CreatedGeekCrawlerPageItem(p.Url ?? "", id));
         }
 
-        await _db.SaveChangesAsync(ct);
-        return Ok(new { count = created.Count, pages = created });
+        var created = await _mongo.CreatePagesBatchAsync(command.RunId, pagesToInsert, ct);
+        var result = created.Select(x => new CreatedGeekCrawlerPageItem(x.Url, x.PageId)).ToList();
+        return Ok(new { count = result.Count, pages = result });
     }
 
     public record CreateGeekCrawlerPageBatchCommand(
@@ -164,5 +137,4 @@ public class GeekCrawlerPagesController : ControllerBase
 
     public record CreatedGeekCrawlerPageItem(string Url, Guid PageId);
 
-    public record GeekCrawlerPageResumeRow(string Origin, string Url, bool HasHtml);
 }

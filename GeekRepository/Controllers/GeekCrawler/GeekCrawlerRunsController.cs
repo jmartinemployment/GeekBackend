@@ -1,9 +1,8 @@
 using GeekRepository.Auth;
-using GeekRepository.Data;
 using GeekRepository.Data.Entities.GeekCrawler;
+using GeekRepository.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Controllers.GeekCrawler;
 
@@ -12,15 +11,14 @@ namespace GeekRepository.Controllers.GeekCrawler;
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
 public class GeekCrawlerRunsController : ControllerBase
 {
-    private readonly GeekCrawlerDbContext _db;
+    private readonly IMongoGeekCrawlerService _mongo;
 
-    public GeekCrawlerRunsController(GeekCrawlerDbContext db) => _db = db;
+    public GeekCrawlerRunsController(IMongoGeekCrawlerService mongo) => _mongo = mongo;
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<GeekCrawlerRun>> GetById(Guid id, CancellationToken ct)
     {
-        var row = await _db.GeekCrawlerRuns.AsNoTracking()
-            .FirstOrDefaultAsync(r => r.Id == id, ct);
+        var row = await _mongo.GetRunByIdAsync(id, ct);
         return row is null ? NotFound() : Ok(row);
     }
 
@@ -35,20 +33,7 @@ public class GeekCrawlerRunsController : ControllerBase
             return BadRequest("ownerUserId is required");
 
         limit = Math.Clamp(limit, 1, 200);
-        var query = _db.GeekCrawlerRuns.AsNoTracking()
-            .Where(r => r.OwnerUserId == ownerUserId);
-
-        if (!string.IsNullOrWhiteSpace(crawlType))
-        {
-            var type = crawlType.Trim();
-            query = query.Where(r => r.CrawlType == type);
-        }
-
-        var rows = await query
-            .OrderByDescending(r => r.CreatedAtUtc)
-            .Take(limit)
-            .ToListAsync(ct);
-
+        var rows = await _mongo.ListRunsByUserAsync(ownerUserId, crawlType, limit, ct);
         return Ok(rows);
     }
 
@@ -66,12 +51,7 @@ public class GeekCrawlerRunsController : ControllerBase
         if (string.IsNullOrWhiteSpace(seedKey))
             return BadRequest("seedKey is required");
 
-        var row = await _db.GeekCrawlerRuns.AsNoTracking()
-            .Where(r => r.OwnerUserId == ownerUserId
-                        && r.CrawlType == crawlType.Trim()
-                        && r.SeedKey == seedKey)
-            .FirstOrDefaultAsync(ct);
-
+        var row = await _mongo.GetRunForSlotAsync(ownerUserId, crawlType.Trim(), seedKey, ct);
         return row is null ? NotFound() : Ok(row);
     }
 
@@ -89,12 +69,7 @@ public class GeekCrawlerRunsController : ControllerBase
         if (string.IsNullOrWhiteSpace(seedsJson))
             return BadRequest("seedsJson is required");
 
-        var type = crawlType.Trim();
-        var row = await _db.GeekCrawlerRuns.AsNoTracking()
-            .Where(r => r.OwnerUserId == ownerUserId && r.CrawlType == type && r.SeedUrlsJson == seedsJson)
-            .OrderByDescending(r => r.CreatedAtUtc)
-            .FirstOrDefaultAsync(ct);
-
+        var row = await _mongo.GetLatestRunAsync(ownerUserId, crawlType.Trim(), seedsJson, ct);
         return row is null ? NotFound() : Ok(row);
     }
 
@@ -108,13 +83,7 @@ public class GeekCrawlerRunsController : ControllerBase
             return BadRequest("status is required");
 
         limit = Math.Clamp(limit, 1, 200);
-        var normalized = status.Trim().ToLowerInvariant();
-        var rows = await _db.GeekCrawlerRuns.AsNoTracking()
-            .Where(r => r.Status.ToLower() == normalized)
-            .OrderBy(r => r.CreatedAtUtc)
-            .Take(limit)
-            .ToListAsync(ct);
-
+        var rows = await _mongo.ListRunsByStatusAsync(status, limit, ct);
         return Ok(rows);
     }
 
@@ -139,9 +108,8 @@ public class GeekCrawlerRunsController : ControllerBase
             CreatedAtUtc = DateTimeOffset.UtcNow,
         };
 
-        _db.GeekCrawlerRuns.Add(row);
-        await _db.SaveChangesAsync(ct);
-        return Ok(row);
+        var created = await _mongo.CreateRunAsync(row, ct);
+        return Ok(created);
     }
 
     [HttpPatch("{id:guid}")]
@@ -150,34 +118,39 @@ public class GeekCrawlerRunsController : ControllerBase
         [FromBody] PatchGeekCrawlerRunCommand command,
         CancellationToken ct)
     {
-        var row = await _db.GeekCrawlerRuns.FirstOrDefaultAsync(r => r.Id == id, ct);
-        if (row is null) return NotFound();
-
-        if (!string.IsNullOrWhiteSpace(command.Status))
-            row.Status = command.Status.Trim();
-        if (command.HostProgressJson is not null)
-            row.HostProgressJson = command.HostProgressJson;
-        if (command.ErrorSummary is not null)
-            row.ErrorSummary = command.ErrorSummary;
-        if (command.StartedAtUtc is not null)
-            row.StartedAtUtc = command.StartedAtUtc;
-        if (command.CompletedAtUtc is not null)
-            row.CompletedAtUtc = command.CompletedAtUtc;
-
-        await _db.SaveChangesAsync(ct);
-        return Ok(row);
+        try
+        {
+            GeekCrawlerRun? row = null;
+            await _mongo.UpdateRunAsync(id, r =>
+            {
+                if (!string.IsNullOrWhiteSpace(command.Status))
+                    r.Status = command.Status.Trim();
+                if (command.HostProgressJson is not null)
+                    r.HostProgressJson = command.HostProgressJson;
+                if (command.ErrorSummary is not null)
+                    r.ErrorSummary = command.ErrorSummary;
+                if (command.StartedAtUtc is not null)
+                    r.StartedAtUtc = command.StartedAtUtc;
+                if (command.CompletedAtUtc is not null)
+                    r.CompletedAtUtc = command.CompletedAtUtc;
+                row = r;
+            }, ct);
+            return Ok(row);
+        }
+        catch (InvalidOperationException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpDelete("{id:guid}/crawl-data")]
     public async Task<IActionResult> ClearCrawlData(Guid id, CancellationToken ct)
     {
-        var exists = await _db.GeekCrawlerRuns.AsNoTracking()
-            .AnyAsync(r => r.Id == id, ct);
-        if (!exists)
+        var run = await _mongo.GetRunByIdAsync(id, ct);
+        if (run is null)
             return NotFound();
 
-        await _db.GeekCrawlerLinks.Where(l => l.RunId == id).ExecuteDeleteAsync(ct);
-        await _db.GeekCrawlerPages.Where(p => p.RunId == id).ExecuteDeleteAsync(ct);
+        await _mongo.DeleteRunCrawlDataAsync(id, ct);
         return NoContent();
     }
 

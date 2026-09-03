@@ -1,9 +1,8 @@
 using GeekRepository.Auth;
-using GeekRepository.Data;
 using GeekRepository.Data.Entities.GeekCrawler;
+using GeekRepository.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Controllers.GeekCrawler;
 
@@ -12,15 +11,14 @@ namespace GeekRepository.Controllers.GeekCrawler;
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
 public class GeekCrawlerSchedulesController : ControllerBase
 {
-    private readonly GeekCrawlerDbContext _db;
+    private readonly IMongoGeekCrawlerService _mongo;
 
-    public GeekCrawlerSchedulesController(GeekCrawlerDbContext db) => _db = db;
+    public GeekCrawlerSchedulesController(IMongoGeekCrawlerService mongo) => _mongo = mongo;
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<GeekCrawlerSchedule>> GetById(Guid id, CancellationToken ct)
     {
-        var row = await _db.GeekCrawlerSchedules.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == id, ct);
+        var row = await _mongo.GetScheduleByIdAsync(id, ct);
         return row is null ? NotFound() : Ok(row);
     }
 
@@ -33,22 +31,8 @@ public class GeekCrawlerSchedulesController : ControllerBase
         if (command is null || command.ExpectedNextRunUtc is null || command.NewNextRunUtc is null)
             return BadRequest("expectedNextRunUtc and newNextRunUtc are required");
 
-        var now = DateTimeOffset.UtcNow;
-        var row = await _db.GeekCrawlerSchedules.FirstOrDefaultAsync(
-            s => s.Id == id
-                 && s.Enabled
-                 && s.NextRunUtc <= now
-                 && s.NextRunUtc == command.ExpectedNextRunUtc,
-            ct);
-
-        if (row is null)
-            return NotFound();
-
-        row.NextRunUtc = command.NewNextRunUtc.Value;
-        row.LastStartedUtc = command.LastStartedUtc ?? now;
-
-        await _db.SaveChangesAsync(ct);
-        return Ok(row);
+        var row = await _mongo.ClaimDueScheduleAsync(id, command.ExpectedNextRunUtc.Value, command.NewNextRunUtc.Value, command.LastStartedUtc, ct);
+        return row is null ? NotFound() : Ok(row);
     }
 
     [HttpGet("due")]
@@ -58,11 +42,7 @@ public class GeekCrawlerSchedulesController : ControllerBase
         CancellationToken ct = default)
     {
         limit = Math.Clamp(limit, 1, 200);
-        var rows = await _db.GeekCrawlerSchedules.AsNoTracking()
-            .Where(s => s.Enabled && s.NextRunUtc <= beforeUtc)
-            .OrderBy(s => s.NextRunUtc)
-            .Take(limit)
-            .ToListAsync(ct);
+        var rows = await _mongo.ListDueSchedulesAsync(beforeUtc, limit, ct);
         return Ok(rows);
     }
 
@@ -77,17 +57,7 @@ public class GeekCrawlerSchedulesController : ControllerBase
             return BadRequest("ownerUserId is required");
 
         limit = Math.Clamp(limit, 1, 200);
-        var query = _db.GeekCrawlerSchedules.AsNoTracking()
-            .Where(s => s.OwnerUserId == ownerUserId);
-
-        if (!string.IsNullOrWhiteSpace(crawlType))
-            query = query.Where(s => s.CrawlType == crawlType.Trim());
-
-        var rows = await query
-            .OrderByDescending(s => s.CreatedAtUtc)
-            .Take(limit)
-            .ToListAsync(ct);
-
+        var rows = await _mongo.ListSchedulesForUserAsync(ownerUserId, crawlType, limit, ct);
         return Ok(rows);
     }
 
@@ -116,9 +86,8 @@ public class GeekCrawlerSchedulesController : ControllerBase
             CreatedAtUtc = DateTimeOffset.UtcNow,
         };
 
-        _db.GeekCrawlerSchedules.Add(row);
-        await _db.SaveChangesAsync(ct);
-        return Ok(row);
+        var created = await _mongo.CreateScheduleAsync(row, ct);
+        return Ok(created);
     }
 
     [HttpPatch("{id:guid}")]
@@ -127,32 +96,38 @@ public class GeekCrawlerSchedulesController : ControllerBase
         [FromBody] PatchGeekCrawlerScheduleCommand command,
         CancellationToken ct)
     {
-        var row = await _db.GeekCrawlerSchedules.FirstOrDefaultAsync(s => s.Id == id, ct);
-        if (row is null) return NotFound();
-
-        if (command.Enabled is not null)
-            row.Enabled = command.Enabled.Value;
-        if (command.IntervalHours is not null)
-            row.IntervalHours = Math.Clamp(command.IntervalHours.Value, 1, 24 * 365);
-        if (command.NextRunUtc is not null)
-            row.NextRunUtc = command.NextRunUtc.Value;
-        if (command.LastStartedUtc is not null)
-            row.LastStartedUtc = command.LastStartedUtc;
-        if (command.LastRunId is not null)
-            row.LastRunId = command.LastRunId;
-
-        await _db.SaveChangesAsync(ct);
-        return Ok(row);
+        try
+        {
+            GeekCrawlerSchedule? row = null;
+            await _mongo.UpdateScheduleAsync(id, s =>
+            {
+                if (command.Enabled is not null)
+                    s.Enabled = command.Enabled.Value;
+                if (command.IntervalHours is not null)
+                    s.IntervalHours = Math.Clamp(command.IntervalHours.Value, 1, 24 * 365);
+                if (command.NextRunUtc is not null)
+                    s.NextRunUtc = command.NextRunUtc.Value;
+                if (command.LastStartedUtc is not null)
+                    s.LastStartedUtc = command.LastStartedUtc;
+                if (command.LastRunId is not null)
+                    s.LastRunId = command.LastRunId;
+                row = s;
+            }, ct);
+            return Ok(row);
+        }
+        catch (InvalidOperationException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        var row = await _db.GeekCrawlerSchedules.FirstOrDefaultAsync(s => s.Id == id, ct);
+        var row = await _mongo.GetScheduleByIdAsync(id, ct);
         if (row is null) return NotFound();
 
-        _db.GeekCrawlerSchedules.Remove(row);
-        await _db.SaveChangesAsync(ct);
+        await _mongo.DeleteScheduleAsync(id, ct);
         return NoContent();
     }
 

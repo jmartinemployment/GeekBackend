@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using GeekApplication.Interfaces;
 using GeekApplication.Interfaces.ContentCreator;
 using GeekApplication.Interfaces.ContentWriterV3;
@@ -11,6 +12,7 @@ using GeekRepository.Repositories.Content;
 using GeekRepository.Repositories.ContentCreator;
 using GeekRepository.Repositories.ContentWriterV3;
 using GeekRepository.Repositories.ContentWriterV4;
+using GeekRepository.Services;
 
 namespace GeekRepository;
 
@@ -70,6 +72,11 @@ public static class ServiceRegistration
         services.AddScoped<IGccClientRepository, GccClientRepository>();
 
         services.AddGeekSeoData();
+
+        services.AddSingleton<IMongoGeekCrawlerService>(sp =>
+            new MongoGeekCrawlerService(
+                "mongodb://localhost:27017",
+                sp.GetRequiredService<ILogger<MongoGeekCrawlerService>>()));
 
         return services;
     }
