@@ -73,9 +73,11 @@ public static class ServiceRegistration
 
         services.AddGeekSeoData();
 
+        var mongoConnectionString = Environment.GetEnvironmentVariable("MONGO_CRAWLER_URL")
+            ?? "mongodb://localhost:27017";
         services.AddSingleton<IMongoGeekCrawlerService>(sp =>
             new MongoGeekCrawlerService(
-                "mongodb://localhost:27017",
+                mongoConnectionString,
                 sp.GetRequiredService<ILogger<MongoGeekCrawlerService>>()));
 
         return services;
