@@ -427,15 +427,29 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             var fb = Builders<BsonDocument>.Filter;
             var filter = fb.Eq("RunId", runId.ToString()) & fb.Eq("IsSameOrigin", "t");
 
-            if (afterDiscoveredAtUtc.HasValue)
-                filter &= fb.Gt("DiscoveredAtUtc", afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture));
-
-            if (afterId.HasValue)
-                filter &= fb.Gt("Id", afterId.Value.ToString());
+            // Compound keyset cursor: (time > after) OR (time == after AND id > afterId)
+            if (afterDiscoveredAtUtc.HasValue && afterId.HasValue)
+            {
+                var afterStr = afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture);
+                var afterIdStr = afterId.Value.ToString("D");
+                filter &= fb.Or(
+                    fb.Gt("DiscoveredAtUtc", afterStr),
+                    fb.And(fb.Eq("DiscoveredAtUtc", afterStr), fb.Gt("Id", afterIdStr))
+                );
+            }
+            else if (afterDiscoveredAtUtc.HasValue)
+            {
+                var afterStr = afterDiscoveredAtUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture);
+                filter &= fb.Gt("DiscoveredAtUtc", afterStr);
+            }
+            else if (afterId.HasValue)
+            {
+                filter &= fb.Gt("Id", afterId.Value.ToString("D"));
+            }
 
             var links = await collection
                 .Find(filter)
-                .Sort(Builders<BsonDocument>.Sort.Ascending("Id"))
+                .Sort(Builders<BsonDocument>.Sort.Ascending("DiscoveredAtUtc").Ascending("Id"))
                 .Limit(limit)
                 .Project(Builders<BsonDocument>.Projection
                     .Include("Id")
@@ -443,25 +457,36 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                     .Include("DiscoveredAtUtc"))
                 .ToListAsync(ct);
 
-            return links.Select((doc, idx) =>
+            return links.Select(doc =>
             {
-                try
-                {
-                    var linkUrl = doc.GetValue("LinkUrl", BsonNull.Value);
-                    var discoveredAtUtc = doc.GetValue("DiscoveredAtUtc", BsonNull.Value);
-                    var id = doc.GetValue("Id", BsonNull.Value);
+                var linkUrl = doc.GetValue("LinkUrl", BsonNull.Value);
+                var discoveredAtUtc = doc.GetValue("DiscoveredAtUtc", BsonNull.Value);
+                var id = doc.GetValue("Id", BsonNull.Value);
 
-                    return new GeekCrawlerLinkResumeRow(
-                        linkUrl.IsString ? linkUrl.AsString : "",
-                        discoveredAtUtc.IsString ? DateTimeOffset.ParseExact(discoveredAtUtc.AsString, "yyyy-MM-dd HH:mm:ss.ffffffzz", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow,
-                        id.IsString ? Guid.ParseExact(id.AsString, "D") : Guid.Empty
-                    );
-                }
-                catch (Exception ex)
+                var time = DateTimeOffset.UtcNow;
+                var guid = Guid.Empty;
+
+                if (discoveredAtUtc.IsString)
                 {
-                    _logger.LogError(ex, "Failed to parse link document at index {Index} for run {RunId}: {@Document}", idx, runId, doc.ToJson());
-                    throw;
+                    if (!DateTimeOffset.TryParse(discoveredAtUtc.AsString, CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
+                        _logger.LogWarning("Failed to parse DiscoveredAtUtc '{Value}' for run {RunId}", discoveredAtUtc.AsString, runId);
+                    else
+                        time = parsed;
                 }
+
+                if (id.IsString)
+                {
+                    if (!Guid.TryParseExact(id.AsString, "D", out var parsed))
+                        _logger.LogWarning("Failed to parse Id '{Value}' for run {RunId}", id.AsString, runId);
+                    else
+                        guid = parsed;
+                }
+
+                return new GeekCrawlerLinkResumeRow(
+                    linkUrl.IsString ? linkUrl.AsString : "",
+                    time,
+                    guid
+                );
             }).ToList();
         }
         catch (Exception ex)
