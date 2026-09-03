@@ -1,10 +1,13 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using GeekRepository.Data.Entities.GeekCrawler;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 
 namespace GeekRepository.Services;
@@ -58,6 +61,71 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
 {
     private readonly IMongoDatabase _db;
     private readonly ILogger<MongoGeekCrawlerService> _logger;
+
+    // The collections were imported from a PostgreSQL CSV export, so every value is stored as a
+    // string: Guids as "d"-format text, booleans as Postgres "t"/"f", ints as digits, and
+    // timestamps as "yyyy-MM-dd HH:mm:ss.ffffff+00". The auto-generated ObjectId _id is ignored;
+    // the logical key lives in the separate "Id" string field. These class maps make reads and
+    // writes match that shape (the timestamp format is also what keeps string range filters and
+    // sorts ordering correctly).
+    static MongoGeekCrawlerService()
+    {
+        var guid = new GuidSerializer(BsonType.String);
+        var nullableGuid = new NullableSerializer<Guid>(guid);
+        var date = new PgTextDateTimeOffsetSerializer();
+        var nullableDate = new NullableSerializer<DateTimeOffset>(date);
+        var pgBool = new PgTextBooleanSerializer();
+        var pgInt = new PgTextInt32Serializer();
+
+        BsonClassMap.RegisterClassMap<GeekCrawlerRun>(cm =>
+        {
+            cm.AutoMap();
+            cm.SetIgnoreExtraElements(true);
+            cm.UnmapMember(x => x.Id);
+            cm.MapMember(x => x.Id).SetElementName("Id").SetSerializer(guid);
+            cm.MapMember(x => x.CreatedAtUtc).SetSerializer(date);
+            cm.MapMember(x => x.StartedAtUtc).SetSerializer(nullableDate);
+            cm.MapMember(x => x.CompletedAtUtc).SetSerializer(nullableDate);
+        });
+
+        BsonClassMap.RegisterClassMap<GeekCrawlerPage>(cm =>
+        {
+            cm.AutoMap();
+            cm.SetIgnoreExtraElements(true);
+            cm.UnmapMember(x => x.Id);
+            cm.MapMember(x => x.Id).SetElementName("Id").SetSerializer(guid);
+            cm.MapMember(x => x.RunId).SetSerializer(guid);
+            cm.MapMember(x => x.StatusCode).SetSerializer(pgInt);
+            cm.MapMember(x => x.RobotsAllowed).SetSerializer(pgBool);
+            cm.MapMember(x => x.CrawledAtUtc).SetSerializer(date);
+        });
+
+        BsonClassMap.RegisterClassMap<GeekCrawlerLink>(cm =>
+        {
+            cm.AutoMap();
+            cm.SetIgnoreExtraElements(true);
+            cm.UnmapMember(x => x.Id);
+            cm.MapMember(x => x.Id).SetElementName("Id").SetSerializer(guid);
+            cm.MapMember(x => x.RunId).SetSerializer(guid);
+            cm.MapMember(x => x.PageId).SetSerializer(guid);
+            cm.MapMember(x => x.IsSameOrigin).SetSerializer(pgBool);
+            cm.MapMember(x => x.DiscoveredAtUtc).SetSerializer(date);
+        });
+
+        BsonClassMap.RegisterClassMap<GeekCrawlerSchedule>(cm =>
+        {
+            cm.AutoMap();
+            cm.SetIgnoreExtraElements(true);
+            cm.UnmapMember(x => x.Id);
+            cm.MapMember(x => x.Id).SetElementName("Id").SetSerializer(guid);
+            cm.MapMember(x => x.IntervalHours).SetSerializer(pgInt);
+            cm.MapMember(x => x.Enabled).SetSerializer(pgBool);
+            cm.MapMember(x => x.NextRunUtc).SetSerializer(date);
+            cm.MapMember(x => x.LastStartedUtc).SetSerializer(nullableDate);
+            cm.MapMember(x => x.LastRunId).SetSerializer(nullableGuid);
+            cm.MapMember(x => x.CreatedAtUtc).SetSerializer(date);
+        });
+    }
 
     public MongoGeekCrawlerService(string mongoConnectionString, ILogger<MongoGeekCrawlerService> logger)
     {
@@ -136,11 +204,13 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                 .ToListAsync(ct);
 
             return rows.Select(doc =>
-                new GeekCrawlerPageResumeRow(
+            {
+                var html = doc.GetValue("Html", BsonNull.Value);
+                return new GeekCrawlerPageResumeRow(
                     doc["Origin"].AsString,
                     doc["Url"].AsString,
-                    !string.IsNullOrEmpty(doc.GetValue("Html", BsonNull.Value).AsString)
-                )).ToList();
+                    html.IsString && !string.IsNullOrEmpty(html.AsString));
+            }).ToList();
         }
         catch (Exception ex)
         {
@@ -303,7 +373,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             var collection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
             var normalized = status.Trim().ToLowerInvariant();
             var runs = await collection
-                .Find(r => r.Status.ToLower() == normalized)
+                .Find(r => r.Status == normalized)
                 .Sort(Builders<GeekCrawlerRun>.Sort.Ascending(r => r.CreatedAtUtc))
                 .Limit(limit)
                 .ToListAsync(ct);
@@ -447,8 +517,9 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         try
         {
             var collection = _db.GetCollection<GeekCrawlerSchedule>("crawl_schedules");
+            var fb = Builders<GeekCrawlerSchedule>.Filter;
             var schedules = await collection
-                .Find(s => s.Enabled && s.NextRunUtc <= beforeUtc)
+                .Find(fb.Eq(s => s.Enabled, true) & fb.Lte(s => s.NextRunUtc, beforeUtc))
                 .Sort(Builders<GeekCrawlerSchedule>.Sort.Ascending(s => s.NextRunUtc))
                 .Limit(limit)
                 .ToListAsync(ct);
@@ -657,11 +728,12 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         {
             var collection = _db.GetCollection<GeekCrawlerSchedule>("crawl_schedules");
             var now = DateTimeOffset.UtcNow;
-            var schedule = await collection.Find(s =>
-                s.Id == id
-                && s.Enabled
-                && s.NextRunUtc <= now
-                && s.NextRunUtc == expectedNextRunUtc
+            var fb = Builders<GeekCrawlerSchedule>.Filter;
+            var schedule = await collection.Find(
+                fb.Eq(s => s.Id, id)
+                & fb.Eq(s => s.Enabled, true)
+                & fb.Lte(s => s.NextRunUtc, now)
+                & fb.Eq(s => s.NextRunUtc, expectedNextRunUtc)
             ).FirstOrDefaultAsync(ct);
 
             if (schedule is null)
@@ -678,4 +750,62 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             throw;
         }
     }
+}
+
+/// <summary>Reads/writes timestamps in the PostgreSQL text format the data was imported with
+/// ("yyyy-MM-dd HH:mm:ss.ffffff+00"). Values are normalized to UTC so the string ordering stays
+/// consistent for range filters and sorts.</summary>
+internal sealed class PgTextDateTimeOffsetSerializer : SerializerBase<DateTimeOffset>
+{
+    public override DateTimeOffset Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
+    {
+        var bsonType = context.Reader.GetCurrentBsonType();
+        return bsonType switch
+        {
+            BsonType.String => DateTimeOffset.Parse(context.Reader.ReadString(), CultureInfo.InvariantCulture),
+            BsonType.DateTime => DateTimeOffset.FromUnixTimeMilliseconds(context.Reader.ReadDateTime()),
+            _ => throw new FormatException($"Cannot deserialize DateTimeOffset from BsonType {bsonType}."),
+        };
+    }
+
+    public override void Serialize(BsonSerializationContext context, BsonSerializationArgs args, DateTimeOffset value)
+        => context.Writer.WriteString(value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture));
+}
+
+/// <summary>Reads/writes booleans as PostgreSQL "t"/"f" text.</summary>
+internal sealed class PgTextBooleanSerializer : SerializerBase<bool>
+{
+    public override bool Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
+    {
+        var bsonType = context.Reader.GetCurrentBsonType();
+        return bsonType switch
+        {
+            BsonType.String => context.Reader.ReadString() is "t" or "true" or "1",
+            BsonType.Boolean => context.Reader.ReadBoolean(),
+            _ => throw new FormatException($"Cannot deserialize bool from BsonType {bsonType}."),
+        };
+    }
+
+    public override void Serialize(BsonSerializationContext context, BsonSerializationArgs args, bool value)
+        => context.Writer.WriteString(value ? "t" : "f");
+}
+
+/// <summary>Reads/writes ints as digit strings, tolerating native numeric BSON values.</summary>
+internal sealed class PgTextInt32Serializer : SerializerBase<int>
+{
+    public override int Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
+    {
+        var bsonType = context.Reader.GetCurrentBsonType();
+        return bsonType switch
+        {
+            BsonType.String => int.Parse(context.Reader.ReadString(), CultureInfo.InvariantCulture),
+            BsonType.Int32 => context.Reader.ReadInt32(),
+            BsonType.Int64 => (int)context.Reader.ReadInt64(),
+            BsonType.Double => (int)context.Reader.ReadDouble(),
+            _ => throw new FormatException($"Cannot deserialize int from BsonType {bsonType}."),
+        };
+    }
+
+    public override void Serialize(BsonSerializationContext context, BsonSerializationArgs args, int value)
+        => context.Writer.WriteString(value.ToString(CultureInfo.InvariantCulture));
 }
