@@ -236,25 +236,51 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         try
         {
             var collection = _db.GetCollection<BsonDocument>("crawl_pages");
-            var rows = await collection
-                .Find(new BsonDocument("RunId", runId.ToString()))
-                .Sort(Builders<BsonDocument>.Sort.Ascending("CrawledAtUtc"))
-                .Skip(offset)
-                .Limit(limit)
-                .Project(Builders<BsonDocument>.Projection
-                    .Include("Origin")
-                    .Include("Url")
-                    .Include("Html"))
-                .ToListAsync(ct);
-
-            return rows.Select(doc =>
+            // Derive HasHtml in Mongo — never materialize multi-MB Html into the driver
+            // (resume only needs Origin/Url/HasHtml; loading Html caused Hostinger 502s).
+            var pipeline = new[]
             {
-                var html = doc.GetValue("Html", BsonNull.Value);
-                return new GeekCrawlerPageResumeRow(
-                    doc["Origin"].AsString,
-                    doc["Url"].AsString,
-                    html.IsString && !string.IsNullOrEmpty(html.AsString));
-            }).ToList();
+                new BsonDocument("$match", new BsonDocument("RunId", runId.ToString())),
+                new BsonDocument("$sort", new BsonDocument("CrawledAtUtc", 1)),
+                new BsonDocument("$skip", offset),
+                new BsonDocument("$limit", limit),
+                new BsonDocument("$project", new BsonDocument
+                {
+                    { "_id", 0 },
+                    { "Origin", 1 },
+                    { "Url", 1 },
+                    {
+                        "HasHtml", new BsonDocument("$cond", new BsonDocument
+                        {
+                            {
+                                "if", new BsonDocument("$eq", new BsonArray
+                                {
+                                    new BsonDocument("$type", "$Html"),
+                                    "string",
+                                })
+                            },
+                            {
+                                "then", new BsonDocument("$gt", new BsonArray
+                                {
+                                    new BsonDocument("$strLenCP", "$Html"),
+                                    0,
+                                })
+                            },
+                            { "else", false },
+                        })
+                    },
+                }),
+            };
+
+            var rows = await collection.Aggregate<BsonDocument>(pipeline, cancellationToken: ct)
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+
+            return rows.Select(doc => new GeekCrawlerPageResumeRow(
+                    doc.GetValue("Origin", "").AsString,
+                    doc.GetValue("Url", "").AsString,
+                    doc.GetValue("HasHtml", false).ToBoolean()))
+                .ToList();
         }
         catch (Exception ex)
         {
