@@ -268,7 +268,8 @@ public sealed class GccV2WriteService
             GccV2LongFormTypes.Blog
                 or GccV2LongFormTypes.Guide
                 or GccV2LongFormTypes.Listicle
-                or GccV2ChannelTypes.LinkedInCarousel => WriteBlogAsync(wc, ownerUserId, ct),
+                or GccV2ChannelTypes.LinkedInCarousel
+                or GccV2ChannelTypes.LinkedInDocument => WriteBlogAsync(wc, ownerUserId, ct),
             GccV2LongFormTypes.Tool => WriteToolAsync(wc, ownerUserId, ct),
             "email" => WriteEmailAsync(wc, ownerUserId, ct),
             "social" => WriteSocialAsync(wc, ownerUserId, ct),

@@ -5,6 +5,7 @@ using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
+using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services;
 using GeekApplication.Models.ContentCreator;
 using Microsoft.Extensions.Options;
@@ -231,22 +232,10 @@ public sealed class GccV2ToolOverviewWriteService
             var partner = partners[i];
             try
             {
-                var result = await wc.Provider.CompleteAsync(
-                    _prompts.BuildOverviewPartnerChildPrompt(
-                        wc.BaseContext,
-                        metadata,
-                        toolsHeading,
-                        partner.Name,
-                        allPartnerNames,
-                        i,
-                        partners.Count,
-                        partner.ResearchJson,
-                        partner.OnSiteHref),
-                    ct);
-                var child = LlmResponseJsonParser.ParseSection(
-                    result.Content, "h3", $"tools index \"{partner.Name}\"");
+                var (child, used) = await CompletePartnerChildSectionAsync(
+                    wc, metadata, toolsHeading, partner, allPartnerNames, i, partners.Count, ct);
                 children.Add(child with { Heading = partner.Name, Tag = "h3" });
-                tokens += (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+                tokens += used;
             }
             catch (Exception ex)
             {
@@ -259,6 +248,56 @@ public sealed class GccV2ToolOverviewWriteService
         var partnerLinks = partners.Select(p => (p.Name, p.OnSiteHref)).ToList();
         var injected = InjectOnSiteToolLinks([toolsSection], partnerLinks, toolsHeading).First();
         return (injected, tokens);
+    }
+
+    private async Task<(Section Section, int Tokens)> CompletePartnerChildSectionAsync(
+        GccV2WriteContext wc,
+        ArticleMetadataDraft metadata,
+        string toolsHeading,
+        PartnerResearchRow partner,
+        IReadOnlyList<string> allPartnerNames,
+        int index,
+        int totalCount,
+        CancellationToken ct)
+    {
+        ContentGenerationException? lastParseFailure = null;
+        var tokens = 0;
+        // One retry: models occasionally return truncated or non-hygienic JSON for a single partner.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var result = await wc.Provider.CompleteAsync(
+                _prompts.BuildOverviewPartnerChildPrompt(
+                    wc.BaseContext,
+                    metadata,
+                    toolsHeading,
+                    partner.Name,
+                    allPartnerNames,
+                    index,
+                    totalCount,
+                    partner.ResearchJson,
+                    partner.OnSiteHref),
+                ct);
+            tokens += (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            try
+            {
+                var child = LlmResponseJsonParser.ParseSection(
+                    result.Content, "h3", $"tools index \"{partner.Name}\"");
+                return (child, tokens);
+            }
+            catch (ContentGenerationException ex)
+            {
+                lastParseFailure = ex;
+                _logger.LogWarning(
+                    ex,
+                    "Tools index subsection \"{Name}\" parse failed on attempt {Attempt} for job {JobId}.",
+                    partner.Name,
+                    attempt + 1,
+                    wc.Job.Id);
+            }
+        }
+
+        throw lastParseFailure
+              ?? new ContentGenerationException($"Tools index \"{partner.Name}\" failed after retries.");
     }
 
     internal static string ResolveToolsHeading(IReadOnlyList<GccV2OutlineSection> outline, string keyword)

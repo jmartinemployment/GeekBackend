@@ -1,4 +1,5 @@
 using GeekAPI.Services.ContentCreatorV2.Carousel;
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 
 namespace GeekBackend.Tests.ContentCreatorV2.Carousel;
 
@@ -93,10 +94,25 @@ public sealed class GccV2LinkedInCarouselSpawnTests
     }
 
     [Fact]
+    public void BriefIncludesLinkedInCarousel_true_for_document_alias()
+    {
+        Assert.True(GccV2LinkedInCarouselSpawnService.BriefIncludesLinkedInCarousel(
+            """{"contentTypes":["pillar","linkedin-document"]}"""));
+    }
+
+    [Fact]
     public void BriefIncludesLinkedInCarousel_false_without_type()
     {
         Assert.False(GccV2LinkedInCarouselSpawnService.BriefIncludesLinkedInCarousel(
             """{"contentTypes":["pillar","email"]}"""));
+    }
+
+    [Fact]
+    public void IsLinkedIn_accepts_document_and_carousel_aliases()
+    {
+        Assert.True(GccV2ChannelTypes.IsLinkedIn("linkedin-document"));
+        Assert.True(GccV2ChannelTypes.IsLinkedIn("linkedin-carousel"));
+        Assert.False(GccV2ChannelTypes.IsLinkedIn("pillar"));
     }
 }
 

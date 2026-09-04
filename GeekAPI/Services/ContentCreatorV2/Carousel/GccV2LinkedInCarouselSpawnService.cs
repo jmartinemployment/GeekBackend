@@ -6,8 +6,9 @@ using GeekAPI.Services.ContentCreatorV2.Jobs;
 namespace GeekAPI.Services.ContentCreatorV2.Carousel;
 
 /// <summary>
-/// When a long-form job reaches <c>ready</c> and the brief includes <c>linkedin-carousel</c> in
-/// <c>contentTypes</c>, spawns one carousel job (deferred from generate — carousel needs no parallel PLAN).
+/// When a long-form job reaches <c>ready</c> and the brief includes <c>linkedin-document</c>
+/// or <c>linkedin-carousel</c> in <c>contentTypes</c>, spawns one carousel job (deferred from
+/// generate — carousel needs no parallel PLAN).
 /// </summary>
 public sealed class GccV2LinkedInCarouselSpawnService
 {
@@ -56,7 +57,7 @@ public sealed class GccV2LinkedInCarouselSpawnService
             return new SpawnResult(0, 0, null, null);
 
         var existing = await _repo.ListJobsByCreateAsync(sourceJob.CreateId, ct);
-        if (existing.Any(j => GccV2ChannelTypes.IsLinkedIn(j.ContentType)))
+        if (existing.Any(j => GccV2ChannelTypes.IsLinkedInDocument(j.ContentType)))
             return new SpawnResult(0, 1, null, "LinkedIn carousel job already exists on this create.");
 
         var job = await _repo.CreateJobAsync(

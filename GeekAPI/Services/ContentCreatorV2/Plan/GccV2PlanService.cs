@@ -441,6 +441,7 @@ public sealed class GccV2PlanService
                     ("when-to-use", "When to Use"),
                 ]), false);
             case GccV2ChannelTypes.LinkedInCarousel:
+            case GccV2ChannelTypes.LinkedInDocument:
                 return (DedupeByHeading(
                 [
                     ("cover", $"Hook — {title}"),
