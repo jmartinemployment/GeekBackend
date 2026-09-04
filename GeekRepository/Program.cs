@@ -109,6 +109,7 @@ await ApplyContentWriterV2MigrationsAsync(app, startupLogger);
 await ApplyContentCreatorMigrationsAsync(app, startupLogger);
 await ApplyContentCreatorV2MigrationsAsync(app, startupLogger);
 await ApplyGeekCrawlerMigrationsAsync(app, startupLogger);
+await EnsureGeekCrawlerMongoIndexesAsync(app, startupLogger);
 await RewriteRetiredSiteAnalysisHistoryNamesAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
@@ -251,6 +252,21 @@ static async Task ApplyGeekCrawlerMigrationsAsync(WebApplication app, ILogger lo
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying Geek-Crawler EF migrations. Continuing startup.");
+    }
+}
+
+static async Task EnsureGeekCrawlerMongoIndexesAsync(WebApplication app, ILogger logger)
+{
+    try
+    {
+        var mongo = app.Services.GetRequiredService<GeekRepository.Services.IMongoGeekCrawlerService>();
+        await mongo.EnsureIndexesAsync();
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed ensuring Geek-Crawler Mongo indexes. Continuing startup.");
+        if (!app.Environment.IsDevelopment())
+            throw;
     }
 }
 

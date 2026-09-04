@@ -55,6 +55,9 @@ public interface IMongoGeekCrawlerService
     Task UpdateScheduleAsync(Guid id, Action<GeekCrawlerSchedule> updateAction, CancellationToken ct = default);
     Task DeleteScheduleAsync(Guid id, CancellationToken ct = default);
     Task<GeekCrawlerSchedule?> ClaimDueScheduleAsync(Guid id, DateTimeOffset expectedNextRunUtc, DateTimeOffset newNextRunUtc, DateTimeOffset? lastStartedUtc, CancellationToken ct = default);
+
+    /// <summary>Creates Mongo indexes required for RunId filters and CrawledAtUtc sorts (idempotent).</summary>
+    Task EnsureIndexesAsync(CancellationToken ct = default);
 }
 
 public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
@@ -135,6 +138,47 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         var client = new MongoClient(mongoConnectionString);
         _db = client.GetDatabase("geek_crawler");
         _logger = logger;
+    }
+
+    public async Task EnsureIndexesAsync(CancellationToken ct = default)
+    {
+        // PG had ix_crawl_pages_run_id / run_url; Mongo import never recreated them.
+        // Without these, pages/activity (count + max CrawledAtUtc) and resume scans COLLSCAN.
+        var pages = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
+        await pages.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<GeekCrawlerPage>(
+                    Builders<GeekCrawlerPage>.IndexKeys
+                        .Ascending(p => p.RunId)
+                        .Descending(p => p.CrawledAtUtc),
+                    new CreateIndexOptions { Name = "ix_crawl_pages_run_crawled", Background = true }),
+                new CreateIndexModel<GeekCrawlerPage>(
+                    Builders<GeekCrawlerPage>.IndexKeys
+                        .Ascending(p => p.RunId)
+                        .Ascending(p => p.Url),
+                    new CreateIndexOptions { Name = "ix_crawl_pages_run_url", Background = true }),
+            ],
+            cancellationToken: ct).ConfigureAwait(false);
+
+        var links = _db.GetCollection<GeekCrawlerLink>("crawl_links");
+        await links.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<GeekCrawlerLink>(
+                    Builders<GeekCrawlerLink>.IndexKeys
+                        .Ascending(l => l.RunId)
+                        .Ascending(l => l.DiscoveredAtUtc)
+                        .Ascending(l => l.Id),
+                    new CreateIndexOptions { Name = "ix_crawl_links_run_discovered_id", Background = true }),
+                new CreateIndexModel<GeekCrawlerLink>(
+                    Builders<GeekCrawlerLink>.IndexKeys
+                        .Ascending(l => l.RunId)
+                        .Ascending(l => l.FromUrl)
+                        .Ascending(l => l.LinkUrl),
+                    new CreateIndexOptions { Name = "ix_crawl_links_run_from_link", Background = true }),
+            ],
+            cancellationToken: ct).ConfigureAwait(false);
+
+        _logger.LogInformation("Geek-Crawler Mongo indexes ensured on crawl_pages and crawl_links.");
     }
 
     public async Task<List<GeekCrawlerPage>> ListPagesByRunAsync(Guid runId, int limit, int offset, CancellationToken ct = default)
@@ -243,10 +287,14 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         try
         {
             var collection = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
+            // Activity only needs the timestamp. Exclusion-only projection (Mongo forbids
+            // mixing Include+Exclude except _id) — never pull multi-MB Html into the sort.
             var page = await collection
                 .Find(p => p.RunId == runId)
                 .Sort(Builders<GeekCrawlerPage>.Sort.Descending(p => p.CrawledAtUtc))
-                .FirstOrDefaultAsync(ct);
+                .Project<GeekCrawlerPage>(Builders<GeekCrawlerPage>.Projection.Exclude(p => p.Html))
+                .FirstOrDefaultAsync(ct)
+                .ConfigureAwait(false);
             return page?.CrawledAtUtc;
         }
         catch (Exception ex)
