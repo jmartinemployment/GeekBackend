@@ -214,10 +214,17 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
-    public async Task MergeLocalResearch_missing_run_warns_and_skips()
+    public async Task MergeLocalResearch_missing_external_run_warns_and_skips()
     {
+        // Project-site host alone is not a Geek-Crawler local seed — only external
+        // localBusinessUrls go through crawlType "local".
         var resolver = CreateResolver(new FakeReadRepo { LatestRun = null });
-        const string brief = """{"title":"Miami HVAC"}""";
+        const string brief = """
+            {
+              "title": "Miami HVAC",
+              "localBusinessUrls": ["https://maps.example/biz/miami-hvac"]
+            }
+            """;
 
         var merged = await resolver.MergeLocalResearchAsync(
             "user-1",
