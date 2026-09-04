@@ -573,6 +573,47 @@ public class GeekCrawlerPoliteGateRobotsTests
         var url = new Uri("https://blocked.com/page");
         Assert.False(gate.IsUrlAllowed(url));
     }
+
+    [Fact]
+    public async Task EnsureRobots_http_403_defaults_to_allow_not_block_all()
+    {
+        var handler = new StubHttpHandler(req =>
+        {
+            Assert.EndsWith("/robots.txt", req.RequestUri!.AbsolutePath, StringComparison.OrdinalIgnoreCase);
+            return new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("forbidden"),
+            };
+        });
+        var registry = new GeekCrawlerHostRegistry(GeekCrawlerOptions.FromConfiguration(
+            new ConfigurationBuilder().Build()));
+        var gate = new GeekCrawlerPoliteGate(
+            new HttpClient(handler),
+            registry,
+            TimeProvider.System,
+            GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder().Build()),
+            NullLogger<GeekCrawlerPoliteGate>.Instance);
+
+        await gate.EnsureRobotsForOriginAsync("https://botpenguin.com", CancellationToken.None);
+
+        Assert.False(registry.IsRobotsForbidden("https://botpenguin.com"));
+        Assert.True(gate.IsUrlAllowed(new Uri("https://botpenguin.com/")));
+        var prepared = await gate.PrepareFetchAsync(new Uri("https://botpenguin.com/"), CancellationToken.None);
+        Assert.True(prepared.Allowed);
+    }
+
+    private sealed class StubHttpHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
+
+        public StubHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) =>
+            _responder = responder;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(_responder(request));
+    }
 }
 
 public class GeekCrawlerRunCoordinatorTests

@@ -1,4 +1,3 @@
-using System.Net;
 using GeekApplication.Models.GeekCrawler;
 using TurnerSoftware.RobotsExclusionTools;
 
@@ -71,7 +70,7 @@ public sealed class GeekCrawlerPoliteGate
         controller.ApplyExternalCooldown(backoff, _clock);
     }
 
-    /// <summary>Checks cached robots rules; returns false when robots.txt returned HTTP 403.</summary>
+    /// <summary>Checks cached robots rules; missing/unfetched robots defaults to Allow.</summary>
     public bool IsUrlAllowed(Uri url)
     {
         var origin = url.GetLeftPart(UriPartial.Authority);
@@ -108,18 +107,20 @@ public sealed class GeekCrawlerPoliteGate
         {
             var robotsUri = new Uri(new Uri(origin + "/", UriKind.Absolute), "/robots.txt");
             using var response = await _http.GetAsync(robotsUri, ct).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.Forbidden)
-            {
-                _logger.LogInformation(
-                    "[geek-crawler] robots.txt forbidden (403) for {Origin}; blocking all URLs.",
-                    origin);
-                _registry.SetRobotsForbidden(origin);
-                parsed = null;
-            }
-            else if (response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode)
             {
                 var contents = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 parsed = _robotsParser.FromString(contents, new Uri(origin));
+            }
+            else
+            {
+                // WAF/bot filters often 403 robots.txt from datacenter IPs while still
+                // serving pages (and publishing an Allow-heavy robots file). Treat any
+                // non-success like a fetch failure: default Allow rather than block-all.
+                _logger.LogInformation(
+                    "[geek-crawler] robots.txt HTTP {StatusCode} for {Origin}; default Allow.",
+                    (int)response.StatusCode,
+                    origin);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
