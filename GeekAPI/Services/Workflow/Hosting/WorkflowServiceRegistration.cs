@@ -98,42 +98,50 @@ public static class WorkflowServiceRegistration
     {
         var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Workflow.Startup");
 
-        await using var scope = app.Services.CreateAsyncScope();
-        var clientStore = scope.ServiceProvider.GetRequiredService<IClientStore>();
-        var projectStore = scope.ServiceProvider.GetRequiredService<IProjectStore>();
-
-        const string DefaultClientName = "Geek At Your Spot";
-
-        // Hydrate persisted clients first
-        if (clientStore is PersistentClientStore persistentClientStore)
+        try
         {
-            await persistentClientStore.HydrateAsync(cancellationToken);
-        }
+            await using var scope = app.Services.CreateAsyncScope();
+            var clientStore = scope.ServiceProvider.GetRequiredService<IClientStore>();
+            var projectStore = scope.ServiceProvider.GetRequiredService<IProjectStore>();
 
-        // Then hydrate persisted projects (which rehydrate their Client refs)
-        if (projectStore is PersistentProjectStore persistentProjectStore)
-        {
-            await persistentProjectStore.HydrateAsync(cancellationToken);
-        }
+            const string DefaultClientName = "Geek At Your Spot";
 
-        // If no clients exist (fresh start), seed the default
-        if (!await clientStore.AnyAsync(cancellationToken))
-        {
-            var client = new Client { Name = DefaultClientName };
-            client.PublishTarget = new PublishTarget
+            // Hydrate persisted clients first
+            if (clientStore is PersistentClientStore persistentClientStore)
             {
-                ClientId = client.Id,
-                GeekBackendApiBaseUrl = "https://api.geekatyourspot.com",
-                OAuthTokenEndpoint = "api/oauth/token",
-                ClientIdEnvVar = "GEEKATYOURSPOT_OAUTH_CLIENT_ID",
-                ClientSecretEnvVar = "GEEKATYOURSPOT_OAUTH_CLIENT_SECRET",
-                CategoryStrategy = CategoryStrategy.DepartmentBased,
-            };
+                await persistentClientStore.HydrateAsync(cancellationToken);
+            }
 
-            await clientStore.AddAsync(client, cancellationToken);
-            logger.LogInformation("Seeded default client '{ClientName}' ({ClientId}).", DefaultClientName, client.Id);
+            // Then hydrate persisted projects (which rehydrate their Client refs)
+            if (projectStore is PersistentProjectStore persistentProjectStore)
+            {
+                await persistentProjectStore.HydrateAsync(cancellationToken);
+            }
+
+            // If no clients exist (fresh start), seed the default
+            if (!await clientStore.AnyAsync(cancellationToken))
+            {
+                var client = new Client { Name = DefaultClientName };
+                client.PublishTarget = new PublishTarget
+                {
+                    ClientId = client.Id,
+                    GeekBackendApiBaseUrl = "https://api.geekatyourspot.com",
+                    OAuthTokenEndpoint = "api/oauth/token",
+                    ClientIdEnvVar = "GEEKATYOURSPOT_OAUTH_CLIENT_ID",
+                    ClientSecretEnvVar = "GEEKATYOURSPOT_OAUTH_CLIENT_SECRET",
+                    CategoryStrategy = CategoryStrategy.DepartmentBased,
+                };
+
+                await clientStore.AddAsync(client, cancellationToken);
+                logger.LogInformation("Seeded default client '{ClientName}' ({ClientId}).", DefaultClientName, client.Id);
+            }
+
+            logger.LogInformation("Workflow initialization complete.");
         }
-
-        logger.LogInformation("Workflow initialization complete.");
+        catch (Exception ex)
+        {
+            // GeekRepository brief outages must not crash GeekAPI (hubs/CORS/crawler proxy).
+            logger.LogError(ex, "Workflow hydrate failed. Continuing startup without in-memory workflow seed.");
+        }
     }
 }

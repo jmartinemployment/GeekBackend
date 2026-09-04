@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -135,9 +137,53 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         if (string.IsNullOrWhiteSpace(mongoConnectionString))
             throw new ArgumentNullException(nameof(mongoConnectionString));
 
-        var client = new MongoClient(mongoConnectionString);
-        _db = client.GetDatabase("geek_crawler");
         _logger = logger;
+        // Railway often cannot reach Hostinger AAAA (Network is unreachable on IPv6). Prefer A.
+        var connectionString = PreferIpv4MongoHost(mongoConnectionString, logger);
+        var client = new MongoClient(connectionString);
+        _db = client.GetDatabase("geek_crawler");
+    }
+
+    /// <summary>
+    /// Rewrites a single-host Mongo URL hostname to its IPv4 A record when available.
+    /// Leaves IP literals and multi-host / SRV URLs unchanged.
+    /// </summary>
+    internal static string PreferIpv4MongoHost(string connectionString, ILogger? logger = null)
+    {
+        try
+        {
+            if (connectionString.StartsWith("mongodb+srv://", StringComparison.OrdinalIgnoreCase))
+                return connectionString;
+
+            var url = new MongoUrl(connectionString);
+            var servers = url.Servers.ToList();
+            if (servers.Count != 1)
+                return connectionString;
+
+            var server = servers[0];
+            if (IPAddress.TryParse(server.Host, out _))
+                return connectionString;
+
+            var addresses = Dns.GetHostAddresses(server.Host);
+            var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+            if (ipv4 is null)
+                return connectionString;
+
+            var builder = new MongoUrlBuilder(connectionString)
+            {
+                Server = new MongoServerAddress(ipv4.ToString(), server.Port),
+            };
+            logger?.LogInformation(
+                "Mongo crawler host {Host} resolved to IPv4 {Ipv4} (avoiding IPv6 from Railway).",
+                server.Host,
+                ipv4);
+            return builder.ToString();
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Could not prefer IPv4 for Mongo crawler URL; using connection string as-is.");
+            return connectionString;
+        }
     }
 
     public async Task EnsureIndexesAsync(CancellationToken ct = default)

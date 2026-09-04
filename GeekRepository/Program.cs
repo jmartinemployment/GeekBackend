@@ -261,12 +261,14 @@ static async Task EnsureGeekCrawlerMongoIndexesAsync(WebApplication app, ILogger
     {
         var mongo = app.Services.GetRequiredService<GeekRepository.Services.IMongoGeekCrawlerService>();
         await mongo.EnsureIndexesAsync();
+        logger.LogInformation("Geek-Crawler Mongo indexes ensured.");
     }
     catch (Exception ex)
     {
+        // Indexes are best-effort: Hostinger Mongo can be briefly unreachable (e.g. IPv6
+        // from Railway). Do not crash the whole repository — crawler routes will fail
+        // loudly until Mongo recovers; everything else must stay up.
         logger.LogError(ex, "Failed ensuring Geek-Crawler Mongo indexes. Continuing startup.");
-        if (!app.Environment.IsDevelopment())
-            throw;
     }
 }
 
