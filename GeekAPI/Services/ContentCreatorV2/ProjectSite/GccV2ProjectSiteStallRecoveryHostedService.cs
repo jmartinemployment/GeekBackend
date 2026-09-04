@@ -1,4 +1,5 @@
 using GeekAPI.HttpClients;
+using GeekAPI.Services;
 using GeekAPI.Services.GeekCrawler;
 
 namespace GeekAPI.Services.ContentCreatorV2.ProjectSite;
@@ -31,7 +32,7 @@ public sealed class GccV2ProjectSiteStallRecoveryHostedService : BackgroundServi
             {
                 await ScanStalledRunsAsync(stoppingToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (HostedServiceScan.ShouldLogAndContinue(ex, stoppingToken))
             {
                 _logger.LogError(ex, "Project-site crawl stall recovery scan failed.");
             }

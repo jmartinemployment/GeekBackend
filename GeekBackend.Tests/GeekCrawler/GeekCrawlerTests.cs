@@ -1,5 +1,6 @@
 using System.Net;
 using GeekAPI.HttpClients;
+using GeekAPI.Services;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.GeekCrawler.Polite;
 using GeekApplication.Models.GeekCrawler;
@@ -606,6 +607,33 @@ public class GeekCrawlerStallRecoveryTests
     [Fact]
     public void ScanInterval_is_two_minutes() =>
         Assert.Equal(TimeSpan.FromMinutes(2), GeekCrawlerStallRecoveryHostedService.ScanInterval);
+
+    [Fact]
+    public void ShouldLogAndContinue_true_for_HttpClient_timeout_when_host_not_stopping()
+    {
+        // HttpClient.Timeout surfaces as TaskCanceledException (an OCE) with a non-cancelled token.
+        using var cts = new CancellationTokenSource();
+        var timeout = new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout.");
+
+        Assert.True(HostedServiceScan.ShouldLogAndContinue(timeout, cts.Token));
+    }
+
+    [Fact]
+    public void ShouldLogAndContinue_false_when_host_stopping_cancels()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var canceled = new OperationCanceledException(cts.Token);
+
+        Assert.False(HostedServiceScan.ShouldLogAndContinue(canceled, cts.Token));
+    }
+
+    [Fact]
+    public void ShouldLogAndContinue_true_for_ordinary_exceptions()
+    {
+        using var cts = new CancellationTokenSource();
+        Assert.True(HostedServiceScan.ShouldLogAndContinue(new InvalidOperationException("boom"), cts.Token));
+    }
 }
 
 public class GeekCrawlerCapsTests

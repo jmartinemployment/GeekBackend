@@ -1,4 +1,5 @@
 using GeekAPI.HttpClients;
+using GeekAPI.Services;
 
 namespace GeekAPI.Services.GeekCrawler;
 
@@ -30,7 +31,7 @@ public sealed class GeekCrawlerStallRecoveryHostedService : BackgroundService
             {
                 await ScanStalledRunsAsync(stoppingToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (HostedServiceScan.ShouldLogAndContinue(ex, stoppingToken))
             {
                 _logger.LogError(ex, "Geek-Crawler stall recovery scan failed.");
             }

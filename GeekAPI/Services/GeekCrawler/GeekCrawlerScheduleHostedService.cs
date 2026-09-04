@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services;
 using GeekApplication.Models.GeekCrawler;
 
 namespace GeekAPI.Services.GeekCrawler;
@@ -34,7 +35,7 @@ public sealed class GeekCrawlerScheduleHostedService : BackgroundService
             {
                 await ProcessDueSchedulesAsync(stoppingToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (HostedServiceScan.ShouldLogAndContinue(ex, stoppingToken))
             {
                 _logger.LogError(ex, "Geek-Crawler schedule scan failed.");
             }
@@ -92,7 +93,7 @@ public sealed class GeekCrawlerScheduleHostedService : BackgroundService
                     run.Id,
                     schedule.Id);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (HostedServiceScan.ShouldLogAndContinue(ex, ct))
             {
                 _logger.LogError(ex, "Failed to start scheduled crawl for schedule {ScheduleId}.", schedule.Id);
             }
