@@ -20,6 +20,8 @@ public sealed class GeekCrawlerService
     private readonly GeekCrawlerWake _wake;
     private readonly GeekCrawlerProgressNotifier _notifier;
     private readonly GeekCrawlerRunCoordinator _coordinator;
+    private readonly GeekCrawlerOptions _options;
+    private readonly IGeekCrawlerRagClient _rag;
     private readonly ILogger<GeekCrawlerService> _logger;
 
     public GeekCrawlerService(
@@ -31,6 +33,8 @@ public sealed class GeekCrawlerService
         GeekCrawlerWake wake,
         GeekCrawlerProgressNotifier notifier,
         GeekCrawlerRunCoordinator coordinator,
+        GeekCrawlerOptions options,
+        IGeekCrawlerRagClient rag,
         ILogger<GeekCrawlerService> logger)
     {
         _repo = repo;
@@ -41,6 +45,8 @@ public sealed class GeekCrawlerService
         _wake = wake;
         _notifier = notifier;
         _coordinator = coordinator;
+        _options = options;
+        _rag = rag;
         _logger = logger;
     }
 
@@ -271,8 +277,12 @@ public sealed class GeekCrawlerService
                 if (resume is not null && resume.OriginResume.TryGetValue(origin, out var loaded))
                     originResume = loaded;
 
-                var sitemapUrls = await _sitemapSeeder.CollectAllowedUrlsAsync(origin, ct)
-                    .ConfigureAwait(false);
+                // Seeds-only skips sitemap seeding (sitemap fetches can hang for minutes on
+                // WAF'd origins and never reach the first Playwright page save).
+                var sitemapUrls = _options.SeedsOnly
+                    ? Array.Empty<string>()
+                    : await _sitemapSeeder.CollectAllowedUrlsAsync(origin, ct)
+                        .ConfigureAwait(false);
 
                 await _bfs.CrawlOriginAsync(
                     origin,
@@ -350,6 +360,7 @@ public sealed class GeekCrawlerService
                     CompletedAtUtc: DateTimeOffset.UtcNow),
                 ct).ConfigureAwait(false);
             await PushRunAsync(current, currentOrigin: null, ct).ConfigureAwait(false);
+            TriggerRagIndex(runId);
 
             _logger.LogInformation(
                 "Geek-Crawler run {RunId} complete for user {OwnerUserId}.",
@@ -362,10 +373,19 @@ public sealed class GeekCrawlerService
             if (current is not null)
                 await FailRunAsync(current, ex.Message, ct, hostProgress).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             _logger.LogInformation("Geek-Crawler run {RunId} cancelled.", runId);
             throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // HttpClient.Timeout can surface as OCE with a live run token. Never treat that as a
+            // hard run failure when pages already landed — leave the run running/pending for resume.
+            _logger.LogWarning(
+                ex,
+                "Geek-Crawler run {RunId} hit an unexpected HTTP timeout after progress; not failing the run.",
+                runId);
         }
         catch (Exception ex)
         {
@@ -478,6 +498,25 @@ public sealed class GeekCrawlerService
         {
             _logger.LogError(ex, "Geek-Crawler push failed for run {RunId}.", run.Id);
         }
+    }
+
+    /// <summary>Thin optional trigger — never blocks crawl completion.</summary>
+    private void TriggerRagIndex(Guid runId)
+    {
+        if (!_rag.IsEnabled)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _rag.EnqueueIndexAsync(runId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Geek-Crawler-Rag index trigger failed for {RunId}", runId);
+            }
+        });
     }
 }
 

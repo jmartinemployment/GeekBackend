@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.ContentCreator;
 using GeekApplication.Models.GeekCrawler;
 
@@ -101,15 +102,18 @@ public sealed class GccV2GeekCrawlerResearchResolver
 {
     private readonly IGccV2GeekCrawlerReadRepository _crawlerRepo;
     private readonly IGccV2ProjectSitePageReader _projectSitePages;
+    private readonly IGeekCrawlerRagClient _rag;
     private readonly ILogger<GccV2GeekCrawlerResearchResolver> _logger;
 
     public GccV2GeekCrawlerResearchResolver(
         IGccV2GeekCrawlerReadRepository crawlerRepo,
         IGccV2ProjectSitePageReader projectSitePages,
+        IGeekCrawlerRagClient rag,
         ILogger<GccV2GeekCrawlerResearchResolver> logger)
     {
         _crawlerRepo = crawlerRepo;
         _projectSitePages = projectSitePages;
+        _rag = rag;
         _logger = logger;
     }
 
@@ -413,6 +417,32 @@ public sealed class GccV2GeekCrawlerResearchResolver
         }
 
         var seedSet = BuildSeedMatchSet(normalized);
+
+        // Prefer Geek-Crawler-Rag chunks when configured; fall back to Mongo HTML extract.
+        if (_rag.IsEnabled)
+        {
+            var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
+                ? seedUri.Host
+                : null;
+            var rag = await _rag.QueryAsync(
+                need: $"Partner/competitor page content for {seed}",
+                runId: run.Id,
+                crawlType: crawlType,
+                host: host,
+                topK: 12,
+                ct: ct).ConfigureAwait(false);
+            if (rag is not null && rag.Pages.Count > 0)
+            {
+                var filtered = rag.Pages
+                    .Where(p => PageMatchesSeed(p.Url, seedSet) || HostMatchesSeed(p.Url, seedSet))
+                    .ToList();
+                if (filtered.Count == 0)
+                    filtered = rag.Pages.ToList();
+                if (filtered.Count > 0)
+                    return (filtered, null);
+            }
+        }
+
         var quoteable = await ExtractQuoteableFromCrawlerPagesAsync(run.Id, seedSet, ct);
         if (quoteable.Count > 0)
         {
@@ -435,6 +465,21 @@ public sealed class GccV2GeekCrawlerResearchResolver
             run.Status,
             seed);
         return ([], DescribeUnavailableResearch(seed, crawlType));
+    }
+
+    private static bool HostMatchesSeed(string pageUrl, HashSet<string> seedSet)
+    {
+        if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri))
+            return false;
+        foreach (var seed in seedSet)
+        {
+            if (!Uri.TryCreate(seed, UriKind.Absolute, out var seedUri))
+                continue;
+            if (HostsMatch(pageUri.Host, seedUri.Host))
+                return true;
+        }
+
+        return false;
     }
 
     private async Task<GeekCrawlerRunDto?> FindRunForSeedsAsync(

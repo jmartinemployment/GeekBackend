@@ -1,6 +1,7 @@
 using EphemeralMongo;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
+using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
 using GeekRepository.Data.Entities.GeekCrawler;
 using GeekRepository.Services;
@@ -116,6 +117,7 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
         var resolver = new GccV2GeekCrawlerResearchResolver(
             new MongoReadRepo(mongo),
             new EmptyProjectSitePageReader(),
+            new DisabledRagClient(),
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
         var brief = $$"""
@@ -283,5 +285,24 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             IReadOnlyList<string> seedUrls,
             CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>>([]);
+    }
+
+    private sealed class DisabledRagClient : IGeekCrawlerRagClient
+    {
+        public bool IsEnabled => false;
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(
+            Guid runId,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need,
+            Guid runId,
+            string? crawlType = null,
+            string? host = null,
+            int topK = 8,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagQueryResult?>(null);
     }
 }

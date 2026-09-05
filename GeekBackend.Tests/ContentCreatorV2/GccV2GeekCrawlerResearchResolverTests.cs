@@ -1,5 +1,6 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
+using GeekAPI.Services.GeekCrawler;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GeekBackend.Tests.ContentCreatorV2;
@@ -379,7 +380,27 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
         new(
             crawlerRepo,
             projectSitePages ?? new FakeProjectSitePageReader(),
+            new DisabledGeekCrawlerRagClient(),
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
+
+    private sealed class DisabledGeekCrawlerRagClient : IGeekCrawlerRagClient
+    {
+        public bool IsEnabled => false;
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(
+            Guid runId,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need,
+            Guid runId,
+            string? crawlType = null,
+            string? host = null,
+            int topK = 8,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagQueryResult?>(null);
+    }
 
     private sealed class FakeReadRepo : IGccV2GeekCrawlerReadRepository
     {

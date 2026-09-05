@@ -25,11 +25,19 @@ public class GeekCrawlerIngestController : ControllerBase
 
     private readonly ICurrentUserContext _user;
     private readonly HttpGeekCrawlerRepository _repo;
+    private readonly GeekCrawlerProgressNotifier _notifier;
+    private readonly IGeekCrawlerRagClient _rag;
 
-    public GeekCrawlerIngestController(ICurrentUserContext user, HttpGeekCrawlerRepository repo)
+    public GeekCrawlerIngestController(
+        ICurrentUserContext user,
+        HttpGeekCrawlerRepository repo,
+        GeekCrawlerProgressNotifier notifier,
+        IGeekCrawlerRagClient rag)
     {
         _user = user;
         _repo = repo;
+        _notifier = notifier;
+        _rag = rag;
     }
 
     /// <summary>Create a crawl run owned by the authenticated user; mark status <c>external</c>.</summary>
@@ -72,7 +80,9 @@ public class GeekCrawlerIngestController : ControllerBase
                     StartedAtUtc: DateTimeOffset.UtcNow),
                 ct).ConfigureAwait(false);
 
-            return Ok(GeekCrawlerService.ToSnapshot(run));
+            var snapshot = GeekCrawlerService.ToSnapshot(run);
+            await _notifier.PushAsync(snapshot, run.Id, ownerUserId, ct).ConfigureAwait(false);
+            return Ok(snapshot);
         }
         catch (HttpRequestException ex)
         {
@@ -110,7 +120,25 @@ public class GeekCrawlerIngestController : ControllerBase
                     CompletedAtUtc: request.CompletedAtUtc),
                 ct).ConfigureAwait(false);
 
-            return Ok(GeekCrawlerService.ToSnapshot(run));
+            var snapshot = GeekCrawlerService.ToSnapshot(run);
+            await _notifier.PushAsync(snapshot, run.Id, run.OwnerUserId, ct).ConfigureAwait(false);
+            if (string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase)
+                && _rag.IsEnabled)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _rag.EnqueueIndexAsync(run.Id).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Fire-and-forget; crawl ingest must not fail on RAG trigger.
+                    }
+                });
+            }
+
+            return Ok(snapshot);
         }
         catch (HttpRequestException ex)
         {
@@ -146,6 +174,25 @@ public class GeekCrawlerIngestController : ControllerBase
             var result = await _repo.CreatePagesBatchAsync(
                 new CreateGeekCrawlerPageBatchCommand(runId, items),
                 ct).ConfigureAwait(false);
+
+            // Lightweight progress ping (no HTML) so operator UI can refresh URL counts.
+            var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+            if (run is not null)
+            {
+                await _notifier.PushAsync(
+                    new
+                    {
+                        runId = run.Id,
+                        status = run.Status,
+                        crawlType = run.CrawlType,
+                        eventType = "pages_batch",
+                        pagesInBatch = result.Count,
+                    },
+                    run.Id,
+                    run.OwnerUserId,
+                    ct).ConfigureAwait(false);
+            }
+
             return Ok(result);
         }
         catch (HttpRequestException ex)

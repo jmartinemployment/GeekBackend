@@ -147,6 +147,20 @@ builder.Services.AddHttpClient<GeekAPI.Services.GeekSeo.HttpGeekSeoSiteAnalyzerC
     }
 });
 
+var geekCrawlerRagUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');
+var geekCrawlerRagApiKey = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_API_KEY") ?? "").Trim();
+builder.Services.AddHttpClient<GeekAPI.Services.GeekCrawler.IGeekCrawlerRagClient, GeekAPI.Services.GeekCrawler.HttpGeekCrawlerRagClient>(client =>
+{
+    if (!string.IsNullOrWhiteSpace(geekCrawlerRagUrl))
+    {
+        client.BaseAddress = new Uri(geekCrawlerRagUrl + "/");
+        client.Timeout = TimeSpan.FromMinutes(2);
+    }
+
+    if (!string.IsNullOrWhiteSpace(geekCrawlerRagApiKey))
+        client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", geekCrawlerRagApiKey);
+});
+
 var imageGeneratorBaseUrl =
     Environment.GetEnvironmentVariable("IMAGE_GENERATOR_BASE_URL")
     ?? "https://geek-image-generator.geekatyourspot.com";
