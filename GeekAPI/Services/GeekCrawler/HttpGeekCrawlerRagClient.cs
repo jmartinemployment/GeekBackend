@@ -16,6 +16,9 @@ public interface IGeekCrawlerRagClient
     /// <summary>Fire-and-forget friendly enqueue. Returns null when disabled or request fails.</summary>
     Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default);
 
+    /// <summary>One-shot status snapshot for UI reconnect (no polling). Null when disabled or 404.</summary>
+    Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default);
+
     /// <summary>
     /// Retrieve English chunks for a need. Empty list + warning on miss (notify-and-skip).
     /// Returns null when the client is disabled.
@@ -40,6 +43,16 @@ public sealed class GeekCrawlerRagIndexStatus
 {
     public required Guid RunId { get; init; }
     public required string State { get; init; }
+    public string? CrawlType { get; init; }
+    public int? MongoPageCount { get; init; }
+    public int PagesSeen { get; init; }
+    public int PagesEnglish { get; init; }
+    public int PagesSkippedLang { get; init; }
+    public int PagesSkippedEmpty { get; init; }
+    public int ChunksUpserted { get; init; }
+    public string? Error { get; init; }
+    public DateTimeOffset? StartedAtUtc { get; init; }
+    public DateTimeOffset? FinishedAtUtc { get; init; }
 }
 
 public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
@@ -96,11 +109,70 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             {
                 RunId = Guid.TryParse(dto.RunId, out var id) ? id : runId,
                 State = dto.State ?? "unknown",
+                CrawlType = dto.CrawlType,
+                MongoPageCount = dto.MongoPageCount,
+                PagesSeen = dto.PagesSeen,
+                PagesEnglish = dto.PagesEnglish,
+                PagesSkippedLang = dto.PagesSkippedLang,
+                PagesSkippedEmpty = dto.PagesSkippedEmpty,
+                ChunksUpserted = dto.ChunksUpserted,
+                Error = dto.Error,
+                StartedAtUtc = dto.StartedAtUtc,
+                FinishedAtUtc = dto.FinishedAtUtc,
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Geek-Crawler-Rag index enqueue threw for {RunId}", runId);
+            return null;
+        }
+    }
+
+    public async Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default)
+    {
+        if (!_enabled)
+            return null;
+
+        try
+        {
+            using var response = await _http.GetAsync($"v1/index/{runId:D}", ct).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag index status failed for {RunId}: {Status} {Body}",
+                    runId,
+                    (int)response.StatusCode,
+                    Truncate(body));
+                return null;
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<IndexStatusDto>(JsonOpts, ct)
+                .ConfigureAwait(false);
+            if (dto is null || string.IsNullOrWhiteSpace(dto.RunId))
+                return null;
+
+            return new GeekCrawlerRagIndexStatus
+            {
+                RunId = Guid.TryParse(dto.RunId, out var id) ? id : runId,
+                State = dto.State ?? "unknown",
+                CrawlType = dto.CrawlType,
+                MongoPageCount = dto.MongoPageCount,
+                PagesSeen = dto.PagesSeen,
+                PagesEnglish = dto.PagesEnglish,
+                PagesSkippedLang = dto.PagesSkippedLang,
+                PagesSkippedEmpty = dto.PagesSkippedEmpty,
+                ChunksUpserted = dto.ChunksUpserted,
+                Error = dto.Error,
+                StartedAtUtc = dto.StartedAtUtc,
+                FinishedAtUtc = dto.FinishedAtUtc,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler-Rag index status threw for {RunId}", runId);
             return null;
         }
     }
@@ -229,6 +301,16 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
     {
         public string? RunId { get; set; }
         public string? State { get; set; }
+        public string? CrawlType { get; set; }
+        public int? MongoPageCount { get; set; }
+        public int PagesSeen { get; set; }
+        public int PagesEnglish { get; set; }
+        public int PagesSkippedLang { get; set; }
+        public int PagesSkippedEmpty { get; set; }
+        public int ChunksUpserted { get; set; }
+        public string? Error { get; set; }
+        public DateTimeOffset? StartedAtUtc { get; set; }
+        public DateTimeOffset? FinishedAtUtc { get; set; }
     }
 
     private sealed class QueryResponseDto

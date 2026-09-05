@@ -13,15 +13,18 @@ public class GeekCrawlerController : ControllerBase
     private readonly ICurrentUserContext _user;
     private readonly HttpGeekCrawlerRepository _repo;
     private readonly GeekCrawlerService _crawler;
+    private readonly IGeekCrawlerRagClient _rag;
 
     public GeekCrawlerController(
         ICurrentUserContext user,
         HttpGeekCrawlerRepository repo,
-        GeekCrawlerService crawler)
+        GeekCrawlerService crawler,
+        IGeekCrawlerRagClient rag)
     {
         _user = user;
         _repo = repo;
         _crawler = crawler;
+        _rag = rag;
     }
 
     [HttpGet("health")]
@@ -113,6 +116,39 @@ public class GeekCrawlerController : ControllerBase
         if (!string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.Ordinal))
             return NotFound();
         return Ok(GeekCrawlerService.ToSnapshot(run));
+    }
+
+    /// <summary>
+    /// One-shot RAG index status for UI reconnect (no polling). Proxies Geek-Crawler-Rag.
+    /// </summary>
+    [HttpGet("crawls/{runId:guid}/rag-index")]
+    public async Task<IActionResult> GetRagIndexStatus(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+        if (!_rag.IsEnabled)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "RAG is not configured");
+
+        var status = await _rag.GetIndexStatusAsync(runId, ct).ConfigureAwait(false);
+        if (status is null)
+            return NotFound();
+
+        return Ok(new
+        {
+            eventType = "rag_index",
+            runId = status.RunId.ToString("D"),
+            state = status.State,
+            crawlType = status.CrawlType,
+            mongoPageCount = status.MongoPageCount,
+            pagesSeen = status.PagesSeen,
+            pagesEnglish = status.PagesEnglish,
+            pagesSkippedLang = status.PagesSkippedLang,
+            pagesSkippedEmpty = status.PagesSkippedEmpty,
+            chunksUpserted = status.ChunksUpserted,
+            error = status.Error,
+            startedAtUtc = status.StartedAtUtc,
+            finishedAtUtc = status.FinishedAtUtc,
+        });
     }
 
     [HttpGet("crawls")]

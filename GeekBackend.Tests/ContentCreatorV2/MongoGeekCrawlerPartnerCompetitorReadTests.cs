@@ -296,6 +296,11 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
 
+        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(
+            Guid runId,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
+
         public Task<GeekCrawlerRagQueryResult?> QueryAsync(
             string need,
             Guid runId,
