@@ -53,8 +53,7 @@ public sealed class GeekCrawlerService
         var runs = await _repo.ListRunsForUserAsync(ownerUserId, crawlType, 50, ct).ConfigureAwait(false);
         return runs.FirstOrDefault(r =>
             GeekCrawlerSeedNormalizer.SeedUrlsMatch(r.SeedUrlsJson, seeds)
-            && (string.Equals(r.Status, "running", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(r.Status, "pending", StringComparison.OrdinalIgnoreCase)));
+            && GeekCrawlerRunStatuses.IsInProgress(r.Status));
     }
 
     public async Task<GeekCrawlerRunDto?> FindLatestMatchingRunAsync(
@@ -133,6 +132,19 @@ public sealed class GeekCrawlerService
         GeekCrawlerRunDto existing,
         CancellationToken ct)
     {
+        if (string.Equals(existing.Status, GeekCrawlerRunStatuses.External, StringComparison.OrdinalIgnoreCase))
+        {
+            _coordinator.Cancel(existing.Id);
+            // External runs are never pending — force pending so the .NET worker can take over.
+            existing = await _repo.PatchRunAsync(
+                existing.Id,
+                new PatchGeekCrawlerRunCommand(Status: GeekCrawlerRunStatuses.Pending),
+                ct).ConfigureAwait(false);
+            _wake.Wake(existing.Id);
+            await PushRunAsync(existing, currentOrigin: null, ct).ConfigureAwait(false);
+            return existing;
+        }
+
         if (string.Equals(existing.Status, "running", StringComparison.OrdinalIgnoreCase)
             || string.Equals(existing.Status, "pending", StringComparison.OrdinalIgnoreCase))
         {
