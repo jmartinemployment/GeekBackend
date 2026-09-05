@@ -10,20 +10,30 @@ public sealed class GeekCrawlerStallRecoveryHostedService : BackgroundService
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly GeekCrawlerWake _wake;
+    private readonly GeekCrawlerOptions _options;
     private readonly ILogger<GeekCrawlerStallRecoveryHostedService> _logger;
 
     public GeekCrawlerStallRecoveryHostedService(
         IServiceScopeFactory scopeFactory,
         GeekCrawlerWake wake,
+        GeekCrawlerOptions options,
         ILogger<GeekCrawlerStallRecoveryHostedService> logger)
     {
         _scopeFactory = scopeFactory;
         _wake = wake;
+        _options = options;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (_options.SeedsOnly || _options.WakeZeroPagePendingOnly)
+        {
+            _logger.LogInformation(
+                "Geek-Crawler stall recovery disabled (local/seeds-only — avoid stealing peer workers' runs).");
+            return;
+        }
+
         using var timer = new PeriodicTimer(ScanInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {

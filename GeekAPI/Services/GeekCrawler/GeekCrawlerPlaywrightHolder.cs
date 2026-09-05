@@ -57,7 +57,16 @@ public sealed class GeekCrawlerPlaywrightHolder : IAsyncDisposable
     {
         _playwright ??= await Playwright.CreateAsync().ConfigureAwait(false);
         GeekCrawlerMobileIdentity.UsePlaywrightDevices(_playwright);
-        Browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true })
+        Browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+            {
+                Headless = true,
+                Args =
+                [
+                    // Reduce headless fingerprint / HTTP2 WAF resets (Akamai-style ERR_HTTP2_PROTOCOL_ERROR).
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-http2",
+                ],
+            })
             .ConfigureAwait(false);
     }
 

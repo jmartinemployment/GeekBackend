@@ -619,17 +619,16 @@ public class GeekCrawlerPoliteGateRobotsTests
 public class GeekCrawlerRunCoordinatorTests
 {
     [Fact]
-    public void Register_replaces_prior_token_and_cancels_old()
+    public void TryRegister_returns_false_for_duplicate_without_cancelling_first()
     {
         var coordinator = new GeekCrawlerRunCoordinator();
         var runId = Guid.NewGuid();
-        var first = coordinator.Register(runId);
-        var second = coordinator.Register(runId);
+        Assert.True(coordinator.TryRegister(runId, out var first));
+        Assert.False(coordinator.TryRegister(runId, out var second));
 
-        Assert.NotEqual(default, first);
-        Assert.NotEqual(default, second);
-        Assert.True(first.IsCancellationRequested);
+        Assert.False(first.IsCancellationRequested);
         Assert.False(second.IsCancellationRequested);
+        Assert.Equal(first, second);
     }
 
     [Fact]

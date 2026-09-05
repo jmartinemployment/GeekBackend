@@ -123,8 +123,11 @@ public sealed class GeekCrawlerPoliteGate
                     origin);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException
+                                   || !ct.IsCancellationRequested)
         {
+            // HttpClient.Timeout surfaces as TaskCanceledException (an OCE) with a live run token.
+            // Treat like any other robots fetch failure: default Allow and keep crawling.
             _logger.LogInformation(ex, "[geek-crawler] robots.txt fetch failed for {Origin}; default Allow.", origin);
         }
 

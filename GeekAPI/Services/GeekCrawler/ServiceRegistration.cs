@@ -25,12 +25,14 @@ public static class GeekCrawlerServiceRegistration
 
         services.AddHttpClient<GeekCrawlerPoliteGate>(client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(options.HostDelaySeconds + 5);
+            // Host delay can be 0–1s for local proves; robots/WAF fetches still need a real timeout.
+            // A too-short timeout surfaces as OperationCanceledException and looks like a cancel.
+            client.Timeout = TimeSpan.FromSeconds(Math.Max(60, options.HostDelaySeconds + 5));
         });
 
         services.AddHttpClient<GeekCrawlerSitemapSeeder>(client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(30);
+            client.Timeout = TimeSpan.FromSeconds(60);
         });
 
         services.AddSingleton<GeekCrawlerPlaywrightHolder>();
@@ -65,6 +67,7 @@ public static class GeekCrawlerServiceRegistration
                 sp.GetRequiredService<GeekCrawlerWake>(),
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<GeekCrawlerRunCoordinator>(),
+                sp.GetRequiredService<GeekCrawlerOptions>(),
                 sp.GetRequiredService<ILogger<GeekCrawlerWorker>>(),
                 workerIndex));
         }

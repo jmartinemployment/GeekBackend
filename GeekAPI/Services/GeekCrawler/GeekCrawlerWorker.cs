@@ -7,6 +7,7 @@ public sealed class GeekCrawlerWorker : BackgroundService
     private readonly GeekCrawlerWake _wake;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly GeekCrawlerRunCoordinator _coordinator;
+    private readonly GeekCrawlerOptions _options;
     private readonly ILogger<GeekCrawlerWorker> _logger;
     private readonly int _workerIndex;
 
@@ -14,12 +15,14 @@ public sealed class GeekCrawlerWorker : BackgroundService
         GeekCrawlerWake wake,
         IServiceScopeFactory scopeFactory,
         GeekCrawlerRunCoordinator coordinator,
+        GeekCrawlerOptions options,
         ILogger<GeekCrawlerWorker> logger,
         int workerIndex = 0)
     {
         _wake = wake;
         _scopeFactory = scopeFactory;
         _coordinator = coordinator;
+        _options = options;
         _logger = logger;
         _workerIndex = workerIndex;
     }
@@ -32,7 +35,15 @@ public sealed class GeekCrawlerWorker : BackgroundService
 
         await foreach (var runId in _wake.Reader.ReadAllAsync(stoppingToken))
         {
-            var runCt = _coordinator.Register(runId);
+            if (!_coordinator.TryRegister(runId, out var runCt))
+            {
+                _logger.LogInformation(
+                    "GeekCrawlerWorker #{WorkerIndex} ignoring duplicate wake for in-flight run {RunId}.",
+                    _workerIndex,
+                    runId);
+                continue;
+            }
+
             try
             {
                 using var scope = _scopeFactory.CreateScope();
@@ -66,7 +77,22 @@ public sealed class GeekCrawlerWorker : BackgroundService
             var now = DateTimeOffset.UtcNow;
 
             var pending = await repo.GetRunsByStatusAsync("pending", limit: 200, ct).ConfigureAwait(false);
-            var pendingToWake = pending.Where(r => GeekCrawlerRecovery.ShouldWakeAtStartup(r, now)).ToList();
+            var pendingCandidates = pending.Where(r => GeekCrawlerRecovery.ShouldWakeAtStartup(r, now)).ToList();
+            var pendingToWake = new List<GeekCrawlerRunDto>();
+            foreach (var run in pendingCandidates)
+            {
+                // Local Mac / seeds-only must not spend the single worker resume-loading soft
+                // sites that already have thousands of pages — that starves hard seeds.
+                if (_options.SeedsOnly || _options.WakeZeroPagePendingOnly)
+                {
+                    var activity = await repo.GetPageActivityAsync(run.Id, ct).ConfigureAwait(false);
+                    if (activity is { PageCount: > 0 })
+                        continue;
+                }
+
+                pendingToWake.Add(run);
+            }
+
             foreach (var run in pendingToWake)
                 _wake.Wake(run.Id);
 
@@ -76,6 +102,11 @@ public sealed class GeekCrawlerWorker : BackgroundService
                     "Startup pending recovery woke {Count} orphaned Geek-Crawler run(s).",
                     pendingToWake.Count);
             }
+
+            // Local / seeds-only should not steal in-flight Railway crawls via running-orphan
+            // recovery (that double-wakes the pending run and cancels the first worker mid-fetch).
+            if (_options.SeedsOnly || _options.WakeZeroPagePendingOnly)
+                return;
 
             var running = await repo.GetRunsByStatusAsync("running", limit: 200, ct).ConfigureAwait(false);
             var runningRecovered = 0;

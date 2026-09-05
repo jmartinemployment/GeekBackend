@@ -46,7 +46,8 @@ public sealed class GeekCrawlerSitemapSeeder
 
             xml = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException
+                                   || !ct.IsCancellationRequested)
         {
             _logger.LogDebug(ex, "No sitemap found at {SitemapUrl}", sitemapUrl);
             return [];

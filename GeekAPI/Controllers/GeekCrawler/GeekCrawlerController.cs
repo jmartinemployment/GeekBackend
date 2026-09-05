@@ -160,6 +160,32 @@ public class GeekCrawlerController : ControllerBase
         return Ok(pages);
     }
 
+    /// <summary>
+    /// Lightweight page list for operator UI / reports — no HTML bodies.
+    /// Backed by the resume projection (Origin, Url, HasHtml only).
+    /// </summary>
+    [HttpGet("crawls/{runId:guid}/page-urls")]
+    public async Task<IActionResult> ListPageUrls(
+        Guid runId,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+        var rows = await _repo.ListPagesForResumeAsync(runId, limit, offset, ct)
+            .ConfigureAwait(false);
+        return Ok(rows.Select(r => new
+        {
+            origin = r.Origin,
+            url = r.Url,
+            hasHtml = r.HasHtml,
+        }));
+    }
+
     [HttpGet("crawls/{runId:guid}/links")]
     public async Task<IActionResult> ListLinks(
         Guid runId,

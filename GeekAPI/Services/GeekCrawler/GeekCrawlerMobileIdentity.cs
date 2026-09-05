@@ -79,7 +79,10 @@ internal static class GeekCrawlerMobileIdentity
 
     private static Dictionary<string, string> MobileHeaders() => new()
     {
+        ["Sec-Ch-Ua"] = "\"Chromium\";v=\"134\", \"Not:A-Brand\";v=\"24\"",
         ["Sec-Ch-Ua-Mobile"] = "?1",
+        ["Sec-Ch-Ua-Platform"] = "\"Android\"",
         ["Accept-Language"] = "en-US,en;q=0.9",
+        ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     };
 }

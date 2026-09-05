@@ -14,16 +14,22 @@ public sealed class GeekCrawlerOptions
     public int HostDelaySeconds { get; init; } = 12;
     public int BatchSaveSize { get; init; } = GeekCrawlerCaps.BatchSaveSize;
     public bool SeedsOnly { get; init; }
+    /// <summary>
+    /// When true, startup pending recovery only wakes runs with zero saved pages.
+    /// Used on the local Mac so soft-site resumes stay on Railway.
+    /// </summary>
+    public bool WakeZeroPagePendingOnly { get; init; }
 
     public static GeekCrawlerOptions FromConfiguration(IConfiguration configuration, IHostEnvironment? environment = null)
     {
         var mode = configuration["GEEK_CRAWLER_MODE"]?.Trim().ToLowerInvariant() ?? "standard";
         var accelerated = string.Equals(mode, "accelerated", StringComparison.Ordinal);
 
+        // 0 is intentional: idle this GeekAPI instance's crawl workers (local Mac / Railway handoff).
         var workerCount = ParseMinInt(
             configuration["GEEK_CRAWLER_WORKER_COUNT"],
             defaultValue: 1,
-            min: 1);
+            min: 0);
 
         var defaultParallelism = accelerated ? 4 : 1;
         var defaultDelay = accelerated ? 3 : 12;
@@ -31,6 +37,10 @@ public sealed class GeekCrawlerOptions
         var seedsOnly = ParseBool(configuration["GEEK_CRAWLER_SEEDS_ONLY"]);
         if (seedsOnly && environment is not null && !environment.IsDevelopment())
             seedsOnly = false;
+
+        var wakeZeroOnly = ParseBool(configuration["GEEK_CRAWLER_WAKE_ZERO_PAGE_PENDING_ONLY"]);
+        if (!wakeZeroOnly && environment is not null && environment.IsDevelopment())
+            wakeZeroOnly = true;
 
         return new GeekCrawlerOptions
         {
@@ -52,6 +62,7 @@ public sealed class GeekCrawlerOptions
                 min: 1,
                 max: GeekCrawlerCaps.MaxBatchSaveSize),
             SeedsOnly = seedsOnly,
+            WakeZeroPagePendingOnly = wakeZeroOnly,
         };
     }
 
