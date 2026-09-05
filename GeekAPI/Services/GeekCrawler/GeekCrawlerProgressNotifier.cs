@@ -22,4 +22,23 @@ public sealed class GeekCrawlerProgressNotifier
 
         return Task.WhenAll(tasks);
     }
+
+    /// <summary>RAG index progress — separate hub method so crawl status is not overwritten.</summary>
+    public Task PushRagIndexAsync(object payload, Guid runId, string ownerUserId, CancellationToken ct = default)
+    {
+        var tasks = new List<Task>
+        {
+            _hub.Clients.Group(GeekCrawlerRealtimeHub.RunGroup(runId))
+                .SendAsync("GeekCrawlerRagIndexEvent", payload, ct),
+        };
+
+        if (!string.IsNullOrWhiteSpace(ownerUserId))
+        {
+            tasks.Add(
+                _hub.Clients.User(ownerUserId)
+                    .SendAsync("GeekCrawlerRagIndexEvent", payload, ct));
+        }
+
+        return Task.WhenAll(tasks);
+    }
 }
