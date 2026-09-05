@@ -291,7 +291,7 @@ public class GccV2Controller : ControllerBase
             : "No partner tools found from the site hierarchy or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.";
 
         const string externalResearchNote =
-            "On-site tools come from your project crawl. External partners are pulled from stored crawl pages when available; if a partner crawl did not finish, that partner is skipped and generate still runs.";
+            "On-site tools come from your project crawl. External partners and competitors are retrieved from the research index when ready (seed pages as fallback). If an external crawl or index is still building, that source may be skipped or use seed pages only — generate still runs.";
 
         return Ok(new
         {
@@ -373,7 +373,9 @@ public class GccV2Controller : ControllerBase
             rawBriefJson,
             create.SiteUrl,
             runId,
-            ct);
+            ct,
+            createTitle: create.Title,
+            targetKeyword: request?.TargetKeyword);
 
         rawBriefJson = mergeResult.BriefJson;
 

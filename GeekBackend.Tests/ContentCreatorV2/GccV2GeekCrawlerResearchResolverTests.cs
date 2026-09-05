@@ -374,13 +374,214 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
         Assert.DoesNotContain("page limit", message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void BuildRagNeed_includes_title_keyword_and_seed()
+    {
+        var topic = new GccV2GeekCrawlerResearchResolver.RagTopicContext(
+            Title: "Best CRM for agencies",
+            TargetKeyword: "crm software",
+            ContentType: "pillar",
+            WritingNotes: "Focus on pipeline automation",
+            Angle: "comparative",
+            PrimaryIntent: "consideration");
+
+        var need = GccV2GeekCrawlerResearchResolver.BuildRagNeed(
+            topic,
+            "https://www.pipedrive.com/",
+            "partner");
+
+        Assert.Contains("partner tool research", need, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Best CRM for agencies", need);
+        Assert.Contains("crm software", need);
+        Assert.Contains("pillar", need);
+        Assert.Contains("pipedrive.com", need, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Partner/competitor page content for", need);
+    }
+
+    [Fact]
+    public void BuildTopicContext_reads_brief_fields()
+    {
+        const string brief = """
+            {
+              "title": "Brief Title",
+              "writingNotes": "Keep it practical",
+              "angle": "problem_solution",
+              "primaryIntent": "awareness",
+              "contentTypes": ["blog", "email"],
+              "primaryDraft": "blog"
+            }
+            """;
+
+        var topic = GccV2GeekCrawlerResearchResolver.BuildTopicContext(
+            brief,
+            createTitle: "Create Title Wins",
+            targetKeyword: "agency crm");
+
+        Assert.Equal("Create Title Wins", topic.Title);
+        Assert.Equal("agency crm", topic.TargetKeyword);
+        Assert.Equal("blog", topic.ContentType);
+        Assert.Equal("Keep it practical", topic.WritingNotes);
+        Assert.Equal("problem_solution", topic.Angle);
+        Assert.Equal("awareness", topic.PrimaryIntent);
+    }
+
+    [Fact]
+    public async Task ResolveQuoteablePages_prefers_rag_chunks_when_index_complete()
+    {
+        var runId = Guid.NewGuid();
+        var repo = new FakeReadRepo
+        {
+            LatestRun = new GeekCrawlerRunDto(
+                runId,
+                "user-1",
+                "partner",
+                "complete",
+                "[\"https://partner.example/tools\"]",
+                null,
+                null,
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow),
+            Pages =
+            [
+                new GeekCrawlerPageDto(
+                    Guid.NewGuid(),
+                    runId,
+                    "https://partner.example",
+                    "https://partner.example/tools",
+                    "https://partner.example/tools",
+                    200,
+                    true,
+                    "<html><body><p>Mongo seed paragraph that should not be used when RAG hits.</p></body></html>",
+                    null,
+                    DateTimeOffset.UtcNow),
+            ],
+        };
+
+        var rag = new FakeGeekCrawlerRagClient
+        {
+            Enabled = true,
+            IndexStatus = new GeekCrawlerRagIndexStatus
+            {
+                RunId = runId,
+                State = "complete",
+            },
+            QueryResult = new GeekCrawlerRagQueryResult
+            {
+                RunId = runId,
+                Pages =
+                [
+                    new GeekApplication.Models.ContentCreator.GccQuoteablePage(
+                        "https://partner.example/pricing",
+                        "Pricing",
+                        [],
+                        ["RAG chunk about pricing tiers for agencies."]),
+                ],
+            },
+        };
+
+        var resolver = CreateResolver(repo, rag: rag);
+        var pages = await resolver.ResolveQuoteablePagesAsync(
+            "user-1",
+            "partner",
+            ["https://partner.example/tools"],
+            CancellationToken.None,
+            new GccV2GeekCrawlerResearchResolver.RagTopicContext(
+                "Agency CRM guide",
+                "crm",
+                "pillar",
+                null,
+                null,
+                null));
+
+        Assert.Single(pages);
+        Assert.Equal("https://partner.example/pricing", pages[0].Url);
+        Assert.Contains("RAG chunk", pages[0].Paragraphs[0]);
+        Assert.Equal(0, repo.ListPagesBySeedsAsyncCallCount);
+        Assert.NotNull(rag.LastNeed);
+        Assert.Contains("Agency CRM guide", rag.LastNeed);
+        Assert.Contains("partner tool research", rag.LastNeed);
+    }
+
+    [Fact]
+    public async Task MergePartnerResearch_index_building_warns_and_uses_seed_html()
+    {
+        var runId = Guid.NewGuid();
+        var repo = new FakeReadRepo
+        {
+            LatestRun = new GeekCrawlerRunDto(
+                runId,
+                "user-1",
+                "partner",
+                "complete",
+                "[\"https://www.jotform.com/\"]",
+                null,
+                null,
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow),
+            Pages =
+            [
+                new GeekCrawlerPageDto(
+                    Guid.NewGuid(),
+                    runId,
+                    "https://www.jotform.com",
+                    "https://www.jotform.com/",
+                    "https://www.jotform.com/",
+                    200,
+                    true,
+                    "<html><head><title>Jotform</title></head><body><h1>Jotform</h1><p>This is a long enough paragraph for extraction from the partner homepage content.</p></body></html>",
+                    null,
+                    DateTimeOffset.UtcNow),
+            ],
+        };
+
+        var rag = new FakeGeekCrawlerRagClient
+        {
+            Enabled = true,
+            IndexStatus = new GeekCrawlerRagIndexStatus
+            {
+                RunId = runId,
+                State = "running",
+            },
+        };
+
+        var resolver = CreateResolver(repo, rag: rag);
+        var brief = """
+            {
+              "title": "Form builders compared",
+              "operatorTools": [
+                { "name": "Jotform", "url": "https://www.jotform.com/" }
+              ]
+            }
+            """;
+
+        var merged = await resolver.MergePartnerResearchAsync(
+            "user-1",
+            brief,
+            "https://geekatyourspot.com",
+            null,
+            CancellationToken.None);
+
+        Assert.NotNull(merged.BriefJson);
+        Assert.Contains("partnerResearch", merged.BriefJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(merged.PartnerResearchWarnings);
+        Assert.Contains("still running", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("jotform.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Null(rag.LastNeed);
+        Assert.Equal(1, repo.ListPagesBySeedsAsyncCallCount);
+    }
+
     private static GccV2GeekCrawlerResearchResolver CreateResolver(
         FakeReadRepo crawlerRepo,
-        FakeProjectSitePageReader? projectSitePages = null) =>
+        FakeProjectSitePageReader? projectSitePages = null,
+        IGeekCrawlerRagClient? rag = null) =>
         new(
             crawlerRepo,
             projectSitePages ?? new FakeProjectSitePageReader(),
-            new DisabledGeekCrawlerRagClient(),
+            rag ?? new DisabledGeekCrawlerRagClient(),
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
     private sealed class DisabledGeekCrawlerRagClient : IGeekCrawlerRagClient
@@ -405,6 +606,38 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             int topK = 8,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagQueryResult?>(null);
+    }
+
+    private sealed class FakeGeekCrawlerRagClient : IGeekCrawlerRagClient
+    {
+        public bool Enabled { get; init; }
+        public GeekCrawlerRagIndexStatus? IndexStatus { get; init; }
+        public GeekCrawlerRagQueryResult? QueryResult { get; init; }
+        public string? LastNeed { get; private set; }
+
+        public bool IsEnabled => Enabled;
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(
+            Guid runId,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
+
+        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(
+            Guid runId,
+            CancellationToken ct = default) =>
+            Task.FromResult(IndexStatus);
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need,
+            Guid runId,
+            string? crawlType = null,
+            string? host = null,
+            int topK = 8,
+            CancellationToken ct = default)
+        {
+            LastNeed = need;
+            return Task.FromResult(QueryResult);
+        }
     }
 
     private sealed class FakeReadRepo : IGccV2GeekCrawlerReadRepository

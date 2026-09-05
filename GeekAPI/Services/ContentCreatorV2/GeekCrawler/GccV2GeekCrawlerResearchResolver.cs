@@ -95,11 +95,22 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
 
 /// <summary>
 /// Partner/competitor research at generate: on-site tool pages from the owned project-site
-/// crawl; external URLs from Geek-Crawler stored pages when available (partial runs OK).
+/// crawl; external URLs from Geek-Crawler-Rag (preferred) or seed HTML when available.
 /// Missing external research is warned and skipped — generate continues.
 /// </summary>
 public sealed class GccV2GeekCrawlerResearchResolver
 {
+    private static readonly HashSet<string> IndexBuildingStates = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "pending",
+        "running",
+    };
+
+    private static readonly HashSet<string> IndexQueryableStates = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "complete",
+    };
+
     private readonly IGccV2GeekCrawlerReadRepository _crawlerRepo;
     private readonly IGccV2ProjectSitePageReader _projectSitePages;
     private readonly IGeekCrawlerRagClient _rag;
@@ -122,24 +133,30 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string? rawBriefJson,
         string? projectSiteUrl,
         Guid? projectSiteCrawlRunId,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? createTitle = null,
+        string? targetKeyword = null)
     {
+        var topic = BuildTopicContext(rawBriefJson, createTitle, targetKeyword);
         var partner = await MergePartnerResearchAsync(
             ownerUserId,
             rawBriefJson,
             projectSiteUrl,
             projectSiteCrawlRunId,
-            ct);
+            ct,
+            topic);
         var competitor = await MergeCompetitorResearchAsync(
             ownerUserId,
             partner.BriefJson,
-            ct);
+            ct,
+            topic);
         var local = await MergeLocalResearchAsync(
             ownerUserId,
             competitor.BriefJson,
             projectSiteUrl,
             projectSiteCrawlRunId,
-            ct);
+            ct,
+            topic);
 
         return new GccV2ExternalResearchMergeResult(
             local.BriefJson,
@@ -154,8 +171,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string? rawBriefJson,
         string? projectSiteUrl,
         Guid? projectSiteCrawlRunId,
-        CancellationToken ct)
+        CancellationToken ct,
+        RagTopicContext? topic = null)
     {
+        topic ??= BuildTopicContext(rawBriefJson, null, null);
         var quoteable = new List<GccQuoteablePage>();
         var warnings = new List<string>();
 
@@ -178,10 +197,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 ownerUserId,
                 CrawlTypes.Local,
                 seed,
+                topic,
                 ct);
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
-            else if (warning is not null)
+            if (warning is not null)
                 warnings.Add(warning);
         }
 
@@ -272,8 +292,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string? rawBriefJson,
         string? projectSiteUrl,
         Guid? projectSiteCrawlRunId,
-        CancellationToken ct)
+        CancellationToken ct,
+        RagTopicContext? topic = null)
     {
+        topic ??= BuildTopicContext(rawBriefJson, null, null);
         var quoteable = new List<GccQuoteablePage>();
         var warnings = new List<string>();
 
@@ -294,10 +316,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 ownerUserId,
                 CrawlTypes.Partner,
                 seed,
+                topic,
                 ct);
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
-            else if (warning is not null)
+            if (warning is not null)
                 warnings.Add(warning);
         }
 
@@ -317,8 +340,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
     public async Task<GccV2ExternalResearchMergeResult> MergeCompetitorResearchAsync(
         string ownerUserId,
         string? rawBriefJson,
-        CancellationToken ct)
+        CancellationToken ct,
+        RagTopicContext? topic = null)
     {
+        topic ??= BuildTopicContext(rawBriefJson, null, null);
         var seeds = GccV2PartnerUrlResearchService.CollectCompetitorHrefs(rawBriefJson);
         if (seeds.Count == 0)
             return new GccV2ExternalResearchMergeResult(rawBriefJson, []);
@@ -331,10 +356,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 ownerUserId,
                 CrawlTypes.Competitors,
                 seed,
+                topic,
                 ct);
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
-            else if (warning is not null)
+            if (warning is not null)
                 warnings.Add(warning);
         }
 
@@ -384,12 +410,19 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string ownerUserId,
         string crawlType,
         IReadOnlyList<string> seeds,
-        CancellationToken ct)
+        CancellationToken ct,
+        RagTopicContext? topic = null)
     {
+        topic ??= RagTopicContext.Empty;
         var quoteable = new List<GccQuoteablePage>();
         foreach (var seed in seeds)
         {
-            var (pages, _) = await TryResolveExternalSeedAsync(ownerUserId, crawlType, seed, ct);
+            var (pages, _) = await TryResolveExternalSeedAsync(
+                ownerUserId,
+                crawlType,
+                seed,
+                topic,
+                ct);
             quoteable.AddRange(pages);
         }
 
@@ -400,6 +433,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string ownerUserId,
         string crawlType,
         string seed,
+        RagTopicContext topic,
         CancellationToken ct)
     {
         var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds([seed]);
@@ -417,29 +451,48 @@ public sealed class GccV2GeekCrawlerResearchResolver
         }
 
         var seedSet = BuildSeedMatchSet(normalized);
+        string? softWarning = null;
 
         // Prefer Geek-Crawler-Rag chunks when configured; fall back to Mongo HTML extract.
         if (_rag.IsEnabled)
         {
-            var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
-                ? seedUri.Host
-                : null;
-            var rag = await _rag.QueryAsync(
-                need: $"Partner/competitor page content for {seed}",
-                runId: run.Id,
-                crawlType: crawlType,
-                host: host,
-                topK: 12,
-                ct: ct).ConfigureAwait(false);
-            if (rag is not null && rag.Pages.Count > 0)
+            var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
+            var indexState = indexStatus?.State;
+            if (indexState is not null && IndexBuildingStates.Contains(indexState))
             {
-                var filtered = rag.Pages
-                    .Where(p => PageMatchesSeed(p.Url, seedSet) || HostMatchesSeed(p.Url, seedSet))
-                    .ToList();
-                if (filtered.Count == 0)
-                    filtered = rag.Pages.ToList();
-                if (filtered.Count > 0)
-                    return (filtered, null);
+                softWarning = DescribeIndexNotReady(seed, crawlType, indexState);
+                _logger.LogInformation(
+                    "Geek-Crawler-Rag index {State} for {CrawlType} run {RunId}; using seed HTML if available.",
+                    indexState,
+                    crawlType,
+                    run.Id);
+            }
+            else if (indexState is null || IndexQueryableStates.Contains(indexState)
+                     || string.Equals(indexState, "failed", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(indexState, "skipped", StringComparison.OrdinalIgnoreCase))
+            {
+                // complete → query; failed/skipped/unknown → try once then Mongo fallback
+                var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
+                    ? seedUri.Host
+                    : null;
+                var need = BuildRagNeed(topic, seed, crawlType);
+                var rag = await _rag.QueryAsync(
+                    need: need,
+                    runId: run.Id,
+                    crawlType: crawlType,
+                    host: host,
+                    topK: 12,
+                    ct: ct).ConfigureAwait(false);
+                if (rag is not null && rag.Pages.Count > 0)
+                {
+                    var filtered = rag.Pages
+                        .Where(p => PageMatchesSeed(p.Url, seedSet) || HostMatchesSeed(p.Url, seedSet))
+                        .ToList();
+                    if (filtered.Count == 0)
+                        filtered = rag.Pages.ToList();
+                    if (filtered.Count > 0)
+                        return (filtered, softWarning);
+                }
             }
         }
 
@@ -455,7 +508,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
                     seed);
             }
 
-            return (quoteable, null);
+            return (quoteable, softWarning);
         }
 
         _logger.LogInformation(
@@ -464,8 +517,118 @@ public sealed class GccV2GeekCrawlerResearchResolver
             run.Id,
             run.Status,
             seed);
-        return ([], DescribeUnavailableResearch(seed, crawlType));
+        return ([], softWarning ?? DescribeUnavailableResearch(seed, crawlType));
     }
+
+    /// <summary>Topic fields used to build the Geek-Crawler-Rag query <c>need</c>.</summary>
+    public sealed record RagTopicContext(
+        string? Title,
+        string? TargetKeyword,
+        string? ContentType,
+        string? WritingNotes,
+        string? Angle,
+        string? PrimaryIntent)
+    {
+        public static RagTopicContext Empty { get; } = new(null, null, null, null, null, null);
+    }
+
+    public static RagTopicContext BuildTopicContext(
+        string? rawBriefJson,
+        string? createTitle,
+        string? targetKeyword)
+    {
+        string? title = TrimOrNull(createTitle);
+        string? keyword = TrimOrNull(targetKeyword);
+        string? contentType = null;
+        string? writingNotes = null;
+        string? angle = null;
+        string? primaryIntent = null;
+
+        if (!string.IsNullOrWhiteSpace(rawBriefJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(rawBriefJson);
+                var root = doc.RootElement;
+                title ??= ReadString(root, "title") ?? ReadString(root, "Title");
+                keyword ??= ReadString(root, "targetKeyword") ?? ReadString(root, "TargetKeyword");
+                writingNotes = ReadString(root, "writingNotes") ?? ReadString(root, "WritingNotes");
+                angle = ReadString(root, "angle") ?? ReadString(root, "Angle");
+                primaryIntent = ReadString(root, "primaryIntent") ?? ReadString(root, "PrimaryIntent");
+                contentType = ReadString(root, "primaryDraft") ?? ReadString(root, "contentType");
+                if (contentType is null
+                    && root.TryGetProperty("contentTypes", out var types)
+                    && types.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in types.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.String) continue;
+                        var value = item.GetString();
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            contentType = value.Trim();
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // ignore malformed brief — still use create title / keyword
+            }
+        }
+
+        return new RagTopicContext(title, keyword, contentType, writingNotes, angle, primaryIntent);
+    }
+
+    internal static string BuildRagNeed(RagTopicContext topic, string seed, string crawlType)
+    {
+        var role = crawlType switch
+        {
+            CrawlTypes.Competitors => "competitor differentiation research",
+            CrawlTypes.Local => "local business research",
+            _ => "partner tool research",
+        };
+
+        var parts = new List<string> { role };
+        if (!string.IsNullOrWhiteSpace(topic.Title))
+            parts.Add($"article title: {Truncate(topic.Title!, 160)}");
+        if (!string.IsNullOrWhiteSpace(topic.TargetKeyword))
+            parts.Add($"target keyword: {Truncate(topic.TargetKeyword!, 120)}");
+        if (!string.IsNullOrWhiteSpace(topic.ContentType))
+            parts.Add($"content type: {Truncate(topic.ContentType!, 40)}");
+        if (!string.IsNullOrWhiteSpace(topic.PrimaryIntent))
+            parts.Add($"intent: {Truncate(topic.PrimaryIntent!, 60)}");
+        if (!string.IsNullOrWhiteSpace(topic.Angle))
+            parts.Add($"angle: {Truncate(topic.Angle!, 60)}");
+        if (!string.IsNullOrWhiteSpace(topic.WritingNotes))
+            parts.Add($"notes: {Truncate(topic.WritingNotes!, 240)}");
+        parts.Add($"source site: {seed}");
+        return string.Join("; ", parts);
+    }
+
+    internal static string DescribeIndexNotReady(string seed, string crawlType, string state)
+    {
+        var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
+        var label = crawlType switch
+        {
+            CrawlTypes.Competitors => "Competitor",
+            CrawlTypes.Local => "Local",
+            _ => "Partner",
+        };
+        return $"{label} research index for {host} is still {state}; using seed pages if available. Generate continues.";
+    }
+
+    private static string? ReadString(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String
+            ? TrimOrNull(el.GetString())
+            : null;
+
+    private static string? TrimOrNull(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string Truncate(string value, int maxChars) =>
+        value.Length <= maxChars ? value : value[..maxChars];
 
     private static bool HostMatchesSeed(string pageUrl, HashSet<string> seedSet)
     {
