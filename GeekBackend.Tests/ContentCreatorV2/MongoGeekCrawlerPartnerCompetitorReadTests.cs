@@ -330,5 +330,15 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             IReadOnlyList<string>? entityTags = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
+
+        public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+            string pageId,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
+
+        public Task<GeekCrawlerRagGenerateResult?> GenerateAsync(
+            GeekCrawlerRagGenerateRequest request,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagGenerateResult?>(null);
     }
 }

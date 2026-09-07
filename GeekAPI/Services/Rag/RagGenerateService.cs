@@ -30,6 +30,7 @@ public sealed class RagGenerateService
     private readonly bool _generateEnabled;
     private readonly bool _graphEnabled;
     private readonly bool _adTemplateIndexEnabled;
+    private readonly bool _citeableGenerateEnabled;
 
     public RagGenerateService(
         IGeekCrawlerRagClient rag,
@@ -45,6 +46,9 @@ public sealed class RagGenerateService
         // Default ON now that Geek-Crawler-Rag Phase D1/D2 ships; set =false to soft-disable.
         _graphEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_GRAPH_ENABLED"));
         _adTemplateIndexEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_AD_TEMPLATES_ENABLED"));
+        // Default ON — Rag multi-step citeable generate; set =false to force GeekAPI one-shot.
+        _citeableGenerateEnabled = ParseEnabledFlag(
+            Environment.GetEnvironmentVariable("GEEK_RAG_CITEABLE_GENERATE_ENABLED"));
     }
 
     public RagGenerateStatusDto GetStatus()
@@ -69,6 +73,7 @@ public sealed class RagGenerateService
             ShortFormModel = RagModelRouter.ResolveModel(RagRetrievalFamily.ShortForm),
             GraphRetrievalAvailable = genOn && _graphEnabled,
             AdTemplateIndexAvailable = genOn && _adTemplateIndexEnabled,
+            CiteableGenerateAvailable = genOn && _citeableGenerateEnabled && ragOn,
         };
     }
 
@@ -109,6 +114,24 @@ public sealed class RagGenerateService
         {
             warnings.Add(
                 "No partner or competitors crawl runs found for this account. Generate continues with empty research.");
+        }
+
+        if (_citeableGenerateEnabled)
+        {
+            var citeable = await TryCiteableGenerateAsync(
+                    intent,
+                    topic,
+                    entities,
+                    templates,
+                    partnerRun,
+                    competitorRun,
+                    family,
+                    warnings,
+                    ct)
+                .ConfigureAwait(false);
+            if (citeable is not null)
+                return citeable;
+            warnings.Add("Rag citeable generate unavailable; falling back to GeekAPI one-shot.");
         }
 
         string? retrievalMode = null;
@@ -653,6 +676,7 @@ public sealed class RagGenerateService
                     Entity = entity,
                     CrawlType = crawlType,
                     Kind = "page",
+                    PageId = page.PageId,
                 });
             }
         }
@@ -808,6 +832,116 @@ public sealed class RagGenerateService
         foreach (var r in card.Risks)
             sb.AppendLine($"- {r}");
         return sb.ToString().Trim();
+    }
+
+    private async Task<RagGenerateResponse?> TryCiteableGenerateAsync(
+        string intent,
+        string topic,
+        IReadOnlyList<string> entities,
+        IReadOnlyList<RagAdTemplateDto> templates,
+        GeekCrawlerRunDto? partnerRun,
+        GeekCrawlerRunDto? competitorRun,
+        RagRetrievalFamily family,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        var mappedTemplates = templates
+            .Select(t => new GeekCrawlerRagTemplateDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                Channel = t.Channel,
+                Framework = t.Framework,
+                Body = t.Body,
+            })
+            .ToList();
+
+        var result = await _rag.GenerateAsync(
+            new GeekCrawlerRagGenerateRequest
+            {
+                WritingIntent = intent,
+                Topic = topic,
+                PartnerRunId = partnerRun?.Id.ToString("D"),
+                CompetitorRunId = competitorRun?.Id.ToString("D"),
+                TargetEntities = entities.Count > 0 ? entities : null,
+                AdTemplates = mappedTemplates.Count > 0 ? mappedTemplates : null,
+                GraphEnabled = _graphEnabled && family == RagRetrievalFamily.Slides,
+            },
+            ct).ConfigureAwait(false);
+
+        if (result is null)
+            return null;
+
+        foreach (var w in result.Warnings)
+        {
+            if (!string.IsNullOrWhiteSpace(w))
+                warnings.Add(w);
+        }
+
+        RagBattlecardDto? battlecard = null;
+        if (result.Battlecard is not null)
+        {
+            battlecard = new RagBattlecardDto
+            {
+                PartnerSummary = result.Battlecard.PartnerSummary,
+                CompetitorSummary = result.Battlecard.CompetitorSummary,
+                Differentiators = result.Battlecard.Differentiators,
+                Risks = result.Battlecard.Risks,
+            };
+        }
+
+        IReadOnlyList<RagThemeSourceDto>? themeSources = null;
+        if (family == RagRetrievalFamily.Slides && result.Themes.Count > 0)
+        {
+            themeSources = result.Themes
+                .Select(t => new RagThemeSourceDto
+                {
+                    Label = t.Label,
+                    Relationship = t.Relationship,
+                    Entity = t.Entity,
+                    Url = t.Url,
+                })
+                .ToList();
+        }
+
+        return new RagGenerateResponse
+        {
+            Intent = intent,
+            Content = result.Content
+                      ?? (battlecard is not null ? FormatBattlecardMarkdown(battlecard) : null)
+                      ?? (result.Variations is { Count: > 0 } ? result.Variations[0] : null),
+            Variations = result.Variations,
+            Battlecard = battlecard,
+            Sources = result.Sources
+                .Select(s => new RagGenerateSourceDto
+                {
+                    Url = s.Url,
+                    Title = s.Title,
+                    Entity = s.Entity,
+                    CrawlType = s.CrawlType,
+                    Kind = s.Kind,
+                    PageId = s.PageId,
+                })
+                .ToList(),
+            Citations = result.Citations
+                .Select(c => new RagCitationDto
+                {
+                    PageId = c.PageId,
+                    Url = c.Url,
+                    Title = c.Title,
+                    SectionTitle = c.SectionTitle,
+                    Quote = c.Quote,
+                    CrawlType = c.CrawlType,
+                })
+                .ToList(),
+            ThemeSources = themeSources,
+            AppliedTemplates = family == RagRetrievalFamily.ShortForm && templates.Count > 0
+                ? templates.ToList()
+                : null,
+            Warnings = warnings,
+            ModelUsed = result.ModelUsed,
+            RetrievalMode = result.Retrieval,
+        };
     }
 
     private static bool ParseEnabledFlag(string? raw)

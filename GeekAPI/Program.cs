@@ -155,7 +155,8 @@ builder.Services.AddHttpClient<GeekAPI.Services.GeekCrawler.IGeekCrawlerRagClien
     if (!string.IsNullOrWhiteSpace(geekCrawlerRagUrl))
     {
         client.BaseAddress = new Uri(geekCrawlerRagUrl + "/");
-        client.Timeout = TimeSpan.FromMinutes(2);
+        // Citeable generate (retrieve + o3 draft) can exceed 2m; keep index/query under same client.
+        client.Timeout = TimeSpan.FromMinutes(6);
     }
 
     if (!string.IsNullOrWhiteSpace(geekCrawlerRagApiKey))

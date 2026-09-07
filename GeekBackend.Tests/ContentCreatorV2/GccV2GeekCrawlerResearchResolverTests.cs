@@ -623,6 +623,16 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             IReadOnlyList<string>? entityTags = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
+
+        public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+            string pageId,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
+
+        public Task<GeekCrawlerRagGenerateResult?> GenerateAsync(
+            GeekCrawlerRagGenerateRequest request,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagGenerateResult?>(null);
     }
 
     private sealed class FakeGeekCrawlerRagClient : IGeekCrawlerRagClient
@@ -631,6 +641,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
         public GeekCrawlerRagIndexStatus? IndexStatus { get; init; }
         public GeekCrawlerRagQueryResult? QueryResult { get; init; }
         public string? LastNeed { get; private set; }
+        public bool? LastPreferParent { get; private set; }
 
         public bool IsEnabled => Enabled;
 
@@ -657,6 +668,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             CancellationToken ct = default)
         {
             LastNeed = need;
+            LastPreferParent = preferParent;
             return Task.FromResult(QueryResult);
         }
 
@@ -672,6 +684,16 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             IReadOnlyList<string>? entityTags = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
+
+        public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+            string pageId,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
+
+        public Task<GeekCrawlerRagGenerateResult?> GenerateAsync(
+            GeekCrawlerRagGenerateRequest request,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagGenerateResult?>(null);
     }
 
     private sealed class FakeReadRepo : IGccV2GeekCrawlerReadRepository

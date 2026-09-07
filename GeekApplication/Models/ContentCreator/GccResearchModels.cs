@@ -59,7 +59,9 @@ public sealed record GccQuoteablePage(
     string Url,
     string Title,
     IReadOnlyList<HeadingDto> Headings,
-    IReadOnlyList<string> Paragraphs);
+    IReadOnlyList<string> Paragraphs,
+    string? PageId = null,
+    string? SectionTitle = null);
 
 public static class GccResearchCaps
 {

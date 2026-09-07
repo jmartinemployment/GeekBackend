@@ -482,6 +482,8 @@ public sealed class GccV2GeekCrawlerResearchResolver
                     crawlType: crawlType,
                     host: host,
                     topK: 12,
+                    preferParent: true,
+                    preferChild: false,
                     ct: ct).ConfigureAwait(false);
                 if (rag is not null && rag.Pages.Count > 0)
                 {

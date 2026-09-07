@@ -30,6 +30,17 @@ public sealed class RagGenerateSourceDto
     public string? CrawlType { get; init; }
     /// <summary>page | theme | template — Phase D source kinds.</summary>
     public string? Kind { get; init; }
+    public string? PageId { get; init; }
+}
+
+public sealed class RagCitationDto
+{
+    public string? PageId { get; init; }
+    public string Url { get; init; } = "";
+    public string? Title { get; init; }
+    public string? SectionTitle { get; init; }
+    public string Quote { get; init; } = "";
+    public string? CrawlType { get; init; }
 }
 
 public sealed class RagThemeSourceDto
@@ -55,6 +66,7 @@ public sealed class RagGenerateResponse
     public IReadOnlyList<string>? Variations { get; init; }
     public RagBattlecardDto? Battlecard { get; init; }
     public IReadOnlyList<RagGenerateSourceDto> Sources { get; init; } = [];
+    public IReadOnlyList<RagCitationDto>? Citations { get; init; }
     public IReadOnlyList<RagThemeSourceDto>? ThemeSources { get; init; }
     public IReadOnlyList<RagAdTemplateDto>? AppliedTemplates { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = [];
@@ -75,4 +87,5 @@ public sealed class RagGenerateStatusDto
     public string ShortFormModel { get; init; } = RagModelRouter.DefaultStandardModel;
     public bool GraphRetrievalAvailable { get; init; }
     public bool AdTemplateIndexAvailable { get; init; }
+    public bool CiteableGenerateAvailable { get; init; }
 }

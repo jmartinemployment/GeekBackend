@@ -49,6 +49,82 @@ public interface IGeekCrawlerRagClient
         string? channel = null,
         IReadOnlyList<string>? entityTags = null,
         CancellationToken ct = default);
+
+    /// <summary>Fetch Mongo Markdown by pageId. Null when disabled or 404.</summary>
+    Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+        string pageId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Citeable multi-step generate on Rag (retrieve → Markdown → draft → verify).
+    /// Null when disabled or request fails (caller may fall back to one-shot).
+    /// </summary>
+    Task<GeekCrawlerRagGenerateResult?> GenerateAsync(
+        GeekCrawlerRagGenerateRequest request,
+        CancellationToken ct = default);
+}
+
+public sealed class GeekCrawlerRagPageMarkdown
+{
+    public required string PageId { get; init; }
+    public required string RunId { get; init; }
+    public required string Url { get; init; }
+    public string? FinalUrl { get; init; }
+    public string? Title { get; init; }
+    public required string Markdown { get; init; }
+}
+
+public sealed class GeekCrawlerRagGenerateRequest
+{
+    public required string WritingIntent { get; init; }
+    public required string Topic { get; init; }
+    public string? PartnerRunId { get; init; }
+    public string? CompetitorRunId { get; init; }
+    public IReadOnlyList<string>? TargetEntities { get; init; }
+    public IReadOnlyList<GeekCrawlerRagTemplateDto>? AdTemplates { get; init; }
+    public bool GraphEnabled { get; init; } = true;
+}
+
+public sealed class GeekCrawlerRagCitationDto
+{
+    public string? PageId { get; init; }
+    public string Url { get; init; } = "";
+    public string? Title { get; init; }
+    public string? SectionTitle { get; init; }
+    public string Quote { get; init; } = "";
+    public string? CrawlType { get; init; }
+}
+
+public sealed class GeekCrawlerRagGenerateSourceDto
+{
+    public string Url { get; init; } = "";
+    public string? Title { get; init; }
+    public string? Entity { get; init; }
+    public string? CrawlType { get; init; }
+    public string? Kind { get; init; }
+    public string? PageId { get; init; }
+}
+
+public sealed class GeekCrawlerRagBattlecardDto
+{
+    public string PartnerSummary { get; init; } = "";
+    public string CompetitorSummary { get; init; } = "";
+    public List<string> Differentiators { get; init; } = [];
+    public List<string> Risks { get; init; } = [];
+}
+
+public sealed class GeekCrawlerRagGenerateResult
+{
+    public required string Intent { get; init; }
+    public string? Content { get; init; }
+    public IReadOnlyList<string>? Variations { get; init; }
+    public GeekCrawlerRagBattlecardDto? Battlecard { get; init; }
+    public IReadOnlyList<GeekCrawlerRagCitationDto> Citations { get; init; } = [];
+    public IReadOnlyList<GeekCrawlerRagGenerateSourceDto> Sources { get; init; } = [];
+    public IReadOnlyList<GeekCrawlerRagThemeDto> Themes { get; init; } = [];
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+    public string? ModelUsed { get; init; }
+    public string? Retrieval { get; init; }
 }
 
 public sealed class GeekCrawlerRagThemeDto
@@ -428,6 +504,149 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         }
     }
 
+    public async Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+        string pageId,
+        CancellationToken ct = default)
+    {
+        if (!_enabled || string.IsNullOrWhiteSpace(pageId))
+            return null;
+        try
+        {
+            using var response = await _http.GetAsync($"v1/pages/{Uri.EscapeDataString(pageId)}", ct)
+                .ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag page markdown failed for {PageId}: {Status}",
+                    pageId,
+                    (int)response.StatusCode);
+                return null;
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<PageMarkdownDto>(JsonOpts, ct)
+                .ConfigureAwait(false);
+            if (dto is null || string.IsNullOrWhiteSpace(dto.Markdown))
+                return null;
+            return new GeekCrawlerRagPageMarkdown
+            {
+                PageId = dto.PageId ?? pageId,
+                RunId = dto.RunId ?? "",
+                Url = dto.Url ?? "",
+                FinalUrl = dto.FinalUrl,
+                Title = dto.Title,
+                Markdown = dto.Markdown,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler-Rag page markdown threw for {PageId}", pageId);
+            return null;
+        }
+    }
+
+    public async Task<GeekCrawlerRagGenerateResult?> GenerateAsync(
+        GeekCrawlerRagGenerateRequest request,
+        CancellationToken ct = default)
+    {
+        if (!_enabled)
+            return null;
+        try
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["writingIntent"] = request.WritingIntent,
+                ["topic"] = request.Topic,
+                ["graphEnabled"] = request.GraphEnabled,
+            };
+            if (!string.IsNullOrWhiteSpace(request.PartnerRunId))
+                payload["partnerRunId"] = request.PartnerRunId;
+            if (!string.IsNullOrWhiteSpace(request.CompetitorRunId))
+                payload["competitorRunId"] = request.CompetitorRunId;
+            if (request.TargetEntities is { Count: > 0 })
+                payload["targetEntities"] = request.TargetEntities.Take(12).ToArray();
+            if (request.AdTemplates is { Count: > 0 })
+            {
+                payload["adTemplates"] = request.AdTemplates
+                    .Select(t => new
+                    {
+                        id = t.Id,
+                        name = t.Name,
+                        channel = t.Channel,
+                        framework = t.Framework,
+                        body = t.Body,
+                    })
+                    .ToArray();
+            }
+
+            using var response = await _http.PostAsJsonAsync("v1/generate", payload, JsonOpts, ct)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag generate failed: {Status} {Body}",
+                    (int)response.StatusCode,
+                    Truncate(body));
+                return null;
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<GenerateResponseDto>(JsonOpts, ct)
+                .ConfigureAwait(false);
+            if (dto is null)
+                return null;
+
+            return new GeekCrawlerRagGenerateResult
+            {
+                Intent = dto.Intent ?? request.WritingIntent,
+                Content = dto.Content,
+                Variations = dto.Variations,
+                Battlecard = dto.Battlecard is null
+                    ? null
+                    : new GeekCrawlerRagBattlecardDto
+                    {
+                        PartnerSummary = dto.Battlecard.PartnerSummary ?? "",
+                        CompetitorSummary = dto.Battlecard.CompetitorSummary ?? "",
+                        Differentiators = dto.Battlecard.Differentiators ?? [],
+                        Risks = dto.Battlecard.Risks ?? [],
+                    },
+                Citations = (dto.Citations ?? [])
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Quote) && !string.IsNullOrWhiteSpace(c.Url))
+                    .Select(c => new GeekCrawlerRagCitationDto
+                    {
+                        PageId = c.PageId,
+                        Url = c.Url ?? "",
+                        Title = c.Title,
+                        SectionTitle = c.SectionTitle,
+                        Quote = c.Quote ?? "",
+                        CrawlType = c.CrawlType,
+                    })
+                    .ToList(),
+                Sources = (dto.Sources ?? [])
+                    .Select(s => new GeekCrawlerRagGenerateSourceDto
+                    {
+                        Url = s.Url ?? "",
+                        Title = s.Title,
+                        Entity = s.Entity,
+                        CrawlType = s.CrawlType,
+                        Kind = s.Kind,
+                        PageId = s.PageId,
+                    })
+                    .ToList(),
+                Themes = MapThemes(dto.Themes),
+                Warnings = dto.Warnings ?? [],
+                ModelUsed = dto.ModelUsed,
+                Retrieval = dto.Retrieval,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler-Rag generate threw");
+            return null;
+        }
+    }
+
     internal static IReadOnlyList<GeekCrawlerRagThemeDto> MapThemes(IReadOnlyList<ThemeDto>? themes)
     {
         if (themes is null || themes.Count == 0)
@@ -487,7 +706,10 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 Url: url,
                 Title: Truncate(title!, GccPartnerResearchCaps.MaxTitleChars),
                 Headings: [],
-                Paragraphs: paragraphs));
+                Paragraphs: paragraphs,
+                PageId: group.Select(c => c.PageId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id)),
+                SectionTitle: group.Select(c => c.SectionTitle)
+                    .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s))));
 
             if (pages.Count >= GccPartnerResearchCaps.MaxUrls)
                 break;
@@ -575,5 +797,59 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Language { get; set; }
         public string? Text { get; set; }
         public double Score { get; set; }
+        public string? PageId { get; set; }
+        public string? SectionTitle { get; set; }
+    }
+
+    private sealed class PageMarkdownDto
+    {
+        public string? PageId { get; set; }
+        public string? RunId { get; set; }
+        public string? Url { get; set; }
+        public string? FinalUrl { get; set; }
+        public string? Title { get; set; }
+        public string? Markdown { get; set; }
+    }
+
+    private sealed class GenerateResponseDto
+    {
+        public string? Intent { get; set; }
+        public string? Content { get; set; }
+        public List<string>? Variations { get; set; }
+        public BattlecardDto? Battlecard { get; set; }
+        public List<CitationDto>? Citations { get; set; }
+        public List<GenerateSourceDto>? Sources { get; set; }
+        public List<ThemeDto>? Themes { get; set; }
+        public List<string>? Warnings { get; set; }
+        public string? ModelUsed { get; set; }
+        public string? Retrieval { get; set; }
+    }
+
+    private sealed class BattlecardDto
+    {
+        public string? PartnerSummary { get; set; }
+        public string? CompetitorSummary { get; set; }
+        public List<string>? Differentiators { get; set; }
+        public List<string>? Risks { get; set; }
+    }
+
+    private sealed class CitationDto
+    {
+        public string? PageId { get; set; }
+        public string? Url { get; set; }
+        public string? Title { get; set; }
+        public string? SectionTitle { get; set; }
+        public string? Quote { get; set; }
+        public string? CrawlType { get; set; }
+    }
+
+    private sealed class GenerateSourceDto
+    {
+        public string? Url { get; set; }
+        public string? Title { get; set; }
+        public string? Entity { get; set; }
+        public string? CrawlType { get; set; }
+        public string? Kind { get; set; }
+        public string? PageId { get; set; }
     }
 }
