@@ -123,4 +123,17 @@ public sealed class RagGenerateServiceTests
         Assert.True(OpenAiProvider.IsReasoningModel("o1-preview"));
         Assert.False(OpenAiProvider.IsReasoningModel("gpt-4o"));
     }
+
+    [Theory]
+    [InlineData(null, "complete")]
+    [InlineData("", "complete")]
+    [InlineData("outline", "outline")]
+    [InlineData(" SECTION ", "section")]
+    [InlineData("unknown", "complete")]
+    public void NormalizeGenerationStage_is_strict_and_backward_compatible(
+        string? raw,
+        string expected)
+    {
+        Assert.Equal(expected, RagGenerateService.NormalizeGenerationStage(raw));
+    }
 }

@@ -83,6 +83,19 @@ public sealed class GeekCrawlerRagGenerateRequest
     public IReadOnlyList<string>? TargetEntities { get; init; }
     public IReadOnlyList<GeekCrawlerRagTemplateDto>? AdTemplates { get; init; }
     public bool GraphEnabled { get; init; } = true;
+    public string GenerationStage { get; init; } = "complete";
+    public IReadOnlyList<GeekCrawlerRagOutlineSectionDto>? Outline { get; init; }
+    public string? SectionKey { get; init; }
+    public string? SectionHeading { get; init; }
+    public string? SectionBrief { get; init; }
+    public IReadOnlyList<string>? CompletedSectionSummaries { get; init; }
+}
+
+public sealed class GeekCrawlerRagOutlineSectionDto
+{
+    public string Key { get; init; } = "";
+    public string Heading { get; init; } = "";
+    public string Brief { get; init; } = "";
 }
 
 public sealed class GeekCrawlerRagCitationDto
@@ -122,6 +135,7 @@ public sealed class GeekCrawlerRagGenerateResult
     public IReadOnlyList<GeekCrawlerRagCitationDto> Citations { get; init; } = [];
     public IReadOnlyList<GeekCrawlerRagGenerateSourceDto> Sources { get; init; } = [];
     public IReadOnlyList<GeekCrawlerRagThemeDto> Themes { get; init; } = [];
+    public IReadOnlyList<GeekCrawlerRagOutlineSectionDto>? Outline { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = [];
     public string? ModelUsed { get; init; }
     public string? Retrieval { get; init; }
@@ -559,6 +573,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 ["writingIntent"] = request.WritingIntent,
                 ["topic"] = request.Topic,
                 ["graphEnabled"] = request.GraphEnabled,
+                ["generationStage"] = request.GenerationStage,
             };
             if (!string.IsNullOrWhiteSpace(request.PartnerRunId))
                 payload["partnerRunId"] = request.PartnerRunId;
@@ -579,6 +594,17 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                     })
                     .ToArray();
             }
+            if (request.Outline is { Count: > 0 })
+                payload["outline"] = request.Outline;
+            if (!string.IsNullOrWhiteSpace(request.SectionKey))
+                payload["sectionKey"] = request.SectionKey;
+            if (!string.IsNullOrWhiteSpace(request.SectionHeading))
+                payload["sectionHeading"] = request.SectionHeading;
+            if (!string.IsNullOrWhiteSpace(request.SectionBrief))
+                payload["sectionBrief"] = request.SectionBrief;
+            if (request.CompletedSectionSummaries is { Count: > 0 })
+                payload["completedSectionSummaries"] =
+                    request.CompletedSectionSummaries.Take(12).ToArray();
 
             using var response = await _http.PostAsJsonAsync("v1/generate", payload, JsonOpts, ct)
                 .ConfigureAwait(false);
@@ -635,6 +661,15 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                     })
                     .ToList(),
                 Themes = MapThemes(dto.Themes),
+                Outline = dto.Outline?
+                    .Where(s => !string.IsNullOrWhiteSpace(s.Heading))
+                    .Select(s => new GeekCrawlerRagOutlineSectionDto
+                    {
+                        Key = s.Key ?? "",
+                        Heading = s.Heading ?? "",
+                        Brief = s.Brief ?? "",
+                    })
+                    .ToList(),
                 Warnings = dto.Warnings ?? [],
                 ModelUsed = dto.ModelUsed,
                 Retrieval = dto.Retrieval,
@@ -820,9 +855,17 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public List<CitationDto>? Citations { get; set; }
         public List<GenerateSourceDto>? Sources { get; set; }
         public List<ThemeDto>? Themes { get; set; }
+        public List<OutlineSectionDto>? Outline { get; set; }
         public List<string>? Warnings { get; set; }
         public string? ModelUsed { get; set; }
         public string? Retrieval { get; set; }
+    }
+
+    private sealed class OutlineSectionDto
+    {
+        public string? Key { get; set; }
+        public string? Heading { get; set; }
+        public string? Brief { get; set; }
     }
 
     private sealed class BattlecardDto

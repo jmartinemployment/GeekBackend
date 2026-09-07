@@ -11,6 +11,19 @@ public sealed class RagGenerateRequest
 
     /// <summary>Optional template ids when Rag ad-template index is available.</summary>
     public List<string>? TemplateIds { get; set; }
+    public string GenerationStage { get; set; } = "complete";
+    public List<RagOutlineSectionDto>? Outline { get; set; }
+    public string? SectionKey { get; set; }
+    public string? SectionHeading { get; set; }
+    public string? SectionBrief { get; set; }
+    public List<string>? CompletedSectionSummaries { get; set; }
+}
+
+public sealed class RagOutlineSectionDto
+{
+    public string Key { get; set; } = "";
+    public string Heading { get; set; } = "";
+    public string Brief { get; set; } = "";
 }
 
 public sealed class RagAdTemplateDto
@@ -68,6 +81,7 @@ public sealed class RagGenerateResponse
     public IReadOnlyList<RagGenerateSourceDto> Sources { get; init; } = [];
     public IReadOnlyList<RagCitationDto>? Citations { get; init; }
     public IReadOnlyList<RagThemeSourceDto>? ThemeSources { get; init; }
+    public IReadOnlyList<RagOutlineSectionDto>? Outline { get; init; }
     public IReadOnlyList<RagAdTemplateDto>? AppliedTemplates { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = [];
     public bool SoftDisabled { get; init; }

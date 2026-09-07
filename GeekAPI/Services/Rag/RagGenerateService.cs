@@ -106,6 +106,11 @@ public sealed class RagGenerateService
         var family = RagWritingIntents.FamilyOf(intent);
         var warnings = new List<string>();
         var model = RagModelRouter.ResolveModel(family);
+        var stage = NormalizeGenerationStage(request.GenerationStage);
+        if (stage != "complete" && family != RagRetrievalFamily.LongForm)
+            throw new ArgumentException("outline/section generation is only supported for long-form intents.");
+        if (stage == "section" && string.IsNullOrWhiteSpace(request.SectionHeading))
+            throw new ArgumentException("sectionHeading is required for section generation.");
 
         var partnerRun = await PickLatestRunAsync(ownerUserId, CrawlTypes.Partner, ct).ConfigureAwait(false);
         var competitorRun = await PickLatestRunAsync(ownerUserId, CrawlTypes.Competitors, ct).ConfigureAwait(false);
@@ -126,11 +131,27 @@ public sealed class RagGenerateService
                     partnerRun,
                     competitorRun,
                     family,
+                    request,
                     warnings,
                     ct)
                 .ConfigureAwait(false);
             if (citeable is not null)
                 return citeable;
+            if (stage != "complete")
+            {
+                warnings.Add("Rag citeable generate unavailable.");
+                return new RagGenerateResponse
+                {
+                    Intent = intent,
+                    SoftDisabled = true,
+                    Warnings =
+                    [
+                        .. warnings,
+                        "Guided outline/section generation requires the citeable Rag workflow.",
+                    ],
+                    ModelUsed = model,
+                };
+            }
             warnings.Add("Rag citeable generate unavailable; falling back to GeekAPI one-shot.");
         }
 
@@ -842,6 +863,7 @@ public sealed class RagGenerateService
         GeekCrawlerRunDto? partnerRun,
         GeekCrawlerRunDto? competitorRun,
         RagRetrievalFamily family,
+        RagGenerateRequest request,
         List<string> warnings,
         CancellationToken ct)
     {
@@ -866,6 +888,19 @@ public sealed class RagGenerateService
                 TargetEntities = entities.Count > 0 ? entities : null,
                 AdTemplates = mappedTemplates.Count > 0 ? mappedTemplates : null,
                 GraphEnabled = _graphEnabled && family == RagRetrievalFamily.Slides,
+                GenerationStage = NormalizeGenerationStage(request.GenerationStage),
+                Outline = request.Outline?
+                    .Select(s => new GeekCrawlerRagOutlineSectionDto
+                    {
+                        Key = s.Key,
+                        Heading = s.Heading,
+                        Brief = s.Brief,
+                    })
+                    .ToList(),
+                SectionKey = request.SectionKey,
+                SectionHeading = request.SectionHeading,
+                SectionBrief = request.SectionBrief,
+                CompletedSectionSummaries = request.CompletedSectionSummaries,
             },
             ct).ConfigureAwait(false);
 
@@ -935,6 +970,14 @@ public sealed class RagGenerateService
                 })
                 .ToList(),
             ThemeSources = themeSources,
+            Outline = result.Outline?
+                .Select(s => new RagOutlineSectionDto
+                {
+                    Key = s.Key,
+                    Heading = s.Heading,
+                    Brief = s.Brief,
+                })
+                .ToList(),
             AppliedTemplates = family == RagRetrievalFamily.ShortForm && templates.Count > 0
                 ? templates.ToList()
                 : null,
@@ -952,6 +995,12 @@ public sealed class RagGenerateService
             "0" or "false" or "False" or "FALSE" or "no" or "off" => false,
             _ => true,
         };
+    }
+
+    internal static string NormalizeGenerationStage(string? raw)
+    {
+        var stage = raw?.Trim().ToLowerInvariant();
+        return stage is "outline" or "section" ? stage : "complete";
     }
 
     private static string Truncate(string value, int max) =>
