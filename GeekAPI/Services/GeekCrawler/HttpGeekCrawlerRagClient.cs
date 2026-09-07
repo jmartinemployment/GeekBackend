@@ -36,12 +36,62 @@ public interface IGeekCrawlerRagClient
         IReadOnlyList<string>? entityNames = null,
         string? retrievalMode = null,
         CancellationToken ct = default);
+
+    /// <summary>Phase D2 — upsert ad templates into Geek-Crawler-Rag. Null when disabled.</summary>
+    Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+        IReadOnlyList<GeekCrawlerRagTemplateDto> templates,
+        CancellationToken ct = default);
+
+    /// <summary>Phase D2 — retrieve few-shot ad template exemplars. Null when disabled.</summary>
+    Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+        string need,
+        int topK = 5,
+        string? channel = null,
+        IReadOnlyList<string>? entityTags = null,
+        CancellationToken ct = default);
+}
+
+public sealed class GeekCrawlerRagThemeDto
+{
+    public string Label { get; init; } = "";
+    public string? Relationship { get; init; }
+    public string? Entity { get; init; }
+    public string? RelatedEntity { get; init; }
+    public string? Url { get; init; }
+    public string? Category { get; init; }
+    public string? CrawlType { get; init; }
+    public double? Score { get; init; }
 }
 
 public sealed class GeekCrawlerRagQueryResult
 {
     public required Guid RunId { get; init; }
     public required IReadOnlyList<GccQuoteablePage> Pages { get; init; }
+    public string? Warning { get; init; }
+    public IReadOnlyList<GeekCrawlerRagThemeDto> Themes { get; init; } = [];
+    public string? Retrieval { get; init; }
+}
+
+public sealed class GeekCrawlerRagTemplateDto
+{
+    public string Id { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string? Channel { get; init; }
+    public string? Framework { get; init; }
+    public string? Tone { get; init; }
+    public string Body { get; init; } = "";
+    public IReadOnlyList<string>? EntityTags { get; init; }
+}
+
+public sealed class GeekCrawlerRagTemplateIndexResult
+{
+    public int Upserted { get; init; }
+    public string? Warning { get; init; }
+}
+
+public sealed class GeekCrawlerRagTemplateQueryResult
+{
+    public IReadOnlyList<GeekCrawlerRagTemplateDto> Templates { get; init; } = [];
     public string? Warning { get; init; }
 }
 
@@ -244,6 +294,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             {
                 RunId = runId,
                 Pages = pages,
+                Themes = MapThemes(dto?.Themes),
+                Retrieval = dto?.Retrieval,
                 Warning = pages.Count == 0
                     ? (dto?.Warning ?? "No RAG chunks returned. Continuing without it.")
                     : dto?.Warning,
@@ -259,6 +311,142 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 Warning = "RAG query unavailable. Continuing without it.",
             };
         }
+    }
+
+    public async Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+        IReadOnlyList<GeekCrawlerRagTemplateDto> templates,
+        CancellationToken ct = default)
+    {
+        if (!_enabled)
+            return null;
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                "v1/templates/index",
+                new { templates },
+                JsonOpts,
+                ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag template index failed: {Status} {Body}",
+                    (int)response.StatusCode,
+                    Truncate(body));
+                return new GeekCrawlerRagTemplateIndexResult
+                {
+                    Upserted = 0,
+                    Warning = $"Template index failed ({(int)response.StatusCode}).",
+                };
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<TemplateIndexDto>(JsonOpts, ct)
+                .ConfigureAwait(false);
+            return new GeekCrawlerRagTemplateIndexResult
+            {
+                Upserted = dto?.Upserted ?? 0,
+                Warning = dto?.Warning,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler-Rag template index threw");
+            return new GeekCrawlerRagTemplateIndexResult
+            {
+                Upserted = 0,
+                Warning = "Template index unavailable.",
+            };
+        }
+    }
+
+    public async Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+        string need,
+        int topK = 5,
+        string? channel = null,
+        IReadOnlyList<string>? entityTags = null,
+        CancellationToken ct = default)
+    {
+        if (!_enabled)
+            return null;
+        try
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["need"] = need,
+                ["topK"] = topK,
+            };
+            if (!string.IsNullOrWhiteSpace(channel))
+                payload["channel"] = channel;
+            if (entityTags is { Count: > 0 })
+                payload["entityTags"] = entityTags.Take(12).ToArray();
+
+            using var response = await _http.PostAsJsonAsync("v1/templates/query", payload, JsonOpts, ct)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag template query failed: {Status} {Body}",
+                    (int)response.StatusCode,
+                    Truncate(body));
+                return new GeekCrawlerRagTemplateQueryResult
+                {
+                    Templates = [],
+                    Warning = $"Template query failed ({(int)response.StatusCode}).",
+                };
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<TemplateQueryDto>(JsonOpts, ct)
+                .ConfigureAwait(false);
+            var list = (dto?.Templates ?? [])
+                .Where(t => !string.IsNullOrWhiteSpace(t.Body))
+                .Select(t => new GeekCrawlerRagTemplateDto
+                {
+                    Id = t.Id ?? "",
+                    Name = t.Name ?? "template",
+                    Channel = t.Channel,
+                    Framework = t.Framework,
+                    Tone = t.Tone,
+                    Body = t.Body ?? "",
+                    EntityTags = t.EntityTags,
+                })
+                .ToList();
+            return new GeekCrawlerRagTemplateQueryResult
+            {
+                Templates = list,
+                Warning = dto?.Warning,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler-Rag template query threw");
+            return new GeekCrawlerRagTemplateQueryResult
+            {
+                Templates = [],
+                Warning = "Template query unavailable.",
+            };
+        }
+    }
+
+    internal static IReadOnlyList<GeekCrawlerRagThemeDto> MapThemes(IReadOnlyList<ThemeDto>? themes)
+    {
+        if (themes is null || themes.Count == 0)
+            return [];
+        return themes
+            .Where(t => !string.IsNullOrWhiteSpace(t.Label))
+            .Select(t => new GeekCrawlerRagThemeDto
+            {
+                Label = t.Label!,
+                Relationship = t.Relationship,
+                Entity = t.Entity,
+                RelatedEntity = t.RelatedEntity,
+                Url = t.Url,
+                Category = t.Category,
+                CrawlType = t.CrawlType,
+                Score = t.Score,
+            })
+            .Take(20)
+            .ToList();
     }
 
     internal static IReadOnlyList<GccQuoteablePage> MapChunksToQuoteable(IReadOnlyList<ChunkDto>? chunks)
@@ -336,6 +524,43 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? RunId { get; set; }
         public List<ChunkDto>? Chunks { get; set; }
         public string? Warning { get; set; }
+        public string? Retrieval { get; set; }
+        public List<ThemeDto>? Themes { get; set; }
+    }
+
+    internal sealed class ThemeDto
+    {
+        public string? Label { get; set; }
+        public string? Relationship { get; set; }
+        public string? Entity { get; set; }
+        public string? RelatedEntity { get; set; }
+        public string? Url { get; set; }
+        public string? Category { get; set; }
+        public string? CrawlType { get; set; }
+        public double? Score { get; set; }
+    }
+
+    private sealed class TemplateIndexDto
+    {
+        public int Upserted { get; set; }
+        public string? Warning { get; set; }
+    }
+
+    private sealed class TemplateQueryDto
+    {
+        public List<TemplateHitDto>? Templates { get; set; }
+        public string? Warning { get; set; }
+    }
+
+    private sealed class TemplateHitDto
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Channel { get; set; }
+        public string? Framework { get; set; }
+        public string? Tone { get; set; }
+        public string? Body { get; set; }
+        public List<string>? EntityTags { get; set; }
     }
 
     internal sealed class ChunkDto

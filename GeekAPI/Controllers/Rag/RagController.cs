@@ -71,4 +71,22 @@ public sealed class RagController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
     }
+
+    /// <summary>Phase D2 — upsert ad templates into Geek-Crawler-Rag (owned by content-creator-v2).</summary>
+    [HttpPost("templates")]
+    public async Task<IActionResult> IndexTemplates(
+        [FromBody] List<RagAdTemplateDto>? templates,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (templates is null || templates.Count == 0)
+            return BadRequest(new { error = "templates required" });
+
+        var result = await _generate.IndexAdTemplatesAsync(templates, ct).ConfigureAwait(false);
+        return Ok(result ?? new GeekAPI.Services.GeekCrawler.GeekCrawlerRagTemplateIndexResult
+        {
+            Upserted = 0,
+            Warning = "RAG unavailable",
+        });
+    }
 }

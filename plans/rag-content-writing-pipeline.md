@@ -1,43 +1,24 @@
 # RAG generate (GeekBackend scope)
 
-Status: **Phase C + F shipped**; Phase D consumers wired with soft-disable until Rag GraphRAG / ad-template index exist.
-
-## Endpoints
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/api/rag/health` | optional | Liveness + available flag |
-| GET | `/api/rag/status` | required | Soft-detect + intent/entity/model catalogs |
-| GET | `/api/rag/entities` | required | Phase 0 seed entity names |
-| POST | `/api/rag/generate` | required | Intent-routed draft + sources |
+Status: **Phase C + F + D consumers shipped** (GraphRAG + ad-template index wired; defaults ON).
 
 ## Soft-disable
 
-- Off when `GEEK_CRAWLER_RAG_URL` unset (`IGeekCrawlerRagClient.IsEnabled == false`)
-- Or `GEEK_RAG_GENERATE_ENABLED=false` / `0` / `off`
-- Graph retrieval: **off** unless `GEEK_RAG_GRAPH_ENABLED=true`
-- Ad-template index: **off** unless `GEEK_RAG_AD_TEMPLATES_ENABLED=true` (client-supplied templates still work)
+- Off when `GEEK_CRAWLER_RAG_URL` unset
+- Or `GEEK_RAG_GENERATE_ENABLED=false`
+- Graph: `GEEK_RAG_GRAPH_ENABLED=false` to soft-disable (default ON)
+- Ad-template index: `GEEK_RAG_AD_TEMPLATES_ENABLED=false` to soft-disable (default ON)
 
-## Model routing (Phase F)
+## Endpoints
 
-| Family | Env | Default |
-|--------|-----|---------|
-| Long-form | `GEEK_RAG_LONGFORM_MODEL` | `o3` |
-| Short-form | `GEEK_RAG_SHORTFORM_MODEL` | `gpt-4o` |
-| Battlecard | `GEEK_RAG_BATTLECARD_MODEL` | `gpt-4o` |
-| Slides | `GEEK_RAG_SLIDES_MODEL` | `gpt-4o` |
-
-`OpenAiProvider` omits temperature / uses `max_completion_tokens` for o1/o3/o4 models.
-
-## Retrieval
-
-1. Latest `partner` + `competitors` runs for the caller
-2. `QueryAsync` with preferParent/Child + optional `retrievalMode: graph` (forward-compatible)
-3. Short-form injects client `adTemplates` as few-shot exemplars
-4. Slides/strategy return `themeSources` + slide outline markdown
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/rag/status` | Soft-detect + models + feature flags |
+| POST | `/api/rag/generate` | Intent-routed draft |
+| POST | `/api/rag/templates` | Upsert ad templates → Rag `/v1/templates/index` |
 
 ## Success criteria
 
 - [x] Phase C generate + status + entities
-- [x] Phase F: long-form intents use o1/o3 (or configured reasoning model); short-form stays on lighter model
-- [x] Phase D consumers: graph + ad-template hooks with soft-disable; slides intents + theme sources; template injection
+- [x] Phase F: long-form o1/o3 routing
+- [x] Phase D consumers: graph themes + ad-template index query/upsert

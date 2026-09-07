@@ -610,6 +610,19 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             string? retrievalMode = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagQueryResult?>(null);
+
+        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+            IReadOnlyList<GeekCrawlerRagTemplateDto> templates,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagTemplateIndexResult?>(null);
+
+        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+            string need,
+            int topK = 5,
+            string? channel = null,
+            IReadOnlyList<string>? entityTags = null,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
     }
 
     private sealed class FakeGeekCrawlerRagClient : IGeekCrawlerRagClient
@@ -646,6 +659,19 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             LastNeed = need;
             return Task.FromResult(QueryResult);
         }
+
+        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+            IReadOnlyList<GeekCrawlerRagTemplateDto> templates,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagTemplateIndexResult?>(null);
+
+        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+            string need,
+            int topK = 5,
+            string? channel = null,
+            IReadOnlyList<string>? entityTags = null,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
     }
 
     private sealed class FakeReadRepo : IGccV2GeekCrawlerReadRepository

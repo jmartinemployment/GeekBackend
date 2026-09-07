@@ -42,9 +42,9 @@ public sealed class RagGenerateService
         _providers = providers;
         _logger = logger;
         _generateEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_GENERATE_ENABLED"));
-        // Default OFF until Rag D1/D2 ships — only on when explicitly true/1
-        _graphEnabled = IsExplicitlyOn(Environment.GetEnvironmentVariable("GEEK_RAG_GRAPH_ENABLED"));
-        _adTemplateIndexEnabled = IsExplicitlyOn(Environment.GetEnvironmentVariable("GEEK_RAG_AD_TEMPLATES_ENABLED"));
+        // Default ON now that Geek-Crawler-Rag Phase D1/D2 ships; set =false to soft-disable.
+        _graphEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_GRAPH_ENABLED"));
+        _adTemplateIndexEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_AD_TEMPLATES_ENABLED"));
     }
 
     public RagGenerateStatusDto GetStatus()
@@ -97,7 +97,7 @@ public sealed class RagGenerateService
             throw new ArgumentException("topic is required (min 3 characters).");
 
         var entities = NormalizeEntities(request.TargetEntities);
-        var templates = NormalizeTemplates(request.AdTemplates);
+        var templates = NormalizeTemplates(request.AdTemplates).ToList();
         var family = RagWritingIntents.FamilyOf(intent);
         var warnings = new List<string>();
         var model = RagModelRouter.ResolveModel(family);
@@ -118,7 +118,7 @@ public sealed class RagGenerateService
                 retrievalMode = "graph";
             else
                 warnings.Add(
-                    "GraphRAG soft-disabled (GEEK_RAG_GRAPH_ENABLED not true). Using parent hybrid retrieval for slides/strategy.");
+                    "GraphRAG soft-disabled (GEEK_RAG_GRAPH_ENABLED=false). Using parent hybrid retrieval for slides/strategy.");
         }
 
         var (preferParent, preferChild, topK) = family switch
@@ -129,7 +129,7 @@ public sealed class RagGenerateService
             _ => ((bool?)true, (bool?)false, 10),
         };
 
-        var partnerPages = await QueryRunAsync(
+        var partnerQuery = await QueryRunAsync(
             partnerRun,
             BuildNeed(intent, topic, entities, CrawlTypes.Partner),
             CrawlTypes.Partner,
@@ -141,7 +141,7 @@ public sealed class RagGenerateService
             warnings,
             ct).ConfigureAwait(false);
 
-        var competitorPages = await QueryRunAsync(
+        var competitorQuery = await QueryRunAsync(
             competitorRun,
             BuildNeed(intent, topic, entities, CrawlTypes.Competitors),
             CrawlTypes.Competitors,
@@ -153,23 +153,59 @@ public sealed class RagGenerateService
             warnings,
             ct).ConfigureAwait(false);
 
-        if (family == RagRetrievalFamily.ShortForm && templates.Count == 0 && !_adTemplateIndexEnabled)
+        var partnerPages = partnerQuery.Pages;
+        var competitorPages = competitorQuery.Pages;
+
+        if (family == RagRetrievalFamily.ShortForm)
         {
-            warnings.Add(
-                "No ad templates supplied and Rag ad-template index soft-disabled. Short-form continues without few-shot exemplars.");
-        }
-        else if (family == RagRetrievalFamily.ShortForm && _adTemplateIndexEnabled && templates.Count == 0)
-        {
-            warnings.Add(
-                "Ad-template index enabled but no templates/templateIds were supplied by the client.");
+            if (_adTemplateIndexEnabled && templates.Count < 3)
+            {
+                var fromIndex = await _rag.QueryTemplatesAsync(
+                    need: $"{intent}; {topic}",
+                    topK: 3,
+                    entityTags: entities.Count > 0 ? entities : null,
+                    ct: ct).ConfigureAwait(false);
+                if (fromIndex is not null)
+                {
+                    if (!string.IsNullOrWhiteSpace(fromIndex.Warning))
+                        warnings.Add(fromIndex.Warning);
+                    foreach (var t in fromIndex.Templates)
+                    {
+                        if (templates.Any(x => string.Equals(x.Id, t.Id, StringComparison.OrdinalIgnoreCase)))
+                            continue;
+                        templates.Add(new RagAdTemplateDto
+                        {
+                            Id = t.Id,
+                            Name = t.Name,
+                            Channel = t.Channel,
+                            Framework = t.Framework,
+                            Body = t.Body,
+                        });
+                        if (templates.Count >= 3) break;
+                    }
+                }
+            }
+
+            if (templates.Count == 0)
+            {
+                warnings.Add(
+                    "No ad templates supplied and none retrieved from Rag index. Short-form continues without few-shot exemplars.");
+            }
         }
 
         var sources = BuildSources(partnerPages, competitorPages, entities);
-        var themeSources = family == RagRetrievalFamily.Slides
-            ? BuildThemeSources(partnerPages, competitorPages, entities)
-            : null;
+        IReadOnlyList<RagThemeSourceDto>? themeSources = null;
+        if (family == RagRetrievalFamily.Slides)
+        {
+            themeSources = MapRagThemes(partnerQuery.Themes.Concat(competitorQuery.Themes).ToList());
+            if (themeSources.Count == 0)
+                themeSources = BuildThemeSources(partnerPages, competitorPages, entities);
+        }
 
-        var effectiveMode = retrievalMode ?? "hybrid";
+        var effectiveMode = retrievalMode
+                            ?? partnerQuery.Retrieval
+                            ?? competitorQuery.Retrieval
+                            ?? "hybrid";
 
         return family switch
         {
@@ -186,6 +222,75 @@ public sealed class RagGenerateService
                 intent, topic, entities, partnerPages, competitorPages, sources, warnings, model, effectiveMode, ct)
                 .ConfigureAwait(false),
         };
+    }
+
+    public async Task<GeekCrawlerRagTemplateIndexResult?> IndexAdTemplatesAsync(
+        IReadOnlyList<RagAdTemplateDto> templates,
+        CancellationToken ct)
+    {
+        if (!_rag.IsEnabled || !_adTemplateIndexEnabled)
+            return new GeekCrawlerRagTemplateIndexResult
+            {
+                Upserted = 0,
+                Warning = "Ad template index soft-disabled or RAG unavailable.",
+            };
+
+        var mapped = templates
+            .Select(t => new GeekCrawlerRagTemplateDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                Channel = t.Channel,
+                Framework = t.Framework,
+                Body = t.Body,
+            })
+            .ToList();
+        return await _rag.IndexTemplatesAsync(mapped, ct).ConfigureAwait(false);
+    }
+
+    // --- helpers continue below (QueryRunAsync signature changed) ---
+    private sealed record SeedQueryResult(
+        IReadOnlyList<GccQuoteablePage> Pages,
+        IReadOnlyList<GeekCrawlerRagThemeDto> Themes,
+        string? Retrieval);
+
+    private async Task<SeedQueryResult> QueryRunAsync(
+        GeekCrawlerRunDto? run,
+        string need,
+        string crawlType,
+        int topK,
+        bool? preferParent,
+        bool? preferChild,
+        IReadOnlyList<string> entities,
+        string? retrievalMode,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        if (run is null)
+            return new SeedQueryResult([], [], null);
+
+        var result = await _rag.QueryAsync(
+            need,
+            run.Id,
+            crawlType: crawlType,
+            host: null,
+            topK: topK,
+            preferParent: preferParent,
+            preferChild: preferChild,
+            entityNames: entities.Count > 0 ? entities : null,
+            retrievalMode: retrievalMode,
+            ct: ct).ConfigureAwait(false);
+
+        if (result is null)
+        {
+            warnings.Add($"RAG query skipped for {crawlType} (client returned null).");
+            return new SeedQueryResult([], [], null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.Warning))
+            warnings.Add(result.Warning);
+
+        return new SeedQueryResult(result.Pages, result.Themes, result.Retrieval);
     }
 
     internal static string BuildNeed(
@@ -210,43 +315,19 @@ public sealed class RagGenerateService
         return string.Join("; ", parts);
     }
 
-    private async Task<IReadOnlyList<GccQuoteablePage>> QueryRunAsync(
-        GeekCrawlerRunDto? run,
-        string need,
-        string crawlType,
-        int topK,
-        bool? preferParent,
-        bool? preferChild,
-        IReadOnlyList<string> entities,
-        string? retrievalMode,
-        List<string> warnings,
-        CancellationToken ct)
+    private static IReadOnlyList<RagThemeSourceDto> MapRagThemes(IReadOnlyList<GeekCrawlerRagThemeDto> themes)
     {
-        if (run is null)
-            return [];
-
-        var result = await _rag.QueryAsync(
-            need,
-            run.Id,
-            crawlType: crawlType,
-            host: null,
-            topK: topK,
-            preferParent: preferParent,
-            preferChild: preferChild,
-            entityNames: entities.Count > 0 ? entities : null,
-            retrievalMode: retrievalMode,
-            ct: ct).ConfigureAwait(false);
-
-        if (result is null)
-        {
-            warnings.Add($"RAG query skipped for {crawlType} (client returned null).");
-            return [];
-        }
-
-        if (!string.IsNullOrWhiteSpace(result.Warning))
-            warnings.Add(result.Warning);
-
-        return result.Pages;
+        return themes
+            .Where(t => !string.IsNullOrWhiteSpace(t.Label))
+            .Select(t => new RagThemeSourceDto
+            {
+                Label = t.Label,
+                Relationship = t.Relationship,
+                Entity = t.Entity,
+                Url = t.Url,
+            })
+            .Take(16)
+            .ToList();
     }
 
     private async Task<GeekCrawlerRunDto?> PickLatestRunAsync(
@@ -738,14 +819,6 @@ public sealed class RagGenerateService
             _ => true,
         };
     }
-
-    /// <summary>Feature flags that default OFF until Rag Phase D ships.</summary>
-    private static bool IsExplicitlyOn(string? raw) =>
-        raw?.Trim() switch
-        {
-            "1" or "true" or "True" or "TRUE" or "yes" or "on" => true,
-            _ => false,
-        };
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
