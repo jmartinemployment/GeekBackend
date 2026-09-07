@@ -1,0 +1,6 @@
+<Project>
+  <ItemGroup>
+    <!-- Security override for Microsoft.AspNetCore.OpenApi's vulnerable dependency floor. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+  </ItemGroup>
+</Project>

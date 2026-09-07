@@ -469,6 +469,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             }
             else if (indexState is null || IndexQueryableStates.Contains(indexState)
                      || string.Equals(indexState, "failed", StringComparison.OrdinalIgnoreCase)
+                     // Legacy Rag wrote "skipped"; treat like empty-complete (query then fallback).
                      || string.Equals(indexState, "skipped", StringComparison.OrdinalIgnoreCase))
             {
                 // complete → query; failed/skipped/unknown → try once then Mongo fallback
