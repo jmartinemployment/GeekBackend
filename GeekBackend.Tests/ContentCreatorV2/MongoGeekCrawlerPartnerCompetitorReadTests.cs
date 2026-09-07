@@ -268,7 +268,11 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
                 p.RobotsAllowed,
                 p.Html,
                 p.FailureReason,
-                p.CrawledAtUtc);
+                p.CrawledAtUtc,
+                p.Title,
+                p.Markdown,
+                p.Excerpt,
+                p.MarkdownBackfilledAt);
     }
 
     private sealed class EmptyProjectSitePageReader : IGccV2ProjectSitePageReader

@@ -167,7 +167,10 @@ public class GeekCrawlerIngestController : ControllerBase
             p.StatusCode,
             p.RobotsAllowed,
             p.Html,
-            p.FailureReason)).ToList();
+            p.FailureReason,
+            p.Title,
+            p.Markdown,
+            p.Excerpt)).ToList();
 
         try
         {
@@ -264,7 +267,10 @@ public class GeekCrawlerIngestController : ControllerBase
         int StatusCode,
         bool RobotsAllowed,
         string? Html,
-        string? FailureReason = null);
+        string? FailureReason = null,
+        string? Title = null,
+        string? Markdown = null,
+        string? Excerpt = null);
 
     public record IngestLinksBatchRequest(IReadOnlyList<IngestLinkItem>? Links);
 

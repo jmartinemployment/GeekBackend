@@ -36,7 +36,11 @@ public record GeekCrawlerPageDto(
     bool RobotsAllowed,
     string? Html,
     string? FailureReason,
-    DateTimeOffset CrawledAtUtc);
+    DateTimeOffset CrawledAtUtc,
+    string? Title = null,
+    string? Markdown = null,
+    string? Excerpt = null,
+    DateTimeOffset? MarkdownBackfilledAt = null);
 
 public record CreateGeekCrawlerPageBatchCommand(
     Guid RunId,
@@ -49,7 +53,10 @@ public record CreateGeekCrawlerPageItemCommand(
     int StatusCode,
     bool RobotsAllowed,
     string? Html,
-    string? FailureReason = null);
+    string? FailureReason = null,
+    string? Title = null,
+    string? Markdown = null,
+    string? Excerpt = null);
 
 public record GeekCrawlerPageBatchResult(
     int Count,

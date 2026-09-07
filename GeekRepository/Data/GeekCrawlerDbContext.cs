@@ -46,6 +46,9 @@ public class GeekCrawlerDbContext : DbContext
             entity.Property(p => p.Url).IsRequired().HasMaxLength(2048);
             entity.Property(p => p.FinalUrl).IsRequired().HasMaxLength(2048);
             entity.Property(p => p.Html).HasColumnType("text");
+            entity.Property(p => p.Title).HasMaxLength(1024);
+            entity.Property(p => p.Markdown).HasColumnType("text");
+            entity.Property(p => p.Excerpt).HasMaxLength(4096);
             entity.Property(p => p.FailureReason).HasMaxLength(512);
             entity.Property(p => p.CrawledAtUtc).IsRequired();
             entity.HasIndex(p => p.RunId).HasDatabaseName("ix_crawl_pages_run_id");

@@ -109,6 +109,9 @@ public class GeekCrawlerPagesController : ControllerBase
                 StatusCode = p.StatusCode,
                 RobotsAllowed = p.RobotsAllowed,
                 Html = p.Html,
+                Title = TruncateTitle(p.Title),
+                Markdown = p.Markdown,
+                Excerpt = TruncateExcerpt(p.Excerpt),
                 FailureReason = TruncateFailureReason(p.FailureReason),
                 CrawledAtUtc = now,
             });
@@ -130,10 +133,19 @@ public class GeekCrawlerPagesController : ControllerBase
         int StatusCode,
         bool RobotsAllowed,
         string? Html,
-        string? FailureReason = null);
+        string? FailureReason = null,
+        string? Title = null,
+        string? Markdown = null,
+        string? Excerpt = null);
 
     private static string? TruncateFailureReason(string? reason) =>
         string.IsNullOrWhiteSpace(reason) ? null : reason.Length <= 512 ? reason : reason[..512];
+
+    private static string? TruncateTitle(string? title) =>
+        string.IsNullOrWhiteSpace(title) ? null : title.Length <= 1024 ? title.Trim() : title.Trim()[..1024];
+
+    private static string? TruncateExcerpt(string? excerpt) =>
+        string.IsNullOrWhiteSpace(excerpt) ? null : excerpt.Length <= 4096 ? excerpt.Trim() : excerpt.Trim()[..4096];
 
     public record CreatedGeekCrawlerPageItem(string Url, Guid PageId);
 
