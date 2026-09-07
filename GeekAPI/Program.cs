@@ -106,6 +106,7 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddContentCreatorV2(builder.Configuration);
 builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
+builder.Services.AddScoped<GeekAPI.Services.Rag.RagGenerateService>();
 
 // GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]
 // (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade). Additive: existing

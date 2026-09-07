@@ -22,6 +22,8 @@ public interface IGeekCrawlerRagClient
     /// <summary>
     /// Retrieve English chunks for a need. Empty list + warning on miss (notify-and-skip).
     /// Returns null when the client is disabled.
+    /// Optional preferParent/preferChild and entityNames are forward-compatible with
+    /// Geek-Crawler-Rag Phase B (ignored by older indexers).
     /// </summary>
     Task<GeekCrawlerRagQueryResult?> QueryAsync(
         string need,
@@ -29,6 +31,10 @@ public interface IGeekCrawlerRagClient
         string? crawlType = null,
         string? host = null,
         int topK = 8,
+        bool? preferParent = null,
+        bool? preferChild = null,
+        IReadOnlyList<string>? entityNames = null,
+        string? retrievalMode = null,
         CancellationToken ct = default);
 }
 
@@ -183,6 +189,10 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         string? crawlType = null,
         string? host = null,
         int topK = 8,
+        bool? preferParent = null,
+        bool? preferChild = null,
+        IReadOnlyList<string>? entityNames = null,
+        string? retrievalMode = null,
         CancellationToken ct = default)
     {
         if (!_enabled)
@@ -200,6 +210,14 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 payload["crawlType"] = crawlType;
             if (!string.IsNullOrWhiteSpace(host))
                 payload["host"] = host;
+            if (preferParent is not null)
+                payload["preferParent"] = preferParent.Value;
+            if (preferChild is not null)
+                payload["preferChild"] = preferChild.Value;
+            if (entityNames is { Count: > 0 })
+                payload["entityNames"] = entityNames.Where(e => !string.IsNullOrWhiteSpace(e)).Take(12).ToArray();
+            if (!string.IsNullOrWhiteSpace(retrievalMode))
+                payload["retrievalMode"] = retrievalMode;
 
             using var response = await _http.PostAsJsonAsync("v1/query", payload, JsonOpts, ct)
                 .ConfigureAwait(false);

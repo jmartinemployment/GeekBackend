@@ -11,8 +11,9 @@ internal sealed class OpenAiCompatibleRequest
 {
     [JsonPropertyName("model")] public string Model { get; set; } = string.Empty;
     [JsonPropertyName("messages")] public List<OpenAiCompatibleMessage> Messages { get; set; } = new();
-    [JsonPropertyName("temperature")] public double Temperature { get; set; }
-    [JsonPropertyName("max_tokens")] public int MaxTokens { get; set; }
+    [JsonPropertyName("temperature")] public double? Temperature { get; set; }
+    [JsonPropertyName("max_tokens")] public int? MaxTokens { get; set; }
+    [JsonPropertyName("max_completion_tokens")] public int? MaxCompletionTokens { get; set; }
     [JsonPropertyName("stream")] public bool Stream { get; set; } = false;
 
     /// <summary>Only set when the caller supplied a JsonSchema — omitted (null) otherwise, which

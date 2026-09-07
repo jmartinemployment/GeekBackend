@@ -41,12 +41,15 @@ public class OpenAiProvider : IContentGenerationProvider
                 "OpenAI API key is not configured. Set OPENAI_API_KEY (or LlmProviders__OpenAi__ApiKey).");
         }
 
+        var model = request.Model ?? _options.Model;
+        var reasoning = IsReasoningModel(model);
         var payload = new OpenAiCompatibleRequest
         {
-            Model = request.Model ?? _options.Model,
+            Model = model,
             Messages = request.Messages.Select(m => new OpenAiCompatibleMessage(m.RoleString, m.Content)).ToList(),
-            Temperature = request.Temperature,
-            MaxTokens = request.MaxOutputTokens,
+            Temperature = reasoning ? null : request.Temperature,
+            MaxTokens = reasoning ? null : request.MaxOutputTokens,
+            MaxCompletionTokens = reasoning ? request.MaxOutputTokens : null,
             ResponseFormat = request.JsonSchema is null
                 ? null
                 : new OpenAiResponseFormat
@@ -101,5 +104,15 @@ public class OpenAiProvider : IContentGenerationProvider
             PromptTokens: parsed.Usage?.PromptTokens,
             CompletionTokens: parsed.Usage?.CompletionTokens,
             CachedTokens: cachedTokens);
+    }
+
+    /// <summary>o1/o3/o4-family models reject custom temperature and want max_completion_tokens.</summary>
+    internal static bool IsReasoningModel(string? model)
+    {
+        if (string.IsNullOrWhiteSpace(model)) return false;
+        var m = model.Trim().ToLowerInvariant();
+        return m.StartsWith("o1", StringComparison.Ordinal)
+               || m.StartsWith("o3", StringComparison.Ordinal)
+               || m.StartsWith("o4", StringComparison.Ordinal);
     }
 }

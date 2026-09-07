@@ -307,6 +307,10 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             string? crawlType = null,
             string? host = null,
             int topK = 8,
+            bool? preferParent = null,
+            bool? preferChild = null,
+            IReadOnlyList<string>? entityNames = null,
+            string? retrievalMode = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagQueryResult?>(null);
     }
