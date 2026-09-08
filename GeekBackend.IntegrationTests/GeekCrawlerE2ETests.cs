@@ -82,15 +82,32 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
             });
         Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
 
+        var markdownReadyAt = DateTimeOffset.UtcNow;
         using var complete = await owner.PatchAsJsonAsync(
             $"/api/geek-crawler/ingest/runs/{runId:D}",
-            new { status = "complete", completedAtUtc = DateTimeOffset.UtcNow });
+            new
+            {
+                status = "complete",
+                completedAtUtc = markdownReadyAt,
+                markdownReadyAt,
+            });
         complete.EnsureSuccessStatusCode();
+        var completeSnapshot = await complete.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(
+            markdownReadyAt,
+            completeSnapshot.GetProperty("markdownReadyAt").GetDateTimeOffset());
 
         Assert.Equal(markdown, Assert.Single(_factory.Repository.Pages(runId)).Markdown);
         Assert.Equal("https://fixture.test/contact", Assert.Single(_factory.Repository.Links(runId)).LinkUrl);
         await EventuallyAsync(() =>
             _factory.Rag.Requests.Any(r => r.Method == HttpMethod.Post && r.Path == "/v1/index"));
+
+        using var resumed = await owner.PatchAsJsonAsync(
+            $"/api/geek-crawler/ingest/runs/{runId:D}",
+            new { status = "external", clearMarkdownReadyAt = true });
+        resumed.EnsureSuccessStatusCode();
+        var resumedSnapshot = await resumed.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(JsonValueKind.Null, resumedSnapshot.GetProperty("markdownReadyAt").ValueKind);
     }
 
     [Fact]

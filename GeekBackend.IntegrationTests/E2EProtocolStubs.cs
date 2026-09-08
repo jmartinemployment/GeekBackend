@@ -73,6 +73,9 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
                     ErrorSummary = patch.ErrorSummary ?? existing.ErrorSummary,
                     StartedAtUtc = patch.StartedAtUtc ?? existing.StartedAtUtc,
                     CompletedAtUtc = patch.CompletedAtUtc ?? existing.CompletedAtUtc,
+                    MarkdownReadyAt = patch.ClearMarkdownReadyAt
+                        ? null
+                        : patch.MarkdownReadyAt ?? existing.MarkdownReadyAt,
                 };
                 _runs[runId] = updated;
                 return Json(HttpStatusCode.OK, updated);

@@ -133,6 +133,12 @@ public class GeekCrawlerRunsController : ControllerBase
                     r.StartedAtUtc = command.StartedAtUtc;
                 if (command.CompletedAtUtc is not null)
                     r.CompletedAtUtc = command.CompletedAtUtc;
+                if (command.ClearMarkdownReadyAt
+                    || (!string.IsNullOrWhiteSpace(command.Status)
+                        && !command.Status.Equals("complete", StringComparison.OrdinalIgnoreCase)))
+                    r.MarkdownReadyAt = null;
+                else if (command.MarkdownReadyAt is not null)
+                    r.MarkdownReadyAt = command.MarkdownReadyAt;
                 row = r;
             }, ct);
             return Ok(row);
@@ -151,6 +157,7 @@ public class GeekCrawlerRunsController : ControllerBase
             return NotFound();
 
         await _mongo.DeleteRunCrawlDataAsync(id, ct);
+        await _mongo.UpdateRunAsync(id, r => r.MarkdownReadyAt = null, ct);
         return NoContent();
     }
 
@@ -165,5 +172,7 @@ public class GeekCrawlerRunsController : ControllerBase
         string? HostProgressJson = null,
         string? ErrorSummary = null,
         DateTimeOffset? StartedAtUtc = null,
-        DateTimeOffset? CompletedAtUtc = null);
+        DateTimeOffset? CompletedAtUtc = null,
+        DateTimeOffset? MarkdownReadyAt = null,
+        bool ClearMarkdownReadyAt = false);
 }

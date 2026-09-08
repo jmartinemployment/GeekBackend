@@ -117,7 +117,9 @@ public class GeekCrawlerIngestController : ControllerBase
                     ErrorSummary: request.ErrorSummary,
                     HostProgressJson: request.HostProgressJson,
                     StartedAtUtc: request.StartedAtUtc,
-                    CompletedAtUtc: request.CompletedAtUtc),
+                    CompletedAtUtc: request.CompletedAtUtc,
+                    MarkdownReadyAt: request.MarkdownReadyAt,
+                    ClearMarkdownReadyAt: request.ClearMarkdownReadyAt),
                 ct).ConfigureAwait(false);
 
             var snapshot = GeekCrawlerService.ToSnapshot(run);
@@ -256,7 +258,9 @@ public class GeekCrawlerIngestController : ControllerBase
         string? ErrorSummary = null,
         string? HostProgressJson = null,
         DateTimeOffset? StartedAtUtc = null,
-        DateTimeOffset? CompletedAtUtc = null);
+        DateTimeOffset? CompletedAtUtc = null,
+        DateTimeOffset? MarkdownReadyAt = null,
+        bool ClearMarkdownReadyAt = false);
 
     public record IngestPagesBatchRequest(IReadOnlyList<IngestPageItem>? Pages);
 

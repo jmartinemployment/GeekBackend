@@ -91,6 +91,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             cm.MapMember(x => x.CreatedAtUtc).SetSerializer(date);
             cm.MapMember(x => x.StartedAtUtc).SetSerializer(nullableDate);
             cm.MapMember(x => x.CompletedAtUtc).SetSerializer(nullableDate);
+            cm.MapMember(x => x.MarkdownReadyAt).SetSerializer(nullableDate);
         });
 
         BsonClassMap.RegisterClassMap<GeekCrawlerPage>(cm =>
