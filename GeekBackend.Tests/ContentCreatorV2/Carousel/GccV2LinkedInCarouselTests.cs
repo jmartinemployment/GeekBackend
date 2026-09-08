@@ -137,7 +137,12 @@ public sealed class GccV2LinkedInCarouselArtifactTests
             ["AI"],
             "ai-framework");
 
-        var artifact = new LinkedInCarouselArtifact(draft, "ai-framework", DateTimeOffset.UtcNow);
+        var pdfBase64 = Convert.ToBase64String("%PDF durable"u8.ToArray());
+        var artifact = new LinkedInCarouselArtifact(
+            draft,
+            "ai-framework",
+            DateTimeOffset.UtcNow,
+            pdfBase64);
         var merged = GccV2LinkedInCarouselService.MergeCarouselIntoResultJson(
             """{"title":"Test","document":{"sections":[]}}""",
             artifact);
@@ -146,6 +151,8 @@ public sealed class GccV2LinkedInCarouselArtifactTests
         Assert.NotNull(parsed);
         Assert.Equal(6, parsed!.Draft.Slides.Count);
         Assert.Equal("ai-framework", parsed.Slug);
+        Assert.Equal(pdfBase64, parsed.PdfBase64);
+        Assert.True(Convert.FromBase64String(parsed.PdfBase64!).AsSpan().StartsWith("%PDF"u8));
     }
 
     [Fact]

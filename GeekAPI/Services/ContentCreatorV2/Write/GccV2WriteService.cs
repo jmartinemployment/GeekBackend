@@ -110,7 +110,8 @@ public sealed record GccV2WriteContext(
     ProjectGenerationContext BaseContext,
     IContentGenerationProvider Provider,
     GccV2GenerationBrief GenerationBrief,
-    GccV2JobModelPolicyOverride? JobModelPolicyOverride)
+    GccV2JobModelPolicyOverride? JobModelPolicyOverride,
+    GccV2SkillExecutionSnapshot? SkillSnapshot = null)
 {
     /// <summary>
     /// Set by the worker before WRITE/VALIDATE run. Invoked after every section write/rewrite so a
@@ -198,8 +199,9 @@ public sealed class GccV2WriteService
         _ = kitDto;
         var generationBrief = GccV2GenerationBriefAssembler.Assemble(job, brief, create, brandKit);
         var jobModelPolicy = await _jobModelPolicies.LoadLatestAsync(job.Id, ct);
+        var skillSnapshot = await GccV2SkillSnapshotStore.LoadOrCreateAsync(_repo, job, ct);
         return new GccV2WriteContext(
-            job, brief, brandKit, outline, baseContext, provider, generationBrief, jobModelPolicy);
+            job, brief, brandKit, outline, baseContext, provider, generationBrief, jobModelPolicy, skillSnapshot);
     }
 
     /// <summary>Rebuilds a <see cref="GccV2WriteOutput"/> from the job's persisted result + stage metadata —
@@ -211,7 +213,8 @@ public sealed class GccV2WriteService
             ? "final-synthesis-document"
             : "final-synthesis-input";
         var snapshot = snapshots
-            .Where(r => string.Equals(r.Stage, preferredSnapshotStage, StringComparison.OrdinalIgnoreCase))
+            .Where(r => string.Equals(r.Stage, "operator-edit-document", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(r.Stage, preferredSnapshotStage, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(r => r.CompletedAtUtc)
             .FirstOrDefault();
         if (snapshot is not null)
@@ -436,7 +439,10 @@ public sealed class GccV2WriteService
             {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
+                PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
+                CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "finalSynthesis",
+                SkillExecution = SkillExecution(wc, "finalSynthesis"),
                 DraftContent = draft,
                 Sources = sources,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
@@ -472,7 +478,11 @@ public sealed class GccV2WriteService
             evidenceIds,
             response.Warnings.Concat(response.EvidenceWarnings).Distinct().ToList(),
             stopwatch.ElapsedMilliseconds,
-            selection);
+            selection,
+            response.Provenance.AttemptId
+                ?? throw new InvalidOperationException("Final synthesis omitted attempt ID."),
+            MapSkillProvenance(response.Provenance.Skills),
+            response.Provenance.ExecutionVersion);
 
         var knownHeadings = current.AllSections
             .Select(section => section.Heading)
@@ -723,6 +733,65 @@ public sealed class GccV2WriteService
         GccV2WriteContext wc, Guid ownerUserId, GccV2WriteSection write, int tokens, CancellationToken ct) =>
         PersistAndEmitAsync(wc, ownerUserId, "repair", "SectionRepaired", write, tokens, ct);
 
+    /// <summary>
+    /// Persists an exact operator-authored body replacement. This is deliberately separate from
+    /// <see cref="RewriteSectionAsync"/>: no model is called and the existing key, heading, role,
+    /// citations, evidence provenance, nested sections, and other structural metadata are retained.
+    /// The full reconstructed output snapshot makes later validation/re-publish use the edit.
+    /// </summary>
+    public async Task PersistOperatorEditAsync(
+        GccV2WriteContext wc,
+        Guid ownerUserId,
+        GccV2WriteSection write,
+        GccV2WriteOutput output,
+        CancellationToken ct)
+    {
+        var stagePayload = new
+        {
+            heading = write.Heading,
+            job = write.Job,
+            section = write.Section,
+            usedFallbackStub = write.UsedFallbackStub,
+            citations = write.Citations,
+            provenance = write.Provenance,
+            sources = write.Sources,
+            editKind = "operator-exact-replacement",
+            aiGenerated = false,
+            editedByUserId = ownerUserId,
+        };
+        await _repo.AddStageResultAsync(
+            wc.Job.Id,
+            new CreateGccV2StageResultCommand(
+                "operator-edit",
+                write.SectionKey,
+                JsonSerializer.Serialize(stagePayload, ContentDocJson),
+                0),
+            ct);
+        await _repo.AddStageResultAsync(
+            wc.Job.Id,
+            new CreateGccV2StageResultCommand(
+                "operator-edit-document",
+                null,
+                JsonSerializer.Serialize(output, ContentDocJson),
+                0),
+            ct);
+
+        await _events.AppendAsync(wc.Job.Id, ownerUserId, "SectionEdited", new
+        {
+            sectionKey = write.SectionKey,
+            heading = write.Heading,
+            job = write.Job,
+            documentJson = JsonSerializer.Serialize(write.Section, ContentDocJson),
+            wordCount = ContentDocumentText.CountWords(write.Section),
+            usedFallbackStub = write.UsedFallbackStub,
+            citations = write.Citations,
+            provenance = write.Provenance,
+            editKind = "operator-exact-replacement",
+            aiGenerated = false,
+            validationInvalidated = true,
+        }, ct: ct);
+    }
+
     /// <summary>Rewrites exactly one already-written section — used by VALIDATE's REPAIR loop and
     /// by the Canvas rewrite/expand/re-tone endpoints. Always <see cref="IContentPromptBuilder.BuildArticleSectionPrompt"/>
     /// with <c>isRegeneration:true</c>, regardless of whether the section was originally the lede —
@@ -962,7 +1031,13 @@ public sealed class GccV2WriteService
                     ? $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}"
                     : $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}\nSpecialized source context:\n{seedContext}",
                 TargetEntities = wc.GenerationBrief.TargetEntities.ToList(),
+                PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
+                CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
+                AdTemplates = route.Family == RagRetrievalFamily.ShortForm
+                    ? wc.GenerationBrief.AdTemplates.ToList()
+                    : null,
                 GenerationStage = "complete",
+                SkillExecution = SkillExecution(wc, "complete"),
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
                 ModelPolicyVersion = selection.PolicyVersion,
@@ -986,7 +1061,11 @@ public sealed class GccV2WriteService
             wc.GenerationBrief.Version, selection.PolicyVersion, response.PromptVersion,
             selection.RequestedModel, response.ModelUsed, response.RetrievalMode, evidenceIds,
             response.Warnings.Concat(response.EvidenceWarnings).Distinct().ToList(),
-            stopwatch.ElapsedMilliseconds, selection);
+            stopwatch.ElapsedMilliseconds, selection,
+            response.Provenance?.AttemptId
+                ?? throw new InvalidOperationException("RAG complete response omitted attempt ID."),
+            MapSkillProvenance(response.Provenance?.Skills),
+            response.Provenance?.ExecutionVersion);
         var section = MarkdownToSection(content, heading);
         var write = new GccV2WriteSection(
             sectionKey, heading, "problem", section, false, response.Citations ?? [], provenance, response.Sources);
@@ -1120,6 +1199,7 @@ public sealed class GccV2WriteService
     {
         var route = GccV2ContentTypeRagMapper.Map(wc.Job.ContentType);
         var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
+        var producerStage = ContentModelPolicy.ProducerStage(stage);
         var stopwatch = Stopwatch.StartNew();
         var response = await _rag.GenerateAsync(
             wc.Job.OwnerUserId,
@@ -1128,7 +1208,10 @@ public sealed class GccV2WriteService
                 WritingIntent = route.WritingIntent,
                 Topic = $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}",
                 TargetEntities = wc.GenerationBrief.TargetEntities.ToList(),
-                GenerationStage = "section",
+                PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
+                CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
+                GenerationStage = producerStage,
+                SkillExecution = SkillExecution(wc, producerStage),
                 Outline = wc.Outline.Sections.Select(s => new RagOutlineSectionDto
                 {
                     Key = s.Key,
@@ -1144,7 +1227,7 @@ public sealed class GccV2WriteService
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
                 ModelPolicyVersion = selection.PolicyVersion,
                 StageModelOverrides = ContentModelPolicy.ProducerOverridesForRequest(
-                    wc.GenerationBrief, selection, "section", wc.JobModelPolicyOverride),
+                    wc.GenerationBrief, selection, producerStage, wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
             },
@@ -1169,10 +1252,30 @@ public sealed class GccV2WriteService
             evidenceIds,
             response.Warnings.Concat(response.EvidenceWarnings).Distinct().ToList(),
             stopwatch.ElapsedMilliseconds,
-            selection);
+            selection,
+            response.Provenance?.AttemptId
+                ?? throw new InvalidOperationException($"RAG {producerStage} response omitted attempt ID."),
+            MapSkillProvenance(response.Provenance?.Skills),
+            response.Provenance?.ExecutionVersion);
         return new GccV2WriteSection(
             entry.Key, entry.Heading, entry.Job, section, false, response.Citations ?? [], provenance, response.Sources);
     }
+
+    private static GccV2SkillExecutionSnapshot SkillExecution(GccV2WriteContext wc, string stage) =>
+        GccV2SkillCatalog.ForStage(
+            wc.SkillSnapshot
+            ?? throw new InvalidOperationException("WRITE requires the persisted pre-PLAN skill snapshot."),
+            stage);
+
+    private static GccV2SkillProvenance? MapSkillProvenance(RagSkillProvenanceDto? value) =>
+        value is null
+            ? null
+            : new GccV2SkillProvenance(
+                value.EnvelopeVersion,
+                value.CatalogVersion,
+                value.SnapshotHash,
+                value.Stage,
+                value.SkillVersions);
 
     private static string BuildSectionBrief(GccV2OutlineSection entry)
     {
@@ -1360,7 +1463,7 @@ public sealed class GccV2WriteService
         var results = await _repo.GetStageResultsAsync(jobId, ct);
         var map = new Dictionary<string, SectionMeta>(StringComparer.OrdinalIgnoreCase);
         foreach (var result in results
-                     .Where(r => (r.Stage is "write" or "repair" or "canvas" or "final-synthesis")
+                     .Where(r => (r.Stage is "write" or "repair" or "canvas" or "operator-edit" or "final-synthesis")
                                  && !string.IsNullOrWhiteSpace(r.SectionKey))
                      .OrderByDescending(r => r.CompletedAtUtc))
         {

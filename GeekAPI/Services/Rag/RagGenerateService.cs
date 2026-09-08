@@ -115,6 +115,27 @@ public sealed class RagGenerateService
             ? RagModelRouter.ResolveModel(family)
             : request.RequestedModel.Trim();
         var stage = NormalizeGenerationStage(request.GenerationStage);
+        if (request.RequireCiteable)
+        {
+            if (request.SkillExecution is null)
+                throw new InvalidOperationException("Canonical generation requires an immutable skill execution snapshot.");
+            GccV2SkillCatalog.ForStage(request.SkillExecution, stage);
+            var capabilities = await _rag.GetCapabilitiesAsync(ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("RAG producer capabilities are unavailable; strict execution cannot be negotiated.");
+            if (!capabilities.ExecutionVersions.Contains(request.ExecutionVersion, StringComparer.Ordinal)
+                || !capabilities.SkillEnvelopeVersions.Contains(request.SkillExecution.EnvelopeVersion, StringComparer.Ordinal)
+                || !capabilities.GenerationStages.Contains(stage, StringComparer.Ordinal)
+                || !string.Equals(
+                    capabilities.SpecialistExecutorVersion,
+                    RagProducerCapabilities.RequiredSpecialistExecutorVersion,
+                    StringComparison.Ordinal)
+                || RagProducerCapabilities.RequiredSpecialists.Any(required =>
+                    !capabilities.SpecialistExecutors.Contains(required, StringComparer.Ordinal))
+                || capabilities.ToolsAllowed)
+                throw new InvalidOperationException(
+                    $"RAG producer does not support execution '{request.ExecutionVersion}', skill envelope " +
+                    $"'{request.SkillExecution.EnvelopeVersion}', stage '{stage}', and the required tool-free specialist boundary.");
+        }
         if (stage == "section" && string.IsNullOrWhiteSpace(request.SectionHeading))
             throw new ArgumentException("sectionHeading is required for section generation.");
         if (stage is "validation" or "finalSynthesis")
@@ -133,13 +154,20 @@ public sealed class RagGenerateService
                 throw new ArgumentException($"requestedModel is required for {stage} generation.");
         }
 
-        var partnerRun = await PickLatestRunAsync(ownerUserId, CrawlTypes.Partner, ct).ConfigureAwait(false);
-        var competitorRun = await PickLatestRunAsync(ownerUserId, CrawlTypes.Competitors, ct).ConfigureAwait(false);
+        var partnerRunId = request.PartnerRunId;
+        var competitorRunId = request.CompetitorRunId;
+        if (!request.RequireCiteable)
+        {
+            partnerRunId ??= (await PickLatestRunAsync(ownerUserId, CrawlTypes.Partner, ct).ConfigureAwait(false))?.Id;
+            competitorRunId ??= (await PickLatestRunAsync(ownerUserId, CrawlTypes.Competitors, ct).ConfigureAwait(false))?.Id;
+        }
 
-        if (partnerRun is null && competitorRun is null)
+        if (partnerRunId is null && competitorRunId is null)
         {
             warnings.Add(
-                "No partner or competitors crawl runs found for this account. Generate continues with empty research.");
+                request.RequireCiteable
+                    ? "No immutable partner or competitor source run IDs were supplied."
+                    : "No partner or competitors crawl runs found for this account. Generate continues with empty research.");
         }
 
         if (_citeableGenerateEnabled)
@@ -149,8 +177,8 @@ public sealed class RagGenerateService
                     topic,
                     entities,
                     templates,
-                    partnerRun,
-                    competitorRun,
+                    partnerRunId,
+                    competitorRunId,
                     family,
                     model,
                     request,
@@ -187,7 +215,7 @@ public sealed class RagGenerateService
         };
 
         var partnerQuery = await QueryRunAsync(
-            partnerRun,
+            partnerRunId,
             BuildNeed(intent, topic, entities, CrawlTypes.Partner),
             CrawlTypes.Partner,
             topK,
@@ -199,7 +227,7 @@ public sealed class RagGenerateService
             ct).ConfigureAwait(false);
 
         var competitorQuery = await QueryRunAsync(
-            competitorRun,
+            competitorRunId,
             BuildNeed(intent, topic, entities, CrawlTypes.Competitors),
             CrawlTypes.Competitors,
             topK,
@@ -312,7 +340,7 @@ public sealed class RagGenerateService
         string? Retrieval);
 
     private async Task<SeedQueryResult> QueryRunAsync(
-        GeekCrawlerRunDto? run,
+        Guid? runId,
         string need,
         string crawlType,
         int topK,
@@ -323,12 +351,12 @@ public sealed class RagGenerateService
         List<string> warnings,
         CancellationToken ct)
     {
-        if (run is null)
+        if (runId is null)
             return new SeedQueryResult([], [], null);
 
         var result = await _rag.QueryAsync(
             need,
-            run.Id,
+            runId.Value,
             crawlType: crawlType,
             host: null,
             topK: topK,
@@ -866,8 +894,8 @@ public sealed class RagGenerateService
         string topic,
         IReadOnlyList<string> entities,
         IReadOnlyList<RagAdTemplateDto> templates,
-        GeekCrawlerRunDto? partnerRun,
-        GeekCrawlerRunDto? competitorRun,
+        Guid? partnerRunId,
+        Guid? competitorRunId,
         RagRetrievalFamily family,
         string model,
         RagGenerateRequest request,
@@ -891,8 +919,8 @@ public sealed class RagGenerateService
             {
                 WritingIntent = intent,
                 Topic = topic,
-                PartnerRunId = partnerRun?.Id.ToString("D"),
-                CompetitorRunId = competitorRun?.Id.ToString("D"),
+                PartnerRunId = partnerRunId?.ToString("D"),
+                CompetitorRunId = competitorRunId?.ToString("D"),
                 TargetEntities = entities.Count > 0 ? entities : null,
                 AdTemplates = mappedTemplates.Count > 0 ? mappedTemplates : null,
                 GraphEnabled = _graphEnabled && family == RagRetrievalFamily.Slides,
@@ -926,6 +954,9 @@ public sealed class RagGenerateService
                 ModelPolicyPreset = request.ModelPolicyPreset,
                 ModelPolicyVersion = request.ModelPolicyVersion,
                 StageModelOverrides = request.StageModelOverrides,
+                ExecutionVersion = request.ExecutionVersion,
+                AttemptId = request.AttemptId,
+                SkillExecution = request.SkillExecution,
             },
             ct).ConfigureAwait(false);
 
@@ -968,6 +999,13 @@ public sealed class RagGenerateService
                 StringComparison.Ordinal))
             throw new InvalidOperationException(
                 $"RAG response did not confirm generation stage '{stage}'.");
+        if (request.RequireCiteable
+            && (!string.Equals(request.ExecutionVersion, result.Provenance?.ExecutionVersion, StringComparison.Ordinal)
+                || !string.Equals(request.AttemptId, result.Provenance?.AttemptId, StringComparison.Ordinal)
+                || !string.Equals(request.SkillExecution?.SnapshotHash, result.Provenance?.Skills?.SnapshotHash, StringComparison.Ordinal)
+                || !string.Equals(stage, result.Provenance?.Skills?.Stage, StringComparison.Ordinal)))
+            throw new InvalidOperationException(
+                "RAG response did not confirm execution version, attempt ID, skill snapshot, and stage.");
         if (stage == "validation" && result.Validation is null)
             throw new InvalidOperationException(
                 "RAG validation response was missing or malformed; validation fails closed.");
@@ -1065,6 +1103,20 @@ public sealed class RagGenerateService
                     PromptVersion = result.Provenance.PromptVersion,
                     Retrieval = result.Provenance.Retrieval,
                     EvidenceIds = result.Provenance.EvidenceIds,
+                    SpecialistExecutor = result.Provenance.SpecialistExecutor,
+                    SpecialistExecutorVersion = result.Provenance.SpecialistExecutorVersion,
+                    ExecutionVersion = result.Provenance.ExecutionVersion,
+                    AttemptId = result.Provenance.AttemptId,
+                    Skills = result.Provenance.Skills is null
+                        ? null
+                        : new RagSkillProvenanceDto
+                        {
+                            EnvelopeVersion = result.Provenance.Skills.EnvelopeVersion,
+                            CatalogVersion = result.Provenance.Skills.CatalogVersion,
+                            SnapshotHash = result.Provenance.Skills.SnapshotHash,
+                            Stage = result.Provenance.Skills.Stage,
+                            SkillVersions = result.Provenance.Skills.SkillVersions,
+                        },
                 },
             Validation = result.Validation is null
                 ? null
@@ -1131,7 +1183,7 @@ public sealed class RagGenerateService
         var stage = raw?.Trim().ToLowerInvariant();
         return stage switch
         {
-            "outline" or "section" or "validation" or "complete" => stage,
+            "outline" or "section" or "repair" or "validation" or "complete" => stage,
             "finalsynthesis" or "final-synthesis" => "finalSynthesis",
             _ => "complete",
         };

@@ -170,7 +170,13 @@ public sealed class GccV2ValidateService
             {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
+                PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
+                CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "validation",
+                SkillExecution = GccV2SkillCatalog.ForStage(
+                    wc.SkillSnapshot
+                    ?? throw new InvalidOperationException("VALIDATE requires the persisted pre-PLAN skill snapshot."),
+                    "validation"),
                 DraftContent = GccV2WriteService.ToStableMarkdown(output),
                 Sources = sources,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),

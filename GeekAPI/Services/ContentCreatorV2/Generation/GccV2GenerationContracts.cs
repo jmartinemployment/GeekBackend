@@ -67,6 +67,9 @@ public sealed record GccV2GenerationBrief(
     IReadOnlyList<string> CompetitorUrls,
     IReadOnlyList<string> OperatorTools,
     IReadOnlyList<string> TargetEntities,
+    Guid? PartnerSourceRunId,
+    Guid? CompetitorSourceRunId,
+    IReadOnlyList<RagAdTemplateDto> AdTemplates,
     string? SiteUrl,
     Guid? ProjectSiteCrawlRunId,
     string? SiteSectionJson,
@@ -100,6 +103,9 @@ public sealed record GccV2GenerationBrief(
             competitorUrls = CompetitorUrls,
             operatorTools = OperatorTools,
             targetEntities = TargetEntities,
+            partnerSourceRunId = PartnerSourceRunId,
+            competitorSourceRunId = CompetitorSourceRunId,
+            adTemplateIds = AdTemplates.Select(template => template.Id).ToList(),
             siteUrl = SiteUrl,
             projectSiteCrawlRunId = ProjectSiteCrawlRunId,
             siteSection = ParseJsonOrNull(SiteSectionJson),
@@ -152,6 +158,9 @@ public static class GccV2GenerationBriefAssembler
             ReadStrings(root, "competitorUrls"),
             ReadToolStrings(root, "operatorTools"),
             ReadStrings(root, "targetEntities"),
+            ReadGuid(root, "partnerSourceRunId", "partnerRunId", "partnerCrawlRunId"),
+            ReadGuid(root, "competitorSourceRunId", "competitorRunId", "competitorCrawlRunId"),
+            ReadAdTemplates(root),
             create?.SiteUrl,
             job.ProjectSiteCrawlRunId ?? create?.ProjectSiteCrawlRunId,
             create?.SiteSectionJson,
@@ -184,6 +193,35 @@ public static class GccV2GenerationBriefAssembler
                 ? ReadString(v, "name") ?? ReadString(v, "url") ?? ReadString(v, "href")
                 : null)
             .Where(v => !string.IsNullOrWhiteSpace(v)).Cast<string>().ToList();
+    }
+
+    private static Guid? ReadGuid(JsonElement root, params string[] names)
+    {
+        foreach (var name in names)
+            if (ReadString(root, name) is { } raw && Guid.TryParse(raw, out var value))
+                return value;
+        return null;
+    }
+
+    private static IReadOnlyList<RagAdTemplateDto> ReadAdTemplates(JsonElement root)
+    {
+        if (!TryGet(root, "ragAdTemplates", out var value) || value.ValueKind != JsonValueKind.Array)
+            return [];
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.Object)
+            .Select(item => new RagAdTemplateDto
+            {
+                Id = ReadString(item, "id") ?? "",
+                Name = ReadString(item, "name") ?? "",
+                Channel = ReadString(item, "channel"),
+                Framework = ReadString(item, "framework"),
+                Body = ReadString(item, "body") ?? "",
+            })
+            .Where(template => !string.IsNullOrWhiteSpace(template.Id)
+                               && !string.IsNullOrWhiteSpace(template.Body))
+            .DistinctBy(template => template.Id, StringComparer.Ordinal)
+            .Take(5)
+            .ToList();
     }
 
     private static bool TryGet(JsonElement root, string name, out JsonElement value)
@@ -430,12 +468,21 @@ public sealed record GccV2GenerationProvenance(
     IReadOnlyList<string> EvidenceIds,
     IReadOnlyList<string> Warnings,
     long LatencyMs,
-    ContentModelSelection ModelSelection)
+    ContentModelSelection ModelSelection,
+    string AttemptId = "",
+    GccV2SkillProvenance? Skills = null,
+    string? ProducerExecutionVersion = null)
 {
     public string Stage => ContentModelPolicy.ProducerStage(ModelSelection.Stage);
     public string EffectiveModel => ModelSelection.EffectiveModel;
-    public string? AttemptId => null;
 }
+
+public sealed record GccV2SkillProvenance(
+    string EnvelopeVersion,
+    string CatalogVersion,
+    string SnapshotHash,
+    string Stage,
+    IReadOnlyList<string> SkillVersions);
 
 public sealed record GccV2ResearchEvidenceManifest(
     string Version,

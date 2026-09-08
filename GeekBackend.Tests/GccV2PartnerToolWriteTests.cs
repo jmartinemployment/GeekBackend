@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -193,7 +194,8 @@ public sealed class GccV2PartnerToolWriteTests
                 "Tool meta",
                 toolUrl));
 
-        Assert.Contains(pillarUrl, json, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"@id\": \"" + toolUrl + "\"", json, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(json);
+        var subjectOf = document.RootElement.GetProperty("subjectOf");
+        Assert.Equal(pillarUrl, subjectOf.GetProperty("@id").GetString());
     }
 }

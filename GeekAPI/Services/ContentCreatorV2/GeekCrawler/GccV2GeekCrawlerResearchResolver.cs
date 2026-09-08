@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Partner;
@@ -193,7 +194,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         var externalSeeds = CollectExternalLocalSeeds(rawBriefJson, projectSiteUrl);
         foreach (var seed in externalSeeds)
         {
-            var (pages, warning) = await TryResolveExternalSeedAsync(
+            var (pages, warning, _) = await TryResolveExternalSeedAsync(
                 ownerUserId,
                 CrawlTypes.Local,
                 seed,
@@ -310,16 +311,20 @@ public sealed class GccV2GeekCrawlerResearchResolver
         }
 
         var externalSeeds = CollectExternalPartnerSeeds(rawBriefJson, projectSiteUrl);
+        Guid? selectedRunId = null;
         foreach (var seed in externalSeeds)
         {
-            var (pages, warning) = await TryResolveExternalSeedAsync(
+            var (pages, warning, sourceRunId) = await TryResolveExternalSeedAsync(
                 ownerUserId,
                 CrawlTypes.Partner,
                 seed,
                 topic,
                 ct);
             if (pages.Count > 0)
+            {
                 quoteable.AddRange(pages);
+                selectedRunId ??= sourceRunId;
+            }
             if (warning is not null)
                 warnings.Add(warning);
         }
@@ -333,7 +338,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
             projectSiteUrl);
 
         return new GccV2ExternalResearchMergeResult(
-            GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, quoteable),
+            MergeSourceRunId(
+                GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, quoteable),
+                "partnerSourceRunId",
+                selectedRunId),
             warnings);
     }
 
@@ -350,16 +358,20 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
         var quoteable = new List<GccQuoteablePage>();
         var warnings = new List<string>();
+        Guid? selectedRunId = null;
         foreach (var seed in seeds)
         {
-            var (pages, warning) = await TryResolveExternalSeedAsync(
+            var (pages, warning, sourceRunId) = await TryResolveExternalSeedAsync(
                 ownerUserId,
                 CrawlTypes.Competitors,
                 seed,
                 topic,
                 ct);
             if (pages.Count > 0)
+            {
                 quoteable.AddRange(pages);
+                selectedRunId ??= sourceRunId;
+            }
             if (warning is not null)
                 warnings.Add(warning);
         }
@@ -373,7 +385,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
             seeds.Count);
 
         return new GccV2ExternalResearchMergeResult(
-            GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, quoteable),
+            MergeSourceRunId(
+                GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, quoteable),
+                "competitorSourceRunId",
+                selectedRunId),
             warnings);
     }
 
@@ -417,7 +432,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         var quoteable = new List<GccQuoteablePage>();
         foreach (var seed in seeds)
         {
-            var (pages, _) = await TryResolveExternalSeedAsync(
+            var (pages, _, _) = await TryResolveExternalSeedAsync(
                 ownerUserId,
                 crawlType,
                 seed,
@@ -429,7 +444,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         return quoteable;
     }
 
-    private async Task<(IReadOnlyList<GccQuoteablePage> Pages, string? Warning)> TryResolveExternalSeedAsync(
+    private async Task<(IReadOnlyList<GccQuoteablePage> Pages, string? Warning, Guid? RunId)> TryResolveExternalSeedAsync(
         string ownerUserId,
         string crawlType,
         string seed,
@@ -438,7 +453,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
     {
         var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds([seed]);
         if (normalized.Count == 0)
-            return ([], DescribeUnavailableResearch(seed, crawlType));
+            return ([], DescribeUnavailableResearch(seed, crawlType), null);
 
         var run = await FindRunForSeedsAsync(ownerUserId, crawlType, normalized, ct);
         if (run is null)
@@ -447,7 +462,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 "No Geek-Crawler {CrawlType} run for {Seed}; skipping external research.",
                 crawlType,
                 seed);
-            return ([], DescribeUnavailableResearch(seed, crawlType));
+            return ([], DescribeUnavailableResearch(seed, crawlType), null);
         }
 
         var seedSet = BuildSeedMatchSet(normalized);
@@ -494,7 +509,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
                     if (filtered.Count == 0)
                         filtered = rag.Pages.ToList();
                     if (filtered.Count > 0)
-                        return (filtered, softWarning);
+                        return (filtered, softWarning, run.Id);
                 }
             }
         }
@@ -511,7 +526,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
                     seed);
             }
 
-            return (quoteable, softWarning);
+            return (quoteable, softWarning, run.Id);
         }
 
         _logger.LogInformation(
@@ -520,7 +535,24 @@ public sealed class GccV2GeekCrawlerResearchResolver
             run.Id,
             run.Status,
             seed);
-        return ([], softWarning ?? DescribeUnavailableResearch(seed, crawlType));
+        return ([], softWarning ?? DescribeUnavailableResearch(seed, crawlType), run.Id);
+    }
+
+    internal static string? MergeSourceRunId(string? rawBriefJson, string propertyName, Guid? runId)
+    {
+        if (runId is null || runId == Guid.Empty) return rawBriefJson;
+        JsonObject root;
+        try
+        {
+            root = JsonNode.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson) as JsonObject
+                ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            root = new JsonObject();
+        }
+        root[propertyName] = runId.Value.ToString("D");
+        return root.ToJsonString();
     }
 
     /// <summary>Topic fields used to build the Geek-Crawler-Rag query <c>need</c>.</summary>

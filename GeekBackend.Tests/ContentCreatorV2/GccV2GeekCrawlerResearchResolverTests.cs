@@ -584,6 +584,19 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             rag ?? new DisabledGeekCrawlerRagClient(),
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
+    [Fact]
+    public void MergeSourceRunId_persists_the_exact_selected_run()
+    {
+        var runId = Guid.NewGuid();
+        var merged = GccV2GeekCrawlerResearchResolver.MergeSourceRunId(
+            """{"title":"Draft"}""",
+            "partnerSourceRunId",
+            runId);
+
+        Assert.Contains(runId.ToString("D"), merged, StringComparison.Ordinal);
+        Assert.Contains("\"title\":\"Draft\"", merged, StringComparison.Ordinal);
+    }
+
     private sealed class DisabledGeekCrawlerRagClient : IGeekCrawlerRagClient
     {
         public bool IsEnabled => false;

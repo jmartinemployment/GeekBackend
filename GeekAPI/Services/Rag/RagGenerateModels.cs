@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 
 namespace GeekAPI.Services.Rag;
 
@@ -8,6 +9,8 @@ public sealed class RagGenerateRequest
     public string WritingIntent { get; set; } = "";
     public string Topic { get; set; } = "";
     public List<string>? TargetEntities { get; set; }
+    public Guid? PartnerRunId { get; set; }
+    public Guid? CompetitorRunId { get; set; }
 
     /// <summary>Phase D2 — operator-selected ad template exemplars (owned by content-creator-v2).</summary>
     public List<RagAdTemplateDto>? AdTemplates { get; set; }
@@ -26,6 +29,9 @@ public sealed class RagGenerateRequest
     public string? ModelPolicyPreset { get; set; }
     public string? ModelPolicyVersion { get; set; }
     public IReadOnlyDictionary<string, string>? StageModelOverrides { get; set; }
+    public string ExecutionVersion { get; set; } = RagProducerCapabilities.RequiredExecutionVersion;
+    public string AttemptId { get; set; } = Guid.NewGuid().ToString("D");
+    public GccV2SkillExecutionSnapshot? SkillExecution { get; set; }
     /// <summary>Expected effective model, used locally to reject producer substitution.</summary>
     public string? RequestedModel { get; set; }
     /// <summary>Canonical jobs require quote-verified RAG and may not use the local one-shot writer.</summary>
@@ -49,6 +55,29 @@ public sealed class RagGenerateProvenanceDto
     public string? PromptVersion { get; init; }
     public string? Retrieval { get; init; }
     public IReadOnlyList<string> EvidenceIds { get; init; } = [];
+    public string? SpecialistExecutor { get; init; }
+    public string? SpecialistExecutorVersion { get; init; }
+    public string? ExecutionVersion { get; init; }
+    public string? AttemptId { get; init; }
+    public RagSkillProvenanceDto? Skills { get; init; }
+}
+
+public static class RagProducerCapabilities
+{
+    public const string RequiredExecutionVersion = "rag-generate.v2";
+    public const string RequiredSkillEnvelopeVersion = GccV2SkillExecutionSnapshot.CurrentEnvelopeVersion;
+    public const string RequiredSpecialistExecutorVersion = "bounded-specialists.v1";
+    public static readonly IReadOnlyList<string> RequiredSpecialists =
+        ["researchPlanning", "outline", "section", "finalSynthesis", "validation", "repair"];
+}
+
+public sealed class RagSkillProvenanceDto
+{
+    public string EnvelopeVersion { get; init; } = "";
+    public string CatalogVersion { get; init; } = "";
+    public string SnapshotHash { get; init; } = "";
+    public string Stage { get; init; } = "";
+    public IReadOnlyList<string> SkillVersions { get; init; } = [];
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RagValidationIssueCategory>))]
@@ -178,4 +207,9 @@ public sealed class RagGenerateStatusDto
     public string ModelPolicyVersion { get; init; } = "content-model-policy.v1";
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ApprovedStageModels { get; init; } =
         new Dictionary<string, IReadOnlyList<string>>();
+    public string SkillCatalogVersion { get; init; } = GccV2SkillCatalog.CurrentVersion;
+    public string SkillEnvelopeVersion { get; init; } = GccV2SkillExecutionSnapshot.CurrentEnvelopeVersion;
+    public string SpecialistExecutorVersion { get; init; } = RagProducerCapabilities.RequiredSpecialistExecutorVersion;
+    public IReadOnlyList<string> SpecialistExecutors { get; init; } = RagProducerCapabilities.RequiredSpecialists;
+    public bool SpecialistToolsAllowed { get; init; }
 }

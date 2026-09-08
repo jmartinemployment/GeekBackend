@@ -23,7 +23,8 @@ public sealed record LinkedInCarouselBrandStyle(
 public sealed record LinkedInCarouselArtifact(
     LinkedInCarouselDraft Draft,
     string Slug,
-    DateTimeOffset GeneratedAtUtc);
+    DateTimeOffset GeneratedAtUtc,
+    string? PdfBase64 = null);
 
 public static class GccV2LinkedInCarouselRoles
 {

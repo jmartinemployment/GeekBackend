@@ -16,6 +16,7 @@ public static class GccV2LinkedInCarouselEligibility
 
 public sealed class GccV2LinkedInCarouselService
 {
+    public const int MaxPersistedPdfBytes = 10 * 1024 * 1024;
     private static readonly JsonSerializerOptions DocJson = CreateDocJson();
 
     private static JsonSerializerOptions CreateDocJson()
@@ -88,9 +89,38 @@ public sealed class GccV2LinkedInCarouselService
             string.IsNullOrWhiteSpace(draft.SuggestedFilename) ? title : draft.SuggestedFilename.Replace('_', '-'));
         var style = BuildBrandStyle(brandKit);
         var pdfBytes = GccV2LinkedInCarouselPdfService.Render(draft, style);
-        var artifact = new LinkedInCarouselArtifact(draft, slug, DateTimeOffset.UtcNow);
+        if (pdfBytes.Length > MaxPersistedPdfBytes)
+        {
+            throw new InvalidOperationException(
+                $"Generated carousel PDF is {pdfBytes.Length / (1024 * 1024d):0.0} MB; the durable artifact limit is {MaxPersistedPdfBytes / (1024 * 1024)} MB.");
+        }
+
+        var artifact = new LinkedInCarouselArtifact(
+            draft,
+            slug,
+            DateTimeOffset.UtcNow,
+            Convert.ToBase64String(pdfBytes));
 
         var mergedResultJson = MergeCarouselIntoResultJson(job.ResultJson, artifact);
+        await _repo.AddStageResultAsync(
+            jobId,
+            new CreateGccV2StageResultCommand(
+                "linkedin-carousel-artifact",
+                null,
+                JsonSerializer.Serialize(new
+                {
+                    artifact.Slug,
+                    artifact.GeneratedAtUtc,
+                    caption = artifact.Draft.Caption,
+                    hashtags = artifact.Draft.Hashtags,
+                    suggestedFilename = artifact.Draft.SuggestedFilename,
+                    slides = artifact.Draft.Slides,
+                    artifact.PdfBase64,
+                    mediaType = "application/pdf",
+                    byteLength = pdfBytes.Length,
+                }, DocJson),
+                0),
+            ct);
         await _repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(ResultJson: mergedResultJson), ct);
 
         _logger.LogInformation(
@@ -128,6 +158,8 @@ public sealed class GccV2LinkedInCarouselService
             writer.WriteStartObject();
             writer.WriteString("slug", artifact.Slug);
             writer.WriteString("generatedAtUtc", artifact.GeneratedAtUtc.ToString("O"));
+            if (!string.IsNullOrWhiteSpace(artifact.PdfBase64))
+                writer.WriteString("pdfBase64", artifact.PdfBase64);
             writer.WriteString("caption", artifact.Draft.Caption);
             writer.WritePropertyName("hashtags");
             JsonSerializer.Serialize(writer, artifact.Draft.Hashtags, DocJson);
@@ -171,6 +203,10 @@ public sealed class GccV2LinkedInCarouselService
             var suggestedFilename = carousel.TryGetProperty("suggestedFilename", out var fnEl)
                 ? fnEl.GetString() ?? slug
                 : slug;
+            var pdfBase64 = carousel.TryGetProperty("pdfBase64", out var pdfEl)
+                && pdfEl.ValueKind == JsonValueKind.String
+                ? pdfEl.GetString()
+                : null;
 
             if (!carousel.TryGetProperty("slides", out var slidesEl) || slidesEl.ValueKind != JsonValueKind.Array)
                 return null;
@@ -192,7 +228,7 @@ public sealed class GccV2LinkedInCarouselService
             if (slides.Count == 0) return null;
 
             var draft = new LinkedInCarouselDraft(slides, caption, hashtags, suggestedFilename);
-            return new LinkedInCarouselArtifact(draft, slug, generatedAt);
+            return new LinkedInCarouselArtifact(draft, slug, generatedAt, pdfBase64);
         }
         catch (JsonException)
         {

@@ -401,6 +401,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
                         ModelPolicyPreset = "best-quality",
                         ModelPolicyVersion = ContentModelPolicy.CurrentVersion,
                         RequestedModel = ContentModelPolicy.O3,
+                        SkillExecution = GccV2SkillCatalog.Resolve("blog"),
                         RequireCiteable = true,
                     },
                     default));
@@ -411,6 +412,78 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         {
             _factory.Rag.MalformedValidation = false;
         }
+    }
+
+    [Fact]
+    public async Task Strict_repair_contract_preserves_stage_runs_templates_attempt_and_skills()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
+        var partnerRunId = Guid.NewGuid();
+        var competitorRunId = Guid.NewGuid();
+        var attemptId = Guid.NewGuid().ToString("D");
+        var snapshot = GccV2SkillCatalog.Resolve("ads");
+
+        var result = await service.GenerateAsync(
+            GeekApiTestFactory.OwnerUserId.ToString(),
+            new RagGenerateRequest
+            {
+                WritingIntent = RagWritingIntents.SocialAd,
+                Topic = "Repair grounded ad copy",
+                PartnerRunId = partnerRunId,
+                CompetitorRunId = competitorRunId,
+                AdTemplates =
+                [
+                    new RagAdTemplateDto
+                    {
+                        Id = "pas",
+                        Name = "PAS",
+                        Body = "Problem. Agitate. Solve.",
+                    },
+                ],
+                GenerationStage = "repair",
+                SectionKey = "ad",
+                SectionHeading = "Advertising variation",
+                SectionBrief = "Remove unsupported claims.",
+                ModelPolicyPreset = "best-quality",
+                ModelPolicyVersion = ContentModelPolicy.CurrentVersion,
+                RequestedModel = ContentModelPolicy.O3,
+                AttemptId = attemptId,
+                SkillExecution = snapshot,
+                RequireCiteable = true,
+            },
+            default);
+
+        Assert.Equal("repair", result.Provenance?.GenerationStage);
+        Assert.Equal(attemptId, result.Provenance?.AttemptId);
+        Assert.Equal(snapshot.SnapshotHash, result.Provenance?.Skills?.SnapshotHash);
+        var captured = _factory.Rag.Requests.Last(request =>
+            request.Path == "/v1/generate"
+            && request.Body.Contains("\"generationStage\":\"repair\"", StringComparison.Ordinal));
+        using var json = JsonDocument.Parse(captured.Body);
+        var root = json.RootElement;
+        Assert.Equal(partnerRunId.ToString("D"), root.GetProperty("partnerRunId").GetString());
+        Assert.Equal(competitorRunId.ToString("D"), root.GetProperty("competitorRunId").GetString());
+        Assert.Equal("Problem. Agitate. Solve.",
+            root.GetProperty("adTemplates")[0].GetProperty("body").GetString());
+        Assert.Equal(RagProducerCapabilities.RequiredExecutionVersion,
+            root.GetProperty("executionVersion").GetString());
+    }
+
+    [Fact]
+    public async Task Skill_snapshot_is_persisted_once_before_plan_and_reused()
+    {
+        var job = _factory.Repository.SeedFailedGccJob(GeekApiTestFactory.OwnerUserId);
+        using var scope = _factory.Services.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<HttpGccV2Repository>();
+
+        var first = await GccV2SkillSnapshotStore.LoadOrCreateAsync(repo, job, default);
+        var retry = await GccV2SkillSnapshotStore.LoadOrCreateAsync(repo, job, default);
+
+        Assert.Equal(first.SnapshotHash, retry.SnapshotHash);
+        Assert.Single(
+            _factory.Repository.GccStageResults(job.Id),
+            result => result.Stage == GccV2SkillSnapshotStore.StageName);
     }
 
     [Fact]
@@ -464,7 +537,8 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             null!,
             null!,
             generationBrief,
-            null);
+            null,
+            GccV2SkillCatalog.Resolve(job.ContentType));
 
         using var scope = _factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<GccV2WriteService>();
@@ -537,7 +611,8 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             null!,
             null!,
             generationBrief,
-            null);
+            null,
+            GccV2SkillCatalog.Resolve(job.ContentType));
 
         using var scope = _factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<GccV2WriteService>();

@@ -107,6 +107,7 @@ public sealed class GccV2PlanService
         }
 
         var generationBrief = GccV2GenerationBriefAssembler.Assemble(job, brief, create, brandKit);
+        var skillSnapshot = await GccV2SkillSnapshotStore.LoadOrCreateAsync(_repo, job, ct);
         var route = GccV2ContentTypeRagMapper.Map(contentType);
         var jobModelPolicy = await _jobModelPolicies.LoadLatestAsync(job.Id, ct);
         var selection = _modelPolicy.Select(
@@ -122,7 +123,10 @@ public sealed class GccV2PlanService
                 Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
                 TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
                     .Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList(),
+                PartnerRunId = generationBrief.PartnerSourceRunId,
+                CompetitorRunId = generationBrief.CompetitorSourceRunId,
                 GenerationStage = "outline",
+                SkillExecution = GccV2SkillCatalog.ForStage(skillSnapshot, "outline"),
                 CanonicalBrief = generationBrief.ToCanonicalBrief(),
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
                 ModelPolicyVersion = selection.PolicyVersion,
@@ -213,7 +217,11 @@ public sealed class GccV2PlanService
             evidenceIds,
             ragResult.Warnings.Concat(ragResult.EvidenceWarnings).Distinct().ToList(),
             stopwatch.ElapsedMilliseconds,
-            selection);
+            selection,
+            ragResult.Provenance?.AttemptId
+                ?? throw new InvalidOperationException("RAG outline response omitted attempt ID."),
+            MapSkillProvenance(ragResult.Provenance?.Skills),
+            ragResult.Provenance?.ExecutionVersion);
         var evidenceGaps = new List<string>();
         if (ragResult.Sources.Count == 0) evidenceGaps.Add("No retrievable sources were returned for PLAN.");
         if (ragResult.Citations is null || ragResult.Citations.Count == 0)
@@ -248,6 +256,16 @@ public sealed class GccV2PlanService
 
         return outline;
     }
+
+    private static GccV2SkillProvenance? MapSkillProvenance(RagSkillProvenanceDto? value) =>
+        value is null
+            ? null
+            : new GccV2SkillProvenance(
+                value.EnvelopeVersion,
+                value.CatalogVersion,
+                value.SnapshotHash,
+                value.Stage,
+                value.SkillVersions);
 
     /// <summary>Real sub-topics from the site's hierarchy match, prefetched at Generate time
     /// (Generate has the user's bearer; the worker does not). Absent/unparsable → empty, and PLAN

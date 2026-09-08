@@ -155,11 +155,12 @@ public class GccV2TransformController : ControllerBase
                 jobId = job.Id,
                 contentType = job.ContentType,
                 slug = result.Artifact.Slug,
+                generatedAtUtc = result.Artifact.GeneratedAtUtc,
                 slideCount = draft.Slides.Count,
                 caption = draft.Caption,
                 hashtags = draft.Hashtags,
                 suggestedFilename = draft.SuggestedFilename,
-                pdfBase64 = Convert.ToBase64String(result.PdfBytes),
+                pdfBase64 = result.Artifact.PdfBase64,
                 slides = draft.Slides.Select(s => new
                 {
                     s.Index,

@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekApplication.Models.ContentCreator;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 
 namespace GeekAPI.Services.GeekCrawler;
 
@@ -62,6 +63,19 @@ public interface IGeekCrawlerRagClient
     Task<GeekCrawlerRagGenerateResult?> GenerateAsync(
         GeekCrawlerRagGenerateRequest request,
         CancellationToken ct = default);
+
+    Task<GeekCrawlerRagCapabilities?> GetCapabilitiesAsync(CancellationToken ct = default) =>
+        Task.FromResult<GeekCrawlerRagCapabilities?>(null);
+}
+
+public sealed class GeekCrawlerRagCapabilities
+{
+    public IReadOnlyList<string> ExecutionVersions { get; init; } = [];
+    public IReadOnlyList<string> SkillEnvelopeVersions { get; init; } = [];
+    public IReadOnlyList<string> GenerationStages { get; init; } = [];
+    public IReadOnlyList<string> SpecialistExecutors { get; init; } = [];
+    public string SpecialistExecutorVersion { get; init; } = "";
+    public bool ToolsAllowed { get; init; }
 }
 
 public sealed class GeekCrawlerRagPageMarkdown
@@ -95,6 +109,9 @@ public sealed class GeekCrawlerRagGenerateRequest
     public string? ModelPolicyPreset { get; init; }
     public string? ModelPolicyVersion { get; init; }
     public IReadOnlyDictionary<string, string>? StageModelOverrides { get; init; }
+    public string ExecutionVersion { get; init; } = "rag-generate.v1";
+    public string AttemptId { get; init; } = Guid.NewGuid().ToString("D");
+    public GccV2SkillExecutionSnapshot? SkillExecution { get; init; }
 }
 
 public sealed class GeekCrawlerRagOutlineSectionDto
@@ -103,6 +120,15 @@ public sealed class GeekCrawlerRagOutlineSectionDto
     public string Heading { get; init; } = "";
     public string Brief { get; init; } = "";
     public IReadOnlyList<string> EvidenceIds { get; init; } = [];
+}
+
+public sealed class GeekCrawlerRagSkillProvenance
+{
+    public string EnvelopeVersion { get; init; } = "";
+    public string CatalogVersion { get; init; } = "";
+    public string SnapshotHash { get; init; } = "";
+    public string Stage { get; init; } = "";
+    public IReadOnlyList<string> SkillVersions { get; init; } = [];
 }
 
 public sealed class GeekCrawlerRagGenerateProvenance
@@ -114,6 +140,11 @@ public sealed class GeekCrawlerRagGenerateProvenance
     public string? PromptVersion { get; init; }
     public string? Retrieval { get; init; }
     public IReadOnlyList<string> EvidenceIds { get; init; } = [];
+    public string? SpecialistExecutor { get; init; }
+    public string? SpecialistExecutorVersion { get; init; }
+    public string? ExecutionVersion { get; init; }
+    public string? AttemptId { get; init; }
+    public GeekCrawlerRagSkillProvenance? Skills { get; init; }
 }
 
 public enum GeekCrawlerRagValidationIssueCategory
@@ -629,7 +660,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 ["topic"] = request.Topic,
                 ["graphEnabled"] = request.GraphEnabled,
                 ["generationStage"] = request.GenerationStage,
+                ["executionVersion"] = request.ExecutionVersion,
+                ["attemptId"] = request.AttemptId,
             };
+            if (request.SkillExecution is not null)
+                payload["skillExecution"] = request.SkillExecution;
             if (!string.IsNullOrWhiteSpace(request.PartnerRunId))
                 payload["partnerRunId"] = request.PartnerRunId;
             if (!string.IsNullOrWhiteSpace(request.CompetitorRunId))
@@ -753,6 +788,20 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                         PromptVersion = dto.Provenance.PromptVersion,
                         Retrieval = dto.Provenance.Retrieval,
                         EvidenceIds = dto.Provenance.EvidenceIds ?? [],
+                        SpecialistExecutor = dto.Provenance.SpecialistExecutor,
+                        SpecialistExecutorVersion = dto.Provenance.SpecialistExecutorVersion,
+                        ExecutionVersion = dto.Provenance.ExecutionVersion,
+                        AttemptId = dto.Provenance.AttemptId,
+                        Skills = dto.Provenance.Skills is null
+                            ? null
+                            : new GeekCrawlerRagSkillProvenance
+                            {
+                                EnvelopeVersion = dto.Provenance.Skills.EnvelopeVersion ?? "",
+                                CatalogVersion = dto.Provenance.Skills.CatalogVersion ?? "",
+                                SnapshotHash = dto.Provenance.Skills.SnapshotHash ?? "",
+                                Stage = dto.Provenance.Skills.Stage ?? "",
+                                SkillVersions = dto.Provenance.Skills.SkillVersions ?? [],
+                            },
                     },
                 Validation = MapValidation(dto.Validation),
             };
@@ -760,6 +809,34 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Geek-Crawler-Rag generate threw");
+            return null;
+        }
+    }
+
+    public async Task<GeekCrawlerRagCapabilities?> GetCapabilitiesAsync(CancellationToken ct = default)
+    {
+        if (!_enabled) return null;
+        try
+        {
+            using var response = await _http.GetAsync("v1/capabilities", ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return null;
+            var dto = await response.Content.ReadFromJsonAsync<CapabilitiesDto>(JsonOpts, ct)
+                .ConfigureAwait(false);
+            return dto is null
+                ? null
+                : new GeekCrawlerRagCapabilities
+                {
+                    ExecutionVersions = dto.ExecutionVersions ?? [],
+                    SkillEnvelopeVersions = dto.SkillEnvelopeVersions ?? [],
+                    GenerationStages = dto.GenerationStages ?? [],
+                    SpecialistExecutors = dto.SpecialistExecutors ?? [],
+                    SpecialistExecutorVersion = dto.SpecialistExecutorVersion ?? "",
+                    ToolsAllowed = dto.ToolsAllowed,
+                };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler-Rag capabilities request threw");
             return null;
         }
     }
@@ -1050,6 +1127,30 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? PromptVersion { get; set; }
         public string? Retrieval { get; set; }
         public List<string>? EvidenceIds { get; set; }
+        public string? SpecialistExecutor { get; set; }
+        public string? SpecialistExecutorVersion { get; set; }
+        public string? ExecutionVersion { get; set; }
+        public string? AttemptId { get; set; }
+        public SkillProvenanceDto? Skills { get; set; }
+    }
+
+    private sealed class SkillProvenanceDto
+    {
+        public string? EnvelopeVersion { get; set; }
+        public string? CatalogVersion { get; set; }
+        public string? SnapshotHash { get; set; }
+        public string? Stage { get; set; }
+        public List<string>? SkillVersions { get; set; }
+    }
+
+    private sealed class CapabilitiesDto
+    {
+        public List<string>? ExecutionVersions { get; set; }
+        public List<string>? SkillEnvelopeVersions { get; set; }
+        public List<string>? GenerationStages { get; set; }
+        public List<string>? SpecialistExecutors { get; set; }
+        public string? SpecialistExecutorVersion { get; set; }
+        public bool ToolsAllowed { get; set; }
     }
 
     private sealed class BattlecardDto

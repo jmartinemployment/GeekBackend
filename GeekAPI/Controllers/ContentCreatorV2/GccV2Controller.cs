@@ -67,6 +67,29 @@ public class GccV2Controller : ControllerBase
             userId = _user.IsAuthenticated ? _user.UserId.ToString("D") : null,
         });
 
+    /// <summary>
+    /// Reviewed automatic skill catalog. Phase one is intentionally read-only:
+    /// job snapshots are resolved and persisted by the durable backend.
+    /// </summary>
+    [HttpGet("skills")]
+    public ActionResult<object> Skills([FromQuery] string? contentType = null)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        IReadOnlyList<string> active = string.IsNullOrWhiteSpace(contentType)
+            ? []
+            : GccV2SkillCatalog.Resolve(contentType).Skills.Select(skill => skill.Id).ToList();
+        return Ok(new
+        {
+            catalogVersion = GccV2SkillCatalog.CurrentVersion,
+            envelopeVersion = GccV2SkillExecutionSnapshot.CurrentEnvelopeVersion,
+            selectionMode = "automatic-read-only",
+            customizationAvailable = false,
+            activeSkillIds = active,
+            skills = GccV2SkillCatalog.PublicCatalog(),
+            recommendedBundles = GccV2SkillCatalog.RecommendedBundles,
+        });
+    }
+
     [HttpPost("creates")]
     public async Task<ActionResult<GccV2CreateDto>> CreateCreate([FromBody] CreateCreateRequest? request, CancellationToken ct)
     {

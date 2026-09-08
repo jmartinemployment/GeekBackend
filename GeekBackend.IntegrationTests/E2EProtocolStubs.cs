@@ -311,6 +311,18 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
             };
 
         var path = request.RequestUri?.AbsolutePath;
+        if (request.Method == HttpMethod.Get && path == "/v1/capabilities")
+        {
+            return Json(new
+            {
+                executionVersions = new[] { "rag-generate.v2" },
+                skillEnvelopeVersions = new[] { "gcc-skill-envelope.v1" },
+                generationStages = new[] { "outline", "section", "repair", "validation", "finalSynthesis", "complete" },
+                specialistExecutors = new[] { "researchPlanning", "outline", "section", "finalSynthesis", "validation", "repair" },
+                specialistExecutorVersion = "bounded-specialists.v1",
+                toolsAllowed = false,
+            });
+        }
         if (request.Method == HttpMethod.Post && path == "/v1/index")
         {
             using var document = JsonDocument.Parse(body);
@@ -431,6 +443,26 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
                     promptVersion = "citeable-generate.v2",
                     retrieval = "hybrid",
                     evidenceIds = new[] { ArticlePageId },
+                    executionVersion = root.TryGetProperty("executionVersion", out var executionVersion)
+                        ? executionVersion.GetString()
+                        : "rag-generate.v1",
+                    attemptId = root.TryGetProperty("attemptId", out var attemptId)
+                        ? attemptId.GetString()
+                        : Guid.NewGuid().ToString("D"),
+                    skills = root.TryGetProperty("skillExecution", out var skills)
+                        ? new
+                        {
+                            envelopeVersion = skills.GetProperty("envelopeVersion").GetString(),
+                            catalogVersion = skills.GetProperty("catalogVersion").GetString(),
+                            snapshotHash = skills.GetProperty("snapshotHash").GetString(),
+                            stage,
+                            skillVersions = skills.GetProperty("skills").EnumerateArray()
+                                .Where(item => item.GetProperty("supportedStages").EnumerateArray()
+                                    .Any(s => s.GetString() == stage))
+                                .Select(item => $"{item.GetProperty("id").GetString()}@{item.GetProperty("version").GetString()}")
+                                .ToArray(),
+                        }
+                        : null,
                 },
             });
         }
