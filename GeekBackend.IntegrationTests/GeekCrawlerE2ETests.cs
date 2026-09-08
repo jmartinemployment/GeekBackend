@@ -108,6 +108,16 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
         resumed.EnsureSuccessStatusCode();
         var resumedSnapshot = await resumed.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(JsonValueKind.Null, resumedSnapshot.GetProperty("markdownReadyAt").ValueKind);
+
+        using var invalidReadiness = await owner.PatchAsJsonAsync(
+            $"/api/geek-crawler/ingest/runs/{runId:D}",
+            new
+            {
+                status = "complete",
+                markdownReadyAt = DateTimeOffset.UtcNow,
+                clearMarkdownReadyAt = true,
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidReadiness.StatusCode);
     }
 
     [Fact]

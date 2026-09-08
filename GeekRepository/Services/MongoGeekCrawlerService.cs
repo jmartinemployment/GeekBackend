@@ -718,9 +718,14 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         {
             var linksCollection = _db.GetCollection<GeekCrawlerLink>("crawl_links");
             var pagesCollection = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
+            var runsCollection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
 
             await linksCollection.DeleteManyAsync(l => l.RunId == runId, cancellationToken: ct);
             await pagesCollection.DeleteManyAsync(p => p.RunId == runId, cancellationToken: ct);
+            await runsCollection.UpdateOneAsync(
+                r => r.Id == runId,
+                Builders<GeekCrawlerRun>.Update.Set(r => r.MarkdownReadyAt, null),
+                cancellationToken: ct);
         }
         catch (Exception ex)
         {

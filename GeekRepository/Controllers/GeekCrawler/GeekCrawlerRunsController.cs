@@ -118,6 +118,12 @@ public class GeekCrawlerRunsController : ControllerBase
         [FromBody] PatchGeekCrawlerRunCommand command,
         CancellationToken ct)
     {
+        if (command.ClearMarkdownReadyAt && command.MarkdownReadyAt is not null)
+            return BadRequest("markdownReadyAt and clearMarkdownReadyAt cannot both be set");
+        if (command.MarkdownReadyAt is not null
+            && !string.Equals(command.Status, "complete", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("markdownReadyAt requires status=complete");
+
         try
         {
             GeekCrawlerRun? row = null;
@@ -157,7 +163,6 @@ public class GeekCrawlerRunsController : ControllerBase
             return NotFound();
 
         await _mongo.DeleteRunCrawlDataAsync(id, ct);
-        await _mongo.UpdateRunAsync(id, r => r.MarkdownReadyAt = null, ct);
         return NoContent();
     }
 

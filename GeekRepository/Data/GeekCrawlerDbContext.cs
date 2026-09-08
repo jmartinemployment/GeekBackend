@@ -32,6 +32,7 @@ public class GeekCrawlerDbContext : DbContext
             entity.Property(r => r.HostProgressJson).HasColumnType("text");
             entity.Property(r => r.ErrorSummary).HasMaxLength(2048);
             entity.Property(r => r.CreatedAtUtc).IsRequired();
+            entity.Property(r => r.MarkdownReadyAt);
             entity.HasIndex(r => new { r.OwnerUserId, r.CrawlType, r.CreatedAtUtc })
                 .HasDatabaseName("ix_crawl_runs_owner_type_created");
             entity.HasIndex(r => new { r.CrawlType, r.Status })

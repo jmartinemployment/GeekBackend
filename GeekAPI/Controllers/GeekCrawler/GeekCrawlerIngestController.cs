@@ -100,6 +100,11 @@ public class GeekCrawlerIngestController : ControllerBase
         if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
         if (request is null)
             return BadRequest("patch body is required");
+        if (request.ClearMarkdownReadyAt && request.MarkdownReadyAt is not null)
+            return BadRequest("markdownReadyAt and clearMarkdownReadyAt cannot both be set");
+        if (request.MarkdownReadyAt is not null
+            && !string.Equals(request.Status, "complete", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("markdownReadyAt requires status=complete");
 
         if (!string.IsNullOrWhiteSpace(request.Status)
             && !IsAllowedIngestStatus(request.Status))
