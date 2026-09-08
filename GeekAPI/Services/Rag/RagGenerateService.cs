@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
@@ -74,6 +75,8 @@ public sealed class RagGenerateService
             GraphRetrievalAvailable = genOn && _graphEnabled,
             AdTemplateIndexAvailable = genOn && _adTemplateIndexEnabled,
             CiteableGenerateAvailable = genOn && _citeableGenerateEnabled && ragOn,
+            ModelPolicyVersion = ContentModelPolicy.CurrentVersion,
+            ApprovedStageModels = ContentModelPolicy.ApprovedStageModels,
         };
     }
 
@@ -85,6 +88,9 @@ public sealed class RagGenerateService
         var status = GetStatus();
         if (!status.Available)
         {
+            if (request.RequireCiteable)
+                throw new InvalidOperationException(
+                    $"{status.Reason ?? "RAG generate unavailable."} Canonical PLAN/WRITE cannot continue without citeable RAG.");
             return new RagGenerateResponse
             {
                 Intent = request.WritingIntent?.Trim() ?? "",
@@ -105,12 +111,27 @@ public sealed class RagGenerateService
         var templates = NormalizeTemplates(request.AdTemplates).ToList();
         var family = RagWritingIntents.FamilyOf(intent);
         var warnings = new List<string>();
-        var model = RagModelRouter.ResolveModel(family);
+        var model = string.IsNullOrWhiteSpace(request.RequestedModel)
+            ? RagModelRouter.ResolveModel(family)
+            : request.RequestedModel.Trim();
         var stage = NormalizeGenerationStage(request.GenerationStage);
-        if (stage != "complete" && family != RagRetrievalFamily.LongForm)
-            throw new ArgumentException("outline/section generation is only supported for long-form intents.");
         if (stage == "section" && string.IsNullOrWhiteSpace(request.SectionHeading))
             throw new ArgumentException("sectionHeading is required for section generation.");
+        if (stage is "validation" or "finalSynthesis")
+        {
+            if (string.IsNullOrWhiteSpace(request.DraftContent))
+                throw new ArgumentException($"draftContent is required for {stage} generation.");
+            if (request.CanonicalBrief is null)
+                throw new ArgumentException($"canonicalBrief is required for {stage} generation.");
+            if (request.Sources is not { Count: > 0 })
+                throw new ArgumentException($"sources are required for {stage} generation.");
+            if (string.IsNullOrWhiteSpace(request.ModelPolicyPreset))
+                throw new ArgumentException($"modelPolicyPreset is required for {stage} generation.");
+            if (string.IsNullOrWhiteSpace(request.ModelPolicyVersion))
+                throw new ArgumentException($"modelPolicyVersion is required for {stage} generation.");
+            if (string.IsNullOrWhiteSpace(request.RequestedModel))
+                throw new ArgumentException($"requestedModel is required for {stage} generation.");
+        }
 
         var partnerRun = await PickLatestRunAsync(ownerUserId, CrawlTypes.Partner, ct).ConfigureAwait(false);
         var competitorRun = await PickLatestRunAsync(ownerUserId, CrawlTypes.Competitors, ct).ConfigureAwait(false);
@@ -131,26 +152,18 @@ public sealed class RagGenerateService
                     partnerRun,
                     competitorRun,
                     family,
+                    model,
                     request,
                     warnings,
                     ct)
                 .ConfigureAwait(false);
             if (citeable is not null)
                 return citeable;
-            if (stage != "complete")
+            if (stage != "complete" || request.RequireCiteable)
             {
-                warnings.Add("Rag citeable generate unavailable.");
-                return new RagGenerateResponse
-                {
-                    Intent = intent,
-                    SoftDisabled = true,
-                    Warnings =
-                    [
-                        .. warnings,
-                        "Guided outline/section generation requires the citeable Rag workflow.",
-                    ],
-                    ModelUsed = model,
-                };
+                throw new InvalidOperationException(
+                    $"Citeable RAG {stage} generation is unavailable. Verify GEEK_CRAWLER_RAG_URL, " +
+                    "GEEK_RAG_GENERATE_ENABLED, and GEEK_RAG_CITEABLE_GENERATE_ENABLED, then retry.");
             }
             warnings.Add("Rag citeable generate unavailable; falling back to GeekAPI one-shot.");
         }
@@ -617,8 +630,8 @@ public sealed class RagGenerateService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "OpenAI provider unavailable; using default LLM provider.");
-            provider = _providers.GetDefault();
+            throw new ContentGenerationException(
+                $"The configured provider for model '{model}' is unavailable; no fallback was attempted.", ex);
         }
 
         try
@@ -626,14 +639,7 @@ public sealed class RagGenerateService
             var result = await provider.CompleteAsync(request, ct).ConfigureAwait(false);
             return (result.Content?.Trim() ?? "", result.ModelUsed ?? model);
         }
-        catch (ContentGenerationException ex)
-        {
-            _logger.LogWarning(ex, "OpenAI generate failed for model {Model}; retrying with default provider/model.", model);
-            var fallback = _providers.GetDefault();
-            var fallbackRequest = request with { Model = null };
-            var result = await fallback.CompleteAsync(fallbackRequest, ct).ConfigureAwait(false);
-            return (result.Content?.Trim() ?? "", result.ModelUsed ?? "default");
-        }
+        catch (ContentGenerationException) { throw; }
     }
 
     private static string BuildResearchUserPrompt(
@@ -863,10 +869,12 @@ public sealed class RagGenerateService
         GeekCrawlerRunDto? partnerRun,
         GeekCrawlerRunDto? competitorRun,
         RagRetrievalFamily family,
+        string model,
         RagGenerateRequest request,
         List<string> warnings,
         CancellationToken ct)
     {
+        var stage = NormalizeGenerationStage(request.GenerationStage);
         var mappedTemplates = templates
             .Select(t => new GeekCrawlerRagTemplateDto
             {
@@ -895,17 +903,76 @@ public sealed class RagGenerateService
                         Key = s.Key,
                         Heading = s.Heading,
                         Brief = s.Brief,
+                        EvidenceIds = s.EvidenceIds,
                     })
                     .ToList(),
                 SectionKey = request.SectionKey,
                 SectionHeading = request.SectionHeading,
                 SectionBrief = request.SectionBrief,
                 CompletedSectionSummaries = request.CompletedSectionSummaries,
+                DraftContent = request.DraftContent,
+                Sources = request.Sources?
+                    .Select(s => new GeekCrawlerRagGenerateSourceDto
+                    {
+                        PageId = s.PageId,
+                        Url = s.Url,
+                        Title = s.Title,
+                        Entity = s.Entity,
+                        CrawlType = s.CrawlType,
+                        Kind = s.Kind,
+                    })
+                    .ToList(),
+                CanonicalBrief = request.CanonicalBrief,
+                ModelPolicyPreset = request.ModelPolicyPreset,
+                ModelPolicyVersion = request.ModelPolicyVersion,
+                StageModelOverrides = request.StageModelOverrides,
             },
             ct).ConfigureAwait(false);
 
         if (result is null)
             return null;
+        var returnedModel = result.Provenance?.ModelUsed ?? result.ModelUsed;
+        if (request.RequireCiteable
+            && !string.IsNullOrWhiteSpace(request.RequestedModel)
+            && string.IsNullOrWhiteSpace(returnedModel))
+            throw new InvalidOperationException(
+                "RAG response omitted model provenance; the requested model cannot be verified.");
+        if (!string.IsNullOrWhiteSpace(request.RequestedModel)
+            && !string.IsNullOrWhiteSpace(returnedModel)
+            && !string.Equals(request.RequestedModel, returnedModel, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"RAG returned model '{returnedModel}' after '{request.RequestedModel}' was explicitly requested. " +
+                "Silent model substitution is not allowed.");
+        }
+        if (!string.IsNullOrWhiteSpace(request.ModelPolicyVersion)
+            && !string.Equals(
+                request.ModelPolicyVersion,
+                result.Provenance?.ModelPolicyVersion,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"RAG response did not confirm model policy version '{request.ModelPolicyVersion}'.");
+        if (stage == "validation"
+            && (!string.Equals(
+                    request.ModelPolicyPreset,
+                    result.Provenance?.ModelPolicyPreset,
+                    StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(result.Provenance?.PromptVersion)
+                || string.IsNullOrWhiteSpace(result.Provenance?.Retrieval)))
+            throw new InvalidOperationException(
+                "RAG validation response returned incomplete policy or generation provenance.");
+        if (request.RequireCiteable
+            && !string.Equals(
+                stage,
+                result.Provenance?.GenerationStage,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"RAG response did not confirm generation stage '{stage}'.");
+        if (stage == "validation" && result.Validation is null)
+            throw new InvalidOperationException(
+                "RAG validation response was missing or malformed; validation fails closed.");
+        if (stage == "validation")
+            ValidateTypedValidation(result.Validation!);
 
         foreach (var w in result.Warnings)
         {
@@ -976,16 +1043,78 @@ public sealed class RagGenerateService
                     Key = s.Key,
                     Heading = s.Heading,
                     Brief = s.Brief,
+                    EvidenceIds = s.EvidenceIds,
                 })
                 .ToList(),
             AppliedTemplates = family == RagRetrievalFamily.ShortForm && templates.Count > 0
                 ? templates.ToList()
                 : null,
             Warnings = warnings,
-            ModelUsed = result.ModelUsed,
-            RetrievalMode = result.Retrieval,
+            EvidenceWarnings = result.EvidenceWarnings,
+            ModelUsed = returnedModel,
+            RetrievalMode = result.Provenance?.Retrieval ?? result.Retrieval,
+            PromptVersion = result.Provenance?.PromptVersion ?? "rag-generate/1",
+            Provenance = result.Provenance is null
+                ? null
+                : new RagGenerateProvenanceDto
+                {
+                    GenerationStage = result.Provenance.GenerationStage,
+                    ModelUsed = result.Provenance.ModelUsed,
+                    ModelPolicyPreset = result.Provenance.ModelPolicyPreset,
+                    ModelPolicyVersion = result.Provenance.ModelPolicyVersion,
+                    PromptVersion = result.Provenance.PromptVersion,
+                    Retrieval = result.Provenance.Retrieval,
+                    EvidenceIds = result.Provenance.EvidenceIds,
+                },
+            Validation = result.Validation is null
+                ? null
+                : new RagValidationDto
+                {
+                    Approved = result.Validation.Approved,
+                    Issues = result.Validation.Issues.Select(i => new RagValidationIssueDto
+                    {
+                        SectionTitle = i.SectionTitle,
+                        Category = MapValidationCategory(i.Category),
+                        Detail = i.Detail,
+                        RepairInstruction = i.RepairInstruction,
+                    }).ToList(),
+                    Strengths = result.Validation.Strengths,
+                    UnsupportedClaimCount = result.Validation.UnsupportedClaimCount,
+                    BriefAlignmentScore = result.Validation.BriefAlignmentScore,
+                    EvidenceCoverageScore = result.Validation.EvidenceCoverageScore,
+                    UsefulnessScore = result.Validation.UsefulnessScore,
+                    OriginalityScore = result.Validation.OriginalityScore,
+                    BrandAlignmentScore = result.Validation.BrandAlignmentScore,
+                },
         };
     }
+
+    private static void ValidateTypedValidation(GeekCrawlerRagValidation validation)
+    {
+        var unsupportedIssues = validation.Issues.Count(
+            issue => issue.Category == GeekCrawlerRagValidationIssueCategory.UnsupportedClaim);
+        if (validation.UnsupportedClaimCount < unsupportedIssues
+            || (validation.UnsupportedClaimCount > 0 && validation.Approved)
+            || (!validation.Approved && validation.Issues.Count == 0))
+            throw new InvalidOperationException(
+                "RAG validation response was internally inconsistent; validation fails closed.");
+    }
+
+    private static RagValidationIssueCategory MapValidationCategory(
+        GeekCrawlerRagValidationIssueCategory category) => category switch
+    {
+        GeekCrawlerRagValidationIssueCategory.UnsupportedClaim => RagValidationIssueCategory.UnsupportedClaim,
+        GeekCrawlerRagValidationIssueCategory.SourceConflict => RagValidationIssueCategory.SourceConflict,
+        GeekCrawlerRagValidationIssueCategory.BriefAlignment => RagValidationIssueCategory.BriefAlignment,
+        GeekCrawlerRagValidationIssueCategory.BrandVoice => RagValidationIssueCategory.BrandVoice,
+        GeekCrawlerRagValidationIssueCategory.OriginalityRepetition => RagValidationIssueCategory.OriginalityRepetition,
+        GeekCrawlerRagValidationIssueCategory.Usefulness => RagValidationIssueCategory.Usefulness,
+        GeekCrawlerRagValidationIssueCategory.Cta => RagValidationIssueCategory.Cta,
+        GeekCrawlerRagValidationIssueCategory.SeoGeo => RagValidationIssueCategory.SeoGeo,
+        GeekCrawlerRagValidationIssueCategory.ContentTypeRequirements => RagValidationIssueCategory.ContentTypeRequirements,
+        _ => throw new InvalidOperationException(
+            $"Unsupported RAG validation issue category '{category}'."),
+    };
 
     private static bool ParseEnabledFlag(string? raw)
     {
@@ -1000,7 +1129,12 @@ public sealed class RagGenerateService
     internal static string NormalizeGenerationStage(string? raw)
     {
         var stage = raw?.Trim().ToLowerInvariant();
-        return stage is "outline" or "section" ? stage : "complete";
+        return stage switch
+        {
+            "outline" or "section" or "validation" or "complete" => stage,
+            "finalsynthesis" or "final-synthesis" => "finalSynthesis",
+            _ => "complete",
+        };
     }
 
     private static string Truncate(string value, int max) =>

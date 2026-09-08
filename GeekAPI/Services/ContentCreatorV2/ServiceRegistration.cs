@@ -6,6 +6,7 @@ using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Carousel;
 using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
@@ -68,6 +69,8 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
+        services.AddSingleton<ContentModelPolicy>();
+        services.AddScoped<GccV2JobModelPolicyOverrideStore>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();
         services.AddScoped<GccV2GuardrailService>();

@@ -2,6 +2,8 @@ using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Write;
+using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -122,6 +124,8 @@ public class GccV2CanvasController : ControllerBase
             job = updated.Job,
             section = updated.Section,
             usedFallbackStub = updated.UsedFallbackStub,
+            citations = updated.Citations,
+            provenance = updated.Provenance,
         });
     }
 
@@ -141,7 +145,14 @@ public class GccV2CanvasController : ControllerBase
         {
             var payload = JsonSerializer.Deserialize<StageSectionPayload>(latest.OutputJson, ContentDocJson);
             if (payload?.Section is null) return null;
-            return new GccV2WriteSection(sectionKey, payload.Heading ?? payload.Section.Heading, payload.Job, payload.Section, payload.UsedFallbackStub ?? false);
+            return new GccV2WriteSection(
+                sectionKey,
+                payload.Heading ?? payload.Section.Heading,
+                payload.Job,
+                payload.Section,
+                payload.UsedFallbackStub ?? false,
+                payload.Citations,
+                payload.Provenance);
         }
         catch (JsonException ex)
         {
@@ -153,7 +164,13 @@ public class GccV2CanvasController : ControllerBase
     private bool IsOwner(string ownerUserId) =>
         _user.IsAuthenticated && string.Equals(ownerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase);
 
-    private sealed record StageSectionPayload(string? Heading, string? Job, Section? Section, bool? UsedFallbackStub);
+    private sealed record StageSectionPayload(
+        string? Heading,
+        string? Job,
+        Section? Section,
+        bool? UsedFallbackStub,
+        IReadOnlyList<RagCitationDto>? Citations = null,
+        GccV2GenerationProvenance? Provenance = null);
 
     /// <summary><see cref="Text"/> is optional reference/seed copy the user pastes in (e.g. a
     /// paragraph to work from); <see cref="Instruction"/> is free-text guidance appended to the

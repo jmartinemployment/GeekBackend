@@ -3,6 +3,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Carousel;
 using GeekAPI.Services.ContentCreatorV2.Plan;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Validate;
@@ -426,7 +427,12 @@ public sealed class GccV2JobWorker : BackgroundService
         GccV2WriteOutput written;
         try
         {
-            written = await writeService.WriteAsync(wc, ownerUserId, ct);
+            written = string.Equals(job.Stage, "validate", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(job.Stage, "final-synthesis", StringComparison.OrdinalIgnoreCase)
+                ? await writeService.ReconstructOutputAsync(job, ct)
+                  ?? throw new InvalidOperationException(
+                      $"{job.Stage.ToUpperInvariant()} retry could not reconstruct the latest persisted WRITE sections.")
+                : await writeService.WriteAsync(wc, ownerUserId, ct);
         }
         catch (GccV2ToolWriteDeferredException ex)
         {
@@ -445,50 +451,35 @@ public sealed class GccV2JobWorker : BackgroundService
             return;
         }
 
-        await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Stage: "validate", TokensUsed: written.TokensUsed), ct);
-
-        if (string.Equals(job.ContentType, "image-prompt", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(job.Stage, "validate", StringComparison.OrdinalIgnoreCase)
+            && GccV2WriteService.RequiresFinalSynthesis(job.ContentType))
         {
-            var imageDocument = written.ToContentDocument();
-            var sectionMeta = GccV2ImagePromptSpawnService.ParseImagePromptSection(wc.Brief.RawBriefJson);
-            var promptText = ImagePromptPlainText(imageDocument);
-            var imageResultJson = JsonSerializer.Serialize(new
+            if (!string.Equals(job.Stage, "final-synthesis", StringComparison.OrdinalIgnoreCase))
+                await writeService.PersistFinalSynthesisInputAsync(wc, written, ct);
+            await repo.PatchJobAsync(
+                jobId,
+                new PatchGccV2JobCommand(Stage: "final-synthesis", TokensUsed: written.TokensUsed),
+                ct);
+            await writer.AppendAsync(
+                jobId,
+                ownerUserId,
+                "JobStageChanged",
+                new { stage = "final-synthesis", generationStage = "finalSynthesis" },
+                ct: ct);
+            try
             {
-                title = written.Title,
-                metaDescription = written.MetaDescription,
-                prompt = promptText,
-                imagePromptSection = sectionMeta is null
-                    ? null
-                    : new
-                    {
-                        sourceJobId = sectionMeta.SourceJobId,
-                        sourceType = sectionMeta.SourceType,
-                        heading = sectionMeta.Heading,
-                        order = sectionMeta.Order,
-                    },
-                document = imageDocument,
-                shipReady = true,
-                outstandingIssues = false,
-                writeOnly = true,
-            }, ContentDocJson);
-
-            await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(
-                Stage: "done",
-                Status: "ready",
-                ResultJson: imageResultJson,
-                ReleaseClaim: true,
-                CompletedAtUtc: DateTimeOffset.UtcNow), ct);
-
-            await writer.AppendAsync(jobId, ownerUserId, "JobCompleted", new
+                written = await writeService.FinalSynthesizeAsync(wc, written, ct);
+                await writeService.PersistFinalSynthesisAsync(wc, ownerUserId, written, ct);
+            }
+            catch (Exception ex)
             {
-                status = "ready",
-                shipReady = true,
-                outstandingIssues = false,
-                writeOnly = true,
-            }, ct: ct);
-
-            return;
+                _logger.LogError(ex, "FINAL SYNTHESIS failed for job {JobId}; marking failed.", jobId);
+                await FailJobAsync(writer, jobId, ownerUserId, $"FINAL SYNTHESIS failed: {ex.Message}", ct);
+                return;
+            }
         }
+
+        await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(Stage: "validate", TokensUsed: written.TokensUsed), ct);
 
         if (await StopIfCanceledAsync(repo, jobId, ct)) return;
 
@@ -507,6 +498,11 @@ public sealed class GccV2JobWorker : BackgroundService
         }
 
         var finalDocument = outcome.Final.ToContentDocument();
+        var isImagePrompt = string.Equals(
+            job.ContentType, "image-prompt", StringComparison.OrdinalIgnoreCase);
+        var imagePromptSection = isImagePrompt
+            ? GccV2ImagePromptSpawnService.ParseImagePromptSection(wc.Brief.RawBriefJson)
+            : null;
         var toolPage = written.ToolPage ?? outcome.Final.ToolPage;
         var jsonLdBuilder = scope.ServiceProvider.GetRequiredService<GccV2JsonLdBuilder>();
         var keywordsList = toolPage?.Keywords ?? outcome.Final.Keywords ?? [];
@@ -524,6 +520,16 @@ public sealed class GccV2JobWorker : BackgroundService
         {
             title = outcome.Final.Title,
             metaDescription = outcome.Final.MetaDescription,
+            prompt = isImagePrompt ? ImagePromptPlainText(finalDocument) : null,
+            imagePromptSection = imagePromptSection is null
+                ? null
+                : new
+                {
+                    sourceJobId = imagePromptSection.SourceJobId,
+                    sourceType = imagePromptSection.SourceType,
+                    heading = imagePromptSection.Heading,
+                    order = imagePromptSection.Order,
+                },
             document = finalDocument,
             slug = toolPage?.Slug,
             jsonLdSchema,
@@ -537,9 +543,18 @@ public sealed class GccV2JobWorker : BackgroundService
             sourceAttributionHtml = toolPage?.SourceAttributionHtml,
             toolPageKind = toolPage?.Kind,
             pillarArticleUrl = toolPage?.PillarArticleUrl,
+            citations = outcome.Final.Citations,
+            sectionCitations = outcome.Final.AllSections.ToDictionary(
+                s => s.SectionKey, s => s.Citations ?? [], StringComparer.OrdinalIgnoreCase),
+            provenance = outcome.Final.Provenance.LastOrDefault(),
+            modelPolicy = EffectiveModelPolicy(wc),
+            approvedStageModels = ContentModelPolicy.ApprovedStageModels,
+            evidenceManifest = BuildFinalEvidenceManifest(outcome.Final),
+            validationReport = outcome.Report,
             shipReady = outcome.ShipReady,
             outstandingIssues = outcome.OutstandingIssues,
             repairAttempts = outcome.RepairAttempts,
+            writeOnly = isImagePrompt ? false : (bool?)null,
         }, ContentDocJson);
 
         await repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(
@@ -710,4 +725,51 @@ public sealed class GccV2JobWorker : BackgroundService
         document.Lede.Paragraphs.OfType<TextParagraph>().FirstOrDefault() is { } paragraph
             ? string.Join(" ", paragraph.Runs.Select(r => r.Text))
             : string.Empty;
+
+    private static JsonElement? ExtractModelPolicy(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            return doc.RootElement.TryGetProperty("modelPolicy", out var policy) ? policy.Clone() : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static object? EffectiveModelPolicy(GccV2WriteContext wc)
+    {
+        if (wc.JobModelPolicyOverride is not { } jobPolicy)
+            return ExtractModelPolicy(wc.Brief.RawBriefJson);
+        return new
+        {
+            version = jobPolicy.Version,
+            preset = jobPolicy.Preset,
+            stageModels = jobPolicy.StageModels,
+            downgradeConfirmed = jobPolicy.DowngradeConfirmed,
+            downgradeReason = jobPolicy.Reason,
+            operatorNote = jobPolicy.OperatorNote,
+        };
+    }
+
+    private static object BuildFinalEvidenceManifest(GccV2WriteOutput output)
+    {
+        var warnings = output.Provenance.SelectMany(p => p.Warnings).Distinct().ToList();
+        return new
+        {
+            ready = output.Citations.Count > 0,
+            sources = output.Citations.Select(c => new
+            {
+                c.PageId,
+                c.Url,
+                c.Title,
+                c.CrawlType,
+            }).DistinctBy(s => $"{s.PageId}|{s.Url}").ToList(),
+            evidenceGaps = output.Citations.Count == 0
+                ? new[] { "No verified citations were returned for the completed output." }
+                : [],
+            conflicts = Array.Empty<string>(),
+            warnings,
+        };
+    }
 }

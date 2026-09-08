@@ -5,19 +5,32 @@ using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
+using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
+using System.Diagnostics;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace GeekAPI.Services.ContentCreatorV2.Write;
 
 /// <summary>One written section: its plan-stage identity (key/heading/job) plus the actual
 /// generated <see cref="Section"/> body.</summary>
-public sealed record GccV2WriteSection(string SectionKey, string Heading, string? Job, Section Section, bool UsedFallbackStub);
+public sealed record GccV2WriteSection(
+    string SectionKey,
+    string Heading,
+    string? Job,
+    Section Section,
+    bool UsedFallbackStub,
+    IReadOnlyList<RagCitationDto>? Citations = null,
+    GccV2GenerationProvenance? Provenance = null,
+    IReadOnlyList<RagGenerateSourceDto>? Sources = null);
 
 /// <summary>Everything WRITE produced for a job — enough for VALIDATE to build a
 /// <see cref="ContentDocument"/>, run OverlapGate, and target REPAIR at one section.</summary>
@@ -30,6 +43,9 @@ public sealed class GccV2WriteOutput
     public int TokensUsed { get; init; }
     public IReadOnlyList<string> Keywords { get; init; } = [];
     public GccV2ToolPageWriteExtras? ToolPage { get; init; }
+    public IReadOnlyList<RagCitationDto> Citations { get; init; } = [];
+    public IReadOnlyList<GccV2GenerationProvenance> Provenance { get; init; } = [];
+    public IReadOnlyList<RagGenerateSourceDto> Sources { get; init; } = [];
 
     public ContentDocument ToContentDocument() => new(Lede.Section, Sections.Select(s => s.Section).ToList());
 
@@ -40,11 +56,11 @@ public sealed class GccV2WriteOutput
     {
         if (replacement.SectionKey == Lede.SectionKey)
         {
-            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage };
+            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage, Citations = MergeCitations(new[] { replacement }.Concat(Sections)), Provenance = MergeProvenance(new[] { replacement }.Concat(Sections)), Sources = MergeSources(new[] { replacement }.Concat(Sections)) };
         }
 
         var sections = Sections.Select(s => s.SectionKey == replacement.SectionKey ? replacement : s).ToList();
-        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage };
+        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage, Citations = MergeCitations(new[] { Lede }.Concat(sections)), Provenance = MergeProvenance(new[] { Lede }.Concat(sections)), Sources = MergeSources(new[] { Lede }.Concat(sections)) };
     }
 
     public GccV2WriteOutput WithAppendedSection(GccV2WriteSection section) =>
@@ -57,10 +73,30 @@ public sealed class GccV2WriteOutput
             TokensUsed = TokensUsed,
             Keywords = Keywords,
             ToolPage = ToolPage,
+            Citations = MergeCitations(new[] { Lede }.Concat(Sections).Append(section)),
+            Provenance = MergeProvenance(new[] { Lede }.Concat(Sections).Append(section)),
+            Sources = MergeSources(new[] { Lede }.Concat(Sections).Append(section)),
         };
+
+    internal static IReadOnlyList<RagCitationDto> MergeCitations(IEnumerable<GccV2WriteSection> sections) =>
+        sections.SelectMany(s => s.Citations ?? []).DistinctBy(c => $"{c.PageId}|{c.Url}|{c.Quote}").ToList();
+
+    internal static IReadOnlyList<GccV2GenerationProvenance> MergeProvenance(IEnumerable<GccV2WriteSection> sections) =>
+        sections.Select(s => s.Provenance).Where(p => p is not null).Cast<GccV2GenerationProvenance>().ToList();
+
+    internal static IReadOnlyList<RagGenerateSourceDto> MergeSources(IEnumerable<GccV2WriteSection> sections) =>
+        sections.SelectMany(s => s.Sources ?? [])
+            .DistinctBy(s => $"{s.PageId}|{s.Url}|{s.Kind}")
+            .ToList();
 }
 
-public sealed record GccV2OutlineSection(string Key, string Heading, string? Job, List<string> HierarchyChildHeadings);
+public sealed record GccV2OutlineSection(
+    string Key,
+    string Heading,
+    string? Job,
+    List<string> HierarchyChildHeadings,
+    string? Brief = null,
+    IReadOnlyList<string>? EvidenceIds = null);
 
 public sealed record GccV2Outline(List<GccV2OutlineSection> Sections, List<string> HierarchyChildHeadings);
 
@@ -72,7 +108,9 @@ public sealed record GccV2WriteContext(
     GccV2BrandKitContent? BrandKit,
     GccV2Outline Outline,
     ProjectGenerationContext BaseContext,
-    IContentGenerationProvider Provider)
+    IContentGenerationProvider Provider,
+    GccV2GenerationBrief GenerationBrief,
+    GccV2JobModelPolicyOverride? JobModelPolicyOverride)
 {
     /// <summary>
     /// Set by the worker before WRITE/VALIDATE run. Invoked after every section write/rewrite so a
@@ -106,6 +144,9 @@ public sealed class GccV2WriteService
     private readonly IContentProviderFactory _providers;
     private readonly GccV2PartnerToolWriteService _partnerToolWrite;
     private readonly GccV2ToolOverviewWriteService _toolOverviewWrite;
+    private readonly RagGenerateService _rag;
+    private readonly ContentModelPolicy _modelPolicy;
+    private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
     private readonly ILogger<GccV2WriteService> _logger;
 
     public GccV2WriteService(
@@ -116,6 +157,9 @@ public sealed class GccV2WriteService
         IContentProviderFactory providers,
         GccV2PartnerToolWriteService partnerToolWrite,
         GccV2ToolOverviewWriteService toolOverviewWrite,
+        RagGenerateService rag,
+        ContentModelPolicy modelPolicy,
+        GccV2JobModelPolicyOverrideStore jobModelPolicies,
         ILogger<GccV2WriteService> logger)
     {
         _repo = repo;
@@ -125,6 +169,9 @@ public sealed class GccV2WriteService
         _providers = providers;
         _partnerToolWrite = partnerToolWrite;
         _toolOverviewWrite = toolOverviewWrite;
+        _rag = rag;
+        _modelPolicy = modelPolicy;
+        _jobModelPolicies = jobModelPolicies;
         _logger = logger;
     }
 
@@ -149,30 +196,86 @@ public sealed class GccV2WriteService
         var provider = _providers.GetDefault();
         var baseContext = _contextAdapter.BuildContext(brief, brandKit, provider.ProviderType, siteSection);
         _ = kitDto;
-        return new GccV2WriteContext(job, brief, brandKit, outline, baseContext, provider);
+        var generationBrief = GccV2GenerationBriefAssembler.Assemble(job, brief, create, brandKit);
+        var jobModelPolicy = await _jobModelPolicies.LoadLatestAsync(job.Id, ct);
+        return new GccV2WriteContext(
+            job, brief, brandKit, outline, baseContext, provider, generationBrief, jobModelPolicy);
     }
 
     /// <summary>Rebuilds a <see cref="GccV2WriteOutput"/> from the job's persisted result + stage metadata —
     /// used by manual readiness repair on already-<c>ready</c> jobs.</summary>
     public async Task<GccV2WriteOutput?> ReconstructOutputAsync(GccV2JobDto job, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(job.ResultJson)) return null;
-
-        JobResultPayload? payload;
-        try
+        var snapshots = await _repo.GetStageResultsAsync(job.Id, ct);
+        var preferredSnapshotStage = string.Equals(job.Stage, "validate", StringComparison.OrdinalIgnoreCase)
+            ? "final-synthesis-document"
+            : "final-synthesis-input";
+        var snapshot = snapshots
+            .Where(r => string.Equals(r.Stage, preferredSnapshotStage, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(r => r.CompletedAtUtc)
+            .FirstOrDefault();
+        if (snapshot is not null)
         {
-            payload = JsonSerializer.Deserialize<JobResultPayload>(job.ResultJson, ContentDocJson);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "Could not parse ResultJson for job {JobId}.", job.Id);
-            return null;
+            try
+            {
+                var restored = JsonSerializer.Deserialize<GccV2WriteOutput>(snapshot.OutputJson, ContentDocJson);
+                if (restored is not null) return restored;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not parse {SnapshotStage} for job {JobId}.",
+                    preferredSnapshotStage,
+                    job.Id);
+            }
         }
 
-        if (payload?.Document is not { } document) return null;
+        JobResultPayload? payload = null;
+        if (!string.IsNullOrWhiteSpace(job.ResultJson))
+        {
+            try
+            {
+                payload = JsonSerializer.Deserialize<JobResultPayload>(job.ResultJson, ContentDocJson);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse ResultJson for job {JobId}.", job.Id);
+            }
+        }
 
         var sectionMeta = await LoadLatestSectionMetaAsync(job.Id, ct);
         var outline = await LoadOutlineAsync(job.Id, ct);
+        if (payload?.Document is not { } document)
+        {
+            if (!sectionMeta.TryGetValue("lede", out var stagedLede) || stagedLede.Section is null)
+                return null;
+            var stagedSections = outline.Sections
+                .Where(s => sectionMeta.ContainsKey(s.Key))
+                .Select(s =>
+                {
+                    var meta = sectionMeta[s.Key];
+                    return new GccV2WriteSection(
+                        s.Key, meta.Heading, meta.Job ?? s.Job, meta.Section!,
+                        meta.UsedFallbackStub, meta.Citations, meta.Provenance, meta.Sources);
+                })
+                .ToList();
+            var brief = await _repo.GetBriefAsync(job.BriefId, ct);
+            var lede = new GccV2WriteSection(
+                "lede", stagedLede.Heading, stagedLede.Job, stagedLede.Section,
+                stagedLede.UsedFallbackStub, stagedLede.Citations, stagedLede.Provenance, stagedLede.Sources);
+            return new GccV2WriteOutput
+            {
+                Title = brief?.TargetKeyword ?? "Untitled",
+                MetaDescription = null,
+                Lede = lede,
+                Sections = stagedSections,
+                TokensUsed = 0,
+                Citations = GccV2WriteOutput.MergeCitations(new[] { lede }.Concat(stagedSections)),
+                Provenance = GccV2WriteOutput.MergeProvenance(new[] { lede }.Concat(stagedSections)),
+                Sources = GccV2WriteOutput.MergeSources(new[] { lede }.Concat(stagedSections)),
+            };
+        }
 
         sectionMeta.TryGetValue("lede", out var ledeMeta);
         var ledeWrite = new GccV2WriteSection(
@@ -180,7 +283,10 @@ public sealed class GccV2WriteService
             ledeMeta?.Heading ?? document.Lede.Heading,
             ledeMeta?.Job ?? "problem",
             document.Lede,
-            ledeMeta?.UsedFallbackStub ?? false);
+            ledeMeta?.UsedFallbackStub ?? false,
+            ledeMeta?.Citations,
+            ledeMeta?.Provenance,
+            ledeMeta?.Sources);
 
         var sections = new List<GccV2WriteSection>();
         for (var i = 0; i < document.Sections.Count; i++)
@@ -194,7 +300,10 @@ public sealed class GccV2WriteService
                 meta?.Heading ?? section.Heading,
                 meta?.Job ?? outlineEntry?.Job,
                 section,
-                meta?.UsedFallbackStub ?? false));
+                meta?.UsedFallbackStub ?? false,
+                meta?.Citations,
+                meta?.Provenance,
+                meta?.Sources));
         }
 
         return new GccV2WriteOutput
@@ -204,6 +313,9 @@ public sealed class GccV2WriteService
             Lede = ledeWrite,
             Sections = sections,
             TokensUsed = 0,
+            Citations = GccV2WriteOutput.MergeCitations(new[] { ledeWrite }.Concat(sections)),
+            Provenance = GccV2WriteOutput.MergeProvenance(new[] { ledeWrite }.Concat(sections)),
+            Sources = GccV2WriteOutput.MergeSources(new[] { ledeWrite }.Concat(sections)),
         };
     }
 
@@ -249,6 +361,9 @@ public sealed class GccV2WriteService
             Sections = appended.Sections,
             TokensUsed = current.TokensUsed + tokens,
             ToolPage = current.ToolPage,
+            Citations = appended.Citations,
+            Provenance = appended.Provenance,
+            Sources = appended.Sources,
         };
     }
 
@@ -279,6 +394,329 @@ public sealed class GccV2WriteService
         };
     }
 
+    public static bool RequiresFinalSynthesis(string? contentType) =>
+        GccV2LongFormTypes.Normalize(contentType) is
+            GccV2LongFormTypes.Pillar or GccV2LongFormTypes.Blog or GccV2LongFormTypes.Guide
+            or GccV2LongFormTypes.TechArticle or GccV2LongFormTypes.CaseStudy
+            or GccV2LongFormTypes.Whitepaper or GccV2LongFormTypes.Listicle
+            or GccV2LongFormTypes.Comparison or GccV2LongFormTypes.Alternatives
+            or GccV2LongFormTypes.Tool or GccV2LongFormTypes.Service or GccV2LongFormTypes.Local;
+
+    public async Task<GccV2WriteOutput> FinalSynthesizeAsync(
+        GccV2WriteContext wc,
+        GccV2WriteOutput current,
+        CancellationToken ct)
+    {
+        if (!RequiresFinalSynthesis(wc.Job.ContentType)) return current;
+
+        var sources = current.Sources.Count > 0
+            ? current.Sources
+            : current.Citations.Select(c => new RagGenerateSourceDto
+            {
+                PageId = c.PageId,
+                Url = c.Url,
+                Title = c.Title,
+                CrawlType = c.CrawlType,
+                Kind = "page",
+            }).DistinctBy(s => $"{s.PageId}|{s.Url}").ToList();
+        if (sources.Count == 0)
+            throw new InvalidOperationException(
+                "Final synthesis requires persisted evidence sources from the WRITE stage.");
+
+        var route = GccV2ContentTypeRagMapper.Map(wc.Job.ContentType);
+        var selection = _modelPolicy.Select(
+            ContentGenerationStage.FinalSynthesis,
+            wc.GenerationBrief,
+            wc.JobModelPolicyOverride);
+        var draft = ToStableMarkdown(current);
+        var stopwatch = Stopwatch.StartNew();
+        var response = await _rag.GenerateAsync(
+            wc.Job.OwnerUserId,
+            new RagGenerateRequest
+            {
+                WritingIntent = route.WritingIntent,
+                Topic = wc.GenerationBrief.TargetKeyword,
+                GenerationStage = "finalSynthesis",
+                DraftContent = draft,
+                Sources = sources,
+                CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
+                ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
+                ModelPolicyVersion = selection.PolicyVersion,
+                StageModelOverrides = ContentModelPolicy.ProducerOverridesForRequest(
+                    wc.GenerationBrief, selection, "finalSynthesis", wc.JobModelPolicyOverride),
+                RequestedModel = selection.EffectiveModel,
+                RequireCiteable = true,
+            },
+            ct);
+        stopwatch.Stop();
+        if (string.IsNullOrWhiteSpace(response.Content))
+            throw new InvalidOperationException("Citeable RAG returned no final-synthesis content.");
+        if (response.Citations is not { Count: > 0 })
+            throw new InvalidOperationException("Final synthesis returned no verified citations.");
+        if (response.Provenance is null)
+            throw new InvalidOperationException("Final synthesis returned no provenance.");
+
+        var parsed = ParseSynthesizedMarkdown(response.Content, current.AllSections);
+        var evidenceIds = response.Citations.Select(c => c.PageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>()
+            .Concat(response.Sources.Select(s => s.PageId).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>())
+            .Concat(response.Provenance.EvidenceIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var provenance = new GccV2GenerationProvenance(
+            wc.GenerationBrief.Version,
+            selection.PolicyVersion,
+            response.PromptVersion,
+            selection.RequestedModel,
+            response.ModelUsed,
+            response.RetrievalMode,
+            evidenceIds,
+            response.Warnings.Concat(response.EvidenceWarnings).Distinct().ToList(),
+            stopwatch.ElapsedMilliseconds,
+            selection);
+
+        var knownHeadings = current.AllSections
+            .Select(section => section.Heading)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknownCitationHeadings = response.Citations
+            .Where(citation => string.IsNullOrWhiteSpace(citation.SectionTitle)
+                || !knownHeadings.Contains(citation.SectionTitle.Trim()))
+            .Select(citation => citation.SectionTitle ?? "(missing)")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (unknownCitationHeadings.Count > 0)
+            throw new InvalidOperationException(
+                "Final synthesis returned citation sectionTitle values that do not match the preserved headings: "
+                + string.Join(", ", unknownCitationHeadings));
+
+        var rebuilt = current.AllSections.Select((original, index) =>
+        {
+            var sectionCitations = response.Citations
+                .Where(citation => string.Equals(
+                    citation.SectionTitle?.Trim(),
+                    original.Heading,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            return original with
+            {
+                Section = parsed[index],
+                Citations = sectionCitations,
+                Provenance = index == 0 ? provenance : original.Provenance,
+                Sources = response.Sources.Count > 0 ? response.Sources : sources,
+            };
+        }).ToList();
+        return new GccV2WriteOutput
+        {
+            Title = current.Title,
+            MetaDescription = current.MetaDescription,
+            Lede = rebuilt[0],
+            Sections = rebuilt.Skip(1).ToList(),
+            TokensUsed = current.TokensUsed,
+            Keywords = current.Keywords,
+            ToolPage = current.ToolPage,
+            Citations = response.Citations,
+            Provenance = current.Provenance.Append(provenance).ToList(),
+            Sources = response.Sources.Count > 0 ? response.Sources : sources,
+        };
+    }
+
+    public async Task PersistFinalSynthesisAsync(
+        GccV2WriteContext wc,
+        Guid ownerUserId,
+        GccV2WriteOutput output,
+        CancellationToken ct)
+    {
+        await _repo.AddStageResultAsync(
+            wc.Job.Id,
+            new CreateGccV2StageResultCommand(
+                "final-synthesis-document",
+                null,
+                JsonSerializer.Serialize(output, ContentDocJson),
+                0),
+            ct);
+        foreach (var section in output.AllSections)
+            await PersistAndEmitAsync(
+                wc, ownerUserId, "final-synthesis", "SectionFinalSynthesized", section, 0, ct);
+    }
+
+    public async Task PersistFinalSynthesisInputAsync(
+        GccV2WriteContext wc,
+        GccV2WriteOutput output,
+        CancellationToken ct)
+    {
+        await _repo.AddStageResultAsync(
+            wc.Job.Id,
+            new CreateGccV2StageResultCommand(
+                "final-synthesis-input",
+                null,
+                JsonSerializer.Serialize(output, ContentDocJson),
+                0),
+            ct);
+    }
+
+    internal static string ToStableMarkdown(GccV2WriteOutput output)
+    {
+        var builder = new StringBuilder().Append("# ").AppendLine(output.Title).AppendLine();
+        foreach (var write in output.AllSections)
+        {
+            builder.Append("## ").AppendLine(write.Heading).AppendLine();
+            AppendParagraphs(builder, write.Section.Paragraphs);
+            foreach (var child in write.Section.Children)
+            {
+                builder.Append("### ").AppendLine(child.Heading).AppendLine();
+                AppendParagraphs(builder, child.Paragraphs);
+            }
+        }
+        return builder.ToString().TrimEnd() + "\n";
+    }
+
+    internal static IReadOnlyList<Section> ParseSynthesizedMarkdown(
+        string markdown,
+        IReadOnlyList<GccV2WriteSection> expected)
+    {
+        var lines = markdown.Replace("\r\n", "\n").Split('\n');
+        var found = lines.Select((line, index) => (line, index))
+            .Where(item => item.line.StartsWith("## ", StringComparison.Ordinal)
+                           && !item.line.StartsWith("### ", StringComparison.Ordinal))
+            .ToList();
+        if (found.Count != expected.Count)
+            throw new InvalidOperationException(
+                $"Final synthesis changed document structure: expected {expected.Count} H2 headings, received {found.Count}.");
+
+        var sections = new List<Section>(expected.Count);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            var heading = found[i].line[3..].Trim();
+            if (!string.Equals(heading, expected[i].Heading.Trim(), StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Final synthesis changed heading {i + 1}: expected '{expected[i].Heading}', received '{heading}'.");
+            var end = i + 1 < found.Count ? found[i + 1].index : lines.Length;
+            var body = lines[(found[i].index + 1)..end];
+            var (paragraphs, children) = ParseSectionBody(body, expected[i].Section.Children);
+            sections.Add(new Section(
+                expected[i].Section.Tag,
+                expected[i].Heading,
+                paragraphs,
+                expected[i].Section.Href,
+                children,
+                expected[i].Section.ImagePrompt,
+                expected[i].Section.Id));
+        }
+        return sections;
+    }
+
+    private static (IReadOnlyList<Paragraph> Paragraphs, IReadOnlyList<Section> Children) ParseSectionBody(
+        IReadOnlyList<string> lines,
+        IReadOnlyList<Section> expectedChildren)
+    {
+        var headings = lines.Select((line, index) => (line, index))
+            .Where(item => item.line.StartsWith("### ", StringComparison.Ordinal))
+            .ToList();
+        if (headings.Count != expectedChildren.Count)
+            throw new InvalidOperationException(
+                $"Final synthesis changed nested structure: expected {expectedChildren.Count} H3 headings, received {headings.Count}.");
+
+        var topEnd = headings.Count > 0 ? headings[0].index : lines.Count;
+        var topLines = lines.Take(topEnd).ToList();
+        var paragraphs = topLines.Any(line => !string.IsNullOrWhiteSpace(line))
+            ? ParseMarkdownParagraphs(topLines)
+            : [];
+        var children = new List<Section>(headings.Count);
+        for (var i = 0; i < headings.Count; i++)
+        {
+            var heading = headings[i].line[4..].Trim();
+            if (!string.Equals(heading, expectedChildren[i].Heading.Trim(), StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Final synthesis changed nested heading {i + 1}: expected '{expectedChildren[i].Heading}', received '{heading}'.");
+            var end = i + 1 < headings.Count ? headings[i + 1].index : lines.Count;
+            children.Add(expectedChildren[i] with
+            {
+                Paragraphs = ParseMarkdownParagraphs(
+                    lines.Skip(headings[i].index + 1).Take(end - headings[i].index - 1).ToList()),
+            });
+        }
+        return (paragraphs, children);
+    }
+
+    private static void AppendParagraphs(StringBuilder builder, IReadOnlyList<Paragraph> paragraphs)
+    {
+        foreach (var paragraph in paragraphs)
+        {
+            if (paragraph is TextParagraph text)
+                builder.AppendLine(SerializeRuns(text.Runs)).AppendLine();
+            else if (paragraph is ListParagraph list)
+            {
+                for (var i = 0; i < list.Items.Count; i++)
+                    builder.Append(list.Ordered ? $"{i + 1}. " : "- ")
+                        .AppendLine(SerializeRuns(list.Items[i]));
+                builder.AppendLine();
+            }
+        }
+    }
+
+    private static string SerializeRuns(IReadOnlyList<Run> runs) =>
+        string.Concat(runs.Select(run =>
+        {
+            var text = run.Href is null ? run.Text : $"[{run.Text}]({run.Href})";
+            if (run.Bold) text = $"**{text}**";
+            if (run.Italic) text = $"*{text}*";
+            return text;
+        }));
+
+    private static IReadOnlyList<Paragraph> ParseMarkdownParagraphs(IReadOnlyList<string> lines)
+    {
+        var result = new List<Paragraph>();
+        var text = new List<string>();
+        void FlushText()
+        {
+            if (text.Count == 0) return;
+            result.Add(new TextParagraph(ParseRuns(string.Join(" ", text))));
+            text.Clear();
+        }
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i].Trim();
+            if (line.Length == 0) { FlushText(); continue; }
+            var unordered = line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal);
+            var ordered = Regex.Match(line, @"^\d+\.\s+");
+            if (unordered || ordered.Success)
+            {
+                FlushText();
+                var isOrdered = ordered.Success;
+                var items = new List<IReadOnlyList<Run>>();
+                while (i < lines.Count)
+                {
+                    line = lines[i].Trim();
+                    var match = Regex.Match(line, @"^\d+\.\s+");
+                    var matches = isOrdered ? match.Success : line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal);
+                    if (!matches) { i--; break; }
+                    items.Add(ParseRuns(isOrdered ? line[match.Length..] : line[2..]));
+                    i++;
+                }
+                result.Add(new ListParagraph(isOrdered, items));
+                continue;
+            }
+            text.Add(line);
+        }
+        FlushText();
+        if (result.Count == 0) throw new InvalidOperationException("Final synthesis produced an empty section.");
+        return result;
+    }
+
+    private static IReadOnlyList<Run> ParseRuns(string text)
+    {
+        var runs = new List<Run>();
+        var cursor = 0;
+        foreach (Match match in Regex.Matches(text, @"\[([^\]]+)\]\(([^)\s]+)\)"))
+        {
+            if (match.Index > cursor) runs.Add(new Run(text[cursor..match.Index]));
+            runs.Add(new Run(match.Groups[1].Value, Href: match.Groups[2].Value));
+            cursor = match.Index + match.Length;
+        }
+        if (cursor < text.Length) runs.Add(new Run(text[cursor..]));
+        return runs.Count == 0 ? [new Run(text)] : runs;
+    }
+
     /// <summary>Persists a REPAIR-stage section and emits <c>SectionRepaired</c> — shared by editorial
     /// overlap/polish repair and guardrail pass-2 restructure.</summary>
     public Task PublishSectionRepairAsync(
@@ -302,25 +740,14 @@ public sealed class GccV2WriteService
         var headings = wc.Outline.Sections.Select(s => s.Heading).ToList();
         if (headings.Count == 0) headings = [target.Heading];
 
-        var outlineEntry = wc.Outline.Sections.FirstOrDefault(s => s.Key == target.SectionKey);
-        var index = Math.Max(0, wc.Outline.Sections.FindIndex(s => s.Key == target.SectionKey));
-        var sectionContext = _contextAdapter.WithSectionAssignment(
-            wc.BaseContext, target.Heading, target.Job, outlineEntry?.HierarchyChildHeadings);
-
-        var metadata = new ArticleMetadataDraft(
-            string.IsNullOrWhiteSpace(title) ? wc.BaseContext.TargetKeyword : title, "", [], headings);
-
-        Section section;
-        var tokens = 0;
+        var outlineEntry = wc.Outline.Sections.FirstOrDefault(s => s.Key == target.SectionKey)
+            ?? new GccV2OutlineSection(target.SectionKey, target.Heading, target.Job, []);
+        GccV2WriteSection write;
         try
         {
-            var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildArticleSectionPrompt(
-                    sectionContext, metadata, target.Heading, index, Math.Max(headings.Count, 1), headings,
-                    isRegeneration: true, revisionNotes: revisionNotes),
-                ct);
-            section = LlmResponseJsonParser.ParseSection(result.Content, "h2", $"repaired section \"{target.Heading}\"");
-            tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
+            write = await GenerateRagSectionAsync(
+                wc, outlineEntry, headings, completedSectionSummaries: [revisionNotes],
+                ContentGenerationStage.Repair, ct);
         }
         catch (Exception ex)
         {
@@ -328,9 +755,7 @@ public sealed class GccV2WriteService
             throw;
         }
 
-        section = section with { Heading = target.Heading, Tag = "h2" };
-        var write = new GccV2WriteSection(target.SectionKey, target.Heading, target.Job, section, false);
-        await PersistAndEmitAsync(wc, ownerUserId, stage, eventType, write, tokens, ct);
+        await PersistAndEmitAsync(wc, ownerUserId, stage, eventType, write, 0, ct);
         return write;
     }
 
@@ -344,29 +769,16 @@ public sealed class GccV2WriteService
         // Pillar lede replaces outline section 0 — inherit its PLAN "problem" role + must-mentions.
         var bodyStart = outlineSections.Count > 0 ? 1 : 0;
         var ledeOutline = GccV2WriteOutlineRules.SkippedOutlineEntryForLede(outlineSections, bodyStart);
-        var ledeContext = _contextAdapter.WithSectionAssignment(
-            wc.BaseContext,
-            ledeOutline?.Heading ?? "Lede",
-            ledeOutline?.Job ?? "problem",
-            ledeOutline?.HierarchyChildHeadings);
-
-        Section ledeSection;
-        var ledeTokens = 0;
+        GccV2WriteSection generatedLede;
         try
         {
-            var ledeResult = await wc.Provider.CompleteAsync(
-                _prompts.BuildPillarLedePrompt(
-                    ledeContext, metadata, headings.Count > 0 ? headings[0] : "Introduction", 0,
-                    Math.Max(headings.Count, 1), headings, isRegeneration: false),
+            generatedLede = await GenerateRagSectionAsync(
+                wc,
+                ledeOutline ?? new GccV2OutlineSection("lede", "Introduction", "problem", []),
+                headings,
+                [],
+                ContentGenerationStage.Section,
                 ct);
-            var (lede, _, introSection) = LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
-            ledeSection = GccV2WriteOutlineRules.MergeLedeAndIntroduction(lede, introSection);
-            if (headings.Count > 0)
-            {
-                ledeSection = ledeSection with { Heading = headings[0], Tag = "h2" };
-            }
-
-            ledeTokens = (ledeResult.PromptTokens ?? 0) + (ledeResult.CompletionTokens ?? 0);
         }
         catch (Exception ex)
         {
@@ -374,12 +786,11 @@ public sealed class GccV2WriteService
             throw;
         }
 
-        var ledeWrite = new GccV2WriteSection(
-            "lede", ledeSection.Heading, ledeOutline?.Job ?? "problem", ledeSection, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, ledeTokens, ct);
+        var ledeWrite = generatedLede with { SectionKey = "lede" };
+        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, 0, ct);
 
         var sections = new List<GccV2WriteSection>();
-        var tokensUsed = ledeTokens;
+        var tokensUsed = 0;
         bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeWrite.Heading, outlineSections, pillar: true);
         for (var i = bodyStart; i < outlineSections.Count; i++)
         {
@@ -398,6 +809,9 @@ public sealed class GccV2WriteService
             Sections = sections,
             TokensUsed = tokensUsed,
             Keywords = metadata.Keywords,
+            Citations = GccV2WriteOutput.MergeCitations(new[] { ledeWrite }.Concat(sections)),
+            Provenance = GccV2WriteOutput.MergeProvenance(new[] { ledeWrite }.Concat(sections)),
+            Sources = GccV2WriteOutput.MergeSources(new[] { ledeWrite }.Concat(sections)),
         };
     }
 
@@ -409,13 +823,13 @@ public sealed class GccV2WriteService
         var blogMeta = await GenerateBlogMetadataAsync(wc, headings, ct);
         var articleMeta = new ArticleMetadataDraft(blogMeta.Title, blogMeta.MetaDescription, blogMeta.Keywords, headings);
 
-        Section ledeSection;
-        var ledeTokens = 0;
+        GccV2WriteSection generatedLede;
         try
         {
-            var ledeResult = await wc.Provider.CompleteAsync(_prompts.BuildStandaloneBlogLedePrompt(wc.BaseContext, blogMeta), ct);
-            (ledeSection, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
-            ledeTokens = (ledeResult.PromptTokens ?? 0) + (ledeResult.CompletionTokens ?? 0);
+            var ledeEntry = outlineSections.FirstOrDefault()
+                ?? new GccV2OutlineSection("lede", "Introduction", "problem", []);
+            generatedLede = await GenerateRagSectionAsync(
+                wc, ledeEntry, headings, [], ContentGenerationStage.Section, ct);
         }
         catch (Exception ex)
         {
@@ -423,14 +837,13 @@ public sealed class GccV2WriteService
             throw;
         }
 
-        var bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(ledeSection.Heading, outlineSections, pillar: false);
+        var bodyStart = GccV2WriteOutlineRules.FirstBodyOutlineIndex(generatedLede.Heading, outlineSections, pillar: false);
         var ledeOutline = GccV2WriteOutlineRules.SkippedOutlineEntryForLede(outlineSections, bodyStart);
-        var ledeWrite = new GccV2WriteSection(
-            "lede", ledeSection.Heading, ledeOutline?.Job ?? "problem", ledeSection, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, ledeTokens, ct);
+        var ledeWrite = generatedLede with { SectionKey = "lede", Job = ledeOutline?.Job ?? "problem" };
+        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, 0, ct);
 
         var sections = new List<GccV2WriteSection>();
-        var tokensUsed = ledeTokens;
+        var tokensUsed = 0;
         for (var i = bodyStart; i < outlineSections.Count; i++)
         {
             var entry = outlineSections[i];
@@ -448,20 +861,35 @@ public sealed class GccV2WriteService
             Sections = sections,
             TokensUsed = tokensUsed,
             Keywords = blogMeta.Keywords,
+            Citations = GccV2WriteOutput.MergeCitations(new[] { ledeWrite }.Concat(sections)),
+            Provenance = GccV2WriteOutput.MergeProvenance(new[] { ledeWrite }.Concat(sections)),
+            Sources = GccV2WriteOutput.MergeSources(new[] { ledeWrite }.Concat(sections)),
         };
     }
 
     private async Task<GccV2WriteOutput> WriteToolAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
         var target = GccV2ToolPageTargetParser.Parse(wc.Brief.RawBriefJson);
+        var headings = wc.Outline.Sections.Select(s => s.Heading).ToList();
+        var ragDrafts = new List<GccV2WriteSection>();
+        foreach (var entry in wc.Outline.Sections.Where(s =>
+                     !string.Equals(s.Job, "faq", StringComparison.OrdinalIgnoreCase)))
+        {
+            ragDrafts.Add(await GenerateRagSectionAsync(
+                wc, entry, headings, [], ContentGenerationStage.Section, ct));
+        }
+        if (ragDrafts.Count == 0)
+            throw new InvalidOperationException("Tool job has no outline sections for citeable RAG generation.");
+
+        var generatedBody = ragDrafts.Select(s => s.Section).ToList();
         GccV2WriteOutput output;
         if (target?.IsPartner == true)
         {
-            output = await _partnerToolWrite.WriteAsync(wc, ownerUserId, target, ct);
+            output = await _partnerToolWrite.WriteAsync(wc, ownerUserId, target, ct, generatedBody);
         }
         else if (target?.IsOverview == true)
         {
-            output = await _toolOverviewWrite.WriteAsync(wc, ownerUserId, target, ct);
+            output = await _toolOverviewWrite.WriteAsync(wc, ownerUserId, target, ct, generatedBody);
         }
         else
         {
@@ -469,261 +897,146 @@ public sealed class GccV2WriteService
                 "Tool job is missing toolPageTarget.kind — expected overview (at generate) or partner (after pillar spawn).");
         }
 
-        foreach (var section in output.AllSections)
+        var ragSections = new List<GccV2WriteSection>();
+        var existingSections = output.AllSections;
+        for (var i = 0; i < existingSections.Count; i++)
         {
-            var sectionTokens = section.SectionKey == output.Lede.SectionKey ? output.TokensUsed : 0;
-            await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", section, sectionTokens, ct);
+            var existing = existingSections[i];
+            var generated = ragDrafts[Math.Min(i, ragDrafts.Count - 1)];
+            generated = generated with { SectionKey = existing.SectionKey, Heading = existing.Heading, Job = existing.Job };
+            await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", generated, 0, ct);
+            ragSections.Add(generated);
         }
 
-        return output;
+        var lede = ragSections[0];
+        var body = ragSections.Skip(1).ToList();
+        return new GccV2WriteOutput
+        {
+            Title = output.Title,
+            MetaDescription = output.MetaDescription,
+            Lede = lede,
+            Sections = body,
+            TokensUsed = output.TokensUsed,
+            Keywords = output.Keywords,
+            ToolPage = output.ToolPage,
+            Citations = GccV2WriteOutput.MergeCitations(ragSections),
+            Provenance = GccV2WriteOutput.MergeProvenance(ragSections),
+            Sources = GccV2WriteOutput.MergeSources(ragSections),
+        };
     }
 
     private async Task<GccV2WriteOutput> WriteEmailAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
-        var source = BuildSyntheticArticleDraft(wc);
-        var articleUrl = wc.BaseContext.ArticleBaseUrl ?? "https://example.com/article";
-        ColdOutreachEmailDraft draft;
-        var tokens = 0;
-        try
-        {
-            var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildColdOutreachPrompt(wc.BaseContext, source, articleUrl), ct);
-            draft = LlmResponseJsonParser.ParseColdOutreach(result.Content, "cold outreach email");
-            tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Email generation failed for job {JobId}.", wc.Job.Id);
-            throw;
-        }
-
-        var ledeSection = new Section(
-            "h2",
-            draft.Subject,
-            [new TextParagraph([new Run(draft.BodyText)]), new TextParagraph([new Run($"CTA: {draft.CtaLabel}")])],
-            null,
-            []);
-        var ledeWrite = new GccV2WriteSection("email-body", draft.Subject, "problem", ledeSection, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
-
-        return new GccV2WriteOutput
-        {
-            Title = draft.Subject,
-            MetaDescription = Truncate(draft.BodyText, 160),
-            Lede = ledeWrite,
-            Sections = [],
-            TokensUsed = tokens,
-        };
+        return await WriteRagCompleteAsync(wc, ownerUserId, "email-body", "Email", ct);
     }
 
     private async Task<GccV2WriteOutput> WriteSocialAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
         var platform = ParseSocialPlatform(wc.Brief.RawBriefJson) ?? "LinkedIn";
-        var source = BuildSyntheticArticleDraft(wc);
-        var articleUrl = wc.BaseContext.ArticleBaseUrl ?? "https://example.com/article";
-        string text;
-        var tokens = 0;
-        try
-        {
-            var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildSocialPrompt(wc.BaseContext, source, platform, articleUrl), ct);
-            text = LlmResponseJsonParser.ParseSocialText(result.Content, articleUrl, $"{platform} post");
-            tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Social generation failed for job {JobId}.", wc.Job.Id);
-            throw;
-        }
-
-        var ledeSection = new Section(
-            "h2",
-            $"{platform} post",
-            [new TextParagraph([new Run(text)])],
-            null,
-            []);
-        var ledeWrite = new GccV2WriteSection("social-post", ledeSection.Heading, "problem", ledeSection, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
-
-        return new GccV2WriteOutput
-        {
-            Title = source.Title,
-            MetaDescription = source.MetaDescription,
-            Lede = ledeWrite,
-            Sections = [],
-            TokensUsed = tokens,
-        };
+        return await WriteRagCompleteAsync(wc, ownerUserId, "social-post", $"{platform} post", ct);
     }
 
     private async Task<GccV2WriteOutput> WriteAdsAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
-        var source = BuildSyntheticArticleDraft(wc);
-        var articleUrl = wc.BaseContext.ArticleBaseUrl ?? "https://example.com/article";
-        AdvertisingDraft draft;
-        var tokens = 0;
-        try
-        {
-            var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildAdvertisingPrompt(wc.BaseContext, source, articleUrl), ct);
-            draft = ParseAdvertisingDraft(result.Content);
-            tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ads generation failed for job {JobId}.", wc.Job.Id);
-            throw;
-        }
+        return await WriteRagCompleteAsync(wc, ownerUserId, "ads-body", "Advertising variations", ct);
+    }
 
-        var ledeSection = new Section(
-            "h2",
-            draft.Title,
-            [new TextParagraph([new Run(draft.BodyText)])],
-            null,
-            []);
-        var ledeWrite = new GccV2WriteSection("ads-body", draft.Title, "problem", ledeSection, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
+    private async Task<GccV2WriteOutput> WriteRagCompleteAsync(
+        GccV2WriteContext wc,
+        Guid ownerUserId,
+        string sectionKey,
+        string heading,
+        CancellationToken ct,
+        string? seedContext = null)
+    {
+        var route = GccV2ContentTypeRagMapper.Map(wc.Job.ContentType);
+        var stage = route.IsImagePrompt ? ContentGenerationStage.ImagePrompt : ContentGenerationStage.Complete;
+        var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
+        var stopwatch = Stopwatch.StartNew();
+        var response = await _rag.GenerateAsync(
+            wc.Job.OwnerUserId,
+            new RagGenerateRequest
+            {
+                WritingIntent = route.WritingIntent,
+                Topic = string.IsNullOrWhiteSpace(seedContext)
+                    ? $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}"
+                    : $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}\nSpecialized source context:\n{seedContext}",
+                TargetEntities = wc.GenerationBrief.TargetEntities.ToList(),
+                GenerationStage = "complete",
+                CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
+                ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
+                ModelPolicyVersion = selection.PolicyVersion,
+                StageModelOverrides = ContentModelPolicy.ProducerOverridesForRequest(
+                    wc.GenerationBrief, selection, "complete", wc.JobModelPolicyOverride),
+                RequestedModel = selection.EffectiveModel,
+                RequireCiteable = true,
+            },
+            ct);
+        stopwatch.Stop();
+        var content = response.Content ?? response.Variations?.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(content))
+            throw new InvalidOperationException($"Citeable RAG returned no content for {wc.Job.ContentType}.");
 
+        var evidenceIds = (response.Citations ?? []).Select(c => c.PageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>()
+            .Concat(response.Sources.Select(s => s.PageId).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>())
+            .Concat(response.Provenance?.EvidenceIds ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var provenance = new GccV2GenerationProvenance(
+            wc.GenerationBrief.Version, selection.PolicyVersion, response.PromptVersion,
+            selection.RequestedModel, response.ModelUsed, response.RetrievalMode, evidenceIds,
+            response.Warnings.Concat(response.EvidenceWarnings).Distinct().ToList(),
+            stopwatch.ElapsedMilliseconds, selection);
+        var section = MarkdownToSection(content, heading);
+        var write = new GccV2WriteSection(
+            sectionKey, heading, "problem", section, false, response.Citations ?? [], provenance, response.Sources);
+        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, 0, ct);
         return new GccV2WriteOutput
         {
-            Title = draft.Title,
-            MetaDescription = draft.MetaDescription,
-            Lede = ledeWrite,
+            Title = wc.GenerationBrief.Title,
+            MetaDescription = Truncate(content, 160),
+            Lede = write,
             Sections = [],
-            TokensUsed = tokens,
+            TokensUsed = 0,
+            Citations = write.Citations ?? [],
+            Provenance = [provenance],
+            Sources = response.Sources,
         };
     }
 
-    /// <summary>Image prompts are write-only — VALIDATE is skipped by the worker for this type.</summary>
+    /// <summary>Writes the stable image-prompt draft that the shared RAG validation stage reviews.</summary>
     private async Task<GccV2WriteOutput> WriteImagePromptAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
         var topic = Capitalize(wc.BaseContext.TargetKeyword);
         var sectionMeta = GccV2ImagePromptSpawnService.ParseImagePromptSection(wc.Brief.RawBriefJson);
-        ImagePromptDraft draft;
-        var tokens = 0;
         var displayTitle = topic;
+        string? sourceContext = wc.BaseContext.WritingNotes;
 
-        try
+        if (sectionMeta is not null)
         {
-            if (sectionMeta is not null)
+            displayTitle = string.IsNullOrWhiteSpace(sectionMeta.Heading) ? topic : sectionMeta.Heading;
+            var sourceJob = await _repo.GetJobAsync(sectionMeta.SourceJobId, ct)
+                ?? throw new InvalidOperationException($"Source job {sectionMeta.SourceJobId} not found for image-prompt.");
+            var sourcePayload = DeserializeJobResult(sourceJob.ResultJson);
+            sourceContext = JsonSerializer.Serialize(new
             {
-                displayTitle = string.IsNullOrWhiteSpace(sectionMeta.Heading) ? topic : sectionMeta.Heading;
-                var sourceJob = await _repo.GetJobAsync(sectionMeta.SourceJobId, ct)
-                    ?? throw new InvalidOperationException($"Source job {sectionMeta.SourceJobId} not found for image-prompt.");
-                var sourcePayload = DeserializeJobResult(sourceJob.ResultJson);
-                var sourceType = sectionMeta.SourceType.Trim().ToLowerInvariant();
-                var sectionAware = sourceType is "pillar-hero" or "blog-hero" or "pillar" or "blog";
-
-                if (sectionAware)
-                {
-                    (draft, tokens) = await WriteSectionAwareImagePromptAsync(wc, sectionMeta, sourcePayload, ct);
-                }
-                else
-                {
-                    (draft, tokens) = await WriteCompanionImagePromptAsync(wc, sectionMeta, sourcePayload, ct);
-                }
-            }
-            else
-            {
-                var notes = wc.BaseContext.WritingNotes;
-                var result = await wc.Provider.CompleteAsync(
-                    _prompts.BuildStandaloneImagePrompt(topic, notes, artifactContext: null), ct);
-                draft = ParseImagePromptDraft(result.Content);
-                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Image prompt generation failed for job {JobId}.", wc.Job.Id);
-            throw;
-        }
-
-        var ledeSection = ContentDocumentText.FromPlainText(draft.Prompt).Lede;
-        var ledeWrite = new GccV2WriteSection("image-prompt", displayTitle, "problem", ledeSection, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", ledeWrite, tokens, ct);
-
-        return new GccV2WriteOutput
-        {
-            Title = displayTitle,
-            MetaDescription = Truncate(draft.Prompt, 160),
-            Lede = ledeWrite,
-            Sections = [],
-            TokensUsed = tokens,
-        };
-    }
-
-    private async Task<(ImagePromptDraft Draft, int Tokens)> WriteSectionAwareImagePromptAsync(
-        GccV2WriteContext wc,
-        ImagePromptSectionMeta sectionMeta,
-        JobResultSnapshot sourcePayload,
-        CancellationToken ct)
-    {
-        var sourceTitle = string.IsNullOrWhiteSpace(sourcePayload.Title)
-            ? wc.BaseContext.TargetKeyword
-            : sourcePayload.Title!;
-        var sourceDoc = sourcePayload.Document
-            ?? throw new InvalidOperationException("Source job has no document for section-aware image prompt.");
-        var keyword = wc.BaseContext.TargetKeyword;
-        var headings = ContentDocumentText.TopLevelHeadings(sourceDoc).ToList();
-        var target = new ImagePromptSectionTarget(sectionMeta.SourceType, sectionMeta.Heading, sectionMeta.Order);
-        var isBlog = sectionMeta.SourceType.StartsWith("blog", StringComparison.OrdinalIgnoreCase);
-
-        var article = isBlog
-            ? new ArticleDraft(string.Empty, string.Empty, EmptyPromptBody, [], 0, [])
-            : new ArticleDraft(
-                sourceTitle,
-                sourcePayload.MetaDescription ?? string.Empty,
-                sourceDoc,
-                [keyword],
-                ContentDocumentText.CountWords(sourceDoc),
-                headings);
-        var blog = isBlog
-            ? new BlogDraft(
-                sourceTitle,
-                sourcePayload.MetaDescription ?? string.Empty,
-                sourceDoc,
-                [keyword],
-                ContentDocumentText.CountWords(sourceDoc),
-                headings)
-            : new BlogDraft(string.Empty, string.Empty, EmptyPromptBody, [], 0, []);
-
-        var slug = SlugHelper.Slugify(sourceTitle);
-        var articleUrl = isBlog
-            ? string.Empty
-            : $"{wc.BaseContext.ArticleBaseUrl.TrimEnd('/')}/marketing/{slug}";
-        var blogUrl = isBlog
-            ? $"{wc.BaseContext.BlogBaseUrl.TrimEnd('/')}/marketing/{slug}"
-            : string.Empty;
-
-        var result = await wc.Provider.CompleteAsync(
-            _prompts.BuildSectionImagePromptsPrompt(
-                wc.BaseContext, article, blog, articleUrl, blogUrl, [target]),
-            ct);
-        var parsed = LlmResponseJsonParser.ParseSectionImagePrompts(result.Content, [target], "image prompt");
-        var item = parsed.Sections[0];
-        var tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-        return (new ImagePromptDraft(item.Prompt, null, null, null, item.Notes), tokens);
-    }
-
-    private async Task<(ImagePromptDraft Draft, int Tokens)> WriteCompanionImagePromptAsync(
-        GccV2WriteContext wc,
-        ImagePromptSectionMeta sectionMeta,
-        JobResultSnapshot sourcePayload,
-        CancellationToken ct)
-    {
-        var artifactContext = sourcePayload.Document is null
-            ? sourcePayload.Title
-            : JsonSerializer.Serialize(new
-            {
+                sourceType = sectionMeta.SourceType,
+                sourceHeading = sectionMeta.Heading,
+                sourceOrder = sectionMeta.Order,
                 title = sourcePayload.Title,
                 metaDescription = sourcePayload.MetaDescription,
-                body = ContentDocumentText.Flatten(sourcePayload.Document),
+                body = sourcePayload.Document is null ? null : ContentDocumentText.Flatten(sourcePayload.Document),
+                writingNotes = wc.BaseContext.WritingNotes,
             }, ContentDocJson);
+        }
 
-        var result = await wc.Provider.CompleteAsync(
-            _prompts.BuildStandaloneImagePrompt(sectionMeta.Heading, wc.BaseContext.WritingNotes, artifactContext),
-            ct);
-        return (ParseImagePromptDraft(result.Content),
-            (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0));
+        return await WriteRagCompleteAsync(
+            wc,
+            ownerUserId,
+            "image-prompt",
+            displayTitle,
+            ct,
+            sourceContext);
     }
 
     private static JobResultSnapshot DeserializeJobResult(string? resultJson)
@@ -741,10 +1054,6 @@ public sealed class GccV2WriteService
         }
     }
 
-    private static readonly ContentDocument EmptyPromptBody = new(
-        new Section("h2", string.Empty, [], null, []),
-        []);
-
     private sealed record JobResultSnapshot(string? Title, string? MetaDescription, ContentDocument? Document);
 
     /// <summary>Unknown content types fail the job — no stub drafts.</summary>
@@ -761,35 +1070,15 @@ public sealed class GccV2WriteService
         ArticleMetadataDraft metadata,
         CancellationToken ct)
     {
-        var sectionContext = _contextAdapter.WithSectionAssignment(
-            wc.BaseContext, entry.Heading, entry.Job, entry.HierarchyChildHeadings);
-
-        Section section;
-        var tokens = 0;
         var label = wc.Job.ContentType ?? "article";
+        GccV2WriteSection write;
         try
         {
-            if (string.Equals(entry.Job, "faq", StringComparison.OrdinalIgnoreCase))
-            {
-                var faqQuestions = entry.HierarchyChildHeadings.Count > 0
-                    ? entry.HierarchyChildHeadings
-                    : wc.BaseContext.PeopleAlsoAskQuestions;
-                var result = await wc.Provider.CompleteAsync(
-                    _prompts.BuildArticleFaqSectionPrompt(
-                        sectionContext, metadata, faqQuestions, isRegeneration: false, revisionNotes: null),
-                    ct);
-                section = LlmResponseJsonParser.ParseSection(result.Content, "h2", "FAQ section");
-                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-            }
-            else
-            {
-                var result = await wc.Provider.CompleteAsync(
-                    _prompts.BuildArticleSectionPrompt(
-                        sectionContext, metadata, entry.Heading, index, totalCount, allHeadings, isRegeneration: false),
-                    ct);
-                section = LlmResponseJsonParser.ParseSection(result.Content, "h2", $"{label} section \"{entry.Heading}\"");
-                tokens = (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0);
-            }
+            var completedSummaries = await LoadCompletedSectionSummariesAsync(wc.Job.Id, ct);
+            write = await GenerateRagSectionAsync(
+                wc, entry, allHeadings,
+                completedSectionSummaries: completedSummaries,
+                ContentGenerationStage.Section, ct);
         }
         catch (Exception ex)
         {
@@ -797,10 +1086,115 @@ public sealed class GccV2WriteService
             throw;
         }
 
-        section = section with { Heading = entry.Heading, Tag = "h2" };
-        var write = new GccV2WriteSection(entry.Key, entry.Heading, entry.Job, section, false);
-        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, tokens, ct);
-        return (write, tokens);
+        await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, 0, ct);
+        return (write, 0);
+    }
+
+    private async Task<IReadOnlyList<string>> LoadCompletedSectionSummariesAsync(Guid jobId, CancellationToken ct)
+    {
+        var results = await _repo.GetStageResultsAsync(jobId, ct);
+        var summaries = new List<string>();
+        foreach (var result in results.Where(r => r.Stage == "write").OrderBy(r => r.CompletedAtUtc))
+        {
+            try
+            {
+                var payload = JsonSerializer.Deserialize<StageSectionPayload>(result.OutputJson, ContentDocJson);
+                if (payload?.Section is null) continue;
+                var text = string.Join(" ", payload.Section.Paragraphs.OfType<TextParagraph>()
+                    .SelectMany(p => p.Runs).Select(r => r.Text));
+                if (!string.IsNullOrWhiteSpace(text))
+                    summaries.Add($"{payload.Section.Heading}: {Truncate(text, 300)}");
+            }
+            catch (JsonException) { }
+        }
+        return summaries.TakeLast(12).ToList();
+    }
+
+    private async Task<GccV2WriteSection> GenerateRagSectionAsync(
+        GccV2WriteContext wc,
+        GccV2OutlineSection entry,
+        IReadOnlyList<string> allHeadings,
+        IReadOnlyList<string> completedSectionSummaries,
+        ContentGenerationStage stage,
+        CancellationToken ct)
+    {
+        var route = GccV2ContentTypeRagMapper.Map(wc.Job.ContentType);
+        var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
+        var stopwatch = Stopwatch.StartNew();
+        var response = await _rag.GenerateAsync(
+            wc.Job.OwnerUserId,
+            new RagGenerateRequest
+            {
+                WritingIntent = route.WritingIntent,
+                Topic = $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}",
+                TargetEntities = wc.GenerationBrief.TargetEntities.ToList(),
+                GenerationStage = "section",
+                Outline = wc.Outline.Sections.Select(s => new RagOutlineSectionDto
+                {
+                    Key = s.Key,
+                    Heading = s.Heading,
+                    Brief = BuildSectionBrief(s),
+                    EvidenceIds = s.EvidenceIds ?? [],
+                }).ToList(),
+                SectionKey = entry.Key,
+                SectionHeading = entry.Heading,
+                SectionBrief = BuildSectionBrief(entry),
+                CompletedSectionSummaries = completedSectionSummaries.ToList(),
+                CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
+                ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
+                ModelPolicyVersion = selection.PolicyVersion,
+                StageModelOverrides = ContentModelPolicy.ProducerOverridesForRequest(
+                    wc.GenerationBrief, selection, "section", wc.JobModelPolicyOverride),
+                RequestedModel = selection.EffectiveModel,
+                RequireCiteable = true,
+            },
+            ct);
+        stopwatch.Stop();
+        if (string.IsNullOrWhiteSpace(response.Content))
+            throw new InvalidOperationException($"Citeable RAG returned no content for section '{entry.Heading}'.");
+
+        var section = MarkdownToSection(response.Content, entry.Heading);
+        var evidenceIds = (response.Citations ?? []).Select(c => c.PageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>()
+            .Concat(response.Sources.Select(s => s.PageId).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>())
+            .Concat(response.Provenance?.EvidenceIds ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var provenance = new GccV2GenerationProvenance(
+            wc.GenerationBrief.Version,
+            selection.PolicyVersion,
+            response.PromptVersion,
+            selection.RequestedModel,
+            response.ModelUsed,
+            response.RetrievalMode,
+            evidenceIds,
+            response.Warnings.Concat(response.EvidenceWarnings).Distinct().ToList(),
+            stopwatch.ElapsedMilliseconds,
+            selection);
+        return new GccV2WriteSection(
+            entry.Key, entry.Heading, entry.Job, section, false, response.Citations ?? [], provenance, response.Sources);
+    }
+
+    private static string BuildSectionBrief(GccV2OutlineSection entry)
+    {
+        var mustMention = entry.HierarchyChildHeadings.Count == 0
+            ? ""
+            : $" Must cover: {string.Join("; ", entry.HierarchyChildHeadings)}.";
+        return $"{entry.Brief ?? $"Section purpose: {entry.Job ?? "advance"}."}{mustMention}";
+    }
+
+    internal static Section MarkdownToSection(string markdown, string heading)
+    {
+        var paragraphs = markdown.Replace("\r\n", "\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+            .Select(block => string.Join(" ", block.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => !line.StartsWith('#'))
+                .Select(line => line.TrimStart('-', '*', ' '))))
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(text => (Paragraph)new TextParagraph([new Run(text)]))
+            .ToList();
+        if (paragraphs.Count == 0)
+            paragraphs.Add(new TextParagraph([new Run(markdown.Trim())]));
+        return new Section("h2", heading, paragraphs, null, []);
     }
 
     private async Task<ArticleMetadataDraft> GeneratePillarMetadataAsync(GccV2WriteContext wc, List<string> headings, CancellationToken ct)
@@ -837,7 +1231,16 @@ public sealed class GccV2WriteService
         GccV2WriteContext wc, Guid ownerUserId, string stage, string eventType, GccV2WriteSection write, int tokens, CancellationToken ct)
     {
         var jobId = wc.Job.Id;
-        var stagePayload = new { heading = write.Heading, job = write.Job, section = write.Section, usedFallbackStub = write.UsedFallbackStub };
+        var stagePayload = new
+        {
+            heading = write.Heading,
+            job = write.Job,
+            section = write.Section,
+            usedFallbackStub = write.UsedFallbackStub,
+            citations = write.Citations,
+            provenance = write.Provenance,
+            sources = write.Sources,
+        };
         await _repo.AddStageResultAsync(
             jobId,
             new CreateGccV2StageResultCommand(stage, write.SectionKey, JsonSerializer.Serialize(stagePayload, ContentDocJson), tokens),
@@ -852,6 +1255,8 @@ public sealed class GccV2WriteService
             documentJson = JsonSerializer.Serialize(write.Section, ContentDocJson),
             wordCount,
             usedFallbackStub = write.UsedFallbackStub,
+            citations = write.Citations,
+            provenance = write.Provenance,
         }, ct: ct);
 
         if (wc.ExtendLease is not null)
@@ -898,7 +1303,9 @@ public sealed class GccV2WriteService
                     string.IsNullOrWhiteSpace(s.Key) ? $"section-{i}" : s.Key,
                     string.IsNullOrWhiteSpace(s.Heading) ? $"Section {i + 1}" : s.Heading,
                     s.Job,
-                    s.HierarchyChildHeadings ?? []))
+                    s.HierarchyChildHeadings ?? [],
+                    s.Brief,
+                    s.EvidenceIds))
                 .ToList();
             return new GccV2Outline(sections, parsed?.HierarchyChildHeadings ?? []);
         }
@@ -933,16 +1340,6 @@ public sealed class GccV2WriteService
         return string.IsNullOrWhiteSpace(slug) ? "section" : slug.Trim('-');
     }
 
-    private static ArticleDraft BuildSyntheticArticleDraft(GccV2WriteContext wc)
-    {
-        var title = Capitalize(wc.BaseContext.TargetKeyword);
-        var meta = $"A practical guide to {wc.BaseContext.TargetKeyword}.";
-        var body = new ContentDocument(
-            new Section("h2", title, [new TextParagraph([new Run(meta)])], null, []),
-            []);
-        return new ArticleDraft(title, meta, body, [wc.BaseContext.TargetKeyword], ContentDocumentText.CountWords(body), [title]);
-    }
-
     private static string? ParseSocialPlatform(string rawBriefJson)
     {
         try
@@ -958,55 +1355,13 @@ public sealed class GccV2WriteService
         return null;
     }
 
-    private static AdvertisingDraft ParseAdvertisingDraft(string raw)
-    {
-        var cleaned = raw.Trim();
-        if (cleaned.StartsWith("```", StringComparison.Ordinal))
-        {
-            var start = cleaned.IndexOf('{');
-            var end = cleaned.LastIndexOf('}');
-            if (start >= 0 && end > start) cleaned = cleaned[start..(end + 1)];
-        }
-
-        using var doc = JsonDocument.Parse(cleaned);
-        var root = doc.RootElement;
-        var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "Advertiser article" : "Advertiser article";
-        var bodyText = root.TryGetProperty("bodyText", out var b) ? b.GetString() ?? "" : "";
-        var meta = root.TryGetProperty("metaDescription", out var m) ? m.GetString() ?? "" : "";
-        if (string.IsNullOrWhiteSpace(bodyText))
-            throw new InvalidOperationException("Advertising draft missing bodyText.");
-        return new AdvertisingDraft(title, bodyText, meta);
-    }
-
-    private static ImagePromptDraft ParseImagePromptDraft(string raw)
-    {
-        var cleaned = raw.Trim();
-        if (cleaned.StartsWith("```", StringComparison.Ordinal))
-        {
-            var start = cleaned.IndexOf('{');
-            var end = cleaned.LastIndexOf('}');
-            if (start >= 0 && end > start) cleaned = cleaned[start..(end + 1)];
-        }
-
-        using var doc = JsonDocument.Parse(cleaned);
-        var root = doc.RootElement;
-        var prompt = root.TryGetProperty("prompt", out var p) ? p.GetString() ?? "" : "";
-        if (string.IsNullOrWhiteSpace(prompt))
-            throw new InvalidOperationException("Image prompt JSON missing prompt.");
-        return new ImagePromptDraft(
-            prompt,
-            root.TryGetProperty("style", out var s) ? s.GetString() : null,
-            root.TryGetProperty("negativePrompt", out var n) ? n.GetString() : null,
-            root.TryGetProperty("aspectRatio", out var a) ? a.GetString() : null,
-            root.TryGetProperty("notes", out var notes) ? notes.GetString() : null);
-    }
-
     private async Task<Dictionary<string, SectionMeta>> LoadLatestSectionMetaAsync(Guid jobId, CancellationToken ct)
     {
         var results = await _repo.GetStageResultsAsync(jobId, ct);
         var map = new Dictionary<string, SectionMeta>(StringComparer.OrdinalIgnoreCase);
         foreach (var result in results
-                     .Where(r => r.Stage is "write" or "repair" or "canvas" && !string.IsNullOrWhiteSpace(r.SectionKey))
+                     .Where(r => (r.Stage is "write" or "repair" or "canvas" or "final-synthesis")
+                                 && !string.IsNullOrWhiteSpace(r.SectionKey))
                      .OrderByDescending(r => r.CompletedAtUtc))
         {
             if (map.ContainsKey(result.SectionKey!)) continue;
@@ -1017,7 +1372,11 @@ public sealed class GccV2WriteService
                 map[result.SectionKey!] = new SectionMeta(
                     payload.Heading ?? payload.Section.Heading,
                     payload.Job,
-                    payload.UsedFallbackStub ?? false);
+                    payload.UsedFallbackStub ?? false,
+                    payload.Section,
+                    payload.Citations,
+                    payload.Provenance,
+                    payload.Sources);
             }
             catch (JsonException)
             {
@@ -1028,16 +1387,33 @@ public sealed class GccV2WriteService
         return map;
     }
 
-    private sealed record StageSectionPayload(string? Heading, string? Job, Section? Section, bool? UsedFallbackStub);
+    private sealed record StageSectionPayload(
+        string? Heading,
+        string? Job,
+        Section? Section,
+        bool? UsedFallbackStub,
+        IReadOnlyList<RagCitationDto>? Citations = null,
+        GccV2GenerationProvenance? Provenance = null,
+        IReadOnlyList<RagGenerateSourceDto>? Sources = null);
 
-    private sealed record SectionMeta(string Heading, string? Job, bool UsedFallbackStub);
+    private sealed record SectionMeta(
+        string Heading,
+        string? Job,
+        bool UsedFallbackStub,
+        Section? Section,
+        IReadOnlyList<RagCitationDto>? Citations,
+        GccV2GenerationProvenance? Provenance,
+        IReadOnlyList<RagGenerateSourceDto>? Sources);
 
     private sealed record JobResultPayload(string? Title, string? MetaDescription, ContentDocument? Document);
 
-    private sealed record AdvertisingDraft(string Title, string BodyText, string MetaDescription);
-    private sealed record ImagePromptDraft(string Prompt, string? Style, string? NegativePrompt, string? AspectRatio, string? Notes);
-
     private sealed record OutlineJsonShape(List<OutlineSectionJsonShape>? Sections, List<string>? HierarchyChildHeadings);
 
-    private sealed record OutlineSectionJsonShape(string? Key, string? Heading, string? Job, List<string>? HierarchyChildHeadings);
+    private sealed record OutlineSectionJsonShape(
+        string? Key,
+        string? Heading,
+        string? Job,
+        List<string>? HierarchyChildHeadings,
+        string? Brief = null,
+        IReadOnlyList<string>? EvidenceIds = null);
 }

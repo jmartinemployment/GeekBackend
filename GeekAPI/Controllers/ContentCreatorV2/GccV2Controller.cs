@@ -8,6 +8,7 @@ using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
@@ -32,6 +33,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2BrandKitBuilder _brandKitBuilder;
     private readonly GccV2SiteHierarchyService _siteHierarchy;
     private readonly GccV2GeekCrawlerResearchResolver _researchResolver;
+    private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -42,6 +44,7 @@ public class GccV2Controller : ControllerBase
         GccV2BrandKitBuilder brandKitBuilder,
         GccV2SiteHierarchyService siteHierarchy,
         GccV2GeekCrawlerResearchResolver researchResolver,
+        GccV2JobModelPolicyOverrideStore jobModelPolicies,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -51,6 +54,7 @@ public class GccV2Controller : ControllerBase
         _brandKitBuilder = brandKitBuilder;
         _siteHierarchy = siteHierarchy;
         _researchResolver = researchResolver;
+        _jobModelPolicies = jobModelPolicies;
         _logger = logger;
     }
 
@@ -1046,6 +1050,116 @@ public class GccV2Controller : ControllerBase
 
         return Ok(result.Job);
     }
+
+    [HttpPost("jobs/{id:guid}/retry-model")]
+    public async Task<ActionResult<GccV2JobDto>> RetryJobWithModel(
+        Guid id,
+        [FromBody] RetryModelRequest? request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (request is null || !request.Confirmed)
+            return BadRequest(new { error = "confirmed=true is required for an explicit model change." });
+
+        var job = await _repo.GetJobAsync(id, ct);
+        if (job is null || !IsOwner(job.OwnerUserId)) return NotFound();
+        if (!string.Equals(job.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new
+            {
+                error = $"Job status '{job.Status}' is not safe for model retry; only failed jobs may be retried.",
+            });
+
+        var producerStage = NormalizeProducerStage(request.Stage, job.ContentType);
+        if (producerStage is null)
+            return BadRequest(new { error = $"Stage '{request.Stage}' does not support model retry." });
+        var affectedJobStage = JobStageForProducerStage(producerStage);
+        if (!string.Equals(job.Stage, affectedJobStage, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new
+            {
+                error = $"Requested stage '{request.Stage}' does not match the job's current failed stage '{job.Stage}'.",
+            });
+
+        var model = request.Model?.Trim() ?? "";
+        if (!ContentModelPolicy.IsApproved(producerStage, model))
+            return BadRequest(new
+            {
+                error = $"Model '{model}' is not approved for {producerStage}.",
+                approvedModels = ContentModelPolicy.ApprovedStageModels.GetValueOrDefault(producerStage) ?? [],
+            });
+
+        var reason = request.Reason?.Trim().ToLowerInvariant() ?? "";
+        if (reason is not ("availability" or "quota" or "latency" or "cost" or "operator"))
+            return BadRequest(new { error = "reason must be availability, quota, latency, cost, or operator." });
+
+        var jobPolicy = await _jobModelPolicies.AppendAsync(
+            job.Id,
+            producerStage,
+            model,
+            reason,
+            request.OperatorNote,
+            _user.UserId.ToString("D"),
+            request.ReplacedAttemptId,
+            ct);
+
+        var transition = await _events.TransitionAsync(
+            id,
+            _user.UserId,
+            new ApplyGccV2JobTransitionCommand(
+                Stage: affectedJobStage,
+                Status: "pending",
+                Error: "",
+                ReleaseClaim: true,
+                EventType: "JobModelRetryRequested",
+                EventPayloadJson: JsonSerializer.Serialize(new
+                {
+                    jobId = id,
+                    stage = producerStage,
+                    requestedModel = model,
+                    modelPolicyVersion = ContentModelPolicy.CurrentVersion,
+                    reason,
+                    request.ReplacedAttemptId,
+                    operatorUserId = _user.UserId,
+                    attemptId = jobPolicy.AttemptId,
+                    timestamp = jobPolicy.Timestamp,
+                }, JsonOpts),
+                Wake: true),
+            ct);
+        _wake.Wake(id);
+        return Ok(transition.Job);
+    }
+
+    private static string? NormalizeProducerStage(string? stage, string? contentType)
+    {
+        var value = stage?.Trim().Replace("-", "", StringComparison.Ordinal).ToLowerInvariant();
+        return value switch
+        {
+            "plan" or "outline" => "outline",
+            "write" or "section" => string.Equals(contentType, "image-prompt", StringComparison.OrdinalIgnoreCase)
+                ? "complete"
+                : "section",
+            "complete" or "imageprompt" => "complete",
+            "repair" => "repair",
+            "validate" or "validation" => "validation",
+            "finalsynthesis" => "finalSynthesis",
+            _ => null,
+        };
+    }
+
+    private static string JobStageForProducerStage(string stage) => stage switch
+    {
+        "outline" => "plan",
+        "finalSynthesis" => "final-synthesis",
+        "validation" or "repair" => "validate",
+        _ => "write",
+    };
+
+    public sealed record RetryModelRequest(
+        string? Stage,
+        string? Model,
+        string? Reason,
+        bool Confirmed,
+        string? ReplacedAttemptId = null,
+        string? OperatorNote = null);
 
     /// <summary>Retry all non-ready, non-awaiting jobs on a create (e.g. orphaned image-prompt jobs).</summary>
     [HttpPost("creates/{id:guid}/retry-stuck-jobs")]

@@ -41,7 +41,8 @@ public sealed class GccV2ToolOverviewWriteService
         GccV2WriteContext wc,
         Guid ownerUserId,
         GccV2ToolPageTarget target,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<Section>? generatedBody = null)
     {
         var jobs = await _repo.ListJobsByCreateAsync(wc.Job.CreateId, ct);
         var hasPillarJob = jobs.Any(j =>
@@ -102,7 +103,11 @@ public sealed class GccV2ToolOverviewWriteService
                 continue;
 
             Section section;
-            if (IsToolsIndexHeading(entry.Heading, toolsHeading))
+            if (generatedBody is { Count: > 0 } && i < generatedBody.Count)
+            {
+                section = generatedBody[i];
+            }
+            else if (IsToolsIndexHeading(entry.Heading, toolsHeading))
             {
                 var (toolsSection, toolsTokens) = await BuildToolsIndexSectionAsync(
                     wc, metadata, entry.Heading, toolsHeading, partnerRows, partnerNames, ct);

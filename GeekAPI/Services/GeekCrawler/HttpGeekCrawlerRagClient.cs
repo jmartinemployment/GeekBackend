@@ -89,6 +89,12 @@ public sealed class GeekCrawlerRagGenerateRequest
     public string? SectionHeading { get; init; }
     public string? SectionBrief { get; init; }
     public IReadOnlyList<string>? CompletedSectionSummaries { get; init; }
+    public string? DraftContent { get; init; }
+    public IReadOnlyList<GeekCrawlerRagGenerateSourceDto>? Sources { get; init; }
+    public JsonElement? CanonicalBrief { get; init; }
+    public string? ModelPolicyPreset { get; init; }
+    public string? ModelPolicyVersion { get; init; }
+    public IReadOnlyDictionary<string, string>? StageModelOverrides { get; init; }
 }
 
 public sealed class GeekCrawlerRagOutlineSectionDto
@@ -96,6 +102,52 @@ public sealed class GeekCrawlerRagOutlineSectionDto
     public string Key { get; init; } = "";
     public string Heading { get; init; } = "";
     public string Brief { get; init; } = "";
+    public IReadOnlyList<string> EvidenceIds { get; init; } = [];
+}
+
+public sealed class GeekCrawlerRagGenerateProvenance
+{
+    public string? GenerationStage { get; init; }
+    public string? ModelUsed { get; init; }
+    public string? ModelPolicyPreset { get; init; }
+    public string? ModelPolicyVersion { get; init; }
+    public string? PromptVersion { get; init; }
+    public string? Retrieval { get; init; }
+    public IReadOnlyList<string> EvidenceIds { get; init; } = [];
+}
+
+public enum GeekCrawlerRagValidationIssueCategory
+{
+    UnsupportedClaim,
+    SourceConflict,
+    BriefAlignment,
+    BrandVoice,
+    OriginalityRepetition,
+    Usefulness,
+    Cta,
+    SeoGeo,
+    ContentTypeRequirements,
+}
+
+public sealed class GeekCrawlerRagValidationIssue
+{
+    public string? SectionTitle { get; init; }
+    public required GeekCrawlerRagValidationIssueCategory Category { get; init; }
+    public required string Detail { get; init; }
+    public required string RepairInstruction { get; init; }
+}
+
+public sealed class GeekCrawlerRagValidation
+{
+    public bool Approved { get; init; }
+    public required IReadOnlyList<GeekCrawlerRagValidationIssue> Issues { get; init; }
+    public required IReadOnlyList<string> Strengths { get; init; }
+    public int UnsupportedClaimCount { get; init; }
+    public double BriefAlignmentScore { get; init; }
+    public double EvidenceCoverageScore { get; init; }
+    public double UsefulnessScore { get; init; }
+    public double OriginalityScore { get; init; }
+    public double BrandAlignmentScore { get; init; }
 }
 
 public sealed class GeekCrawlerRagCitationDto
@@ -137,8 +189,11 @@ public sealed class GeekCrawlerRagGenerateResult
     public IReadOnlyList<GeekCrawlerRagThemeDto> Themes { get; init; } = [];
     public IReadOnlyList<GeekCrawlerRagOutlineSectionDto>? Outline { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = [];
+    public IReadOnlyList<string> EvidenceWarnings { get; init; } = [];
     public string? ModelUsed { get; init; }
     public string? Retrieval { get; init; }
+    public GeekCrawlerRagGenerateProvenance? Provenance { get; init; }
+    public GeekCrawlerRagValidation? Validation { get; init; }
 }
 
 public sealed class GeekCrawlerRagThemeDto
@@ -605,6 +660,18 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             if (request.CompletedSectionSummaries is { Count: > 0 })
                 payload["completedSectionSummaries"] =
                     request.CompletedSectionSummaries.Take(12).ToArray();
+            if (!string.IsNullOrWhiteSpace(request.DraftContent))
+                payload["draftContent"] = request.DraftContent;
+            if (request.Sources is { Count: > 0 })
+                payload["sources"] = request.Sources;
+            if (request.CanonicalBrief is { } canonicalBrief)
+                payload["canonicalBrief"] = canonicalBrief;
+            if (!string.IsNullOrWhiteSpace(request.ModelPolicyPreset))
+                payload["modelPolicyPreset"] = request.ModelPolicyPreset;
+            if (!string.IsNullOrWhiteSpace(request.ModelPolicyVersion))
+                payload["modelPolicyVersion"] = request.ModelPolicyVersion;
+            if (request.StageModelOverrides is { Count: > 0 })
+                payload["stageModelOverrides"] = request.StageModelOverrides;
 
             using var response = await _http.PostAsJsonAsync("v1/generate", payload, JsonOpts, ct)
                 .ConfigureAwait(false);
@@ -668,11 +735,26 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                         Key = s.Key ?? "",
                         Heading = s.Heading ?? "",
                         Brief = s.Brief ?? "",
+                        EvidenceIds = s.EvidenceIds ?? [],
                     })
                     .ToList(),
                 Warnings = dto.Warnings ?? [],
+                EvidenceWarnings = dto.EvidenceWarnings ?? [],
                 ModelUsed = dto.ModelUsed,
                 Retrieval = dto.Retrieval,
+                Provenance = dto.Provenance is null
+                    ? null
+                    : new GeekCrawlerRagGenerateProvenance
+                    {
+                        GenerationStage = dto.Provenance.GenerationStage,
+                        ModelUsed = dto.Provenance.ModelUsed,
+                        ModelPolicyPreset = dto.Provenance.ModelPolicyPreset,
+                        ModelPolicyVersion = dto.Provenance.ModelPolicyVersion,
+                        PromptVersion = dto.Provenance.PromptVersion,
+                        Retrieval = dto.Provenance.Retrieval,
+                        EvidenceIds = dto.Provenance.EvidenceIds ?? [],
+                    },
+                Validation = MapValidation(dto.Validation),
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -680,6 +762,72 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             _logger.LogWarning(ex, "Geek-Crawler-Rag generate threw");
             return null;
         }
+    }
+
+    private static GeekCrawlerRagValidation? MapValidation(ValidationDto? validation)
+    {
+        if (validation?.Approved is null
+            || validation.Issues is null
+            || validation.Strengths is null
+            || validation.UnsupportedClaimCount is null)
+            return null;
+        var issues = new List<GeekCrawlerRagValidationIssue>();
+        foreach (var issue in validation.Issues)
+        {
+            if (!TryParseValidationCategory(issue.Category, out var category)
+                || string.IsNullOrWhiteSpace(issue.Detail)
+                || string.IsNullOrWhiteSpace(issue.RepairInstruction))
+                return null;
+            issues.Add(new GeekCrawlerRagValidationIssue
+            {
+                SectionTitle = issue.SectionTitle,
+                Category = category,
+                Detail = issue.Detail,
+                RepairInstruction = issue.RepairInstruction,
+            });
+        }
+        if (validation.UnsupportedClaimCount < 0
+            || !ValidScore(validation.BriefAlignmentScore)
+            || !ValidScore(validation.EvidenceCoverageScore)
+            || !ValidScore(validation.UsefulnessScore)
+            || !ValidScore(validation.OriginalityScore)
+            || !ValidScore(validation.BrandAlignmentScore))
+            return null;
+        return new GeekCrawlerRagValidation
+        {
+            Approved = validation.Approved.GetValueOrDefault(),
+            Issues = issues,
+            Strengths = validation.Strengths,
+            UnsupportedClaimCount = validation.UnsupportedClaimCount.GetValueOrDefault(),
+            BriefAlignmentScore = validation.BriefAlignmentScore.GetValueOrDefault(),
+            EvidenceCoverageScore = validation.EvidenceCoverageScore.GetValueOrDefault(),
+            UsefulnessScore = validation.UsefulnessScore.GetValueOrDefault(),
+            OriginalityScore = validation.OriginalityScore.GetValueOrDefault(),
+            BrandAlignmentScore = validation.BrandAlignmentScore.GetValueOrDefault(),
+        };
+    }
+
+    private static bool ValidScore(double? score) => score is >= 0 and <= 100;
+
+    private static bool TryParseValidationCategory(
+        string? raw,
+        out GeekCrawlerRagValidationIssueCategory category)
+    {
+        category = raw switch
+        {
+            "unsupportedClaim" => GeekCrawlerRagValidationIssueCategory.UnsupportedClaim,
+            "sourceConflict" => GeekCrawlerRagValidationIssueCategory.SourceConflict,
+            "briefAlignment" => GeekCrawlerRagValidationIssueCategory.BriefAlignment,
+            "brandVoice" => GeekCrawlerRagValidationIssueCategory.BrandVoice,
+            "originalityRepetition" => GeekCrawlerRagValidationIssueCategory.OriginalityRepetition,
+            "usefulness" => GeekCrawlerRagValidationIssueCategory.Usefulness,
+            "cta" => GeekCrawlerRagValidationIssueCategory.Cta,
+            "seoGeo" => GeekCrawlerRagValidationIssueCategory.SeoGeo,
+            "contentTypeRequirements" => GeekCrawlerRagValidationIssueCategory.ContentTypeRequirements,
+            _ => default,
+        };
+        return raw is "unsupportedClaim" or "sourceConflict" or "briefAlignment" or "brandVoice"
+            or "originalityRepetition" or "usefulness" or "cta" or "seoGeo" or "contentTypeRequirements";
     }
 
     internal static IReadOnlyList<GeekCrawlerRagThemeDto> MapThemes(IReadOnlyList<ThemeDto>? themes)
@@ -857,8 +1005,32 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public List<ThemeDto>? Themes { get; set; }
         public List<OutlineSectionDto>? Outline { get; set; }
         public List<string>? Warnings { get; set; }
+        public List<string>? EvidenceWarnings { get; set; }
         public string? ModelUsed { get; set; }
         public string? Retrieval { get; set; }
+        public GenerateProvenanceDto? Provenance { get; set; }
+        public ValidationDto? Validation { get; set; }
+    }
+
+    private sealed class ValidationDto
+    {
+        public bool? Approved { get; set; }
+        public List<ValidationIssueDto>? Issues { get; set; }
+        public List<string>? Strengths { get; set; }
+        public int? UnsupportedClaimCount { get; set; }
+        public double? BriefAlignmentScore { get; set; }
+        public double? EvidenceCoverageScore { get; set; }
+        public double? UsefulnessScore { get; set; }
+        public double? OriginalityScore { get; set; }
+        public double? BrandAlignmentScore { get; set; }
+    }
+
+    private sealed class ValidationIssueDto
+    {
+        public string? SectionTitle { get; set; }
+        public string? Category { get; set; }
+        public string? Detail { get; set; }
+        public string? RepairInstruction { get; set; }
     }
 
     private sealed class OutlineSectionDto
@@ -866,6 +1038,18 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Key { get; set; }
         public string? Heading { get; set; }
         public string? Brief { get; set; }
+        public List<string>? EvidenceIds { get; set; }
+    }
+
+    private sealed class GenerateProvenanceDto
+    {
+        public string? GenerationStage { get; set; }
+        public string? ModelUsed { get; set; }
+        public string? ModelPolicyPreset { get; set; }
+        public string? ModelPolicyVersion { get; set; }
+        public string? PromptVersion { get; set; }
+        public string? Retrieval { get; set; }
+        public List<string>? EvidenceIds { get; set; }
     }
 
     private sealed class BattlecardDto

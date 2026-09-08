@@ -4,8 +4,10 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Gcw;
+using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.ContentCreatorV2.Validate;
@@ -27,10 +29,16 @@ public sealed record GccV2ValidationReport(
     int GeoScore = 0,
     IReadOnlyList<GccV2GeoAnalyzer.GeoCheck>? GeoChecks = null,
     string? GeoSummary = null,
-    IReadOnlyList<GcwSeoAnalyzer.SeoCheck>? SeoChecks = null)
+    IReadOnlyList<GcwSeoAnalyzer.SeoCheck>? SeoChecks = null,
+    RagValidationDto? RagValidation = null,
+    IReadOnlyList<RagCitationDto>? ValidationCitations = null,
+    RagGenerateProvenanceDto? ValidationProvenance = null,
+    string? ValidationModelUsed = null,
+    IReadOnlyList<string>? ValidationEvidenceWarnings = null)
 {
     public bool ShipReady => OverlapHits.Count == 0
-        && (ReviewVerdict is "approved" or "skipped")
+        && ReviewVerdict == "approved"
+        && RagValidation is { Approved: true, UnsupportedClaimCount: 0 }
         && PolishShipReady
         && GuardrailRestructureCount == 0;
 }
@@ -38,8 +46,8 @@ public sealed record GccV2ValidationReport(
 public sealed record GccV2ValidateOutcome(GccV2WriteOutput Final, GccV2ValidationReport Report, bool ShipReady, bool OutstandingIssues, int RepairAttempts);
 
 /// <summary>
-/// Phase 5 VALIDATE + REPAIR: <see cref="GccV2ReviewAdapter"/> (editorial rubric) +
-/// <c>GcwSeoAnalyzer</c> + <c>GcwPolishAnalyzer</c> (called, never edited) +
+/// Phase 5 VALIDATE + REPAIR: typed citeable RAG validation +
+/// <c>GcwSeoAnalyzer</c> + <c>GcwPolishAnalyzer</c> +
 /// <see cref="GccV2OverlapGate"/> (v2-only). Never reports <c>ShipReady:true</c> while an overlap
 /// hit remains. REPAIR targets only the flagged section(s), capped at
 /// <see cref="MaxRepairAttempts"/> whole VALIDATE passes — if issues remain after the cap, the job
@@ -54,28 +62,31 @@ public sealed class GccV2ValidateService
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     private readonly HttpGccV2Repository _repo;
-    private readonly GccV2ReviewAdapter _reviewAdapter;
     private readonly GccV2JobEventWriter _events;
     private readonly GccV2WriteService _writeService;
     private readonly GuardrailGateService _guardrailGate;
     private readonly GccV2RestructurePassService _restructurePass;
+    private readonly RagGenerateService _rag;
+    private readonly ContentModelPolicy _modelPolicy;
     private readonly ILogger<GccV2ValidateService> _logger;
 
     public GccV2ValidateService(
         HttpGccV2Repository repo,
-        GccV2ReviewAdapter reviewAdapter,
         GccV2JobEventWriter events,
         GccV2WriteService writeService,
         GuardrailGateService guardrailGate,
         GccV2RestructurePassService restructurePass,
+        RagGenerateService rag,
+        ContentModelPolicy modelPolicy,
         ILogger<GccV2ValidateService> logger)
     {
         _repo = repo;
-        _reviewAdapter = reviewAdapter;
         _events = events;
         _writeService = writeService;
         _guardrailGate = guardrailGate;
         _restructurePass = restructurePass;
+        _rag = rag;
+        _modelPolicy = modelPolicy;
         _logger = logger;
     }
 
@@ -134,9 +145,52 @@ public sealed class GccV2ValidateService
             ? Array.Empty<OverlapHit>()
             : GccV2OverlapGate.Detect(overlapInputs);
 
-        string reviewVerdict = "skipped";
-        string? reviewNotes = null;
-        // Phase D: skip Groq editorial VALIDATE for all content types — keep overlap + guardrail + polish.
+        var sources = output.Sources.Count > 0
+            ? output.Sources
+            : output.Citations.Select(c => new RagGenerateSourceDto
+            {
+                PageId = c.PageId,
+                Url = c.Url,
+                Title = c.Title,
+                CrawlType = c.CrawlType,
+                Kind = "page",
+            }).DistinctBy(s => $"{s.PageId}|{s.Url}").ToList();
+        if (sources.Count == 0)
+            throw new InvalidOperationException(
+                "RAG validation requires persisted WRITE evidence sources.");
+
+        var route = GccV2ContentTypeRagMapper.Map(contentType);
+        var selection = _modelPolicy.Select(
+            ContentGenerationStage.Validation,
+            wc.GenerationBrief,
+            wc.JobModelPolicyOverride);
+        var ragResponse = await _rag.GenerateAsync(
+            wc.Job.OwnerUserId,
+            new RagGenerateRequest
+            {
+                WritingIntent = route.WritingIntent,
+                Topic = wc.GenerationBrief.TargetKeyword,
+                GenerationStage = "validation",
+                DraftContent = GccV2WriteService.ToStableMarkdown(output),
+                Sources = sources,
+                CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
+                ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
+                ModelPolicyVersion = selection.PolicyVersion,
+                StageModelOverrides = ContentModelPolicy.ProducerOverridesForRequest(
+                    wc.GenerationBrief, selection, "validation", wc.JobModelPolicyOverride),
+                RequestedModel = selection.EffectiveModel,
+                RequireCiteable = true,
+            },
+            ct);
+        var validation = ragResponse.Validation
+            ?? throw new InvalidOperationException("RAG validation returned no typed validation result.");
+        var reviewVerdict = validation.Approved && validation.UnsupportedClaimCount == 0
+            ? "approved"
+            : "rejected";
+        var reviewNotes = validation.Issues.Count == 0
+            ? null
+            : string.Join("\n", validation.Issues.Select(issue =>
+                $"[Section: \"{issue.SectionTitle ?? "Document"}\"] {issue.Detail}"));
 
         return new GccV2ValidationReport(
             reviewVerdict,
@@ -151,7 +205,12 @@ public sealed class GccV2ValidateService
             gate.Geo.Score,
             gate.Geo.Checks,
             gate.Geo.Summary,
-            gate.Seo.Checks);
+            gate.Seo.Checks,
+            validation,
+            ragResponse.Citations ?? [],
+            ragResponse.Provenance,
+            ragResponse.ModelUsed,
+            ragResponse.EvidenceWarnings);
     }
 
     private static List<OverlapSectionInput> BuildOverlapInputs(GccV2WriteOutput output, ContentDocument document)
@@ -174,11 +233,26 @@ public sealed class GccV2ValidateService
 
     private async Task PersistAndEmitReportAsync(Guid jobId, Guid ownerUserId, GccV2ValidationReport report, int attempt, CancellationToken ct)
     {
-        var payload = new
+        var payload = BuildPersistedReportPayload(report, attempt);
+
+        await _repo.AddStageResultAsync(
+            jobId,
+            new CreateGccV2StageResultCommand("validate", null, JsonSerializer.Serialize(payload, JsonOpts), 0),
+            ct);
+        await _events.AppendAsync(jobId, ownerUserId, "ValidationReport", payload, ct: ct);
+    }
+
+    internal static object BuildPersistedReportPayload(GccV2ValidationReport report, int attempt) =>
+        new
         {
             shipReady = report.ShipReady,
             reviewVerdict = report.ReviewVerdict,
             reviewNotes = report.ReviewNotes,
+            validation = report.RagValidation,
+            validationCitations = report.ValidationCitations ?? Array.Empty<RagCitationDto>(),
+            validationProvenance = report.ValidationProvenance,
+            validationModelUsed = report.ValidationModelUsed,
+            validationEvidenceWarnings = report.ValidationEvidenceWarnings ?? Array.Empty<string>(),
             seoScore = report.SeoScore,
             polishScore = report.PolishScore,
             polishShipReady = report.PolishShipReady,
@@ -215,13 +289,6 @@ public sealed class GccV2ValidateService
             outstandingIssues = !report.ShipReady,
             repairAttempt = attempt,
         };
-
-        await _repo.AddStageResultAsync(
-            jobId,
-            new CreateGccV2StageResultCommand("validate", null, JsonSerializer.Serialize(payload, JsonOpts), 0),
-            ct);
-        await _events.AppendAsync(jobId, ownerUserId, "ValidationReport", payload, ct: ct);
-    }
 
     private async Task<GccV2WriteOutput> RepairAsync(
         GccV2WriteContext wc, Guid ownerUserId, GccV2WriteOutput current, GccV2ValidationReport report, int attempt, CancellationToken ct)
@@ -288,6 +355,15 @@ public sealed class GccV2ValidateService
             targets[hit.SectionKeyB] = hit.RepairHint;
         }
 
+        var ragTargets = SelectRagIssueTargets(current, report.RagValidation).ToList();
+        if (report.RagValidation is { Approved: false, Issues.Count: 0 })
+        {
+            ragTargets.Add(new RepairTarget(
+                current.Lede.SectionKey,
+                "Resolve the document-level validation rejection while preserving source-grounded claims.",
+                ReportedSectionTitle: null));
+        }
+
         if (!string.IsNullOrWhiteSpace(report.ReviewNotes))
         {
             foreach (Match m in SectionRefPattern.Matches(report.ReviewNotes))
@@ -332,11 +408,31 @@ public sealed class GccV2ValidateService
             AddSeoGeoRepairTargets(targets, current, report, keyword, paaQuestions);
         }
 
-        return targets.Select(kv => new RepairTarget(
+        return ragTargets.Concat(targets.Select(kv => new RepairTarget(
             kv.Key,
             kv.Value,
             kv.Value.StartsWith("Pass-2 restructure", StringComparison.OrdinalIgnoreCase),
-            string.Equals(kv.Key, GcwContentTypeScoring.AppendFaqSectionKey, StringComparison.OrdinalIgnoreCase))).ToList();
+            string.Equals(kv.Key, GcwContentTypeScoring.AppendFaqSectionKey, StringComparison.OrdinalIgnoreCase)))).ToList();
+    }
+
+    internal static IReadOnlyList<RepairTarget> SelectRagIssueTargets(
+        GccV2WriteOutput current,
+        RagValidationDto? validation)
+    {
+        var targets = new List<RepairTarget>();
+        foreach (var issue in validation?.Issues ?? [])
+        {
+            var match = string.IsNullOrWhiteSpace(issue.SectionTitle)
+                ? null
+                : current.AllSections.FirstOrDefault(s =>
+                    string.Equals(s.Heading, issue.SectionTitle.Trim(), StringComparison.OrdinalIgnoreCase));
+            var target = match ?? current.Lede;
+            targets.Add(new RepairTarget(
+                target.SectionKey,
+                issue.RepairInstruction,
+                ReportedSectionTitle: issue.SectionTitle));
+        }
+        return targets;
     }
 
     private static void AddSeoGeoRepairTargets(
@@ -438,5 +534,10 @@ public sealed class GccV2ValidateService
         return candidates.Count == 0 ? null : candidates[candidates.Count / 2];
     }
 
-    private sealed record RepairTarget(string SectionKey, string RevisionNotes, bool IsRestructurePass = false, bool IsAppendFaq = false);
+    internal sealed record RepairTarget(
+        string SectionKey,
+        string RevisionNotes,
+        bool IsRestructurePass = false,
+        bool IsAppendFaq = false,
+        string? ReportedSectionTitle = null);
 }

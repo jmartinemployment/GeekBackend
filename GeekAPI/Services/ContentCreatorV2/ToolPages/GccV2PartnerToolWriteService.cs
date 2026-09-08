@@ -37,7 +37,8 @@ public sealed class GccV2PartnerToolWriteService
         GccV2WriteContext wc,
         Guid ownerUserId,
         GccV2ToolPageTarget target,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<Section>? generatedBody = null)
     {
         var toolName = string.IsNullOrWhiteSpace(target.Name) ? wc.BaseContext.TargetKeyword : target.Name.Trim();
         var slug = string.IsNullOrWhiteSpace(target.Slug) ? GccV2ToolSlugHelper.SlugifyToolName(toolName) : target.Slug;
@@ -64,7 +65,11 @@ public sealed class GccV2PartnerToolWriteService
         var headings = GccV2ToolPagePromptBuilder.PartnerSectionHeadings;
         var parsedSections = new List<Section>();
 
-        for (var i = 0; i < headings.Length; i++)
+        if (generatedBody is { Count: > 0 })
+        {
+            parsedSections.AddRange(generatedBody);
+        }
+        else for (var i = 0; i < headings.Length; i++)
         {
             var heading = headings[i]!;
             try

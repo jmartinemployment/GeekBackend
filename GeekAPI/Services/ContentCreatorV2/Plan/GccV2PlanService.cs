@@ -2,19 +2,34 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.ContentCreatorV2.BrandKit;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.Rag;
+using System.Diagnostics;
 
 namespace GeekAPI.Services.ContentCreatorV2.Plan;
 
 /// <summary>One PLAN-stage body section — the contract WRITE's <c>GccV2WriteService.LoadOutlineAsync</c>
 /// parses (<c>key</c>/<c>heading</c>/<c>job</c>/<c>hierarchyChildHeadings</c>). Do not rename these
 /// properties without updating that parser.</summary>
-public sealed record GccV2PlanOutlineSection(string Key, string Heading, string Job, List<string> HierarchyChildHeadings);
+public sealed record GccV2PlanOutlineSection(
+    string Key,
+    string Heading,
+    string Job,
+    List<string> HierarchyChildHeadings,
+    string? Brief = null,
+    IReadOnlyList<string>? EvidenceIds = null);
 
 /// <summary>PLAN-stage outline payload — persisted as the "plan" stage result's <c>OutputJson</c>,
 /// mirrored onto the brief's <see cref="GccV2OutlineDto"/>, and emitted verbatim as the
 /// <c>OutlineReady</c> job event.</summary>
-public sealed record GccV2PlanOutline(List<GccV2PlanOutlineSection> Sections, List<string> HierarchyChildHeadings);
+public sealed record GccV2PlanOutline(
+    List<GccV2PlanOutlineSection> Sections,
+    List<string> HierarchyChildHeadings,
+    IReadOnlyList<RagCitationDto>? Citations = null,
+    GccV2GenerationProvenance? Provenance = null,
+    GccV2ResearchEvidenceManifest? EvidenceManifest = null);
 
 /// <summary>
 /// Builds the real PLAN-stage outline, replacing the old hardcoded 3-section stub. Grounds body
@@ -39,11 +54,22 @@ public sealed class GccV2PlanService
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private readonly HttpGccV2Repository _repo;
+    private readonly RagGenerateService _rag;
+    private readonly ContentModelPolicy _modelPolicy;
+    private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
     private readonly ILogger<GccV2PlanService> _logger;
 
-    public GccV2PlanService(HttpGccV2Repository repo, ILogger<GccV2PlanService> logger)
+    public GccV2PlanService(
+        HttpGccV2Repository repo,
+        RagGenerateService rag,
+        ContentModelPolicy modelPolicy,
+        GccV2JobModelPolicyOverrideStore jobModelPolicies,
+        ILogger<GccV2PlanService> logger)
     {
         _repo = repo;
+        _rag = rag;
+        _modelPolicy = modelPolicy;
+        _jobModelPolicies = jobModelPolicies;
         _logger = logger;
     }
 
@@ -71,9 +97,59 @@ public sealed class GccV2PlanService
             : job.ContentType;
         contentType = contentType.Trim().ToLowerInvariant();
 
-        var (sectionDefs, headingsFromHierarchy) = BuildSectionDefinitions(
-            contentType, keyword, topicChildren, preferSiteStructure, regenerateVariant, partnerToolNames,
-            brief.RawBriefJson);
+        var create = await _repo.GetCreateAsync(job.CreateId, ct);
+        GccV2BrandKitContent? brandKit = null;
+        if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is { } profileId)
+        {
+            var kit = (await _repo.ListBrandKitsByProfileAsync(profileId, ct)).FirstOrDefault();
+            if (kit is not null)
+                brandKit = JsonSerializer.Deserialize<GccV2BrandKitContent>(kit.KitJson, JsonOpts);
+        }
+
+        var generationBrief = GccV2GenerationBriefAssembler.Assemble(job, brief, create, brandKit);
+        var route = GccV2ContentTypeRagMapper.Map(contentType);
+        var jobModelPolicy = await _jobModelPolicies.LoadLatestAsync(job.Id, ct);
+        var selection = _modelPolicy.Select(
+            route.IsImagePrompt ? ContentGenerationStage.ImagePrompt : ContentGenerationStage.Outline,
+            generationBrief,
+            jobModelPolicy);
+        var stopwatch = Stopwatch.StartNew();
+        var ragResult = await _rag.GenerateAsync(
+            job.OwnerUserId,
+            new RagGenerateRequest
+            {
+                WritingIntent = route.WritingIntent,
+                Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
+                TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList(),
+                GenerationStage = "outline",
+                CanonicalBrief = generationBrief.ToCanonicalBrief(),
+                ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
+                ModelPolicyVersion = selection.PolicyVersion,
+                StageModelOverrides = ContentModelPolicy.ProducerOverridesForRequest(
+                    generationBrief, selection, "outline", jobModelPolicy),
+                RequestedModel = selection.EffectiveModel,
+                RequireCiteable = true,
+            },
+            ct);
+        stopwatch.Stop();
+        var ragOutline = ragResult.Outline?
+            .Where(s => !string.IsNullOrWhiteSpace(s.Heading))
+            .Select((s, i) => (
+                string.IsNullOrWhiteSpace(s.Key) ? Slugify(s.Heading, i + 1) : s.Key.Trim(),
+                s.Heading.Trim(),
+                s.Brief?.Trim() ?? "",
+                s.EvidenceIds))
+            .ToList() ?? [];
+        if (ragOutline.Count == 0)
+            throw new InvalidOperationException("Citeable RAG returned no outline sections.");
+
+        var sectionDefs = ragOutline.Select(s => (Key: s.Item1, Heading: s.Item2)).ToList();
+        var sectionBriefs = ragOutline.GroupBy(s => s.Item1, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Item3, StringComparer.OrdinalIgnoreCase);
+        var sectionEvidence = ragOutline.GroupBy(s => s.Item1, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Item4, StringComparer.OrdinalIgnoreCase);
+        var headingsFromHierarchy = false;
         sectionDefs = DedupeByHeading(sectionDefs);
         var perSectionChildren = PartitionChildHeadings(topicChildren, sectionDefs.Count, headingsFromHierarchy);
         // MUST-mention partner tools — distributed across sections (never as H2s).
@@ -93,7 +169,9 @@ public sealed class GccV2PlanService
                     def.Key,
                     def.Heading,
                     i == 0 ? "problem" : "advance",
-                    must);
+                    must,
+                    sectionBriefs.GetValueOrDefault(def.Key),
+                    sectionEvidence.GetValueOrDefault(def.Key));
             })
             .ToList();
 
@@ -120,7 +198,36 @@ public sealed class GccV2PlanService
                 paaQuestions));
         }
 
-        var outline = new GccV2PlanOutline(sections, topicChildren);
+        var evidenceIds = (ragResult.Citations ?? []).Select(c => c.PageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>()
+            .Concat(ragResult.Sources.Select(s => s.PageId).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>())
+            .Concat(ragResult.Provenance?.EvidenceIds ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var provenance = new GccV2GenerationProvenance(
+            generationBrief.Version,
+            selection.PolicyVersion,
+            ragResult.PromptVersion,
+            selection.RequestedModel,
+            ragResult.ModelUsed,
+            ragResult.RetrievalMode,
+            evidenceIds,
+            ragResult.Warnings.Concat(ragResult.EvidenceWarnings).Distinct().ToList(),
+            stopwatch.ElapsedMilliseconds,
+            selection);
+        var evidenceGaps = new List<string>();
+        if (ragResult.Sources.Count == 0) evidenceGaps.Add("No retrievable sources were returned for PLAN.");
+        if (ragResult.Citations is null || ragResult.Citations.Count == 0)
+            evidenceGaps.Add("No quote-verified citations were returned for PLAN.");
+        var manifest = new GccV2ResearchEvidenceManifest(
+            "gcc-v2-research-manifest/1",
+            ragResult.Sources,
+            ragResult.Citations ?? [],
+            evidenceGaps,
+            [],
+            ragResult.Warnings.Concat(ragResult.EvidenceWarnings).Distinct().ToList(),
+            DateTimeOffset.UtcNow);
+        var outline = new GccV2PlanOutline(
+            sections, topicChildren, ragResult.Citations, provenance, manifest);
 
         if (brief.Id != Guid.Empty)
         {
