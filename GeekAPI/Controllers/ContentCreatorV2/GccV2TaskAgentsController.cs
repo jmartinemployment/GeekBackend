@@ -96,6 +96,26 @@ public sealed class GccV2TaskAgentsController(
             };
         }
 
+        var parentArtifactVersionIds = (request.ParentArtifactVersionIds ?? [])
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        var lineageRelationship = string.IsNullOrWhiteSpace(request.LineageRelationship)
+            ? (request.RetryOfRunId is null ? "derived-from" : "retry-of")
+            : request.LineageRelationship.Trim();
+        if (parentArtifactVersionIds.Count == 0 && request.RetryOfRunId is { } retryOf)
+        {
+            var prior = await repo.GetTaskRunAsync(retryOf, Owner, ct);
+            if (prior is null) return Conflict(new { error = "Retry source run was not found." });
+            parentArtifactVersionIds = (prior.Artifacts ?? [])
+                .SelectMany(artifact => artifact.Versions)
+                .OrderByDescending(version => version.VersionNumber)
+                .Select(version => version.Id)
+                .Take(1)
+                .ToList();
+            lineageRelationship = "retry-of";
+        }
+
         var input = GccV2CanonicalJson.Serialize(request.Input);
         var model = CanonicalObject(request.ModelSnapshot, new
         {
@@ -108,6 +128,8 @@ public sealed class GccV2TaskAgentsController(
             capturedAtUtc = DateTimeOffset.UtcNow,
             contextManifestId,
             contextEnvelope,
+            parentArtifactVersionIds,
+            lineageRelationship,
         });
         var run = await repo.CreateTaskRunAsync(new(
             Owner, definition.Id, version.Id, version.VersionDigest,
@@ -126,6 +148,7 @@ public sealed class GccV2TaskAgentsController(
             run.ProgressPercent,
             taskAgent = new { definition.CapabilityId, definition.Id, versionId = version.Id, version.VersionDigest },
             sharedContext = new { contextManifestId, contextManifestDigest },
+            lineage = new { parentArtifactVersionIds, relationship = lineageRelationship },
         });
     }
 
@@ -155,6 +178,25 @@ public sealed class GccV2TaskAgentsController(
         var definition = await repo.GetTaskAgentAsync(run.TaskAgentDefinitionId.ToString("D"), ct);
         var version = definition?.Versions.SingleOrDefault(x => x.Id == run.TaskAgentVersionId);
         if (definition is null || version is null) return Problem("Pinned task-agent contract is unavailable.");
+        var versions = (run.Artifacts ?? []).SelectMany(x => x.Versions).ToList();
+        var lineage = versions.Select(x => new
+        {
+            artifactVersionId = x.Id,
+            versionNumber = x.VersionNumber,
+            digest = x.Digest,
+            parents = (x.Parents ?? []).Select(edge => new
+            {
+                edge.ParentArtifactVersionId,
+                edge.Relationship,
+                edge.CreatedAtUtc,
+            }),
+            children = (x.Children ?? []).Select(edge => new
+            {
+                edge.ChildArtifactVersionId,
+                edge.Relationship,
+                edge.CreatedAtUtc,
+            }),
+        }).ToList();
         return Ok(new
         {
             contractVersion = "gcc-task-result-shell.v1",
@@ -164,7 +206,7 @@ public sealed class GccV2TaskAgentsController(
             sourceReadinessAndProvenance = JsonSerializer.Deserialize<JsonElement>(run.SourceSnapshotJson),
             progress = new { run.Status, run.Phase, run.ProgressPercent, events = run.Events ?? [] },
             renderer = JsonSerializer.Deserialize<JsonElement>(version.ResultRendererJson),
-            findingsAndEvidence = (run.Artifacts ?? []).SelectMany(x => x.Versions).Select(x => new
+            findingsAndEvidence = versions.Select(x => new
             {
                 artifactVersionId = x.Id,
                 evidence = JsonSerializer.Deserialize<JsonElement>(x.EvidenceJson),
@@ -172,6 +214,7 @@ public sealed class GccV2TaskAgentsController(
                 x.ValidationState,
             }),
             artifacts = run.Artifacts ?? [],
+            lineage,
             snapshot = new
             {
                 run.TaskAgentVersionId,
@@ -183,8 +226,19 @@ public sealed class GccV2TaskAgentsController(
                 run.RootRunId,
                 run.RetryOfRunId,
             },
-            rerun = new { capabilityId = definition.CapabilityId, versionId = version.Id, retryOfRunId = run.Id },
+            rerun = new
+            {
+                capabilityId = definition.CapabilityId,
+                versionId = version.Id,
+                retryOfRunId = run.Id,
+                parentArtifactVersionIds = versions
+                    .OrderByDescending(x => x.VersionNumber)
+                    .Select(x => x.Id)
+                    .Take(1)
+                    .ToList(),
+            },
             compatibleNextActions = JsonSerializer.Deserialize<JsonElement>(version.CompatibleArtifactTypesJson),
+            nextActions = GccV2TaskAgentNextActions.FromCompatibilityJson(version.CompatibleArtifactTypesJson),
         });
     }
 
@@ -322,7 +376,8 @@ public sealed class GccV2TaskAgentsController(
         JsonElement Input, Guid? VersionId = null, Guid? ContextManifestId = null,
         string? ContextManifestDigest = null, JsonElement? ModelSnapshot = null,
         JsonElement? BudgetSnapshot = null, JsonElement? SourceSnapshot = null,
-        Guid? RetryOfRunId = null, GccV2ContextSelectionRequest? ContextSelection = null);
+        Guid? RetryOfRunId = null, GccV2ContextSelectionRequest? ContextSelection = null,
+        IReadOnlyList<Guid>? ParentArtifactVersionIds = null, string? LineageRelationship = null);
     public sealed record CreateDefinitionRequest(string CapabilityId, string DisplayName, string Description);
     public sealed record PatchDefinitionRequest(string? DisplayName, string? Description);
     public sealed record CreateVersionRequest(

@@ -86,9 +86,26 @@ public sealed class GccV2TaskRunWorker(
             string evidence;
             string citations;
             string? contextDigest = null;
+            var parentArtifactVersionIds = new List<Guid>();
+            string? lineageRelationship = null;
             if (!string.IsNullOrWhiteSpace(run.SourceSnapshotJson))
             {
                 using var source = JsonDocument.Parse(run.SourceSnapshotJson);
+                if (source.RootElement.TryGetProperty("parentArtifactVersionIds", out var parentsEl)
+                    && parentsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var parent in parentsEl.EnumerateArray())
+                    {
+                        if (parent.ValueKind == JsonValueKind.String
+                            && Guid.TryParse(parent.GetString(), out var parentId))
+                            parentArtifactVersionIds.Add(parentId);
+                        else if (parent.TryGetGuid(out parentId))
+                            parentArtifactVersionIds.Add(parentId);
+                    }
+                }
+                if (source.RootElement.TryGetProperty("lineageRelationship", out var relationshipEl)
+                    && relationshipEl.ValueKind == JsonValueKind.String)
+                    lineageRelationship = relationshipEl.GetString();
                 if (source.RootElement.TryGetProperty("contextEnvelope", out var envelope)
                     && envelope.ValueKind == JsonValueKind.Object)
                 {
@@ -166,8 +183,11 @@ public sealed class GccV2TaskRunWorker(
                     artifactType,
                     valid = true,
                 }),
-                [],
+                parentArtifactVersionIds.Distinct().ToList(),
                 _instanceId,
+                Relationship: string.IsNullOrWhiteSpace(lineageRelationship)
+                    ? (parentArtifactVersionIds.Count == 0 ? null : "derived-from")
+                    : lineageRelationship,
                 ExpectedClaimedBy: _instanceId), ct);
             await repo.TransitionTaskRunAsync(run.Id, new(
                 "succeeded", "complete", 100, "completed",
