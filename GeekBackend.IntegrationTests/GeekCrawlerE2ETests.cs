@@ -121,6 +121,120 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
     }
 
     [Fact]
+    public async Task Page_batch_soft_drops_unusable_items_and_preserves_single_format_content()
+    {
+        using var owner = _factory.CreateAuthenticatedClient();
+        var runId = await CreateRunAsync(owner);
+
+        using var response = await owner.PostAsJsonAsync(
+            $"/api/geek-crawler/ingest/runs/{runId:D}/pages/batch",
+            new
+            {
+                pages = new object[]
+                {
+                    new
+                    {
+                        origin = "https://fixture.test",
+                        url = "https://fixture.test/html-only",
+                        statusCode = 200,
+                        robotsAllowed = true,
+                        html = "<main>HTML only</main>",
+                        markdown = (string?)null,
+                    },
+                    new
+                    {
+                        origin = "https://fixture.test",
+                        url = "https://fixture.test/markdown-only",
+                        statusCode = 200,
+                        robotsAllowed = true,
+                        html = (string?)null,
+                        markdown = "# Markdown only",
+                    },
+                    new
+                    {
+                        origin = "https://fixture.test",
+                        url = "https://fixture.test/robots-denied",
+                        statusCode = 200,
+                        robotsAllowed = false,
+                        html = "<main>Must not persist</main>",
+                    },
+                    new
+                    {
+                        origin = "https://fixture.test",
+                        url = "https://fixture.test/request-failed",
+                        statusCode = 500,
+                        robotsAllowed = true,
+                        html = "<main>Must not persist</main>",
+                        failureReason = "request failed",
+                    },
+                    new
+                    {
+                        origin = "https://fixture.test",
+                        url = "https://fixture.test/blank",
+                        statusCode = 200,
+                        robotsAllowed = true,
+                        html = " ",
+                        markdown = "\n",
+                    },
+                },
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, body.GetProperty("count").GetInt32());
+        Assert.Equal(2, body.GetProperty("pages").GetArrayLength());
+        Assert.Equal(3, body.GetProperty("rejectedCount").GetInt32());
+        var reasons = body.GetProperty("rejectedReasonCounts");
+        Assert.Equal(1, reasons.GetProperty("robotsDisallowed").GetInt32());
+        Assert.Equal(1, reasons.GetProperty("failureReason").GetInt32());
+        Assert.Equal(1, reasons.GetProperty("blankContent").GetInt32());
+        Assert.Equal(
+            body.GetProperty("rejectedCount").GetInt32(),
+            reasons.EnumerateObject().Sum(reason => reason.Value.GetInt32()));
+
+        var stored = _factory.Repository.Pages(runId);
+        Assert.Equal(2, stored.Count);
+        Assert.Contains(stored, page => page.Url == "https://fixture.test/html-only" && page.Html is not null);
+        Assert.Contains(stored, page => page.Url == "https://fixture.test/markdown-only" && page.Markdown is not null);
+    }
+
+    [Fact]
+    public async Task Page_batch_returns_ok_with_empty_legacy_result_when_all_items_are_rejected()
+    {
+        using var owner = _factory.CreateAuthenticatedClient();
+        var runId = await CreateRunAsync(owner);
+
+        using var response = await owner.PostAsJsonAsync(
+            $"/api/geek-crawler/ingest/runs/{runId:D}/pages/batch",
+            new
+            {
+                pages = new[]
+                {
+                    new
+                    {
+                        origin = "https://fixture.test",
+                        url = "https://fixture.test/denied-and-empty",
+                        statusCode = 403,
+                        robotsAllowed = false,
+                        html = (string?)null,
+                        markdown = (string?)null,
+                    },
+                },
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(0, body.GetProperty("count").GetInt32());
+        Assert.Empty(body.GetProperty("pages").EnumerateArray());
+        Assert.Equal(1, body.GetProperty("rejectedCount").GetInt32());
+        var reasons = body.GetProperty("rejectedReasonCounts");
+        Assert.Equal(1, reasons.GetProperty("robotsDisallowed").GetInt32());
+        Assert.Equal(0, reasons.GetProperty("failureReason").GetInt32());
+        Assert.Equal(0, reasons.GetProperty("blankContent").GetInt32());
+        Assert.Empty(_factory.Repository.Pages(runId));
+    }
+
+    [Fact]
     public async Task Rag_webhook_is_delivered_to_owner_joined_run_group()
     {
         using var owner = _factory.CreateAuthenticatedClient();
@@ -167,6 +281,16 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
         Assert.Equal("rag_index", payload.GetProperty("eventType").GetString());
         Assert.Equal(runId.ToString("D"), payload.GetProperty("runId").GetString());
         Assert.Equal("complete", payload.GetProperty("state").GetString());
+    }
+
+    private static async Task<Guid> CreateRunAsync(HttpClient owner)
+    {
+        using var create = await owner.PostAsJsonAsync(
+            "/api/geek-crawler/ingest/runs",
+            new { crawlType = "partner", seeds = new[] { "https://fixture.test/" } });
+        create.EnsureSuccessStatusCode();
+        var body = await create.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("runId").GetGuid();
     }
 
     private static async Task EventuallyAsync(Func<bool> assertion)

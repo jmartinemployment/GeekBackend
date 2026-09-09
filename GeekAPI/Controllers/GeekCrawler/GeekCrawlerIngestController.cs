@@ -167,7 +167,22 @@ public class GeekCrawlerIngestController : ControllerBase
         if (request.Pages.Count > 100)
             return BadRequest("at most 100 pages per batch");
 
-        var items = request.Pages.Select(p => new CreateGeekCrawlerPageItemCommand(
+        var robotsDisallowedCount = request.Pages.Count(p => !p.RobotsAllowed);
+        var failureReasonCount = request.Pages.Count(p =>
+            p.RobotsAllowed && !string.IsNullOrWhiteSpace(p.FailureReason));
+        var blankContentCount = request.Pages.Count(p =>
+            p.RobotsAllowed
+            && string.IsNullOrWhiteSpace(p.FailureReason)
+            && string.IsNullOrWhiteSpace(p.Html)
+            && string.IsNullOrWhiteSpace(p.Markdown));
+        var acceptedPages = request.Pages.Where(p =>
+            p.RobotsAllowed
+            && string.IsNullOrWhiteSpace(p.FailureReason)
+            && (!string.IsNullOrWhiteSpace(p.Html) || !string.IsNullOrWhiteSpace(p.Markdown)))
+            .ToList();
+        var rejectedCount = request.Pages.Count - acceptedPages.Count;
+
+        var items = acceptedPages.Select(p => new CreateGeekCrawlerPageItemCommand(
             p.Origin ?? "",
             p.Url ?? "",
             p.FinalUrl,
@@ -181,9 +196,11 @@ public class GeekCrawlerIngestController : ControllerBase
 
         try
         {
-            var result = await _repo.CreatePagesBatchAsync(
-                new CreateGeekCrawlerPageBatchCommand(runId, items),
-                ct).ConfigureAwait(false);
+            var result = items.Count == 0
+                ? new GeekCrawlerPageBatchResult(0, [])
+                : await _repo.CreatePagesBatchAsync(
+                    new CreateGeekCrawlerPageBatchCommand(runId, items),
+                    ct).ConfigureAwait(false);
 
             // Lightweight progress ping (no HTML) so operator UI can refresh URL counts.
             var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
@@ -203,7 +220,18 @@ public class GeekCrawlerIngestController : ControllerBase
                     ct).ConfigureAwait(false);
             }
 
-            return Ok(result);
+            return Ok(new
+            {
+                result.Count,
+                result.Pages,
+                rejectedCount,
+                rejectedReasonCounts = new
+                {
+                    robotsDisallowed = robotsDisallowedCount,
+                    failureReason = failureReasonCount,
+                    blankContent = blankContentCount,
+                },
+            });
         }
         catch (HttpRequestException ex)
         {
