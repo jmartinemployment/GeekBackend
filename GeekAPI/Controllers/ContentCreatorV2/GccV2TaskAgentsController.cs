@@ -14,7 +14,8 @@ namespace GeekAPI.Controllers.ContentCreatorV2;
 public sealed class GccV2TaskAgentsController(
     ICurrentUserContext user,
     GccV2SkillAdminPolicy admin,
-    HttpGccV2Repository repo) : ControllerBase
+    HttpGccV2Repository repo,
+    GccV2ContextResolver contextResolver) : ControllerBase
 {
     private string Owner => user.UserId.ToString("D");
 
@@ -65,6 +66,36 @@ public sealed class GccV2TaskAgentsController(
         var validationErrors = GccV2TaskInputSchemaValidator.Validate(request.Input, version.InputSchemaJson);
         if (validationErrors.Count > 0) return BadRequest(new { error = "Input schema validation failed.", validationErrors });
 
+        Guid? contextManifestId = request.ContextManifestId;
+        string? contextManifestDigest = request.ContextManifestDigest;
+        object? contextEnvelope = null;
+        if (request.ContextSelection is { } selection)
+        {
+            var prepared = await contextResolver.PrepareForTaskAgentAsync(Owner, selection, ct);
+            if (prepared.Preview.BlockingFindings.Count > 0)
+            {
+                return Conflict(new
+                {
+                    error = "Governed context is not eligible for this task-agent run.",
+                    blockingFindings = prepared.Preview.BlockingFindings,
+                    warnings = prepared.Preview.Warnings,
+                });
+            }
+            contextManifestId = prepared.ManifestId;
+            contextManifestDigest = prepared.Sha256;
+            contextEnvelope = new
+            {
+                schemaVersion = "task-agent-context-envelope.v1",
+                manifestId = prepared.ManifestId,
+                digest = prepared.Sha256,
+                signature = prepared.Signature,
+                signingKeyId = prepared.SigningKeyId,
+                resolvedAtUtc = prepared.ResolvedAtUtc,
+                canonicalJson = prepared.CanonicalJson,
+                effectiveEntries = prepared.Preview.EffectiveEntries,
+            };
+        }
+
         var input = GccV2CanonicalJson.Serialize(request.Input);
         var model = CanonicalObject(request.ModelSnapshot, new
         {
@@ -75,12 +106,13 @@ public sealed class GccV2TaskAgentsController(
         var source = CanonicalObject(request.SourceSnapshot, new
         {
             capturedAtUtc = DateTimeOffset.UtcNow,
-            contextManifestId = request.ContextManifestId,
+            contextManifestId,
+            contextEnvelope,
         });
         var run = await repo.CreateTaskRunAsync(new(
             Owner, definition.Id, version.Id, version.VersionDigest,
             input, GccV2CanonicalJson.Sha256(input),
-            request.ContextManifestId, request.ContextManifestDigest,
+            contextManifestId, contextManifestDigest,
             model, GccV2CanonicalJson.Sha256(model),
             budget, GccV2CanonicalJson.Sha256(budget),
             source, GccV2CanonicalJson.Sha256(source),
@@ -93,6 +125,7 @@ public sealed class GccV2TaskAgentsController(
             run.Phase,
             run.ProgressPercent,
             taskAgent = new { definition.CapabilityId, definition.Id, versionId = version.Id, version.VersionDigest },
+            sharedContext = new { contextManifestId, contextManifestDigest },
         });
     }
 
@@ -289,7 +322,7 @@ public sealed class GccV2TaskAgentsController(
         JsonElement Input, Guid? VersionId = null, Guid? ContextManifestId = null,
         string? ContextManifestDigest = null, JsonElement? ModelSnapshot = null,
         JsonElement? BudgetSnapshot = null, JsonElement? SourceSnapshot = null,
-        Guid? RetryOfRunId = null);
+        Guid? RetryOfRunId = null, GccV2ContextSelectionRequest? ContextSelection = null);
     public sealed record CreateDefinitionRequest(string CapabilityId, string DisplayName, string Description);
     public sealed record PatchDefinitionRequest(string? DisplayName, string? Description);
     public sealed record CreateVersionRequest(

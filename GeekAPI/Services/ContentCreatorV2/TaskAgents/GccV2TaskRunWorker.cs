@@ -85,6 +85,42 @@ public sealed class GccV2TaskRunWorker(
             JsonElement output;
             string evidence;
             string citations;
+            string? contextDigest = null;
+            if (!string.IsNullOrWhiteSpace(run.SourceSnapshotJson))
+            {
+                using var source = JsonDocument.Parse(run.SourceSnapshotJson);
+                if (source.RootElement.TryGetProperty("contextEnvelope", out var envelope)
+                    && envelope.ValueKind == JsonValueKind.Object)
+                {
+                    var canonical = envelope.TryGetProperty("canonicalJson", out var canonicalEl)
+                        ? canonicalEl.GetString()
+                        : null;
+                    var digest = envelope.TryGetProperty("digest", out var digestEl)
+                        ? digestEl.GetString()
+                        : null;
+                    var signature = envelope.TryGetProperty("signature", out var signatureEl)
+                        ? signatureEl.GetString()
+                        : null;
+                    var signingKeyId = envelope.TryGetProperty("signingKeyId", out var keyEl)
+                        ? keyEl.GetString()
+                        : null;
+                    if (!string.IsNullOrWhiteSpace(canonical)
+                        && !string.IsNullOrWhiteSpace(digest)
+                        && !string.IsNullOrWhiteSpace(signature)
+                        && !string.IsNullOrWhiteSpace(signingKeyId))
+                    {
+                        var resolver = services.GetRequiredService<GccV2ContextResolver>();
+                        resolver.VerifyTaskAgentEnvelope(canonical, digest, signature, signingKeyId);
+                        if (!string.IsNullOrWhiteSpace(run.ContextManifestDigest)
+                            && !string.Equals(run.ContextManifestDigest, digest, StringComparison.Ordinal))
+                        {
+                            throw new InvalidOperationException(
+                                "Pinned task-agent context digest no longer matches its signed envelope.");
+                        }
+                        contextDigest = digest;
+                    }
+                }
+            }
             if (isStudioTemplate)
             {
                 output = ExecuteStudioTemplate(definition, workflow.RootElement, input.RootElement);
@@ -110,6 +146,10 @@ public sealed class GccV2TaskRunWorker(
                 output = ragOutput;
                 evidence = ExtractArray(output, "provenance", "evidence");
                 citations = ExtractCitations(output);
+            }
+            if (!string.IsNullOrWhiteSpace(contextDigest))
+            {
+                evidence = MergeContextEvidence(evidence, contextDigest, run.ContextManifestId);
             }
 
             var artifact = await repo.CreateTaskArtifactAsync(run.Id, new(
@@ -209,5 +249,30 @@ public sealed class GccV2TaskRunWorker(
             || !provenance.TryGetProperty("source", out var source))
             return "[]";
         return GccV2CanonicalJson.Serialize(new[] { source.Clone() });
+    }
+
+    private static string MergeContextEvidence(string evidenceJson, string contextDigest, Guid? manifestId)
+    {
+        var items = new List<object>();
+        try
+        {
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(evidenceJson) ? "[]" : evidenceJson);
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in document.RootElement.EnumerateArray())
+                    items.Add(item.Clone());
+            }
+        }
+        catch (JsonException)
+        {
+            // Preserve a failed parse by starting from an empty evidence list.
+        }
+        items.Add(new
+        {
+            kind = "governed-context-manifest",
+            contextManifestId = manifestId,
+            digest = contextDigest,
+        });
+        return GccV2CanonicalJson.Serialize(items);
     }
 }

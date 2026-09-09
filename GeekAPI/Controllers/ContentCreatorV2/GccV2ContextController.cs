@@ -479,6 +479,40 @@ public sealed class GccV2ContextController(
         });
     }
 
+    [HttpPost("context/resolve-task-agent")]
+    public async Task<ActionResult<object>> ResolveTaskAgent(
+        [FromBody] ResolveTaskAgentContextRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var prepared = await resolver.PrepareForTaskAgentAsync(Owner, request.Selection, ct);
+        GccV2ContextMetrics.ResolutionOutcomes.Add(1,
+            new KeyValuePair<string, object?>(
+                "outcome", prepared.Preview.BlockingFindings.Count == 0 ? "ready" : "blocked"));
+        GccV2ContextMetrics.ManifestEntries.Record(prepared.Preview.EffectiveEntries.Count);
+        return Ok(new
+        {
+            preview = prepared.Preview with
+            {
+                AgentCompatibility = (request.SelectedAgentIds ?? []).Distinct(StringComparer.Ordinal)
+                    .Select(id => (object)new
+                    {
+                        agentId = id,
+                        compatible = true,
+                        message = "Task-agent run can pin the selected governed context kinds.",
+                    }).ToList(),
+            },
+            envelope = new
+            {
+                manifestId = prepared.ManifestId,
+                digest = prepared.Sha256,
+                signature = prepared.Signature,
+                signingKeyId = prepared.SigningKeyId,
+                resolvedAtUtc = prepared.ResolvedAtUtc,
+                canonicalJson = prepared.CanonicalJson,
+            },
+        });
+    }
+
     [HttpGet("jobs/{jobId:guid}/context-manifest")]
     public async Task<ActionResult<object>> GetManifest(Guid jobId, CancellationToken ct)
     {
@@ -667,5 +701,8 @@ public sealed class GccV2ContextController(
         DateTimeOffset? EffectiveFromUtc, DateTimeOffset? EffectiveUntilUtc);
     public sealed record ResolveContextRequest(
         Guid CreateId, Guid? BriefId, GccV2ContextSelectionRequest Selection,
+        IReadOnlyList<string>? SelectedAgentIds = null);
+    public sealed record ResolveTaskAgentContextRequest(
+        GccV2ContextSelectionRequest Selection,
         IReadOnlyList<string>? SelectedAgentIds = null);
 }

@@ -30,6 +30,14 @@ public sealed record GccV2ResolvedContextPreview(
     IReadOnlyList<object> AgentCompatibility);
 public sealed record GccV2PreparedManifest(
     GccV2ResolvedContextPreview Preview, CreateGccV2RunContextManifestCommand Manifest);
+public sealed record GccV2TaskAgentContextEnvelope(
+    GccV2ResolvedContextPreview Preview,
+    Guid ManifestId,
+    string CanonicalJson,
+    string Sha256,
+    string Signature,
+    string SigningKeyId,
+    DateTimeOffset ResolvedAtUtc);
 
 public sealed class GccV2ContextManifestSigner
 {
@@ -299,6 +307,83 @@ public sealed class GccV2ContextResolver(
                 x.SelectedFieldIds is null ? null : JsonSerializer.Serialize(x.SelectedFieldIds),
                 x.SourceModifiedAtUtc)).ToList());
         return new GccV2PreparedManifest(preview, command);
+    }
+
+    public async Task<GccV2TaskAgentContextEnvelope> PrepareForTaskAgentAsync(
+        string ownerUserId,
+        GccV2ContextSelectionRequest selection,
+        CancellationToken ct)
+    {
+        if (!(configuration.GetValue<bool?>(
+                "ContentCreatorV2:ContextFeatures:Resolution") ?? true))
+            throw new InvalidOperationException("Governed context resolution is disabled.");
+        var blocks = new List<string>();
+        var warnings = new List<string>();
+        var entries = new List<GccV2ResolvedContextEntry>();
+        if ((selection.RunAttachmentIds ?? []).Count > 0)
+            blocks.Add("run_attachment:task_agent:not_supported");
+
+        foreach (var id in (selection.KnowledgeAssetVersionIds ?? []).Distinct())
+            await AddVersionAsync("knowledge", id, ownerUserId, null, entries, blocks, warnings, ct);
+        if (selection.AudienceVersionId is { } audience)
+            await AddVersionAsync("audience", audience, ownerUserId, null, entries, blocks, warnings, ct);
+        if (selection.StyleGuideVersionId is { } style)
+            await AddVersionAsync("style_guide", style, ownerUserId, null, entries, blocks, warnings, ct);
+        foreach (var product in selection.ProductSelections ?? [])
+            await AddVersionAsync("product", product.ProductVersionId, ownerUserId,
+                product.SelectedFieldIds, entries, blocks, warnings, ct);
+        if (selection.BrandKitVersionId is { } brandKitId)
+        {
+            var brand = await repository.GetBrandKitAsync(brandKitId, ct);
+            if (brand is null || !string.Equals(brand.OwnerUserId, ownerUserId, StringComparison.OrdinalIgnoreCase))
+                blocks.Add($"brand_kit:{brandKitId}:not_owned_or_missing");
+            else if (brand.VoiceStatus != "accepted" || string.IsNullOrWhiteSpace(brand.CanonicalSha256))
+                blocks.Add($"brand_kit:{brandKitId}:not_accepted");
+            else
+                entries.Add(new("brand_kit", brand.DerivedFromProfileId, brand.Id, brand.Version,
+                    brand.CanonicalSha256, "approved", "owner_allowed", "current",
+                    "run_override", null, brand.DerivedAtUtc));
+        }
+
+        var ordered = entries.OrderBy(x => x.ContextKind, StringComparer.Ordinal)
+            .ThenBy(x => x.StableId).ThenBy(x => x.VersionId).ToList();
+        var preview = new GccV2ResolvedContextPreview(
+            ordered, [], warnings, blocks, [], ordered.Count * 512, []);
+        var resolvedAt = DateTimeOffset.UtcNow;
+        var manifestId = Guid.NewGuid();
+        var payload = new
+        {
+            schemaVersion = 1,
+            manifestId,
+            scope = "task-agent",
+            ownerUserId,
+            locale = selection.Locale?.Trim() ?? "en",
+            runNotes = selection.RunNotes?.Trim(),
+            policies = new
+            {
+                selection.WebSearchEnabled,
+                selection.KnowledgeSearchEnabled,
+                retrievalPolicy = "manifest-allowlist.v1",
+            },
+            resolvedAtUtc = resolvedAt,
+            entries = ordered,
+        };
+        var canonical = GccV2CanonicalJson.Serialize(payload);
+        var digest = GccV2CanonicalJson.Sha256(canonical);
+        var signature = signer.Sign(digest);
+        return new GccV2TaskAgentContextEnvelope(
+            preview, manifestId, canonical, digest, signature, signer.ActiveKeyId, resolvedAt);
+    }
+
+    public void VerifyTaskAgentEnvelope(
+        string canonicalJson, string sha256, string signature, string signingKeyId)
+    {
+        var digest = GccV2CanonicalJson.Sha256(canonicalJson);
+        if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(digest), Encoding.ASCII.GetBytes(sha256)))
+            throw new InvalidOperationException("Task-agent context manifest digest is invalid.");
+        if (!signer.Verify(digest, signature, signingKeyId))
+            throw new InvalidOperationException("Task-agent context manifest signature is invalid.");
     }
 
     public void Verify(GccV2RunContextManifestDto manifest, Guid jobId)
