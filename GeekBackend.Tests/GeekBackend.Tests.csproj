@@ -25,4 +25,8 @@
     <ProjectReference Include="..\GeekRepository\GeekRepository.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="ContentCreatorV2/Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

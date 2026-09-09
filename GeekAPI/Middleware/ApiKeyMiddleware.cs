@@ -17,11 +17,13 @@ public class ApiKeyMiddleware
     };
 
     private readonly RequestDelegate _next;
+    private readonly bool _allowLegacyBearer;
     private const string ApiKeyHeader = "X-API-Key";
 
-    public ApiKeyMiddleware(RequestDelegate next)
+    public ApiKeyMiddleware(RequestDelegate next, IHostEnvironment environment)
     {
         _next = next;
+        _allowLegacyBearer = environment.IsDevelopment() || environment.IsEnvironment("Testing");
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -42,8 +44,7 @@ public class ApiKeyMiddleware
             return;
         }
 
-        if (normalizedPath.StartsWith("/api/seo/internal", StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith("/api/gtm/internal", StringComparison.OrdinalIgnoreCase))
+        if (IsInternalApiPath(normalizedPath))
         {
             if (TryAuthenticateSeoInternal(context))
             {
@@ -56,14 +57,21 @@ public class ApiKeyMiddleware
             return;
         }
 
-        // Try Bearer token authentication first (for NextJS frontend)
+        // JwtBearer runs before this middleware. Only a cryptographically validated principal is
+        // accepted in production; direct UUID/unsigned payload compatibility is test/dev-only.
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            await _next(context);
+            return;
+        }
+
         if (context.Request.Headers.TryGetValue("Authorization", out var authHeader))
         {
             var authValue = authHeader.ToString();
             if (authValue.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
                 var token = authValue["Bearer ".Length..].Trim();
-                if (TryAuthenticateBearer(context, token))
+                if (_allowLegacyBearer && TryAuthenticateBearer(context, token))
                 {
                     await _next(context);
                     return;
@@ -98,6 +106,14 @@ public class ApiKeyMiddleware
         }
 
         await _next(context);
+    }
+
+    private static bool IsInternalApiPath(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length >= 3
+            && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+            && segments[2].Equals("internal", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryAuthenticateBearer(HttpContext context, string token)

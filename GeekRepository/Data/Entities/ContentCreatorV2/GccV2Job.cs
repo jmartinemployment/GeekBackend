@@ -23,6 +23,13 @@ public class GccV2Job
     /// <summary>Owned project-site crawl run at generate time.</summary>
     public Guid? ProjectSiteCrawlRunId { get; set; }
 
+    /// <summary>Canonical signed immutable team envelope used by every retry and child job.</summary>
+    public string? AgentTeamSnapshotJson { get; set; }
+    public string? AgentTeamSnapshotDigest { get; set; }
+    public string? AgentTeamSnapshotSignature { get; set; }
+    public string? AgentTeamSnapshotKeyId { get; set; }
+    public List<GccV2JobAgentVersion> AgentVersions { get; set; } = [];
+
     /// <summary>plan | write | validate | repair | done</summary>
     public string Stage { get; set; } = "plan";
 

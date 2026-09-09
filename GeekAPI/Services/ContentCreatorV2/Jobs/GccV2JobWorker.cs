@@ -8,6 +8,7 @@ using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
+using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
 
@@ -130,6 +131,7 @@ public sealed class GccV2JobWorker : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<HttpGccV2Repository>();
         var writer = scope.ServiceProvider.GetRequiredService<GccV2JobEventWriter>();
+        var teamResolver = scope.ServiceProvider.GetRequiredService<GccV2AgentTeamResolver>();
 
         var claimed = await repo.ClaimJobAsync(jobId, _instanceId, leaseSeconds: 120, ct);
         if (claimed is null)
@@ -140,9 +142,12 @@ public sealed class GccV2JobWorker : BackgroundService
 
         _staleClaimAttempts.TryRemove(jobId, out _);
         var ownerUserId = ParseOwner(claimed.OwnerUserId);
+        using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var heartbeat = MaintainLeaseAsync(repo, jobId, heartbeatCts.Token);
 
         try
         {
+            teamResolver.ValidatePersisted(claimed);
             if (string.Equals(claimed.Stage, "plan", StringComparison.OrdinalIgnoreCase))
             {
                 var planService = scope.ServiceProvider.GetRequiredService<GccV2PlanService>();
@@ -152,14 +157,60 @@ public sealed class GccV2JobWorker : BackgroundService
 
             var writeService = scope.ServiceProvider.GetRequiredService<GccV2WriteService>();
             var validateService = scope.ServiceProvider.GetRequiredService<GccV2ValidateService>();
-            await RunWriteThenValidateStageAsync(jobId, ownerUserId, claimed, repo, writer, writeService, validateService, scope, ct);
+            await RunWriteThenValidateStageAsync(
+                jobId, ownerUserId, claimed, repo, writer, writeService, validateService, scope, ct);
+        }
+        catch (RagAgentStoppedException ex) when (ex.IsTransient && claimed.AttemptCount < 3)
+        {
+            await writer.TransitionAsync(jobId, ownerUserId, new ApplyGccV2JobTransitionCommand(
+                Status: "pending", Error: $"agent:{StopCode(ex.Reason)}:{ex.Detail}",
+                ReleaseClaim: true, EventType: "AgentStageRetryScheduled",
+                EventPayloadJson: JsonSerializer.Serialize(new
+                {
+                    reason = StopCode(ex.Reason), ex.Detail, attempt = claimed.AttemptCount,
+                }, JsonOpts), Wake: true), ct);
+            _wake.Wake(jobId);
+        }
+        catch (RagAgentStoppedException ex)
+        {
+            await FailJobAsync(writer, jobId, ownerUserId,
+                $"agent:{StopCode(ex.Reason)}:{ex.Detail ?? ex.Message}", ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "GccV2JobWorker unhandled failure for job {JobId}", jobId);
             await FailJobAsync(writer, jobId, ownerUserId, $"Unhandled worker error: {ex.Message}", ct);
         }
+        finally
+        {
+            heartbeatCts.Cancel();
+            try { await heartbeat; }
+            catch (OperationCanceledException) { }
+        }
     }
+
+    private static async Task MaintainLeaseAsync(
+        HttpGccV2Repository repo, Guid jobId, CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(45));
+        while (await timer.WaitForNextTickAsync(ct))
+            await repo.PatchJobAsync(jobId,
+                new PatchGccV2JobCommand(LeaseUntilUtc: DateTimeOffset.UtcNow.AddSeconds(LeaseExtensionSeconds)), ct);
+    }
+
+    private static string StopCode(RagAgentStopReason reason) => reason switch
+    {
+        RagAgentStopReason.BudgetExhausted => "budget_exhausted",
+        RagAgentStopReason.SkillActivationFailed => "skill_activation_failed",
+        RagAgentStopReason.IncompatibleProtocol => "incompatible_protocol",
+        RagAgentStopReason.InvalidStructuredOutput => "invalid_structured_output",
+        RagAgentStopReason.ToolDenied => "tool_denied",
+        RagAgentStopReason.EvidenceFailure => "evidence_failure",
+        RagAgentStopReason.UpstreamFailure => "upstream_failure",
+        RagAgentStopReason.Cancelled => "cancelled",
+        RagAgentStopReason.TimedOut => "timed_out",
+        _ => "completed",
+    };
 
     private async Task HandleUnclaimableJobAsync(
         Guid jobId,
@@ -252,9 +303,11 @@ public sealed class GccV2JobWorker : BackgroundService
         GccV2PlanOutline outline;
         try
         {
+            await writer.AppendAsync(jobId, ownerUserId, "AgentStageStarted",
+                new { stage = "outline" }, ct: ct);
             outline = await planService.BuildOutlineAsync(job, brief, ct);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not RagAgentStoppedException)
         {
             _logger.LogError(ex, "PLAN failed for job {JobId}; marking failed.", jobId);
             await FailJobAsync(writer, jobId, ownerUserId, $"PLAN failed: {ex.Message}", ct);
@@ -265,6 +318,28 @@ public sealed class GccV2JobWorker : BackgroundService
             jobId,
             new CreateGccV2StageResultCommand("plan", null, JsonSerializer.Serialize(outline, JsonOpts), 0),
             ct);
+        if (outline.Provenance?.AgentExecution is { } trace)
+        {
+            foreach (var skill in trace.ActivatedSkills)
+                await writer.AppendAsync(jobId, ownerUserId, "SkillActivated", new
+                {
+                    stage = "outline", outline.Provenance.AttemptId,
+                    skill.SkillId, skill.Version, skill.ActivationId, skill.PackageDigest, skill.ResourcePaths,
+                }, ct: ct);
+            foreach (var tool in trace.ToolCalls)
+                await writer.AppendAsync(jobId, ownerUserId, "AgentToolCompleted", new
+                {
+                    stage = "outline", outline.Provenance.AttemptId,
+                    tool.ToolId, tool.ToolVersion, tool.ResultDigest, tool.ResultCount,
+                    tool.DurationMs, tool.ErrorClass, tool.Sequence, tool.Classification,
+                }, ct: ct);
+            await writer.AppendAsync(jobId, ownerUserId, "AgentStageCompleted", new
+            {
+                stage = "outline", outline.Provenance.AttemptId, trace.Agent,
+                trace.ExecutorVersion, trace.WorkflowVersion, trace.TraceVersion,
+                trace.ToolsVersion, trace.StopReason, trace.Usage,
+            }, ct: ct);
+        }
 
         // Brand kit Accept before OutlineReady / outline Approve (product order: who → what).
         if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is not null)
@@ -444,7 +519,7 @@ public sealed class GccV2JobWorker : BackgroundService
             await writer.AppendAsync(jobId, ownerUserId, "ToolWriteDeferred", new { reason = ex.Message }, ct: ct);
             return;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not RagAgentStoppedException)
         {
             _logger.LogError(ex, "WRITE failed for job {JobId}; marking failed.", jobId);
             await FailJobAsync(writer, jobId, ownerUserId, $"WRITE failed: {ex.Message}", ct);
@@ -471,7 +546,7 @@ public sealed class GccV2JobWorker : BackgroundService
                 written = await writeService.FinalSynthesizeAsync(wc, written, ct);
                 await writeService.PersistFinalSynthesisAsync(wc, ownerUserId, written, ct);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not RagAgentStoppedException)
             {
                 _logger.LogError(ex, "FINAL SYNTHESIS failed for job {JobId}; marking failed.", jobId);
                 await FailJobAsync(writer, jobId, ownerUserId, $"FINAL SYNTHESIS failed: {ex.Message}", ct);
@@ -490,7 +565,7 @@ public sealed class GccV2JobWorker : BackgroundService
         {
             outcome = await validateService.RunAsync(wc, ownerUserId, written, ct);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not RagAgentStoppedException)
         {
             _logger.LogError(ex, "VALIDATE failed for job {JobId}; marking failed.", jobId);
             await FailJobAsync(writer, jobId, ownerUserId, $"VALIDATE failed: {ex.Message}", ct);

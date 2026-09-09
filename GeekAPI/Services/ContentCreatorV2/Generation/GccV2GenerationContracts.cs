@@ -471,7 +471,8 @@ public sealed record GccV2GenerationProvenance(
     ContentModelSelection ModelSelection,
     string AttemptId = "",
     GccV2SkillProvenance? Skills = null,
-    string? ProducerExecutionVersion = null)
+    string? ProducerExecutionVersion = null,
+    RagAgentExecutionProvenanceDto? AgentExecution = null)
 {
     public string Stage => ContentModelPolicy.ProducerStage(ModelSelection.Stage);
     public string EffectiveModel => ModelSelection.EffectiveModel;

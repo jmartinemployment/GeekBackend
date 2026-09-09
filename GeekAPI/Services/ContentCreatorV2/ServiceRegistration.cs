@@ -2,6 +2,7 @@ using GeekAPI.Controllers.ContentCreatorV2.Hubs;
 using GeekAPI.HttpClients;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.Adapters;
+using GeekAPI.Services.ContentCreatorV2.AgentTests;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Carousel;
 using GeekAPI.Services.ContentCreatorV2.Geo;
@@ -70,6 +71,22 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddSingleton<ContentModelPolicy>();
+        services.AddSingleton<GccV2SkillAdminPolicy>();
+        services.AddSingleton<GccV2SkillSnapshotSigner>();
+        services.AddScoped<GccV2SkillSnapshotRegistry>();
+        services.AddSingleton<GccV2AgentTeamSigner>();
+        services.AddScoped<GccV2AgentTeamResolver>();
+        services.AddScoped<GccV2AgentExecutionFactory>();
+        services.AddScoped<GccV2SpecialistCoordinator>();
+        services.AddSingleton<GccV2AgentTestWake>();
+        services.AddScoped<GccV2AgentTestProgressNotifier>();
+        services.AddScoped<GccV2AgentRagSmokeExecutor>();
+        services.AddScoped<GccV2GitHubSkillImporter>();
+        services.AddHttpClient(nameof(GccV2GitHubSkillImporter), client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("GeekContentCreator-SkillQuarantine/1.0");
+        });
         services.AddScoped<GccV2JobModelPolicyOverrideStore>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();
@@ -86,6 +103,9 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2HtmlExportService>();
         services.AddScoped<GccV2AiVisibilityService>();
         services.AddMemoryCache();
+        services.AddHostedService<GccV2FirstPartySkillSeeder>();
+        services.AddHostedService<GccV2FirstPartyAgentSeeder>();
+        services.AddHostedService<GccV2AgentTestWorker>();
         services.AddHostedService<GccV2JobWorker>();
         services.AddHostedService<GccV2JobListenService>();
 

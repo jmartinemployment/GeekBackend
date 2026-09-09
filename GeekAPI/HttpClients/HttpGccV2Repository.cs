@@ -257,6 +257,116 @@ public class HttpGccV2Repository
         CancellationToken ct = default) =>
         PostAsync<object>("repo/content-creator-v2/project-site/links/batch", command, ct);
 
+    // Governed skills registry. All persistence remains behind GeekRepository.
+
+    public Task<IReadOnlyList<GccV2SkillPackageDto>> ListSkillsAsync(
+        string? state = null, string? contentType = null, string? stage = null,
+        CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(state)) query.Add($"state={Uri.EscapeDataString(state)}");
+        if (!string.IsNullOrWhiteSpace(contentType)) query.Add($"contentType={Uri.EscapeDataString(contentType)}");
+        if (!string.IsNullOrWhiteSpace(stage)) query.Add($"stage={Uri.EscapeDataString(stage)}");
+        return GetListAsync<GccV2SkillPackageDto>(
+            "repo/content-creator-v2/skills" + (query.Count == 0 ? "" : $"?{string.Join("&", query)}"), ct);
+    }
+
+    public Task<GccV2SkillPackageDto?> GetSkillAsync(Guid packageId, CancellationToken ct = default) =>
+        GetAsync<GccV2SkillPackageDto>($"repo/content-creator-v2/skills/{packageId}", ct);
+
+    public Task<IReadOnlyList<GccV2SkillAuditEventDto>> GetSkillAuditAsync(Guid packageId, CancellationToken ct = default) =>
+        GetListAsync<GccV2SkillAuditEventDto>($"repo/content-creator-v2/skills/{packageId}/audit", ct);
+
+    public Task<GccV2SkillPackageDto> ImportSkillAsync(ImportGccV2SkillCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2SkillPackageDto>("repo/content-creator-v2/skills/imports", command, ct);
+
+    public Task<GccV2SkillVersionDto> ReviewSkillAsync(Guid versionId, ReviewGccV2SkillCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2SkillVersionDto>($"repo/content-creator-v2/skills/versions/{versionId}/review", command, ct);
+
+    public Task<GccV2SkillReviewFindingDto> PatchSkillFindingAsync(
+        Guid versionId, Guid findingId, PatchGccV2SkillFindingCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2SkillReviewFindingDto>(
+            $"repo/content-creator-v2/skills/versions/{versionId}/findings/{findingId}", command, ct);
+
+    public Task<GccV2SkillVersionDto> PublishSkillAsync(Guid versionId, TransitionGccV2SkillCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2SkillVersionDto>($"repo/content-creator-v2/skills/versions/{versionId}/publish", command, ct);
+
+    public Task<GccV2SkillVersionDto> DeprecateSkillAsync(Guid versionId, TransitionGccV2SkillCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2SkillVersionDto>($"repo/content-creator-v2/skills/versions/{versionId}/deprecate", command, ct);
+
+    public Task<GccV2SkillFileDto?> GetSkillFileAsync(Guid versionId, string path, CancellationToken ct = default) =>
+        GetAsync<GccV2SkillFileDto>(
+            $"repo/content-creator-v2/skills/versions/{versionId}/files/{Uri.EscapeDataString(path)}", ct);
+
+    // Governed specialist agents.
+
+    public Task<IReadOnlyList<GccV2AgentDto>> ListAgentsAsync(
+        string? state = null, string? contentType = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(state)) query.Add($"state={Uri.EscapeDataString(state)}");
+        if (!string.IsNullOrWhiteSpace(contentType)) query.Add($"contentType={Uri.EscapeDataString(contentType)}");
+        return GetListAsync<GccV2AgentDto>(
+            "repo/content-creator-v2/agents" + (query.Count == 0 ? "" : $"?{string.Join("&", query)}"), ct);
+    }
+
+    public Task<GccV2AgentDto?> GetAgentAsync(Guid agentId, CancellationToken ct = default) =>
+        GetAsync<GccV2AgentDto>($"repo/content-creator-v2/agents/{agentId}", ct);
+    public Task<IReadOnlyList<GccV2AgentAuditEventDto>> GetAgentAuditAsync(Guid agentId, CancellationToken ct = default) =>
+        GetListAsync<GccV2AgentAuditEventDto>($"repo/content-creator-v2/agents/{agentId}/audit", ct);
+    public Task<IReadOnlyList<GccV2AgentReviewFindingDto>> GetAgentFindingsAsync(
+        Guid versionId, CancellationToken ct = default) =>
+        GetListAsync<GccV2AgentReviewFindingDto>(
+            $"repo/content-creator-v2/agents/versions/{versionId}/findings", ct);
+    public Task<GccV2AgentReviewFindingDto> PatchAgentFindingAsync(
+        Guid versionId, Guid findingId, PatchGccV2AgentFindingCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2AgentReviewFindingDto>(
+            $"repo/content-creator-v2/agents/versions/{versionId}/findings/{findingId}", command, ct);
+    public Task<GccV2AgentDto> CreateAgentAsync(CreateGccV2AgentCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2AgentDto>("repo/content-creator-v2/agents", command, ct);
+    public Task<GccV2AgentDto> PatchAgentAsync(Guid agentId, PatchGccV2AgentCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2AgentDto>($"repo/content-creator-v2/agents/{agentId}", command, ct);
+    public Task<GccV2AgentVersionDto> CreateAgentVersionAsync(
+        Guid agentId, CreateGccV2AgentVersionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2AgentVersionDto>($"repo/content-creator-v2/agents/{agentId}/versions", command, ct);
+    public Task<GccV2AgentVersionDto> CreateAgentSuccessorAsync(
+        Guid versionId, CreateGccV2AgentSuccessorCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2AgentVersionDto>(
+            $"repo/content-creator-v2/agents/versions/{versionId}/successor", command, ct);
+    public Task<GccV2AgentVersionDto> ReviewAgentVersionAsync(
+        Guid versionId, ReviewGccV2AgentVersionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2AgentVersionDto>($"repo/content-creator-v2/agents/versions/{versionId}/review", command, ct);
+    public Task<GccV2AgentTestRunDto> QueueAgentTestRunAsync(
+        Guid versionId, QueueGccV2AgentTestRunCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2AgentTestRunDto>(
+            $"repo/content-creator-v2/agents/versions/{versionId}/test-runs", command, ct);
+    public Task<IReadOnlyList<GccV2AgentTestRunDto>> GetAgentTestHistoryAsync(
+        Guid versionId, CancellationToken ct = default) =>
+        GetListAsync<GccV2AgentTestRunDto>(
+            $"repo/content-creator-v2/agents/versions/{versionId}/test-runs", ct);
+    public Task<GccV2AgentTestRunDto?> GetAgentTestRunAsync(Guid runId, CancellationToken ct = default) =>
+        GetAsync<GccV2AgentTestRunDto>($"repo/content-creator-v2/agents/test-runs/{runId}", ct);
+    public Task<IReadOnlyList<GccV2AgentTestRunDto>> GetAgentTestRunsByStatusAsync(
+        string status, DateTimeOffset? leaseBefore = null, int limit = 200, CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator-v2/agents/test-runs/by-status/{Uri.EscapeDataString(status)}?limit={limit}";
+        if (leaseBefore is not null)
+            path += $"&leaseBefore={Uri.EscapeDataString(leaseBefore.Value.ToString("O"))}";
+        return GetListAsync<GccV2AgentTestRunDto>(path, ct);
+    }
+    public Task<GccV2AgentTestRunDto> ClaimAgentTestRunAsync(
+        Guid runId, string instanceId, int leaseSeconds = 120, CancellationToken ct = default) =>
+        PostAsync<GccV2AgentTestRunDto>(
+            $"repo/content-creator-v2/agents/test-runs/{runId}/claim?instanceId={Uri.EscapeDataString(instanceId)}&leaseSeconds={leaseSeconds}",
+            new { }, ct);
+    public Task<GccV2AgentTestRunDto> PatchAgentTestRunAsync(
+        Guid runId, PatchGccV2AgentTestRunCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2AgentTestRunDto>(
+            $"repo/content-creator-v2/agents/test-runs/{runId}", command, ct);
+    public Task<GccV2AgentVersionDto> TransitionAgentVersionAsync(
+        Guid versionId, string action, TransitionGccV2AgentVersionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2AgentVersionDto>($"repo/content-creator-v2/agents/versions/{versionId}/{action}", command, ct);
+
     private async Task<int> PostSeedCountAsync(string path, CancellationToken ct)
     {
         var res = await _http.PostAsync(path, content: null, ct);

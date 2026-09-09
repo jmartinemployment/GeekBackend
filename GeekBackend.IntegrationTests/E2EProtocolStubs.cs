@@ -23,6 +23,11 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
     private readonly ConcurrentDictionary<Guid, GccV2BriefDto> _gccBriefs = new();
     private readonly ConcurrentDictionary<Guid, GccV2JobDto> _gccJobs = new();
     private readonly ConcurrentDictionary<Guid, List<GccV2StageResultDto>> _gccStageResults = new();
+    private readonly GccV2SkillPackageDto _skill = SkillFixture();
+    private readonly IReadOnlyList<GccV2SkillAuditEventDto> _skillAudit = [];
+    private readonly GccV2AgentDto _agent = AgentFixture();
+    private readonly IReadOnlyList<GccV2AgentAuditEventDto> _agentAudit = [];
+    private readonly ConcurrentDictionary<Guid, GccV2AgentTestRunDto> _agentTests = new();
 
     public IReadOnlyDictionary<Guid, GeekCrawlerRunDto> Runs => _runs;
     public IReadOnlyList<GeekCrawlerPageDto> Pages(Guid runId) =>
@@ -71,6 +76,76 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
         CancellationToken cancellationToken)
     {
         var path = request.RequestUri?.AbsolutePath.TrimStart('/') ?? "";
+
+        if (path == "repo/content-creator-v2/skills" && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, new[] { _skill });
+        if (path == $"repo/content-creator-v2/skills/{_skill.Id}" && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, _skill);
+        if (path == $"repo/content-creator-v2/skills/{_skill.Id}/audit" && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, _skillAudit);
+        var skillVersion = _skill.Versions[0];
+        if (path == $"repo/content-creator-v2/skills/versions/{skillVersion.Id}/findings/{skillVersion.Findings[0].Id}"
+            && request.Method == HttpMethod.Patch)
+            return Json(HttpStatusCode.OK, skillVersion.Findings[0] with
+            {
+                Disposition = "resolved",
+                ReviewerRationale = "Reviewed in integration test",
+            });
+        if (path == $"repo/content-creator-v2/skills/versions/{skillVersion.Id}/review"
+            && request.Method == HttpMethod.Post)
+            return Json(HttpStatusCode.OK, skillVersion with { State = "approved" });
+        if (path == $"repo/content-creator-v2/skills/versions/{skillVersion.Id}/publish"
+            && request.Method == HttpMethod.Post)
+            return Json(HttpStatusCode.OK, skillVersion with { State = "published" });
+        if (path == $"repo/content-creator-v2/skills/versions/{skillVersion.Id}/deprecate"
+            && request.Method == HttpMethod.Post)
+            return Json(HttpStatusCode.OK, skillVersion with { State = "deprecated" });
+
+        if (path == "repo/content-creator-v2/agents" && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, new[] { _agent });
+        if (path == $"repo/content-creator-v2/agents/{_agent.Id}" && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, _agent);
+        if (path == $"repo/content-creator-v2/agents/{_agent.Id}/audit" && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, _agentAudit);
+        var agentVersion = _agent.Versions[0];
+        if (path == $"repo/content-creator-v2/agents/versions/{agentVersion.Id}/review"
+            && request.Method == HttpMethod.Post)
+            return Json(HttpStatusCode.OK, agentVersion with { State = "approved" });
+        if (path == $"repo/content-creator-v2/agents/versions/{agentVersion.Id}/test-runs"
+            && request.Method == HttpMethod.Post)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var run = new GccV2AgentTestRunDto(
+                Guid.NewGuid(), agentVersion.Id, agentVersion.VersionDigest, "contract", "{}",
+                "queued", 0, "queued", null, null, GeekApiTestFactory.OwnerUserId.ToString("D"),
+                now, null, null, now, null, null, null, 0, 0, null, null);
+            _agentTests[run.Id] = run;
+            return Json(HttpStatusCode.Accepted, run);
+        }
+        if (path == $"repo/content-creator-v2/agents/versions/{agentVersion.Id}/test-runs"
+            && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, _agentTests.Values
+                .Where(x => x.AgentVersionId == agentVersion.Id).OrderByDescending(x => x.QueuedAtUtc));
+        if (path.StartsWith("repo/content-creator-v2/agents/test-runs/by-status/", StringComparison.Ordinal)
+            && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, Array.Empty<GccV2AgentTestRunDto>());
+        if (path.StartsWith("repo/content-creator-v2/agents/test-runs/", StringComparison.Ordinal)
+            && Guid.TryParse(path.Split('/').Last(), out var testRunId)
+            && request.Method == HttpMethod.Get
+            && _agentTests.TryGetValue(testRunId, out var testRun))
+            return Json(HttpStatusCode.OK, testRun);
+        if (path.StartsWith("repo/content-creator-v2/agents/test-runs/", StringComparison.Ordinal)
+            && request.Method == HttpMethod.Patch
+            && Guid.TryParse(path.Split('/').Last(), out testRunId)
+            && _agentTests.TryGetValue(testRunId, out testRun))
+            return Json(HttpStatusCode.OK, testRun with
+            {
+                Phase = "cancellation-requested",
+                CancellationRequestedAtUtc = DateTimeOffset.UtcNow,
+            });
+        if (path.StartsWith($"repo/content-creator-v2/agents/versions/{agentVersion.Id}/", StringComparison.Ordinal)
+            && request.Method == HttpMethod.Post)
+            return Json(HttpStatusCode.OK, agentVersion);
 
         if (TryGccResourceId(path, "jobs", out var gccJobId)
             && _gccJobs.TryGetValue(gccJobId, out var gccJob))
@@ -249,6 +324,54 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
             return Json(HttpStatusCode.OK, Array.Empty<object>());
 
         return new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+
+    private static GccV2SkillPackageDto SkillFixture()
+    {
+        var packageId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var versionId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var findingId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        var imported = new DateTimeOffset(2026, 9, 8, 20, 0, 0, TimeSpan.Zero);
+        var version = new GccV2SkillVersionDto(
+            versionId, packageId, "1.2.3", new string('b', 40), new string('a', 64),
+            new string('c', 64), "MIT", "gcc-v2", "published", imported, imported, imported,
+            "reviewer", "approved", null,
+            [new(Guid.NewGuid(), versionId, "SKILL.md", "text/markdown", 12, new string('d', 64), "# Safe skill")],
+            new[] { "researchPlanning", "outline", "section", "repair", "validation", "finalSynthesis", "complete" }
+                .Select(stage => new GccV2SkillApplicabilityDto(
+                    Guid.NewGuid(), versionId, stage, "blog", 1, "[]",
+                    """["load_evidence_page"]""", "automatic")).ToList(),
+            [new(findingId, versionId, "medium", "gcc-static-v1", "external-tooling-request",
+                "SKILL.md", 2, "Plugin request requires review.", "unreviewed", null, false)]);
+        return new GccV2SkillPackageDto(
+            packageId, "safe-writing", "Safe writing", "Ground prose in reviewed evidence.",
+            "https://example.test/reviewed.git", "skills/safe-writing", "geek", "published",
+            true, imported, null, [version]);
+    }
+
+    private static GccV2AgentDto AgentFixture()
+    {
+        var skillPackage = SkillFixture();
+        var skill = skillPackage.Versions[0];
+        var versionId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        var version = new GccV2AgentVersionDto(
+            versionId, Guid.Parse("88888888-8888-8888-8888-888888888888"), "1.0.0",
+            "Produce canonical content.", """["blog"]""",
+            """["load_evidence_page"]""", """["o3"]""", new string('e', 64),
+            "published", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow, null, null, "admin", "reviewed",
+            """{"passed":true}""",
+            [new(versionId, skill.Id, 0, new(
+                skill.Id, skill.SemanticVersion, skill.PackageSha256, skill.State,
+                new(skillPackage.Id, skillPackage.Slug, skillPackage.DisplayName),
+                skill.Applicability))],
+            new[] { "researchPlanning", "outline", "section", "repair", "validation", "finalSynthesis", "complete" }
+                .Select((stage, order) => new GccV2AgentStageParticipationDto(
+                    Guid.NewGuid(), versionId, stage, "producer", 100 + order)).ToList(),
+            "Produce evidence-grounded canonical content.", "content-model-policy.v1", []);
+        return new(
+            Guid.Parse("88888888-8888-8888-8888-888888888888"), "writing", "Writing",
+            "Canonical content producer.", "published", true, DateTimeOffset.UtcNow, null, [version]);
     }
 
     private static bool TryRunId(string path, out Guid runId)

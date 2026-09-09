@@ -34,6 +34,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2SiteHierarchyService _siteHierarchy;
     private readonly GccV2GeekCrawlerResearchResolver _researchResolver;
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
+    private readonly GccV2AgentTeamResolver _agentTeams;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -45,6 +46,7 @@ public class GccV2Controller : ControllerBase
         GccV2SiteHierarchyService siteHierarchy,
         GccV2GeekCrawlerResearchResolver researchResolver,
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
+        GccV2AgentTeamResolver agentTeams,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -55,6 +57,7 @@ public class GccV2Controller : ControllerBase
         _siteHierarchy = siteHierarchy;
         _researchResolver = researchResolver;
         _jobModelPolicies = jobModelPolicies;
+        _agentTeams = agentTeams;
         _logger = logger;
     }
 
@@ -72,20 +75,21 @@ public class GccV2Controller : ControllerBase
     /// job snapshots are resolved and persisted by the durable backend.
     /// </summary>
     [HttpGet("skills")]
-    public ActionResult<object> Skills([FromQuery] string? contentType = null)
+    public async Task<ActionResult<object>> Skills([FromQuery] string? contentType = null, CancellationToken ct = default)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
-        IReadOnlyList<string> active = string.IsNullOrWhiteSpace(contentType)
-            ? []
-            : GccV2SkillCatalog.Resolve(contentType).Skills.Select(skill => skill.Id).ToList();
+        var packages = await _repo.ListSkillsAsync("published", contentType, null, ct);
+        var summaries = packages.SelectMany(package => package.Versions
+                .Where(version => version.State == "published")
+                .Select(version => GccV2SkillApiMapper.Summary(package, version)))
+            .ToList();
         return Ok(new
         {
-            catalogVersion = GccV2SkillCatalog.CurrentVersion,
-            envelopeVersion = GccV2SkillExecutionSnapshot.CurrentEnvelopeVersion,
+            catalogVersion = GccV2SkillSnapshotRegistry.CatalogVersion,
+            envelopeVersion = GccV2SignedSkillExecutionEnvelopeV2.CurrentEnvelopeVersion,
             selectionMode = "automatic-read-only",
             customizationAvailable = false,
-            activeSkillIds = active,
-            skills = GccV2SkillCatalog.PublicCatalog(),
+            skills = summaries,
             recommendedBundles = GccV2SkillCatalog.RecommendedBundles,
         });
     }
@@ -122,6 +126,19 @@ public class GccV2Controller : ControllerBase
         var siteUrl = string.IsNullOrWhiteSpace(request.SiteUrl)
             ? section.RelatedPages[0].Url
             : request.SiteUrl.Trim();
+        GccV2SignedAgentTeam selectedTeam;
+        try
+        {
+            selectedTeam = request.SelectedAgentIds is { Count: > 0 }
+                ? await _agentTeams.ResolveStableAsync(request.SelectedAgentIds,
+                    string.IsNullOrWhiteSpace(request.ContentType) ? "blog" : request.ContentType, ct)
+                : await _agentTeams.ResolveAsync(request.AgentVersionIds,
+                    string.IsNullOrWhiteSpace(request.ContentType) ? "blog" : request.ContentType, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
         var create = await _repo.CreateCreateAsync(
             new CreateGccV2CreateCommand(
@@ -130,7 +147,10 @@ public class GccV2Controller : ControllerBase
                 request.ContentType,
                 siteSectionJson,
                 siteUrl,
-                runId),
+                runId,
+                selectedTeam is not null
+                    ? JsonSerializer.Serialize(
+                        selectedTeam.Snapshot.Agents.Select(x => x.AgentVersionId), JsonOpts) : null),
             ct);
         return Ok(create);
     }
@@ -406,6 +426,34 @@ public class GccV2Controller : ControllerBase
 
         rawBriefJson = mergeResult.BriefJson;
 
+        var selectedAgentVersionIds = ParseAgentVersionIds(create.SelectedAgentVersionIdsJson);
+        if (selectedAgentVersionIds is not { Count: > 0 })
+            return Conflict(new { error = "Create has no immutable specialist selection; create a new create before generating." });
+        if (request?.AgentVersionIds is { } repeatedVersions
+            && !Equivalent(repeatedVersions, selectedAgentVersionIds))
+            return Conflict(new { error = "Requested agentVersionIds do not match the create's immutable specialist selection." });
+        if (request?.SelectedAgentIds is { } repeatedAgents)
+        {
+            var catalog = await _repo.ListAgentsAsync(ct: ct);
+            var pinnedSlugs = catalog.SelectMany(agent => agent.Versions
+                    .Where(version => selectedAgentVersionIds.Contains(version.Id))
+                    .Select(_ => agent.Slug)).ToList();
+            if (!Equivalent(repeatedAgents, pinnedSlugs))
+                return Conflict(new { error = "Requested selectedAgentIds do not match the create's immutable specialist selection." });
+        }
+        var resolvedTeams = new Dictionary<string, GccV2SignedAgentTeam>(StringComparer.OrdinalIgnoreCase);
+        foreach (var contentType in contentTypes.Where(t => !GccV2ChannelTypes.IsLinkedIn(t)))
+        {
+            try
+            {
+                resolvedTeams[contentType] = await _agentTeams.ResolveAsync(selectedAgentVersionIds, contentType, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message, contentType });
+            }
+        }
+
         var brief = await _repo.CreateBriefAsync(
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
             ct);
@@ -421,10 +469,23 @@ public class GccV2Controller : ControllerBase
         var jobIds = new List<Guid>();
         foreach (var contentType in contentTypes.Where(t => !GccV2ChannelTypes.IsLinkedIn(t)))
         {
+            var team = resolvedTeams[contentType];
             var job = await _repo.CreateJobAsync(
-                new CreateGccV2JobCommand(id, _user.UserId.ToString("D"), contentType, brief.Id, ProjectSiteCrawlRunId: runId),
+                new CreateGccV2JobCommand(
+                    id, _user.UserId.ToString("D"), contentType, brief.Id,
+                    ProjectSiteCrawlRunId: runId,
+                    AgentVersionIds: team.Snapshot.Agents.Select(x => x.AgentVersionId).ToList(),
+                    AgentTeamSnapshotJson: team.SnapshotJson,
+                    AgentTeamSnapshotDigest: team.Digest,
+                    AgentTeamSnapshotSignature: team.Signature,
+                    AgentTeamSnapshotKeyId: team.SignatureKeyId),
                 ct);
-            await _events.AppendAsync(job.Id, _user.UserId, "JobQueued", new { jobId = job.Id, briefId = brief.Id, contentType }, ct: ct);
+            await _events.AppendAsync(job.Id, _user.UserId, "JobQueued", new
+            {
+                jobId = job.Id, briefId = brief.Id, contentType,
+                agentTeamSnapshotDigest = team.Digest,
+                agentVersionIds = team.Snapshot.Agents.Select(x => x.AgentVersionId),
+            }, ct: ct);
             _wake.Wake(job.Id);
             jobIds.Add(job.Id);
         }
@@ -1219,7 +1280,10 @@ public class GccV2Controller : ControllerBase
     private bool IsOwner(string ownerUserId) =>
         _user.IsAuthenticated && string.Equals(ownerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase);
 
-    public record CreateCreateRequest(string Title, string? ContentType, JsonElement? SiteSection = null, string? SiteUrl = null);
+    public record CreateCreateRequest(
+        string Title, string? ContentType, JsonElement? SiteSection = null,
+        string? SiteUrl = null, IReadOnlyList<Guid>? AgentVersionIds = null,
+        IReadOnlyList<string>? SelectedAgentIds = null);
 
     /// <summary><c>Brief</c> is stored verbatim as the brief's <c>RawBriefJson</c> (includes operatorTools).
     /// <c>ContentTypes</c> drives one WRITE job per type; falls back to create content type / blog.</summary>
@@ -1228,7 +1292,19 @@ public class GccV2Controller : ControllerBase
         JsonElement? Brief,
         Guid? ProjectSiteCrawlRunId,
         IReadOnlyList<string>? ContentTypes = null,
-        bool? PartnerToolsConfirmed = null);
+        bool? PartnerToolsConfirmed = null,
+        IReadOnlyList<Guid>? AgentVersionIds = null,
+        IReadOnlyList<string>? SelectedAgentIds = null);
+
+    private static IReadOnlyList<Guid>? ParseAgentVersionIds(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<List<Guid>>(json, JsonOpts); }
+        catch (JsonException) { throw new InvalidOperationException("Stored specialist selection is malformed."); }
+    }
+
+    private static bool Equivalent<T>(IEnumerable<T> left, IEnumerable<T> right) where T : notnull =>
+        left.ToHashSet().SetEquals(right) && left.Count() == left.Distinct().Count();
 
     private static Guid? ResolveCrawlRunId(GccV2JobDto job) =>
         job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId;

@@ -12,6 +12,11 @@ public class GccV2Create
     public string? SiteUrl { get; set; }
     /// <summary>Owned project-site BFS crawl run that grounded this create.</summary>
     public Guid? ProjectSiteCrawlRunId { get; set; }
+    /// <summary>
+    /// Optional operator selection of published specialist version IDs. Null preserves legacy
+    /// behavior and resolves the seeded default team when generation starts.
+    /// </summary>
+    public string? SelectedAgentVersionIdsJson { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAtUtc { get; set; }
 }

@@ -148,6 +148,8 @@ public sealed class GccV2WriteService
     private readonly RagGenerateService _rag;
     private readonly ContentModelPolicy _modelPolicy;
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
+    private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
+    private readonly GccV2SpecialistCoordinator _specialists;
     private readonly ILogger<GccV2WriteService> _logger;
 
     public GccV2WriteService(
@@ -161,6 +163,8 @@ public sealed class GccV2WriteService
         RagGenerateService rag,
         ContentModelPolicy modelPolicy,
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
+        GccV2SkillSnapshotRegistry skillSnapshots,
+        GccV2SpecialistCoordinator specialists,
         ILogger<GccV2WriteService> logger)
     {
         _repo = repo;
@@ -173,6 +177,8 @@ public sealed class GccV2WriteService
         _rag = rag;
         _modelPolicy = modelPolicy;
         _jobModelPolicies = jobModelPolicies;
+        _skillSnapshots = skillSnapshots;
+        _specialists = specialists;
         _logger = logger;
     }
 
@@ -432,17 +438,27 @@ public sealed class GccV2WriteService
             wc.GenerationBrief,
             wc.JobModelPolicyOverride);
         var draft = ToStableMarkdown(current);
+        var attemptId = Guid.NewGuid().ToString("D");
+        var hasAgentTeam = !string.IsNullOrWhiteSpace(wc.Job.AgentTeamSnapshotJson);
+        var envelope = hasAgentTeam
+            ? await _skillSnapshots.BuildEnvelopeAsync(wc.Job, attemptId, "finalSynthesis", ct) : null;
+        await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
+            new { stage = "finalSynthesis", attemptId, executionVersion = hasAgentTeam
+                ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
-        var response = await _rag.GenerateAsync(
-            wc.Job.OwnerUserId,
-            new RagGenerateRequest
-            {
+        var request = new RagGenerateRequest
+        {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "finalSynthesis",
+                ExecutionVersion = hasAgentTeam
+                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
+                JobId = hasAgentTeam ? wc.Job.Id.ToString("D") : null,
+                AttemptId = attemptId,
                 SkillExecution = SkillExecution(wc, "finalSynthesis"),
+                SignedSkillExecution = envelope,
                 DraftContent = draft,
                 Sources = sources,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
@@ -452,8 +468,11 @@ public sealed class GccV2WriteService
                     wc.GenerationBrief, selection, "finalSynthesis", wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
-            },
-            ct);
+        };
+        if (hasAgentTeam)
+            await _specialists.PrepareProducerAsync(
+                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, envelope!, ct);
+        var response = await _rag.GenerateAsync(wc.Job.OwnerUserId, request, ct);
         stopwatch.Stop();
         if (string.IsNullOrWhiteSpace(response.Content))
             throw new InvalidOperationException("Citeable RAG returned no final-synthesis content.");
@@ -461,6 +480,9 @@ public sealed class GccV2WriteService
             throw new InvalidOperationException("Final synthesis returned no verified citations.");
         if (response.Provenance is null)
             throw new InvalidOperationException("Final synthesis returned no provenance.");
+        if (hasAgentTeam)
+            await _specialists.CompleteProducerAndRunReviewersAsync(
+                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, response, response.Content, ct);
 
         var parsed = ParseSynthesizedMarkdown(response.Content, current.AllSections);
         var evidenceIds = response.Citations.Select(c => c.PageId)
@@ -482,7 +504,8 @@ public sealed class GccV2WriteService
             response.Provenance.AttemptId
                 ?? throw new InvalidOperationException("Final synthesis omitted attempt ID."),
             MapSkillProvenance(response.Provenance.Skills),
-            response.Provenance.ExecutionVersion);
+            response.Provenance.ExecutionVersion,
+            response.AgentExecution ?? response.Provenance.AgentExecution);
 
         var knownHeadings = current.AllSections
             .Select(section => section.Heading)
@@ -1021,6 +1044,10 @@ public sealed class GccV2WriteService
         var route = GccV2ContentTypeRagMapper.Map(wc.Job.ContentType);
         var stage = route.IsImagePrompt ? ContentGenerationStage.ImagePrompt : ContentGenerationStage.Complete;
         var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
+        var attemptId = Guid.NewGuid().ToString("D");
+        var agentContract = await _skillSnapshots.NegotiateAsync(wc.Job, attemptId, "complete", ct);
+        await _events.AppendAsync(wc.Job.Id, ownerUserId, "AgentStageStarted",
+            new { stage = "complete", attemptId, executionVersion = agentContract.ExecutionVersion }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
         var response = await _rag.GenerateAsync(
             wc.Job.OwnerUserId,
@@ -1037,7 +1064,10 @@ public sealed class GccV2WriteService
                     ? wc.GenerationBrief.AdTemplates.ToList()
                     : null,
                 GenerationStage = "complete",
+                ExecutionVersion = agentContract.ExecutionVersion,
+                AttemptId = attemptId,
                 SkillExecution = SkillExecution(wc, "complete"),
+                SignedSkillExecution = agentContract.Envelope,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
                 ModelPolicyVersion = selection.PolicyVersion,
@@ -1065,7 +1095,8 @@ public sealed class GccV2WriteService
             response.Provenance?.AttemptId
                 ?? throw new InvalidOperationException("RAG complete response omitted attempt ID."),
             MapSkillProvenance(response.Provenance?.Skills),
-            response.Provenance?.ExecutionVersion);
+            response.Provenance?.ExecutionVersion,
+            response.AgentExecution ?? response.Provenance?.AgentExecution);
         var section = MarkdownToSection(content, heading);
         var write = new GccV2WriteSection(
             sectionKey, heading, "problem", section, false, response.Citations ?? [], provenance, response.Sources);
@@ -1200,18 +1231,28 @@ public sealed class GccV2WriteService
         var route = GccV2ContentTypeRagMapper.Map(wc.Job.ContentType);
         var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
         var producerStage = ContentModelPolicy.ProducerStage(stage);
+        var attemptId = Guid.NewGuid().ToString("D");
+        var hasAgentTeam = !string.IsNullOrWhiteSpace(wc.Job.AgentTeamSnapshotJson);
+        var envelope = hasAgentTeam
+            ? await _skillSnapshots.BuildEnvelopeAsync(wc.Job, attemptId, producerStage, ct) : null;
+        await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
+            new { stage = producerStage, attemptId, executionVersion = hasAgentTeam
+                ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
-        var response = await _rag.GenerateAsync(
-            wc.Job.OwnerUserId,
-            new RagGenerateRequest
-            {
+        var request = new RagGenerateRequest
+        {
                 WritingIntent = route.WritingIntent,
                 Topic = $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}",
                 TargetEntities = wc.GenerationBrief.TargetEntities.ToList(),
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = producerStage,
+                ExecutionVersion = hasAgentTeam
+                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
+                JobId = hasAgentTeam ? wc.Job.Id.ToString("D") : null,
+                AttemptId = attemptId,
                 SkillExecution = SkillExecution(wc, producerStage),
+                SignedSkillExecution = envelope,
                 Outline = wc.Outline.Sections.Select(s => new RagOutlineSectionDto
                 {
                     Key = s.Key,
@@ -1230,11 +1271,18 @@ public sealed class GccV2WriteService
                     wc.GenerationBrief, selection, producerStage, wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
-            },
-            ct);
+        };
+        if (hasAgentTeam)
+            await _specialists.PrepareProducerAsync(
+                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, envelope!, ct);
+        var response = await _rag.GenerateAsync(wc.Job.OwnerUserId, request, ct);
         stopwatch.Stop();
         if (string.IsNullOrWhiteSpace(response.Content))
             throw new InvalidOperationException($"Citeable RAG returned no content for section '{entry.Heading}'.");
+        request.DraftContent = response.Content;
+        if (hasAgentTeam)
+            await _specialists.CompleteProducerAndRunReviewersAsync(
+                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, response, response.Content, ct);
 
         var section = MarkdownToSection(response.Content, entry.Heading);
         var evidenceIds = (response.Citations ?? []).Select(c => c.PageId)
@@ -1256,7 +1304,8 @@ public sealed class GccV2WriteService
             response.Provenance?.AttemptId
                 ?? throw new InvalidOperationException($"RAG {producerStage} response omitted attempt ID."),
             MapSkillProvenance(response.Provenance?.Skills),
-            response.Provenance?.ExecutionVersion);
+            response.Provenance?.ExecutionVersion,
+            response.AgentExecution ?? response.Provenance?.AgentExecution);
         return new GccV2WriteSection(
             entry.Key, entry.Heading, entry.Job, section, false, response.Citations ?? [], provenance, response.Sources);
     }
@@ -1362,6 +1411,30 @@ public sealed class GccV2WriteService
             provenance = write.Provenance,
         }, ct: ct);
 
+        if (write.Provenance.AgentExecution is { } trace)
+        {
+            foreach (var skill in trace.ActivatedSkills)
+                await _events.AppendAsync(jobId, ownerUserId, "SkillActivated", new
+                {
+                    stage = write.Provenance.Stage, write.Provenance.AttemptId,
+                    skill.SkillId, skill.Version, skill.ActivationId,
+                    skill.PackageDigest, skill.ResourcePaths,
+                }, ct: ct);
+            foreach (var tool in trace.ToolCalls)
+                await _events.AppendAsync(jobId, ownerUserId, "AgentToolCompleted", new
+                {
+                    stage = write.Provenance.Stage, write.Provenance.AttemptId,
+                    tool.ToolId, tool.ToolVersion, tool.ResultDigest, tool.ResultCount,
+                    tool.DurationMs, tool.ErrorClass, tool.Sequence, tool.Classification,
+                }, ct: ct);
+            await _events.AppendAsync(jobId, ownerUserId, "AgentStageCompleted", new
+            {
+                stage = write.Provenance.Stage, write.Provenance.AttemptId,
+                trace.Agent, trace.ExecutorVersion, trace.WorkflowVersion,
+                trace.TraceVersion, trace.ToolsVersion, trace.StopReason, trace.Usage,
+            }, ct: ct);
+        }
+
         if (wc.ExtendLease is not null)
         {
             await wc.ExtendLease(ct);
@@ -1431,6 +1504,8 @@ public sealed class GccV2WriteService
         var trimmed = value.Trim();
         return trimmed.Length <= max ? trimmed : trimmed[..max];
     }
+
+    private static Guid ParseOwner(string value) => Guid.TryParse(value, out var id) ? id : Guid.Empty;
 
     private static string Slugify(string? value)
     {

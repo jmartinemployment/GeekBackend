@@ -25,6 +25,10 @@ public class ContentCreatorV2DbContextDesignTimeFactory : IDesignTimeDbContextFa
 
     private static string? ReadEnvVar(string name)
     {
+        var processValue = Environment.GetEnvironmentVariable(name);
+        if (!string.IsNullOrWhiteSpace(processValue))
+            return processValue;
+
         var dir = Directory.GetCurrentDirectory();
         for (var i = 0; i < 4; i++)
         {

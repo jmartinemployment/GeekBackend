@@ -3,6 +3,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 
 namespace GeekAPI.Services.ContentCreatorV2.Jobs;
@@ -56,15 +57,18 @@ public sealed class GccV2ImagePromptSpawnService
 
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2JobWake _wake;
+    private readonly GccV2AgentTeamResolver _agentTeams;
     private readonly ILogger<GccV2ImagePromptSpawnService> _logger;
 
     public GccV2ImagePromptSpawnService(
         HttpGccV2Repository repo,
         GccV2JobWake wake,
+        GccV2AgentTeamResolver agentTeams,
         ILogger<GccV2ImagePromptSpawnService> logger)
     {
         _repo = repo;
         _wake = wake;
+        _agentTeams = agentTeams;
         _logger = logger;
     }
 
@@ -139,6 +143,7 @@ public sealed class GccV2ImagePromptSpawnService
                         RawBriefJson: briefJson),
                     ct);
 
+                var team = await _agentTeams.ResolveChildAsync(sourceJob, "image-prompt", ct);
                 var child = await _repo.CreateJobAsync(
                     new CreateGccV2JobCommand(
                         sourceJob.CreateId,
@@ -146,7 +151,12 @@ public sealed class GccV2ImagePromptSpawnService
                         "image-prompt",
                         brief.Id,
                         sourceJob.ProjectSiteCrawlRunId ?? sourceJob.SiteAnalysisProfileId,
-                        InitialStage: "write"),
+                        InitialStage: "write",
+                        AgentVersionIds: team.Snapshot.Agents.Select(x => x.AgentVersionId).ToList(),
+                        AgentTeamSnapshotJson: team.SnapshotJson,
+                        AgentTeamSnapshotDigest: team.Digest,
+                        AgentTeamSnapshotSignature: team.Signature,
+                        AgentTeamSnapshotKeyId: team.SignatureKeyId),
                     ct);
 
                 _wake.Wake(child.Id);

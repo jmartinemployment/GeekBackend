@@ -28,6 +28,7 @@ public sealed class RagGenerateService
     private readonly HttpGeekCrawlerRepository _crawlerRepo;
     private readonly IContentProviderFactory _providers;
     private readonly ILogger<RagGenerateService> _logger;
+    private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
     private readonly bool _generateEnabled;
     private readonly bool _graphEnabled;
     private readonly bool _adTemplateIndexEnabled;
@@ -37,11 +38,13 @@ public sealed class RagGenerateService
         IGeekCrawlerRagClient rag,
         HttpGeekCrawlerRepository crawlerRepo,
         IContentProviderFactory providers,
+        GccV2SkillSnapshotRegistry skillSnapshots,
         ILogger<RagGenerateService> logger)
     {
         _rag = rag;
         _crawlerRepo = crawlerRepo;
         _providers = providers;
+        _skillSnapshots = skillSnapshots;
         _logger = logger;
         _generateEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_GENERATE_ENABLED"));
         // Default ON now that Geek-Crawler-Rag Phase D1/D2 ships; set =false to soft-disable.
@@ -117,24 +120,48 @@ public sealed class RagGenerateService
         var stage = NormalizeGenerationStage(request.GenerationStage);
         if (request.RequireCiteable)
         {
-            if (request.SkillExecution is null)
-                throw new InvalidOperationException("Canonical generation requires an immutable skill execution snapshot.");
-            GccV2SkillCatalog.ForStage(request.SkillExecution, stage);
             var capabilities = await _rag.GetCapabilitiesAsync(ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("RAG producer capabilities are unavailable; strict execution cannot be negotiated.");
+            var agentV3 = request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion;
+            var envelopeVersion = agentV3
+                ? request.SignedSkillExecution?.EnvelopeVersion
+                : request.SkillExecution?.EnvelopeVersion;
+            if (agentV3)
+            {
+                if (request.SignedSkillExecution is null || request.AgentExecution is null)
+                    throw new InvalidOperationException("Canonical v3 generation requires signed v2 skillExecution and agentExecution.");
+                _skillSnapshots.Validate(request.SignedSkillExecution, stage);
+                if (request.SignedSkillExecution.AttemptId != request.AttemptId)
+                    throw new InvalidOperationException("Signed skill snapshot attemptId mismatch.");
+                if (string.IsNullOrWhiteSpace(request.JobId)
+                    || request.JobId != request.SignedSkillExecution.JobId
+                    || request.JobId != request.AgentExecution.JobId
+                    || request.AttemptId != request.AgentExecution.AttemptId
+                    || stage != request.AgentExecution.Stage)
+                    throw new InvalidOperationException(
+                        "v3 jobId, attemptId, and stage must match both signed execution snapshots.");
+            }
+            else
+            {
+                if (request.SkillExecution is null)
+                    throw new InvalidOperationException("Canonical v2 generation requires immutable v1 skillExecution.");
+                GccV2SkillCatalog.ForStage(request.SkillExecution, stage);
+            }
             if (!capabilities.ExecutionVersions.Contains(request.ExecutionVersion, StringComparer.Ordinal)
-                || !capabilities.SkillEnvelopeVersions.Contains(request.SkillExecution.EnvelopeVersion, StringComparer.Ordinal)
+                || envelopeVersion is null
+                || !capabilities.SkillEnvelopeVersions.Contains(envelopeVersion, StringComparer.Ordinal)
                 || !capabilities.GenerationStages.Contains(stage, StringComparer.Ordinal)
-                || !string.Equals(
+                || (agentV3 && !capabilities.ToolsAllowed)
+                || (!agentV3 && (!string.Equals(
                     capabilities.SpecialistExecutorVersion,
                     RagProducerCapabilities.RequiredSpecialistExecutorVersion,
                     StringComparison.Ordinal)
                 || RagProducerCapabilities.RequiredSpecialists.Any(required =>
                     !capabilities.SpecialistExecutors.Contains(required, StringComparer.Ordinal))
-                || capabilities.ToolsAllowed)
+                || capabilities.ToolsAllowed)))
                 throw new InvalidOperationException(
                     $"RAG producer does not support execution '{request.ExecutionVersion}', skill envelope " +
-                    $"'{request.SkillExecution.EnvelopeVersion}', stage '{stage}', and the required tool-free specialist boundary.");
+                    $"'{envelopeVersion}', stage '{stage}', and its required execution boundary.");
         }
         if (stage == "section" && string.IsNullOrWhiteSpace(request.SectionHeading))
             throw new ArgumentException("sectionHeading is required for section generation.");
@@ -955,13 +982,22 @@ public sealed class RagGenerateService
                 ModelPolicyVersion = request.ModelPolicyVersion,
                 StageModelOverrides = request.StageModelOverrides,
                 ExecutionVersion = request.ExecutionVersion,
+                JobId = request.JobId,
                 AttemptId = request.AttemptId,
                 SkillExecution = request.SkillExecution,
+                SignedSkillExecution = request.SignedSkillExecution,
+                AgentExecution = request.AgentExecution,
+                SpecialistContributions = request.SpecialistContributions,
+                SpecialistReviews = request.SpecialistReviews,
             },
             ct).ConfigureAwait(false);
 
         if (result is null)
             return null;
+        if (result.AgentFailure is { } failure)
+            throw new RagAgentStoppedException(failure.StopReason, failure.Detail);
+        if (result.AgentExecution?.StopReason is { } stop and not RagAgentStopReason.Completed)
+            throw new RagAgentStoppedException(stop, $"RAG agent stopped: {stop}.");
         var returnedModel = result.Provenance?.ModelUsed ?? result.ModelUsed;
         if (request.RequireCiteable
             && !string.IsNullOrWhiteSpace(request.RequestedModel)
@@ -1002,14 +1038,46 @@ public sealed class RagGenerateService
         if (request.RequireCiteable
             && (!string.Equals(request.ExecutionVersion, result.Provenance?.ExecutionVersion, StringComparison.Ordinal)
                 || !string.Equals(request.AttemptId, result.Provenance?.AttemptId, StringComparison.Ordinal)
-                || !string.Equals(request.SkillExecution?.SnapshotHash, result.Provenance?.Skills?.SnapshotHash, StringComparison.Ordinal)
+                || !string.Equals(
+                    request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion
+                        ? request.SignedSkillExecution?.SnapshotDigest
+                        : request.SkillExecution?.SnapshotHash,
+                    result.Provenance?.Skills?.SnapshotHash,
+                    StringComparison.Ordinal)
                 || !string.Equals(stage, result.Provenance?.Skills?.Stage, StringComparison.Ordinal)))
             throw new InvalidOperationException(
                 "RAG response did not confirm execution version, attempt ID, skill snapshot, and stage.");
-        if (stage == "validation" && result.Validation is null)
+        if (request.RequireCiteable
+            && request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion
+            && (result.AgentExecution is null
+                || !string.Equals(stage, result.AgentExecution.Stage, StringComparison.Ordinal)
+                || !string.Equals(request.AgentExecution?.StageExecutionId,
+                    result.AgentExecution.StageExecutionId, StringComparison.Ordinal)
+                || !string.Equals(request.AgentExecution?.CoordinatorExecutionId,
+                    result.AgentExecution.CoordinatorExecutionId, StringComparison.Ordinal)
+                || !string.Equals(request.AgentExecution?.SelectedAgent.Id,
+                    result.AgentExecution.SelectedAgentId, StringComparison.Ordinal)
+                || result.AgentExecution.StopReason != RagAgentStopReason.Completed))
+            throw new InvalidOperationException(
+                "RAG v3 response did not return completed, stage-bound agent execution provenance.");
+        if (request.AgentExecution?.OutputContract == "contributorOutput.v1"
+            && (result.SpecialistContribution is null || result.SpecialistReview is not null
+                || result.SpecialistContribution.ContractVersion != "contributorOutput.v1"
+                || result.SpecialistContribution.Stage != stage))
+            throw new InvalidOperationException("RAG contributor response violated its typed output contract.");
+        if (request.AgentExecution?.OutputContract == "reviewerOutput.v1"
+            && (result.SpecialistReview is null || result.SpecialistContribution is not null
+                || result.SpecialistReview.ContractVersion != "reviewerOutput.v1"
+                || result.SpecialistReview.Stage != stage))
+            throw new InvalidOperationException("RAG reviewer response violated its typed output contract.");
+        if (request.AgentExecution?.OutputContract == "producerOutput.v1"
+            && (result.SpecialistContribution is not null || result.SpecialistReview is not null))
+            throw new InvalidOperationException("RAG producer response returned a specialist side artifact.");
+        var producerOutput = request.AgentExecution?.OutputContract is null or "producerOutput.v1";
+        if (stage == "validation" && producerOutput && result.Validation is null)
             throw new InvalidOperationException(
                 "RAG validation response was missing or malformed; validation fails closed.");
-        if (stage == "validation")
+        if (stage == "validation" && producerOutput)
             ValidateTypedValidation(result.Validation!);
 
         foreach (var w in result.Warnings)
@@ -1107,6 +1175,7 @@ public sealed class RagGenerateService
                     SpecialistExecutorVersion = result.Provenance.SpecialistExecutorVersion,
                     ExecutionVersion = result.Provenance.ExecutionVersion,
                     AttemptId = result.Provenance.AttemptId,
+                    AgentExecution = result.Provenance.AgentExecution,
                     Skills = result.Provenance.Skills is null
                         ? null
                         : new RagSkillProvenanceDto
@@ -1138,6 +1207,11 @@ public sealed class RagGenerateService
                     OriginalityScore = result.Validation.OriginalityScore,
                     BrandAlignmentScore = result.Validation.BrandAlignmentScore,
                 },
+            AgentExecution = result.AgentExecution ?? result.Provenance?.AgentExecution,
+            AgentFailure = result.AgentFailure,
+            SpecialistContribution = result.SpecialistContribution,
+            SpecialistReview = result.SpecialistReview,
+            SpecialistArtifactDigest = result.SpecialistArtifactDigest,
         };
     }
 

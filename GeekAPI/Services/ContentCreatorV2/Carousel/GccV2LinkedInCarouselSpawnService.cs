@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 
@@ -16,15 +17,18 @@ public sealed class GccV2LinkedInCarouselSpawnService
 
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2JobWake _wake;
+    private readonly GccV2AgentTeamResolver _agentTeams;
     private readonly ILogger<GccV2LinkedInCarouselSpawnService> _logger;
 
     public GccV2LinkedInCarouselSpawnService(
         HttpGccV2Repository repo,
         GccV2JobWake wake,
+        GccV2AgentTeamResolver agentTeams,
         ILogger<GccV2LinkedInCarouselSpawnService> logger)
     {
         _repo = repo;
         _wake = wake;
+        _agentTeams = agentTeams;
         _logger = logger;
     }
 
@@ -60,13 +64,19 @@ public sealed class GccV2LinkedInCarouselSpawnService
         if (existing.Any(j => GccV2ChannelTypes.IsLinkedInDocument(j.ContentType)))
             return new SpawnResult(0, 1, null, "LinkedIn carousel job already exists on this create.");
 
+        var team = await _agentTeams.ResolveChildAsync(sourceJob, GccV2ChannelTypes.LinkedInCarousel, ct);
         var job = await _repo.CreateJobAsync(
             new CreateGccV2JobCommand(
                 sourceJob.CreateId,
                 sourceJob.OwnerUserId,
                 GccV2ChannelTypes.LinkedInCarousel,
                 sourceJob.BriefId,
-                ProjectSiteCrawlRunId: sourceJob.ProjectSiteCrawlRunId),
+                ProjectSiteCrawlRunId: sourceJob.ProjectSiteCrawlRunId,
+                AgentVersionIds: team.Snapshot.Agents.Select(x => x.AgentVersionId).ToList(),
+                AgentTeamSnapshotJson: team.SnapshotJson,
+                AgentTeamSnapshotDigest: team.Digest,
+                AgentTeamSnapshotSignature: team.Signature,
+                AgentTeamSnapshotKeyId: team.SignatureKeyId),
             ct);
 
         _wake.Wake(job.Id);

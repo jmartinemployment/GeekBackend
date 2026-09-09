@@ -57,6 +57,8 @@ public sealed class GccV2PlanService
     private readonly RagGenerateService _rag;
     private readonly ContentModelPolicy _modelPolicy;
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
+    private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
+    private readonly GccV2SpecialistCoordinator _specialists;
     private readonly ILogger<GccV2PlanService> _logger;
 
     public GccV2PlanService(
@@ -64,12 +66,16 @@ public sealed class GccV2PlanService
         RagGenerateService rag,
         ContentModelPolicy modelPolicy,
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
+        GccV2SkillSnapshotRegistry skillSnapshots,
+        GccV2SpecialistCoordinator specialists,
         ILogger<GccV2PlanService> logger)
     {
         _repo = repo;
         _rag = rag;
         _modelPolicy = modelPolicy;
         _jobModelPolicies = jobModelPolicies;
+        _skillSnapshots = skillSnapshots;
+        _specialists = specialists;
         _logger = logger;
     }
 
@@ -114,11 +120,13 @@ public sealed class GccV2PlanService
             route.IsImagePrompt ? ContentGenerationStage.ImagePrompt : ContentGenerationStage.Outline,
             generationBrief,
             jobModelPolicy);
+        var attemptId = Guid.NewGuid().ToString("D");
+        var hasAgentTeam = !string.IsNullOrWhiteSpace(job.AgentTeamSnapshotJson);
+        var envelope = hasAgentTeam
+            ? await _skillSnapshots.BuildEnvelopeAsync(job, attemptId, "outline", ct) : null;
         var stopwatch = Stopwatch.StartNew();
-        var ragResult = await _rag.GenerateAsync(
-            job.OwnerUserId,
-            new RagGenerateRequest
-            {
+        var ragRequest = new RagGenerateRequest
+        {
                 WritingIntent = route.WritingIntent,
                 Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
                 TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
@@ -126,7 +134,12 @@ public sealed class GccV2PlanService
                 PartnerRunId = generationBrief.PartnerSourceRunId,
                 CompetitorRunId = generationBrief.CompetitorSourceRunId,
                 GenerationStage = "outline",
+                ExecutionVersion = hasAgentTeam
+                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
+                JobId = hasAgentTeam ? job.Id.ToString("D") : null,
+                AttemptId = attemptId,
                 SkillExecution = GccV2SkillCatalog.ForStage(skillSnapshot, "outline"),
+                SignedSkillExecution = envelope,
                 CanonicalBrief = generationBrief.ToCanonicalBrief(),
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
                 ModelPolicyVersion = selection.PolicyVersion,
@@ -134,8 +147,11 @@ public sealed class GccV2PlanService
                     generationBrief, selection, "outline", jobModelPolicy),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
-            },
-            ct);
+        };
+        if (hasAgentTeam)
+            await _specialists.PrepareProducerAsync(
+                job, Guid.Parse(job.OwnerUserId), ragRequest, envelope!, ct);
+        var ragResult = await _rag.GenerateAsync(job.OwnerUserId, ragRequest, ct);
         stopwatch.Stop();
         var ragOutline = ragResult.Outline?
             .Where(s => !string.IsNullOrWhiteSpace(s.Heading))
@@ -147,6 +163,10 @@ public sealed class GccV2PlanService
             .ToList() ?? [];
         if (ragOutline.Count == 0)
             throw new InvalidOperationException("Citeable RAG returned no outline sections.");
+        ragRequest.Outline = ragResult.Outline?.ToList();
+        if (hasAgentTeam)
+            await _specialists.CompleteProducerAndRunReviewersAsync(
+                job, Guid.Parse(job.OwnerUserId), ragRequest, ragResult, ragOutline, ct);
 
         var sectionDefs = ragOutline.Select(s => (Key: s.Item1, Heading: s.Item2)).ToList();
         var sectionBriefs = ragOutline.GroupBy(s => s.Item1, StringComparer.OrdinalIgnoreCase)
@@ -221,7 +241,8 @@ public sealed class GccV2PlanService
             ragResult.Provenance?.AttemptId
                 ?? throw new InvalidOperationException("RAG outline response omitted attempt ID."),
             MapSkillProvenance(ragResult.Provenance?.Skills),
-            ragResult.Provenance?.ExecutionVersion);
+            ragResult.Provenance?.ExecutionVersion,
+            ragResult.AgentExecution ?? ragResult.Provenance?.AgentExecution);
         var evidenceGaps = new List<string>();
         if (ragResult.Sources.Count == 0) evidenceGaps.Add("No retrievable sources were returned for PLAN.");
         if (ragResult.Citations is null || ragResult.Citations.Count == 0)

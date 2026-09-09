@@ -54,6 +54,8 @@ public class GccV2CreatesController : ControllerBase
             SiteSectionJson = string.IsNullOrWhiteSpace(command.SiteSectionJson) ? null : command.SiteSectionJson,
             SiteUrl = string.IsNullOrWhiteSpace(command.SiteUrl) ? null : command.SiteUrl.Trim(),
             ProjectSiteCrawlRunId = command.ProjectSiteCrawlRunId,
+            SelectedAgentVersionIdsJson = string.IsNullOrWhiteSpace(command.SelectedAgentVersionIdsJson)
+                ? null : command.SelectedAgentVersionIdsJson,
         };
 
         _db.GccV2Creates.Add(create);
@@ -67,5 +69,6 @@ public class GccV2CreatesController : ControllerBase
         string? ContentType,
         string? SiteSectionJson = null,
         string? SiteUrl = null,
-        Guid? ProjectSiteCrawlRunId = null);
+        Guid? ProjectSiteCrawlRunId = null,
+        string? SelectedAgentVersionIdsJson = null);
 }

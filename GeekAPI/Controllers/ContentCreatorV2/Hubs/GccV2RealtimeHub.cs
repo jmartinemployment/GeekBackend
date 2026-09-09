@@ -1,5 +1,8 @@
 using System.Security.Claims;
+using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.AgentTests;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -15,17 +18,40 @@ namespace GeekAPI.Controllers.ContentCreatorV2.Hubs;
 public sealed class GccV2RealtimeHub : Hub
 {
     private readonly HttpGccV2Repository _repo;
+    private readonly ICurrentUserContext _user;
+    private readonly GccV2SkillAdminPolicy _admin;
     private readonly ILogger<GccV2RealtimeHub> _logger;
 
-    public GccV2RealtimeHub(HttpGccV2Repository repo, ILogger<GccV2RealtimeHub> logger)
+    public GccV2RealtimeHub(
+        HttpGccV2Repository repo,
+        ICurrentUserContext user,
+        GccV2SkillAdminPolicy admin,
+        ILogger<GccV2RealtimeHub> logger)
     {
         _repo = repo;
+        _user = user;
+        _admin = admin;
         _logger = logger;
     }
 
     public static string JobGroup(Guid jobId) => $"job:{jobId:D}";
 
     public static string ProjectSiteRunGroup(Guid runId) => $"project-site:{runId:D}";
+    public static string AgentTestGroup(Guid testRunId) => $"agent-test:{testRunId:D}";
+
+    public async Task JoinAgentTest(Guid testRunId)
+    {
+        if (!_user.IsAuthenticated || !_admin.IsAuthorized(_user))
+            throw new HubException(_user.IsAuthenticated ? "Forbidden" : "Unauthorized");
+        var run = await _repo.GetAgentTestRunAsync(testRunId, Context.ConnectionAborted);
+        if (run is null) throw new HubException("Agent test run not found");
+        await Groups.AddToGroupAsync(Context.ConnectionId, AgentTestGroup(testRunId));
+        await Clients.Caller.SendAsync("AgentTestEvent",
+            GccV2AgentTestProgressNotifier.ToEvent(run, "Snapshot"), Context.ConnectionAborted);
+    }
+
+    public Task LeaveAgentTest(Guid testRunId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, AgentTestGroup(testRunId));
 
     public async Task JoinProjectSiteCrawl(Guid runId)
     {

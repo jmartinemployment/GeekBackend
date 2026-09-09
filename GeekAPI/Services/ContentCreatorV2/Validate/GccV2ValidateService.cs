@@ -68,6 +68,8 @@ public sealed class GccV2ValidateService
     private readonly GccV2RestructurePassService _restructurePass;
     private readonly RagGenerateService _rag;
     private readonly ContentModelPolicy _modelPolicy;
+    private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
+    private readonly GccV2SpecialistCoordinator _specialists;
     private readonly ILogger<GccV2ValidateService> _logger;
 
     public GccV2ValidateService(
@@ -78,6 +80,8 @@ public sealed class GccV2ValidateService
         GccV2RestructurePassService restructurePass,
         RagGenerateService rag,
         ContentModelPolicy modelPolicy,
+        GccV2SkillSnapshotRegistry skillSnapshots,
+        GccV2SpecialistCoordinator specialists,
         ILogger<GccV2ValidateService> logger)
     {
         _repo = repo;
@@ -87,6 +91,8 @@ public sealed class GccV2ValidateService
         _restructurePass = restructurePass;
         _rag = rag;
         _modelPolicy = modelPolicy;
+        _skillSnapshots = skillSnapshots;
+        _specialists = specialists;
         _logger = logger;
     }
 
@@ -164,19 +170,29 @@ public sealed class GccV2ValidateService
             ContentGenerationStage.Validation,
             wc.GenerationBrief,
             wc.JobModelPolicyOverride);
-        var ragResponse = await _rag.GenerateAsync(
-            wc.Job.OwnerUserId,
-            new RagGenerateRequest
-            {
+        var attemptId = Guid.NewGuid().ToString("D");
+        var hasAgentTeam = !string.IsNullOrWhiteSpace(wc.Job.AgentTeamSnapshotJson);
+        var envelope = hasAgentTeam
+            ? await _skillSnapshots.BuildEnvelopeAsync(wc.Job, attemptId, "validation", ct) : null;
+        await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
+            new { stage = "validation", attemptId, executionVersion = hasAgentTeam
+                ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion }, ct: ct);
+        var ragRequest = new RagGenerateRequest
+        {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "validation",
+                ExecutionVersion = hasAgentTeam
+                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
+                JobId = hasAgentTeam ? wc.Job.Id.ToString("D") : null,
+                AttemptId = attemptId,
                 SkillExecution = GccV2SkillCatalog.ForStage(
                     wc.SkillSnapshot
                     ?? throw new InvalidOperationException("VALIDATE requires the persisted pre-PLAN skill snapshot."),
                     "validation"),
+                SignedSkillExecution = envelope,
                 DraftContent = GccV2WriteService.ToStableMarkdown(output),
                 Sources = sources,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
@@ -186,8 +202,34 @@ public sealed class GccV2ValidateService
                     wc.GenerationBrief, selection, "validation", wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
-            },
-            ct);
+        };
+        if (hasAgentTeam)
+            await _specialists.PrepareProducerAsync(
+                wc.Job, ParseOwner(wc.Job.OwnerUserId), ragRequest, envelope!, ct);
+        var ragResponse = await _rag.GenerateAsync(wc.Job.OwnerUserId, ragRequest, ct);
+        if (hasAgentTeam)
+            await _specialists.CompleteProducerAndRunReviewersAsync(
+                wc.Job, ParseOwner(wc.Job.OwnerUserId), ragRequest, ragResponse,
+                ragResponse.Validation ?? throw new InvalidOperationException("Validation producer omitted typed output."), ct);
+        if (ragResponse.AgentExecution is { } trace)
+        {
+            foreach (var skill in trace.ActivatedSkills)
+                await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "SkillActivated", new
+                {
+                    stage = "validation", attemptId, skill.SkillId, skill.Version,
+                    skill.ActivationId, skill.PackageDigest, skill.ResourcePaths,
+                }, ct: ct);
+            foreach (var tool in trace.ToolCalls)
+                await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentToolCompleted", new
+                {
+                    stage = "validation", attemptId, tool.ToolId, tool.ToolVersion,
+                    tool.ResultDigest, tool.ResultCount, tool.DurationMs, tool.ErrorClass,
+                    tool.Sequence, tool.Classification,
+                }, ct: ct);
+            await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageCompleted",
+                new { stage = "validation", attemptId, trace.Agent, trace.ExecutorVersion,
+                    trace.WorkflowVersion, trace.TraceVersion, trace.ToolsVersion, trace.StopReason, trace.Usage }, ct: ct);
+        }
         var validation = ragResponse.Validation
             ?? throw new InvalidOperationException("RAG validation returned no typed validation result.");
         var reviewVerdict = validation.Approved && validation.UnsupportedClaimCount == 0
@@ -218,6 +260,8 @@ public sealed class GccV2ValidateService
             ragResponse.ModelUsed,
             ragResponse.EvidenceWarnings);
     }
+
+    private static Guid ParseOwner(string value) => Guid.TryParse(value, out var id) ? id : Guid.Empty;
 
     private static List<OverlapSectionInput> BuildOverlapInputs(GccV2WriteOutput output, ContentDocument document)
     {

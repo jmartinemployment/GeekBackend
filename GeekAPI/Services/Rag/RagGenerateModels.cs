@@ -30,8 +30,16 @@ public sealed class RagGenerateRequest
     public string? ModelPolicyVersion { get; set; }
     public IReadOnlyDictionary<string, string>? StageModelOverrides { get; set; }
     public string ExecutionVersion { get; set; } = RagProducerCapabilities.RequiredExecutionVersion;
+    public string? JobId { get; set; }
     public string AttemptId { get; set; } = Guid.NewGuid().ToString("D");
+    [JsonIgnore]
     public GccV2SkillExecutionSnapshot? SkillExecution { get; set; }
+    [JsonIgnore]
+    public GccV2SignedSkillExecutionEnvelopeV2? SignedSkillExecution { get; set; }
+    [JsonIgnore]
+    public RagAgentExecutionRequestDto? AgentExecution { get; set; }
+    public IReadOnlyList<RagSpecialistContributionDto>? SpecialistContributions { get; set; }
+    public IReadOnlyList<RagSpecialistReviewDto>? SpecialistReviews { get; set; }
     /// <summary>Expected effective model, used locally to reject producer substitution.</summary>
     public string? RequestedModel { get; set; }
     /// <summary>Canonical jobs require quote-verified RAG and may not use the local one-shot writer.</summary>
@@ -60,12 +68,15 @@ public sealed class RagGenerateProvenanceDto
     public string? ExecutionVersion { get; init; }
     public string? AttemptId { get; init; }
     public RagSkillProvenanceDto? Skills { get; init; }
+    public RagAgentExecutionProvenanceDto? AgentExecution { get; init; }
 }
 
 public static class RagProducerCapabilities
 {
     public const string RequiredExecutionVersion = "rag-generate.v2";
+    public const string AgentExecutionVersion = "rag-generate.v3";
     public const string RequiredSkillEnvelopeVersion = GccV2SkillExecutionSnapshot.CurrentEnvelopeVersion;
+    public const string AgentSkillEnvelopeVersion = GccV2SignedSkillExecutionEnvelopeV2.CurrentEnvelopeVersion;
     public const string RequiredSpecialistExecutorVersion = "bounded-specialists.v1";
     public static readonly IReadOnlyList<string> RequiredSpecialists =
         ["researchPlanning", "outline", "section", "finalSynthesis", "validation", "repair"];
@@ -79,6 +90,91 @@ public sealed class RagSkillProvenanceDto
     public string Stage { get; init; } = "";
     public IReadOnlyList<string> SkillVersions { get; init; } = [];
 }
+
+public sealed record RagAgentBudgetDto(
+    int MaxTurns = 8, int MaxToolCalls = 24, int MaxRetrievedPages = 8,
+    int MaxActiveSkills = 6, long MaxSkillBytes = 32768, long MaxResourceBytes = 32768,
+    int MaxOutputTokens = 16000, double MaxStageSeconds = 300, int MaxRepairAttempts = 2);
+public sealed record RagAgentSkillReferenceDto(
+    string SkillId, string Version, string ActivationId, string PackageDigest, string Assignment);
+public sealed record RagArtifactInputReferenceDto(string ArtifactId, string ArtifactType, string Digest);
+public sealed record RagSelectedAgentDto(
+    string Id, string Version, string Digest, string Name, string Role,
+    string Instructions, string InstructionsDigest, string Policy, string PolicyDigest,
+    IReadOnlyList<string> Stages, IReadOnlyList<string> ToolIds, IReadOnlyList<string> ModelIds);
+public sealed record RagAgentExecutionRequestDto(
+    string ContractVersion, string SnapshotDigest, string Signature, string SignatureKeyId,
+    string JobId, string AttemptId, string CoordinatorExecutionId, string StageExecutionId,
+    string IdempotencyKey, DateTimeOffset IssuedAtUtc, DateTimeOffset ExpiresAtUtc,
+    int AttemptNumber,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? RetryOfStageExecutionId,
+    string Stage,
+    RagSelectedAgentDto SelectedAgent, string OutputContract,
+    IReadOnlyList<RagAgentSkillReferenceDto> AssignedSkills,
+    IReadOnlyList<RagArtifactInputReferenceDto> ArtifactInputs,
+    RagAgentBudgetDto Limits, bool Cancelled = false, int RepairAttempt = 0);
+public sealed record RagAgentBudgetUsageDto(
+    int Turns, int ToolCalls, int RetrievedPages, int ActiveSkills,
+    long SkillBytes, long ResourceBytes, int OutputTokens);
+public sealed record RagAgentToolTraceDto(
+    int Sequence, string ToolId, string ToolVersion, string Classification,
+    string ArgumentDigest, string? ResultDigest, int? ResultCount, long DurationMs,
+    string? ErrorClass, RagAgentBudgetUsageDto BudgetAfter);
+public sealed record RagActivatedSkillDto(
+    string SkillId, string Version, string ActivationId, string PackageDigest,
+    IReadOnlyList<string> ResourcePaths);
+public sealed record RagAgentExecutionProvenanceDto(
+    string TraceVersion, string ToolsVersion, string WorkflowVersion, string ExecutorVersion,
+    string Stage, string Agent, string JobId, string CoordinatorExecutionId,
+    string StageExecutionId, string IdempotencyKey, string SelectedAgentId,
+    string SelectedAgentVersion, string SelectedAgentDigest, string Role,
+    string OutputContract, string PromptVersion, RagAgentStopReason StopReason,
+    RagAgentBudgetDto Limits, RagAgentBudgetUsageDto Usage,
+    IReadOnlyList<RagAgentToolTraceDto> ToolCalls,
+    IReadOnlyList<RagActivatedSkillDto> ActivatedSkills,
+    IReadOnlyList<RagAgentSkillReferenceDto> AssignedSkills,
+    IReadOnlyList<RagArtifactInputReferenceDto> ArtifactInputs,
+    string? RetryOfStageExecutionId, int AttemptNumber);
+public sealed record RagAgentFailureDto(
+    RagAgentStopReason StopReason, string ErrorClass, string Detail, bool Retryable);
+
+[JsonConverter(typeof(JsonStringEnumConverter<RagAgentStopReason>))]
+public enum RagAgentStopReason
+{
+    [JsonStringEnumMemberName("completed")] Completed,
+    [JsonStringEnumMemberName("budgetExhausted")] BudgetExhausted,
+    [JsonStringEnumMemberName("skillActivationFailed")] SkillActivationFailed,
+    [JsonStringEnumMemberName("incompatibleProtocol")] IncompatibleProtocol,
+    [JsonStringEnumMemberName("invalidStructuredOutput")] InvalidStructuredOutput,
+    [JsonStringEnumMemberName("toolDenied")] ToolDenied,
+    [JsonStringEnumMemberName("evidenceFailure")] EvidenceFailure,
+    [JsonStringEnumMemberName("upstreamFailure")] UpstreamFailure,
+    [JsonStringEnumMemberName("cancelled")] Cancelled,
+    [JsonStringEnumMemberName("timedOut")] TimedOut,
+}
+
+public sealed class RagAgentStoppedException(RagAgentStopReason reason, string? detail)
+    : Exception(detail ?? $"RAG agent stopped: {reason}.")
+{
+    public RagAgentStopReason Reason { get; } = reason;
+    public string? Detail { get; } = detail;
+    public bool IsTransient => Reason == RagAgentStopReason.UpstreamFailure;
+}
+
+public sealed record RagContributionQueryDto(string Need, string Corpus);
+public sealed record RagContributionOutlineSectionDto(
+    string Key, string Heading, string Brief, IReadOnlyList<string> EvidenceIds);
+public sealed record RagSpecialistContributionDto(
+    string ContractVersion, string Stage, string Summary, string? ProposedContent,
+    IReadOnlyList<RagContributionOutlineSectionDto>? ProposedOutline,
+    IReadOnlyList<RagContributionQueryDto>? ProposedQueries,
+    IReadOnlyList<string>? Recommendations, IReadOnlyList<RagCitationDto> Citations);
+public sealed record RagSpecialistReviewIssueDto(
+    string Category, string Severity, string? SectionTitle, string Detail,
+    string Recommendation, RagCitationDto? Citation);
+public sealed record RagSpecialistReviewDto(
+    string ContractVersion, string Stage, string Decision, string Summary,
+    IReadOnlyList<RagSpecialistReviewIssueDto> Issues, IReadOnlyList<RagCitationDto> Citations);
 
 [JsonConverter(typeof(JsonStringEnumConverter<RagValidationIssueCategory>))]
 public enum RagValidationIssueCategory
@@ -189,6 +285,11 @@ public sealed class RagGenerateResponse
     public string PromptVersion { get; init; } = "rag-generate/1";
     public RagGenerateProvenanceDto? Provenance { get; init; }
     public RagValidationDto? Validation { get; init; }
+    public RagAgentExecutionProvenanceDto? AgentExecution { get; init; }
+    public RagAgentFailureDto? AgentFailure { get; init; }
+    public RagSpecialistContributionDto? SpecialistContribution { get; init; }
+    public RagSpecialistReviewDto? SpecialistReview { get; init; }
+    public string? SpecialistArtifactDigest { get; init; }
 }
 
 public sealed class RagGenerateStatusDto

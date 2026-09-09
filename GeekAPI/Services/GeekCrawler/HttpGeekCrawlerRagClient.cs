@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.Rag;
 
 namespace GeekAPI.Services.GeekCrawler;
 
@@ -76,6 +77,8 @@ public sealed class GeekCrawlerRagCapabilities
     public IReadOnlyList<string> SpecialistExecutors { get; init; } = [];
     public string SpecialistExecutorVersion { get; init; } = "";
     public bool ToolsAllowed { get; init; }
+    public IReadOnlyList<string> AgentTraceVersions { get; init; } = [];
+    public IReadOnlyList<string> AgentToolVersions { get; init; } = [];
 }
 
 public sealed class GeekCrawlerRagPageMarkdown
@@ -110,8 +113,13 @@ public sealed class GeekCrawlerRagGenerateRequest
     public string? ModelPolicyVersion { get; init; }
     public IReadOnlyDictionary<string, string>? StageModelOverrides { get; init; }
     public string ExecutionVersion { get; init; } = "rag-generate.v1";
+    public string? JobId { get; init; }
     public string AttemptId { get; init; } = Guid.NewGuid().ToString("D");
     public GccV2SkillExecutionSnapshot? SkillExecution { get; init; }
+    public GccV2SignedSkillExecutionEnvelopeV2? SignedSkillExecution { get; init; }
+    public RagAgentExecutionRequestDto? AgentExecution { get; init; }
+    public IReadOnlyList<RagSpecialistContributionDto>? SpecialistContributions { get; init; }
+    public IReadOnlyList<RagSpecialistReviewDto>? SpecialistReviews { get; init; }
 }
 
 public sealed class GeekCrawlerRagOutlineSectionDto
@@ -145,6 +153,7 @@ public sealed class GeekCrawlerRagGenerateProvenance
     public string? ExecutionVersion { get; init; }
     public string? AttemptId { get; init; }
     public GeekCrawlerRagSkillProvenance? Skills { get; init; }
+    public RagAgentExecutionProvenanceDto? AgentExecution { get; init; }
 }
 
 public enum GeekCrawlerRagValidationIssueCategory
@@ -225,6 +234,11 @@ public sealed class GeekCrawlerRagGenerateResult
     public string? Retrieval { get; init; }
     public GeekCrawlerRagGenerateProvenance? Provenance { get; init; }
     public GeekCrawlerRagValidation? Validation { get; init; }
+    public RagAgentExecutionProvenanceDto? AgentExecution { get; init; }
+    public RagAgentFailureDto? AgentFailure { get; init; }
+    public RagSpecialistContributionDto? SpecialistContribution { get; init; }
+    public RagSpecialistReviewDto? SpecialistReview { get; init; }
+    public string? SpecialistArtifactDigest { get; init; }
 }
 
 public sealed class GeekCrawlerRagThemeDto
@@ -289,12 +303,20 @@ public sealed class GeekCrawlerRagIndexStatus
 
 public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 {
-    private static readonly JsonSerializerOptions JsonOpts = new()
+    private static readonly JsonSerializerOptions JsonOpts = CreateJsonOptions();
+
+    private static JsonSerializerOptions CreateJsonOptions()
     {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        };
+        options.Converters.Add(new GccV2PythonDateTimeOffsetConverter());
+        options.Converters.Add(new GccV2PythonDoubleConverter());
+        return options;
+    }
 
     private readonly HttpClient _http;
     private readonly ILogger<HttpGeekCrawlerRagClient> _logger;
@@ -663,8 +685,23 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 ["executionVersion"] = request.ExecutionVersion,
                 ["attemptId"] = request.AttemptId,
             };
-            if (request.SkillExecution is not null)
+            if (request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion)
+            {
+                payload["jobId"] = request.JobId
+                    ?? throw new InvalidOperationException("v3 requires jobId.");
+                payload["skillExecution"] = request.SignedSkillExecution
+                    ?? throw new InvalidOperationException("v3 requires signed v2 skillExecution.");
+                payload["agentExecution"] = request.AgentExecution
+                    ?? throw new InvalidOperationException("v3 requires agentExecution.");
+                if (request.SpecialistContributions is not null)
+                    payload["specialistContributions"] = request.SpecialistContributions;
+                if (request.SpecialistReviews is not null)
+                    payload["specialistReviews"] = request.SpecialistReviews;
+            }
+            else if (request.SkillExecution is not null)
+            {
                 payload["skillExecution"] = request.SkillExecution;
+            }
             if (!string.IsNullOrWhiteSpace(request.PartnerRunId))
                 payload["partnerRunId"] = request.PartnerRunId;
             if (!string.IsNullOrWhiteSpace(request.CompetitorRunId))
@@ -792,6 +829,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                         SpecialistExecutorVersion = dto.Provenance.SpecialistExecutorVersion,
                         ExecutionVersion = dto.Provenance.ExecutionVersion,
                         AttemptId = dto.Provenance.AttemptId,
+                        AgentExecution = dto.Provenance.AgentExecution,
                         Skills = dto.Provenance.Skills is null
                             ? null
                             : new GeekCrawlerRagSkillProvenance
@@ -804,6 +842,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                             },
                     },
                 Validation = MapValidation(dto.Validation),
+                AgentExecution = dto.AgentExecution,
+                AgentFailure = dto.AgentFailure,
+                SpecialistContribution = dto.SpecialistContribution,
+                SpecialistReview = dto.SpecialistReview,
+                SpecialistArtifactDigest = dto.SpecialistArtifactDigest,
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -832,6 +875,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                     SpecialistExecutors = dto.SpecialistExecutors ?? [],
                     SpecialistExecutorVersion = dto.SpecialistExecutorVersion ?? "",
                     ToolsAllowed = dto.ToolsAllowed,
+                    AgentTraceVersions = dto.AgentTraceVersions ?? [],
+                    AgentToolVersions = dto.AgentToolVersions ?? [],
                 };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1087,6 +1132,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Retrieval { get; set; }
         public GenerateProvenanceDto? Provenance { get; set; }
         public ValidationDto? Validation { get; set; }
+        public RagAgentExecutionProvenanceDto? AgentExecution { get; set; }
+        public RagAgentFailureDto? AgentFailure { get; set; }
+        public RagSpecialistContributionDto? SpecialistContribution { get; set; }
+        public RagSpecialistReviewDto? SpecialistReview { get; set; }
+        public string? SpecialistArtifactDigest { get; set; }
     }
 
     private sealed class ValidationDto
@@ -1132,6 +1182,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? ExecutionVersion { get; set; }
         public string? AttemptId { get; set; }
         public SkillProvenanceDto? Skills { get; set; }
+        public RagAgentExecutionProvenanceDto? AgentExecution { get; set; }
     }
 
     private sealed class SkillProvenanceDto
@@ -1151,6 +1202,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public List<string>? SpecialistExecutors { get; set; }
         public string? SpecialistExecutorVersion { get; set; }
         public bool ToolsAllowed { get; set; }
+        public List<string>? AgentTraceVersions { get; set; }
+        public List<string>? AgentToolVersions { get; set; }
     }
 
     private sealed class BattlecardDto

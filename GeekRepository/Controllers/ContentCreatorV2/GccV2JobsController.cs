@@ -79,6 +79,18 @@ public class GccV2JobsController : ControllerBase
     {
         if (command is null || string.IsNullOrWhiteSpace(command.OwnerUserId))
             return BadRequest("ownerUserId is required");
+        var agentVersionIds = command.AgentVersionIds?.Distinct().ToList() ?? [];
+        if (agentVersionIds.Count > 0)
+        {
+            var published = await _db.GccV2AgentVersions.CountAsync(
+                x => agentVersionIds.Contains(x.Id) && x.State == "published", ct);
+            if (published != agentVersionIds.Count)
+                return Conflict("Every pinned agent version must exist and be published.");
+            if (string.IsNullOrWhiteSpace(command.AgentTeamSnapshotJson)
+                || string.IsNullOrWhiteSpace(command.AgentTeamSnapshotDigest)
+                || string.IsNullOrWhiteSpace(command.AgentTeamSnapshotSignature))
+                return BadRequest("Pinned agents require a signed team snapshot.");
+        }
 
         var job = new GccV2Job
         {
@@ -88,6 +100,12 @@ public class GccV2JobsController : ControllerBase
             CreateId = command.CreateId,
             SiteAnalysisProfileId = command.SiteAnalysisProfileId,
             ProjectSiteCrawlRunId = command.ProjectSiteCrawlRunId,
+            AgentTeamSnapshotJson = command.AgentTeamSnapshotJson,
+            AgentTeamSnapshotDigest = command.AgentTeamSnapshotDigest,
+            AgentTeamSnapshotSignature = command.AgentTeamSnapshotSignature,
+            AgentTeamSnapshotKeyId = command.AgentTeamSnapshotKeyId,
+            AgentVersions = agentVersionIds.Select((versionId, order) => new GccV2JobAgentVersion
+                { AgentVersionId = versionId, Order = order }).ToList(),
             Stage = string.IsNullOrWhiteSpace(command.InitialStage) ? "plan" : command.InitialStage.Trim(),
             Status = "pending",
         };
@@ -407,7 +425,12 @@ public class GccV2JobsController : ControllerBase
         Guid? BriefId,
         Guid? SiteAnalysisProfileId = null,
         Guid? ProjectSiteCrawlRunId = null,
-        string? InitialStage = null);
+        string? InitialStage = null,
+        IReadOnlyList<Guid>? AgentVersionIds = null,
+        string? AgentTeamSnapshotJson = null,
+        string? AgentTeamSnapshotDigest = null,
+        string? AgentTeamSnapshotSignature = null,
+        string? AgentTeamSnapshotKeyId = null);
 
     public record PatchGccV2JobCommand(
         string? Stage,

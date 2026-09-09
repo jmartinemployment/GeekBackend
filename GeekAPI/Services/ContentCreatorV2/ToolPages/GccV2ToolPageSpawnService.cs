@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.Workflow.Providers;
@@ -23,6 +24,7 @@ public sealed class GccV2ToolPageSpawnService
     private readonly GccV2JobWake _wake;
     private readonly GccV2ToolResearchExtractor _extractor;
     private readonly IContentProviderFactory _providers;
+    private readonly GccV2AgentTeamResolver _agentTeams;
     private readonly ILogger<GccV2ToolPageSpawnService> _logger;
 
     public GccV2ToolPageSpawnService(
@@ -30,12 +32,14 @@ public sealed class GccV2ToolPageSpawnService
         GccV2JobWake wake,
         GccV2ToolResearchExtractor extractor,
         IContentProviderFactory providers,
+        GccV2AgentTeamResolver agentTeams,
         ILogger<GccV2ToolPageSpawnService> logger)
     {
         _repo = repo;
         _wake = wake;
         _extractor = extractor;
         _providers = providers;
+        _agentTeams = agentTeams;
         _logger = logger;
     }
 
@@ -115,6 +119,7 @@ public sealed class GccV2ToolPageSpawnService
                         RawBriefJson: briefJson),
                     ct);
 
+                var team = await _agentTeams.ResolveChildAsync(triggerJob, "tool", ct);
                 var child = await _repo.CreateJobAsync(
                     new CreateGccV2JobCommand(
                         triggerJob.CreateId,
@@ -122,7 +127,12 @@ public sealed class GccV2ToolPageSpawnService
                         "tool",
                         childBrief.Id,
                         triggerJob.ProjectSiteCrawlRunId ?? triggerJob.SiteAnalysisProfileId,
-                        InitialStage: "write"),
+                        InitialStage: "write",
+                        AgentVersionIds: team.Snapshot.Agents.Select(x => x.AgentVersionId).ToList(),
+                        AgentTeamSnapshotJson: team.SnapshotJson,
+                        AgentTeamSnapshotDigest: team.Digest,
+                        AgentTeamSnapshotSignature: team.Signature,
+                        AgentTeamSnapshotKeyId: team.SignatureKeyId),
                     ct);
 
                 _wake.Wake(child.Id);

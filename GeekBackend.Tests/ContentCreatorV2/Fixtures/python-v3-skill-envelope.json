@@ -1,0 +1,42 @@
+{
+  "source": "Geek-Crawler-Rag canonical_snapshot_payload + snapshot_digest + sign_snapshot",
+  "signingKey": "test-signing-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "expectedDigest": "92aa11abbf5e7a2f7f6504e8c0984ee583b00daa3d0de4c5bafd2879735b5d5b",
+  "expectedSignature": "b9861333664e83787515236f92af12f711185f4501c4dfd0bd366adb597bbd65",
+  "envelope": {
+    "envelopeVersion": "gcc-skill-envelope.v2",
+    "catalogVersion": "gcc-reviewed-skills.v2",
+    "snapshotDigest": "92aa11abbf5e7a2f7f6504e8c0984ee583b00daa3d0de4c5bafd2879735b5d5b",
+    "signature": "b9861333664e83787515236f92af12f711185f4501c4dfd0bd366adb597bbd65",
+    "signatureKeyId": "key-1",
+    "contentType": "blog",
+    "jobId": "11111111-1111-1111-1111-111111111111",
+    "attemptId": "9cf1b2f1-9797-4104-aeaa-eb09a9c89831",
+    "resolvedAtUtc": "2026-09-08T20:00:00Z",
+    "skills": [{
+      "id": "safe-writing",
+      "name": "Safe writing",
+      "description": "Ground prose in reviewed evidence.",
+      "version": "1.2.3",
+      "activationId": "activate-safe-writing-1",
+      "packageDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "skillMdDigest": "a4563165426c05bb797c85ea08969fb8b32160c5b40a01bfaab6f7191ead55a4",
+      "skillMd": "# Safe skill\nUse cited evidence.",
+      "sourceRepository": "https://example.test/reviewed.git",
+      "sourceRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "lifecycle": "published",
+      "supportedStages": ["outline"],
+      "supportedContentTypes": ["blog"],
+      "approvedToolIds": ["load_evidence_page"],
+      "order": 1,
+      "resources": [{
+        "path": "references/rules.md",
+        "mediaType": "text/markdown",
+        "byteCount": 21,
+        "sha256": "5d5d1b1f2438a82f2c41e290896cafa1c0d251e4df1b2d76e11ae65bc9ef8db8",
+        "content": "Keep claims grounded."
+      }],
+      "scripts": []
+    }]
+  }
+}

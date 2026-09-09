@@ -1,0 +1,51 @@
+{
+  "expectedDigest": "aaeb57b0d4d9822306c2d4e24ea8e942f54ec29bea0436320c46b14b4cd0fc19",
+  "expectedSignature": "9c6b32e1eabe82747fe09228dc74011c0905b14bf2f96de66d821dbbc65be4cf",
+  "signingKey": "0123456789abcdef0123456789abcdef",
+  "execution": {
+    "contractVersion": "specialist-team-execution.v1",
+    "snapshotDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "signature": "0000000000000000000000000000000000000000000000000000000000000000",
+    "signatureKeyId": "test-key",
+    "jobId": "11111111-1111-1111-1111-111111111111",
+    "attemptId": "22222222-2222-2222-2222-222222222222",
+    "coordinatorExecutionId": "33333333-3333-3333-3333-333333333333",
+    "stageExecutionId": "44444444-4444-4444-4444-444444444444",
+    "idempotencyKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "issuedAtUtc": "2026-09-08T12:00:00Z",
+    "expiresAtUtc": "2026-09-08T12:10:00Z",
+    "attemptNumber": 1,
+    "retryOfStageExecutionId": null,
+    "stage": "outline",
+    "selectedAgent": {
+      "id": "writing",
+      "version": "1.1.0",
+      "digest": "084b62d7ec10b389794ecf32d5946d06f9d482d37b3b6f52cfa00827c374d2c5",
+      "name": "Writing",
+      "role": "producer",
+      "instructions": "Write grounded content.",
+      "instructionsDigest": "314e3e97375c721bcd9fd1ac0a2f8f331865c001cb081e1ee17d14aa24f88c75",
+      "policy": "explicit",
+      "policyDigest": "3b283e93debf035e990dfce1f21468476dc57c69313c5574f43ad1a185840277",
+      "stages": ["outline"],
+      "toolIds": ["activate_skill", "get_brief_context", "get_specialist_artifacts", "load_evidence_page", "read_skill_resource", "search_corpus", "submit_outline"],
+      "modelIds": ["o3"]
+    },
+    "outputContract": "producerOutput.v1",
+    "assignedSkills": [],
+    "artifactInputs": [],
+    "limits": {
+      "maxTurns": 8,
+      "maxToolCalls": 24,
+      "maxRetrievedPages": 8,
+      "maxActiveSkills": 6,
+      "maxSkillBytes": 32768,
+      "maxResourceBytes": 32768,
+      "maxOutputTokens": 16000,
+      "maxStageSeconds": 300.0,
+      "maxRepairAttempts": 2
+    },
+    "cancelled": false,
+    "repairAttempt": 0
+  }
+}

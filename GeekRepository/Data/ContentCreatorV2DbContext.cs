@@ -24,6 +24,20 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2ProjectSiteCrawlRun> GccV2ProjectSiteCrawlRuns => Set<GccV2ProjectSiteCrawlRun>();
     public virtual DbSet<GccV2ProjectSiteCrawlPage> GccV2ProjectSiteCrawlPages => Set<GccV2ProjectSiteCrawlPage>();
     public virtual DbSet<GccV2ProjectSiteCrawlLink> GccV2ProjectSiteCrawlLinks => Set<GccV2ProjectSiteCrawlLink>();
+    public virtual DbSet<GccV2SkillPackage> GccV2SkillPackages => Set<GccV2SkillPackage>();
+    public virtual DbSet<GccV2SkillVersion> GccV2SkillVersions => Set<GccV2SkillVersion>();
+    public virtual DbSet<GccV2SkillFile> GccV2SkillFiles => Set<GccV2SkillFile>();
+    public virtual DbSet<GccV2SkillApplicability> GccV2SkillApplicabilities => Set<GccV2SkillApplicability>();
+    public virtual DbSet<GccV2SkillReviewFinding> GccV2SkillReviewFindings => Set<GccV2SkillReviewFinding>();
+    public virtual DbSet<GccV2SkillAuditEvent> GccV2SkillAuditEvents => Set<GccV2SkillAuditEvent>();
+    public virtual DbSet<GccV2Agent> GccV2Agents => Set<GccV2Agent>();
+    public virtual DbSet<GccV2AgentVersion> GccV2AgentVersions => Set<GccV2AgentVersion>();
+    public virtual DbSet<GccV2AgentVersionSkillVersion> GccV2AgentVersionSkillVersions => Set<GccV2AgentVersionSkillVersion>();
+    public virtual DbSet<GccV2AgentStageParticipation> GccV2AgentStageParticipations => Set<GccV2AgentStageParticipation>();
+    public virtual DbSet<GccV2AgentAuditEvent> GccV2AgentAuditEvents => Set<GccV2AgentAuditEvent>();
+    public virtual DbSet<GccV2AgentTestRun> GccV2AgentTestRuns => Set<GccV2AgentTestRun>();
+    public virtual DbSet<GccV2AgentReviewFinding> GccV2AgentReviewFindings => Set<GccV2AgentReviewFinding>();
+    public virtual DbSet<GccV2JobAgentVersion> GccV2JobAgentVersions => Set<GccV2JobAgentVersion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +53,7 @@ public class ContentCreatorV2DbContext : DbContext
             entity.Property(c => c.SiteSectionJson).HasColumnType("text");
             entity.Property(c => c.SiteUrl).HasMaxLength(2048);
             entity.Property(c => c.ProjectSiteCrawlRunId);
+            entity.Property(c => c.SelectedAgentVersionIdsJson).HasColumnType("text");
             entity.Property(c => c.CreatedAtUtc).IsRequired();
             entity.HasIndex(c => c.OwnerUserId).HasDatabaseName("ix_gcc_v2_creates_owner_user_id");
         });
@@ -56,6 +71,10 @@ public class ContentCreatorV2DbContext : DbContext
             entity.Property(j => j.AttemptCount).IsRequired().HasDefaultValue(0);
             entity.Property(j => j.ResultJson).HasColumnType("text");
             entity.Property(j => j.Error).HasColumnType("text");
+            entity.Property(j => j.AgentTeamSnapshotJson).HasColumnType("text");
+            entity.Property(j => j.AgentTeamSnapshotDigest).HasMaxLength(64);
+            entity.Property(j => j.AgentTeamSnapshotSignature).HasMaxLength(64);
+            entity.Property(j => j.AgentTeamSnapshotKeyId).HasMaxLength(128);
             entity.Property(j => j.ClaimedByInstanceId).HasMaxLength(128);
             entity.Property(j => j.CreatedAtUtc).IsRequired();
             entity.HasIndex(j => j.OwnerUserId).HasDatabaseName("ix_gcc_v2_jobs_owner_user_id");
@@ -215,6 +234,216 @@ public class ContentCreatorV2DbContext : DbContext
             entity.Property(l => l.LinkUrl).IsRequired().HasMaxLength(2048);
             entity.Property(l => l.DiscoveredAtUtc).IsRequired();
             entity.HasIndex(l => l.RunId).HasDatabaseName("ix_gcc_v2_project_site_crawl_links_run_id");
+        });
+
+        modelBuilder.Entity<GccV2SkillPackage>(entity =>
+        {
+            entity.ToTable("gcc_v2_skill_packages");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Slug).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.DisplayName).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.Description).IsRequired().HasMaxLength(2048);
+            entity.Property(x => x.SourceRepository).IsRequired().HasMaxLength(2048);
+            entity.Property(x => x.SourcePath).IsRequired().HasMaxLength(1024);
+            entity.Property(x => x.Publisher).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.LifecycleState).IsRequired().HasMaxLength(32);
+            entity.HasIndex(x => x.Slug).IsUnique().HasDatabaseName("ux_gcc_v2_skill_packages_slug");
+        });
+
+        modelBuilder.Entity<GccV2SkillVersion>(entity =>
+        {
+            entity.ToTable("gcc_v2_skill_versions");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SemanticVersion).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.ImmutableGitRef).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.PackageSha256).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.ManifestDigest).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.License).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.Compatibility).IsRequired().HasMaxLength(1024);
+            entity.Property(x => x.State).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.Reviewer).HasMaxLength(256);
+            entity.Property(x => x.ReviewNotes).HasMaxLength(4096);
+            entity.HasIndex(x => new { x.PackageId, x.SemanticVersion }).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_skill_versions_package_semver");
+            entity.HasIndex(x => x.PackageSha256).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_skill_versions_package_sha256");
+            entity.HasOne(x => x.Package).WithMany(x => x.Versions).HasForeignKey(x => x.PackageId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2SkillFile>(entity =>
+        {
+            entity.ToTable("gcc_v2_skill_files");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RelativePath).IsRequired().HasMaxLength(1024);
+            entity.Property(x => x.MediaType).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.Sha256).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.Content).IsRequired().HasColumnType("text");
+            entity.HasIndex(x => new { x.VersionId, x.RelativePath }).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_skill_files_version_path");
+            entity.HasOne(x => x.Version).WithMany(x => x.Files).HasForeignKey(x => x.VersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2SkillApplicability>(entity =>
+        {
+            entity.ToTable("gcc_v2_skill_applicabilities");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Stage).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.ContentType).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.ConflictsJson).IsRequired().HasColumnType("text");
+            entity.Property(x => x.RequiredToolsJson).IsRequired().HasColumnType("text");
+            entity.Property(x => x.ActivationMode).IsRequired().HasMaxLength(32);
+            entity.HasIndex(x => new { x.VersionId, x.Stage, x.ContentType }).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_skill_applicability_scope");
+            entity.HasOne(x => x.Version).WithMany(x => x.Applicability).HasForeignKey(x => x.VersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2SkillReviewFinding>(entity =>
+        {
+            entity.ToTable("gcc_v2_skill_review_findings");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Severity).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.Scanner).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.Rule).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.FilePath).HasMaxLength(1024);
+            entity.Property(x => x.Message).IsRequired().HasMaxLength(4096);
+            entity.Property(x => x.Disposition).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.ReviewerRationale).HasMaxLength(4096);
+            entity.HasOne(x => x.Version).WithMany(x => x.Findings).HasForeignKey(x => x.VersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2SkillAuditEvent>(entity =>
+        {
+            entity.ToTable("gcc_v2_skill_audit_events");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Actor).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.Action).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.SourceIp).HasMaxLength(128);
+            entity.Property(x => x.RequestId).HasMaxLength(256);
+            entity.Property(x => x.BeforeState).HasMaxLength(32);
+            entity.Property(x => x.AfterState).HasMaxLength(32);
+            entity.HasIndex(x => new { x.PackageId, x.CreatedAtUtc })
+                .HasDatabaseName("ix_gcc_v2_skill_audit_package_created");
+        });
+
+        modelBuilder.Entity<GccV2Agent>(entity =>
+        {
+            entity.ToTable("gcc_v2_agents");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Slug).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.DisplayName).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.Description).IsRequired().HasMaxLength(2048);
+            entity.Property(x => x.LifecycleState).IsRequired().HasMaxLength(32);
+            entity.HasIndex(x => x.Slug).IsUnique().HasDatabaseName("ux_gcc_v2_agents_slug");
+        });
+
+        modelBuilder.Entity<GccV2AgentVersion>(entity =>
+        {
+            entity.ToTable("gcc_v2_agent_versions");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SemanticVersion).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.Objective).IsRequired().HasMaxLength(2000);
+            entity.Property(x => x.Instructions).IsRequired().HasColumnType("text");
+            entity.Property(x => x.ContentTypesJson).IsRequired().HasColumnType("text");
+            entity.Property(x => x.AllowedToolsJson).IsRequired().HasColumnType("text");
+            entity.Property(x => x.AllowedModelsJson).IsRequired().HasColumnType("text");
+            entity.Property(x => x.ModelPolicyVersion).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.ModelPolicyProfile).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.VersionDigest).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.State).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.Reviewer).HasMaxLength(256);
+            entity.Property(x => x.ReviewNotes).HasMaxLength(4096);
+            entity.Property(x => x.TestResultJson).HasColumnType("text");
+            entity.HasIndex(x => new { x.AgentId, x.SemanticVersion }).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_agent_versions_agent_semver");
+            entity.HasIndex(x => x.VersionDigest).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_agent_versions_digest");
+            entity.HasOne(x => x.Agent).WithMany(x => x.Versions).HasForeignKey(x => x.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2AgentVersionSkillVersion>(entity =>
+        {
+            entity.ToTable("gcc_v2_agent_version_skills");
+            entity.HasKey(x => new { x.AgentVersionId, x.SkillVersionId });
+            entity.HasOne(x => x.AgentVersion).WithMany(x => x.Skills).HasForeignKey(x => x.AgentVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.SkillVersion).WithMany().HasForeignKey(x => x.SkillVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2AgentStageParticipation>(entity =>
+        {
+            entity.ToTable("gcc_v2_agent_stage_participation");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Stage).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.Role).IsRequired().HasMaxLength(32);
+            entity.HasIndex(x => new { x.AgentVersionId, x.Stage, x.Role }).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_agent_stage_role");
+            entity.HasOne(x => x.AgentVersion).WithMany(x => x.StageParticipation)
+                .HasForeignKey(x => x.AgentVersionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2AgentAuditEvent>(entity =>
+        {
+            entity.ToTable("gcc_v2_agent_audit_events");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Actor).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.Action).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.BeforeState).HasMaxLength(32);
+            entity.Property(x => x.AfterState).HasMaxLength(32);
+            entity.Property(x => x.DetailJson).HasColumnType("text");
+            entity.Property(x => x.SourceIp).HasMaxLength(128);
+            entity.Property(x => x.RequestId).HasMaxLength(256);
+            entity.HasIndex(x => new { x.AgentId, x.CreatedAtUtc })
+                .HasDatabaseName("ix_gcc_v2_agent_audit_agent_created");
+        });
+
+        modelBuilder.Entity<GccV2AgentTestRun>(entity =>
+        {
+            entity.ToTable("gcc_v2_agent_test_runs");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.VersionDigest).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.Scenario).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.Status).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.Phase).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.RequestedBy).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.ClaimedByInstanceId).HasMaxLength(128);
+            entity.Property(x => x.Error).HasMaxLength(4096);
+            entity.HasIndex(x => new { x.AgentVersionId, x.QueuedAtUtc })
+                .HasDatabaseName("ix_gcc_v2_agent_test_version_queued");
+            entity.HasIndex(x => new { x.Status, x.LeaseUntilUtc })
+                .HasDatabaseName("ix_gcc_v2_agent_test_status_lease");
+            entity.HasOne(x => x.AgentVersion).WithMany(x => x.TestRuns)
+                .HasForeignKey(x => x.AgentVersionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2AgentReviewFinding>(entity =>
+        {
+            entity.ToTable("gcc_v2_agent_review_findings");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Severity).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.Rule).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.Message).IsRequired().HasMaxLength(2000);
+            entity.Property(x => x.Disposition).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.ReviewerRationale).HasMaxLength(2000);
+            entity.HasIndex(x => new { x.AgentVersionId, x.Disposition })
+                .HasDatabaseName("ix_gcc_v2_agent_finding_version_disposition");
+            entity.HasOne(x => x.AgentVersion).WithMany(x => x.Findings)
+                .HasForeignKey(x => x.AgentVersionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2JobAgentVersion>(entity =>
+        {
+            entity.ToTable("gcc_v2_job_agent_versions");
+            entity.HasKey(x => new { x.JobId, x.AgentVersionId });
+            entity.HasOne(x => x.Job).WithMany(x => x.AgentVersions).HasForeignKey(x => x.JobId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.AgentVersion).WithMany().HasForeignKey(x => x.AgentVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
