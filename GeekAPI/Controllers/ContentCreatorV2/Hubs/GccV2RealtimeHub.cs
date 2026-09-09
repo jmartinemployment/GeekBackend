@@ -2,6 +2,7 @@ using System.Security.Claims;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.AgentTests;
+using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -38,6 +39,45 @@ public sealed class GccV2RealtimeHub : Hub
 
     public static string ProjectSiteRunGroup(Guid runId) => $"project-site:{runId:D}";
     public static string AgentTestGroup(Guid testRunId) => $"agent-test:{testRunId:D}";
+    public static string ContextIngestionGroup(Guid ingestionJobId) => $"context-ingestion:{ingestionJobId:D}";
+    public static string ContextIngestionOwnerGroup(string ownerUserId) =>
+        $"context-ingestion-owner:{ownerUserId.ToLowerInvariant()}";
+
+    public async Task JoinContextIngestionJob(Guid ingestionJobId)
+    {
+        var userId = Context.User?.FindFirst("sub")?.Value
+            ?? Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId)) throw new HubException("Unauthorized");
+        var job = await _repo.GetContextIngestionJobAsync(ingestionJobId, Context.ConnectionAborted);
+        if (job is null || !string.Equals(job.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase))
+            throw new HubException("Not found");
+        await Groups.AddToGroupAsync(Context.ConnectionId, ContextIngestionGroup(ingestionJobId));
+        await Clients.Caller.SendAsync("ContextIngestionEvent", job, Context.ConnectionAborted);
+    }
+
+    public Task LeaveContextIngestion(Guid ingestionJobId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, ContextIngestionGroup(ingestionJobId));
+
+    public async Task JoinContextIngestion(long lastSeq)
+    {
+        var userId = Context.User?.FindFirst("sub")?.Value
+            ?? Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId)) throw new HubException("Unauthorized");
+        await Groups.AddToGroupAsync(
+            Context.ConnectionId, ContextIngestionOwnerGroup(userId));
+        foreach (var status in new[] { "queued", "running", "ready", "failed", "cancelled" })
+        {
+            var jobs = await _repo.ListContextIngestionJobsAsync(
+                status, limit: 200, ct: Context.ConnectionAborted);
+            foreach (var job in jobs.Where(x => string.Equals(
+                         x.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase)
+                     && x.UpdatedAtUtc.ToUnixTimeMilliseconds() > lastSeq))
+                await Clients.Caller.SendAsync(
+                    "ContextIngestionEvent",
+                    GccV2ContextIngestionNotifier.ToEvent(job),
+                    Context.ConnectionAborted);
+        }
+    }
 
     public async Task JoinAgentTest(Guid testRunId)
     {

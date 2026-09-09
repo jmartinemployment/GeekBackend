@@ -4,6 +4,7 @@ using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 
 namespace GeekAPI.Services.ContentCreatorV2.Jobs;
@@ -58,17 +59,20 @@ public sealed class GccV2ImagePromptSpawnService
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2JobWake _wake;
     private readonly GccV2AgentTeamResolver _agentTeams;
+    private readonly GccV2ContextResolver _contextResolver;
     private readonly ILogger<GccV2ImagePromptSpawnService> _logger;
 
     public GccV2ImagePromptSpawnService(
         HttpGccV2Repository repo,
         GccV2JobWake wake,
         GccV2AgentTeamResolver agentTeams,
+        GccV2ContextResolver contextResolver,
         ILogger<GccV2ImagePromptSpawnService> logger)
     {
         _repo = repo;
         _wake = wake;
         _agentTeams = agentTeams;
+        _contextResolver = contextResolver;
         _logger = logger;
     }
 
@@ -144,6 +148,10 @@ public sealed class GccV2ImagePromptSpawnService
                     ct);
 
                 var team = await _agentTeams.ResolveChildAsync(sourceJob, "image-prompt", ct);
+                var childJobId = Guid.NewGuid();
+                var context = await _contextResolver.PrepareReplayAsync(
+                    sourceJob.Id, childJobId, sourceJob.CreateId, brief.Id,
+                    sourceJob.OwnerUserId, team.Digest, ct);
                 var child = await _repo.CreateJobAsync(
                     new CreateGccV2JobCommand(
                         sourceJob.CreateId,
@@ -156,7 +164,9 @@ public sealed class GccV2ImagePromptSpawnService
                         AgentTeamSnapshotJson: team.SnapshotJson,
                         AgentTeamSnapshotDigest: team.Digest,
                         AgentTeamSnapshotSignature: team.Signature,
-                        AgentTeamSnapshotKeyId: team.SignatureKeyId),
+                        AgentTeamSnapshotKeyId: team.SignatureKeyId,
+                        Id: childJobId,
+                        ContextManifest: context.Manifest),
                     ct);
 
                 _wake.Wake(child.Id);

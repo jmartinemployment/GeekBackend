@@ -38,10 +38,30 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2AgentTestRun> GccV2AgentTestRuns => Set<GccV2AgentTestRun>();
     public virtual DbSet<GccV2AgentReviewFinding> GccV2AgentReviewFindings => Set<GccV2AgentReviewFinding>();
     public virtual DbSet<GccV2JobAgentVersion> GccV2JobAgentVersions => Set<GccV2JobAgentVersion>();
+    public virtual DbSet<GccV2KnowledgeAsset> GccV2KnowledgeAssets => Set<GccV2KnowledgeAsset>();
+    public virtual DbSet<GccV2KnowledgeAssetVersion> GccV2KnowledgeAssetVersions => Set<GccV2KnowledgeAssetVersion>();
+    public virtual DbSet<GccV2KnowledgeResource> GccV2KnowledgeResources => Set<GccV2KnowledgeResource>();
+    public virtual DbSet<GccV2Audience> GccV2Audiences => Set<GccV2Audience>();
+    public virtual DbSet<GccV2AudienceVersion> GccV2AudienceVersions => Set<GccV2AudienceVersion>();
+    public virtual DbSet<GccV2StyleGuide> GccV2StyleGuides => Set<GccV2StyleGuide>();
+    public virtual DbSet<GccV2StyleGuideVersion> GccV2StyleGuideVersions => Set<GccV2StyleGuideVersion>();
+    public virtual DbSet<GccV2ProductSchema> GccV2ProductSchemas => Set<GccV2ProductSchema>();
+    public virtual DbSet<GccV2ProductSchemaVersion> GccV2ProductSchemaVersions => Set<GccV2ProductSchemaVersion>();
+    public virtual DbSet<GccV2Product> GccV2Products => Set<GccV2Product>();
+    public virtual DbSet<GccV2ProductVersion> GccV2ProductVersions => Set<GccV2ProductVersion>();
+    public virtual DbSet<GccV2RunAttachment> GccV2RunAttachments => Set<GccV2RunAttachment>();
+    public virtual DbSet<GccV2ContextSelection> GccV2ContextSelections => Set<GccV2ContextSelection>();
+    public virtual DbSet<GccV2ContextIngestionJob> GccV2ContextIngestionJobs => Set<GccV2ContextIngestionJob>();
+    public virtual DbSet<GccV2ContextIngestionEvent> GccV2ContextIngestionEvents => Set<GccV2ContextIngestionEvent>();
+    public virtual DbSet<GccV2RunContextManifest> GccV2RunContextManifests => Set<GccV2RunContextManifest>();
+    public virtual DbSet<GccV2RunContextManifestEntry> GccV2RunContextManifestEntries => Set<GccV2RunContextManifestEntry>();
+    public virtual DbSet<GccV2ContextFinding> GccV2ContextFindings => Set<GccV2ContextFinding>();
+    public virtual DbSet<GccV2ContextAuditEvent> GccV2ContextAuditEvents => Set<GccV2ContextAuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("content_creator_v2");
+        modelBuilder.ConfigureGccV2GovernedContext();
 
         modelBuilder.Entity<GccV2Create>(entity =>
         {
@@ -92,8 +112,12 @@ public class ContentCreatorV2DbContext : DbContext
             entity.Property(k => k.KitJson).IsRequired().HasColumnType("text").HasDefaultValue("{}");
             entity.Property(k => k.VoiceStatus).IsRequired().HasMaxLength(32).HasDefaultValue("provisional");
             entity.Property(k => k.DerivedAtUtc).IsRequired();
+            entity.Property(k => k.OwnerUserId).HasMaxLength(128);
+            entity.Property(k => k.CanonicalSha256).HasMaxLength(64);
             entity.HasIndex(k => k.DerivedFromProfileId).HasDatabaseName("ix_gcc_v2_brand_kits_derived_from_profile_id");
             entity.HasIndex(k => k.ClientId).HasDatabaseName("ix_gcc_v2_brand_kits_client_id");
+            entity.HasIndex(k => new { k.DerivedFromProfileId, k.Version }).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_brand_kits_profile_version");
         });
 
         modelBuilder.Entity<GccV2Outline>(entity =>
@@ -159,7 +183,8 @@ public class ContentCreatorV2DbContext : DbContext
             entity.Property(b => b.ContentType).IsRequired().HasMaxLength(64);
             entity.Property(b => b.RawBriefJson).IsRequired().HasColumnType("text").HasDefaultValue("{}");
             entity.Property(b => b.CreatedAtUtc).IsRequired();
-            entity.HasIndex(b => b.CreateId).HasDatabaseName("ix_gcc_v2_briefs_create_id");
+            entity.HasIndex(b => new { b.CreateId, b.Version }).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_briefs_create_version");
         });
 
         modelBuilder.Entity<GccV2PublishRecord>(entity =>

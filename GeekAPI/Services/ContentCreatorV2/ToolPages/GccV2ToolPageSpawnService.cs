@@ -3,6 +3,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
 
@@ -25,6 +26,7 @@ public sealed class GccV2ToolPageSpawnService
     private readonly GccV2ToolResearchExtractor _extractor;
     private readonly IContentProviderFactory _providers;
     private readonly GccV2AgentTeamResolver _agentTeams;
+    private readonly GccV2ContextResolver _contextResolver;
     private readonly ILogger<GccV2ToolPageSpawnService> _logger;
 
     public GccV2ToolPageSpawnService(
@@ -33,6 +35,7 @@ public sealed class GccV2ToolPageSpawnService
         GccV2ToolResearchExtractor extractor,
         IContentProviderFactory providers,
         GccV2AgentTeamResolver agentTeams,
+        GccV2ContextResolver contextResolver,
         ILogger<GccV2ToolPageSpawnService> logger)
     {
         _repo = repo;
@@ -40,6 +43,7 @@ public sealed class GccV2ToolPageSpawnService
         _extractor = extractor;
         _providers = providers;
         _agentTeams = agentTeams;
+        _contextResolver = contextResolver;
         _logger = logger;
     }
 
@@ -120,6 +124,10 @@ public sealed class GccV2ToolPageSpawnService
                     ct);
 
                 var team = await _agentTeams.ResolveChildAsync(triggerJob, "tool", ct);
+                var childJobId = Guid.NewGuid();
+                var context = await _contextResolver.PrepareReplayAsync(
+                    triggerJob.Id, childJobId, triggerJob.CreateId, childBrief.Id,
+                    triggerJob.OwnerUserId, team.Digest, ct);
                 var child = await _repo.CreateJobAsync(
                     new CreateGccV2JobCommand(
                         triggerJob.CreateId,
@@ -132,7 +140,9 @@ public sealed class GccV2ToolPageSpawnService
                         AgentTeamSnapshotJson: team.SnapshotJson,
                         AgentTeamSnapshotDigest: team.Digest,
                         AgentTeamSnapshotSignature: team.Signature,
-                        AgentTeamSnapshotKeyId: team.SignatureKeyId),
+                        AgentTeamSnapshotKeyId: team.SignatureKeyId,
+                        Id: childJobId,
+                        ContextManifest: context.Manifest),
                     ct);
 
                 _wake.Wake(child.Id);

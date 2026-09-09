@@ -124,6 +124,11 @@ public class HttpGccV2Repository
     public Task<IReadOnlyList<GccV2BrandKitDto>> ListBrandKitsByProfileAsync(Guid derivedFromProfileId, CancellationToken ct = default) =>
         GetListAsync<GccV2BrandKitDto>($"repo/content-creator-v2/brand-kits?derivedFromProfileId={derivedFromProfileId}", ct);
 
+    public Task<IReadOnlyList<GccV2BrandKitDto>> ListBrandKitsByOwnerAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2BrandKitDto>(
+            $"repo/content-creator-v2/brand-kits?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
     public Task<GccV2BrandKitDto> CreateBrandKitAsync(CreateGccV2BrandKitCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2BrandKitDto>("repo/content-creator-v2/brand-kits", command, ct);
 
@@ -367,6 +372,130 @@ public class HttpGccV2Repository
         Guid versionId, string action, TransitionGccV2AgentVersionCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2AgentVersionDto>($"repo/content-creator-v2/agents/versions/{versionId}/{action}", command, ct);
 
+    // Governed context.
+
+    public Task<IReadOnlyList<GccV2KnowledgeAssetDto>> ListKnowledgeAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2KnowledgeAssetDto>(
+            $"repo/content-creator-v2/context/knowledge?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2ContextQuotaUsageDto?> GetContextQuotaUsageAsync(
+        string ownerUserId, Guid? createId = null, CancellationToken ct = default) =>
+        GetAsync<GccV2ContextQuotaUsageDto>(
+            $"repo/content-creator-v2/context/quotas?ownerUserId={Uri.EscapeDataString(ownerUserId)}"
+            + (createId is null ? "" : $"&createId={createId:D}"), ct);
+    public Task<GccV2KnowledgeAssetDto?> GetKnowledgeAsync(
+        Guid assetId, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2KnowledgeAssetDto>(
+            $"repo/content-creator-v2/context/knowledge/{assetId}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2KnowledgeAssetDto> CreateKnowledgeAsync(
+        CreateGccV2KnowledgeCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2KnowledgeAssetDto>("repo/content-creator-v2/context/knowledge", command, ct);
+    public Task<GccV2KnowledgeAssetDto> PatchKnowledgeAsync(
+        Guid assetId, PatchGccV2ContextCatalogCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2KnowledgeAssetDto>($"repo/content-creator-v2/context/knowledge/{assetId}", command, ct);
+    public Task<GccV2KnowledgeAssetVersionDto> CreateKnowledgeVersionAsync(
+        Guid assetId, CreateGccV2KnowledgeVersionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2KnowledgeAssetVersionDto>(
+            $"repo/content-creator-v2/context/knowledge/{assetId}/versions", command, ct);
+    public Task<GccV2KnowledgeResourceDto> AddKnowledgeResourceAsync(
+        Guid versionId, AddGccV2KnowledgeResourceCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2KnowledgeResourceDto>(
+            $"repo/content-creator-v2/context/knowledge/versions/{versionId}/resources", command, ct);
+    public Task<GccV2KnowledgeAssetVersionDto> TransitionKnowledgeAsync(
+        Guid versionId, string transition, TransitionGccV2ContextCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2KnowledgeAssetVersionDto>(
+            $"repo/content-creator-v2/context/knowledge/versions/{versionId}/{transition}", command, ct);
+
+    public Task<JsonElement> CreateContextCatalogAsync(
+        CreateGccV2ContextCatalogCommand command, CancellationToken ct = default) =>
+        PostAsync<JsonElement>("repo/content-creator-v2/context/catalogs", command, ct);
+    public Task<IReadOnlyList<JsonElement>> ListContextCatalogsAsync(
+        string kind, string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<JsonElement>(
+            $"repo/content-creator-v2/context/catalogs/{Uri.EscapeDataString(kind)}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<JsonElement?> GetContextCatalogAsync(
+        string kind, Guid catalogId, string ownerUserId, CancellationToken ct = default) =>
+        GetJsonElementAsync(
+            $"repo/content-creator-v2/context/catalogs/{Uri.EscapeDataString(kind)}/{catalogId}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<JsonElement> PatchContextCatalogAsync(
+        string kind, Guid catalogId, PatchGccV2ContextCatalogCommand command, CancellationToken ct = default) =>
+        PatchAsync<JsonElement>(
+            $"repo/content-creator-v2/context/catalogs/{Uri.EscapeDataString(kind)}/{catalogId}", command, ct);
+    public Task<JsonElement> CreateContextCatalogVersionAsync(
+        string kind, Guid catalogId, CreateGccV2ContextCatalogVersionCommand command, CancellationToken ct = default) =>
+        PostAsync<JsonElement>(
+            $"repo/content-creator-v2/context/catalogs/{Uri.EscapeDataString(kind)}/{catalogId}/versions", command, ct);
+    public Task<JsonElement> TransitionContextCatalogVersionAsync(
+        string kind, Guid versionId, string transition, TransitionGccV2ContextCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<JsonElement>(
+            $"repo/content-creator-v2/context/catalogs/{Uri.EscapeDataString(kind)}/versions/{versionId}/{Uri.EscapeDataString(transition)}",
+            command, ct);
+    public Task<GccV2GovernedVersionLookupDto?> GetContextVersionAsync(
+        string kind, Guid versionId, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2GovernedVersionLookupDto>(
+            $"repo/content-creator-v2/context/versions/{Uri.EscapeDataString(kind)}/{versionId}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2GovernedVersionLookupDto?> GetCurrentContextVersionAsync(
+        string kind, Guid stableId, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2GovernedVersionLookupDto>(
+            $"repo/content-creator-v2/context/current-versions/{Uri.EscapeDataString(kind)}/{stableId}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
+    public Task<GccV2RunAttachmentDto> CreateRunAttachmentAsync(
+        CreateGccV2RunAttachmentCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2RunAttachmentDto>("repo/content-creator-v2/context/attachments", command, ct);
+    public Task<GccV2RunAttachmentDto?> GetRunAttachmentAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2RunAttachmentDto>(
+            $"repo/content-creator-v2/context/attachments/{id}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<IReadOnlyList<GccV2RunAttachmentDto>> ListRunAttachmentsDueForRetentionAsync(
+        int limit = 200, CancellationToken ct = default) =>
+        GetListAsync<GccV2RunAttachmentDto>(
+            $"repo/content-creator-v2/context/attachments/retention-due?limit={limit}", ct);
+    public Task<GccV2RunAttachmentDto> FinalizeRunAttachmentAsync(
+        Guid id, FinalizeGccV2RunAttachmentCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2RunAttachmentDto>(
+            $"repo/content-creator-v2/context/attachments/{id}/finalize", command, ct);
+    public Task DeleteRunAttachmentAsync(Guid id, string ownerUserId, CancellationToken ct = default) =>
+        DeleteAsync($"repo/content-creator-v2/context/attachments/{id}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2ContextSelectionDto> CreateContextSelectionAsync(
+        CreateGccV2ContextSelectionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2ContextSelectionDto>("repo/content-creator-v2/context/selections", command, ct);
+    public Task<GccV2RunContextManifestDto> CreateContextManifestAsync(
+        CreateGccV2RunContextManifestCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2RunContextManifestDto>("repo/content-creator-v2/context/manifests", command, ct);
+    public Task<GccV2RunContextManifestDto?> GetContextManifestByJobAsync(
+        Guid jobId, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2RunContextManifestDto>(
+            $"repo/content-creator-v2/context/manifests/by-job/{jobId}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2ContextIngestionJobDto> QueueKnowledgeIngestionAsync(
+        Guid versionId, QueueGccV2KnowledgeIngestionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2ContextIngestionJobDto>(
+            $"repo/content-creator-v2/context/knowledge/versions/{versionId}/queue-ingestion", command, ct);
+    public Task<GccV2ContextIngestionJobDto?> GetContextIngestionJobAsync(
+        Guid id, CancellationToken ct = default) =>
+        GetAsync<GccV2ContextIngestionJobDto>($"repo/content-creator-v2/context/ingestion-jobs/{id}", ct);
+    public Task<IReadOnlyList<GccV2ContextIngestionJobDto>> ListContextIngestionJobsAsync(
+        string status, DateTimeOffset? leaseBefore = null, int limit = 200, CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator-v2/context/ingestion-jobs/by-status/{Uri.EscapeDataString(status)}?limit={limit}";
+        if (leaseBefore is not null) path += $"&leaseBefore={Uri.EscapeDataString(leaseBefore.Value.ToString("O"))}";
+        return GetListAsync<GccV2ContextIngestionJobDto>(path, ct);
+    }
+    public async Task<GccV2ContextIngestionJobDto?> ClaimContextIngestionJobAsync(
+        Guid id, string instanceId, int leaseSeconds = 120, CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator-v2/context/ingestion-jobs/{id}/claim?instanceId={Uri.EscapeDataString(instanceId)}&leaseSeconds={leaseSeconds}";
+        var res = await _http.PostAsync(path, null, ct);
+        if (res.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccV2ContextIngestionJobDto>(
+            await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+    public Task<GccV2ContextIngestionJobDto> TransitionContextIngestionJobAsync(
+        Guid id, TransitionGccV2ContextIngestionJobCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2ContextIngestionJobDto>(
+            $"repo/content-creator-v2/context/ingestion-jobs/{id}/transition", command, ct);
+
     private async Task<int> PostSeedCountAsync(string path, CancellationToken ct)
     {
         var res = await _http.PostAsync(path, content: null, ct);
@@ -390,6 +519,14 @@ public class HttpGccV2Repository
             _logger.LogError(ex, "GET {Path} failed", path);
             throw;
         }
+    }
+
+    private async Task<JsonElement?> GetJsonElementAsync(string path, CancellationToken ct)
+    {
+        var response = await _http.GetAsync(path, ct);
+        if (!response.IsSuccessStatusCode) return null;
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        return document.RootElement.Clone();
     }
 
     private async Task<IReadOnlyList<T>> GetListAsync<T>(string path, CancellationToken ct)
@@ -439,5 +576,11 @@ public class HttpGccV2Repository
         var json = await res.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<T>(json, JsonOpts)
             ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    private async Task DeleteAsync(string path, CancellationToken ct)
+    {
+        var res = await _http.DeleteAsync(path, ct);
+        res.EnsureSuccessStatusCode();
     }
 }

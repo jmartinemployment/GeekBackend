@@ -43,24 +43,30 @@ public class GccV2BriefsController : ControllerBase
         if (command is null || command.CreateId == Guid.Empty)
             return BadRequest("createId is required");
 
-        var maxVersion = await _db.GccV2Briefs
-            .Where(b => b.CreateId == command.CreateId)
-            .Select(b => (int?)b.Version)
-            .MaxAsync(ct);
-        var nextVersion = (maxVersion ?? 0) + 1;
-
-        var brief = new GccV2Brief
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            CreateId = command.CreateId,
-            Version = nextVersion,
-            TargetKeyword = command.TargetKeyword ?? string.Empty,
-            ContentType = string.IsNullOrWhiteSpace(command.ContentType) ? "blog" : command.ContentType,
-            RawBriefJson = string.IsNullOrWhiteSpace(command.RawBriefJson) ? "{}" : command.RawBriefJson,
-        };
-
-        _db.GccV2Briefs.Add(brief);
-        await _db.SaveChangesAsync(ct);
-        return CreatedAtAction(nameof(GetById), new { id = brief.Id }, brief);
+            var maxVersion = await _db.GccV2Briefs.Where(b => b.CreateId == command.CreateId)
+                .Select(b => (int?)b.Version).MaxAsync(ct);
+            var brief = new GccV2Brief
+            {
+                CreateId = command.CreateId,
+                Version = (maxVersion ?? 0) + 1,
+                TargetKeyword = command.TargetKeyword ?? string.Empty,
+                ContentType = string.IsNullOrWhiteSpace(command.ContentType) ? "blog" : command.ContentType,
+                RawBriefJson = string.IsNullOrWhiteSpace(command.RawBriefJson) ? "{}" : command.RawBriefJson,
+            };
+            _db.GccV2Briefs.Add(brief);
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                return CreatedAtAction(nameof(GetById), new { id = brief.Id }, brief);
+            }
+            catch (DbUpdateException) when (attempt < 2)
+            {
+                _db.Entry(brief).State = EntityState.Detached;
+            }
+        }
+        return Conflict("Could not allocate a unique brief version.");
     }
 
     [HttpPatch("{id:guid}")]
@@ -68,6 +74,8 @@ public class GccV2BriefsController : ControllerBase
     {
         var brief = await _db.GccV2Briefs.FirstOrDefaultAsync(b => b.Id == id, ct);
         if (brief is null) return NotFound();
+        if (brief.FrozenAtUtc is not null)
+            return Conflict("Frozen briefs are immutable; create a successor version.");
         if (command?.RawBriefJson is not null)
             brief.RawBriefJson = command.RawBriefJson;
         await _db.SaveChangesAsync(ct);

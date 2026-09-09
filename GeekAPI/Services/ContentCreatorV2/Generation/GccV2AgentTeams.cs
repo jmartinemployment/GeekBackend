@@ -19,7 +19,9 @@ public sealed record GccV2AgentTeamMember(
     string ModelPolicyVersion, string ModelPolicyProfile, string Policy, string PolicyDigest,
     IReadOnlyList<string> ContentTypes, IReadOnlyList<string> AllowedTools,
     IReadOnlyList<string> AllowedModels, IReadOnlyList<GccV2AgentTeamSkillPin> Skills,
-    IReadOnlyList<GccV2AgentTeamParticipation> Participation);
+    IReadOnlyList<GccV2AgentTeamParticipation> Participation,
+    IReadOnlyList<string>? RequiredContextKinds = null,
+    IReadOnlyList<string>? AllowedContextKinds = null);
 public sealed record GccV2AgentTeamSnapshot(
     string SnapshotVersion, string CatalogVersion, DateTimeOffset ResolvedAtUtc,
     IReadOnlyList<GccV2AgentTeamMember> Agents);
@@ -168,12 +170,15 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
         var contentTypes = Strings(item.Version.ContentTypesJson);
         var tools = Strings(item.Version.AllowedToolsJson);
         var models = Strings(item.Version.AllowedModelsJson);
+        IReadOnlyList<string> requiredContextKinds = [];
+        IReadOnlyList<string> allowedContextKinds =
+            ["brief", "brand_kit", "audience", "style_guide", "product_schema", "product", "knowledge", "run_attachment"];
         var instructionsDigest = Hash(item.Version.Instructions);
         var policy = JsonSerializer.Serialize(new
         {
             objective = item.Version.Objective, modelPolicyVersion = item.Version.ModelPolicyVersion,
             modelPolicyProfile = item.Version.ModelPolicyProfile,
-            contentTypes, tools, models,
+            contentTypes, tools, models, requiredContextKinds, allowedContextKinds,
             skillVersionIds = item.Version.Skills.OrderBy(x => x.Order).Select(x => x.SkillVersionId),
         }, CanonicalJson);
         return new(
@@ -196,7 +201,8 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
                 x.SkillVersion.Applicability.Select(a => a.ActivationMode)
                     .Distinct(StringComparer.Ordinal).Order().ToList())).ToList(),
             item.Version.StageParticipation.OrderBy(x => x.Order).Select(x =>
-                new GccV2AgentTeamParticipation(x.Stage, x.Role, x.Order)).ToList());
+                new GccV2AgentTeamParticipation(x.Stage, x.Role, x.Order)).ToList(),
+            requiredContextKinds, allowedContextKinds);
     }
 
     public static void Validate(IReadOnlyList<GccV2AgentTeamMember> agents, string contentType)

@@ -8,6 +8,7 @@ namespace GeekRepository.Data.Entities.ContentCreatorV2;
 public class GccV2BrandKit
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public string? OwnerUserId { get; set; }
 
     /// <summary>Optional owning client/tenant — null when derived ad hoc for a single create.</summary>
     public Guid? ClientId { get; set; }
@@ -15,6 +16,8 @@ public class GccV2BrandKit
     public Guid DerivedFromProfileId { get; set; }
     public int Version { get; set; } = 1;
     public string KitJson { get; set; } = "{}";
+    public string? CanonicalSha256 { get; set; }
+    public string? AcceptedByUserId { get; set; }
 
     /// <summary>provisional | accepted</summary>
     public string VoiceStatus { get; set; } = "provisional";

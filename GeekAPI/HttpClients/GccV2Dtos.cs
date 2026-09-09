@@ -70,7 +70,9 @@ public sealed record CreateGccV2JobCommand(
     string? AgentTeamSnapshotJson = null,
     string? AgentTeamSnapshotDigest = null,
     string? AgentTeamSnapshotSignature = null,
-    string? AgentTeamSnapshotKeyId = null);
+    string? AgentTeamSnapshotKeyId = null,
+    Guid? Id = null,
+    CreateGccV2RunContextManifestCommand? ContextManifest = null);
 
 public sealed record PatchGccV2JobCommand(
     string? Stage = null,
@@ -124,11 +126,17 @@ public sealed record GccV2BrandKitDto(
     string KitJson,
     string VoiceStatus,
     DateTimeOffset DerivedAtUtc,
-    DateTimeOffset? AcceptedAtUtc);
+    DateTimeOffset? AcceptedAtUtc,
+    string? OwnerUserId = null,
+    string? CanonicalSha256 = null,
+    string? AcceptedByUserId = null);
 
-public sealed record CreateGccV2BrandKitCommand(Guid DerivedFromProfileId, Guid? ClientId, string? KitJson, string? VoiceStatus);
+public sealed record CreateGccV2BrandKitCommand(
+    Guid DerivedFromProfileId, Guid? ClientId, string? KitJson, string? VoiceStatus, string? OwnerUserId = null);
 
-public sealed record PatchGccV2BrandKitCommand(string? KitJson = null, string? VoiceStatus = null, DateTimeOffset? AcceptedAtUtc = null);
+public sealed record PatchGccV2BrandKitCommand(
+    string? KitJson = null, string? VoiceStatus = null, DateTimeOffset? AcceptedAtUtc = null,
+    string? ActorUserId = null);
 
 public sealed record GccV2OutlineDto(
     Guid Id,
@@ -429,3 +437,99 @@ public sealed record PatchGccV2AgentTestRunCommand(
     string Actor, string? SourceIp, string? RequestId);
 public sealed record TransitionGccV2AgentVersionCommand(
     string Actor, string? Reason, string? SourceIp, string? RequestId);
+
+public sealed record GccV2KnowledgeAssetDto(
+    Guid Id, string OwnerUserId, string Name, string? Description, Guid? CurrentVersionId,
+    bool IsRetired, uint Revision, string TagsJson, string Kind, string Visibility,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset? UpdatedAtUtc,
+    IReadOnlyList<GccV2KnowledgeAssetVersionDto> Versions);
+public sealed record GccV2KnowledgeAssetVersionDto(
+    Guid Id, Guid AssetId, int VersionNumber, int SchemaVersion, string CanonicalSha256,
+    string LifecycleState, string CreatedBy, DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? ReviewedAtUtc, string? ReviewedBy, DateTimeOffset? EffectiveFromUtc,
+    DateTimeOffset? EffectiveUntilUtc, string SourceDescriptorJson, string ContentSha256,
+    string MediaType, string? Language, DateTimeOffset? SourceModifiedAtUtc,
+    string ExtractionState, string IndexState, string ProvenanceJson,
+    IReadOnlyList<GccV2KnowledgeResourceDto>? Resources = null);
+public sealed record GccV2KnowledgeResourceDto(
+    Guid Id, Guid KnowledgeAssetVersionId, string ResourceKind, string ObjectKey,
+    long ByteSize, string Sha256, string MediaType, string SafeFileName,
+    string? ParserName, string? ParserVersion, string? ExtractionSha256,
+    string CoordinatesJson, string ScanState, DateTimeOffset CreatedAtUtc);
+public sealed record CreateGccV2KnowledgeCommand(
+    string OwnerUserId, string Name, string? Description, string? TagsJson, string? Kind, string ActorUserId);
+public sealed record PatchGccV2ContextCatalogCommand(
+    string OwnerUserId, string ActorUserId, string? Name = null, string? Description = null, bool? IsRetired = null);
+public sealed record CreateGccV2KnowledgeVersionCommand(
+    string OwnerUserId, int SchemaVersion, string CanonicalSha256, string ContentSha256,
+    string MediaType, string? Language, string? SourceDescriptorJson, string? ProvenanceJson,
+    DateTimeOffset? SourceModifiedAtUtc, string ActorUserId);
+public sealed record AddGccV2KnowledgeResourceCommand(
+    string OwnerUserId, string ResourceKind, string ObjectKey, long ByteSize, string Sha256,
+    string MediaType, string SafeFileName, string ScanState, string? ParserName = null,
+    string? ParserVersion = null, string? ExtractionSha256 = null, string? CoordinatesJson = null);
+public sealed record TransitionGccV2ContextCommand(string OwnerUserId, string ActorUserId, string? Reason = null);
+public sealed record CreateGccV2ContextCatalogCommand(
+    string Kind, string OwnerUserId, string Name, string? Description, string ActorUserId);
+public sealed record CreateGccV2ContextCatalogVersionCommand(
+    string OwnerUserId, int SchemaVersion, string CanonicalSha256, string PayloadJson,
+    string? Locale, string? ProvenanceJson, Guid? ProductSchemaVersionId,
+    string? ApprovedClaimsJson, string? ProhibitedClaimsJson, string? MandatoryDisclaimersJson,
+    DateTimeOffset? EffectiveFromUtc, DateTimeOffset? EffectiveUntilUtc, string ActorUserId);
+public sealed record GccV2GovernedVersionLookupDto(
+    string Kind, Guid StableId, Guid VersionId, int VersionNumber, int SchemaVersion,
+    string CanonicalSha256, string LifecycleState, DateTimeOffset? SourceModifiedAtUtc,
+    DateTimeOffset? EffectiveFromUtc, DateTimeOffset? EffectiveUntilUtc,
+    string ExtractionState = "ready", string IndexState = "ready", string? PayloadJson = null,
+    string? ApprovedClaimsJson = null, string? ProhibitedClaimsJson = null,
+    string? MandatoryDisclaimersJson = null, Guid? ProductSchemaVersionId = null);
+
+public sealed record GccV2RunAttachmentDto(
+    Guid Id, string OwnerUserId, Guid CreateId, string ObjectKey, string SafeFileName,
+    string MediaType, long ByteSize, string Sha256, string IngestionState,
+    DateTimeOffset UploadExpiresAtUtc, DateTimeOffset RetainUntilUtc,
+    DateTimeOffset? FinalizedAtUtc, DateTimeOffset? DeletedAtUtc, DateTimeOffset CreatedAtUtc);
+public sealed record CreateGccV2RunAttachmentCommand(
+    string OwnerUserId, Guid CreateId, string ObjectKey, string SafeFileName, string MediaType,
+    long ByteSize, string Sha256, DateTimeOffset UploadExpiresAtUtc, DateTimeOffset RetainUntilUtc);
+public sealed record FinalizeGccV2RunAttachmentCommand(string OwnerUserId, long ByteSize, string Sha256);
+public sealed record GccV2ContextSelectionDto(
+    Guid Id, string OwnerUserId, Guid? CreateId, string SelectionJson,
+    string CreatedBy, DateTimeOffset CreatedAtUtc);
+public sealed record CreateGccV2ContextSelectionCommand(
+    string OwnerUserId, Guid? CreateId, string SelectionJson, string ActorUserId);
+
+public sealed record GccV2RunContextManifestDto(
+    Guid Id, string OwnerUserId, Guid JobId, int Attempt, int SchemaVersion,
+    string CanonicalJson, string Sha256, string Signature, string SigningKeyId,
+    string ResolverIdentity, DateTimeOffset ResolvedAtUtc, Guid? ReplacesManifestId,
+    IReadOnlyList<GccV2RunContextManifestEntryDto> Entries);
+public sealed record GccV2RunContextManifestEntryDto(
+    Guid Id, Guid ManifestId, string ContextKind, Guid StableId, Guid? VersionId,
+    int? VersionNumber, string ContentSha256, string LifecycleDecision,
+    string PermissionDecision, string FreshnessDecision, string SelectionSource,
+    string? SelectedFieldIdsJson, DateTimeOffset? SourceModifiedAtUtc);
+public sealed record CreateGccV2RunContextManifestCommand(
+    Guid Id, string OwnerUserId, Guid JobId, int Attempt, int SchemaVersion, string CanonicalJson,
+    string Sha256, string Signature, string SigningKeyId, string ResolverIdentity,
+    DateTimeOffset ResolvedAtUtc, Guid? ReplacesManifestId,
+    IReadOnlyList<CreateGccV2RunContextManifestEntryCommand> Entries);
+public sealed record CreateGccV2RunContextManifestEntryCommand(
+    string ContextKind, Guid StableId, Guid? VersionId, int? VersionNumber, string ContentSha256,
+    string LifecycleDecision, string PermissionDecision, string FreshnessDecision,
+    string SelectionSource, string? SelectedFieldIdsJson, DateTimeOffset? SourceModifiedAtUtc);
+public sealed record GccV2ContextIngestionJobDto(
+    Guid Id, string OwnerUserId, string TargetKind, Guid TargetId, string Status,
+    int ProgressPercent, int AttemptCount, string? ClaimedByInstanceId,
+    DateTimeOffset? ClaimedAtUtc, DateTimeOffset? LeaseUntilUtc, DateTimeOffset? HeartbeatAtUtc,
+    string? TerminalError, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc,
+    DateTimeOffset? CompletedAtUtc, IReadOnlyList<GccV2ContextIngestionEventDto>? Events = null);
+public sealed record GccV2ContextIngestionEventDto(
+    Guid Id, Guid JobId, int Seq, string Type, string PayloadJson, DateTimeOffset CreatedAtUtc);
+public sealed record GccV2ContextQuotaUsageDto(
+    long KnowledgeBytes, long OwnerAttachmentBytes, long RunAttachmentBytes);
+public sealed record QueueGccV2KnowledgeIngestionCommand(
+    string OwnerUserId, string ObjectKey, long ByteSize, string Sha256);
+public sealed record TransitionGccV2ContextIngestionJobCommand(
+    string Status, int ProgressPercent, string EventType, string? EventPayloadJson = null,
+    string? TerminalError = null, string? IndexState = null);

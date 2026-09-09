@@ -189,10 +189,10 @@ public sealed class GccV2WriteService
         var brief = await _repo.GetBriefAsync(job.BriefId, ct)
             ?? throw new InvalidOperationException($"Brief {job.BriefId} not found for job {job.Id}.");
 
-        if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is not { } profileId)
+        if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is null)
             throw new InvalidOperationException("WRITE requires a projectSiteCrawlRunId — start from a project-site crawl.");
 
-        var (brandKit, kitDto) = await LoadAcceptedBrandKitAsync(profileId, ct);
+        var (brandKit, kitDto) = await LoadAcceptedBrandKitAsync(job, ct);
         var create = await _repo.GetCreateAsync(job.CreateId, ct)
             ?? throw new InvalidOperationException($"Create {job.CreateId} not found for job {job.Id}.");
         var siteSection = GccV2SiteSection.ParseSiteSection(create.SiteSectionJson);
@@ -1442,12 +1442,20 @@ public sealed class GccV2WriteService
     }
 
     private async Task<(GccV2BrandKitContent Kit, GccV2BrandKitDto Dto)> LoadAcceptedBrandKitAsync(
-        Guid profileId,
+        GccV2JobDto job,
         CancellationToken ct)
     {
-        var kits = await _repo.ListBrandKitsByProfileAsync(profileId, ct);
-        var kitDto = kits.FirstOrDefault()
-            ?? throw new InvalidOperationException($"No brand kit for profile {profileId}.");
+        var manifest = await _repo.GetContextManifestByJobAsync(job.Id, job.OwnerUserId, ct)
+            ?? throw new InvalidOperationException("WRITE requires a signed context manifest.");
+        var entry = manifest.Entries.SingleOrDefault(x => x.ContextKind == "brand_kit")
+            ?? throw new InvalidOperationException("WRITE requires an exact Brand Kit manifest entry.");
+        if (entry.VersionId is null)
+            throw new InvalidOperationException("Brand Kit manifest entry has no immutable version.");
+        var kitDto = await _repo.GetBrandKitAsync(entry.VersionId.Value, ct)
+            ?? throw new InvalidOperationException($"Brand Kit {entry.VersionId} is unavailable.");
+        if (!string.Equals(kitDto.OwnerUserId, job.OwnerUserId, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(kitDto.CanonicalSha256, entry.ContentSha256, StringComparison.Ordinal))
+            throw new InvalidOperationException("Brand Kit no longer matches its owner-bound manifest.");
         if (!string.Equals(kitDto.VoiceStatus, "accepted", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Brand kit must be accepted before WRITE.");
 

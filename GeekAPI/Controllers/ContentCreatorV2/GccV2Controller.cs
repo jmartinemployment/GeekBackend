@@ -9,6 +9,7 @@ using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
@@ -35,6 +36,7 @@ public class GccV2Controller : ControllerBase
     private readonly GccV2GeekCrawlerResearchResolver _researchResolver;
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
     private readonly GccV2AgentTeamResolver _agentTeams;
+    private readonly GccV2ContextResolver _contextResolver;
     private readonly ILogger<GccV2Controller> _logger;
 
     public GccV2Controller(
@@ -47,6 +49,7 @@ public class GccV2Controller : ControllerBase
         GccV2GeekCrawlerResearchResolver researchResolver,
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
         GccV2AgentTeamResolver agentTeams,
+        GccV2ContextResolver contextResolver,
         ILogger<GccV2Controller> logger)
     {
         _user = user;
@@ -58,6 +61,7 @@ public class GccV2Controller : ControllerBase
         _researchResolver = researchResolver;
         _jobModelPolicies = jobModelPolicies;
         _agentTeams = agentTeams;
+        _contextResolver = contextResolver;
         _logger = logger;
     }
 
@@ -458,18 +462,44 @@ public class GccV2Controller : ControllerBase
             new CreateGccV2BriefCommand(id, request?.TargetKeyword, primaryType, RawBriefJson: rawBriefJson),
             ct);
 
-        await _repo.CreateBrandKitAsync(
-            new CreateGccV2BrandKitCommand(
-                runId,
-                ClientId: null,
-                KitJson: JsonSerializer.Serialize(kit, JsonOpts),
-                VoiceStatus: "provisional"),
-            ct);
-
+        var contextSelection = request?.ContextSelection ?? new GccV2ContextSelectionRequest();
+        if (contextSelection.BrandKitVersionId is null)
+        {
+            var createdKit = await _repo.CreateBrandKitAsync(
+                new CreateGccV2BrandKitCommand(
+                    runId,
+                    ClientId: null,
+                    KitJson: JsonSerializer.Serialize(kit, JsonOpts),
+                    VoiceStatus: "provisional",
+                    OwnerUserId: _user.UserId.ToString("D")),
+                ct);
+            var acceptedKit = await _repo.PatchBrandKitAsync(createdKit.Id,
+                new PatchGccV2BrandKitCommand(
+                    VoiceStatus: "accepted", AcceptedAtUtc: DateTimeOffset.UtcNow,
+                    ActorUserId: _user.UserId.ToString("D")), ct);
+            contextSelection = contextSelection with { BrandKitVersionId = acceptedKit.Id };
+        }
+        await _repo.CreateContextSelectionAsync(new CreateGccV2ContextSelectionCommand(
+            _user.UserId.ToString("D"), id, JsonSerializer.Serialize(contextSelection, JsonOpts),
+            _user.UserId.ToString("D")), ct);
         var jobIds = new List<Guid>();
         foreach (var contentType in contentTypes.Where(t => !GccV2ChannelTypes.IsLinkedIn(t)))
         {
             var team = resolvedTeams[contentType];
+            var jobId = Guid.NewGuid();
+            GccV2PreparedManifest prepared;
+            try
+            {
+                prepared = await _contextResolver.PrepareAsync(
+                    jobId, id, brief.Id, _user.UserId.ToString("D"), contextSelection,
+                    team.Digest, null, null, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = ex.Message });
+            }
+            if (prepared.Preview.BlockingFindings.Count > 0)
+                return Conflict(new { error = "Context resolution blocked generation.", prepared.Preview });
             var job = await _repo.CreateJobAsync(
                 new CreateGccV2JobCommand(
                     id, _user.UserId.ToString("D"), contentType, brief.Id,
@@ -478,7 +508,9 @@ public class GccV2Controller : ControllerBase
                     AgentTeamSnapshotJson: team.SnapshotJson,
                     AgentTeamSnapshotDigest: team.Digest,
                     AgentTeamSnapshotSignature: team.Signature,
-                    AgentTeamSnapshotKeyId: team.SignatureKeyId),
+                    AgentTeamSnapshotKeyId: team.SignatureKeyId,
+                    Id: jobId,
+                    ContextManifest: prepared.Manifest),
                 ct);
             await _events.AppendAsync(job.Id, _user.UserId, "JobQueued", new
             {
@@ -794,7 +826,8 @@ public class GccV2Controller : ControllerBase
             new PatchGccV2BrandKitCommand(
                 KitJson: kitJson,
                 VoiceStatus: "accepted",
-                AcceptedAtUtc: DateTimeOffset.UtcNow),
+                AcceptedAtUtc: DateTimeOffset.UtcNow,
+                ActorUserId: _user.UserId.ToString("D")),
             ct);
 
         await _events.AppendAsync(id, _user.UserId, "BrandKitAccepted", new { jobId = id, brandKitId = kit.Id }, ct: ct);
@@ -1294,7 +1327,8 @@ public class GccV2Controller : ControllerBase
         IReadOnlyList<string>? ContentTypes = null,
         bool? PartnerToolsConfirmed = null,
         IReadOnlyList<Guid>? AgentVersionIds = null,
-        IReadOnlyList<string>? SelectedAgentIds = null);
+        IReadOnlyList<string>? SelectedAgentIds = null,
+        GccV2ContextSelectionRequest? ContextSelection = null);
 
     private static IReadOnlyList<Guid>? ParseAgentVersionIds(string? json)
     {

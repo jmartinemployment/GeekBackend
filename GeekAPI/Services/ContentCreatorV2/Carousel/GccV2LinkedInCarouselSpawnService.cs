@@ -3,6 +3,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
+using GeekAPI.Services.ContentCreatorV2.Context;
 
 namespace GeekAPI.Services.ContentCreatorV2.Carousel;
 
@@ -18,17 +19,20 @@ public sealed class GccV2LinkedInCarouselSpawnService
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2JobWake _wake;
     private readonly GccV2AgentTeamResolver _agentTeams;
+    private readonly GccV2ContextResolver _contextResolver;
     private readonly ILogger<GccV2LinkedInCarouselSpawnService> _logger;
 
     public GccV2LinkedInCarouselSpawnService(
         HttpGccV2Repository repo,
         GccV2JobWake wake,
         GccV2AgentTeamResolver agentTeams,
+        GccV2ContextResolver contextResolver,
         ILogger<GccV2LinkedInCarouselSpawnService> logger)
     {
         _repo = repo;
         _wake = wake;
         _agentTeams = agentTeams;
+        _contextResolver = contextResolver;
         _logger = logger;
     }
 
@@ -65,6 +69,10 @@ public sealed class GccV2LinkedInCarouselSpawnService
             return new SpawnResult(0, 1, null, "LinkedIn carousel job already exists on this create.");
 
         var team = await _agentTeams.ResolveChildAsync(sourceJob, GccV2ChannelTypes.LinkedInCarousel, ct);
+        var jobId = Guid.NewGuid();
+        var context = await _contextResolver.PrepareReplayAsync(
+            sourceJob.Id, jobId, sourceJob.CreateId, sourceJob.BriefId,
+            sourceJob.OwnerUserId, team.Digest, ct);
         var job = await _repo.CreateJobAsync(
             new CreateGccV2JobCommand(
                 sourceJob.CreateId,
@@ -76,7 +84,9 @@ public sealed class GccV2LinkedInCarouselSpawnService
                 AgentTeamSnapshotJson: team.SnapshotJson,
                 AgentTeamSnapshotDigest: team.Digest,
                 AgentTeamSnapshotSignature: team.Signature,
-                AgentTeamSnapshotKeyId: team.SignatureKeyId),
+                AgentTeamSnapshotKeyId: team.SignatureKeyId,
+                Id: jobId,
+                ContextManifest: context.Manifest),
             ct);
 
         _wake.Wake(job.Id);

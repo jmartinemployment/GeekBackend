@@ -5,13 +5,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Rag;
+using GeekAPI.Services.ContentCreatorV2.Context;
 
 namespace GeekAPI.Services.ContentCreatorV2.Generation;
 
 public sealed class GccV2AgentExecutionFactory(
     HttpGccV2Repository repo,
     GccV2AgentTeamResolver teams,
-    GccV2AgentTeamSigner signer)
+    GccV2AgentTeamSigner signer,
+    GccV2ContextResolver contextResolver)
 {
     private static readonly JsonSerializerOptions Json = CreateJson();
 
@@ -57,6 +59,45 @@ public sealed class GccV2AgentExecutionFactory(
         RagGenerateRequest request,
         CancellationToken ct)
     {
+        var manifest = await repo.GetContextManifestByJobAsync(job.Id, job.OwnerUserId, ct)
+            ?? throw new InvalidOperationException("Specialist execution requires a context manifest.");
+        contextResolver.Verify(manifest, job.Id);
+        var contextKinds = manifest.Entries.Select(x => x.ContextKind).ToHashSet(StringComparer.Ordinal);
+        var required = member.RequiredContextKinds ?? [];
+        var allowed = (member.AllowedContextKinds ?? []).ToHashSet(StringComparer.Ordinal);
+        var missing = required.Where(x => !contextKinds.Contains(x)).ToList();
+        var denied = contextKinds.Where(x => !allowed.Contains(x)).ToList();
+        if (missing.Count > 0 || denied.Count > 0)
+            throw new InvalidOperationException(
+                $"Specialist '{member.Slug}' context contract is incompatible: "
+                + $"missing [{string.Join(", ", missing)}], denied [{string.Join(", ", denied)}].");
+        request.ContextManifest = new(
+            manifest.CanonicalJson, manifest.Sha256, manifest.Signature, manifest.SigningKeyId);
+        var governedContext = new List<RagGovernedContextEntryDto>();
+        foreach (var entry in manifest.Entries.Where(x =>
+                     x.ContextKind is "audience" or "style_guide" or "product_schema" or "product"))
+        {
+            if (entry.VersionId is null)
+                throw new InvalidOperationException("Governed policy entry has no immutable version.");
+            var version = await repo.GetContextVersionAsync(
+                entry.ContextKind, entry.VersionId.Value, job.OwnerUserId, ct)
+                ?? throw new InvalidOperationException("Governed policy entry is no longer readable.");
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(entry.ContentSha256),
+                    Encoding.ASCII.GetBytes(version.CanonicalSha256)))
+                throw new InvalidOperationException("Governed policy digest no longer matches its manifest.");
+            if (string.IsNullOrWhiteSpace(version.PayloadJson))
+                throw new InvalidOperationException("Governed policy payload is missing.");
+            using var payload = JsonDocument.Parse(version.PayloadJson);
+            governedContext.Add(new(
+                entry.ContextKind, entry.StableId, entry.VersionId.Value,
+                entry.VersionNumber ?? version.VersionNumber, entry.ContentSha256,
+                payload.RootElement.Clone(), ParseGuids(entry.SelectedFieldIdsJson),
+                ParseStrings(version.ApprovedClaimsJson),
+                ParseStrings(version.ProhibitedClaimsJson),
+                ParseStrings(version.MandatoryDisclaimersJson)));
+        }
+        request.GovernedContext = governedContext;
         if (!Guid.TryParse(attemptId, out _) || !Guid.TryParse(coordinatorExecutionId, out _))
             throw new InvalidOperationException("Specialist attempt and coordinator IDs must be UUIDs.");
         var toolIds = StageTools(stage, role);
@@ -122,6 +163,12 @@ public sealed class GccV2AgentExecutionFactory(
     public static IReadOnlyList<RagArtifactInputReferenceDto> ArtifactInputs(RagGenerateRequest request)
     {
         var result = new List<RagArtifactInputReferenceDto>();
+        if (request.ContextManifest is { } manifest)
+            result.Add(new("context-manifest", "runContextManifest", manifest.Sha256));
+        foreach (var context in request.GovernedContext ?? [])
+            result.Add(new(
+                $"governed-{context.Kind}-{context.VersionId:D}",
+                "governedContext", context.Digest));
         if (request.CanonicalBrief is { } brief)
             Add(result, "canonical-brief", "canonicalBrief", brief, omitNullProperties: true);
         if (request.Outline is not null && request.GenerationStage is "section" or "repair" or "finalSynthesis" or "validation")
@@ -243,6 +290,12 @@ public sealed class GccV2AgentExecutionFactory(
 
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static IReadOnlyList<string>? ParseStrings(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<List<string>>(json);
+
+    private static IReadOnlyList<Guid>? ParseGuids(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<List<Guid>>(json);
 
 }
 

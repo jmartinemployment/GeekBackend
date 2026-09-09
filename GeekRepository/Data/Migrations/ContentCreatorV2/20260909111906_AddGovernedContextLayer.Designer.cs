@@ -3,6 +3,7 @@ using System;
 using GeekRepository.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeekRepository.Data.Migrations.ContentCreatorV2
 {
     [DbContext(typeof(ContentCreatorV2DbContext))]
-    partial class ContentCreatorV2DbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909111906_AddGovernedContextLayer")]
+    partial class AddGovernedContextLayer
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

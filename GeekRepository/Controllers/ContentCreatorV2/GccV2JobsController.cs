@@ -4,6 +4,8 @@ using GeekRepository.Data.Entities.ContentCreatorV2;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace GeekRepository.Controllers.ContentCreatorV2;
 
@@ -79,6 +81,19 @@ public class GccV2JobsController : ControllerBase
     {
         if (command is null || string.IsNullOrWhiteSpace(command.OwnerUserId))
             return BadRequest("ownerUserId is required");
+        if (command.ContextManifest is null)
+            return BadRequest("A signed immutable context manifest is required.");
+        if (command.ContextManifest is not null)
+        {
+            if (command.Id is null || command.ContextManifest.JobId != command.Id
+                || command.ContextManifest.OwnerUserId != command.OwnerUserId)
+                return BadRequest("Context manifest must be bound to this job and owner.");
+            var computed = Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes(command.ContextManifest.CanonicalJson))).ToLowerInvariant();
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(computed), Encoding.ASCII.GetBytes(command.ContextManifest.Sha256)))
+                return BadRequest("Context manifest digest is invalid.");
+        }
         var agentVersionIds = command.AgentVersionIds?.Distinct().ToList() ?? [];
         if (agentVersionIds.Count > 0)
         {
@@ -94,6 +109,7 @@ public class GccV2JobsController : ControllerBase
 
         var job = new GccV2Job
         {
+            Id = command.Id ?? Guid.NewGuid(),
             ContentType = string.IsNullOrWhiteSpace(command.ContentType) ? "blog" : command.ContentType,
             BriefId = command.BriefId ?? Guid.Empty,
             OwnerUserId = command.OwnerUserId,
@@ -114,6 +130,35 @@ public class GccV2JobsController : ControllerBase
         try
         {
             _db.GccV2Jobs.Add(job);
+            if (job.BriefId != Guid.Empty)
+            {
+                var brief = await _db.GccV2Briefs.SingleOrDefaultAsync(
+                    x => x.Id == job.BriefId && x.CreateId == job.CreateId, ct);
+                if (brief is null)
+                    return BadRequest("Brief does not belong to the create.");
+                brief.FrozenAtUtc ??= DateTimeOffset.UtcNow;
+            }
+            if (command.ContextManifest is { } context)
+            {
+                _db.GccV2RunContextManifests.Add(new GccV2RunContextManifest
+                {
+                    Id = context.Id, OwnerUserId = context.OwnerUserId, JobId = job.Id,
+                    Attempt = context.Attempt, SchemaVersion = context.SchemaVersion,
+                    CanonicalJson = context.CanonicalJson, Sha256 = context.Sha256,
+                    Signature = context.Signature, SigningKeyId = context.SigningKeyId,
+                    ResolverIdentity = context.ResolverIdentity, ResolvedAtUtc = context.ResolvedAtUtc,
+                    ReplacesManifestId = context.ReplacesManifestId,
+                    Entries = context.Entries.Select(x => new GccV2RunContextManifestEntry
+                    {
+                        ContextKind = x.ContextKind, StableId = x.StableId, VersionId = x.VersionId,
+                        VersionNumber = x.VersionNumber, ContentSha256 = x.ContentSha256,
+                        LifecycleDecision = x.LifecycleDecision, PermissionDecision = x.PermissionDecision,
+                        FreshnessDecision = x.FreshnessDecision, SelectionSource = x.SelectionSource,
+                        SelectedFieldIdsJson = x.SelectedFieldIdsJson,
+                        SourceModifiedAtUtc = x.SourceModifiedAtUtc,
+                    }).ToList(),
+                });
+            }
             await _db.SaveChangesAsync(ct);
             await NotifyAsync(job.Id, ct);
             await tx.CommitAsync(ct);
@@ -430,7 +475,9 @@ public class GccV2JobsController : ControllerBase
         string? AgentTeamSnapshotJson = null,
         string? AgentTeamSnapshotDigest = null,
         string? AgentTeamSnapshotSignature = null,
-        string? AgentTeamSnapshotKeyId = null);
+        string? AgentTeamSnapshotKeyId = null,
+        Guid? Id = null,
+        GccV2ContextController.CreateManifestCommand? ContextManifest = null);
 
     public record PatchGccV2JobCommand(
         string? Stage,

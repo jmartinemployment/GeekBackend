@@ -32,6 +32,8 @@ public sealed class RagGenerateRequest
     public string ExecutionVersion { get; set; } = RagProducerCapabilities.RequiredExecutionVersion;
     public string? JobId { get; set; }
     public string AttemptId { get; set; } = Guid.NewGuid().ToString("D");
+    public RagContextManifestEnvelopeDto? ContextManifest { get; set; }
+    public IReadOnlyList<RagGovernedContextEntryDto>? GovernedContext { get; set; }
     [JsonIgnore]
     public GccV2SkillExecutionSnapshot? SkillExecution { get; set; }
     [JsonIgnore]
@@ -45,6 +47,15 @@ public sealed class RagGenerateRequest
     /// <summary>Canonical jobs require quote-verified RAG and may not use the local one-shot writer.</summary>
     public bool RequireCiteable { get; set; }
 }
+
+public sealed record RagContextManifestEnvelopeDto(
+    string CanonicalJson, string Sha256, string Signature, string SigningKeyId);
+public sealed record RagGovernedContextEntryDto(
+    string Kind, Guid StableId, Guid VersionId, int VersionNumber, string Digest,
+    JsonElement Payload, IReadOnlyList<Guid>? SelectedFieldIds = null,
+    IReadOnlyList<string>? ApprovedClaims = null,
+    IReadOnlyList<string>? ProhibitedClaims = null,
+    IReadOnlyList<string>? MandatoryDisclaimers = null);
 
 public sealed class RagOutlineSectionDto
 {

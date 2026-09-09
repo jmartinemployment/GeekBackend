@@ -8,6 +8,7 @@ using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
+using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
@@ -132,6 +133,7 @@ public sealed class GccV2JobWorker : BackgroundService
         var repo = scope.ServiceProvider.GetRequiredService<HttpGccV2Repository>();
         var writer = scope.ServiceProvider.GetRequiredService<GccV2JobEventWriter>();
         var teamResolver = scope.ServiceProvider.GetRequiredService<GccV2AgentTeamResolver>();
+        var contextResolver = scope.ServiceProvider.GetRequiredService<GccV2ContextResolver>();
 
         var claimed = await repo.ClaimJobAsync(jobId, _instanceId, leaseSeconds: 120, ct);
         if (claimed is null)
@@ -147,6 +149,9 @@ public sealed class GccV2JobWorker : BackgroundService
 
         try
         {
+            var manifest = await repo.GetContextManifestByJobAsync(jobId, claimed.OwnerUserId, ct)
+                ?? throw new InvalidOperationException("Job has no immutable context manifest.");
+            contextResolver.Verify(manifest, jobId);
             teamResolver.ValidatePersisted(claimed);
             if (string.Equals(claimed.Stage, "plan", StringComparison.OrdinalIgnoreCase))
             {

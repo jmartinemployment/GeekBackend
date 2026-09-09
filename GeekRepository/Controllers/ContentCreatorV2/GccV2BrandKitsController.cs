@@ -4,6 +4,8 @@ using GeekRepository.Data.Entities.ContentCreatorV2;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace GeekRepository.Controllers.ContentCreatorV2;
 
@@ -33,9 +35,12 @@ public class GccV2BrandKitsController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<GccV2BrandKit>>> List(
         [FromQuery] Guid? derivedFromProfileId,
         [FromQuery] Guid? clientId,
+        [FromQuery] string? ownerUserId,
         CancellationToken ct)
     {
         var query = _db.GccV2BrandKits.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(ownerUserId))
+            query = query.Where(k => k.OwnerUserId == ownerUserId);
         if (derivedFromProfileId is not null)
             query = query.Where(k => k.DerivedFromProfileId == derivedFromProfileId);
         if (clientId is not null)
@@ -59,9 +64,11 @@ public class GccV2BrandKitsController : ControllerBase
         var kit = new GccV2BrandKit
         {
             ClientId = command.ClientId,
+            OwnerUserId = command.OwnerUserId,
             DerivedFromProfileId = command.DerivedFromProfileId,
             Version = (maxVersion ?? 0) + 1,
             KitJson = string.IsNullOrWhiteSpace(command.KitJson) ? "{}" : command.KitJson,
+            CanonicalSha256 = Sha256(string.IsNullOrWhiteSpace(command.KitJson) ? "{}" : command.KitJson),
             VoiceStatus = string.IsNullOrWhiteSpace(command.VoiceStatus) ? "provisional" : command.VoiceStatus,
         };
 
@@ -75,11 +82,22 @@ public class GccV2BrandKitsController : ControllerBase
     {
         var kit = await _db.GccV2BrandKits.FirstOrDefaultAsync(k => k.Id == id, ct);
         if (kit is null) return NotFound();
+        if (kit.AcceptedAtUtc is not null && command.KitJson is not null)
+            return Conflict("Accepted brand kit versions are immutable.");
 
-        if (command.KitJson is not null) kit.KitJson = command.KitJson;
+        if (command.KitJson is not null)
+        {
+            kit.KitJson = command.KitJson;
+            kit.CanonicalSha256 = Sha256(command.KitJson);
+        }
         if (command.VoiceStatus is not null) kit.VoiceStatus = command.VoiceStatus;
         if (command.AcceptedAtUtc is not null)
+        {
+            if (string.IsNullOrWhiteSpace(command.ActorUserId))
+                return BadRequest("actorUserId is required when accepting a brand kit.");
             kit.AcceptedAtUtc = command.AcceptedAtUtc;
+            kit.AcceptedByUserId = command.ActorUserId;
+        }
         else if (string.Equals(command.VoiceStatus, "provisional", StringComparison.OrdinalIgnoreCase))
             kit.AcceptedAtUtc = null;
 
@@ -87,7 +105,12 @@ public class GccV2BrandKitsController : ControllerBase
         return Ok(kit);
     }
 
-    public record CreateGccV2BrandKitCommand(Guid DerivedFromProfileId, Guid? ClientId, string? KitJson, string? VoiceStatus);
+    private static string Sha256(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
-    public record PatchGccV2BrandKitCommand(string? KitJson, string? VoiceStatus, DateTimeOffset? AcceptedAtUtc);
+    public record CreateGccV2BrandKitCommand(
+        Guid DerivedFromProfileId, Guid? ClientId, string? KitJson, string? VoiceStatus, string? OwnerUserId = null);
+
+    public record PatchGccV2BrandKitCommand(
+        string? KitJson, string? VoiceStatus, DateTimeOffset? AcceptedAtUtc, string? ActorUserId = null);
 }

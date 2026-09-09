@@ -5,6 +5,7 @@ using GeekAPI.Services.ContentCreatorV2.Adapters;
 using GeekAPI.Services.ContentCreatorV2.AgentTests;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Carousel;
+using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Generation;
@@ -70,6 +71,26 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
+        services.AddSingleton<GccV2ContextManifestSigner>();
+        services.AddScoped<GccV2ContextResolver>();
+        services.AddHttpClient<IGccV2ContextObjectStore, GccV2S3ContextObjectStore>();
+        services.AddSingleton<IGccV2MalwareScanner, GccV2ClamAvMalwareScanner>();
+        services.AddSingleton<GccV2DocumentExtractor>();
+        services.AddSingleton<GccV2ContextConnectorRegistry>();
+        services.AddHttpClient<IGccV2KnowledgeIndexer, GccV2HttpKnowledgeIndexer>(client =>
+        {
+            var baseUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');
+            if (!string.IsNullOrWhiteSpace(baseUrl)) client.BaseAddress = new Uri(baseUrl + "/");
+            var apiKey = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_API_KEY") ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(apiKey))
+                client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", apiKey);
+            client.Timeout = TimeSpan.FromMinutes(5);
+        });
+        services.AddSingleton<GccV2ContextIngestionWake>();
+        services.AddScoped<GccV2ContextIngestionNotifier>();
+        services.AddHostedService<GccV2ContextIngestionWorker>();
+        services.AddHostedService<GccV2ContextIngestionListenService>();
+        services.AddHostedService<GccV2ContextRetentionWorker>();
         services.AddSingleton<ContentModelPolicy>();
         services.AddSingleton<GccV2SkillAdminPolicy>();
         services.AddSingleton<GccV2SkillSnapshotSigner>();
