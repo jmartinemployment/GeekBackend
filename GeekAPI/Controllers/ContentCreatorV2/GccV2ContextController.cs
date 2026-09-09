@@ -311,6 +311,11 @@ public sealed class GccV2ContextController(
             var styleValidation = GccV2StyleGuidePolicy.Validate(request.Payload);
             if (styleValidation is not null) return BadRequest(new { error = styleValidation });
         }
+        if (route == "audiences")
+        {
+            var audienceValidation = GccV2AudiencePolicy.Validate(request.Payload);
+            if (audienceValidation is not null) return BadRequest(new { error = audienceValidation });
+        }
         if (route == "product-schemas")
         {
             var schemaValidation = GccV2ProductSchemaPolicy.Validate(request.Payload);
