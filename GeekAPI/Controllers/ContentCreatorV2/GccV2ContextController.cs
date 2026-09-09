@@ -306,6 +306,16 @@ public sealed class GccV2ContextController(
         string route, Guid catalogId, [FromBody] CreateCatalogVersionRequest request, CancellationToken ct)
     {
         if (!user.IsAuthenticated) return Unauthorized();
+        if (route == "style-guides")
+        {
+            var styleValidation = GccV2StyleGuidePolicy.Validate(request.Payload);
+            if (styleValidation is not null) return BadRequest(new { error = styleValidation });
+        }
+        if (route == "product-schemas")
+        {
+            var schemaValidation = GccV2ProductSchemaPolicy.Validate(request.Payload);
+            if (schemaValidation is not null) return BadRequest(new { error = schemaValidation });
+        }
         if (route == "products")
         {
             if (request.ProductSchemaVersionId is null)

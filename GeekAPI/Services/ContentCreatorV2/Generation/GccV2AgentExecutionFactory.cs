@@ -89,10 +89,14 @@ public sealed class GccV2AgentExecutionFactory(
             if (string.IsNullOrWhiteSpace(version.PayloadJson))
                 throw new InvalidOperationException("Governed policy payload is missing.");
             using var payload = JsonDocument.Parse(version.PayloadJson);
+            var selectedFields = ParseGuids(entry.SelectedFieldIdsJson);
+            var payloadElement = entry.ContextKind == "product"
+                ? FilterProductPayload(payload.RootElement, selectedFields)
+                : payload.RootElement.Clone();
             governedContext.Add(new(
                 entry.ContextKind, entry.StableId, entry.VersionId.Value,
                 entry.VersionNumber ?? version.VersionNumber, entry.ContentSha256,
-                payload.RootElement.Clone(), ParseGuids(entry.SelectedFieldIdsJson),
+                payloadElement, selectedFields,
                 ParseStrings(version.ApprovedClaimsJson),
                 ParseStrings(version.ProhibitedClaimsJson),
                 ParseStrings(version.MandatoryDisclaimersJson)));
@@ -296,6 +300,23 @@ public sealed class GccV2AgentExecutionFactory(
 
     private static IReadOnlyList<Guid>? ParseGuids(string? json) =>
         string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<List<Guid>>(json);
+
+    private static JsonElement FilterProductPayload(
+        JsonElement payload, IReadOnlyList<Guid>? selectedFields)
+    {
+        if (selectedFields is not { Count: > 0 } || payload.ValueKind != JsonValueKind.Object)
+            return payload.Clone();
+        var allowed = selectedFields
+            .Select(x => x.ToString("D"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var filtered = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in payload.EnumerateObject())
+        {
+            if (allowed.Contains(property.Name))
+                filtered[property.Name] = property.Value.Clone();
+        }
+        return JsonSerializer.SerializeToElement(filtered);
+    }
 
 }
 

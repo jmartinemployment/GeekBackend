@@ -54,6 +54,7 @@ public sealed class GccV2ContentTaskAgentSeeder(
                             engine = "geek-crawler-rag",
                             endpoint = contract.Endpoint,
                             artifactType = contract.ArtifactType,
+                            uiSchema = UiSchemaFor(contract.CapabilityId),
                         }),
                         """{"requiresApprovedContext":false,"acceptsDirectDocument":true}""",
                         JsonSerializer.Serialize(new
@@ -86,6 +87,29 @@ public sealed class GccV2ContentTaskAgentSeeder(
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private static object? UiSchemaFor(string capabilityId) => capabilityId switch
+    {
+        "faq-generator" => new
+        {
+            fields = new object[]
+            {
+                new { id = "topic", label = "Topic", type = "shortText", required = true },
+                new { id = "faqQuestions", label = "FAQ questions", type = "longText", required = false },
+                new { id = "sourceContent", label = "Source content", type = "longText", required = false },
+                new { id = "sourceUrl", label = "Source URL", type = "shortText", required = false },
+            },
+        },
+        "citable-claims" => new
+        {
+            fields = new object[]
+            {
+                new { id = "sourceContent", label = "Source content", type = "longText", required = true },
+                new { id = "vagueStatements", label = "Vague statements to rewrite", type = "longText", required = false },
+            },
+        },
+        _ => null,
+    };
 
     private const string FaqGeneratorInputSchema =
         """

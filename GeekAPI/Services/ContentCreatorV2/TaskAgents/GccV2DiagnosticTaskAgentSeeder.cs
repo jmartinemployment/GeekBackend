@@ -54,6 +54,7 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
                             engine = "geek-crawler-rag",
                             endpoint = contract.Endpoint,
                             artifactType = contract.ArtifactType,
+                            uiSchema = UiSchemaFor(contract.CapabilityId),
                         }),
                         """{"requiresApprovedContext":false,"acceptsDirectDocument":true}""",
                         JsonSerializer.Serialize(new
@@ -85,6 +86,27 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private static object? UiSchemaFor(string capabilityId) => capabilityId switch
+    {
+        "ai-readiness" => new
+        {
+            fields = new object[]
+            {
+                new { id = "sourceUrl", label = "Source URL", type = "shortText", required = false },
+                new { id = "visibleContent", label = "Visible page content", type = "longText", required = true },
+            },
+        },
+        "query-planner" => new
+        {
+            fields = new object[]
+            {
+                new { id = "hypothesisTopics", label = "Hypothesis topics", type = "longText", required = false },
+                new { id = "importedQueries", label = "Imported queries", type = "longText", required = false },
+            },
+        },
+        _ => null,
+    };
 
     private const string DocumentInputSchema =
         """
