@@ -441,9 +441,11 @@ public sealed class GccV2ContextController(
         [FromBody] ResolveContextRequest request, CancellationToken ct)
     {
         if (!user.IsAuthenticated) return Unauthorized();
+        if (request.CreateId == Guid.Empty)
+            return BadRequest(new { error = "Save the create before requesting a context preview." });
         var create = await repository.GetCreateAsync(request.CreateId, ct);
         if (create is null || !string.Equals(create.OwnerUserId, Owner, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
+            return NotFound(new { error = "The saved create is unavailable for the current owner." });
         var brief = request.BriefId is { } id ? await repository.GetBriefAsync(id, ct)
             : (await repository.ListBriefsByCreateAsync(request.CreateId, ct)).FirstOrDefault();
         if (brief is null) return BadRequest(new { error = "A persisted brief is required." });
