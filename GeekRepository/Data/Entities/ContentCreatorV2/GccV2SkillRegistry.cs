@@ -35,7 +35,7 @@ public class GccV2SkillVersion
     public string? Reviewer { get; set; }
     public string? ReviewNotes { get; set; }
     public Guid? SupersedesVersionId { get; set; }
-    [JsonIgnore] public GccV2SkillPackage Package { get; set; } = null!;
+    public GccV2SkillPackage Package { get; set; } = null!;
     public List<GccV2SkillFile> Files { get; set; } = [];
     public List<GccV2SkillApplicability> Applicability { get; set; } = [];
     public List<GccV2SkillReviewFinding> Findings { get; set; } = [];

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.AgentTests;
 using GeekAPI.Services.ContentCreatorV2.Generation;
@@ -16,6 +17,37 @@ namespace GeekBackend.Tests.ContentCreatorV2;
 
 public sealed class GccV2SpecialistAgentTests
 {
+    [Fact]
+    public void Assigned_skill_serialization_includes_package_for_api_contract()
+    {
+        var package = new GccV2SkillPackage
+        {
+            Slug = "citation-discipline",
+            DisplayName = "Citation Discipline",
+        };
+        var version = new GccV2SkillVersion
+        {
+            Package = package,
+            SemanticVersion = "1.0.0",
+            PackageSha256 = new string('a', 64),
+        };
+        package.Versions.Add(version);
+        var assignment = new GccV2AgentVersionSkillVersion
+        {
+            SkillVersion = version,
+            SkillVersionId = version.Id,
+        };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            ReferenceHandler = ReferenceHandler.IgnoreCycles,
+        };
+
+        var json = JsonSerializer.Serialize(assignment, options);
+        var dto = JsonSerializer.Deserialize<GccV2AgentSkillVersionDto>(json, options);
+
+        Assert.Equal("citation-discipline", dto?.SkillVersion.Package.Slug);
+    }
+
     [Fact]
     public async Task AgentVersion_PinsPublishedSkill_AndPublishedVersionIsImmutable()
     {
