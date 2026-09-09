@@ -17,7 +17,7 @@ public sealed class GccV2CanvasProjectsController(ContentCreatorV2DbContext db) 
     private static readonly HashSet<string> ProjectStatuses =
         ["planning", "in-progress", "review", "complete"];
     private static readonly HashSet<string> AssetKinds =
-        ["brief", "article", "social", "image", "email"];
+        ["brief", "article", "social", "image", "email", "report"];
     private static readonly HashSet<string> VersionStatuses =
         ["draft", "in-review", "approved", "published"];
 

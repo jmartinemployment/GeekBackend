@@ -111,6 +111,75 @@ public sealed class GccV2CanvasProjectsController(
         });
     }
 
+    [HttpPost("{id:guid}/assets/from-task-artifact")]
+    public async Task<ActionResult<object>> AttachFromTaskArtifact(
+        Guid id, AttachFromTaskArtifactRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        if (request.RunId == Guid.Empty || request.ArtifactVersionId == Guid.Empty)
+            return BadRequest(new { error = "runId and artifactVersionId are required." });
+
+        var existing = await repo.GetCanvasProjectAsync(id, Owner, ct);
+        if (existing is null) return NotFound();
+
+        var run = await repo.GetTaskRunAsync(request.RunId, Owner, ct);
+        if (run is null) return NotFound(new { error = "Task run not found." });
+        if (!string.Equals(run.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+            return Conflict(new { error = "Only succeeded task runs can be attached to a project." });
+
+        var artifact = (run.Artifacts ?? [])
+            .FirstOrDefault(item => item.Versions.Any(version => version.Id == request.ArtifactVersionId));
+        var version = artifact?.Versions.FirstOrDefault(item => item.Id == request.ArtifactVersionId);
+        if (artifact is null || version is null)
+            return NotFound(new { error = "Artifact version was not found on the owned task run." });
+
+        var title = string.IsNullOrWhiteSpace(request.Title)
+            ? $"Task report · {artifact.ArtifactType}"
+            : request.Title.Trim();
+        var kind = string.IsNullOrWhiteSpace(request.Kind) ? "report" : request.Kind.Trim();
+
+        var asset = await repo.CreateCanvasAssetAsync(id, new(Owner, title, kind), ct);
+        var provenanceJson = JsonSerializer.Serialize(new
+        {
+            origin = "agent",
+            note = $"Attached from task run {run.Id:D}.",
+            sourceRunId = run.Id.ToString("D"),
+            sourceArtifactVersionId = version.Id.ToString("D"),
+            artifactType = artifact.ArtifactType,
+            digest = version.Digest,
+        }, JsonOpts);
+        var summary = BuildAttachSummary(artifact.ArtifactType, version.Digest, version.PayloadJson);
+
+        await repo.AppendCanvasAssetVersionAsync(id, asset.Id, new(
+            Owner,
+            Owner,
+            "draft",
+            summary,
+            string.IsNullOrWhiteSpace(version.EvidenceJson) ? "[]" : version.EvidenceJson,
+            provenanceJson), ct);
+
+        var activityJson = PrependActivity(
+            existing.ActivityJson,
+            new
+            {
+                id = Guid.NewGuid().ToString("D"),
+                kind = "handoff",
+                actor = Owner,
+                occurredAt = DateTimeOffset.UtcNow.ToString("O"),
+                message = $"Attached {title} from task artifact {artifact.ArtifactType}",
+            });
+        await repo.PatchCanvasProjectAsync(id, new(Owner, ActivityJson: activityJson), ct);
+
+        var project = await repo.GetCanvasProjectAsync(id, Owner, ct)
+            ?? throw new InvalidOperationException("Project could not be reloaded.");
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            project = Detail(project),
+            assetId = asset.Id.ToString("D"),
+        });
+    }
+
     [HttpPost("{id:guid}/assets/{assetId:guid}/versions")]
     public async Task<ActionResult<object>> AppendVersion(
         Guid id, Guid assetId, AppendPublicVersionRequest request, CancellationToken ct)
@@ -309,6 +378,29 @@ public sealed class GccV2CanvasProjectsController(
         }
     }
 
+    private static string BuildAttachSummary(string artifactType, string digest, string payloadJson)
+    {
+        var digestHint = string.IsNullOrWhiteSpace(digest)
+            ? "no digest"
+            : digest.Length > 12 ? digest[..12] : digest;
+        try
+        {
+            using var document = JsonDocument.Parse(
+                string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson);
+            if (document.RootElement.TryGetProperty("overallScore", out var score)
+                && score.ValueKind == JsonValueKind.Number)
+            {
+                return $"{artifactType} attached from a task agent (score {score.GetRawText()}, {digestHint}).";
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through to the generic summary.
+        }
+
+        return $"{artifactType} attached from a task agent ({digestHint}).";
+    }
+
     private static IReadOnlyList<Guid> ParseGuidArray(string json)
     {
         try
@@ -329,6 +421,9 @@ public sealed class GccV2CanvasProjectsController(
 
     public sealed record CreatePublicAssetRequest(
         string Title, string? Kind = null, IReadOnlyList<Guid>? ParentAssetIds = null);
+
+    public sealed record AttachFromTaskArtifactRequest(
+        Guid RunId, Guid ArtifactVersionId, string? Title = null, string? Kind = null);
 
     public sealed record AppendPublicVersionRequest(
         string? CreatedBy = null, string? Status = null, string? Summary = null,
