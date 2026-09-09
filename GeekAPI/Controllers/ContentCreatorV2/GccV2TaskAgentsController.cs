@@ -4,6 +4,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.TaskAgents;
+using GeekAPI.Services.GeekSeo;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.ContentCreatorV2;
@@ -15,7 +16,8 @@ public sealed class GccV2TaskAgentsController(
     ICurrentUserContext user,
     GccV2SkillAdminPolicy admin,
     HttpGccV2Repository repo,
-    GccV2ContextResolver contextResolver) : ControllerBase
+    GccV2ContextResolver contextResolver,
+    HttpGeekSeoSiteAnalyzerClient seo) : ControllerBase
 {
     private string Owner => user.UserId.ToString("D");
 
@@ -46,6 +48,91 @@ public sealed class GccV2TaskAgentsController(
         if (!GccV2StudioTemplateRenderer.CanAccessPublishedStudio(version, Owner))
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "Private Studio agents are owner-only." });
         return Ok(Detail(definition, version));
+    }
+
+    /// <summary>
+    /// Project-scoped GSC queries for Query Planner. Metrics stay out of priority scoring;
+    /// callers must pass origin=observed with source provenance.
+    /// </summary>
+    [HttpGet("query-planner/observed-queries")]
+    public async Task<ActionResult<object>> ObservedQueries(
+        [FromQuery] Guid seoProjectId,
+        [FromQuery] DateOnly? startDate,
+        [FromQuery] DateOnly? endDate,
+        [FromQuery] int? rowLimit,
+        CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        if (seoProjectId == Guid.Empty)
+            return BadRequest(new { error = "seoProjectId is required." });
+
+        var bearer = ExtractBearerToken();
+        var rankings = await seo.GetRankingsAsync(
+            seoProjectId,
+            bearer,
+            startDate,
+            endDate,
+            rowLimit is null or < 1 ? 200 : Math.Min(rowLimit.Value, 1000),
+            ct);
+        if (!rankings.Ok)
+            return StatusCode(rankings.StatusCode, new { error = rankings.Error });
+
+        var fetchedAt = DateTimeOffset.UtcNow;
+        var sourceId = $"gsc:{rankings.Value!.ProjectId:D}:{rankings.Value.StartDate}:{rankings.Value.EndDate}";
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queries = new List<object>();
+        foreach (var row in rankings.Value.Rows)
+        {
+            var query = row.Query?.Trim();
+            if (string.IsNullOrWhiteSpace(query) || !seen.Add(query)) continue;
+            queries.Add(new
+            {
+                query,
+                origin = "observed",
+                sourceId,
+                observedAtUtc = fetchedAt.ToString("O"),
+            });
+        }
+
+        return Ok(new
+        {
+            contractVersion = "gcc-query-planner-observed.v1",
+            seoProjectId = rankings.Value.ProjectId,
+            siteUrl = rankings.Value.SiteUrl,
+            startDate = rankings.Value.StartDate,
+            endDate = rankings.Value.EndDate,
+            fetchedAtUtc = fetchedAt,
+            source = new
+            {
+                sourceId,
+                kind = "google-search-console",
+                label = rankings.Value.SiteUrl,
+                siteUrl = rankings.Value.SiteUrl,
+            },
+            demandDisclaimer =
+                "Observed GSC queries are first-party search analytics, not traffic, volume, ranking, or demand scores for planning heuristics.",
+            queries,
+            queryCount = queries.Count,
+        });
+    }
+
+    [HttpGet("query-planner/seo-projects")]
+    public async Task<ActionResult<object>> SeoProjects(CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var projects = await seo.ListProjectsAsync(ExtractBearerToken(), ct);
+        if (!projects.Ok)
+            return StatusCode(projects.StatusCode, new { error = projects.Error });
+        return Ok(new
+        {
+            contractVersion = "gcc-query-planner-seo-projects.v1",
+            projects = (projects.Value ?? []).Select(item => new
+            {
+                id = item.Id,
+                name = item.Name,
+                url = item.Url,
+            }),
+        });
     }
 
     [HttpPost("{idOrCapability}/runs")]
@@ -150,6 +237,16 @@ public sealed class GccV2TaskAgentsController(
             sharedContext = new { contextManifestId, contextManifestDigest },
             lineage = new { parentArtifactVersionIds, relationship = lineageRelationship },
         });
+    }
+
+    private string? ExtractBearerToken()
+    {
+        var header = Request.Headers.Authorization.ToString();
+        if (string.IsNullOrWhiteSpace(header)) return null;
+        const string prefix = "Bearer ";
+        return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? header[prefix.Length..].Trim()
+            : header.Trim();
     }
 
     [HttpGet("runs/{runId:guid}")]

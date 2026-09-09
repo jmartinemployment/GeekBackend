@@ -552,9 +552,87 @@ public class HttpGeekSeoSiteAnalyzerClient
             || a.EndsWith("." + b, StringComparison.OrdinalIgnoreCase)
             || b.EndsWith("." + a, StringComparison.OrdinalIgnoreCase));
 
+    public async Task<SeoCallResult<GscRankingsDto>> GetRankingsAsync(
+        Guid projectId,
+        string? bearerToken,
+        DateOnly? startDate,
+        DateOnly? endDate,
+        int? rowLimit,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+        {
+            return SeoCallResult<GscRankingsDto>.Fail(
+                (int)HttpStatusCode.ServiceUnavailable,
+                "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        }
+        if (string.IsNullOrWhiteSpace(bearerToken))
+        {
+            return SeoCallResult<GscRankingsDto>.Fail(
+                (int)HttpStatusCode.Unauthorized,
+                "Signed-in user required to load Google Search Console rankings.");
+        }
+
+        var query = new List<string>();
+        if (startDate is { } start) query.Add($"startDate={Uri.EscapeDataString(start.ToString("yyyy-MM-dd"))}");
+        if (endDate is { } end) query.Add($"endDate={Uri.EscapeDataString(end.ToString("yyyy-MM-dd"))}");
+        if (rowLimit is { } limit) query.Add($"rowLimit={limit}");
+        var suffix = query.Count == 0 ? "" : "?" + string.Join("&", query);
+        var result = await SendAsync(
+            HttpMethod.Get,
+            $"api/seo/rankings/{projectId:D}{suffix}",
+            bearerToken,
+            ct);
+        if (!result.Ok) return SeoCallResult<GscRankingsDto>.Fail(result.StatusCode, result.Error!);
+        var rankings = JsonSerializer.Deserialize<GscRankingsDto>(result.Body!, JsonOpts);
+        return rankings is null
+            ? SeoCallResult<GscRankingsDto>.Fail(
+                (int)HttpStatusCode.BadGateway,
+                "Google Search Console rankings response was invalid.")
+            : SeoCallResult<GscRankingsDto>.Success(rankings);
+    }
+
+    public async Task<SeoCallResult<List<SeoProjectDto>>> ListProjectsAsync(
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (!_enabled)
+        {
+            return SeoCallResult<List<SeoProjectDto>>.Fail(
+                (int)HttpStatusCode.ServiceUnavailable,
+                "Site Analyzer is not configured on GeekAPI (GEEK_SEO_API_URL).");
+        }
+        if (string.IsNullOrWhiteSpace(bearerToken))
+        {
+            return SeoCallResult<List<SeoProjectDto>>.Fail(
+                (int)HttpStatusCode.Unauthorized,
+                "Signed-in user required to list SEO projects.");
+        }
+
+        var result = await SendAsync(HttpMethod.Get, "api/seo/projects", bearerToken, ct);
+        if (!result.Ok) return SeoCallResult<List<SeoProjectDto>>.Fail(result.StatusCode, result.Error!);
+        var projects = JsonSerializer.Deserialize<List<SeoProjectDto>>(result.Body!, JsonOpts) ?? [];
+        return SeoCallResult<List<SeoProjectDto>>.Success(projects);
+    }
+
     private sealed record RawHttp(bool Ok, int StatusCode, string? Body, string? Error);
 
     public sealed record SeoProjectDto(Guid Id, string Name, string Url);
+
+    public sealed record GscRankingRowDto(
+        string Query,
+        string Page,
+        long Impressions,
+        long Clicks,
+        double Ctr,
+        double Position);
+
+    public sealed record GscRankingsDto(
+        Guid ProjectId,
+        string SiteUrl,
+        string StartDate,
+        string EndDate,
+        IReadOnlyList<GscRankingRowDto> Rows);
 
     /// <summary>Only <c>Id</c> is ever read (see <see cref="StartSiteAnalysisAsync"/>) — the
     /// pillar/subtopic fields this used to carry were deleted along with the site's-own-pillar

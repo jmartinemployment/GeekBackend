@@ -101,6 +101,8 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
         {
             fields = new object[]
             {
+                new { id = "seoProjectId", label = "SEO project ID (GSC)", type = "shortText", required = false },
+                new { id = "observedQueries", label = "Observed GSC queries", type = "longText", required = false },
                 new { id = "hypothesisTopics", label = "Hypothesis topics", type = "longText", required = false },
                 new { id = "importedQueries", label = "Imported queries", type = "longText", required = false },
             },
