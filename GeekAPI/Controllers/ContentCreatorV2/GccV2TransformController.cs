@@ -120,9 +120,10 @@ public class GccV2TransformController : ControllerBase
     }
 
     /// <summary>
-    /// Generate a LinkedIn document carousel PDF from a ready long-form draft tab.
+    /// Generate a PDF slide deck from a ready long-form draft tab.
     /// Persists slide structure on the source job's <c>ResultJson.linkedInCarousel</c>.
     /// </summary>
+    [HttpPost("pdf")]
     [HttpPost("linkedin-carousel")]
     public async Task<ActionResult<object>> LinkedInCarousel(Guid createId, [FromBody] TransformRequest? request, CancellationToken ct)
     {

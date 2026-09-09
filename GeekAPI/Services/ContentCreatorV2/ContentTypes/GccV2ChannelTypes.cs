@@ -1,15 +1,15 @@
 namespace GeekAPI.Services.ContentCreatorV2.ContentTypes;
 
-/// <summary>Export-only channel content types (not long-form web pages).</summary>
+/// <summary>Export-only PDF content types (not long-form web pages).</summary>
 public static class GccV2ChannelTypes
 {
-    /// <summary>UI / brief value for LinkedIn PDF document (Also draft).</summary>
+    /// <summary>Legacy persisted identifier for the PDF option. The UI label is PDF.</summary>
     public const string LinkedInDocument = "linkedin-document";
 
-    /// <summary>Persisted job contentType after spawn (canonical WRITE/export value).</summary>
+    /// <summary>Legacy persisted job identifier for generated PDF slide decks.</summary>
     public const string LinkedInCarousel = "linkedin-carousel";
 
-    /// <summary>True for either UI alias (<c>linkedin-document</c>) or spawned job type (<c>linkedin-carousel</c>).</summary>
+    /// <summary>True for either legacy PDF identifier.</summary>
     public static bool IsLinkedInDocument(string? contentType)
     {
         var normalized = contentType?.Trim();
@@ -17,6 +17,6 @@ public static class GccV2ChannelTypes
             || string.Equals(normalized, LinkedInCarousel, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>LinkedIn channel types deferred from generate (spawn after long-form is ready).</summary>
+    /// <summary>PDF types deferred from generate until the source long-form draft is ready.</summary>
     public static bool IsLinkedIn(string? contentType) => IsLinkedInDocument(contentType);
 }

@@ -674,7 +674,7 @@ public sealed class GccV2JobWorker : BackgroundService
         catch (Exception ex)
         {
             var logger = scope.ServiceProvider.GetRequiredService<ILogger<GccV2JobWorker>>();
-            logger.LogWarning(ex, "LinkedIn carousel spawn failed for job {JobId}.", jobId);
+            logger.LogWarning(ex, "PDF slide-deck spawn failed for job {JobId}.", jobId);
         }
     }
 

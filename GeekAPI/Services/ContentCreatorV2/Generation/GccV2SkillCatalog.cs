@@ -137,7 +137,7 @@ public static class GccV2SkillCatalog
             ["citation-discipline", "brand-voice", "comparison-evidence", "seo-fundamentals", "anti-repetition", "cta-alignment"]),
         new("proof-story", "Customer proof", "Structure a qualified, evidence-backed case study.",
             ["citation-discipline", "brand-voice", "case-study-proof", "anti-repetition", "cta-alignment"]),
-        new("linkedin-education", "LinkedIn education", "Turn one supported idea into a scannable teaching sequence.",
+        new("linkedin-education", "PDF slide deck", "Turn one supported idea into a scannable PDF teaching sequence.",
             ["citation-discipline", "brand-voice", "linkedin-document-structure", "anti-repetition", "cta-alignment"]),
     ];
 
@@ -230,8 +230,10 @@ public static class GccV2SkillCatalog
             "Content Platform", stages, contentTypes, order, [], prompt, retrieval, output, validation);
 
     private static string DisplayName(string id) =>
-        string.Join(" ", id.Split('-').Select(word =>
-            char.ToUpperInvariant(word[0]) + word[1..]));
+        id == "linkedin-document-structure"
+            ? "PDF Structure"
+            : string.Join(" ", id.Split('-').Select(word =>
+                char.ToUpperInvariant(word[0]) + word[1..]));
 
     private static string CanonicalSnapshot(
         string contentType,

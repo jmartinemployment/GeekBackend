@@ -14,7 +14,9 @@ public static class GccV2SkillApiMapper
         {
             id = package.Slug,
             versionId = version.Id,
-            name = package.DisplayName,
+            name = package.Slug == "linkedin-document-structure"
+                ? "PDF Structure"
+                : package.DisplayName,
             version = version.SemanticVersion,
             contribution = package.Description,
             source = new

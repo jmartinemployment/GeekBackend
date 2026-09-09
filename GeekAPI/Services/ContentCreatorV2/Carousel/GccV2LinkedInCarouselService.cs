@@ -56,7 +56,7 @@ public sealed class GccV2LinkedInCarouselService
         if (!GccV2LinkedInCarouselEligibility.IsEligibleSource(contentType))
         {
             throw new InvalidOperationException(
-                $"Content type '{job.ContentType}' cannot be turned into a LinkedIn carousel — use a long-form article tab.");
+                $"Content type '{job.ContentType}' cannot be turned into a PDF slide deck — use a long-form article tab.");
         }
 
         if (string.IsNullOrWhiteSpace(job.ResultJson))
@@ -124,7 +124,7 @@ public sealed class GccV2LinkedInCarouselService
         await _repo.PatchJobAsync(jobId, new PatchGccV2JobCommand(ResultJson: mergedResultJson), ct);
 
         _logger.LogInformation(
-            "Generated LinkedIn carousel ({SlideCount} slides, {PdfKb} KB) for job {JobId}.",
+            "Generated PDF slide deck ({SlideCount} pages, {PdfKb} KB) for job {JobId}.",
             draft.Slides.Count,
             pdfBytes.Length / 1024,
             jobId);

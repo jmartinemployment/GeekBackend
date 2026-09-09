@@ -8,9 +8,8 @@ using GeekAPI.Services.ContentCreatorV2.Context;
 namespace GeekAPI.Services.ContentCreatorV2.Carousel;
 
 /// <summary>
-/// When a long-form job reaches <c>ready</c> and the brief includes <c>linkedin-document</c>
-/// or <c>linkedin-carousel</c> in <c>contentTypes</c>, spawns one carousel job (deferred from
-/// generate — carousel needs no parallel PLAN).
+/// When a long-form job reaches <c>ready</c> and the brief includes a legacy PDF identifier,
+/// spawns one PDF slide-deck job. The persisted aliases remain for existing creates.
 /// </summary>
 public sealed class GccV2LinkedInCarouselSpawnService
 {
@@ -66,7 +65,7 @@ public sealed class GccV2LinkedInCarouselSpawnService
 
         var existing = await _repo.ListJobsByCreateAsync(sourceJob.CreateId, ct);
         if (existing.Any(j => GccV2ChannelTypes.IsLinkedInDocument(j.ContentType)))
-            return new SpawnResult(0, 1, null, "LinkedIn carousel job already exists on this create.");
+            return new SpawnResult(0, 1, null, "PDF job already exists on this create.");
 
         var team = await _agentTeams.ResolveChildAsync(sourceJob, GccV2ChannelTypes.LinkedInCarousel, ct);
         var jobId = Guid.NewGuid();
@@ -91,7 +90,7 @@ public sealed class GccV2LinkedInCarouselSpawnService
 
         _wake.Wake(job.Id);
         _logger.LogInformation(
-            "Spawned linkedin-carousel job {JobId} from ready {ContentType} job {SourceJobId}.",
+            "Spawned PDF slide-deck job {JobId} from ready {ContentType} job {SourceJobId}.",
             job.Id,
             sourceJob.ContentType,
             sourceJob.Id);

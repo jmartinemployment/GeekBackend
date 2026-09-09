@@ -18,7 +18,7 @@ public static class GccV2LinkedInCarouselParser
     public static LinkedInCarouselDraft Parse(string rawJson)
     {
         if (string.IsNullOrWhiteSpace(rawJson))
-            throw new InvalidOperationException("LinkedIn carousel LLM returned empty content.");
+            throw new InvalidOperationException("PDF generator returned empty content.");
 
         var json = ExtractJsonObject(rawJson);
         using var doc = JsonDocument.Parse(json);

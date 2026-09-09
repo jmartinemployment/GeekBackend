@@ -21,16 +21,16 @@ public static class GccV2LinkedInCarouselPromptBuilder
         var keyword = string.IsNullOrWhiteSpace(targetKeyword) ? sourceTitle : targetKeyword.Trim();
 
         var userBrief = $$"""
-            Turn the source long-form content below into a LinkedIn document carousel (PDF upload).
-            One practical idea only — teach it fast with a personal POV or real client lesson.
+            Turn the source long-form content below into a concise PDF slide deck.
+            Teach one practical idea with a clear point of view or real client lesson.
 
             Requirements:
             - Output exactly 8–10 slides in JSON (see schema below).
             - Slide roles: cover (hook), problem, 4–6 teach slides (one tactical insight each), framework (before/after or mini-playbook), cta (soft CTA + takeaway).
             - Each teach slide: 2–4 short bullets (max 12 words each).
             - Cover: bold hook title + subtitle.
-            - Caption: 150–250 words for the feed post that accompanies the PDF upload. Start with a hook line. End with a conversation starter question.
-            - 3–5 hashtags (no # in values).
+            - Caption: 150–250 word companion summary. Start with a hook line and end with a useful takeaway.
+            - 3–5 topic tags (no # in values).
             - suggestedFilename: professional snake_case name (e.g. AI_Implementation_Framework) — never Draft_v4_final.
             - Topic clarity: {{keyword}}
             - Voice: {{voice}}
@@ -57,7 +57,7 @@ public static class GccV2LinkedInCarouselPromptBuilder
             [
                 new ChatMessage(
                     ChatRole.System,
-                    "You create LinkedIn document carousel slide decks as strict JSON only. Each slide teaches one idea. Professional, conversational, no filler."),
+                    "You create PDF slide decks as strict JSON only. Each page teaches one idea. Professional, conversational, no filler."),
                 new ChatMessage(ChatRole.User, userBrief),
             ],
             Temperature: 0.45,

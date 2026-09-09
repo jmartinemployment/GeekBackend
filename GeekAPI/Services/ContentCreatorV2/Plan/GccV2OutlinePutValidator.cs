@@ -29,7 +29,7 @@ public static class GccV2OutlinePutValidator
         if (normalizedType == "guide" && advanceCount < 2)
             return "Guide outlines need at least two step sections.";
         if (normalizedType == "linkedin-carousel" && advanceCount < 6)
-            return "LinkedIn carousel outlines need at least six slide sections.";
+            return "PDF slide-deck outlines need at least six page sections.";
 
         return null;
     }
