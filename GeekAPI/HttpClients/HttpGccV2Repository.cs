@@ -194,6 +194,12 @@ public class HttpGccV2Repository
     public Task<GccV2ProjectSiteCrawlRunDto?> GetProjectSiteCrawlRunAsync(Guid runId, CancellationToken ct = default) =>
         GetAsync<GccV2ProjectSiteCrawlRunDto>($"repo/content-creator-v2/project-site/runs/{runId}", ct);
 
+    public Task<IReadOnlyList<GccV2ProjectSiteCrawlRunDto>> ListProjectSiteCrawlRunsByOwnerAsync(
+        string ownerUserId, int limit = 50, CancellationToken ct = default) =>
+        GetListAsync<GccV2ProjectSiteCrawlRunDto>(
+            $"repo/content-creator-v2/project-site/runs?ownerUserId={Uri.EscapeDataString(ownerUserId)}&limit={limit}",
+            ct);
+
     public Task<GccV2ProjectSiteCrawlRunDto?> GetLatestProjectSiteCrawlRunAsync(
         string ownerUserId,
         string siteUrl,
@@ -371,6 +377,143 @@ public class HttpGccV2Repository
     public Task<GccV2AgentVersionDto> TransitionAgentVersionAsync(
         Guid versionId, string action, TransitionGccV2AgentVersionCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2AgentVersionDto>($"repo/content-creator-v2/agents/versions/{versionId}/{action}", command, ct);
+
+    // User-invokable task-agent application kernel. Separate from specialist agents above.
+
+    public Task<IReadOnlyList<GccV2TaskAgentDefinitionDto>> ListTaskAgentsAsync(
+        string? state = null, CancellationToken ct = default) =>
+        GetListAsync<GccV2TaskAgentDefinitionDto>(
+            "repo/content-creator-v2/task-agents"
+            + (string.IsNullOrWhiteSpace(state) ? "" : $"?state={Uri.EscapeDataString(state)}"), ct);
+    public Task<GccV2TaskAgentDefinitionDto?> GetTaskAgentAsync(
+        string idOrCapability, CancellationToken ct = default) =>
+        GetAsync<GccV2TaskAgentDefinitionDto>(
+            $"repo/content-creator-v2/task-agents/{Uri.EscapeDataString(idOrCapability)}", ct);
+    public Task<GccV2TaskAgentDefinitionDto> CreateTaskAgentAsync(
+        CreateGccV2TaskAgentDefinitionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2TaskAgentDefinitionDto>("repo/content-creator-v2/task-agents", command, ct);
+    public Task<GccV2TaskAgentDefinitionDto> PatchTaskAgentAsync(
+        Guid id, PatchGccV2TaskAgentDefinitionCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2TaskAgentDefinitionDto>($"repo/content-creator-v2/task-agents/{id}", command, ct);
+    public Task<GccV2TaskAgentVersionDto> CreateTaskAgentVersionAsync(
+        Guid id, CreateGccV2TaskAgentVersionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2TaskAgentVersionDto>($"repo/content-creator-v2/task-agents/{id}/versions", command, ct);
+    public Task<GccV2TaskAgentVersionDto> TransitionTaskAgentVersionAsync(
+        Guid versionId, string transition, TransitionGccV2TaskAgentVersionCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GccV2TaskAgentVersionDto>(
+            $"repo/content-creator-v2/task-agents/versions/{versionId}/{transition}", command, ct);
+
+    public Task<IReadOnlyList<GccV2TaskRunDto>> ListTaskRunsAsync(
+        string ownerUserId, string? status = null, CancellationToken ct = default) =>
+        GetListAsync<GccV2TaskRunDto>(
+            $"repo/content-creator-v2/task-runs?ownerUserId={Uri.EscapeDataString(ownerUserId)}"
+            + (string.IsNullOrWhiteSpace(status) ? "" : $"&status={Uri.EscapeDataString(status)}"), ct);
+    public Task<GccV2TaskRunDto?> GetTaskRunAsync(
+        Guid runId, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2TaskRunDto>(
+            $"repo/content-creator-v2/task-runs/{runId}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2TaskRunDto> CreateTaskRunAsync(
+        CreateGccV2TaskRunCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2TaskRunDto>("repo/content-creator-v2/task-runs", command, ct);
+    public async Task<GccV2TaskRunDto?> ClaimTaskRunAsync(
+        Guid runId, string instanceId, int leaseSeconds = 120, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsync(
+            $"repo/content-creator-v2/task-runs/{runId}/claim"
+            + $"?instanceId={Uri.EscapeDataString(instanceId)}&leaseSeconds={leaseSeconds}", null, ct);
+        if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccV2TaskRunDto>(
+            await response.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+    public async Task<GccV2TaskRunDto?> ClaimNextTaskRunAsync(
+        string instanceId, int leaseSeconds = 120, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsync(
+            "repo/content-creator-v2/task-runs/claim-next"
+            + $"?instanceId={Uri.EscapeDataString(instanceId)}&leaseSeconds={leaseSeconds}", null, ct);
+        if (response.StatusCode == HttpStatusCode.NoContent) return null;
+        response.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccV2TaskRunDto>(
+            await response.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+    public Task<GccV2TaskRunDto> TransitionTaskRunAsync(
+        Guid runId, TransitionGccV2TaskRunCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2TaskRunDto>($"repo/content-creator-v2/task-runs/{runId}/transition", command, ct);
+    public Task<IReadOnlyList<GccV2TaskRunEventDto>> GetTaskRunEventsAsync(
+        Guid runId, int afterSeq = 0, CancellationToken ct = default) =>
+        GetListAsync<GccV2TaskRunEventDto>(
+            $"repo/content-creator-v2/task-runs/{runId}/events?afterSeq={afterSeq}", ct);
+    public Task<GccV2TaskRunEventDto> AddTaskRunEventAsync(
+        Guid runId, AddGccV2TaskRunEventCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2TaskRunEventDto>($"repo/content-creator-v2/task-runs/{runId}/events", command, ct);
+    public Task<GccV2TaskArtifactDto> CreateTaskArtifactAsync(
+        Guid runId, CreateGccV2TaskArtifactCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2TaskArtifactDto>($"repo/content-creator-v2/task-runs/{runId}/artifacts", command, ct);
+    public Task<GccV2TaskArtifactVersionDto> CreateTaskArtifactVersionAsync(
+        Guid artifactId, CreateGccV2TaskArtifactVersionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2TaskArtifactVersionDto>(
+            $"repo/content-creator-v2/task-runs/artifacts/{artifactId}/versions", command, ct);
+
+    // Durable canvas projects.
+
+    public Task<IReadOnlyList<GccV2CanvasProjectListItemDto>> ListCanvasProjectsAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2CanvasProjectListItemDto>(
+            $"repo/content-creator-v2/canvas-projects?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
+    public Task<GccV2CanvasProjectDto?> GetCanvasProjectAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2CanvasProjectDto>(
+            $"repo/content-creator-v2/canvas-projects/{id}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
+    public Task<GccV2CanvasProjectDto> CreateCanvasProjectAsync(
+        CreateGccV2CanvasProjectCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2CanvasProjectDto>("repo/content-creator-v2/canvas-projects", command, ct);
+
+    public Task<GccV2CanvasProjectDto> PatchCanvasProjectAsync(
+        Guid id, PatchGccV2CanvasProjectCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2CanvasProjectDto>($"repo/content-creator-v2/canvas-projects/{id}", command, ct);
+
+    public Task<GccV2CanvasAssetDto> CreateCanvasAssetAsync(
+        Guid projectId, CreateGccV2CanvasAssetCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2CanvasAssetDto>(
+            $"repo/content-creator-v2/canvas-projects/{projectId}/assets", command, ct);
+
+    public Task<GccV2CanvasAssetVersionDto> AppendCanvasAssetVersionAsync(
+        Guid projectId, Guid assetId, AppendGccV2CanvasAssetVersionCommand command,
+        CancellationToken ct = default) =>
+        PostAsync<GccV2CanvasAssetVersionDto>(
+            $"repo/content-creator-v2/canvas-projects/{projectId}/assets/{assetId}/versions", command, ct);
+
+    // Durable batch grids.
+
+    public Task<IReadOnlyList<GccV2GridListItemDto>> ListGridsAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2GridListItemDto>(
+            $"repo/content-creator-v2/grids?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
+    public Task<GccV2GridDto?> GetGridAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2GridDto>(
+            $"repo/content-creator-v2/grids/{id}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
+    public Task<GccV2GridDto> CreateGridAsync(
+        CreateGccV2GridCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2GridDto>("repo/content-creator-v2/grids", command, ct);
+
+    public Task<GccV2GridDto> PatchGridAsync(
+        Guid id, PatchGccV2GridCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2GridDto>($"repo/content-creator-v2/grids/{id}", command, ct);
+
+    public Task<GccV2GridRowDto> CreateGridRowAsync(
+        Guid gridId, CreateGccV2GridRowCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2GridRowDto>($"repo/content-creator-v2/grids/{gridId}/rows", command, ct);
+
+    public Task<GccV2GridDto> CreateGridRunAsync(
+        Guid gridId, CreateGccV2GridRunCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2GridDto>($"repo/content-creator-v2/grids/{gridId}/runs", command, ct);
 
     // Governed context.
 

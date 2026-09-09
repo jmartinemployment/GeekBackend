@@ -3,6 +3,7 @@ using System;
 using GeekRepository.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeekRepository.Data.Migrations.ContentCreatorV2
 {
     [DbContext(typeof(ContentCreatorV2DbContext))]
-    partial class ContentCreatorV2DbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909144307_AddTaskAgentApplicationKernel")]
+    partial class AddTaskAgentApplicationKernel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -669,142 +672,6 @@ namespace GeekRepository.Data.Migrations.ContentCreatorV2
                     b.ToTable("gcc_v2_briefs", "content_creator_v2");
                 });
 
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasAsset", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("ParentAssetIdsJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("[]");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId")
-                        .HasDatabaseName("ix_gcc_v2_canvas_assets_project_id");
-
-                    b.ToTable("gcc_v2_canvas_assets", "content_creator_v2");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasAssetVersion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AssetId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("EvidenceJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("[]");
-
-                    b.Property<string>("ProvenanceJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("{}");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Summary")
-                        .IsRequired()
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<int>("VersionNumber")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AssetId", "VersionNumber")
-                        .IsUnique()
-                        .HasDatabaseName("ux_gcc_v2_canvas_asset_versions_asset_version");
-
-                    b.ToTable("gcc_v2_canvas_asset_versions", "content_creator_v2");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasProject", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActivityJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("[]");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("OwnerUserId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "UpdatedAtUtc")
-                        .HasDatabaseName("ix_gcc_v2_canvas_projects_owner_updated");
-
-                    b.ToTable("gcc_v2_canvas_projects", "content_creator_v2");
-                });
-
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2ContextAuditEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1103,151 +970,6 @@ namespace GeekRepository.Data.Migrations.ContentCreatorV2
                         .HasDatabaseName("ix_gcc_v2_creates_owner_user_id");
 
                     b.ToTable("gcc_v2_creates", "content_creator_v2");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2Grid", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ConfigJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("{}");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("OwnerUserId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "UpdatedAtUtc")
-                        .HasDatabaseName("ix_gcc_v2_grids_owner_updated");
-
-                    b.ToTable("gcc_v2_grids", "content_creator_v2");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2GridRow", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Error")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("GridId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("InputJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("{}");
-
-                    b.Property<string>("OutputJson")
-                        .HasColumnType("text");
-
-                    b.Property<int>("RowIndex")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GridId", "RowIndex")
-                        .IsUnique()
-                        .HasDatabaseName("ux_gcc_v2_grid_rows_grid_row_index");
-
-                    b.ToTable("gcc_v2_grid_rows", "content_creator_v2");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2GridRun", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorUserId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("BudgetPreviewJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("{}");
-
-                    b.Property<DateTimeOffset?>("CompletedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("GridId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("HistoryJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("[]");
-
-                    b.Property<string>("Mode")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int>("OutputCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
-                    b.Property<int?>("SampleSize")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("StartedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GridId", "StartedAtUtc")
-                        .HasDatabaseName("ix_gcc_v2_grid_runs_grid_started");
-
-                    b.ToTable("gcc_v2_grid_runs", "content_creator_v2");
                 });
 
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2GuardrailRule", b =>
@@ -3369,28 +3091,6 @@ namespace GeekRepository.Data.Migrations.ContentCreatorV2
                     b.Navigation("Audience");
                 });
 
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasAsset", b =>
-                {
-                    b.HasOne("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasProject", "Project")
-                        .WithMany("Assets")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasAssetVersion", b =>
-                {
-                    b.HasOne("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasAsset", "Asset")
-                        .WithMany("Versions")
-                        .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Asset");
-                });
-
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2ContextIngestionEvent", b =>
                 {
                     b.HasOne("GeekRepository.Data.Entities.ContentCreatorV2.GccV2ContextIngestionJob", "Job")
@@ -3400,28 +3100,6 @@ namespace GeekRepository.Data.Migrations.ContentCreatorV2
                         .IsRequired();
 
                     b.Navigation("Job");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2GridRow", b =>
-                {
-                    b.HasOne("GeekRepository.Data.Entities.ContentCreatorV2.GccV2Grid", "Grid")
-                        .WithMany("Rows")
-                        .HasForeignKey("GridId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Grid");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2GridRun", b =>
-                {
-                    b.HasOne("GeekRepository.Data.Entities.ContentCreatorV2.GccV2Grid", "Grid")
-                        .WithMany("Runs")
-                        .HasForeignKey("GridId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Grid");
                 });
 
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2JobAgentVersion", b =>
@@ -3682,26 +3360,9 @@ namespace GeekRepository.Data.Migrations.ContentCreatorV2
                     b.Navigation("Versions");
                 });
 
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasAsset", b =>
-                {
-                    b.Navigation("Versions");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2CanvasProject", b =>
-                {
-                    b.Navigation("Assets");
-                });
-
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2ContextIngestionJob", b =>
                 {
                     b.Navigation("Events");
-                });
-
-            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2Grid", b =>
-                {
-                    b.Navigation("Rows");
-
-                    b.Navigation("Runs");
                 });
 
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreatorV2.GccV2Job", b =>

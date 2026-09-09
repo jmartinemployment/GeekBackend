@@ -65,6 +65,12 @@ public interface IGeekCrawlerRagClient
         GeekCrawlerRagGenerateRequest request,
         CancellationToken ct = default);
 
+    Task<JsonElement?> RunDiagnosticAsync(
+        string endpoint,
+        JsonElement input,
+        CancellationToken ct = default) =>
+        Task.FromResult<JsonElement?>(null);
+
     Task<GeekCrawlerRagCapabilities?> GetCapabilitiesAsync(CancellationToken ct = default) =>
         Task.FromResult<GeekCrawlerRagCapabilities?>(null);
 }
@@ -74,6 +80,8 @@ public sealed class GeekCrawlerRagCapabilities
     public IReadOnlyList<string> ExecutionVersions { get; init; } = [];
     public IReadOnlyList<string> SkillEnvelopeVersions { get; init; } = [];
     public IReadOnlyList<string> GenerationStages { get; init; } = [];
+    /// <summary>Stages allowed for rag-generate.v3. Excludes one-shot <c>complete</c>.</summary>
+    public IReadOnlyList<string> AgentGenerationStages { get; init; } = [];
     public IReadOnlyList<string> SpecialistExecutors { get; init; } = [];
     public string SpecialistExecutorVersion { get; init; } = "";
     public bool ToolsAllowed { get; init; }
@@ -120,6 +128,7 @@ public sealed class GeekCrawlerRagGenerateRequest
     public RagAgentExecutionRequestDto? AgentExecution { get; init; }
     public IReadOnlyList<RagSpecialistContributionDto>? SpecialistContributions { get; init; }
     public IReadOnlyList<RagSpecialistReviewDto>? SpecialistReviews { get; init; }
+    public IReadOnlyList<GeekCrawlerRagResearchQueryPlanDto>? ResearchPlan { get; init; }
 }
 
 public sealed class GeekCrawlerRagOutlineSectionDto
@@ -129,6 +138,8 @@ public sealed class GeekCrawlerRagOutlineSectionDto
     public string Brief { get; init; } = "";
     public IReadOnlyList<string> EvidenceIds { get; init; } = [];
 }
+
+public sealed record GeekCrawlerRagResearchQueryPlanDto(string RunId, string CrawlType, string Need);
 
 public sealed class GeekCrawlerRagSkillProvenance
 {
@@ -228,6 +239,7 @@ public sealed class GeekCrawlerRagGenerateResult
     public IReadOnlyList<GeekCrawlerRagGenerateSourceDto> Sources { get; init; } = [];
     public IReadOnlyList<GeekCrawlerRagThemeDto> Themes { get; init; } = [];
     public IReadOnlyList<GeekCrawlerRagOutlineSectionDto>? Outline { get; init; }
+    public IReadOnlyList<GeekCrawlerRagResearchQueryPlanDto>? ResearchPlan { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = [];
     public IReadOnlyList<string> EvidenceWarnings { get; init; } = [];
     public string? ModelUsed { get; init; }
@@ -330,6 +342,36 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
     }
 
     public bool IsEnabled => _enabled;
+
+    public async Task<JsonElement?> RunDiagnosticAsync(
+        string endpoint,
+        JsonElement input,
+        CancellationToken ct = default)
+    {
+        if (!_enabled) return null;
+        var path = endpoint switch
+        {
+            "readiness-score" or "fact-density" or "entity-map" or "schema-markup"
+                => $"v1/diagnostics/{endpoint}",
+            "query-plan" or "competitor-page" or "content-gap"
+                or "readiness-comparison" or "competitor-audit" or "competitor-positioning"
+                => $"v1/intelligence/{endpoint}",
+            "faq-set" or "citable-claims" or "comparison-brief"
+                or "competitive-response" or "pillar-outline"
+                => $"v1/content/{endpoint}",
+            _ => throw new ArgumentException("Unsupported analysis endpoint.", nameof(endpoint)),
+        };
+        using var response = await _http.PostAsJsonAsync(
+            path, input, JsonOpts, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            throw new InvalidOperationException(
+                $"Analysis '{endpoint}' failed with HTTP {(int)response.StatusCode}: {Truncate(body)}");
+        }
+        return await response.Content.ReadFromJsonAsync<JsonElement>(JsonOpts, ct)
+            .ConfigureAwait(false);
+    }
 
     public async Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default)
     {
@@ -723,6 +765,12 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             }
             if (request.Outline is { Count: > 0 })
                 payload["outline"] = request.Outline;
+            if (request.ResearchPlan is { Count: > 0 })
+            {
+                payload["researchPlan"] = request.ResearchPlan
+                    .Select(q => new { runId = q.RunId, crawlType = q.CrawlType, need = q.Need })
+                    .ToArray();
+            }
             if (!string.IsNullOrWhiteSpace(request.SectionKey))
                 payload["sectionKey"] = request.SectionKey;
             if (!string.IsNullOrWhiteSpace(request.SectionHeading))
@@ -810,6 +858,13 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                         EvidenceIds = s.EvidenceIds ?? [],
                     })
                     .ToList(),
+                ResearchPlan = dto.ResearchPlan?
+                    .Where(q => !string.IsNullOrWhiteSpace(q.RunId)
+                                && !string.IsNullOrWhiteSpace(q.CrawlType)
+                                && !string.IsNullOrWhiteSpace(q.Need))
+                    .Select(q => new GeekCrawlerRagResearchQueryPlanDto(
+                        q.RunId!, q.CrawlType!, q.Need!))
+                    .ToList(),
                 Warnings = dto.Warnings ?? [],
                 EvidenceWarnings = dto.EvidenceWarnings ?? [],
                 ModelUsed = dto.ModelUsed,
@@ -872,6 +927,10 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                     ExecutionVersions = dto.ExecutionVersions ?? [],
                     SkillEnvelopeVersions = dto.SkillEnvelopeVersions ?? [],
                     GenerationStages = dto.GenerationStages ?? [],
+                    AgentGenerationStages = dto.AgentGenerationStages
+                        ?? (dto.GenerationStages ?? [])
+                            .Where(s => !string.Equals(s, "complete", StringComparison.Ordinal))
+                            .ToList(),
                     SpecialistExecutors = dto.SpecialistExecutors ?? [],
                     SpecialistExecutorVersion = dto.SpecialistExecutorVersion ?? "",
                     ToolsAllowed = dto.ToolsAllowed,
@@ -1126,6 +1185,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public List<GenerateSourceDto>? Sources { get; set; }
         public List<ThemeDto>? Themes { get; set; }
         public List<OutlineSectionDto>? Outline { get; set; }
+        public List<ResearchQueryPlanDto>? ResearchPlan { get; set; }
         public List<string>? Warnings { get; set; }
         public List<string>? EvidenceWarnings { get; set; }
         public string? ModelUsed { get; set; }
@@ -1168,6 +1228,13 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public List<string>? EvidenceIds { get; set; }
     }
 
+    private sealed class ResearchQueryPlanDto
+    {
+        public string? RunId { get; set; }
+        public string? CrawlType { get; set; }
+        public string? Need { get; set; }
+    }
+
     private sealed class GenerateProvenanceDto
     {
         public string? GenerationStage { get; set; }
@@ -1199,6 +1266,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public List<string>? ExecutionVersions { get; set; }
         public List<string>? SkillEnvelopeVersions { get; set; }
         public List<string>? GenerationStages { get; set; }
+        public List<string>? AgentGenerationStages { get; set; }
         public List<string>? SpecialistExecutors { get; set; }
         public string? SpecialistExecutorVersion { get; set; }
         public bool ToolsAllowed { get; set; }

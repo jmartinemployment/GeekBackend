@@ -436,7 +436,7 @@ public class GccV2Controller : ControllerBase
         if (request?.AgentVersionIds is { } repeatedVersions
             && !Equivalent(repeatedVersions, selectedAgentVersionIds))
             return Conflict(new { error = "Requested agentVersionIds do not match the create's immutable specialist selection." });
-        if (request?.SelectedAgentIds is { } repeatedAgents)
+        if (request?.SelectedAgentIds is { Count: > 0 } repeatedAgents)
         {
             var catalog = await _repo.ListAgentsAsync(ct: ct);
             var pinnedSlugs = catalog.SelectMany(agent => agent.Versions

@@ -130,6 +130,9 @@ public sealed class RagGenerateServiceTests
     [InlineData("outline", "outline")]
     [InlineData(" SECTION ", "section")]
     [InlineData("unknown", "complete")]
+    [InlineData("researchPlanning", "researchPlanning")]
+    [InlineData(" ResearchPlanning ", "researchPlanning")]
+    [InlineData("research", "researchPlanning")]
     public void NormalizeGenerationStage_is_strict_and_backward_compatible(
         string? raw,
         string expected)

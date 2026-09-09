@@ -207,10 +207,25 @@ public sealed class GccV2ValidateService
             await _specialists.PrepareProducerAsync(
                 wc.Job, ParseOwner(wc.Job.OwnerUserId), ragRequest, envelope!, ct);
         var ragResponse = await _rag.GenerateAsync(wc.Job.OwnerUserId, ragRequest, ct);
+        IReadOnlyList<RagSpecialistReviewIssueDto> reviewerIssues = [];
         if (hasAgentTeam)
-            await _specialists.CompleteProducerAndRunReviewersAsync(
-                wc.Job, ParseOwner(wc.Job.OwnerUserId), ragRequest, ragResponse,
-                ragResponse.Validation ?? throw new InvalidOperationException("Validation producer omitted typed output."), ct);
+        {
+            try
+            {
+                await _specialists.CompleteProducerAndRunReviewersAsync(
+                    wc.Job, ParseOwner(wc.Job.OwnerUserId), ragRequest, ragResponse,
+                    ragResponse.Validation ?? throw new InvalidOperationException("Validation producer omitted typed output."), ct);
+            }
+            catch (RagAgentStoppedException ex) when (ex.Reason == RagAgentStopReason.ReviewerChangesRequired)
+            {
+                // Feed reviewer issues into the existing VALIDATE→REPAIR loop instead of
+                // blind-retrying the whole job.
+                reviewerIssues = ex.ReviewIssues;
+                _logger.LogInformation(
+                    "Reviewer changesRequired for job {JobId}: {IssueCount} issue(s) will enter REPAIR.",
+                    wc.Job.Id, reviewerIssues.Count);
+            }
+        }
         if (ragResponse.AgentExecution is { } trace)
         {
             foreach (var skill in trace.ActivatedSkills)
@@ -230,8 +245,10 @@ public sealed class GccV2ValidateService
                 new { stage = "validation", attemptId, trace.Agent, trace.ExecutorVersion,
                     trace.WorkflowVersion, trace.TraceVersion, trace.ToolsVersion, trace.StopReason, trace.Usage }, ct: ct);
         }
-        var validation = ragResponse.Validation
-            ?? throw new InvalidOperationException("RAG validation returned no typed validation result.");
+        var validation = MergeReviewerIssuesIntoValidation(
+            ragResponse.Validation
+                ?? throw new InvalidOperationException("RAG validation returned no typed validation result."),
+            reviewerIssues);
         var reviewVerdict = validation.Approved && validation.UnsupportedClaimCount == 0
             ? "approved"
             : "rejected";
@@ -260,6 +277,63 @@ public sealed class GccV2ValidateService
             ragResponse.ModelUsed,
             ragResponse.EvidenceWarnings);
     }
+
+    /// <summary>
+    /// Maps specialist reviewer <c>changesRequired</c> issues onto the typed RAG validation
+    /// contract so <see cref="SelectRagIssueTargets"/> can drive REPAIR.
+    /// </summary>
+    internal static RagValidationDto MergeReviewerIssuesIntoValidation(
+        RagValidationDto validation,
+        IReadOnlyList<RagSpecialistReviewIssueDto> reviewerIssues)
+    {
+        if (reviewerIssues.Count == 0) return validation;
+
+        var mapped = reviewerIssues.Select(MapReviewerIssue).ToList();
+        var issues = validation.Issues.Concat(mapped).ToList();
+        var unsupported = issues.Count(issue => issue.Category == RagValidationIssueCategory.UnsupportedClaim);
+        return new RagValidationDto
+        {
+            Approved = false,
+            Issues = issues,
+            Strengths = validation.Strengths,
+            UnsupportedClaimCount = Math.Max(validation.UnsupportedClaimCount, unsupported),
+            BriefAlignmentScore = validation.BriefAlignmentScore,
+            EvidenceCoverageScore = validation.EvidenceCoverageScore,
+            UsefulnessScore = validation.UsefulnessScore,
+            OriginalityScore = validation.OriginalityScore,
+            BrandAlignmentScore = validation.BrandAlignmentScore,
+        };
+    }
+
+    internal static RagValidationIssueDto MapReviewerIssue(RagSpecialistReviewIssueDto issue) =>
+        new()
+        {
+            SectionTitle = issue.SectionTitle,
+            Category = MapReviewerCategory(issue.Category),
+            Detail = string.IsNullOrWhiteSpace(issue.Detail)
+                ? "Reviewer requested changes."
+                : issue.Detail.Trim(),
+            RepairInstruction = string.IsNullOrWhiteSpace(issue.Recommendation)
+                ? (string.IsNullOrWhiteSpace(issue.Detail)
+                    ? "Address the reviewer findings for this section."
+                    : issue.Detail.Trim())
+                : issue.Recommendation.Trim(),
+        };
+
+    internal static RagValidationIssueCategory MapReviewerCategory(string? category) =>
+        category?.Trim().ToLowerInvariant() switch
+        {
+            "unsupportedclaim" or "unsupported_claim" => RagValidationIssueCategory.UnsupportedClaim,
+            "sourceconflict" or "source_conflict" => RagValidationIssueCategory.SourceConflict,
+            "briefalignment" or "brief_alignment" => RagValidationIssueCategory.BriefAlignment,
+            "brandvoice" or "brand_voice" => RagValidationIssueCategory.BrandVoice,
+            "originalityrepetition" or "originality_repetition" => RagValidationIssueCategory.OriginalityRepetition,
+            "usefulness" => RagValidationIssueCategory.Usefulness,
+            "cta" => RagValidationIssueCategory.Cta,
+            "seogeo" or "seo_geo" or "seo" or "geo" => RagValidationIssueCategory.SeoGeo,
+            "contenttyperequirements" or "content_type_requirements" => RagValidationIssueCategory.ContentTypeRequirements,
+            _ => RagValidationIssueCategory.BriefAlignment,
+        };
 
     private static Guid ParseOwner(string value) => Guid.TryParse(value, out var id) ? id : Guid.Empty;
 

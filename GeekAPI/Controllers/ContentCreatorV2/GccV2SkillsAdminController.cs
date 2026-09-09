@@ -11,6 +11,7 @@ public sealed class GccV2SkillsAdminController(
     ICurrentUserContext user,
     GccV2SkillAdminPolicy admin,
     GccV2GitHubSkillImporter importer,
+    GccV2AgenticSkillsResolver agenticSkills,
     GccV2SkillSnapshotRegistry snapshots,
     HttpGccV2Repository repo) : ControllerBase
 {
@@ -98,6 +99,51 @@ public sealed class GccV2SkillsAdminController(
         catch (GccV2SkillImportException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("admin/import-agentic-skill")]
+    public async Task<ActionResult<object>> ImportAgenticSkill(
+        [FromBody] GccV2AgenticSkillsImportRequest request, CancellationToken ct)
+    {
+        if (!IsAdmin(out var denied)) return denied;
+        try
+        {
+            var resolved = await agenticSkills.ResolveAsync(request, ct);
+            var command = await importer.ImportAsync(
+                resolved.ImportRequest, Actor(), SourceIp(), HttpContext.TraceIdentifier, ct);
+            command = command with
+            {
+                Findings =
+                [
+                    .. command.Findings,
+                    new("info", "gcc-catalog-source-v1", "agenticskills-catalog",
+                        "SKILL.md", null,
+                        $"Discovered through {resolved.ListingUrl}; resolved as {resolved.PackageSpecifier}.",
+                        false),
+                ],
+            };
+            var package = await repo.ImportSkillAsync(command, ct);
+            if (command.PermanentRejection)
+                return UnprocessableEntity(new
+                {
+                    error = "The package was quarantined as permanently rejected.",
+                    resolved.ListingUrl,
+                    resolved.PackageSpecifier,
+                    package,
+                    permanentFindings = command.Findings.Where(x => x.PermanentRejection),
+                });
+            return Ok(new
+            {
+                resolved.ListingUrl,
+                resolved.PackageSpecifier,
+                immutableRef = resolved.ImportRequest.ImmutableRef,
+                package,
+            });
+        }
+        catch (GccV2SkillImportException exception)
+        {
+            return BadRequest(new { error = exception.Message });
         }
     }
 

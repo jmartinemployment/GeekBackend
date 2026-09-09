@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using GeekAPI.Auth;
@@ -95,6 +96,41 @@ public sealed class GccV2GovernedSkillsTests
             "https://github.com/acme/demo", "main", "skills/demo", "1.0.0"),
             "admin", null, null, default));
         Assert.Contains("full 40-character", error.Message);
+    }
+
+    [Fact]
+    public async Task AgenticSkillsResolver_PinsCatalogListingToUpstreamCommit()
+    {
+        var services = new ServiceCollection();
+        services.AddHttpClient(nameof(GccV2AgenticSkillsResolver))
+            .ConfigurePrimaryHttpMessageHandler(() => new AgenticResolverHandler());
+        var resolver = new GccV2AgenticSkillsResolver(
+            services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>());
+
+        var resolved = await resolver.ResolveAsync(new(
+            "https://agenticskills.io/skills/find-skills"), default);
+
+        Assert.Equal("vercel-labs/skills@find-skills", resolved.PackageSpecifier);
+        Assert.Equal("https://github.com/vercel-labs/skills",
+            resolved.ImportRequest.RepositoryUrl);
+        Assert.Equal("skills/find-skills", resolved.ImportRequest.SkillPath);
+        Assert.Equal(Commit, resolved.ImportRequest.ImmutableRef);
+    }
+
+    [Theory]
+    [InlineData("https://evil.example/skills/find-skills")]
+    [InlineData("http://agenticskills.io/skills/find-skills")]
+    [InlineData("https://agenticskills.io/about")]
+    public async Task AgenticSkillsResolver_RejectsNonCatalogUrls(string listingUrl)
+    {
+        var services = new ServiceCollection();
+        services.AddHttpClient(nameof(GccV2AgenticSkillsResolver))
+            .ConfigurePrimaryHttpMessageHandler(() => new ThrowingHandler());
+        var resolver = new GccV2AgenticSkillsResolver(
+            services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>());
+
+        await Assert.ThrowsAsync<GccV2SkillImportException>(
+            () => resolver.ResolveAsync(new(listingUrl), default));
     }
 
     [Fact]
@@ -258,7 +294,7 @@ public sealed class GccV2GovernedSkillsTests
             new HttpClient(handler) { BaseAddress = new Uri("http://repository.test") },
             NullLogger<HttpGccV2Repository>.Instance);
         var controller = new GccV2SkillsAdminController(
-            new User(Guid.NewGuid(), true), policy, null!, null!, repository);
+            new User(Guid.NewGuid(), true), policy, null!, null!, null!, repository);
 
         var result = await controller.Inspect(Guid.NewGuid(), default);
 
@@ -401,6 +437,20 @@ public sealed class GccV2GovernedSkillsTests
             {
                 Content = new ByteArrayContent(archive),
             });
+    }
+
+    private sealed class AgenticResolverHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            HttpContent content = request.RequestUri!.Host == "agenticskills.io"
+                ? new StringContent(
+                    "<html><code>npx skills add vercel-labs/skills@find-skills</code></html>",
+                    Encoding.UTF8, "text/html")
+                : JsonContent.Create(new[] { new { sha = Commit } });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        }
     }
 
     private sealed class ThrowingHandler : HttpMessageHandler

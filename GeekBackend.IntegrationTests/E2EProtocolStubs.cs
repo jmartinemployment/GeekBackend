@@ -28,6 +28,8 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
     private readonly GccV2AgentDto _agent = AgentFixture();
     private readonly IReadOnlyList<GccV2AgentAuditEventDto> _agentAudit = [];
     private readonly ConcurrentDictionary<Guid, GccV2AgentTestRunDto> _agentTests = new();
+    private readonly GccV2TaskAgentDefinitionDto _taskAgent = TaskAgentFixture();
+    private readonly ConcurrentDictionary<Guid, GccV2TaskRunDto> _taskRuns = new();
 
     public IReadOnlyDictionary<Guid, GeekCrawlerRunDto> Runs => _runs;
     public IReadOnlyList<GeekCrawlerPageDto> Pages(Guid runId) =>
@@ -146,6 +148,63 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
         if (path.StartsWith($"repo/content-creator-v2/agents/versions/{agentVersion.Id}/", StringComparison.Ordinal)
             && request.Method == HttpMethod.Post)
             return Json(HttpStatusCode.OK, agentVersion);
+
+        if (path == "repo/content-creator-v2/task-agents" && request.Method == HttpMethod.Get)
+            return Json(HttpStatusCode.OK, new[] { _taskAgent });
+        if (path is "repo/content-creator-v2/task-agents/fact-density"
+            || path == $"repo/content-creator-v2/task-agents/{_taskAgent.Id}")
+            return Json(HttpStatusCode.OK, _taskAgent);
+        if (path.StartsWith(
+                $"repo/content-creator-v2/task-agents/versions/{_taskAgent.Versions[0].Id}/",
+                StringComparison.Ordinal)
+            && request.Method == HttpMethod.Post)
+            return Json(HttpStatusCode.OK, _taskAgent.Versions[0]);
+        if (path == "repo/content-creator-v2/task-runs" && request.Method == HttpMethod.Post)
+        {
+            var command = await request.Content!.ReadFromJsonAsync<CreateGccV2TaskRunCommand>(
+                JsonOptions, cancellationToken);
+            var now = DateTimeOffset.UtcNow;
+            var id = Guid.NewGuid();
+            var run = new GccV2TaskRunDto(
+                id, command!.OwnerUserId, command.TaskAgentDefinitionId, command.TaskAgentVersionId,
+                command.TaskAgentVersionDigest, command.InputJson, command.InputDigest,
+                command.ContextManifestId, command.ContextManifestDigest,
+                command.ModelSnapshotJson, command.ModelSnapshotDigest,
+                command.BudgetSnapshotJson, command.BudgetSnapshotDigest,
+                command.SourceSnapshotJson, command.SourceSnapshotDigest,
+                "queued", "queued", 0, 0, 0, id, command.RetryOfRunId, command.Actor, command.Actor,
+                null, null, null, null, null, now, now, null, null,
+                [new(Guid.NewGuid(), id, 1, "queued", "{}", command.Actor, now)], []);
+            _taskRuns[id] = run;
+            return Json(HttpStatusCode.Created, run);
+        }
+        if (path.StartsWith("repo/content-creator-v2/task-runs/", StringComparison.Ordinal)
+            && Guid.TryParse(path.Split('/')[3], out var taskRunId)
+            && _taskRuns.TryGetValue(taskRunId, out var taskRun))
+        {
+            if (request.Method == HttpMethod.Get)
+                return request.RequestUri?.Query.Contains(
+                    $"ownerUserId={taskRun.OwnerUserId}", StringComparison.OrdinalIgnoreCase) is true
+                    ? Json(HttpStatusCode.OK, taskRun)
+                    : new HttpResponseMessage(HttpStatusCode.NotFound);
+            if (request.Method == HttpMethod.Post && path.EndsWith("/transition", StringComparison.Ordinal))
+            {
+                var command = await request.Content!.ReadFromJsonAsync<TransitionGccV2TaskRunCommand>(
+                    JsonOptions, cancellationToken);
+                var updated = taskRun with
+                {
+                    Status = command!.Status,
+                    Phase = command.Phase,
+                    ProgressPercent = command.ProgressPercent,
+                    CancellationRequestedAtUtc = command.CancellationRequested ? DateTimeOffset.UtcNow : null,
+                    CancelledAtUtc = command.Status == "cancelled" ? DateTimeOffset.UtcNow : null,
+                    CompletedAtUtc = command.Status == "cancelled" ? DateTimeOffset.UtcNow : null,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow,
+                };
+                _taskRuns[taskRunId] = updated;
+                return Json(HttpStatusCode.OK, updated);
+            }
+        }
 
         if (TryGccResourceId(path, "jobs", out var gccJobId)
             && _gccJobs.TryGetValue(gccJobId, out var gccJob))
@@ -372,6 +431,30 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
         return new(
             Guid.Parse("88888888-8888-8888-8888-888888888888"), "writing", "Writing",
             "Canonical content producer.", "published", true, DateTimeOffset.UtcNow, null, [version]);
+    }
+
+    private static GccV2TaskAgentDefinitionDto TaskAgentFixture()
+    {
+        var definitionId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var versionId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var now = new DateTimeOffset(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
+        var version = new GccV2TaskAgentVersionDto(
+            versionId, definitionId, "1.0.0", "analysis",
+            """{"contentType":["blog"],"marketingFunction":["seo"]}""",
+            """{"additionalProperties":false,"properties":{"topic":{"type":"string"}},"required":["topic"],"type":"object"}""",
+            new string('1', 64),
+            """{"properties":{"score":{"type":"number"}},"type":"object"}""", new string('2', 64),
+            """{"steps":[{"id":"analyze"}]}""", new string('3', 64),
+            """{"manifest":"optional"}""", new string('4', 64),
+            """{"component":"fact-density"}""", new string('5', 64),
+            """{"downstream":["pillarArticle.v1"],"upstream":["entityMap.v1"]}""",
+            """["search_corpus"]""", """["o3"]""", "[]",
+            """{"minimumScore":0.8}""", new string('6', 64), new string('a', 64),
+            "published", GeekApiTestFactory.OwnerUserId.ToString("D"),
+            GeekApiTestFactory.OwnerUserId.ToString("D"), now, now, null, null);
+        return new(
+            definitionId, "fact-density", "Fact Density", "Measure claim and citation density.",
+            "published", now, null, [version]);
     }
 
     private static bool TryRunId(string path, out Guid runId)

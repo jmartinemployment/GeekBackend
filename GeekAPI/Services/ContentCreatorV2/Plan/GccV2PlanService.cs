@@ -29,7 +29,8 @@ public sealed record GccV2PlanOutline(
     List<string> HierarchyChildHeadings,
     IReadOnlyList<RagCitationDto>? Citations = null,
     GccV2GenerationProvenance? Provenance = null,
-    GccV2ResearchEvidenceManifest? EvidenceManifest = null);
+    GccV2ResearchEvidenceManifest? EvidenceManifest = null,
+    IReadOnlyList<RagResearchQueryPlanDto>? ResearchPlan = null);
 
 /// <summary>
 /// Builds the real PLAN-stage outline, replacing the old hardcoded 3-section stub. Grounds body
@@ -116,6 +117,35 @@ public sealed class GccV2PlanService
         var skillSnapshot = await GccV2SkillSnapshotStore.LoadOrCreateAsync(_repo, job, ct);
         var route = GccV2ContentTypeRagMapper.Map(contentType);
         var jobModelPolicy = await _jobModelPolicies.LoadLatestAsync(job.Id, ct);
+
+        // Deterministic researchPlanning (v2) runs before outline so retrieval queries are
+        // first-class and handed into the outline retrieve step.
+        var researchSelection = _modelPolicy.Select(
+            ContentGenerationStage.Research, generationBrief, jobModelPolicy);
+        var researchAttemptId = Guid.NewGuid().ToString("D");
+        var researchRequest = new RagGenerateRequest
+        {
+            WritingIntent = route.WritingIntent,
+            Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
+            TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList(),
+            PartnerRunId = generationBrief.PartnerSourceRunId,
+            CompetitorRunId = generationBrief.CompetitorSourceRunId,
+            GenerationStage = "researchPlanning",
+            ExecutionVersion = RagProducerCapabilities.RequiredExecutionVersion,
+            AttemptId = researchAttemptId,
+            SkillExecution = GccV2SkillCatalog.ForStage(skillSnapshot, "researchPlanning"),
+            CanonicalBrief = generationBrief.ToCanonicalBrief(),
+            ModelPolicyPreset = ContentModelPolicy.PresetValue(researchSelection.Preset),
+            ModelPolicyVersion = researchSelection.PolicyVersion,
+            StageModelOverrides = ContentModelPolicy.ProducerOverridesForRequest(
+                generationBrief, researchSelection, "researchPlanning", jobModelPolicy),
+            RequestedModel = researchSelection.EffectiveModel,
+            RequireCiteable = true,
+        };
+        var researchResult = await _rag.GenerateAsync(job.OwnerUserId, researchRequest, ct);
+        var researchPlan = researchResult.ResearchPlan?.ToList() ?? [];
+
         var selection = _modelPolicy.Select(
             route.IsImagePrompt ? ContentGenerationStage.ImagePrompt : ContentGenerationStage.Outline,
             generationBrief,
@@ -147,6 +177,7 @@ public sealed class GccV2PlanService
                     generationBrief, selection, "outline", jobModelPolicy),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
+                ResearchPlan = researchPlan.Count > 0 ? researchPlan : null,
         };
         if (hasAgentTeam)
             await _specialists.PrepareProducerAsync(
@@ -256,7 +287,7 @@ public sealed class GccV2PlanService
             ragResult.Warnings.Concat(ragResult.EvidenceWarnings).Distinct().ToList(),
             DateTimeOffset.UtcNow);
         var outline = new GccV2PlanOutline(
-            sections, topicChildren, ragResult.Citations, provenance, manifest);
+            sections, topicChildren, ragResult.Citations, provenance, manifest, researchPlan);
 
         if (brief.Id != Guid.Empty)
         {

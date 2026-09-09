@@ -42,6 +42,8 @@ public sealed class RagGenerateRequest
     public RagAgentExecutionRequestDto? AgentExecution { get; set; }
     public IReadOnlyList<RagSpecialistContributionDto>? SpecialistContributions { get; set; }
     public IReadOnlyList<RagSpecialistReviewDto>? SpecialistReviews { get; set; }
+    /// <summary>Optional precomputed research queries handed from PLAN researchPlanning → outline.</summary>
+    public IReadOnlyList<RagResearchQueryPlanDto>? ResearchPlan { get; set; }
     /// <summary>Expected effective model, used locally to reject producer substitution.</summary>
     public string? RequestedModel { get; set; }
     /// <summary>Canonical jobs require quote-verified RAG and may not use the local one-shot writer.</summary>
@@ -64,6 +66,8 @@ public sealed class RagOutlineSectionDto
     public string Brief { get; set; } = "";
     public IReadOnlyList<string> EvidenceIds { get; set; } = [];
 }
+
+public sealed record RagResearchQueryPlanDto(string RunId, string CrawlType, string Need);
 
 public sealed class RagGenerateProvenanceDto
 {
@@ -159,17 +163,28 @@ public enum RagAgentStopReason
     [JsonStringEnumMemberName("invalidStructuredOutput")] InvalidStructuredOutput,
     [JsonStringEnumMemberName("toolDenied")] ToolDenied,
     [JsonStringEnumMemberName("evidenceFailure")] EvidenceFailure,
+    [JsonStringEnumMemberName("reviewerChangesRequired")] ReviewerChangesRequired,
+    [JsonStringEnumMemberName("reviewerRejected")] ReviewerRejected,
     [JsonStringEnumMemberName("upstreamFailure")] UpstreamFailure,
     [JsonStringEnumMemberName("cancelled")] Cancelled,
     [JsonStringEnumMemberName("timedOut")] TimedOut,
 }
 
-public sealed class RagAgentStoppedException(RagAgentStopReason reason, string? detail)
+public sealed class RagAgentStoppedException(
+    RagAgentStopReason reason,
+    string? detail,
+    IReadOnlyList<RagSpecialistReviewIssueDto>? reviewIssues = null)
     : Exception(detail ?? $"RAG agent stopped: {reason}.")
 {
     public RagAgentStopReason Reason { get; } = reason;
     public string? Detail { get; } = detail;
-    public bool IsTransient => Reason == RagAgentStopReason.UpstreamFailure;
+    public IReadOnlyList<RagSpecialistReviewIssueDto> ReviewIssues { get; } = reviewIssues ?? [];
+    /// <summary>
+    /// Only upstream failures are safe to blind-retry. Reviewer <c>changesRequired</c> must
+    /// feed the VALIDATE→REPAIR loop (or fail closed) — never requeue the whole job without
+    /// applying the reviewer's issues.
+    /// </summary>
+    public bool IsTransient => Reason is RagAgentStopReason.UpstreamFailure;
 }
 
 public sealed record RagContributionQueryDto(string Need, string Corpus);
@@ -287,6 +302,7 @@ public sealed class RagGenerateResponse
     public IReadOnlyList<RagCitationDto>? Citations { get; init; }
     public IReadOnlyList<RagThemeSourceDto>? ThemeSources { get; init; }
     public IReadOnlyList<RagOutlineSectionDto>? Outline { get; init; }
+    public IReadOnlyList<RagResearchQueryPlanDto>? ResearchPlan { get; init; }
     public IReadOnlyList<RagAdTemplateDto>? AppliedTemplates { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = [];
     public IReadOnlyList<string> EvidenceWarnings { get; init; } = [];

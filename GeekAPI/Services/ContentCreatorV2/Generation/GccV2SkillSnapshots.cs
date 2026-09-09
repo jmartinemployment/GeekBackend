@@ -135,15 +135,21 @@ public sealed class GccV2SkillSnapshotRegistry(
     public async Task<(string ExecutionVersion, GccV2SignedSkillExecutionEnvelopeV2? Envelope)> NegotiateAsync(
         GccV2JobDto job, string attemptId, string stage, CancellationToken ct)
     {
+        // One-shot `complete` is rag-generate.v2 only — Python rejects it on v3.
         if (!signer.IsConfigured || stage == "complete")
             return (RagProducerCapabilities.RequiredExecutionVersion, null);
         var capabilities = await rag.GetCapabilitiesAsync(ct);
+        var agentStages = capabilities?.AgentGenerationStages is { Count: > 0 } listed
+            ? listed
+            : (capabilities?.GenerationStages ?? [])
+                .Where(s => !string.Equals(s, "complete", StringComparison.Ordinal))
+                .ToList();
         if (capabilities?.ExecutionVersions.Contains(RagProducerCapabilities.AgentExecutionVersion, StringComparer.Ordinal) == true
             && capabilities.SkillEnvelopeVersions.Contains(GccV2SignedSkillExecutionEnvelopeV2.CurrentEnvelopeVersion, StringComparer.Ordinal)
             && capabilities.AgentTraceVersions.Contains("agent-trace.v1", StringComparer.Ordinal)
             && capabilities.AgentToolVersions.Contains("agent-tools.v1", StringComparer.Ordinal)
             && capabilities.ToolsAllowed
-            && capabilities.GenerationStages.Contains(stage, StringComparer.Ordinal))
+            && agentStages.Contains(stage, StringComparer.Ordinal))
             return (RagProducerCapabilities.AgentExecutionVersion,
                 await BuildEnvelopeAsync(job, attemptId, stage, ct));
         return (RagProducerCapabilities.RequiredExecutionVersion, null);

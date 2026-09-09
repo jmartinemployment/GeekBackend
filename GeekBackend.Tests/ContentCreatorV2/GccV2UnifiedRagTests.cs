@@ -226,6 +226,7 @@ public sealed class GccV2UnifiedRagTests
     [Theory]
     [InlineData("repair", "repair")]
     [InlineData("final-synthesis", "finalSynthesis")]
+    [InlineData("researchPlanning", "researchPlanning")]
     public void Producer_stage_normalization_preserves_true_stage_identity(string input, string expected)
     {
         Assert.Equal(expected, RagGenerateService.NormalizeGenerationStage(input));

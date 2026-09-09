@@ -1,6 +1,7 @@
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.ProjectSite;
 using Microsoft.AspNetCore.Mvc;
@@ -14,15 +15,33 @@ public class GccV2ProjectSiteController : ControllerBase
     private readonly ICurrentUserContext _user;
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2ProjectSiteCrawlService _crawlService;
+    private readonly GccV2ProjectSiteKnowledgeService _knowledgeService;
 
     public GccV2ProjectSiteController(
         ICurrentUserContext user,
         HttpGccV2Repository repo,
-        GccV2ProjectSiteCrawlService crawlService)
+        GccV2ProjectSiteCrawlService crawlService,
+        GccV2ProjectSiteKnowledgeService knowledgeService)
     {
         _user = user;
         _repo = repo;
         _crawlService = crawlService;
+        _knowledgeService = knowledgeService;
+    }
+
+    [HttpGet("runs")]
+    public async Task<ActionResult<object>> ListSavedRuns(CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        var runs = await _repo.ListProjectSiteCrawlRunsByOwnerAsync(
+            _user.UserId.ToString("D"), ct: ct);
+        return Ok(runs.Select(run => new
+        {
+            runId = run.Id,
+            siteUrl = run.SiteUrl,
+            status = run.Status,
+            completedAtUtc = run.CompletedAtUtc,
+        }));
     }
 
     [HttpPost("crawl")]
@@ -106,6 +125,33 @@ public class GccV2ProjectSiteController : ControllerBase
         });
     }
 
+    [HttpPost("runs/{runId:guid}/promote-to-source")]
+    public async Task<ActionResult<GccV2ProjectSiteKnowledgeResult>> PromoteToSource(
+        Guid runId,
+        [FromBody] PromoteProjectSiteSourceRequest? request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        try
+        {
+            return Ok(await _knowledgeService.PromoteAsync(
+                _user.UserId.ToString("D"),
+                runId,
+                request?.Name,
+                request?.PageIds,
+                request?.Approve ?? false,
+                ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(new { error = exception.Message });
+        }
+    }
+
     [HttpGet("runs/{runId:guid}/pages")]
     public async Task<ActionResult<object>> ListPages(Guid runId, CancellationToken ct)
     {
@@ -163,4 +209,6 @@ public class GccV2ProjectSiteController : ControllerBase
         _user.IsAuthenticated && string.Equals(ownerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase);
 
     public record StartProjectSiteCrawlRequest(string SiteUrl);
+    public record PromoteProjectSiteSourceRequest(
+        string? Name, IReadOnlyList<Guid>? PageIds, bool Approve = false);
 }

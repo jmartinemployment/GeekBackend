@@ -438,6 +438,77 @@ public sealed record PatchGccV2AgentTestRunCommand(
 public sealed record TransitionGccV2AgentVersionCommand(
     string Actor, string? Reason, string? SourceIp, string? RequestId);
 
+public sealed record GccV2TaskAgentDefinitionDto(
+    Guid Id, string CapabilityId, string DisplayName, string Description, string LifecycleState,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset? UpdatedAtUtc,
+    IReadOnlyList<GccV2TaskAgentVersionDto> Versions);
+public sealed record GccV2TaskAgentVersionDto(
+    Guid Id, Guid DefinitionId, string SemanticVersion, string WorkflowGroup,
+    string FacetsJson, string InputSchemaJson, string InputSchemaDigest,
+    string OutputSchemaJson, string OutputSchemaDigest, string WorkflowJson, string WorkflowDigest,
+    string ContextPolicyJson, string ContextPolicyDigest, string ResultRendererJson,
+    string ResultRendererDigest, string CompatibleArtifactTypesJson, string AllowedToolsJson,
+    string AllowedModelsJson, string SkillVersionIdsJson, string EvaluationThresholdsJson,
+    string EvaluationThresholdsDigest, string VersionDigest, string State, string CreatedBy,
+    string? ReviewedBy, DateTimeOffset CreatedAtUtc, DateTimeOffset? PublishedAtUtc,
+    DateTimeOffset? DeprecatedAtUtc, DateTimeOffset? RevokedAtUtc);
+public sealed record GccV2TaskRunDto(
+    Guid Id, string OwnerUserId, Guid TaskAgentDefinitionId, Guid TaskAgentVersionId,
+    string TaskAgentVersionDigest, string InputJson, string InputDigest, Guid? ContextManifestId,
+    string? ContextManifestDigest, string ModelSnapshotJson, string ModelSnapshotDigest,
+    string BudgetSnapshotJson, string BudgetSnapshotDigest, string SourceSnapshotJson,
+    string SourceSnapshotDigest, string Status, string Phase, int ProgressPercent, int AttemptCount,
+    int RecoveryCount, Guid RootRunId, Guid? RetryOfRunId, string CreatedByActor, string? LastActor,
+    string? ClaimedByInstanceId, DateTimeOffset? ClaimedAtUtc, DateTimeOffset? LeaseUntilUtc,
+    DateTimeOffset? CancellationRequestedAtUtc, DateTimeOffset? CancelledAtUtc,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, DateTimeOffset? CompletedAtUtc,
+    string? TerminalError, IReadOnlyList<GccV2TaskRunEventDto>? Events = null,
+    IReadOnlyList<GccV2TaskArtifactDto>? Artifacts = null);
+public sealed record GccV2TaskRunEventDto(
+    Guid Id, Guid RunId, int Seq, string Type, string PayloadJson, string Actor,
+    DateTimeOffset CreatedAtUtc);
+public sealed record GccV2TaskArtifactDto(
+    Guid Id, string OwnerUserId, Guid RunId, string ArtifactType, Guid? CurrentVersionId,
+    DateTimeOffset CreatedAtUtc, IReadOnlyList<GccV2TaskArtifactVersionDto> Versions);
+public sealed record GccV2TaskArtifactVersionDto(
+    Guid Id, Guid ArtifactId, int VersionNumber, string PayloadJson, string EvidenceJson,
+    string CitationsJson, string ValidationState, string ValidationJson, string Digest,
+    string CreatedByActor, DateTimeOffset CreatedAtUtc,
+    IReadOnlyList<GccV2TaskArtifactLineageDto>? Parents = null,
+    IReadOnlyList<GccV2TaskArtifactLineageDto>? Children = null);
+public sealed record GccV2TaskArtifactLineageDto(
+    Guid ParentArtifactVersionId, Guid ChildArtifactVersionId, string Relationship,
+    DateTimeOffset CreatedAtUtc);
+public sealed record CreateGccV2TaskAgentDefinitionCommand(
+    string CapabilityId, string DisplayName, string Description, string Actor);
+public sealed record PatchGccV2TaskAgentDefinitionCommand(
+    string? DisplayName, string? Description, string Actor);
+public sealed record CreateGccV2TaskAgentVersionCommand(
+    string SemanticVersion, string WorkflowGroup, string FacetsJson, string InputSchemaJson,
+    string OutputSchemaJson, string WorkflowJson, string ContextPolicyJson,
+    string ResultRendererJson, string CompatibleArtifactTypesJson, string AllowedToolsJson,
+    string AllowedModelsJson, string SkillVersionIdsJson, string EvaluationThresholdsJson,
+    string Actor);
+public sealed record TransitionGccV2TaskAgentVersionCommand(string Actor, string? Reason);
+public sealed record CreateGccV2TaskRunCommand(
+    string OwnerUserId, Guid TaskAgentDefinitionId, Guid TaskAgentVersionId,
+    string TaskAgentVersionDigest, string InputJson, string InputDigest,
+    Guid? ContextManifestId, string? ContextManifestDigest,
+    string ModelSnapshotJson, string ModelSnapshotDigest,
+    string BudgetSnapshotJson, string BudgetSnapshotDigest,
+    string SourceSnapshotJson, string SourceSnapshotDigest, Guid? RetryOfRunId, string Actor);
+public sealed record TransitionGccV2TaskRunCommand(
+    string Status, string Phase, int ProgressPercent, string EventType,
+    string? EventPayloadJson, string Actor, string? ExpectedClaimedBy,
+    DateTimeOffset? LeaseUntilUtc, string? TerminalError, bool CancellationRequested = false);
+public sealed record AddGccV2TaskRunEventCommand(string Type, string? PayloadJson, string Actor);
+public sealed record CreateGccV2TaskArtifactCommand(
+    string OwnerUserId, string ArtifactType, string Actor, string? ExpectedClaimedBy = null);
+public sealed record CreateGccV2TaskArtifactVersionCommand(
+    string OwnerUserId, string PayloadJson, string EvidenceJson, string CitationsJson,
+    string ValidationState, string ValidationJson, IReadOnlyList<Guid> ParentArtifactVersionIds,
+    string Actor, string? Relationship = null, Guid? Id = null, string? ExpectedClaimedBy = null);
+
 public sealed record GccV2KnowledgeAssetDto(
     Guid Id, string OwnerUserId, string Name, string? Description, Guid? CurrentVersionId,
     bool IsRetired, uint Revision, string TagsJson, string Kind, string Visibility,
@@ -533,3 +604,74 @@ public sealed record QueueGccV2KnowledgeIngestionCommand(
 public sealed record TransitionGccV2ContextIngestionJobCommand(
     string Status, int ProgressPercent, string EventType, string? EventPayloadJson = null,
     string? TerminalError = null, string? IndexState = null);
+
+// Durable canvas projects (multi-asset owner-scoped workspaces).
+
+public sealed record GccV2CanvasProjectListItemDto(
+    Guid Id, string OwnerUserId, string Name, string Description, string Status,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, string ActivityJson, int AssetCount);
+
+public sealed record GccV2CanvasProjectDto(
+    Guid Id, string OwnerUserId, string Name, string Description, string Status,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, string ActivityJson,
+    IReadOnlyList<GccV2CanvasAssetDto> Assets);
+
+public sealed record GccV2CanvasAssetDto(
+    Guid Id, Guid ProjectId, string Title, string Kind, string ParentAssetIdsJson,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc,
+    IReadOnlyList<GccV2CanvasAssetVersionDto> Versions);
+
+public sealed record GccV2CanvasAssetVersionDto(
+    Guid Id, Guid AssetId, int VersionNumber, string Status, string Summary,
+    string EvidenceJson, string ProvenanceJson, string CreatedBy, DateTimeOffset CreatedAtUtc);
+
+public sealed record CreateGccV2CanvasProjectCommand(
+    string OwnerUserId, string Name, string? Description = null, string? Status = null,
+    string? ActivityJson = null);
+
+public sealed record PatchGccV2CanvasProjectCommand(
+    string OwnerUserId, string? Name = null, string? Description = null, string? Status = null,
+    string? ActivityJson = null);
+
+public sealed record CreateGccV2CanvasAssetCommand(
+    string OwnerUserId, string Title, string? Kind = null, IReadOnlyList<Guid>? ParentAssetIds = null);
+
+public sealed record AppendGccV2CanvasAssetVersionCommand(
+    string OwnerUserId, string CreatedBy, string? Status = null, string? Summary = null,
+    string? EvidenceJson = null, string? ProvenanceJson = null);
+
+// Durable batch grids (owner-scoped work-item rows + stub runs).
+
+public sealed record GccV2GridListItemDto(
+    Guid Id, string OwnerUserId, string Name, string Description, string Status,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, string ConfigJson,
+    int RowCount, string? LastRunStatus);
+
+public sealed record GccV2GridDto(
+    Guid Id, string OwnerUserId, string Name, string Description, string Status,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, string ConfigJson,
+    IReadOnlyList<GccV2GridRowDto> Rows, IReadOnlyList<GccV2GridRunDto> Runs);
+
+public sealed record GccV2GridRowDto(
+    Guid Id, Guid GridId, int RowIndex, string InputJson, string? OutputJson,
+    string Status, string? Error, DateTimeOffset UpdatedAtUtc);
+
+public sealed record GccV2GridRunDto(
+    Guid Id, Guid GridId, string Mode, int? SampleSize, string Status, string ActorUserId,
+    DateTimeOffset StartedAtUtc, DateTimeOffset? CompletedAtUtc,
+    string BudgetPreviewJson, string HistoryJson, int OutputCount);
+
+public sealed record CreateGccV2GridCommand(
+    string OwnerUserId, string Name, string? Description = null, string? Status = null,
+    string? ConfigJson = null, bool? SeedDemo = null);
+
+public sealed record PatchGccV2GridCommand(
+    string OwnerUserId, string? Name = null, string? Description = null, string? Status = null,
+    string? ConfigJson = null);
+
+public sealed record CreateGccV2GridRowCommand(
+    string OwnerUserId, string? InputJson = null);
+
+public sealed record CreateGccV2GridRunCommand(
+    string OwnerUserId, string? Mode = null, int? SampleSize = null, string? ActorUserId = null,
+    IReadOnlyDictionary<string, string>? RowArtifactJsonByRowId = null);

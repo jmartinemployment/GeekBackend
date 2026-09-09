@@ -16,6 +16,7 @@ using GeekAPI.Services.ContentCreatorV2.ProjectSite;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
+using GeekAPI.Services.ContentCreatorV2.TaskAgents;
 using GeekAPI.Services.ContentCreatorV2.Transforms;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
@@ -71,6 +72,10 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
+        services.AddScoped<GccV2ProjectSiteKnowledgeService>();
+        services.AddHostedService<GccV2DiagnosticTaskAgentSeeder>();
+        services.AddHostedService<GccV2ContentTaskAgentSeeder>();
+        services.AddHostedService<GccV2TaskRunWorker>();
         services.AddSingleton<GccV2ContextManifestSigner>();
         services.AddScoped<GccV2ContextResolver>();
         services.AddHttpClient<IGccV2ContextObjectStore, GccV2S3ContextObjectStore>();
@@ -93,6 +98,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddHostedService<GccV2ContextRetentionWorker>();
         services.AddSingleton<ContentModelPolicy>();
         services.AddSingleton<GccV2SkillAdminPolicy>();
+        services.AddScoped<GccV2AgenticSkillsResolver>();
         services.AddSingleton<GccV2SkillSnapshotSigner>();
         services.AddScoped<GccV2SkillSnapshotRegistry>();
         services.AddSingleton<GccV2AgentTeamSigner>();

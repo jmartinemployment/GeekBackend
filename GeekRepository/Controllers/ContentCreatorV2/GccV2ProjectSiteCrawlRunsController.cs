@@ -16,6 +16,27 @@ public class GccV2ProjectSiteCrawlRunsController : ControllerBase
 
     public GccV2ProjectSiteCrawlRunsController(ContentCreatorV2DbContext db) => _db = db;
 
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<GccV2ProjectSiteCrawlRun>>> ListByOwner(
+        [FromQuery] string ownerUserId,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            return BadRequest("ownerUserId is required");
+
+        limit = Math.Clamp(limit, 1, 100);
+        var candidates = await _db.GccV2ProjectSiteCrawlRuns.AsNoTracking()
+            .Where(r => r.OwnerUserId == ownerUserId && r.Status == "complete")
+            .OrderByDescending(r => r.CompletedAtUtc ?? r.CreatedAtUtc)
+            .Take(500)
+            .ToListAsync(ct);
+        return Ok(candidates
+            .DistinctBy(r => r.SiteUrl, StringComparer.OrdinalIgnoreCase)
+            .Take(limit)
+            .ToList());
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<GccV2ProjectSiteCrawlRun>> GetById(Guid id, CancellationToken ct)
     {

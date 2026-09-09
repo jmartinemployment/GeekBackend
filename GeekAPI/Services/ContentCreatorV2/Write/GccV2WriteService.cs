@@ -1045,6 +1045,7 @@ public sealed class GccV2WriteService
         var stage = route.IsImagePrompt ? ContentGenerationStage.ImagePrompt : ContentGenerationStage.Complete;
         var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
         var attemptId = Guid.NewGuid().ToString("D");
+        // One-shot complete is always negotiated as rag-generate.v2; Python rejects complete on v3.
         var agentContract = await _skillSnapshots.NegotiateAsync(wc.Job, attemptId, "complete", ct);
         await _events.AppendAsync(wc.Job.Id, ownerUserId, "AgentStageStarted",
             new { stage = "complete", attemptId, executionVersion = agentContract.ExecutionVersion }, ct: ct);

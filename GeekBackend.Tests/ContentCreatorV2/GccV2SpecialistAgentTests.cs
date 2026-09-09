@@ -148,6 +148,58 @@ public sealed class GccV2SpecialistAgentTests
     }
 
     [Fact]
+    public void ReviewerDecisions_BlockOnChangesOrRejection()
+    {
+        var issue = new RagSpecialistReviewIssueDto(
+            "unsupportedClaim", "error", "Evidence", "The claim is unsupported.",
+            "Remove or cite the claim.", null);
+        var approved = new RagSpecialistReviewDto(
+            "reviewerOutput.v1", "section", "approved", "Ready.", [], []);
+        var changes = new RagSpecialistReviewDto(
+            "reviewerOutput.v1", "section", "changesRequired", "Revise.", [issue], []);
+        var rejected = new RagSpecialistReviewDto(
+            "reviewerOutput.v1", "section", "rejected", "Unsafe.", [issue], []);
+
+        Assert.Equal("approved",
+            GccV2SpecialistCoordinator.ClassifyReviews([approved]).Decision);
+        Assert.Equal("changesRequired",
+            GccV2SpecialistCoordinator.ClassifyReviews([approved, changes]).Decision);
+        Assert.Equal("rejected",
+            GccV2SpecialistCoordinator.ClassifyReviews([approved, changes, rejected]).Decision);
+        Assert.False(new RagAgentStoppedException(
+            RagAgentStopReason.ReviewerChangesRequired, "revise").IsTransient);
+        Assert.False(new RagAgentStoppedException(
+            RagAgentStopReason.ReviewerRejected, "reject").IsTransient);
+        Assert.True(new RagAgentStoppedException(
+            RagAgentStopReason.UpstreamFailure, "upstream").IsTransient);
+    }
+
+    [Fact]
+    public void Reviewer_changesRequired_issues_merge_into_validation_for_repair()
+    {
+        var baseValidation = new RagValidationDto
+        {
+            Approved = true,
+            Issues = [],
+            Strengths = ["Clear structure"],
+            UnsupportedClaimCount = 0,
+        };
+        var reviewerIssue = new RagSpecialistReviewIssueDto(
+            "unsupportedClaim", "error", "Evidence", "The claim is unsupported.",
+            "Remove or cite the claim.", null);
+
+        var merged = GeekAPI.Services.ContentCreatorV2.Validate.GccV2ValidateService
+            .MergeReviewerIssuesIntoValidation(baseValidation, [reviewerIssue]);
+
+        Assert.False(merged.Approved);
+        Assert.Single(merged.Issues);
+        Assert.Equal(RagValidationIssueCategory.UnsupportedClaim, merged.Issues[0].Category);
+        Assert.Equal("Evidence", merged.Issues[0].SectionTitle);
+        Assert.Equal("Remove or cite the claim.", merged.Issues[0].RepairInstruction);
+        Assert.Equal(1, merged.UnsupportedClaimCount);
+    }
+
+    [Fact]
     public void AgentTeamSigner_DetectsSnapshotTampering()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

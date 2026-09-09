@@ -10,6 +10,25 @@ public sealed record GccV2SpecialistArtifact(
     Guid AgentVersionId, string Agent, string StageExecutionId,
     string ArtifactDigest, JsonElement Payload, DateTimeOffset CreatedAtUtc);
 
+public sealed record GccV2SpecialistReviewOutcome(
+    string Decision, IReadOnlyList<RagSpecialistReviewIssueDto> Issues);
+
+public sealed class GccV2SpecialistReviewException(
+    string stage, GccV2SpecialistReviewOutcome outcome)
+    : InvalidOperationException(BuildMessage(stage, outcome))
+{
+    public string Stage { get; } = stage;
+    public GccV2SpecialistReviewOutcome Outcome { get; } = outcome;
+
+    private static string BuildMessage(string stage, GccV2SpecialistReviewOutcome outcome)
+    {
+        var details = outcome.Issues.Select(x => x.Detail).Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal).Take(3).ToList();
+        return $"Reviewer {outcome.Decision} for {stage}"
+            + (details.Count == 0 ? "." : $": {string.Join("; ", details)}");
+    }
+}
+
 /// <summary>
 /// Executes real contributor and reviewer FunctionAgents around the canonical producer call.
 /// Every returned typed artifact is digest-verified, persisted, and announced before handoff.
@@ -95,6 +114,7 @@ public sealed class GccV2SpecialistCoordinator(
         var coordinatorExecutionId = producerExecution.CoordinatorExecutionId;
         var contributions = producerRequest.SpecialistContributions?.ToList() ?? [];
         var reviews = producerRequest.SpecialistReviews?.ToList() ?? [];
+        var currentReviews = new List<RagSpecialistReviewDto>();
         foreach (var item in Participants(snapshot, stage, "reviewer"))
         {
             var attemptId = Guid.NewGuid().ToString("D");
@@ -114,9 +134,36 @@ public sealed class GccV2SpecialistCoordinator(
                 ?? throw new InvalidOperationException($"Reviewer '{item.Member.Slug}' omitted specialistReview.");
             await PersistReturnedAsync(job, ownerUserId, item.Member, item.Participation,
                 request.AgentExecution, review, response.SpecialistArtifactDigest, ct);
+            currentReviews.Add(review);
             if (!reviews.Any(x =>
                 GccV2AgentExecutionFactory.CanonicalDigest(x) == response.SpecialistArtifactDigest))
                 reviews.Add(review);
+        }
+
+        var outcome = ClassifyReviews(currentReviews);
+        if (outcome.Decision == "changesRequired")
+        {
+            await events.AppendAsync(job.Id, ownerUserId, "ReviewerChangesRequired", new
+            {
+                stage,
+                issueCount = outcome.Issues.Count,
+                issues = outcome.Issues,
+            }, ct: ct);
+            var review = new GccV2SpecialistReviewException(stage, outcome);
+            throw new RagAgentStoppedException(
+                RagAgentStopReason.ReviewerChangesRequired, review.Message, outcome.Issues);
+        }
+        if (outcome.Decision == "rejected")
+        {
+            await events.AppendAsync(job.Id, ownerUserId, "ReviewerRejected", new
+            {
+                stage,
+                issueCount = outcome.Issues.Count,
+                issues = outcome.Issues,
+            }, ct: ct);
+            var review = new GccV2SpecialistReviewException(stage, outcome);
+            throw new RagAgentStoppedException(
+                RagAgentStopReason.ReviewerRejected, review.Message, outcome.Issues);
         }
     }
 
@@ -169,6 +216,19 @@ public sealed class GccV2SpecialistCoordinator(
     public static IReadOnlyList<string> DeterministicParticipantOrder(
         GccV2AgentTeamSnapshot snapshot, string stage, string role) =>
         Participants(snapshot, stage, role).Select(x => x.Member.Slug).ToList();
+
+    public static GccV2SpecialistReviewOutcome ClassifyReviews(
+        IReadOnlyList<RagSpecialistReviewDto> reviews)
+    {
+        var decision = reviews.Any(x => string.Equals(x.Decision, "rejected", StringComparison.OrdinalIgnoreCase))
+            ? "rejected"
+            : reviews.Any(x => string.Equals(x.Decision, "changesRequired", StringComparison.OrdinalIgnoreCase))
+                ? "changesRequired"
+                : "approved";
+        return new GccV2SpecialistReviewOutcome(
+            decision,
+            reviews.SelectMany(x => x.Issues ?? []).ToList());
+    }
 
     private async Task<(IReadOnlyList<RagSpecialistContributionDto> Contributions,
         IReadOnlyList<RagSpecialistReviewDto> Reviews)> LoadArtifactsAsync(Guid jobId, CancellationToken ct)

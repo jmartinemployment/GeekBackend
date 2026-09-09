@@ -211,6 +211,8 @@ public sealed class GccV2JobWorker : BackgroundService
         RagAgentStopReason.InvalidStructuredOutput => "invalid_structured_output",
         RagAgentStopReason.ToolDenied => "tool_denied",
         RagAgentStopReason.EvidenceFailure => "evidence_failure",
+        RagAgentStopReason.ReviewerChangesRequired => "reviewer_changes_required",
+        RagAgentStopReason.ReviewerRejected => "reviewer_rejected",
         RagAgentStopReason.UpstreamFailure => "upstream_failure",
         RagAgentStopReason.Cancelled => "cancelled",
         RagAgentStopReason.TimedOut => "timed_out",
@@ -309,8 +311,19 @@ public sealed class GccV2JobWorker : BackgroundService
         try
         {
             await writer.AppendAsync(jobId, ownerUserId, "AgentStageStarted",
+                new { stage = "researchPlanning" }, ct: ct);
+            await writer.AppendAsync(jobId, ownerUserId, "AgentStageStarted",
                 new { stage = "outline" }, ct: ct);
             outline = await planService.BuildOutlineAsync(job, brief, ct);
+            if (outline.ResearchPlan is { Count: > 0 } plan)
+            {
+                await writer.AppendAsync(jobId, ownerUserId, "AgentStageCompleted", new
+                {
+                    stage = "researchPlanning",
+                    queryCount = plan.Count,
+                    queries = plan,
+                }, ct: ct);
+            }
         }
         catch (Exception ex) when (ex is not RagAgentStoppedException)
         {

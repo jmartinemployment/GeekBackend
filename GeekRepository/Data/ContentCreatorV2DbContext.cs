@@ -57,11 +57,27 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2RunContextManifestEntry> GccV2RunContextManifestEntries => Set<GccV2RunContextManifestEntry>();
     public virtual DbSet<GccV2ContextFinding> GccV2ContextFindings => Set<GccV2ContextFinding>();
     public virtual DbSet<GccV2ContextAuditEvent> GccV2ContextAuditEvents => Set<GccV2ContextAuditEvent>();
+    public virtual DbSet<GccV2TaskAgentDefinition> GccV2TaskAgentDefinitions => Set<GccV2TaskAgentDefinition>();
+    public virtual DbSet<GccV2TaskAgentVersion> GccV2TaskAgentVersions => Set<GccV2TaskAgentVersion>();
+    public virtual DbSet<GccV2TaskRun> GccV2TaskRuns => Set<GccV2TaskRun>();
+    public virtual DbSet<GccV2TaskRunEvent> GccV2TaskRunEvents => Set<GccV2TaskRunEvent>();
+    public virtual DbSet<GccV2TaskArtifact> GccV2TaskArtifacts => Set<GccV2TaskArtifact>();
+    public virtual DbSet<GccV2TaskArtifactVersion> GccV2TaskArtifactVersions => Set<GccV2TaskArtifactVersion>();
+    public virtual DbSet<GccV2TaskArtifactLineage> GccV2TaskArtifactLineage => Set<GccV2TaskArtifactLineage>();
+    public virtual DbSet<GccV2CanvasProject> GccV2CanvasProjects => Set<GccV2CanvasProject>();
+    public virtual DbSet<GccV2CanvasAsset> GccV2CanvasAssets => Set<GccV2CanvasAsset>();
+    public virtual DbSet<GccV2CanvasAssetVersion> GccV2CanvasAssetVersions => Set<GccV2CanvasAssetVersion>();
+    public virtual DbSet<GccV2Grid> GccV2Grids => Set<GccV2Grid>();
+    public virtual DbSet<GccV2GridRow> GccV2GridRows => Set<GccV2GridRow>();
+    public virtual DbSet<GccV2GridRun> GccV2GridRuns => Set<GccV2GridRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("content_creator_v2");
         modelBuilder.ConfigureGccV2GovernedContext();
+        modelBuilder.ConfigureGccV2TaskAgentKernel();
+        modelBuilder.ConfigureGccV2CanvasProjects();
+        modelBuilder.ConfigureGccV2Grids();
 
         modelBuilder.Entity<GccV2Create>(entity =>
         {

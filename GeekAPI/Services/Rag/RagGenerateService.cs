@@ -989,6 +989,9 @@ public sealed class RagGenerateService
                 AgentExecution = request.AgentExecution,
                 SpecialistContributions = request.SpecialistContributions,
                 SpecialistReviews = request.SpecialistReviews,
+                ResearchPlan = request.ResearchPlan?
+                    .Select(q => new GeekCrawlerRagResearchQueryPlanDto(q.RunId, q.CrawlType, q.Need))
+                    .ToList(),
             },
             ct).ConfigureAwait(false);
 
@@ -1152,6 +1155,9 @@ public sealed class RagGenerateService
                     EvidenceIds = s.EvidenceIds,
                 })
                 .ToList(),
+            ResearchPlan = result.ResearchPlan?
+                .Select(q => new RagResearchQueryPlanDto(q.RunId, q.CrawlType, q.Need))
+                .ToList(),
             AppliedTemplates = family == RagRetrievalFamily.ShortForm && templates.Count > 0
                 ? templates.ToList()
                 : null,
@@ -1258,6 +1264,7 @@ public sealed class RagGenerateService
         return stage switch
         {
             "outline" or "section" or "repair" or "validation" or "complete" => stage,
+            "researchplanning" or "research" => "researchPlanning",
             "finalsynthesis" or "final-synthesis" => "finalSynthesis",
             _ => "complete",
         };

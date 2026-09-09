@@ -151,9 +151,44 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
         var resource = version.Resources.SingleOrDefault(x => x.ResourceKind == "original"
             && x.ObjectKey == command.ObjectKey && x.ByteSize == command.ByteSize && x.Sha256 == command.Sha256);
         if (resource is null) return Conflict("Final object metadata does not match the registered resource.");
-        if (await db.GccV2ContextIngestionJobs.AnyAsync(
-                x => x.TargetKind == "knowledge" && x.TargetId == versionId, ct))
-            return Conflict("Ingestion was already queued.");
+
+        var existingJob = await db.GccV2ContextIngestionJobs
+            .Include(x => x.Events)
+            .Where(x => x.TargetKind == "knowledge" && x.TargetId == versionId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        if (existingJob is not null)
+        {
+            // Idempotent re-promote: wake in-flight jobs; revive failed/canceled ones so stuck
+            // "processing" promotions can recover without creating a duplicate queue row.
+            if (existingJob.Status is "failed" or "canceled")
+            {
+                existingJob.Status = "queued";
+                existingJob.ProgressPercent = 0;
+                existingJob.TerminalError = null;
+                existingJob.ClaimedByInstanceId = null;
+                existingJob.ClaimedAtUtc = null;
+                existingJob.LeaseUntilUtc = null;
+                existingJob.HeartbeatAtUtc = null;
+                existingJob.CompletedAtUtc = null;
+                existingJob.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                version.ExtractionState = "queued";
+                version.IndexState = "pending";
+                var seq = existingJob.Events.Count == 0 ? 1 : existingJob.Events.Max(x => x.Seq) + 1;
+                existingJob.Events.Add(new GccV2ContextIngestionEvent
+                {
+                    Seq = seq,
+                    Type = "Requeued",
+                    PayloadJson = """{"reason":"promote-to-source retry"}""",
+                });
+                await db.SaveChangesAsync(ct);
+            }
+
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_notify({IngestionNotifyChannel}, {existingJob.Id.ToString()})", ct);
+            return Ok(existingJob);
+        }
+
         version.ExtractionState = "queued";
         version.IndexState = "pending";
         var job = new GccV2ContextIngestionJob
