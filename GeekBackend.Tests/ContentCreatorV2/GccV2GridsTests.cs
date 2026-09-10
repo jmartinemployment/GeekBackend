@@ -79,6 +79,48 @@ public sealed class GccV2GridsTests
     }
 
     [Fact]
+    public async Task Create_seedDemo_pillar_outline_uses_topic_rows_and_outline_preview()
+    {
+        await using var db = Db();
+        await SeedPublishedPillarAgentAsync(db);
+        var controller = new GccV2GridsController(db);
+        const string owner = "11111111-1111-1111-1111-111111111111";
+
+        var created = Assert.IsType<GccV2Grid>(Assert.IsType<CreatedAtActionResult>(
+            (await controller.Create(
+                new(owner, "Pillar launch batch", SeedDemo: true, Capability: "pillar-outline"),
+                default)).Result).Value);
+        Assert.Equal(12, created.Rows.Count);
+        Assert.Contains("pillar-outline", created.ConfigJson);
+        Assert.Contains("Evidence Engine", created.Rows[0].InputJson);
+        Assert.DoesNotContain("What is Evidence Engine?", created.Rows[0].InputJson);
+
+        var afterRun = Assert.IsType<GccV2Grid>(Assert.IsType<OkObjectResult>(
+            (await controller.CreateRun(created.Id, new(owner, "sample"), default)).Result).Value);
+        Assert.Equal(10, afterRun.Runs[0].OutputCount);
+
+        using var output = JsonDocument.Parse(
+            afterRun.Rows.OrderBy(r => r.RowIndex).First(r => r.Status == "succeeded").OutputJson!);
+        Assert.Equal("pillar-outline", output.RootElement.GetProperty("capability").GetString());
+        Assert.Equal("pillar-outline", output.RootElement.GetProperty("endpoint").GetString());
+        Assert.StartsWith("Pillar outline for:", output.RootElement.GetProperty("result").GetString());
+        Assert.Equal(
+            "pillarOutline.v1",
+            output.RootElement.GetProperty("artifact").GetProperty("artifactType").GetString());
+    }
+
+    [Fact]
+    public async Task Create_rejects_unsupported_capability()
+    {
+        await using var db = Db();
+        var controller = new GccV2GridsController(db);
+        const string owner = "11111111-1111-1111-1111-111111111111";
+
+        Assert.IsType<BadRequestObjectResult>((await controller.Create(
+            new(owner, "Bad", SeedDemo: true, Capability: "comparison-brief"), default)).Result);
+    }
+
+    [Fact]
     public async Task Sample_run_fails_rows_when_no_published_agent_exists()
     {
         await using var db = Db();
@@ -201,6 +243,29 @@ public sealed class GccV2GridsTests
                 """{"manifest":"optional","version":"context-policy.v1"}""",
                 """{"component":"faq-list","shell":"gcc-task-result-shell.v1"}""",
                 """{"downstream":["schemaMarkup.v1"],"upstream":["queryPlan.v1"]}""",
+                """[]""", """["o3"]""", "[]",
+                """{"minimumScore":0.8}""", "admin"), default)).Result).Value);
+        Assert.IsType<OkObjectResult>((await agents.TransitionVersion(
+            version.Id, "publish", new("admin", null), default)).Result);
+    }
+
+    private static async Task SeedPublishedPillarAgentAsync(ContentCreatorV2DbContext db)
+    {
+        var agents = new GccV2TaskAgentsController(db);
+        var definition = Assert.IsType<GccV2TaskAgentDefinition>(Assert.IsType<CreatedAtActionResult>(
+            (await agents.Create(new(
+                "pillar-outline", "Pillar Article Outline",
+                "Produce a topic-cluster pillar outline.", "admin"), default)).Result).Value);
+        var version = Assert.IsType<GccV2TaskAgentVersion>(Assert.IsType<CreatedAtActionResult>(
+            (await agents.CreateVersion(definition.Id, new(
+                "1.0.0", "originate",
+                """{"contentType":["pillar"],"funnelStage":["awareness"],"marketingFunction":["seo"],"process":["originate"]}""",
+                """{"additionalProperties":false,"properties":{"topic":{"type":"string"}},"required":["topic"],"type":"object"}""",
+                """{"properties":{"sections":{"type":"array"}},"required":["sections"],"type":"object"}""",
+                """{"engine":"geek-crawler-rag","endpoint":"pillar-outline","artifactType":"pillarOutline.v1"}""",
+                """{"manifest":"optional","version":"context-policy.v1"}""",
+                """{"component":"outline","shell":"gcc-task-result-shell.v1"}""",
+                """{"downstream":["faqSet.v1"],"upstream":["queryPlan.v1"]}""",
                 """[]""", """["o3"]""", "[]",
                 """{"minimumScore":0.8}""", "admin"), default)).Result).Value);
         Assert.IsType<OkObjectResult>((await agents.TransitionVersion(

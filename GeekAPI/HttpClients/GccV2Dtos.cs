@@ -663,7 +663,7 @@ public sealed record GccV2GridRunDto(
 
 public sealed record CreateGccV2GridCommand(
     string OwnerUserId, string Name, string? Description = null, string? Status = null,
-    string? ConfigJson = null, bool? SeedDemo = null);
+    string? ConfigJson = null, bool? SeedDemo = null, string? Capability = null);
 
 public sealed record PatchGccV2GridCommand(
     string OwnerUserId, string? Name = null, string? Description = null, string? Status = null,

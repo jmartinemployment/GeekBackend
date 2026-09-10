@@ -14,7 +14,7 @@ public sealed class GccV2RoiController(
     ICurrentUserContext user,
     HttpGccV2Repository repo) : ControllerBase
 {
-    private const string ContractVersion = "gcc-roi-observed.v1";
+    private const string ContractVersion = "gcc-roi-observed.v2";
 
     private string Owner => user.UserId.ToString("D");
 
@@ -35,15 +35,15 @@ public sealed class GccV2RoiController(
             string.Equals(r.Status, "failed", StringComparison.OrdinalIgnoreCase));
         var cancelled = window.Count(r =>
             string.Equals(r.Status, "cancelled", StringComparison.OrdinalIgnoreCase));
-        // Until CMS publish telemetry is wired, treat successful TaskRuns as the closest
-        // observed "published" handoff count and label the source honestly.
-        var published = accepted;
+
+        var published = await CountPublishedCanvasAssetsAsync(since, ct);
 
         var reviewMinutes = window
             .Where(r => r.CompletedAtUtc is not null)
             .Select(r => Math.Max(0, (r.CompletedAtUtc!.Value - r.CreatedAtUtc).TotalMinutes))
             .Sum();
 
+        var empty = generated == 0 && accepted == 0 && published == 0;
         return Ok(new
         {
             contractVersion = ContractVersion,
@@ -55,15 +55,42 @@ public sealed class GccV2RoiController(
                 rejectedCount = rejected,
                 cancelledCount = cancelled,
                 reviewMinutes = (int)Math.Round(reviewMinutes),
-                periodLabel = $"Last {days} days (TaskRuns)",
-                source = generated == 0 && accepted == 0 ? "empty" : "telemetry",
+                lookbackDays = days,
+                periodLabel = $"Last {days} days (TaskRuns + Canvas publishes)",
+                source = empty ? "empty" : "telemetry",
                 notes = new[]
                 {
-                    "Counts are owner-scoped TaskRun outcomes, not cash ROI.",
-                    "publishedCount currently mirrors succeeded TaskRuns until CMS publish events are linked.",
-                    "reviewMinutes approximates wall-clock run duration for terminal runs.",
+                    "Counts are owner-scoped workflow outcomes, not cash ROI.",
+                    "generated/accepted/rejected come from TaskRuns in the lookback window.",
+                    "publishedCount counts Canvas asset versions whose latest status is published in the window.",
+                    "reviewMinutes approximates wall-clock TaskRun duration for terminal runs.",
                 },
             },
         });
+    }
+
+    private async Task<int> CountPublishedCanvasAssetsAsync(
+        DateTimeOffset since, CancellationToken ct)
+    {
+        var projects = await repo.ListCanvasProjectsAsync(Owner, ct);
+        var published = 0;
+        foreach (var item in projects)
+        {
+            var project = await repo.GetCanvasProjectAsync(item.Id, Owner, ct);
+            if (project is null) continue;
+            foreach (var asset in project.Assets)
+            {
+                var latest = asset.Versions
+                    .OrderByDescending(v => v.VersionNumber)
+                    .FirstOrDefault();
+                if (latest is null) continue;
+                if (!string.Equals(latest.Status, "published", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (latest.CreatedAtUtc >= since)
+                    published++;
+            }
+        }
+
+        return published;
     }
 }

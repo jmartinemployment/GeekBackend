@@ -108,6 +108,40 @@ public sealed class GccV2ContentTaskAgentSeeder(
                 new { id = "vagueStatements", label = "Vague statements to rewrite", type = "longText", required = false },
             },
         },
+        "comparison-brief" => new
+        {
+            fields = new object[]
+            {
+                new { id = "subjectName", label = "Subject name", type = "shortText", required = true },
+                new { id = "competitorName", label = "Competitor name", type = "shortText", required = true },
+                new { id = "subjectContent", label = "Subject page content", type = "longText", required = true },
+                new { id = "competitorContent", label = "Competitor page content", type = "longText", required = true },
+                new { id = "sourceUrl", label = "Subject URL", type = "shortText", required = false },
+            },
+        },
+        "pillar-outline" => new
+        {
+            fields = new object[]
+            {
+                new { id = "topic", label = "Topic", type = "shortText", required = true },
+                new { id = "relatedQueries", label = "Related queries", type = "longText", required = false },
+                new { id = "supportingContentHints", label = "Supporting content hints", type = "longText", required = false },
+                new { id = "sourceContent", label = "Source content", type = "longText", required = false },
+                new { id = "sourceUrl", label = "Source URL", type = "shortText", required = false },
+            },
+        },
+        "competitive-response" => new
+        {
+            fields = new object[]
+            {
+                new { id = "brandName", label = "Brand name", type = "shortText", required = true },
+                new { id = "competitorName", label = "Competitor name", type = "shortText", required = true },
+                new { id = "brandContent", label = "Brand page content", type = "longText", required = true },
+                new { id = "competitorContent", label = "Competitor page content", type = "longText", required = true },
+                new { id = "focusQuery", label = "Focus query", type = "shortText", required = false },
+                new { id = "sourceUrl", label = "Brand URL", type = "shortText", required = false },
+            },
+        },
         _ => null,
     };
 

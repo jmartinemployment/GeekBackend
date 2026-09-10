@@ -58,7 +58,9 @@ public sealed class GccV2StudioController(
             "You are a brand-safe marketing assistant.\nOutcome: {{outcome}}\nUse only attached approved context.",
             "{\n  \"summary\": \"…\",\n  \"sections\": []\n}",
             "gpt-5.4",
-            0.2);
+            0.2,
+            EvaluationPrompt: "Output must be valid JSON matching the example shape.",
+            ContextKnowledgeIds: []);
 
         var definition = await repo.CreateTaskAgentAsync(new(
             capabilityId, draft.Name!, draft.Outcome!, Owner), ct);
@@ -139,6 +141,8 @@ public sealed class GccV2StudioController(
             request.Input, version.InputSchemaJson);
         string? exampleOutput = null;
         string instructionsTemplate = "";
+        string evaluationPrompt = "";
+        var knowledgeCount = 0;
         using (var workflow = JsonDocument.Parse(version.WorkflowJson))
         {
             if (workflow.RootElement.TryGetProperty("instructionsTemplate", out var template)
@@ -147,25 +151,41 @@ public sealed class GccV2StudioController(
             if (workflow.RootElement.TryGetProperty("exampleOutput", out var example)
                 && example.ValueKind == JsonValueKind.String)
                 exampleOutput = example.GetString();
+            if (workflow.RootElement.TryGetProperty("evaluationPrompt", out var evaluation)
+                && evaluation.ValueKind == JsonValueKind.String)
+                evaluationPrompt = evaluation.GetString() ?? "";
+            if (workflow.RootElement.TryGetProperty("contextKnowledgeIds", out var knowledge)
+                && knowledge.ValueKind == JsonValueKind.Array)
+                knowledgeCount = knowledge.GetArrayLength();
         }
 
         var render = GccV2StudioTemplateRenderer.Render(
             instructionsTemplate, definition.DisplayName, definition.Description, request.Input);
         var missingExample = string.IsNullOrWhiteSpace(exampleOutput);
-        var valid = validationErrors.Count == 0 && render.MissingTokens.Count == 0 && !missingExample;
+        var missingEvaluation = string.IsNullOrWhiteSpace(evaluationPrompt);
+        var valid = validationErrors.Count == 0
+            && render.MissingTokens.Count == 0
+            && !missingExample
+            && !missingEvaluation;
         var message = valid
-            ? "Dry-run passed."
+            ? knowledgeCount > 0
+                ? $"Dry-run passed. Evaluation criteria on file. {knowledgeCount} knowledge attachment(s)."
+                : "Dry-run passed. Evaluation criteria on file."
             : validationErrors.Count > 0
                 ? $"Input schema validation failed: {string.Join(" ", validationErrors)}"
                 : render.MissingTokens.Count > 0
                     ? $"Unresolved template tokens: {string.Join(", ", render.MissingTokens)}."
-                    : "Example output is required before the dry-run can pass.";
+                    : missingExample
+                        ? "Example output is required before the dry-run can pass."
+                        : "Evaluation prompt is required before the dry-run can pass.";
         return Ok(new
         {
             valid,
             renderedInstructions = render.RenderedInstructions,
             missingTokens = render.MissingTokens,
             validationErrors,
+            evaluationPrompt,
+            knowledgeAttachmentCount = knowledgeCount,
             message,
         });
     }
@@ -192,8 +212,38 @@ public sealed class GccV2StudioController(
         var published = await repo.TransitionTaskAgentVersionAsync(
             draft.Id, "publish", new(Owner, "Published from Custom Agent Studio."), ct);
         definition = await repo.GetTaskAgentAsync(definition.Id.ToString("D"), ct) ?? definition;
-        var publishedFacets = GccV2StudioTemplateRenderer.TryParseFacets(published.FacetsJson)!;
-        return Ok(StudioDetail(definition, published, publishedFacets));
+
+        var successorBody = DraftBodyFromPublished(definition, published);
+        var successor = await CreateDraftVersionAsync(definition, successorBody, ct);
+        definition = await repo.GetTaskAgentAsync(definition.Id.ToString("D"), ct) ?? definition;
+        var successorFacets = GccV2StudioTemplateRenderer.TryParseFacets(successor.FacetsJson)!;
+        return Ok(new
+        {
+            contractVersion = "gcc-studio-agent.v1",
+            agent = StudioSummary(definition, successor, successorFacets),
+            inputSchema = JsonSerializer.Deserialize<JsonElement>(successor.InputSchemaJson),
+            outputSchema = JsonSerializer.Deserialize<JsonElement>(successor.OutputSchemaJson),
+            workflow = JsonSerializer.Deserialize<JsonElement>(successor.WorkflowJson),
+            contextPolicy = JsonSerializer.Deserialize<JsonElement>(successor.ContextPolicyJson),
+            resultRenderer = JsonSerializer.Deserialize<JsonElement>(successor.ResultRendererJson),
+            compatibleArtifactTypes = JsonSerializer.Deserialize<JsonElement>(successor.CompatibleArtifactTypesJson),
+            allowedModels = JsonSerializer.Deserialize<JsonElement>(successor.AllowedModelsJson),
+            evaluationThresholds = JsonSerializer.Deserialize<JsonElement>(successor.EvaluationThresholdsJson),
+            digests = new
+            {
+                successor.InputSchemaDigest,
+                successor.OutputSchemaDigest,
+                successor.WorkflowDigest,
+                successor.VersionDigest,
+            },
+            publishedVersion = new
+            {
+                versionId = published.Id.ToString("D"),
+                version = published.SemanticVersion,
+                digest = published.VersionDigest,
+            },
+            message = $"Published {published.SemanticVersion}. Successor draft {successor.SemanticVersion} is ready.",
+        });
     }
 
     [HttpPost("agents/{idOrCapability}/deprecate")]
@@ -255,6 +305,12 @@ public sealed class GccV2StudioController(
         var uiSchema = draft.UiSchema is { ValueKind: JsonValueKind.Object } ui
             ? (object)ui
             : new { fields };
+        var knowledgeIds = (draft.ContextKnowledgeIds ?? [])
+            .Select(id => (id ?? "").Trim())
+            .Where(id => id.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .Take(10)
+            .ToArray();
         var workflow = new Dictionary<string, object?>
         {
             ["engine"] = GccV2StudioTemplateRenderer.Engine,
@@ -264,10 +320,9 @@ public sealed class GccV2StudioController(
             ["exampleOutput"] = draft.ExampleOutput ?? "",
             ["temperature"] = draft.Temperature,
             ["uiSchema"] = uiSchema,
+            ["evaluationPrompt"] = draft.EvaluationPrompt ?? "",
+            ["contextKnowledgeIds"] = knowledgeIds,
         };
-        if (!string.IsNullOrWhiteSpace(draft.EvaluationPrompt))
-            workflow["evaluationPrompt"] = draft.EvaluationPrompt;
-
         var facets = new
         {
             category = GccV2StudioTemplateRenderer.Category,
@@ -291,6 +346,111 @@ public sealed class GccV2StudioController(
             "[]",
             """{"requiresExampleOutput":true,"dryRunRequired":true}""",
             Owner), ct);
+    }
+
+    private static StudioDraftBody DraftBodyFromPublished(
+        GccV2TaskAgentDefinitionDto definition,
+        GccV2TaskAgentVersionDto published)
+    {
+        var facets = GccV2StudioTemplateRenderer.TryParseFacets(published.FacetsJson);
+        var visibility = facets?.Visibility is "admin_shared" ? "admin_shared" : "private";
+        var fields = new List<StudioFieldBody>();
+        var instructionsTemplate = "";
+        var exampleOutput = "";
+        var evaluationPrompt = "";
+        double temperature = 0.2;
+        var knowledgeIds = new List<string>();
+        JsonElement? uiSchema = null;
+
+        try
+        {
+            using var workflow = JsonDocument.Parse(
+                string.IsNullOrWhiteSpace(published.WorkflowJson) ? "{}" : published.WorkflowJson);
+            var root = workflow.RootElement;
+            if (root.TryGetProperty("instructionsTemplate", out var template)
+                && template.ValueKind == JsonValueKind.String)
+                instructionsTemplate = template.GetString() ?? "";
+            if (root.TryGetProperty("exampleOutput", out var example)
+                && example.ValueKind == JsonValueKind.String)
+                exampleOutput = example.GetString() ?? "";
+            if (root.TryGetProperty("evaluationPrompt", out var evaluation)
+                && evaluation.ValueKind == JsonValueKind.String)
+                evaluationPrompt = evaluation.GetString() ?? "";
+            if (root.TryGetProperty("temperature", out var temp)
+                && temp.ValueKind == JsonValueKind.Number)
+                temperature = temp.GetDouble();
+            if (root.TryGetProperty("contextKnowledgeIds", out var knowledge)
+                && knowledge.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in knowledge.EnumerateArray())
+                {
+                    if (entry.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(entry.GetString()))
+                        knowledgeIds.Add(entry.GetString()!);
+                }
+            }
+            if (root.TryGetProperty("uiSchema", out var schema)
+                && schema.ValueKind == JsonValueKind.Object)
+            {
+                uiSchema = schema.Clone();
+                if (schema.TryGetProperty("fields", out var fieldArray)
+                    && fieldArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var field in fieldArray.EnumerateArray())
+                    {
+                        if (field.ValueKind != JsonValueKind.Object) continue;
+                        var id = field.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+                            ? idEl.GetString() ?? ""
+                            : "";
+                        var label = field.TryGetProperty("label", out var labelEl) && labelEl.ValueKind == JsonValueKind.String
+                            ? labelEl.GetString() ?? ""
+                            : "";
+                        var type = field.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String
+                            ? typeEl.GetString() ?? "shortText"
+                            : "shortText";
+                        var required = field.TryGetProperty("required", out var reqEl)
+                            && reqEl.ValueKind == JsonValueKind.True;
+                        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(label)) continue;
+                        fields.Add(new StudioFieldBody(id, label, type, required));
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Keep defaults when workflow JSON is malformed.
+        }
+
+        var allowedModel = "gpt-5.4";
+        try
+        {
+            using var models = JsonDocument.Parse(
+                string.IsNullOrWhiteSpace(published.AllowedModelsJson) ? "[]" : published.AllowedModelsJson);
+            if (models.RootElement.ValueKind == JsonValueKind.Array
+                && models.RootElement.GetArrayLength() > 0
+                && models.RootElement[0].ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(models.RootElement[0].GetString()))
+            {
+                allowedModel = models.RootElement[0].GetString()!;
+            }
+        }
+        catch (JsonException)
+        {
+            // Keep default model.
+        }
+
+        return new StudioDraftBody(
+            definition.DisplayName,
+            definition.Description,
+            visibility,
+            fields,
+            instructionsTemplate,
+            exampleOutput,
+            allowedModel,
+            temperature,
+            uiSchema,
+            evaluationPrompt,
+            knowledgeIds);
     }
 
     private static object BuildInputSchema(IReadOnlyList<StudioFieldBody> fields)
@@ -445,6 +605,7 @@ public sealed class GccV2StudioController(
         IReadOnlyList<StudioFieldBody> Fields,
         string InstructionsTemplate, string ExampleOutput,
         string AllowedModel, double Temperature,
-        JsonElement? UiSchema = null, string? EvaluationPrompt = null);
+        JsonElement? UiSchema = null, string? EvaluationPrompt = null,
+        IReadOnlyList<string>? ContextKnowledgeIds = null);
     public sealed record StudioDryRunBody(JsonElement Input);
 }

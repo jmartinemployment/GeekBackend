@@ -17,12 +17,14 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
 {
     private const int MaxRunsInGraph = 20;
     private const string DefaultExecutionNote =
-        "Sample/full runs create one durable TaskRun per selected row; GeekAPI supplies RAG faq-set artifacts when available, otherwise in-process deterministic payloads.";
+        "Sample/full runs create one durable TaskRun per selected row; GeekAPI supplies RAG content artifacts when available, otherwise in-process deterministic payloads.";
 
     private static readonly HashSet<string> GridStatuses =
         ["draft", "ready", "running", "complete"];
     private static readonly HashSet<string> RunModes =
         ["sample", "full"];
+    private static readonly HashSet<string> DemoCapabilities =
+        ["faq-generator", "pillar-outline"];
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -30,19 +32,7 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    private static readonly string DefaultConfigJson = JsonSerializer.Serialize(new
-    {
-        columns = new object[]
-        {
-            new { key = "topic", kind = "input", label = "Topic" },
-            new { key = "agent", kind = "agent", label = "FAQ Generator", capability = "faq-generator" },
-            new { key = "output", kind = "output", label = "Result" },
-        },
-        creditsPerRow = 1,
-        executionNote = DefaultExecutionNote,
-    }, JsonOpts);
-
-    private static readonly string[] DemoTopics =
+    private static readonly string[] FaqDemoTopics =
     [
         "What is Evidence Engine?",
         "How does RAG grounding work?",
@@ -58,6 +48,47 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
         "How do I preview estimated credits?",
     ];
 
+    private static readonly string[] PillarDemoTopics =
+    [
+        "Evidence Engine",
+        "RAG grounding",
+        "Brand voice approvals",
+        "Credit budgets for batch runs",
+        "Source library citations",
+        "Failed row recovery",
+        "Sample versus full runs",
+        "FAQ output publishing",
+        "Owner isolation",
+        "TaskRun fan-out",
+        "Canvas asset reuse",
+        "Estimated credit previews",
+    ];
+
+    private static string BuildDefaultConfigJson(string capability)
+    {
+        var (label, capabilityId) = capability switch
+        {
+            "pillar-outline" => ("Pillar Article Outline", "pillar-outline"),
+            _ => ("FAQ Generator", "faq-generator"),
+        };
+        return JsonSerializer.Serialize(new
+        {
+            columns = new object[]
+            {
+                new { key = "topic", kind = "input", label = "Topic" },
+                new { key = "agent", kind = "agent", label, capability = capabilityId },
+                new { key = "output", kind = "output", label = "Result" },
+            },
+            creditsPerRow = 1,
+            executionNote = DefaultExecutionNote,
+        }, JsonOpts);
+    }
+
+    private static string NormalizeDemoCapability(string? capability)
+    {
+        var value = string.IsNullOrWhiteSpace(capability) ? "faq-generator" : capability.Trim();
+        return DemoCapabilities.Contains(value) ? value : "";
+    }
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<GridListItem>>> List(
         [FromQuery] string ownerUserId, CancellationToken ct)
@@ -112,6 +143,10 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
         if (!GridStatuses.Contains(status))
             return BadRequest($"status must be one of: {string.Join(", ", GridStatuses)}.");
 
+        var capability = NormalizeDemoCapability(command.Capability);
+        if (capability.Length == 0)
+            return BadRequest($"capability must be one of: {string.Join(", ", DemoCapabilities)}.");
+
         var now = DateTimeOffset.UtcNow;
         var seedDemo = command.SeedDemo == true;
         var grid = new GccV2Grid
@@ -121,7 +156,7 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
             Description = (command.Description ?? string.Empty).Trim(),
             Status = seedDemo ? "ready" : status,
             ConfigJson = string.IsNullOrWhiteSpace(command.ConfigJson)
-                ? DefaultConfigJson
+                ? BuildDefaultConfigJson(capability)
                 : command.ConfigJson,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
@@ -130,15 +165,20 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
         if (seedDemo)
         {
             if (string.IsNullOrWhiteSpace(command.Description))
-                grid.Description = "Twelve FAQ topics ready for a sample stub run.";
+            {
+                grid.Description = capability == "pillar-outline"
+                    ? "Twelve pillar topics ready for a sample stub run."
+                    : "Twelve FAQ topics ready for a sample stub run.";
+            }
 
-            for (var i = 0; i < DemoTopics.Length; i++)
+            var topics = capability == "pillar-outline" ? PillarDemoTopics : FaqDemoTopics;
+            for (var i = 0; i < topics.Length; i++)
             {
                 grid.Rows.Add(new GccV2GridRow
                 {
                     GridId = grid.Id,
                     RowIndex = i,
-                    InputJson = JsonSerializer.Serialize(new { topic = DemoTopics[i] }, JsonOpts),
+                    InputJson = JsonSerializer.Serialize(new { topic = topics[i] }, JsonOpts),
                     Status = "pending",
                     UpdatedAtUtc = now,
                 });
@@ -513,6 +553,42 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
             }, JsonOpts);
         }
 
+        if (string.Equals(artifactType, "pillarOutline.v1", StringComparison.OrdinalIgnoreCase))
+        {
+            return JsonSerializer.Serialize(new
+            {
+                artifactType = "pillarOutline.v1",
+                methodology = "grid-sync.v1",
+                topic,
+                sections = new[]
+                {
+                    new
+                    {
+                        sectionId = "sec-1",
+                        heading = $"What is {topic}?",
+                        objective = $"Define {topic} in answer-first language.",
+                        answerFirstPrompt = $"{topic} is introduced with a direct answer and supporting evidence.",
+                        relatedQueries = Array.Empty<string>(),
+                        evidenceIds = Array.Empty<string>(),
+                    },
+                },
+                supportingContentPlan = new[]
+                {
+                    new
+                    {
+                        contentType = "faq",
+                        title = $"{topic} FAQ",
+                        rationale = "Capture definitional queries as reusable FAQ pairs.",
+                        origin = "generatedHypothesis",
+                    },
+                },
+                warnings = new[]
+                {
+                    "Supporting content plans are labeled generatedHypothesis.",
+                },
+            }, JsonOpts);
+        }
+
         return JsonSerializer.Serialize(new
         {
             artifactType,
@@ -533,6 +609,15 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
                 && q.ValueKind == JsonValueKind.String
                 && !string.IsNullOrWhiteSpace(q.GetString()))
                 return $"FAQ draft for: {q.GetString()}";
+        }
+
+        if (string.Equals(artifactType, "pillarOutline.v1", StringComparison.OrdinalIgnoreCase))
+        {
+            if (payload.TryGetProperty("topic", out var pillarTopic)
+                && pillarTopic.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(pillarTopic.GetString()))
+                return $"Pillar outline for: {pillarTopic.GetString()}";
+            return $"Pillar outline for: {topic}";
         }
 
         return string.Equals(artifactType, "faqSet.v1", StringComparison.OrdinalIgnoreCase)
@@ -665,7 +750,7 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
 
     public sealed record CreateGridCommand(
         string OwnerUserId, string Name, string? Description = null, string? Status = null,
-        string? ConfigJson = null, bool? SeedDemo = null);
+        string? ConfigJson = null, bool? SeedDemo = null, string? Capability = null);
 
     public sealed record PatchGridCommand(
         string OwnerUserId, string? Name = null, string? Description = null, string? Status = null,

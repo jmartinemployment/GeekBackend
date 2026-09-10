@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.GeekCrawler;
 using Microsoft.AspNetCore.Mvc;
 
@@ -53,9 +54,28 @@ public sealed class GccV2GridsController(
     public async Task<ActionResult<object>> Create(CreatePublicGridRequest request, CancellationToken ct)
     {
         if (!user.IsAuthenticated) return Unauthorized();
-        var name = string.IsNullOrWhiteSpace(request.Name) ? "Untitled grid" : request.Name.Trim();
+        var capability = string.IsNullOrWhiteSpace(request.Capability)
+            ? "faq-generator"
+            : request.Capability.Trim();
+        if (capability is not ("faq-generator" or "pillar-outline"))
+            return BadRequest(new { error = "capability must be faq-generator or pillar-outline." });
+
+        var seedDemo = request.SeedDemo == true;
+        var name = string.IsNullOrWhiteSpace(request.Name)
+            ? seedDemo
+                ? (capability == "pillar-outline" ? "Pillar launch batch" : "FAQ launch batch")
+                : "Untitled grid"
+            : request.Name.Trim();
+        var description = request.Description;
+        if (seedDemo && string.IsNullOrWhiteSpace(description))
+        {
+            description = capability == "pillar-outline"
+                ? "Twelve pillar topics ready for a sample stub run."
+                : "Twelve FAQ topics ready for a sample stub run.";
+        }
+
         var grid = await repo.CreateGridAsync(new(
-            Owner, name, request.Description, SeedDemo: request.SeedDemo), ct);
+            Owner, name, description, SeedDemo: request.SeedDemo, Capability: capability), ct);
         return Ok(new
         {
             contractVersion = ContractVersion,
@@ -156,6 +176,211 @@ public sealed class GccV2GridsController(
         });
     }
 
+    [HttpPut("{id:guid}/schedule")]
+    public async Task<ActionResult<object>> PutSchedule(
+        Guid id, PutPublicGridScheduleRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var existing = await repo.GetGridAsync(id, Owner, ct);
+        if (existing is null) return NotFound();
+
+        var cadence = string.IsNullOrWhiteSpace(request.Cadence)
+            ? "none"
+            : request.Cadence.Trim().ToLowerInvariant();
+        if (cadence is not ("none" or "daily" or "weekly" or "monthly"))
+            return BadRequest(new { error = "cadence must be none, daily, weekly, or monthly." });
+
+        var mode = string.IsNullOrWhiteSpace(request.Mode) ? "sample" : request.Mode.Trim();
+        if (mode is not ("sample" or "full"))
+            return BadRequest(new { error = "mode must be sample or full." });
+
+        var sampleSize = request.SampleSize is > 0 ? request.SampleSize.Value : 10;
+        var enabled = request.Enabled == true && cadence != "none";
+        var now = DateTimeOffset.UtcNow;
+        var previous = GccV2GridSchedule.Read(existing.ConfigJson);
+        string? nextRunAt = null;
+        string? lastRunAt = previous.LastRunAt;
+        if (enabled)
+        {
+            // First enable is immediately due so operators (and the due runner) can fire once,
+            // then advance by cadence after each successful scheduled run.
+            nextRunAt = previous.Enabled && !string.IsNullOrWhiteSpace(previous.NextRunAt)
+                && string.Equals(previous.Cadence, cadence, StringComparison.OrdinalIgnoreCase)
+                ? previous.NextRunAt
+                : now.ToString("O");
+        }
+
+        var configJson = GccV2GridSchedule.Merge(existing.ConfigJson, new GccV2GridSchedule.State(
+            cadence, enabled, mode, sampleSize, nextRunAt, lastRunAt));
+        var grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: configJson), ct);
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            grid = Detail(grid),
+        });
+    }
+
+    [HttpPost("{id:guid}/schedule/run-due")]
+    public async Task<ActionResult<object>> RunDueSchedule(
+        Guid id, RunDuePublicGridScheduleRequest? request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var result = await ExecuteDueScheduleAsync(id, request?.Force == true, ct);
+        if (result is null) return NotFound();
+        if (result.Error is not null) return BadRequest(new { error = result.Error });
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            ran = result.Ran,
+            reason = result.Reason,
+            grid = Detail(result.Grid!),
+        });
+    }
+
+    [HttpPost("schedules/run-due")]
+    public async Task<ActionResult<object>> RunDueSchedules(
+        RunDuePublicGridScheduleRequest? request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var force = request?.Force == true;
+        var items = await repo.ListGridsAsync(Owner, ct);
+        var results = new List<object>();
+        var ranCount = 0;
+        var skippedCount = 0;
+
+        foreach (var item in items)
+        {
+            var schedule = GccV2GridSchedule.Read(item.ConfigJson);
+            if (!schedule.Enabled || schedule.Cadence == "none")
+            {
+                skippedCount++;
+                results.Add(new
+                {
+                    gridId = item.Id.ToString("D"),
+                    name = item.Name,
+                    ran = false,
+                    reason = "not-enabled",
+                });
+                continue;
+            }
+
+            if (!force && !GccV2GridSchedule.IsDue(schedule, DateTimeOffset.UtcNow))
+            {
+                skippedCount++;
+                results.Add(new
+                {
+                    gridId = item.Id.ToString("D"),
+                    name = item.Name,
+                    ran = false,
+                    reason = "not-due",
+                });
+                continue;
+            }
+
+            var executed = await ExecuteDueScheduleAsync(item.Id, force, ct);
+            if (executed is null || executed.Error is not null || executed.Grid is null)
+            {
+                skippedCount++;
+                results.Add(new
+                {
+                    gridId = item.Id.ToString("D"),
+                    name = item.Name,
+                    ran = false,
+                    reason = executed?.Error ?? executed?.Reason ?? "failed",
+                });
+                continue;
+            }
+
+            if (executed.Ran) ranCount++;
+            else skippedCount++;
+            results.Add(new
+            {
+                gridId = item.Id.ToString("D"),
+                name = item.Name,
+                ran = executed.Ran,
+                reason = executed.Reason,
+                lastRunStatus = executed.Grid.Runs
+                    .OrderByDescending(r => r.StartedAtUtc)
+                    .Select(r => r.Status)
+                    .FirstOrDefault(),
+            });
+        }
+
+        var refreshed = await repo.ListGridsAsync(Owner, ct);
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            ranCount,
+            skippedCount,
+            results,
+            grids = refreshed.Select(Summary),
+        });
+    }
+
+    private async Task<DueScheduleResult?> ExecuteDueScheduleAsync(
+        Guid id, bool force, CancellationToken ct)
+    {
+        var existing = await repo.GetGridAsync(id, Owner, ct);
+        if (existing is null) return null;
+
+        var schedule = GccV2GridSchedule.Read(existing.ConfigJson);
+        if (!schedule.Enabled || schedule.Cadence == "none")
+            return new DueScheduleResult(false, "not-enabled", existing, "Grid schedule is not enabled.");
+
+        var now = DateTimeOffset.UtcNow;
+        if (!force && !GccV2GridSchedule.IsDue(schedule, now))
+            return new DueScheduleResult(false, "not-due", existing, null);
+
+        var endpoint = ResolveAgentEndpoint(existing.ConfigJson);
+        Dictionary<string, string>? rowArtifacts = null;
+        var mode = schedule.Mode;
+        var sampleSize = schedule.SampleSize > 0 ? schedule.SampleSize : 10;
+        var selected = mode == "full"
+            ? existing.Rows.OrderBy(r => r.RowIndex).ToList()
+            : existing.Rows.OrderBy(r => r.RowIndex).Take(sampleSize).ToList();
+
+        if (rag.IsEnabled && !string.IsNullOrWhiteSpace(endpoint))
+        {
+            rowArtifacts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in selected)
+            {
+                try
+                {
+                    if (!TryBuildContentAgentInput(endpoint, row.InputJson, out var input))
+                        continue;
+                    var artifact = await rag.RunDiagnosticAsync(endpoint, input, ct);
+                    if (artifact is null) continue;
+                    rowArtifacts[row.Id.ToString("D")] = artifact.Value.GetRawText();
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex,
+                        "Scheduled grid {GridId} row {RowId} RAG '{Endpoint}' failed; using deterministic payload.",
+                        id, row.Id, endpoint);
+                }
+            }
+
+            if (rowArtifacts.Count == 0)
+                rowArtifacts = null;
+        }
+
+        var grid = await repo.CreateGridRunAsync(id, new(
+            Owner, mode, sampleSize, "schedule", rowArtifacts), ct);
+
+        var completedAt = DateTimeOffset.UtcNow;
+        var nextRunAt = GccV2GridSchedule.AdvanceNextRunAt(completedAt, schedule.Cadence)?.ToString("O");
+        var configJson = GccV2GridSchedule.Merge(grid.ConfigJson, schedule with
+        {
+            NextRunAt = nextRunAt,
+            LastRunAt = completedAt.ToString("O"),
+        });
+        grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: configJson), ct);
+        return new DueScheduleResult(true, force ? "forced" : "due", grid, null);
+    }
+
+    private sealed record DueScheduleResult(
+        bool Ran, string Reason, GccV2GridDto? Grid, string? Error);
+
     private static string ResolveAgentEndpoint(string configJson)
     {
         try
@@ -251,18 +476,33 @@ public sealed class GccV2GridsController(
         return "Untitled topic";
     }
 
-    private static object Summary(GccV2GridListItemDto g) => new
+    private static object Summary(GccV2GridListItemDto g)
     {
-        id = g.Id.ToString("D"),
-        name = g.Name,
-        description = g.Description,
-        status = g.Status,
-        updatedAt = g.UpdatedAtUtc.ToString("O"),
-        owner = g.OwnerUserId,
-        rowCount = g.RowCount,
-        lastRunStatus = g.LastRunStatus,
-        persistence = "server",
-    };
+        var schedule = GccV2GridSchedule.Read(g.ConfigJson);
+        var due = GccV2GridSchedule.IsDue(schedule, DateTimeOffset.UtcNow);
+        return new
+        {
+            id = g.Id.ToString("D"),
+            name = g.Name,
+            description = g.Description,
+            status = g.Status,
+            updatedAt = g.UpdatedAtUtc.ToString("O"),
+            owner = g.OwnerUserId,
+            rowCount = g.RowCount,
+            lastRunStatus = g.LastRunStatus,
+            persistence = "server",
+            schedule = new
+            {
+                cadence = schedule.Cadence,
+                enabled = schedule.Enabled,
+                mode = schedule.Mode,
+                sampleSize = schedule.SampleSize,
+                nextRunAt = schedule.NextRunAt,
+                lastRunAt = schedule.LastRunAt,
+                due,
+            },
+        };
+    }
 
     private static object Detail(GccV2GridDto g) => new
     {
@@ -322,7 +562,7 @@ public sealed class GccV2GridsController(
     }
 
     public sealed record CreatePublicGridRequest(
-        string? Name = null, string? Description = null, bool? SeedDemo = null);
+        string? Name = null, string? Description = null, bool? SeedDemo = null, string? Capability = null);
 
     public sealed record PatchPublicGridRequest(
         string? Name = null, string? Description = null, string? Status = null,
@@ -331,4 +571,9 @@ public sealed class GccV2GridsController(
     public sealed record CreatePublicGridRowRequest(JsonElement? Input = null);
 
     public sealed record CreatePublicGridRunRequest(string? Mode = null, int? SampleSize = null);
+
+    public sealed record PutPublicGridScheduleRequest(
+        string? Cadence = null, bool? Enabled = null, string? Mode = null, int? SampleSize = null);
+
+    public sealed record RunDuePublicGridScheduleRequest(bool? Force = null);
 }
