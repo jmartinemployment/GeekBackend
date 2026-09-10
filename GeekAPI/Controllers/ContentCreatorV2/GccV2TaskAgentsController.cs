@@ -3,8 +3,8 @@ using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreatorV2.Gsc;
 using GeekAPI.Services.ContentCreatorV2.TaskAgents;
-using GeekAPI.Services.GeekSeo;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.ContentCreatorV2;
@@ -17,7 +17,7 @@ public sealed class GccV2TaskAgentsController(
     GccV2SkillAdminPolicy admin,
     HttpGccV2Repository repo,
     GccV2ContextResolver contextResolver,
-    HttpGeekSeoSiteAnalyzerClient seo) : ControllerBase
+    GccV2GscSearchAnalyticsClient gscSearch) : ControllerBase
 {
     private string Owner => user.UserId.ToString("D");
 
@@ -37,6 +37,99 @@ public sealed class GccV2TaskAgentsController(
         });
     }
 
+    [HttpGet("library")]
+    public async Task<ActionResult<object>> Library(CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var prefs = await repo.GetTaskAgentLibraryPreferencesAsync(Owner, ct);
+        var runs = await repo.ListTaskRunsAsync(Owner, null, ct);
+        var definitions = await repo.ListTaskAgentsAsync(null, ct);
+        var capabilityByDefinition = definitions.ToDictionary(x => x.Id, x => x.CapabilityId);
+        var recent = runs
+            .Select(run =>
+            {
+                capabilityByDefinition.TryGetValue(run.TaskAgentDefinitionId, out var capabilityId);
+                return new
+                {
+                    capabilityId,
+                    lastRunAtUtc = run.UpdatedAtUtc == default ? run.CreatedAtUtc : run.UpdatedAtUtc,
+                };
+            })
+            .Where(x => !string.IsNullOrWhiteSpace(x.capabilityId))
+            .GroupBy(x => x.capabilityId!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(x => x.lastRunAtUtc).First())
+            .OrderByDescending(x => x.lastRunAtUtc)
+            .Take(12)
+            .Select(x => new { capabilityId = x.capabilityId, lastRunAtUtc = x.lastRunAtUtc });
+
+        return Ok(new
+        {
+            contractVersion = "gcc-task-agent-library.v1",
+            favorites = DeserializeStringArray(prefs.FavoritesJson),
+            recent,
+            savedConfigs = DeserializeSavedConfigs(prefs.SavedConfigsJson),
+        });
+    }
+
+    [HttpPut("library")]
+    public async Task<ActionResult<object>> PutLibrary([FromBody] PutLibraryRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var favorites = (request.Favorites ?? [])
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var savedConfigs = (request.SavedConfigs ?? [])
+            .Where(x => !string.IsNullOrWhiteSpace(x.CapabilityId) && !string.IsNullOrWhiteSpace(x.Name))
+            .Select(x => new
+            {
+                id = string.IsNullOrWhiteSpace(x.Id) ? Guid.NewGuid().ToString("D") : x.Id.Trim(),
+                capabilityId = x.CapabilityId.Trim(),
+                name = x.Name.Trim(),
+                values = x.Values ?? new Dictionary<string, string>(),
+                updatedAtUtc = string.IsNullOrWhiteSpace(x.UpdatedAtUtc)
+                    ? DateTimeOffset.UtcNow.ToString("O")
+                    : x.UpdatedAtUtc,
+            })
+            .ToArray();
+
+        var prefs = await repo.PutTaskAgentLibraryPreferencesAsync(
+            new PutGccV2TaskAgentLibraryPreferencesCommand(
+                Owner,
+                JsonSerializer.Serialize(favorites),
+                JsonSerializer.Serialize(savedConfigs)),
+            ct);
+
+        var runs = await repo.ListTaskRunsAsync(Owner, null, ct);
+        var definitions = await repo.ListTaskAgentsAsync(null, ct);
+        var capabilityByDefinition = definitions.ToDictionary(x => x.Id, x => x.CapabilityId);
+        var recent = runs
+            .Select(run =>
+            {
+                capabilityByDefinition.TryGetValue(run.TaskAgentDefinitionId, out var capabilityId);
+                return new
+                {
+                    capabilityId,
+                    lastRunAtUtc = run.UpdatedAtUtc == default ? run.CreatedAtUtc : run.UpdatedAtUtc,
+                };
+            })
+            .Where(x => !string.IsNullOrWhiteSpace(x.capabilityId))
+            .GroupBy(x => x.capabilityId!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(x => x.lastRunAtUtc).First())
+            .OrderByDescending(x => x.lastRunAtUtc)
+            .Take(12)
+            .Select(x => new { capabilityId = x.capabilityId, lastRunAtUtc = x.lastRunAtUtc });
+
+        return Ok(new
+        {
+            contractVersion = "gcc-task-agent-library.v1",
+            favorites = DeserializeStringArray(prefs.FavoritesJson),
+            recent,
+            savedConfigs = DeserializeSavedConfigs(prefs.SavedConfigsJson),
+        });
+    }
+
     [HttpGet("{idOrCapability}")]
     public async Task<ActionResult<object>> Detail(string idOrCapability, CancellationToken ct)
     {
@@ -51,87 +144,89 @@ public sealed class GccV2TaskAgentsController(
     }
 
     /// <summary>
-    /// Project-scoped GSC queries for Query Planner. Metrics stay out of priority scoring;
-    /// callers must pass origin=observed with source provenance.
+    /// CC-owned GSC queries for Query Planner. Prefer /gsc/connections/{id}/observed-queries;
+    /// this alias keeps the query-planner route stable while dropping Geek SEO project IDs.
     /// </summary>
     [HttpGet("query-planner/observed-queries")]
     public async Task<ActionResult<object>> ObservedQueries(
-        [FromQuery] Guid seoProjectId,
+        [FromQuery] Guid connectionId,
         [FromQuery] DateOnly? startDate,
         [FromQuery] DateOnly? endDate,
         [FromQuery] int? rowLimit,
         CancellationToken ct)
     {
         if (!user.IsAuthenticated) return Unauthorized();
-        if (seoProjectId == Guid.Empty)
-            return BadRequest(new { error = "seoProjectId is required." });
+        if (connectionId == Guid.Empty)
+            return BadRequest(new { error = "connectionId is required (Content Creator GSC connection)." });
 
-        var bearer = ExtractBearerToken();
-        var rankings = await seo.GetRankingsAsync(
-            seoProjectId,
-            bearer,
-            startDate,
-            endDate,
-            rowLimit is null or < 1 ? 200 : Math.Min(rowLimit.Value, 1000),
-            ct);
-        if (!rankings.Ok)
-            return StatusCode(rankings.StatusCode, new { error = rankings.Error });
+        var connection = await repo.GetGscConnectionAsync(connectionId, Owner, ct);
+        if (connection is null) return NotFound(new { error = "GSC connection not found." });
 
+        var end = endDate ?? DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var start = startDate ?? end.AddDays(-90);
+        var limit = rowLimit is null or < 1 ? 200 : Math.Min(rowLimit.Value, 1000);
         var fetchedAt = DateTimeOffset.UtcNow;
-        var sourceId = $"gsc:{rankings.Value!.ProjectId:D}:{rankings.Value.StartDate}:{rankings.Value.EndDate}";
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var queries = new List<object>();
-        foreach (var row in rankings.Value.Rows)
+        var sourceId = $"gsc:{connection.Id:D}:{start:yyyy-MM-dd}:{end:yyyy-MM-dd}";
+
+        IReadOnlyList<string> queries;
+        if (connection.Status == "stub" || connection.EncryptedRefreshToken.Length == 0)
         {
-            var query = row.Query?.Trim();
-            if (string.IsNullOrWhiteSpace(query) || !seen.Add(query)) continue;
-            queries.Add(new
+            queries = [];
+        }
+        else
+        {
+            var clientId = (Environment.GetEnvironmentVariable("GEEK_CC_GSC_GOOGLE_CLIENT_ID") ?? "").Trim();
+            var clientSecret = (Environment.GetEnvironmentVariable("GEEK_CC_GSC_GOOGLE_CLIENT_SECRET") ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             {
-                query,
-                origin = "observed",
-                sourceId,
-                observedAtUtc = fetchedAt.ToString("O"),
-            });
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                {
+                    error = "GEEK_CC_GSC_GOOGLE_CLIENT_ID/SECRET are required for live Search Console fetch.",
+                });
+            }
+
+            try
+            {
+                var refresh = GccV2GscCredentialProtector.Decrypt(
+                    connection.EncryptedRefreshToken,
+                    connection.EncryptionIv,
+                    connection.EncryptionTag);
+                var access = await gscSearch.ExchangeRefreshTokenAsync(refresh, clientId, clientSecret, ct);
+                var rows = await gscSearch.QueryAsync(access, connection.SiteUrl, start, end, limit, ct);
+                queries = rows.Select(x => x.Query).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, new { error = ex.Message });
+            }
         }
 
         return Ok(new
         {
             contractVersion = "gcc-query-planner-observed.v1",
-            seoProjectId = rankings.Value.ProjectId,
-            siteUrl = rankings.Value.SiteUrl,
-            startDate = rankings.Value.StartDate,
-            endDate = rankings.Value.EndDate,
+            connectionId = connection.Id,
+            siteUrl = connection.SiteUrl,
+            startDate = start,
+            endDate = end,
             fetchedAtUtc = fetchedAt,
             source = new
             {
                 sourceId,
                 kind = "google-search-console",
-                label = rankings.Value.SiteUrl,
-                siteUrl = rankings.Value.SiteUrl,
+                label = connection.SiteUrl,
+                siteUrl = connection.SiteUrl,
+                connectionId = connection.Id,
             },
             demandDisclaimer =
                 "Observed GSC queries are first-party search analytics, not traffic, volume, ranking, or demand scores for planning heuristics.",
-            queries,
-            queryCount = queries.Count,
-        });
-    }
-
-    [HttpGet("query-planner/seo-projects")]
-    public async Task<ActionResult<object>> SeoProjects(CancellationToken ct)
-    {
-        if (!user.IsAuthenticated) return Unauthorized();
-        var projects = await seo.ListProjectsAsync(ExtractBearerToken(), ct);
-        if (!projects.Ok)
-            return StatusCode(projects.StatusCode, new { error = projects.Error });
-        return Ok(new
-        {
-            contractVersion = "gcc-query-planner-seo-projects.v1",
-            projects = (projects.Value ?? []).Select(item => new
+            queries = queries.Select(query => new
             {
-                id = item.Id,
-                name = item.Name,
-                url = item.Url,
+                query,
+                origin = "observed",
+                sourceId,
+                observedAtUtc = fetchedAt.ToString("O"),
             }),
+            queryCount = queries.Count,
         });
     }
 
@@ -237,16 +332,6 @@ public sealed class GccV2TaskAgentsController(
             sharedContext = new { contextManifestId, contextManifestDigest },
             lineage = new { parentArtifactVersionIds, relationship = lineageRelationship },
         });
-    }
-
-    private string? ExtractBearerToken()
-    {
-        var header = Request.Headers.Authorization.ToString();
-        if (string.IsNullOrWhiteSpace(header)) return null;
-        const string prefix = "Bearer ";
-        return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            ? header[prefix.Length..].Trim()
-            : header.Trim();
     }
 
     [HttpGet("runs/{runId:guid}")]
@@ -424,8 +509,73 @@ public sealed class GccV2TaskAgentsController(
             version = version.SemanticVersion,
             digest = version.VersionDigest,
             version.WorkflowGroup,
+            visibilityScope = VisibilityScope(version),
             facets = JsonSerializer.Deserialize<JsonElement>(version.FacetsJson),
         };
+
+    private static string VisibilityScope(GccV2TaskAgentVersionDto version)
+    {
+        if (!GccV2StudioTemplateRenderer.IsStudioVersion(version)) return "public";
+        return GccV2StudioTemplateRenderer.IsAdminSharedPublished(version) ? "workspace" : "custom";
+    }
+
+    private static IReadOnlyList<string> DeserializeStringArray(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static IReadOnlyList<object> DeserializeSavedConfigs(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "[]" : json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return [];
+            var configs = new List<object>();
+            foreach (var entry in document.RootElement.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object) continue;
+                var id = entry.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+                    ? idEl.GetString()
+                    : null;
+                var capabilityId = entry.TryGetProperty("capabilityId", out var capabilityEl)
+                    && capabilityEl.ValueKind == JsonValueKind.String
+                    ? capabilityEl.GetString()
+                    : null;
+                var name = entry.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String
+                    ? nameEl.GetString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(capabilityId)
+                    || string.IsNullOrWhiteSpace(name))
+                    continue;
+                var values = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (entry.TryGetProperty("values", out var valuesEl) && valuesEl.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var property in valuesEl.EnumerateObject())
+                    {
+                        if (property.Value.ValueKind == JsonValueKind.String)
+                            values[property.Name] = property.Value.GetString() ?? "";
+                    }
+                }
+                var updatedAtUtc = entry.TryGetProperty("updatedAtUtc", out var updatedEl)
+                    && updatedEl.ValueKind == JsonValueKind.String
+                    ? updatedEl.GetString()
+                    : DateTimeOffset.UtcNow.ToString("O");
+                configs.Add(new { id, capabilityId, name, values, updatedAtUtc });
+            }
+            return configs;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
 
     private static object Detail(GccV2TaskAgentDefinitionDto definition, GccV2TaskAgentVersionDto version) => new
     {
@@ -475,6 +625,15 @@ public sealed class GccV2TaskAgentsController(
         JsonElement? BudgetSnapshot = null, JsonElement? SourceSnapshot = null,
         Guid? RetryOfRunId = null, GccV2ContextSelectionRequest? ContextSelection = null,
         IReadOnlyList<Guid>? ParentArtifactVersionIds = null, string? LineageRelationship = null);
+    public sealed record PutLibraryRequest(
+        IReadOnlyList<string>? Favorites = null,
+        IReadOnlyList<LibrarySavedConfigRequest>? SavedConfigs = null);
+    public sealed record LibrarySavedConfigRequest(
+        string? Id,
+        string CapabilityId,
+        string Name,
+        Dictionary<string, string>? Values,
+        string? UpdatedAtUtc);
     public sealed record CreateDefinitionRequest(string CapabilityId, string DisplayName, string Description);
     public sealed record PatchDefinitionRequest(string? DisplayName, string? Description);
     public sealed record CreateVersionRequest(

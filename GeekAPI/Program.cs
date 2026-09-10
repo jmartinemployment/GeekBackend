@@ -138,6 +138,13 @@ else
     Console.WriteLine("GEEK_OAUTH_AUTHORITY/AUTH_SERVER_URL not set — /hubs/gcc-v2-realtime will reject all connections.");
 }
 
+builder.Services.AddHttpClient("GccV2GoogleApis", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscSearchAnalyticsClient>();
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscOAuthStateStore>();
+
 var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
 builder.Services.AddHttpClient<GeekAPI.Services.GeekSeo.HttpGeekSeoSiteAnalyzerClient>(client =>
 {

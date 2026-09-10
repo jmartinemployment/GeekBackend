@@ -13,7 +13,9 @@ public class ApiKeyMiddleware
         "/robots.txt",
         "/api/case-studies",
         "/api/departments",
-        "/api/use-cases"
+        "/api/use-cases",
+        // Google OAuth redirect (ownership enforced via signed state, not API key).
+        "/api/geek-content-creator-v2/gsc/oauth/callback",
     };
 
     private readonly RequestDelegate _next;

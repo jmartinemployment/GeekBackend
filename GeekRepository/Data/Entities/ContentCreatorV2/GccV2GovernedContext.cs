@@ -111,6 +111,19 @@ public sealed class GccV2StyleGuideVersion : GccV2GovernedVersion
     [JsonIgnore] public GccV2StyleGuide StyleGuide { get; set; } = null!;
 }
 
+public sealed class GccV2VisualGuideline : GccV2OwnedCatalog
+{
+    public List<GccV2VisualGuidelineVersion> Versions { get; set; } = [];
+}
+
+public sealed class GccV2VisualGuidelineVersion : GccV2GovernedVersion
+{
+    public Guid VisualGuidelineId { get; set; }
+    public string PolicyJson { get; set; } = "{}";
+    public string Locale { get; set; } = "en";
+    [JsonIgnore] public GccV2VisualGuideline VisualGuideline { get; set; } = null!;
+}
+
 public sealed class GccV2ProductSchema : GccV2OwnedCatalog
 {
     public List<GccV2ProductSchemaVersion> Versions { get; set; } = [];

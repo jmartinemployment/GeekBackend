@@ -45,6 +45,8 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2AudienceVersion> GccV2AudienceVersions => Set<GccV2AudienceVersion>();
     public virtual DbSet<GccV2StyleGuide> GccV2StyleGuides => Set<GccV2StyleGuide>();
     public virtual DbSet<GccV2StyleGuideVersion> GccV2StyleGuideVersions => Set<GccV2StyleGuideVersion>();
+    public virtual DbSet<GccV2VisualGuideline> GccV2VisualGuidelines => Set<GccV2VisualGuideline>();
+    public virtual DbSet<GccV2VisualGuidelineVersion> GccV2VisualGuidelineVersions => Set<GccV2VisualGuidelineVersion>();
     public virtual DbSet<GccV2ProductSchema> GccV2ProductSchemas => Set<GccV2ProductSchema>();
     public virtual DbSet<GccV2ProductSchemaVersion> GccV2ProductSchemaVersions => Set<GccV2ProductSchemaVersion>();
     public virtual DbSet<GccV2Product> GccV2Products => Set<GccV2Product>();
@@ -64,6 +66,8 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2TaskArtifact> GccV2TaskArtifacts => Set<GccV2TaskArtifact>();
     public virtual DbSet<GccV2TaskArtifactVersion> GccV2TaskArtifactVersions => Set<GccV2TaskArtifactVersion>();
     public virtual DbSet<GccV2TaskArtifactLineage> GccV2TaskArtifactLineage => Set<GccV2TaskArtifactLineage>();
+    public virtual DbSet<GccV2TaskAgentLibraryPreference> GccV2TaskAgentLibraryPreferences => Set<GccV2TaskAgentLibraryPreference>();
+    public virtual DbSet<GccV2GscConnection> GccV2GscConnections => Set<GccV2GscConnection>();
     public virtual DbSet<GccV2CanvasProject> GccV2CanvasProjects => Set<GccV2CanvasProject>();
     public virtual DbSet<GccV2CanvasAsset> GccV2CanvasAssets => Set<GccV2CanvasAsset>();
     public virtual DbSet<GccV2CanvasAssetVersion> GccV2CanvasAssetVersions => Set<GccV2CanvasAssetVersion>();
@@ -76,6 +80,7 @@ public class ContentCreatorV2DbContext : DbContext
         modelBuilder.HasDefaultSchema("content_creator_v2");
         modelBuilder.ConfigureGccV2GovernedContext();
         modelBuilder.ConfigureGccV2TaskAgentKernel();
+        modelBuilder.ConfigureGccV2Gsc();
         modelBuilder.ConfigureGccV2CanvasProjects();
         modelBuilder.ConfigureGccV2Grids();
 

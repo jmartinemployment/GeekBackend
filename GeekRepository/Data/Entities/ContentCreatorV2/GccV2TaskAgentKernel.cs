@@ -143,3 +143,13 @@ public sealed class GccV2TaskArtifactLineage
     [JsonIgnore] public GccV2TaskArtifactVersion Parent { get; set; } = null!;
     [JsonIgnore] public GccV2TaskArtifactVersion Child { get; set; } = null!;
 }
+
+/// <summary>Owner-scoped Agent Library favorites and named input presets.</summary>
+public sealed class GccV2TaskAgentLibraryPreference
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string OwnerUserId { get; set; } = string.Empty;
+    public string FavoritesJson { get; set; } = "[]";
+    public string SavedConfigsJson { get; set; } = "[]";
+    public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}

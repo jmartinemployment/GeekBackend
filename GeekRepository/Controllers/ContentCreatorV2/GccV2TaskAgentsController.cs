@@ -247,6 +247,54 @@ public sealed class GccV2TaskAgentsController(ContentCreatorV2DbContext db) : Co
         return ids;
     }
 
+    [HttpGet("library-preferences")]
+    public async Task<ActionResult<GccV2TaskAgentLibraryPreference>> GetLibraryPreferences(
+        [FromQuery] string ownerUserId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId)) return BadRequest("ownerUserId is required.");
+        var row = await db.GccV2TaskAgentLibraryPreferences.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.OwnerUserId == ownerUserId, ct);
+        if (row is not null) return Ok(row);
+        return Ok(new GccV2TaskAgentLibraryPreference
+        {
+            OwnerUserId = ownerUserId,
+            FavoritesJson = "[]",
+            SavedConfigsJson = "[]",
+            UpdatedAtUtc = DateTimeOffset.UtcNow,
+        });
+    }
+
+    [HttpPut("library-preferences")]
+    public async Task<ActionResult<GccV2TaskAgentLibraryPreference>> PutLibraryPreferences(
+        PutLibraryPreferencesCommand command, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(command.OwnerUserId)) return BadRequest("ownerUserId is required.");
+        string favorites;
+        string configs;
+        try
+        {
+            favorites = Canonical(command.FavoritesJson, JsonValueKind.Array);
+            configs = Canonical(command.SavedConfigsJson, JsonValueKind.Array);
+        }
+        catch (JsonException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
+        var row = await db.GccV2TaskAgentLibraryPreferences
+            .SingleOrDefaultAsync(x => x.OwnerUserId == command.OwnerUserId, ct);
+        if (row is null)
+        {
+            row = new GccV2TaskAgentLibraryPreference { OwnerUserId = command.OwnerUserId };
+            db.Add(row);
+        }
+        row.FavoritesJson = favorites;
+        row.SavedConfigsJson = configs;
+        row.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Ok(row);
+    }
+
     private static bool ValidId(string value) =>
         value.Length is > 0 and <= 128 && value.All(x => char.IsAsciiLetterOrDigit(x) || x is '-' or '.')
         && char.IsAsciiLetterOrDigit(value[0]) && char.IsAsciiLetterOrDigit(value[^1]);
@@ -263,4 +311,6 @@ public sealed class GccV2TaskAgentsController(ContentCreatorV2DbContext db) : Co
         string AllowedModelsJson, string SkillVersionIdsJson, string EvaluationThresholdsJson,
         string Actor);
     public sealed record TransitionVersionCommand(string Actor, string? Reason);
+    public sealed record PutLibraryPreferencesCommand(
+        string OwnerUserId, string FavoritesJson, string SavedConfigsJson);
 }

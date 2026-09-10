@@ -452,6 +452,27 @@ public sealed record GccV2TaskAgentVersionDto(
     string EvaluationThresholdsDigest, string VersionDigest, string State, string CreatedBy,
     string? ReviewedBy, DateTimeOffset CreatedAtUtc, DateTimeOffset? PublishedAtUtc,
     DateTimeOffset? DeprecatedAtUtc, DateTimeOffset? RevokedAtUtc);
+public sealed record GccV2TaskAgentLibraryPreferenceDto(
+    Guid Id, string OwnerUserId, string FavoritesJson, string SavedConfigsJson, DateTimeOffset UpdatedAtUtc);
+public sealed record PutGccV2TaskAgentLibraryPreferencesCommand(
+    string OwnerUserId, string FavoritesJson, string SavedConfigsJson);
+public sealed record GccV2GscConnectionDto(
+    Guid Id,
+    string OwnerUserId,
+    string SiteUrl,
+    string Status,
+    byte[] EncryptedRefreshToken,
+    byte[] EncryptionIv,
+    byte[] EncryptionTag,
+    DateTimeOffset ConnectedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+public sealed record UpsertGccV2GscConnectionCommand(
+    string OwnerUserId,
+    string SiteUrl,
+    string? Status,
+    byte[]? EncryptedRefreshToken,
+    byte[]? EncryptionIv,
+    byte[]? EncryptionTag);
 public sealed record GccV2TaskRunDto(
     Guid Id, string OwnerUserId, Guid TaskAgentDefinitionId, Guid TaskAgentVersionId,
     string TaskAgentVersionDigest, string InputJson, string InputDigest, Guid? ContextManifestId,

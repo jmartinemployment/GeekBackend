@@ -60,6 +60,14 @@ internal static class GccV2GovernedContextConfiguration
             .HasForeignKey(x => x.StyleGuideId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<GccV2StyleGuideVersion>().HasIndex(x => new { x.StyleGuideId, x.VersionNumber }).IsUnique();
 
+        ConfigureCatalog(modelBuilder.Entity<GccV2VisualGuideline>(), "gcc_v2_visual_guidelines");
+        ConfigureVersion(modelBuilder.Entity<GccV2VisualGuidelineVersion>(), "gcc_v2_visual_guideline_versions");
+        modelBuilder.Entity<GccV2VisualGuidelineVersion>().Property(x => x.PolicyJson).HasColumnType("text");
+        modelBuilder.Entity<GccV2VisualGuidelineVersion>().Property(x => x.Locale).HasMaxLength(32);
+        modelBuilder.Entity<GccV2VisualGuidelineVersion>().HasOne(x => x.VisualGuideline).WithMany(x => x.Versions)
+            .HasForeignKey(x => x.VisualGuidelineId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GccV2VisualGuidelineVersion>().HasIndex(x => new { x.VisualGuidelineId, x.VersionNumber }).IsUnique();
+
         ConfigureCatalog(modelBuilder.Entity<GccV2ProductSchema>(), "gcc_v2_product_schemas");
         ConfigureVersion(modelBuilder.Entity<GccV2ProductSchemaVersion>(), "gcc_v2_product_schema_versions");
         modelBuilder.Entity<GccV2ProductSchemaVersion>().Property(x => x.FieldsJson).HasColumnType("text");

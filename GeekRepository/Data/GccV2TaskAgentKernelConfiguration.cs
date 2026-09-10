@@ -137,5 +137,13 @@ internal static class GccV2TaskAgentKernelConfiguration
             .OnDelete(DeleteBehavior.Restrict);
         lineage.HasOne(x => x.Child).WithMany(x => x.Parents).HasForeignKey(x => x.ChildArtifactVersionId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        var library = modelBuilder.Entity<GccV2TaskAgentLibraryPreference>();
+        library.ToTable("gcc_v2_task_agent_library_preferences");
+        library.HasKey(x => x.Id);
+        library.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(128);
+        library.Property(x => x.FavoritesJson).IsRequired().HasColumnType("text");
+        library.Property(x => x.SavedConfigsJson).IsRequired().HasColumnType("text");
+        library.HasIndex(x => x.OwnerUserId).IsUnique();
     }
 }

@@ -404,6 +404,32 @@ public class HttpGccV2Repository
         PostAsync<GccV2TaskAgentVersionDto>(
             $"repo/content-creator-v2/task-agents/versions/{versionId}/{transition}", command, ct);
 
+    public Task<GccV2TaskAgentLibraryPreferenceDto> GetTaskAgentLibraryPreferencesAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2TaskAgentLibraryPreferenceDto>(
+            $"repo/content-creator-v2/task-agents/library-preferences?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
+            ct)!;
+    public Task<GccV2TaskAgentLibraryPreferenceDto> PutTaskAgentLibraryPreferencesAsync(
+        PutGccV2TaskAgentLibraryPreferencesCommand command, CancellationToken ct = default) =>
+        PutAsync<GccV2TaskAgentLibraryPreferenceDto>(
+            "repo/content-creator-v2/task-agents/library-preferences", command, ct);
+
+    public Task<IReadOnlyList<GccV2GscConnectionDto>> ListGscConnectionsAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2GscConnectionDto>(
+            $"repo/content-creator-v2/gsc/connections?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2GscConnectionDto?> GetGscConnectionAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2GscConnectionDto>(
+            $"repo/content-creator-v2/gsc/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2GscConnectionDto> UpsertGscConnectionAsync(
+        UpsertGccV2GscConnectionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2GscConnectionDto>("repo/content-creator-v2/gsc/connections", command, ct);
+    public Task DeleteGscConnectionAsync(Guid id, string ownerUserId, CancellationToken ct = default) =>
+        DeleteAsync(
+            $"repo/content-creator-v2/gsc/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
+            ct);
+
     public Task<IReadOnlyList<GccV2TaskRunDto>> ListTaskRunsAsync(
         string ownerUserId, string? status = null, CancellationToken ct = default) =>
         GetListAsync<GccV2TaskRunDto>(
@@ -704,6 +730,16 @@ public class HttpGccV2Repository
     {
         var content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
         var res = await _http.PostAsync(path, content, ct);
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<T>(json, JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    private async Task<T> PutAsync<T>(string path, object body, CancellationToken ct)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PutAsync(path, content, ct);
         res.EnsureSuccessStatusCode();
         var json = await res.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<T>(json, JsonOpts)
