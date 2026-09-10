@@ -357,7 +357,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 or "readiness-comparison" or "competitor-audit" or "competitor-positioning"
                 => $"v1/intelligence/{endpoint}",
             "faq-set" or "citable-claims" or "comparison-brief"
-                or "competitive-response" or "pillar-outline"
+                or "competitive-response" or "pillar-outline" or "pillar-article"
                 => $"v1/content/{endpoint}",
             _ => throw new ArgumentException("Unsupported analysis endpoint.", nameof(endpoint)),
         };

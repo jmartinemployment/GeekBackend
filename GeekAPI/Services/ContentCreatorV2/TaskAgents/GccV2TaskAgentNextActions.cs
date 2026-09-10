@@ -22,6 +22,7 @@ public static class GccV2TaskAgentNextActions
             ["faqSet.v1"] = ("faq-generator", "FAQ Generator"),
             ["comparisonBrief.v1"] = ("comparison-brief", "Comparison Brief"),
             ["pillarOutline.v1"] = ("pillar-outline", "Pillar Article Outline"),
+            ["pillarArticle.v1"] = ("pillar-article", "Pillar Article"),
             ["competitiveResponse.v1"] = ("competitive-response", "Competitive Response"),
         };
 

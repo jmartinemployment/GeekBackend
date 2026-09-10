@@ -24,18 +24,15 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
                         contract.CapabilityId, contract.DisplayName, contract.Description, Actor),
                         cancellationToken);
                 var version = definition.Versions.SingleOrDefault(x =>
-                    x.SemanticVersion == "1.0.0");
-                if (version is null)
+                    x.SemanticVersion == "1.1.0")
+                    ?? definition.Versions.SingleOrDefault(x =>
+                        x.SemanticVersion == "1.0.0");
+                if (definition.Versions.All(x => x.SemanticVersion != "1.1.0"))
                 {
                     version = await repo.CreateTaskAgentVersionAsync(definition.Id, new(
-                        "1.0.0",
+                        "1.1.0",
                         contract.WorkflowGroup,
-                        JsonSerializer.Serialize(new
-                        {
-                            category = "analysis",
-                            methodology = "heuristic",
-                            capability = contract.CapabilityId,
-                        }),
+                        JsonSerializer.Serialize(FacetsFor(contract.CapabilityId, contract.JasperWorkflow)),
                         contract.InputSchema,
                         JsonSerializer.Serialize(new
                         {
@@ -73,6 +70,7 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
                         """{"minimumEvidenceCoverage":0,"requiresTypedArtifact":true}""",
                         Actor), cancellationToken);
                 }
+                if (version is null) continue;
                 if (version.State == "draft")
                     await repo.TransitionTaskAgentVersionAsync(version.Id, "publish",
                         new(Actor, "Published deterministic first-party analysis agent."), cancellationToken);
@@ -87,6 +85,110 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    private static object FacetsFor(string capabilityId, string jasperWorkflow) => capabilityId switch
+    {
+        "ai-readiness" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "aeo", "seo" },
+            contentType = new[] { "page", "article" },
+            funnelStage = new[] { "awareness", "consideration" },
+            process = new[] { "audit", "score" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "fact-density" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "aeo", "content" },
+            contentType = new[] { "page", "article" },
+            funnelStage = new[] { "awareness", "consideration" },
+            process = new[] { "audit" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "entity-mapper" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "aeo", "seo" },
+            contentType = new[] { "page", "topic" },
+            funnelStage = new[] { "awareness" },
+            process = new[] { "audit", "map" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "schema-markup" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "seo", "aeo" },
+            contentType = new[] { "page", "article", "faq" },
+            funnelStage = new[] { "awareness", "consideration" },
+            process = new[] { "markup", "publish-prep" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "query-planner" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "seo", "aeo", "content" },
+            contentType = new[] { "query", "brief" },
+            funnelStage = new[] { "awareness", "consideration" },
+            process = new[] { "plan" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "ai-readiness-comparison" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "aeo", "competitive" },
+            contentType = new[] { "page", "comparison" },
+            funnelStage = new[] { "consideration" },
+            process = new[] { "compare", "audit" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "content-gap" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "aeo", "competitive", "content" },
+            contentType = new[] { "page", "gap-report" },
+            funnelStage = new[] { "consideration" },
+            process = new[] { "gap-find", "audit" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "competitor-audit" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "competitive", "aeo" },
+            contentType = new[] { "audit", "page" },
+            funnelStage = new[] { "consideration", "decision" },
+            process = new[] { "audit" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        "competitor-positioning" => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "competitive", "brand" },
+            contentType = new[] { "positioning", "narrative" },
+            funnelStage = new[] { "consideration", "decision" },
+            process = new[] { "position" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+        _ => new
+        {
+            workflow = jasperWorkflow,
+            marketingFunction = new[] { "aeo" },
+            contentType = new[] { "page" },
+            funnelStage = new[] { "awareness" },
+            process = new[] { "audit" },
+            capability = capabilityId,
+            methodology = "heuristic",
+        },
+    };
+
     private static object? UiSchemaFor(string capabilityId) => capabilityId switch
     {
         "ai-readiness" => new
@@ -95,6 +197,32 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
             {
                 new { id = "sourceUrl", label = "Source URL", type = "shortText", required = false },
                 new { id = "visibleContent", label = "Visible page content", type = "longText", required = true },
+                new
+                {
+                    id = "contentCompleteness",
+                    label = "Source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
+            },
+        },
+        "fact-density" or "entity-mapper" or "schema-markup" => new
+        {
+            fields = new object[]
+            {
+                new { id = "sourceUrl", label = "Source URL", type = "shortText", required = false },
+                new { id = "visibleContent", label = "Visible page content", type = "longText", required = true },
+                new
+                {
+                    id = "contentCompleteness",
+                    label = "Source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
             },
         },
         "query-planner" => new
@@ -105,6 +233,33 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
                 new { id = "observedQueries", label = "Observed GSC queries", type = "longText", required = false },
                 new { id = "hypothesisTopics", label = "Hypothesis topics", type = "longText", required = false },
                 new { id = "importedQueries", label = "Imported queries", type = "longText", required = false },
+            },
+        },
+        "ai-readiness-comparison" or "content-gap" or "competitor-audit" or "competitor-positioning" => new
+        {
+            fields = new object[]
+            {
+                new { id = "sourceUrl", label = "Subject URL", type = "shortText", required = false },
+                new { id = "subjectContent", label = "Subject page content", type = "longText", required = true },
+                new { id = "competitorContent", label = "Competitor page content", type = "longText", required = true },
+                new
+                {
+                    id = "subjectCompleteness",
+                    label = "Subject source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
+                new
+                {
+                    id = "competitorCompleteness",
+                    label = "Competitor source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
             },
         },
         _ => null,
@@ -239,48 +394,48 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
     [
         new("ai-readiness", "AI Readiness Score",
             "Score a page across seven explicit AI-answer readiness dimensions.",
-            "diagnostic", "readiness-score", "readinessScore.v1", "scorecard",
+            "diagnostic", "optimize", "readiness-score", "readinessScore.v1", "scorecard",
             DocumentInputSchema, ["diagnosticDocument.v1"]),
         new("fact-density", "Fact Density Audit",
             "Find specific claims, measure support density, and identify unsupported statements.",
-            "diagnostic", "fact-density", "factDensityReport.v1", "claim-audit",
+            "diagnostic", "optimize", "fact-density", "factDensityReport.v1", "claim-audit",
             DocumentInputSchema, ["diagnosticDocument.v1"]),
         new("entity-mapper", "Entity Mapper",
             "Build an evidence-linked map of canonical entities and co-occurrence relationships.",
-            "diagnostic", "entity-map", "entityMap.v1", "entity-graph",
+            "diagnostic", "optimize", "entity-map", "entityMap.v1", "entity-graph",
             DocumentInputSchema, ["diagnosticDocument.v1"]),
         new("schema-markup", "Schema Markup Generator",
             "Generate and validate JSON-LD from visible page content only.",
-            "diagnostic", "schema-markup", "schemaMarkup.v1", "json-ld",
+            "diagnostic", "optimize", "schema-markup", "schemaMarkup.v1", "json-ld",
             DocumentInputSchema, ["diagnosticDocument.v1"]),
         new("query-planner", "Query Planner",
             "Prioritize observed, imported, and generated queries without treating hypotheses as demand.",
-            "intelligence", "query-plan", "queryPlan.v1", "query-plan",
+            "intelligence", "originate", "query-plan", "queryPlan.v1", "query-plan",
             QueryPlanInputSchema, ["queryProvenance.v1", "sourceProvenance.v1"]),
         new("ai-readiness-comparison", "AI Readiness Comparison",
             "Compare one owned page with up to four competitor pages under one AEO/GEO rubric.",
-            "intelligence", "readiness-comparison", "readinessComparison.v1", "score-matrix",
+            "intelligence", "optimize", "readiness-comparison", "readinessComparison.v1", "score-matrix",
             ReadinessComparisonInputSchema, ["pageSnapshot.v1", "competitorPageSnapshot.v1"]),
         new("content-gap", "Content Gap Finder",
             "Find evidence-linked content gaps between subject and competitor pages.",
-            "intelligence", "content-gap", "contentGapAnalysis.v1", "gap-report",
+            "intelligence", "outrank", "content-gap", "contentGapAnalysis.v1", "gap-report",
             ContentGapInputSchema, ["pageSnapshot.v1", "competitorPageSnapshot.v1"]),
         new("competitor-audit", "Competitor Audit",
             "Explain competitor strengths from supplied pages with evidence-linked prioritized actions.",
-            "intelligence", "competitor-audit", "competitorAudit.v1", "audit-report",
+            "intelligence", "outrank", "competitor-audit", "competitorAudit.v1", "audit-report",
             CompetitorAuditInputSchema, ["pageSnapshot.v1", "competitorPageSnapshot.v1"]),
         new("competitor-positioning", "Competitor Positioning",
             "Map brand-versus-competitor narrative attributes without treating generated opinions as market perception.",
-            "intelligence", "competitor-positioning", "competitorPositioning.v1", "positioning-map",
+            "intelligence", "outrank", "competitor-positioning", "competitorPositioning.v1", "positioning-map",
             CompetitorPositioningInputSchema, ["pageSnapshot.v1", "competitorPageSnapshot.v1", "aiAnswerObservation.v1"]),
         new("competitor-page", "Competitor Page Analysis",
             "Analyze a competitor page from supplied visible content and evidence only.",
-            "intelligence", "competitor-page", "competitorPageAnalysis.v1", "competitor-report",
+            "intelligence", "outrank", "competitor-page", "competitorPageAnalysis.v1", "competitor-report",
             CompetitorPageInputSchema, ["competitorPageSnapshot.v1"]),
     ];
 
     private sealed record Contract(
         string CapabilityId, string DisplayName, string Description, string WorkflowGroup,
-        string Endpoint, string ArtifactType, string Renderer, string InputSchema,
+        string JasperWorkflow, string Endpoint, string ArtifactType, string Renderer, string InputSchema,
         IReadOnlyList<string> AcceptedInputs);
 }
