@@ -24,6 +24,7 @@ public static class GccV2TaskAgentNextActions
             ["pillarOutline.v1"] = ("pillar-outline", "Pillar Article Outline"),
             ["pillarArticle.v1"] = ("pillar-article", "Pillar Article"),
             ["competitiveResponse.v1"] = ("competitive-response", "Competitive Response"),
+            ["roiProjection.v1"] = ("roi-business-calculator", "AI-Based ROI Business Calculator"),
         };
 
     public static IReadOnlyList<object> FromCompatibilityJson(string compatibilityJson)

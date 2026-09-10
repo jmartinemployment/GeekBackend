@@ -263,7 +263,7 @@ public sealed class GccV2ContextController(
         }));
     }
 
-    [HttpGet("{route:regex(^audiences|style-guides|product-schemas|products$)}")]
+    [HttpGet("{route:regex(^audiences|style-guides|visual-guidelines|product-schemas|products$)}")]
     public async Task<ActionResult<IReadOnlyList<JsonElement>>> ListCatalog(
         string route, CancellationToken ct)
     {
@@ -271,7 +271,7 @@ public sealed class GccV2ContextController(
         return Ok(await repository.ListContextCatalogsAsync(ToKind(route), Owner, ct));
     }
 
-    [HttpPost("{route:regex(^audiences|style-guides|product-schemas|products$)}")]
+    [HttpPost("{route:regex(^audiences|style-guides|visual-guidelines|product-schemas|products$)}")]
     public async Task<ActionResult<JsonElement>> CreateCatalog(
         string route, [FromBody] CreateCatalogRequest request, CancellationToken ct)
     {
@@ -281,7 +281,7 @@ public sealed class GccV2ContextController(
             new(ToKind(route), Owner, request.Name.Trim(), request.Description, Owner), ct));
     }
 
-    [HttpGet("{route:regex(^audiences|style-guides|product-schemas|products$)}/{catalogId:guid}")]
+    [HttpGet("{route:regex(^audiences|style-guides|visual-guidelines|product-schemas|products$)}/{catalogId:guid}")]
     public async Task<ActionResult<JsonElement>> GetCatalog(
         string route, Guid catalogId, CancellationToken ct)
     {
@@ -290,7 +290,7 @@ public sealed class GccV2ContextController(
         return value is null ? NotFound() : Ok(value.Value);
     }
 
-    [HttpPatch("{route:regex(^audiences|style-guides|product-schemas|products$)}/{catalogId:guid}")]
+    [HttpPatch("{route:regex(^audiences|style-guides|visual-guidelines|product-schemas|products$)}/{catalogId:guid}")]
     public async Task<ActionResult<JsonElement>> PatchCatalog(
         string route, Guid catalogId, [FromBody] PatchKnowledgeRequest request, CancellationToken ct)
     {
@@ -301,7 +301,7 @@ public sealed class GccV2ContextController(
             new(Owner, Owner, request.Name, request.Description, request.IsRetired), ct));
     }
 
-    [HttpPost("{route:regex(^audiences|style-guides|product-schemas|products$)}/{catalogId:guid}/versions")]
+    [HttpPost("{route:regex(^audiences|style-guides|visual-guidelines|product-schemas|products$)}/{catalogId:guid}/versions")]
     public async Task<ActionResult<JsonElement>> CreateCatalogVersion(
         string route, Guid catalogId, [FromBody] CreateCatalogVersionRequest request, CancellationToken ct)
     {
@@ -310,6 +310,11 @@ public sealed class GccV2ContextController(
         {
             var styleValidation = GccV2StyleGuidePolicy.Validate(request.Payload);
             if (styleValidation is not null) return BadRequest(new { error = styleValidation });
+        }
+        if (route == "visual-guidelines")
+        {
+            var visualValidation = GccV2VisualGuidelinePolicy.Validate(request.Payload);
+            if (visualValidation is not null) return BadRequest(new { error = visualValidation });
         }
         if (route == "audiences")
         {
@@ -353,7 +358,7 @@ public sealed class GccV2ContextController(
             request.EffectiveFromUtc, request.EffectiveUntilUtc, Owner), ct));
     }
 
-    [HttpPost("{route:regex(^audiences|style-guides|product-schemas|products$)}/versions/{versionId:guid}/{transition:regex(^review|approve|deprecate|revoke$)}")]
+    [HttpPost("{route:regex(^audiences|style-guides|visual-guidelines|product-schemas|products$)}/versions/{versionId:guid}/{transition:regex(^review|approve|deprecate|revoke$)}")]
     public async Task<ActionResult<JsonElement>> TransitionCatalog(
         string route, Guid versionId, string transition, [FromBody] TransitionContextRequest request,
         CancellationToken ct)
@@ -672,17 +677,13 @@ public sealed class GccV2ContextController(
             return "Product payload contains a field outside its Product Schema.";
         if (definitions.Where(x => x.Required).Select(x => x.Id).Except(supplied).Any())
             return "Product payload is missing a required Product Schema field.";
-        var approved = (request.ApprovedClaims ?? []).Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var prohibited = (request.ProhibitedClaims ?? []).Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (approved.Overlaps(prohibited))
-            return "A Product claim cannot be both approved and prohibited.";
-        return null;
+        return GccV2ProductClaimPolicy.ValidateAuthoring(
+            request.ApprovedClaims, request.ProhibitedClaims, request.MandatoryDisclaimers);
     }
     private static string ToKind(string route) => route switch
     {
         "audiences" => "audience", "style-guides" => "style_guide",
+        "visual-guidelines" => "visual_guideline",
         "product-schemas" => "product_schema", "products" => "product",
         _ => throw new ArgumentOutOfRangeException(nameof(route)),
     };

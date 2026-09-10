@@ -74,6 +74,10 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2Grid> GccV2Grids => Set<GccV2Grid>();
     public virtual DbSet<GccV2GridRow> GccV2GridRows => Set<GccV2GridRow>();
     public virtual DbSet<GccV2GridRun> GccV2GridRuns => Set<GccV2GridRun>();
+    public virtual DbSet<GccV2PipelineDefinition> GccV2PipelineDefinitions => Set<GccV2PipelineDefinition>();
+    public virtual DbSet<GccV2PipelineRun> GccV2PipelineRuns => Set<GccV2PipelineRun>();
+    public virtual DbSet<GccV2PipelineWorkItem> GccV2PipelineWorkItems => Set<GccV2PipelineWorkItem>();
+    public virtual DbSet<GccV2PipelineStageAttempt> GccV2PipelineStageAttempts => Set<GccV2PipelineStageAttempt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,6 +87,7 @@ public class ContentCreatorV2DbContext : DbContext
         modelBuilder.ConfigureGccV2Gsc();
         modelBuilder.ConfigureGccV2CanvasProjects();
         modelBuilder.ConfigureGccV2Grids();
+        modelBuilder.ConfigureGccV2Pipelines();
 
         modelBuilder.Entity<GccV2Create>(entity =>
         {

@@ -172,7 +172,7 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
         var models = Strings(item.Version.AllowedModelsJson);
         IReadOnlyList<string> requiredContextKinds = [];
         IReadOnlyList<string> allowedContextKinds =
-            ["brief", "brand_kit", "audience", "style_guide", "product_schema", "product", "knowledge", "run_attachment"];
+            ["brief", "brand_kit", "audience", "style_guide", "visual_guideline", "product_schema", "product", "knowledge", "run_attachment"];
         var instructionsDigest = Hash(item.Version.Instructions);
         var policy = JsonSerializer.Serialize(new
         {

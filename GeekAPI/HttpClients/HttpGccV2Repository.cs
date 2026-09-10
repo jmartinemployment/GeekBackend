@@ -541,6 +541,35 @@ public class HttpGccV2Repository
         Guid gridId, CreateGccV2GridRunCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2GridDto>($"repo/content-creator-v2/grids/{gridId}/runs", command, ct);
 
+    // Geek Content Pipelines.
+
+    public Task<IReadOnlyList<GccV2PipelineListItemDto>> ListPipelinesAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2PipelineListItemDto>(
+            $"repo/content-creator-v2/pipelines?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
+    public Task<GccV2PipelineDto?> GetPipelineAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2PipelineDto>(
+            $"repo/content-creator-v2/pipelines/{id}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+
+    public Task<GccV2PipelineDto> CreatePipelineAsync(
+        CreateGccV2PipelineCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2PipelineDto>("repo/content-creator-v2/pipelines", command, ct);
+
+    public Task<GccV2PipelineDto> PublishPipelineAsync(
+        Guid id, GccV2PipelineActorCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2PipelineDto>($"repo/content-creator-v2/pipelines/{id}/publish", command, ct);
+
+    public Task<GccV2PipelineDto> StartPipelineRunAsync(
+        Guid id, StartGccV2PipelineRunCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2PipelineDto>($"repo/content-creator-v2/pipelines/{id}/runs", command, ct);
+
+    public Task<GccV2PipelineDto> TransitionPipelineRunAsync(
+        Guid runId, string action, GccV2PipelineActorCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2PipelineDto>(
+            $"repo/content-creator-v2/pipelines/runs/{runId}/{Uri.EscapeDataString(action)}", command, ct);
+
     // Governed context.
 
     public Task<IReadOnlyList<GccV2KnowledgeAssetDto>> ListKnowledgeAsync(

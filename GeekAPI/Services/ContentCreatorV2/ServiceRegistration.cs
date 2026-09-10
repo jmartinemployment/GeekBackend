@@ -75,6 +75,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2ProjectSiteKnowledgeService>();
         services.AddHostedService<GccV2DiagnosticTaskAgentSeeder>();
         services.AddHostedService<GccV2ContentTaskAgentSeeder>();
+        services.AddHostedService<GccV2RoiTaskAgentSeeder>();
         services.AddHostedService<GccV2TaskRunWorker>();
         services.AddSingleton<GccV2ContextManifestSigner>();
         services.AddScoped<GccV2ContextResolver>();

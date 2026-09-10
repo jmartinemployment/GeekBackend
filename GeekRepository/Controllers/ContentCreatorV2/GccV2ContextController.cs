@@ -307,6 +307,7 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
         {
             "audience" => new GccV2Audience { OwnerUserId = command.OwnerUserId, Name = command.Name, Description = command.Description },
             "style_guide" => new GccV2StyleGuide { OwnerUserId = command.OwnerUserId, Name = command.Name, Description = command.Description },
+            "visual_guideline" => new GccV2VisualGuideline { OwnerUserId = command.OwnerUserId, Name = command.Name, Description = command.Description },
             "product_schema" => new GccV2ProductSchema { OwnerUserId = command.OwnerUserId, Name = command.Name, Description = command.Description },
             "product" => new GccV2Product { OwnerUserId = command.OwnerUserId, Name = command.Name, Description = command.Description },
             _ => null!,
@@ -329,6 +330,8 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
                 .Include(x => x.Versions).OrderBy(x => x.Name).ToListAsync(ct),
             "style_guide" => await db.GccV2StyleGuides.AsNoTracking().Where(x => x.OwnerUserId == ownerUserId && !x.IsRetired)
                 .Include(x => x.Versions).OrderBy(x => x.Name).ToListAsync(ct),
+            "visual_guideline" => await db.GccV2VisualGuidelines.AsNoTracking().Where(x => x.OwnerUserId == ownerUserId && !x.IsRetired)
+                .Include(x => x.Versions).OrderBy(x => x.Name).ToListAsync(ct),
             "product_schema" => await db.GccV2ProductSchemas.AsNoTracking().Where(x => x.OwnerUserId == ownerUserId && !x.IsRetired)
                 .Include(x => x.Versions).OrderBy(x => x.Name).ToListAsync(ct),
             "product" => await db.GccV2Products.AsNoTracking().Where(x => x.OwnerUserId == ownerUserId && !x.IsRetired)
@@ -348,6 +351,8 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
                 .SingleOrDefaultAsync(x => x.Id == catalogId && x.OwnerUserId == ownerUserId, ct),
             "style_guide" => await db.GccV2StyleGuides.AsNoTracking().Include(x => x.Versions)
                 .SingleOrDefaultAsync(x => x.Id == catalogId && x.OwnerUserId == ownerUserId, ct),
+            "visual_guideline" => await db.GccV2VisualGuidelines.AsNoTracking().Include(x => x.Versions)
+                .SingleOrDefaultAsync(x => x.Id == catalogId && x.OwnerUserId == ownerUserId, ct),
             "product_schema" => await db.GccV2ProductSchemas.AsNoTracking().Include(x => x.Versions)
                 .SingleOrDefaultAsync(x => x.Id == catalogId && x.OwnerUserId == ownerUserId, ct),
             "product" => await db.GccV2Products.AsNoTracking().Include(x => x.Versions)
@@ -366,6 +371,8 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
             "audience" => await db.GccV2Audiences.SingleOrDefaultAsync(
                 x => x.Id == catalogId && x.OwnerUserId == command.OwnerUserId, ct),
             "style_guide" => await db.GccV2StyleGuides.SingleOrDefaultAsync(
+                x => x.Id == catalogId && x.OwnerUserId == command.OwnerUserId, ct),
+            "visual_guideline" => await db.GccV2VisualGuidelines.SingleOrDefaultAsync(
                 x => x.Id == catalogId && x.OwnerUserId == command.OwnerUserId, ct),
             "product_schema" => await db.GccV2ProductSchemas.SingleOrDefaultAsync(
                 x => x.Id == catalogId && x.OwnerUserId == command.OwnerUserId, ct),
@@ -409,6 +416,16 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
                 if (parent is null) return NotFound();
                 version = NewVersion(new GccV2StyleGuideVersion
                     { StyleGuideId = catalogId, PolicyJson = command.PayloadJson, Locale = command.Locale ?? "en" },
+                    parent.Versions, command);
+                break;
+            }
+            case "visual_guideline":
+            {
+                var parent = await db.GccV2VisualGuidelines.Include(x => x.Versions)
+                    .SingleOrDefaultAsync(x => x.Id == catalogId && x.OwnerUserId == command.OwnerUserId, ct);
+                if (parent is null) return NotFound();
+                version = NewVersion(new GccV2VisualGuidelineVersion
+                    { VisualGuidelineId = catalogId, PolicyJson = command.PayloadJson, Locale = command.Locale ?? "en" },
                     parent.Versions, command);
                 break;
             }
@@ -466,6 +483,10 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
                 var sv = await db.GccV2StyleGuideVersions.Include(x => x.StyleGuide)
                     .SingleOrDefaultAsync(x => x.Id == versionId && x.StyleGuide.OwnerUserId == command.OwnerUserId, ct);
                 version = sv; parent = sv?.StyleGuide; break;
+            case "visual_guideline":
+                var vv = await db.GccV2VisualGuidelineVersions.Include(x => x.VisualGuideline)
+                    .SingleOrDefaultAsync(x => x.Id == versionId && x.VisualGuideline.OwnerUserId == command.OwnerUserId, ct);
+                version = vv; parent = vv?.VisualGuideline; break;
             case "product_schema":
                 var psv = await db.GccV2ProductSchemaVersions.Include(x => x.ProductSchema)
                     .SingleOrDefaultAsync(x => x.Id == versionId && x.ProductSchema.OwnerUserId == command.OwnerUserId, ct);
@@ -698,6 +719,12 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
                     x.SchemaVersion, x.CanonicalSha256, x.LifecycleState, null,
                     x.EffectiveFromUtc, x.EffectiveUntilUtc, "ready", "ready", x.PolicyJson))
                 .SingleOrDefaultAsync(ct),
+            "visual_guideline" => await db.GccV2VisualGuidelineVersions.AsNoTracking()
+                .Where(x => x.Id == versionId && x.VisualGuideline.OwnerUserId == ownerUserId)
+                .Select(x => new GccV2GovernedVersionLookup(kind, x.VisualGuidelineId, x.Id, x.VersionNumber,
+                    x.SchemaVersion, x.CanonicalSha256, x.LifecycleState, null,
+                    x.EffectiveFromUtc, x.EffectiveUntilUtc, "ready", "ready", x.PolicyJson))
+                .SingleOrDefaultAsync(ct),
             "product_schema" => await db.GccV2ProductSchemaVersions.AsNoTracking()
                 .Where(x => x.Id == versionId && x.ProductSchema.OwnerUserId == ownerUserId)
                 .Select(x => new GccV2GovernedVersionLookup(kind, x.ProductSchemaId, x.Id, x.VersionNumber,
@@ -728,6 +755,8 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
             "audience" => await db.GccV2Audiences.Where(x => x.Id == stableId && x.OwnerUserId == ownerUserId)
                 .Select(x => x.CurrentVersionId).SingleOrDefaultAsync(ct),
             "style_guide" => await db.GccV2StyleGuides.Where(x => x.Id == stableId && x.OwnerUserId == ownerUserId)
+                .Select(x => x.CurrentVersionId).SingleOrDefaultAsync(ct),
+            "visual_guideline" => await db.GccV2VisualGuidelines.Where(x => x.Id == stableId && x.OwnerUserId == ownerUserId)
                 .Select(x => x.CurrentVersionId).SingleOrDefaultAsync(ct),
             "product_schema" => await db.GccV2ProductSchemas.Where(x => x.Id == stableId && x.OwnerUserId == ownerUserId)
                 .Select(x => x.CurrentVersionId).SingleOrDefaultAsync(ct),

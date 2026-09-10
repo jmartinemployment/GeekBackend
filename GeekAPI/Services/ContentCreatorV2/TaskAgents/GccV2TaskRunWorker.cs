@@ -144,6 +144,18 @@ public sealed class GccV2TaskRunWorker(
                 evidence = "[]";
                 citations = "[]";
             }
+            else if (IsRoiProjection(workflow.RootElement))
+            {
+                JsonElement? observed = null;
+                if (input.RootElement.TryGetProperty("observedTelemetry", out var observedEl)
+                    && observedEl.ValueKind == JsonValueKind.Object)
+                {
+                    observed = observedEl.Clone();
+                }
+                output = GccV2RoiProjectionEngine.Execute(input.RootElement, observed);
+                evidence = ExtractArray(output, "provenance", "evidence");
+                citations = ExtractCitations(output);
+            }
             else
             {
                 var endpoint = workflow.RootElement.TryGetProperty("endpoint", out var endpointEl)
@@ -216,6 +228,11 @@ public sealed class GccV2TaskRunWorker(
             }
         }
     }
+
+    private static bool IsRoiProjection(JsonElement workflow) =>
+        workflow.TryGetProperty("engine", out var engine)
+        && engine.ValueKind == JsonValueKind.String
+        && string.Equals(engine.GetString(), GccV2RoiProjectionEngine.Engine, StringComparison.Ordinal);
 
     private static JsonElement ExecuteStudioTemplate(
         GccV2TaskAgentDefinitionDto definition,

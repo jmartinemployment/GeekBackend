@@ -13,6 +13,7 @@ public sealed record GccV2ContextSelectionRequest(
     Guid? StyleGuideVersionId = null,
     IReadOnlyList<GccV2ProductSelection>? ProductSelections = null,
     Guid? BrandKitVersionId = null,
+    Guid? VisualGuidelineVersionId = null,
     string? Locale = null,
     string? RunNotes = null,
     bool WebSearchEnabled = false,
@@ -144,7 +145,8 @@ public sealed class GccV2ContextResolver(
                 .Select(x => new GccV2ProductSelection(x.VersionId!.Value,
                     string.IsNullOrWhiteSpace(x.SelectedFieldIdsJson) ? [] :
                     JsonSerializer.Deserialize<List<Guid>>(x.SelectedFieldIdsJson) ?? [])).ToList(),
-            source.Entries.FirstOrDefault(x => x.ContextKind == "brand_kit")?.VersionId);
+            source.Entries.FirstOrDefault(x => x.ContextKind == "brand_kit")?.VersionId,
+            source.Entries.FirstOrDefault(x => x.ContextKind == "visual_guideline")?.VersionId);
         return await PrepareAsync(newJobId, createId, briefId, ownerUserId, selection,
             agentSnapshotDigest, null, source.Id, ct);
     }
@@ -186,7 +188,8 @@ public sealed class GccV2ContextResolver(
             await Current("audience"),
             await Current("style_guide"),
             products,
-            source.Entries.FirstOrDefault(x => x.ContextKind == "brand_kit")?.VersionId);
+            source.Entries.FirstOrDefault(x => x.ContextKind == "brand_kit")?.VersionId,
+            await Current("visual_guideline"));
         return await PrepareAsync(newJobId, createId, briefId, ownerUserId, selection,
             agentSnapshotDigest, null, source.Id, ct);
     }
@@ -229,6 +232,8 @@ public sealed class GccV2ContextResolver(
             await AddVersionAsync("audience", audience, ownerUserId, null, entries, blocks, warnings, ct);
         if (selection.StyleGuideVersionId is { } style)
             await AddVersionAsync("style_guide", style, ownerUserId, null, entries, blocks, warnings, ct);
+        if (selection.VisualGuidelineVersionId is { } visual)
+            await AddVersionAsync("visual_guideline", visual, ownerUserId, null, entries, blocks, warnings, ct);
         foreach (var product in selection.ProductSelections ?? [])
             await AddVersionAsync("product", product.ProductVersionId, ownerUserId,
                 product.SelectedFieldIds, entries, blocks, warnings, ct);
@@ -329,6 +334,8 @@ public sealed class GccV2ContextResolver(
             await AddVersionAsync("audience", audience, ownerUserId, null, entries, blocks, warnings, ct);
         if (selection.StyleGuideVersionId is { } style)
             await AddVersionAsync("style_guide", style, ownerUserId, null, entries, blocks, warnings, ct);
+        if (selection.VisualGuidelineVersionId is { } visual)
+            await AddVersionAsync("visual_guideline", visual, ownerUserId, null, entries, blocks, warnings, ct);
         foreach (var product in selection.ProductSelections ?? [])
             await AddVersionAsync("product", product.ProductVersionId, ownerUserId,
                 product.SelectedFieldIds, entries, blocks, warnings, ct);
@@ -449,6 +456,14 @@ public sealed class GccV2ContextResolver(
             if (fields is { Count: > 0 } && fields.Any(x => !allowedFields.Contains(x)))
             {
                 blocks.Add($"{kind}:{versionId}:selected_fields_invalid");
+                return;
+            }
+            var claimBlocks = GccV2ProductClaimPolicy.ResolveBlockers(
+                versionId, value.ApprovedClaimsJson, value.ProhibitedClaimsJson,
+                value.MandatoryDisclaimersJson);
+            if (claimBlocks.Count > 0)
+            {
+                blocks.AddRange(claimBlocks);
                 return;
             }
             if (entries.All(x => x.VersionId != schema.VersionId))

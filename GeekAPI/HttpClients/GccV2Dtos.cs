@@ -696,3 +696,40 @@ public sealed record CreateGccV2GridRowCommand(
 public sealed record CreateGccV2GridRunCommand(
     string OwnerUserId, string? Mode = null, int? SampleSize = null, string? ActorUserId = null,
     IReadOnlyDictionary<string, string>? RowArtifactJsonByRowId = null);
+
+// Geek Content Pipelines (Plan → Create → Adapt → Activate → Optimize).
+
+public sealed record GccV2PipelineListItemDto(
+    Guid Id, string Name, string Description, string Status, int VersionNumber,
+    string Digest, DateTimeOffset UpdatedAtUtc, int RunCount);
+
+public sealed record GccV2PipelineDto(
+    Guid Id, string OwnerUserId, string Name, string Description, string Status,
+    int VersionNumber, string Digest, string StagesJson, string PolicyJson,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc,
+    IReadOnlyList<GccV2PipelineRunDto> Runs);
+
+public sealed record GccV2PipelineRunDto(
+    Guid Id, int DefinitionVersionNumber, string DefinitionDigest, string Status,
+    string ActorUserId, string InputJson, string HistoryJson,
+    DateTimeOffset StartedAtUtc, DateTimeOffset? CompletedAtUtc, DateTimeOffset? PausedAtUtc,
+    string? Error, IReadOnlyList<GccV2PipelineWorkItemDto> WorkItems);
+
+public sealed record GccV2PipelineWorkItemDto(
+    Guid Id, int WorkItemIndex, string InputJson, string Status, string? Error,
+    DateTimeOffset UpdatedAtUtc, IReadOnlyList<GccV2PipelineStageAttemptDto> StageAttempts);
+
+public sealed record GccV2PipelineStageAttemptDto(
+    Guid Id, string StageKey, string LifecycleStage, string Kind, string DisplayName,
+    string? CapabilityId, string? Handoff, int AttemptNumber, string Status,
+    string? OutputJson, string? Error, DateTimeOffset StartedAtUtc, DateTimeOffset? CompletedAtUtc);
+
+public sealed record CreateGccV2PipelineCommand(
+    string OwnerUserId, string Name, string? Description, string StagesJson, string Digest,
+    string? PolicyJson = null, bool? Publish = true);
+
+public sealed record StartGccV2PipelineRunCommand(
+    string OwnerUserId, string? ActorUserId = null, string? InputJson = null,
+    string? FailStageKey = null);
+
+public sealed record GccV2PipelineActorCommand(string OwnerUserId, string? ActorUserId = null);

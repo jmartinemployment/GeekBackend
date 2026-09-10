@@ -75,7 +75,7 @@ public sealed class GccV2AgentExecutionFactory(
             manifest.CanonicalJson, manifest.Sha256, manifest.Signature, manifest.SigningKeyId);
         var governedContext = new List<RagGovernedContextEntryDto>();
         foreach (var entry in manifest.Entries.Where(x =>
-                     x.ContextKind is "audience" or "style_guide" or "product_schema" or "product"))
+                     x.ContextKind is "audience" or "style_guide" or "visual_guideline" or "product_schema" or "product"))
         {
             if (entry.VersionId is null)
                 throw new InvalidOperationException("Governed policy entry has no immutable version.");
