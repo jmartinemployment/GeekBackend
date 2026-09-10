@@ -730,6 +730,6 @@ public sealed record CreateGccV2PipelineCommand(
 
 public sealed record StartGccV2PipelineRunCommand(
     string OwnerUserId, string? ActorUserId = null, string? InputJson = null,
-    string? FailStageKey = null);
+    string? FailStageKey = null, IReadOnlyList<string>? WorkItemInputsJson = null);
 
 public sealed record GccV2PipelineActorCommand(string OwnerUserId, string? ActorUserId = null);

@@ -90,8 +90,15 @@ public sealed class GccV2PipelinesController(
         var inputJson = request?.Input is null
             ? "{}"
             : JsonSerializer.Serialize(request.Input);
+        IReadOnlyList<string>? workItemInputsJson = null;
+        if (request?.WorkItems is { Count: > 0 })
+        {
+            workItemInputsJson = request.WorkItems
+                .Select(item => JsonSerializer.Serialize(item))
+                .ToArray();
+        }
         var pipeline = await repo.StartPipelineRunAsync(id, new(
-            Owner, Owner, inputJson, request?.FailStageKey), ct);
+            Owner, Owner, inputJson, request?.FailStageKey, workItemInputsJson), ct);
         return Ok(new { contractVersion = ContractVersion, pipeline = Detail(pipeline) });
     }
 
@@ -196,5 +203,6 @@ public sealed class GccV2PipelinesController(
 
     public sealed record StartPublicPipelineRunRequest(
         JsonElement? Input = null,
-        string? FailStageKey = null);
+        string? FailStageKey = null,
+        IReadOnlyList<JsonElement>? WorkItems = null);
 }

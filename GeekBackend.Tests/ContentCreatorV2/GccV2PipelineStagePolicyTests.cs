@@ -10,7 +10,9 @@ public sealed class GccV2PipelineStagePolicyTests
         var error = GccV2PipelineStagePolicy.ValidateStagesJson(
             GccV2PipelineStagePolicy.DefaultAeoTemplateStagesJson(), out var stages);
         Assert.Null(error);
-        Assert.Equal(5, stages.Count);
+        Assert.Equal(6, stages.Count);
+        Assert.Contains(stages, stage => stage.Key == "optimize-roi"
+            && stage.CapabilityId == "roi-business-calculator");
         Assert.All(GccV2PipelineStagePolicy.LifecycleStages, lifecycle =>
             Assert.Contains(stages, stage => stage.Lifecycle == lifecycle));
         Assert.False(string.IsNullOrWhiteSpace(

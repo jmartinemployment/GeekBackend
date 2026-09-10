@@ -1,0 +1,104 @@
+using System.Text.Json;
+
+namespace GeekRepository.Controllers.ContentCreatorV2;
+
+/// <summary>Stage output builders for Geek Content Pipeline runs (stub execution).</summary>
+internal static class GccV2PipelineStageOutputs
+{
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    public static string ForTaskAgent(string? capabilityId, string displayName, string lifecycle, int workItemIndex)
+    {
+        if (string.Equals(capabilityId, "roi-business-calculator", StringComparison.Ordinal))
+            return RoiProjection(workItemIndex, lifecycle);
+
+        return JsonSerializer.Serialize(new
+        {
+            artifactType = $"{capabilityId}.stub.v1",
+            capabilityId,
+            summary = $"Stub artifact from {displayName}.",
+            lifecycle,
+            workItemIndex,
+        }, JsonOpts);
+    }
+
+    public static string ForHandoff(string? handoff, string displayName, string lifecycle, int workItemIndex) =>
+        JsonSerializer.Serialize(new
+        {
+            handoff,
+            summary = $"Completed {displayName} handoff.",
+            lifecycle,
+            workItemIndex,
+        }, JsonOpts);
+
+    /// <summary>
+    /// Deterministic directional ROI stub aligned with gcc-roi-formulas.v1 defaults
+    /// (workflowVolume 48, baseline 90m, assisted 25m, adoption 0.7, success 0.65, …).
+    /// </summary>
+    private static string RoiProjection(int workItemIndex, string lifecycle)
+    {
+        const double workflowVolume = 48;
+        const double baselineMinutes = 90;
+        const double assistedMinutes = 25;
+        const double adoptionRate = 0.7;
+        const double successfulUseRate = 0.65;
+        const double loadedHourlyCost = 85;
+        const double redeploymentFactor = 0.7;
+        const double externalSpend = 24000;
+        const double replaceableShare = 0.35;
+        const double totalCostOfOwnership = 18000;
+
+        static object Scenario(string id, string label, double timeFactor, double adoptionFactor, double externalFactor)
+        {
+            var savedHours = workflowVolume * ((baselineMinutes - assistedMinutes) / 60.0)
+                * (adoptionRate * adoptionFactor) * successfulUseRate * timeFactor;
+            var productivity = savedHours * loadedHourlyCost * redeploymentFactor;
+            var external = externalSpend * replaceableShare * (adoptionRate * adoptionFactor) * externalFactor;
+            var gross = productivity + external;
+            var net = gross - totalCostOfOwnership;
+            var roiPercent = totalCostOfOwnership > 0 ? net / totalCostOfOwnership * 100 : (double?)null;
+            return new
+            {
+                scenario = id,
+                label,
+                savedHours,
+                productivityValue = productivity,
+                externalCostAvoided = external,
+                grossBenefit = gross,
+                netBenefit = net,
+                roiPercent,
+            };
+        }
+
+        return JsonSerializer.Serialize(new
+        {
+            artifactType = "roiProjection.v1",
+            formulaVersion = "gcc-roi-formulas.v1",
+            contractVersion = "roiBusinessCalculatorInput.v1",
+            capabilityId = "roi-business-calculator",
+            lifecycle,
+            workItemIndex,
+            summary = "Directional ROI projection from pipeline Optimize stage.",
+            scenarios = new[]
+            {
+                Scenario("conservative", "Conservative", 0.75, 0.85, 0.9),
+                Scenario("expected", "Expected", 1, 1, 1),
+                Scenario("upside", "Upside", 1.25, 1.1, 1.05),
+            },
+            evidenceLabels = new
+            {
+                projections = "modeled",
+                reconciliation = "experimental",
+                cashClaims = "not-asserted",
+            },
+            warnings = new[]
+            {
+                "Directional model only — not a quote, guarantee, or audited finance result.",
+                "Capacity created is not cash saved.",
+            },
+        }, JsonOpts);
+    }
+}

@@ -220,6 +220,167 @@ public sealed class GccV2GridsController(
         });
     }
 
+    [HttpPut("{id:guid}/pipeline")]
+    public async Task<ActionResult<object>> PutPipeline(
+        Guid id, PutPublicGridPipelineRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var existing = await repo.GetGridAsync(id, Owner, ct);
+        if (existing is null) return NotFound();
+
+        string? pipelineDefinitionId = null;
+        if (!string.IsNullOrWhiteSpace(request.PipelineDefinitionId))
+        {
+            if (!Guid.TryParse(request.PipelineDefinitionId.Trim(), out var parsed))
+                return BadRequest(new { error = "pipelineDefinitionId must be a GUID." });
+            var pipeline = await repo.GetPipelineAsync(parsed, Owner, ct);
+            if (pipeline is null) return NotFound(new { error = "Pipeline not found." });
+            if (!string.Equals(pipeline.Status, "published", StringComparison.OrdinalIgnoreCase))
+                return Conflict(new { error = "Only published pipelines can be attached to a grid." });
+            pipelineDefinitionId = parsed.ToString("D");
+        }
+
+        var previous = GccV2GridPipelineBinding.Read(existing.ConfigJson);
+        var configJson = GccV2GridPipelineBinding.Merge(existing.ConfigJson, previous with
+        {
+            PipelineDefinitionId = pipelineDefinitionId,
+            LastPipelineRunId = pipelineDefinitionId is null ? null : previous.LastPipelineRunId,
+        });
+        var grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: configJson), ct);
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            grid = Detail(grid),
+        });
+    }
+
+    [HttpPost("{id:guid}/pipeline-runs")]
+    public async Task<ActionResult<object>> StartPipelineProjection(
+        Guid id, StartPublicGridPipelineRunRequest? request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var existing = await repo.GetGridAsync(id, Owner, ct);
+        if (existing is null) return NotFound();
+
+        var binding = GccV2GridPipelineBinding.Read(existing.ConfigJson);
+        var pipelineDefinitionId = !string.IsNullOrWhiteSpace(request?.PipelineDefinitionId)
+            ? request.PipelineDefinitionId.Trim()
+            : binding.PipelineDefinitionId;
+        if (string.IsNullOrWhiteSpace(pipelineDefinitionId)
+            || !Guid.TryParse(pipelineDefinitionId, out var pipelineId))
+            return BadRequest(new { error = "Attach a published pipeline before projecting rows." });
+
+        var mode = string.IsNullOrWhiteSpace(request?.Mode) ? "sample" : request.Mode.Trim();
+        if (mode is not ("sample" or "full"))
+            return BadRequest(new { error = "mode must be sample or full." });
+        var sampleSize = request?.SampleSize is > 0 ? request.SampleSize.Value : 10;
+        var selected = mode == "full"
+            ? existing.Rows.OrderBy(r => r.RowIndex).ToList()
+            : existing.Rows.OrderBy(r => r.RowIndex).Take(sampleSize).ToList();
+        if (selected.Count == 0)
+            return BadRequest(new { error = "Grid has no rows to project into the pipeline." });
+
+        var workItems = selected
+            .Select(row => string.IsNullOrWhiteSpace(row.InputJson) ? "{}" : row.InputJson)
+            .ToArray();
+        var pipeline = await repo.StartPipelineRunAsync(pipelineId, new(
+            Owner, Owner, workItems[0], null, workItems), ct);
+        var latestRun = pipeline.Runs.OrderByDescending(r => r.StartedAtUtc).FirstOrDefault();
+        if (latestRun is null)
+            return BadRequest(new { error = "Pipeline run did not return a work-item projection." });
+
+        var configJson = GccV2GridPipelineBinding.Merge(existing.ConfigJson, new GccV2GridPipelineBinding.State(
+            pipeline.Id.ToString("D"), latestRun.Id.ToString("D")));
+        var grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: configJson), ct);
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            grid = Detail(grid),
+            pipelineRunId = latestRun.Id.ToString("D"),
+            workItemCount = latestRun.WorkItems.Count,
+            pipeline = new
+            {
+                id = pipeline.Id.ToString("D"),
+                name = pipeline.Name,
+                status = pipeline.Status,
+            },
+        });
+    }
+
+    [HttpPut("{id:guid}/roi-projection")]
+    public async Task<ActionResult<object>> PutRoiProjection(
+        Guid id, PutPublicGridRoiProjectionRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var existing = await repo.GetGridAsync(id, Owner, ct);
+        if (existing is null) return NotFound();
+
+        if (request.Clear == true)
+        {
+            var cleared = GccV2GridRoiBinding.Merge(existing.ConfigJson, null);
+            var grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: cleared), ct);
+            return Ok(new { contractVersion = ContractVersion, grid = Detail(grid) });
+        }
+
+        if (request.RunId is null || request.RunId == Guid.Empty
+            || request.ArtifactVersionId is null || request.ArtifactVersionId == Guid.Empty)
+            return BadRequest(new { error = "runId and artifactVersionId are required." });
+
+        var run = await repo.GetTaskRunAsync(request.RunId.Value, Owner, ct);
+        if (run is null) return NotFound(new { error = "Task run not found." });
+        if (!string.Equals(run.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+            return Conflict(new { error = "Only succeeded task runs can pin an ROI projection on a grid." });
+
+        var artifact = (run.Artifacts ?? [])
+            .FirstOrDefault(item => item.Versions.Any(version => version.Id == request.ArtifactVersionId));
+        var version = artifact?.Versions.FirstOrDefault(item => item.Id == request.ArtifactVersionId);
+        if (artifact is null || version is null)
+            return NotFound(new { error = "Artifact version was not found on the owned task run." });
+        if (!string.Equals(artifact.ArtifactType, "roiProjection.v1", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "Only roiProjection.v1 artifacts can be pinned to a grid." });
+
+        double? expectedRoiPercent = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(
+                string.IsNullOrWhiteSpace(version.PayloadJson) ? "{}" : version.PayloadJson);
+            if (doc.RootElement.TryGetProperty("scenarios", out var scenarios)
+                && scenarios.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var scenario in scenarios.EnumerateArray())
+                {
+                    if (scenario.TryGetProperty("scenario", out var sid)
+                        && string.Equals(sid.GetString(), "expected", StringComparison.OrdinalIgnoreCase)
+                        && scenario.TryGetProperty("roiPercent", out var roi)
+                        && roi.ValueKind == JsonValueKind.Number
+                        && roi.TryGetDouble(out var pct))
+                    {
+                        expectedRoiPercent = pct;
+                        break;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Pin without percent.
+        }
+
+        var configJson = GccV2GridRoiBinding.Merge(existing.ConfigJson, new GccV2GridRoiBinding.State(
+            run.Id.ToString("D"),
+            version.Id.ToString("D"),
+            artifact.ArtifactType,
+            expectedRoiPercent,
+            DateTimeOffset.UtcNow.ToString("O")));
+        var updated = await repo.PatchGridAsync(id, new(Owner, ConfigJson: configJson), ct);
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            grid = Detail(updated),
+            roiProjection = GccV2GridRoiBinding.Read(updated.ConfigJson),
+        });
+    }
+
     [HttpPost("{id:guid}/schedule/run-due")]
     public async Task<ActionResult<object>> RunDueSchedule(
         Guid id, RunDuePublicGridScheduleRequest? request, CancellationToken ct)
@@ -331,13 +492,46 @@ public sealed class GccV2GridsController(
         if (!force && !GccV2GridSchedule.IsDue(schedule, now))
             return new DueScheduleResult(false, "not-due", existing, null);
 
-        var endpoint = ResolveAgentEndpoint(existing.ConfigJson);
-        Dictionary<string, string>? rowArtifacts = null;
         var mode = schedule.Mode;
         var sampleSize = schedule.SampleSize > 0 ? schedule.SampleSize : 10;
         var selected = mode == "full"
             ? existing.Rows.OrderBy(r => r.RowIndex).ToList()
             : existing.Rows.OrderBy(r => r.RowIndex).Take(sampleSize).ToList();
+
+        var binding = GccV2GridPipelineBinding.Read(existing.ConfigJson);
+        GccV2GridDto grid;
+        if (!string.IsNullOrWhiteSpace(binding.PipelineDefinitionId)
+            && Guid.TryParse(binding.PipelineDefinitionId, out var pipelineId))
+        {
+            if (selected.Count == 0)
+                return new DueScheduleResult(false, "no-rows", existing, "Grid has no rows to project into the pipeline.");
+
+            var workItems = selected
+                .Select(row => string.IsNullOrWhiteSpace(row.InputJson) ? "{}" : row.InputJson)
+                .ToArray();
+            var pipeline = await repo.StartPipelineRunAsync(pipelineId, new(
+                Owner, "schedule", workItems[0], null, workItems), ct);
+            var latestRun = pipeline.Runs.OrderByDescending(r => r.StartedAtUtc).FirstOrDefault();
+            if (latestRun is null)
+                return new DueScheduleResult(false, "pipeline-failed", existing, "Pipeline run did not return work items.");
+
+            var completedAt = DateTimeOffset.UtcNow;
+            var nextRunAt = GccV2GridSchedule.AdvanceNextRunAt(completedAt, schedule.Cadence)?.ToString("O");
+            var withSchedule = GccV2GridSchedule.Merge(existing.ConfigJson, schedule with
+            {
+                NextRunAt = nextRunAt,
+                LastRunAt = completedAt.ToString("O"),
+            });
+            var configJson = GccV2GridPipelineBinding.Merge(withSchedule, binding with
+            {
+                LastPipelineRunId = latestRun.Id.ToString("D"),
+            });
+            grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: configJson), ct);
+            return new DueScheduleResult(true, force ? "forced-pipeline" : "due-pipeline", grid, null);
+        }
+
+        var endpoint = ResolveAgentEndpoint(existing.ConfigJson);
+        Dictionary<string, string>? rowArtifacts = null;
 
         if (rag.IsEnabled && !string.IsNullOrWhiteSpace(endpoint))
         {
@@ -364,17 +558,17 @@ public sealed class GccV2GridsController(
                 rowArtifacts = null;
         }
 
-        var grid = await repo.CreateGridRunAsync(id, new(
+        grid = await repo.CreateGridRunAsync(id, new(
             Owner, mode, sampleSize, "schedule", rowArtifacts), ct);
 
-        var completedAt = DateTimeOffset.UtcNow;
-        var nextRunAt = GccV2GridSchedule.AdvanceNextRunAt(completedAt, schedule.Cadence)?.ToString("O");
-        var configJson = GccV2GridSchedule.Merge(grid.ConfigJson, schedule with
+        var gridCompletedAt = DateTimeOffset.UtcNow;
+        var gridNextRunAt = GccV2GridSchedule.AdvanceNextRunAt(gridCompletedAt, schedule.Cadence)?.ToString("O");
+        var gridConfigJson = GccV2GridSchedule.Merge(grid.ConfigJson, schedule with
         {
-            NextRunAt = nextRunAt,
-            LastRunAt = completedAt.ToString("O"),
+            NextRunAt = gridNextRunAt,
+            LastRunAt = gridCompletedAt.ToString("O"),
         });
-        grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: configJson), ct);
+        grid = await repo.PatchGridAsync(id, new(Owner, ConfigJson: gridConfigJson), ct);
         return new DueScheduleResult(true, force ? "forced" : "due", grid, null);
     }
 
@@ -574,6 +768,14 @@ public sealed class GccV2GridsController(
 
     public sealed record PutPublicGridScheduleRequest(
         string? Cadence = null, bool? Enabled = null, string? Mode = null, int? SampleSize = null);
+
+    public sealed record PutPublicGridPipelineRequest(string? PipelineDefinitionId = null);
+
+    public sealed record StartPublicGridPipelineRunRequest(
+        string? PipelineDefinitionId = null, string? Mode = null, int? SampleSize = null);
+
+    public sealed record PutPublicGridRoiProjectionRequest(
+        Guid? RunId = null, Guid? ArtifactVersionId = null, bool? Clear = null);
 
     public sealed record RunDuePublicGridScheduleRequest(bool? Force = null);
 }

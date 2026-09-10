@@ -118,6 +118,15 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
 
         var now = DateTimeOffset.UtcNow;
         var failStageKey = command.FailStageKey?.Trim();
+        var workItemInputs = (command.WorkItemInputsJson ?? [])
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .ToList();
+        if (workItemInputs.Count == 0)
+        {
+            workItemInputs.Add(string.IsNullOrWhiteSpace(command.InputJson) ? "{}" : command.InputJson.Trim());
+        }
+
         var run = new GccV2PipelineRun
         {
             PipelineDefinitionId = definition.Id,
@@ -125,83 +134,83 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
             DefinitionDigest = definition.Digest,
             Status = "running",
             ActorUserId = command.ActorUserId?.Trim() ?? command.OwnerUserId.Trim(),
-            InputJson = string.IsNullOrWhiteSpace(command.InputJson) ? "{}" : command.InputJson,
+            InputJson = workItemInputs[0],
             HistoryJson = "[]",
             StartedAtUtc = now,
         };
-        var workItem = new GccV2PipelineWorkItem
-        {
-            WorkItemIndex = 0,
-            InputJson = run.InputJson,
-            Status = "running",
-            UpdatedAtUtc = now,
-        };
-        run.WorkItems.Add(workItem);
 
         var history = new List<object>();
-        var failed = false;
-        foreach (var stage in stages)
+        var anyFailed = false;
+        for (var index = 0; index < workItemInputs.Count; index++)
         {
-            var attempt = new GccV2PipelineStageAttempt
+            var workItem = new GccV2PipelineWorkItem
             {
-                StageKey = stage.Key,
-                LifecycleStage = stage.Lifecycle,
-                Kind = stage.Kind,
-                DisplayName = stage.DisplayName,
-                CapabilityId = stage.CapabilityId,
-                Handoff = stage.Handoff,
-                AttemptNumber = 1,
-                StartedAtUtc = DateTimeOffset.UtcNow,
+                WorkItemIndex = index,
+                InputJson = workItemInputs[index],
+                Status = "running",
+                UpdatedAtUtc = now,
             };
-            if (failed)
+            run.WorkItems.Add(workItem);
+
+            var failed = false;
+            foreach (var stage in stages)
             {
-                attempt.Status = "skipped";
-                attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
-                attempt.Error = "Skipped after earlier stage failure.";
+                var attempt = new GccV2PipelineStageAttempt
+                {
+                    StageKey = stage.Key,
+                    LifecycleStage = stage.Lifecycle,
+                    Kind = stage.Kind,
+                    DisplayName = stage.DisplayName,
+                    CapabilityId = stage.CapabilityId,
+                    Handoff = stage.Handoff,
+                    AttemptNumber = 1,
+                    StartedAtUtc = DateTimeOffset.UtcNow,
+                };
+                if (failed)
+                {
+                    attempt.Status = "skipped";
+                    attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                    attempt.Error = "Skipped after earlier stage failure.";
+                }
+                else if (!string.IsNullOrWhiteSpace(failStageKey)
+                    && string.Equals(failStageKey, stage.Key, StringComparison.Ordinal)
+                    && index == 0)
+                {
+                    attempt.Status = "failed";
+                    attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                    attempt.Error = $"Injected isolation failure at stage '{stage.Key}'.";
+                    failed = true;
+                }
+                else
+                {
+                    attempt.Status = "succeeded";
+                    attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                    attempt.OutputJson = stage.Kind == "task-agent"
+                        ? GccV2PipelineStageOutputs.ForTaskAgent(
+                            stage.CapabilityId, stage.DisplayName, stage.Lifecycle, index)
+                        : GccV2PipelineStageOutputs.ForHandoff(
+                            stage.Handoff, stage.DisplayName, stage.Lifecycle, index);
+                }
+                workItem.StageAttempts.Add(attempt);
+                history.Add(new
+                {
+                    atUtc = attempt.CompletedAtUtc,
+                    workItemIndex = index,
+                    stageKey = stage.Key,
+                    lifecycle = stage.Lifecycle,
+                    status = attempt.Status,
+                    actor = run.ActorUserId,
+                });
             }
-            else if (!string.IsNullOrWhiteSpace(failStageKey)
-                && string.Equals(failStageKey, stage.Key, StringComparison.Ordinal))
-            {
-                attempt.Status = "failed";
-                attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
-                attempt.Error = $"Injected isolation failure at stage '{stage.Key}'.";
-                failed = true;
-            }
-            else
-            {
-                attempt.Status = "succeeded";
-                attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
-                attempt.OutputJson = stage.Kind == "task-agent"
-                    ? JsonSerializer.Serialize(new
-                    {
-                        artifactType = $"{stage.CapabilityId}.stub.v1",
-                        capabilityId = stage.CapabilityId,
-                        summary = $"Stub artifact from {stage.DisplayName}.",
-                        lifecycle = stage.Lifecycle,
-                    }, JsonOpts)
-                    : JsonSerializer.Serialize(new
-                    {
-                        handoff = stage.Handoff,
-                        summary = $"Completed {stage.DisplayName} handoff.",
-                        lifecycle = stage.Lifecycle,
-                    }, JsonOpts);
-            }
-            workItem.StageAttempts.Add(attempt);
-            history.Add(new
-            {
-                atUtc = attempt.CompletedAtUtc,
-                stageKey = stage.Key,
-                lifecycle = stage.Lifecycle,
-                status = attempt.Status,
-                actor = run.ActorUserId,
-            });
+
+            workItem.Status = failed ? "failed" : "succeeded";
+            workItem.Error = failed ? $"Work item failed at stage '{failStageKey}'." : null;
+            workItem.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            anyFailed |= failed;
         }
 
-        workItem.Status = failed ? "failed" : "succeeded";
-        workItem.Error = failed ? $"Work item failed at stage '{failStageKey}'." : null;
-        workItem.UpdatedAtUtc = DateTimeOffset.UtcNow;
-        run.Status = failed ? "failed" : "succeeded";
-        run.Error = workItem.Error;
+        run.Status = anyFailed ? "failed" : "succeeded";
+        run.Error = anyFailed ? "One or more work items failed; later stages on failed items were skipped." : null;
         run.CompletedAtUtc = DateTimeOffset.UtcNow;
         run.HistoryJson = JsonSerializer.Serialize(history, JsonOpts);
         definition.Runs.Add(run);
@@ -347,7 +356,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
 
     public sealed record StartPipelineRunCommand(
         string OwnerUserId, string? ActorUserId = null, string? InputJson = null,
-        string? FailStageKey = null);
+        string? FailStageKey = null, IReadOnlyList<string>? WorkItemInputsJson = null);
 
     public sealed record ActorCommand(string OwnerUserId, string? ActorUserId = null);
 

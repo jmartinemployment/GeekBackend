@@ -683,6 +683,23 @@ public sealed class GccV2CanvasProjectsController(
             {
                 return $"{artifactType} attached from a task agent (score {score.GetRawText()}, {digestHint}).";
             }
+
+            if (string.Equals(artifactType, "roiProjection.v1", StringComparison.OrdinalIgnoreCase)
+                && document.RootElement.TryGetProperty("scenarios", out var scenarios)
+                && scenarios.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var scenario in scenarios.EnumerateArray())
+                {
+                    if (scenario.TryGetProperty("scenario", out var id)
+                        && string.Equals(id.GetString(), "expected", StringComparison.OrdinalIgnoreCase)
+                        && scenario.TryGetProperty("roiPercent", out var roi)
+                        && roi.ValueKind == JsonValueKind.Number)
+                    {
+                        return $"{artifactType} attached from ROI calculator (expected {roi.GetDouble():0.#}% ROI, {digestHint}). Directional model only — not cash.";
+                    }
+                }
+                return $"{artifactType} attached from ROI calculator ({digestHint}). Directional model only — not cash.";
+            }
         }
         catch (JsonException)
         {
