@@ -102,12 +102,12 @@ public sealed class GccV2PipelinesController(
         return Ok(new { contractVersion = ContractVersion, pipeline = Detail(pipeline) });
     }
 
-    [HttpPost("runs/{runId:guid}/{action:regex(^pause|resume|cancel$)}")]
+    [HttpPost("runs/{runId:guid}/{transition:regex(^pause|resume|cancel$)}")]
     public async Task<ActionResult<object>> TransitionRun(
-        Guid runId, string action, CancellationToken ct)
+        Guid runId, string transition, CancellationToken ct)
     {
         if (!user.IsAuthenticated) return Unauthorized();
-        var pipeline = await repo.TransitionPipelineRunAsync(runId, action, new(Owner, Owner), ct);
+        var pipeline = await repo.TransitionPipelineRunAsync(runId, transition, new(Owner, Owner), ct);
         return Ok(new { contractVersion = ContractVersion, pipeline = Detail(pipeline) });
     }
 

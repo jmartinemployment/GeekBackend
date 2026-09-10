@@ -220,9 +220,9 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
         return Ok(await ReloadGraph(definition.Id, definition.OwnerUserId, ct) ?? ToGraph(definition));
     }
 
-    [HttpPost("runs/{runId:guid}/{action:regex(^pause|resume|cancel$)}")]
+    [HttpPost("runs/{runId:guid}/{transition:regex(^pause|resume|cancel$)}")]
     public async Task<ActionResult<PipelineGraph>> TransitionRun(
-        Guid runId, string action, [FromBody] ActorCommand command, CancellationToken ct)
+        Guid runId, string transition, [FromBody] ActorCommand command, CancellationToken ct)
     {
         var run = await db.GccV2PipelineRuns
             .Include(x => x.PipelineDefinition)
@@ -231,7 +231,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
         if (run is null) return NotFound();
 
         var now = DateTimeOffset.UtcNow;
-        switch (action)
+        switch (transition)
         {
             case "pause":
                 if (run.Status is not ("queued" or "running"))
