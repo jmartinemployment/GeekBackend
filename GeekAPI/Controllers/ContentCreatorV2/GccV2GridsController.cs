@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
@@ -169,6 +170,18 @@ public sealed class GccV2GridsController(
             importedCount = topics.Count,
             grid = Detail(grid),
         });
+    }
+
+    [HttpGet("{id:guid}/export.csv")]
+    public async Task<IActionResult> ExportCsv(Guid id, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var existing = await repo.GetGridAsync(id, Owner, ct);
+        if (existing is null) return NotFound();
+
+        var csv = GccV2GridCsvExport.Build(existing);
+        var bytes = Encoding.UTF8.GetBytes(csv);
+        return File(bytes, "text/csv; charset=utf-8", GccV2GridCsvExport.FileName(existing.Name));
     }
 
     [HttpPost("{id:guid}/runs")]
