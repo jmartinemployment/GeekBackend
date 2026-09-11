@@ -173,6 +173,8 @@ public sealed class GccV2PipelinesController(
                         error = attempt.Error,
                         startedAtUtc = attempt.StartedAtUtc,
                         completedAtUtc = attempt.CompletedAtUtc,
+                        taskRunId = attempt.TaskRunId,
+                        artifactVersionId = attempt.ArtifactVersionId,
                     }),
                 }),
             }),

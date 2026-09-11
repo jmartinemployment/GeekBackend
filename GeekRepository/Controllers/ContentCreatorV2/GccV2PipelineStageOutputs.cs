@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace GeekRepository.Controllers.ContentCreatorV2;
 
-/// <summary>Stage output builders for Geek Content Pipeline runs (stub execution).</summary>
+/// <summary>Stage output builders for Geek Content Pipeline runs.</summary>
 internal static class GccV2PipelineStageOutputs
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -10,18 +10,29 @@ internal static class GccV2PipelineStageOutputs
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    public static string ForTaskAgent(string? capabilityId, string displayName, string lifecycle, int workItemIndex)
+    public static string ForTaskRun(
+        string? capabilityId,
+        string displayName,
+        string lifecycle,
+        int workItemIndex,
+        Guid taskRunId,
+        Guid artifactVersionId,
+        string artifactType,
+        string preview,
+        JsonElement artifact)
     {
-        if (string.Equals(capabilityId, "roi-business-calculator", StringComparison.Ordinal))
-            return RoiProjection(workItemIndex, lifecycle);
-
         return JsonSerializer.Serialize(new
         {
-            artifactType = $"{capabilityId}.stub.v1",
+            artifactType,
             capabilityId,
-            summary = $"Stub artifact from {displayName}.",
+            summary = preview,
             lifecycle,
             workItemIndex,
+            mode = "task-run",
+            taskRunId = taskRunId.ToString("D"),
+            artifactVersionId = artifactVersionId.ToString("D"),
+            displayName,
+            artifact,
         }, JsonOpts);
     }
 
@@ -38,7 +49,7 @@ internal static class GccV2PipelineStageOutputs
     /// Deterministic directional ROI stub aligned with gcc-roi-formulas.v1 defaults
     /// (workflowVolume 48, baseline 90m, assisted 25m, adoption 0.7, success 0.65, …).
     /// </summary>
-    private static string RoiProjection(int workItemIndex, string lifecycle)
+    public static string ForRoiProjection(int workItemIndex, string lifecycle)
     {
         const double workflowVolume = 48;
         const double baselineMinutes = 90;

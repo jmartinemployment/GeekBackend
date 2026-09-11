@@ -75,6 +75,10 @@ public sealed class GccV2PipelineStageAttempt
     public string Status { get; set; } = "pending";
     public string? OutputJson { get; set; }
     public string? Error { get; set; }
+    /// <summary>TaskRun created for task-agent stages (null for handoffs / formula stubs / skipped).</summary>
+    public Guid? TaskRunId { get; set; }
+    /// <summary>Artifact version written for the TaskRun (null when no TaskRun).</summary>
+    public Guid? ArtifactVersionId { get; set; }
     public DateTimeOffset StartedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAtUtc { get; set; }
     [JsonIgnore] public GccV2PipelineWorkItem WorkItem { get; set; } = null!;

@@ -768,7 +768,8 @@ public sealed record GccV2PipelineWorkItemDto(
 public sealed record GccV2PipelineStageAttemptDto(
     Guid Id, string StageKey, string LifecycleStage, string Kind, string DisplayName,
     string? CapabilityId, string? Handoff, int AttemptNumber, string Status,
-    string? OutputJson, string? Error, DateTimeOffset StartedAtUtc, DateTimeOffset? CompletedAtUtc);
+    string? OutputJson, string? Error, DateTimeOffset StartedAtUtc, DateTimeOffset? CompletedAtUtc,
+    Guid? TaskRunId = null, Guid? ArtifactVersionId = null);
 
 public sealed record CreateGccV2PipelineCommand(
     string OwnerUserId, string Name, string? Description, string StagesJson, string Digest,

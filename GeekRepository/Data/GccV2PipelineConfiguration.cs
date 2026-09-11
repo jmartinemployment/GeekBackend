@@ -68,6 +68,8 @@ internal static class GccV2PipelineConfiguration
         attempt.Property(x => x.OutputJson).HasColumnType("text");
         attempt.Property(x => x.Error).HasColumnType("text");
         attempt.Property(x => x.StartedAtUtc).IsRequired();
+        attempt.HasIndex(x => x.TaskRunId)
+            .HasDatabaseName("ix_gcc_v2_pipeline_stage_attempts_task_run");
         attempt.HasIndex(x => new { x.PipelineWorkItemId, x.StageKey, x.AttemptNumber }).IsUnique()
             .HasDatabaseName("ux_gcc_v2_pipeline_stage_attempts_item_stage_attempt");
         attempt.HasOne(x => x.WorkItem).WithMany(x => x.StageAttempts)
