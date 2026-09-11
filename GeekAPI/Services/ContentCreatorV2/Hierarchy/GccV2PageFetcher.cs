@@ -23,10 +23,17 @@ public sealed class GccV2PageFetcher
 
     public async Task<GccV2FetchedPage?> FetchAsync(string url, CancellationToken ct)
     {
+        if (!GccV2SafeOutboundUrl.TryValidate(url, out var safeUri, out var rejectionReason))
+        {
+            _logger.LogWarning(
+                "Hierarchy page fetch blocked (SSRF): {Url} — {Reason}", url, rejectionReason);
+            return null;
+        }
+
         var browser = await _browserHolder.EnsureBrowserAsync(ct);
         if (browser is null)
         {
-            _logger.LogWarning("Hierarchy page fetch skipped — Playwright browser unavailable for {Url}", url);
+            _logger.LogWarning("Hierarchy page fetch skipped — Playwright browser unavailable for {Url}", safeUri);
             return null;
         }
 
@@ -36,7 +43,7 @@ public sealed class GccV2PageFetcher
         {
             context = await browser.NewContextAsync(GccV2CrawlerIdentity.MobileContext());
             page = await context.NewPageAsync();
-            var response = await page.GotoAsync(url, new PageGotoOptions
+            var response = await page.GotoAsync(safeUri.AbsoluteUri, new PageGotoOptions
             {
                 WaitUntil = WaitUntilState.Load,
                 Timeout = GccV2CrawlerIdentity.NavigationTimeoutMs,
@@ -44,7 +51,16 @@ public sealed class GccV2PageFetcher
 
             await GccV2CrawlerIdentity.WaitForRenderedAsync(page);
 
-            var finalUrl = response?.Url ?? page.Url ?? url;
+            var finalUrl = response?.Url ?? page.Url ?? safeUri.AbsoluteUri;
+            if (!GccV2SafeOutboundUrl.TryValidate(finalUrl, out _, out var redirectReason))
+            {
+                _logger.LogWarning(
+                    "Hierarchy page fetch blocked after redirect (SSRF): {FinalUrl} — {Reason}",
+                    finalUrl,
+                    redirectReason);
+                return null;
+            }
+
             var status = response?.Status ?? 0;
             // Mobile viewport only: mark CSS-hidden nodes so the tree builder does not walk
             // responsive twin markup that is not displayed on mobile (e.g. hidden lg:block).
@@ -55,11 +71,11 @@ public sealed class GccV2PageFetcher
                 ? ExtractSameOriginLinks(html, finalUrl)
                 : [];
 
-            return new GccV2FetchedPage(url, finalUrl, html, status, links);
+            return new GccV2FetchedPage(safeUri.AbsoluteUri, finalUrl, html, status, links);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Hierarchy page fetch failed for {Url}", url);
+            _logger.LogWarning(ex, "Hierarchy page fetch failed for {Url}", safeUri);
             return null;
         }
         finally

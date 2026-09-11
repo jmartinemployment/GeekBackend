@@ -430,6 +430,22 @@ public class HttpGccV2Repository
             $"repo/content-creator-v2/gsc/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
             ct);
 
+    public Task<IReadOnlyList<GccV2CustomerOutcomeDto>> ListCustomerOutcomesAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2CustomerOutcomeDto>(
+            $"repo/content-creator-v2/roi/outcomes?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2CustomerOutcomeDto?> GetCustomerOutcomeAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2CustomerOutcomeDto>(
+            $"repo/content-creator-v2/roi/outcomes/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2CustomerOutcomeDto> CreateCustomerOutcomeAsync(
+        CreateGccV2CustomerOutcomeCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2CustomerOutcomeDto>("repo/content-creator-v2/roi/outcomes", command, ct);
+    public Task DeleteCustomerOutcomeAsync(Guid id, string ownerUserId, CancellationToken ct = default) =>
+        DeleteAsync(
+            $"repo/content-creator-v2/roi/outcomes/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
+            ct);
+
     public Task<IReadOnlyList<GccV2TaskRunDto>> ListTaskRunsAsync(
         string ownerUserId, string? status = null, CancellationToken ct = default) =>
         GetListAsync<GccV2TaskRunDto>(

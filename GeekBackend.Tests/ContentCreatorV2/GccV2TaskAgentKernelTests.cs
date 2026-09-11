@@ -82,6 +82,61 @@ public sealed class GccV2TaskAgentKernelTests
                 ExpectedClaimedBy: "worker-a"), default)).Result);
     }
 
+    [Fact]
+    public async Task Expired_lease_allows_cross_instance_reclaim_and_bumps_recovery()
+    {
+        await using var db = Db();
+        var agents = new GccV2TaskAgentsController(db);
+        var definition = Assert.IsType<GccV2TaskAgentDefinition>(Assert.IsType<CreatedAtActionResult>(
+            (await agents.Create(new("ai-readiness", "AI Readiness", "Score readiness", "admin"),
+                default)).Result).Value);
+        var version = Assert.IsType<GccV2TaskAgentVersion>(Assert.IsType<CreatedAtActionResult>(
+            (await agents.CreateVersion(definition.Id, VersionCommand(), default)).Result).Value);
+        await agents.TransitionVersion(version.Id, "publish", new("admin", null), default);
+
+        const string owner = "11111111-1111-1111-1111-111111111111";
+        const string input = """{"topic":"ai"}""";
+        const string empty = "{}";
+        var runs = new GccV2TaskRunsController(db);
+        var run = Assert.IsType<GccV2TaskRun>(Assert.IsType<CreatedAtActionResult>(
+            (await runs.Create(new(
+                owner, definition.Id, version.Id, version.VersionDigest,
+                input, Sha(input), null, null,
+                empty, Sha(empty), empty, Sha(empty), empty, Sha(empty), null, owner), default)).Result).Value);
+
+        var claimed = Assert.IsType<GccV2TaskRun>(Assert.IsType<OkObjectResult>(
+            (await runs.Claim(run.Id, "worker-a", 120, default)).Result).Value);
+        Assert.Equal("running", claimed.Status);
+        Assert.Equal("worker-a", claimed.ClaimedByInstanceId);
+        Assert.Equal(1, claimed.AttemptCount);
+        Assert.Equal(0, claimed.RecoveryCount);
+        Assert.IsType<ConflictObjectResult>((await runs.Claim(run.Id, "worker-b", 120, default)).Result);
+
+        // Expire the active lease so another instance can reclaim.
+        var expired = Assert.IsType<GccV2TaskRun>(Assert.IsType<OkObjectResult>(
+            (await runs.Transition(run.Id, new(
+                "running", "analyzing", 40, "progress", "{}", "worker-a",
+                ExpectedClaimedBy: "worker-a",
+                LeaseUntilUtc: DateTimeOffset.UtcNow.AddMinutes(-5),
+                TerminalError: null), default)).Result).Value);
+        Assert.True(expired.LeaseUntilUtc < DateTimeOffset.UtcNow);
+
+        var recovered = Assert.IsType<GccV2TaskRun>(Assert.IsType<OkObjectResult>(
+            (await runs.Claim(run.Id, "recovery-worker", 120, default)).Result).Value);
+        Assert.Equal("recovery-worker", recovered.ClaimedByInstanceId);
+        Assert.Equal(2, recovered.AttemptCount);
+        Assert.Equal(1, recovered.RecoveryCount);
+        Assert.True(recovered.LeaseUntilUtc > DateTimeOffset.UtcNow);
+
+        Assert.IsType<ConflictObjectResult>(
+            (await runs.Claim(run.Id, "worker-c", 120, default)).Result);
+
+        var events = Assert.IsAssignableFrom<IReadOnlyList<GccV2TaskRunEvent>>(
+            Assert.IsType<OkObjectResult>((await runs.Events(run.Id, 0, default)).Result).Value);
+        Assert.Contains(events, e => e.Type == "claimed" && e.Actor == "worker-a");
+        Assert.Contains(events, e => e.Type == "recovered" && e.Actor == "recovery-worker");
+    }
+
     private static GccV2TaskAgentsController.CreateVersionCommand VersionCommand() => new(
         "1.0.0", "analysis",
         """{"contentType":["blog"],"funnelStage":["consideration"],"marketingFunction":["seo"],"process":["audit"]}""",

@@ -1,0 +1,87 @@
+{
+  "artifactType": "roiProjection.v1",
+  "formulaVersion": "gcc-roi-formulas.v1",
+  "contractVersion": "roiBusinessCalculatorInput.v1",
+  "assumptions": {
+    "workflowVolume": 120,
+    "baselineMinutes": 90,
+    "assistedMinutes": 25,
+    "adoptionRate": 0.7,
+    "successfulUseRate": 0.85,
+    "loadedHourlyCost": 85,
+    "redeploymentFactor": 0.6,
+    "externalSpend": 48000,
+    "replaceableShare": 0.35,
+    "totalCostOfOwnership": 36000,
+    "attributableGrossMargin": 0.55
+  },
+  "lookbackDays": 90,
+  "scenarios": [
+    {
+      "scenario": "conservative",
+      "label": "Conservative",
+      "savedHours": 44.3795625,
+      "productivityValue": 2263.3576875,
+      "externalCostAvoided": 9996,
+      "grossBenefit": 12259.3576875,
+      "netBenefit": -23740.6423125,
+      "roiPercent": -65.94622864583334,
+      "paybackMonths": 35.23838776973445,
+      "timeToValueMonths": 190.86687110297942
+    },
+    {
+      "scenario": "expected",
+      "label": "Expected",
+      "savedHours": 77.35,
+      "productivityValue": 3944.8499999999995,
+      "externalCostAvoided": 11760,
+      "grossBenefit": 15704.849999999999,
+      "netBenefit": -20295.15,
+      "roiPercent": -56.375416666666666,
+      "paybackMonths": 27.507426049914518,
+      "timeToValueMonths": 109.50986729533443
+    },
+    {
+      "scenario": "upside",
+      "label": "Upside",
+      "savedHours": 111.67406249999999,
+      "productivityValue": 5695.377187499999,
+      "externalCostAvoided": 12936,
+      "grossBenefit": 18631.3771875,
+      "netBenefit": -17368.6228125,
+      "roiPercent": -48.24617447916667,
+      "paybackMonths": 23.1866917647845,
+      "timeToValueMonths": 75.85099033443078
+    }
+  ],
+  "reconciliation": {
+    "assumedSuccessRate": 0.85,
+    "observedAcceptanceRate": 0.6458333333333334,
+    "successRateDeltaPp": -20.41666666666666,
+    "assumedAssistedMinutes": 25,
+    "observedAvgReviewMinutes": 10.25,
+    "assistedMinutesDelta": -14.75,
+    "projectedAnnualAccepted": 71.39999999999999,
+    "observedAnnualizedAccepted": 125.72222222222221,
+    "projectedAnnualPublished": 46.1125,
+    "observedAnnualizedPublished": 89.22222222222221,
+    "notes": [
+      "Reconciliation compares modeled assumptions to observed workflow capacity \u2014 not cash claims.",
+      "Observed acceptance is 20.4 pp below the assumed success rate."
+    ]
+  },
+  "evidenceLabels": {
+    "projections": "modeled",
+    "reconciliation": "telemetry-measured",
+    "cashClaims": "not-asserted"
+  },
+  "warnings": [
+    "Directional model only \u2014 not a quote, guarantee, or audited finance result.",
+    "Capacity created is not cash saved. Revenue contribution requires attributable gross margin."
+  ],
+  "provenance": {
+    "method": "gcc-roi-formulas.v1",
+    "evidence": [],
+    "citations": []
+  }
+}

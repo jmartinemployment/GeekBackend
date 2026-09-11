@@ -60,7 +60,9 @@ public sealed class GccV2StudioController(
             "gpt-5.4",
             0.2,
             EvaluationPrompt: "Output must be valid JSON matching the example shape.",
-            ContextKnowledgeIds: []);
+            ContextKnowledgeIds: [],
+            TestCases: [],
+            MinTestCases: 1);
 
         var definition = await repo.CreateTaskAgentAsync(new(
             capabilityId, draft.Name!, draft.Outcome!, Owner), ct);
@@ -190,6 +192,39 @@ public sealed class GccV2StudioController(
         });
     }
 
+    [HttpPost("agents/{idOrCapability}/evaluate")]
+    public async Task<ActionResult<object>> EvaluateSuite(
+        string idOrCapability, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var definition = await repo.GetTaskAgentAsync(idOrCapability, ct);
+        if (definition is null) return NotFound();
+        if (!TrySelectStudioView(definition, Owner, out var version, out _))
+            return NotFound();
+
+        using var workflow = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(version.WorkflowJson) ? "{}" : version.WorkflowJson);
+        var suite = BuildSuiteResult(definition, version, workflow.RootElement);
+        return Ok(new
+        {
+            contractVersion = "gcc-studio-evaluate.v1",
+            valid = suite.Valid,
+            minTestCases = suite.MinTestCases,
+            caseCount = suite.CaseCount,
+            passedCount = suite.PassedCount,
+            message = suite.Message,
+            cases = suite.Cases.Select(item => new
+            {
+                id = item.Id,
+                name = item.Name,
+                valid = item.Valid,
+                validationErrors = item.ValidationErrors,
+                missingTokens = item.MissingTokens,
+                message = item.Message,
+            }),
+        });
+    }
+
     [HttpPost("agents/{idOrCapability}/publish")]
     public async Task<ActionResult<object>> Publish(string idOrCapability, CancellationToken ct)
     {
@@ -208,6 +243,29 @@ public sealed class GccV2StudioController(
             {
                 error = "Administrator authorization is required to publish admin_shared Studio agents.",
             });
+
+        using (var workflow = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(draft.WorkflowJson) ? "{}" : draft.WorkflowJson))
+        {
+            var suite = BuildSuiteResult(definition, draft, workflow.RootElement);
+            if (!suite.Valid)
+            {
+                return Conflict(new
+                {
+                    error = suite.Message,
+                    minTestCases = suite.MinTestCases,
+                    caseCount = suite.CaseCount,
+                    passedCount = suite.PassedCount,
+                    cases = suite.Cases.Select(item => new
+                    {
+                        id = item.Id,
+                        name = item.Name,
+                        valid = item.Valid,
+                        message = item.Message,
+                    }),
+                });
+            }
+        }
 
         var published = await repo.TransitionTaskAgentVersionAsync(
             draft.Id, "publish", new(Owner, "Published from Custom Agent Studio."), ct);
@@ -280,11 +338,12 @@ public sealed class GccV2StudioController(
         if (target is null)
             return Conflict(new { error = $"No Studio version is eligible for {transition}." });
 
-        var updated = await repo.TransitionTaskAgentVersionAsync(
+        await repo.TransitionTaskAgentVersionAsync(
             target.Id, transition, new(Owner, $"{transition} from Custom Agent Studio."), ct);
         definition = await repo.GetTaskAgentAsync(definition.Id.ToString("D"), ct) ?? definition;
-        var facets = GccV2StudioTemplateRenderer.TryParseFacets(updated.FacetsJson)!;
-        return Ok(StudioDetail(definition, updated, facets));
+        if (!TrySelectStudioView(definition, Owner, out var version, out var facets))
+            return NotFound();
+        return Ok(StudioDetail(definition, version, facets));
     }
 
     private async Task<GccV2TaskAgentVersionDto> CreateDraftVersionAsync(
@@ -322,7 +381,10 @@ public sealed class GccV2StudioController(
             ["uiSchema"] = uiSchema,
             ["evaluationPrompt"] = draft.EvaluationPrompt ?? "",
             ["contextKnowledgeIds"] = knowledgeIds,
+            ["testCases"] = NormalizeTestCases(draft.TestCases),
+            ["minTestCases"] = Math.Clamp(draft.MinTestCases ?? 1, 1, 20),
         };
+        var minTestCases = Math.Clamp(draft.MinTestCases ?? 1, 1, 20);
         var facets = new
         {
             category = GccV2StudioTemplateRenderer.Category,
@@ -344,7 +406,12 @@ public sealed class GccV2StudioController(
             "[]",
             GccV2CanonicalJson.Serialize(new[] { draft.AllowedModel }),
             "[]",
-            """{"requiresExampleOutput":true,"dryRunRequired":true}""",
+            GccV2CanonicalJson.Serialize(new
+            {
+                requiresExampleOutput = true,
+                dryRunRequired = true,
+                minTestCases,
+            }),
             Owner), ct);
     }
 
@@ -360,6 +427,8 @@ public sealed class GccV2StudioController(
         var evaluationPrompt = "";
         double temperature = 0.2;
         var knowledgeIds = new List<string>();
+        var testCases = new List<StudioTestCaseBody>();
+        var minTestCases = 1;
         JsonElement? uiSchema = null;
 
         try
@@ -379,6 +448,10 @@ public sealed class GccV2StudioController(
             if (root.TryGetProperty("temperature", out var temp)
                 && temp.ValueKind == JsonValueKind.Number)
                 temperature = temp.GetDouble();
+            if (root.TryGetProperty("minTestCases", out var minCases)
+                && minCases.ValueKind == JsonValueKind.Number
+                && minCases.TryGetInt32(out var minValue))
+                minTestCases = Math.Clamp(minValue, 1, 20);
             if (root.TryGetProperty("contextKnowledgeIds", out var knowledge)
                 && knowledge.ValueKind == JsonValueKind.Array)
             {
@@ -389,6 +462,8 @@ public sealed class GccV2StudioController(
                         knowledgeIds.Add(entry.GetString()!);
                 }
             }
+            foreach (var (id, name, input) in GccV2StudioEvaluator.ReadTestCases(root))
+                testCases.Add(new StudioTestCaseBody(id, name, input));
             if (root.TryGetProperty("uiSchema", out var schema)
                 && schema.ValueKind == JsonValueKind.Object)
             {
@@ -439,6 +514,9 @@ public sealed class GccV2StudioController(
             // Keep default model.
         }
 
+        minTestCases = GccV2StudioEvaluator.ReadMinTestCases(
+            published.EvaluationThresholdsJson, minTestCases);
+
         return new StudioDraftBody(
             definition.DisplayName,
             definition.Description,
@@ -450,7 +528,53 @@ public sealed class GccV2StudioController(
             temperature,
             uiSchema,
             evaluationPrompt,
-            knowledgeIds);
+            knowledgeIds,
+            testCases,
+            minTestCases);
+    }
+
+    private static GccV2StudioEvaluator.SuiteResult BuildSuiteResult(
+        GccV2TaskAgentDefinitionDto definition,
+        GccV2TaskAgentVersionDto version,
+        JsonElement workflow)
+    {
+        var instructionsTemplate = GccV2StudioLlmExecutor.ReadString(workflow, "instructionsTemplate");
+        var exampleOutput = GccV2StudioLlmExecutor.ReadString(workflow, "exampleOutput");
+        var evaluationPrompt = GccV2StudioLlmExecutor.ReadString(workflow, "evaluationPrompt");
+        var minFromWorkflow = workflow.TryGetProperty("minTestCases", out var minEl)
+            && minEl.ValueKind == JsonValueKind.Number
+            && minEl.TryGetInt32(out var minValue)
+            ? Math.Clamp(minValue, 1, 20)
+            : 1;
+        var minTestCases = GccV2StudioEvaluator.ReadMinTestCases(
+            version.EvaluationThresholdsJson, minFromWorkflow);
+        var cases = GccV2StudioEvaluator.ReadTestCases(workflow);
+        return GccV2StudioEvaluator.EvaluateSuite(
+            cases,
+            minTestCases,
+            version.InputSchemaJson,
+            instructionsTemplate,
+            definition.DisplayName,
+            definition.Description,
+            exampleOutput,
+            evaluationPrompt);
+    }
+
+    private static object[] NormalizeTestCases(IReadOnlyList<StudioTestCaseBody>? cases)
+    {
+        if (cases is null || cases.Count == 0) return [];
+        return cases
+            .Select((item, index) =>
+            {
+                var id = string.IsNullOrWhiteSpace(item.Id) ? $"case-{index + 1}" : item.Id.Trim();
+                var name = string.IsNullOrWhiteSpace(item.Name) ? $"Case {index + 1}" : item.Name.Trim();
+                var input = item.Input.ValueKind == JsonValueKind.Object
+                    ? item.Input
+                    : JsonSerializer.SerializeToElement(new Dictionary<string, string>());
+                return (object)new { id, name, input };
+            })
+            .Take(20)
+            .ToArray();
     }
 
     private static object BuildInputSchema(IReadOnlyList<StudioFieldBody> fields)
@@ -562,6 +686,8 @@ public sealed class GccV2StudioController(
     {
         using var workflowDoc = JsonDocument.Parse(version.WorkflowJson);
         var workflow = workflowDoc.RootElement.Clone();
+        var published = LatestPublishedStudio(definition);
+        var lifecycleTarget = LatestLifecycleTarget(definition);
         return new
         {
             contractVersion = "gcc-studio-agent.v1",
@@ -581,7 +707,96 @@ public sealed class GccV2StudioController(
                 version.WorkflowDigest,
                 version.VersionDigest,
             },
+            publishedVersion = published is null
+                ? null
+                : new
+                {
+                    versionId = published.Id.ToString("D"),
+                    version = published.SemanticVersion,
+                    digest = published.VersionDigest,
+                    state = published.State,
+                },
+            lifecycleVersion = lifecycleTarget is null
+                ? null
+                : new
+                {
+                    versionId = lifecycleTarget.Id.ToString("D"),
+                    version = lifecycleTarget.SemanticVersion,
+                    digest = lifecycleTarget.VersionDigest,
+                    state = lifecycleTarget.State,
+                },
+            audit = BuildLifecycleAudit(definition),
         };
+    }
+
+    private static GccV2TaskAgentVersionDto? LatestLifecycleTarget(
+        GccV2TaskAgentDefinitionDto definition) =>
+        definition.Versions
+            .Where(GccV2StudioTemplateRenderer.IsStudioVersion)
+            .Where(x => x.State is "published" or "deprecated")
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefault();
+
+    private static object[] BuildLifecycleAudit(GccV2TaskAgentDefinitionDto definition)
+    {
+        var events = new List<(DateTimeOffset At, object Row)>();
+        foreach (var version in definition.Versions.Where(GccV2StudioTemplateRenderer.IsStudioVersion))
+        {
+            events.Add((version.CreatedAtUtc, new
+            {
+                id = $"{version.Id:D}:created",
+                action = "created",
+                actor = version.CreatedBy,
+                atUtc = version.CreatedAtUtc,
+                detail = $"Draft {version.SemanticVersion} created.",
+                versionId = version.Id.ToString("D"),
+                version = version.SemanticVersion,
+            }));
+            if (version.PublishedAtUtc is { } publishedAt)
+            {
+                events.Add((publishedAt, new
+                {
+                    id = $"{version.Id:D}:published",
+                    action = "published",
+                    actor = version.ReviewedBy ?? version.CreatedBy,
+                    atUtc = publishedAt,
+                    detail = $"Published {version.SemanticVersion}.",
+                    versionId = version.Id.ToString("D"),
+                    version = version.SemanticVersion,
+                }));
+            }
+            if (version.DeprecatedAtUtc is { } deprecatedAt)
+            {
+                events.Add((deprecatedAt, new
+                {
+                    id = $"{version.Id:D}:deprecated",
+                    action = "deprecated",
+                    actor = version.ReviewedBy ?? version.CreatedBy,
+                    atUtc = deprecatedAt,
+                    detail = $"Deprecated {version.SemanticVersion}.",
+                    versionId = version.Id.ToString("D"),
+                    version = version.SemanticVersion,
+                }));
+            }
+            if (version.RevokedAtUtc is { } revokedAt)
+            {
+                events.Add((revokedAt, new
+                {
+                    id = $"{version.Id:D}:revoked",
+                    action = "revoked",
+                    actor = version.ReviewedBy ?? version.CreatedBy,
+                    atUtc = revokedAt,
+                    detail = $"Revoked {version.SemanticVersion}.",
+                    versionId = version.Id.ToString("D"),
+                    version = version.SemanticVersion,
+                }));
+            }
+        }
+
+        return events
+            .OrderByDescending(x => x.At)
+            .Select(x => x.Row)
+            .ToArray();
     }
 
     private static bool IsValidVisibility(string? value, out string visibility)
@@ -600,12 +815,15 @@ public sealed class GccV2StudioController(
     public sealed record StudioFieldBody(
         string Id, string Label, string Type, bool Required,
         string? Placeholder = null, IReadOnlyList<string>? Options = null);
+    public sealed record StudioTestCaseBody(string Id, string Name, JsonElement Input);
     public sealed record StudioDraftBody(
         string? Name, string? Outcome, string Visibility,
         IReadOnlyList<StudioFieldBody> Fields,
         string InstructionsTemplate, string ExampleOutput,
         string AllowedModel, double Temperature,
         JsonElement? UiSchema = null, string? EvaluationPrompt = null,
-        IReadOnlyList<string>? ContextKnowledgeIds = null);
+        IReadOnlyList<string>? ContextKnowledgeIds = null,
+        IReadOnlyList<StudioTestCaseBody>? TestCases = null,
+        int? MinTestCases = null);
     public sealed record StudioDryRunBody(JsonElement Input);
 }
