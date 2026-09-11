@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.ContentCreatorV2;
@@ -397,16 +398,6 @@ public sealed class GccV2CanvasProjectsController(
         if (capability is not ("faq-generator" or "pillar-outline"))
             return BadRequest(new { error = "capability must be faq-generator or pillar-outline." });
 
-        var gridName = $"{asset.Title} batch";
-        var description =
-            $"Batch converted from Canvas asset “{asset.Title}” (v{latest.VersionNumber}) in project “{existing.Name}”.";
-        var grid = await repo.CreateGridAsync(new(
-            Owner,
-            gridName,
-            description,
-            Status: "ready",
-            Capability: capability), ct);
-
         var inputJson = JsonSerializer.Serialize(new
         {
             topic = asset.Title,
@@ -416,9 +407,46 @@ public sealed class GccV2CanvasProjectsController(
             sourceVersionId = latest.Id.ToString("D"),
             sourceVersionNumber = latest.VersionNumber,
         }, JsonOpts);
-        await repo.CreateGridRowAsync(grid.Id, new(Owner, inputJson), ct);
-        grid = await repo.GetGridAsync(grid.Id, Owner, ct)
-            ?? throw new InvalidOperationException("Converted grid could not be reloaded.");
+
+        GccV2GridDto grid;
+        string activityMessage;
+        bool appended;
+        if (request.TargetGridId is Guid targetGridId)
+        {
+            var target = await repo.GetGridAsync(targetGridId, Owner, ct);
+            if (target is null) return NotFound();
+            if (target.Rows.Count + 1 > GccV2GridTopicImport.MaxTotalRows)
+            {
+                return BadRequest(new
+                {
+                    error = $"Grid would exceed {GccV2GridTopicImport.MaxTotalRows} rows.",
+                });
+            }
+
+            await repo.CreateGridRowAsync(target.Id, new(Owner, inputJson), ct);
+            grid = await repo.GetGridAsync(target.Id, Owner, ct)
+                ?? throw new InvalidOperationException("Target grid could not be reloaded.");
+            activityMessage = $"Appended {asset.Title} to batch grid {grid.Name}";
+            appended = true;
+        }
+        else
+        {
+            var gridName = $"{asset.Title} batch";
+            var description =
+                $"Batch converted from Canvas asset “{asset.Title}” (v{latest.VersionNumber}) in project “{existing.Name}”.";
+            grid = await repo.CreateGridAsync(new(
+                Owner,
+                gridName,
+                description,
+                Status: "ready",
+                Capability: capability), ct);
+
+            await repo.CreateGridRowAsync(grid.Id, new(Owner, inputJson), ct);
+            grid = await repo.GetGridAsync(grid.Id, Owner, ct)
+                ?? throw new InvalidOperationException("Converted grid could not be reloaded.");
+            activityMessage = $"Converted {asset.Title} to batch grid {grid.Name}";
+            appended = false;
+        }
 
         var actor = string.IsNullOrWhiteSpace(request.CreatedBy) ? Owner : request.CreatedBy.Trim();
         var activityJson = PrependActivity(
@@ -429,7 +457,7 @@ public sealed class GccV2CanvasProjectsController(
                 kind = "handoff",
                 actor,
                 occurredAt = DateTimeOffset.UtcNow.ToString("O"),
-                message = $"Converted {asset.Title} to batch grid {grid.Name}",
+                message = activityMessage,
             });
         await repo.PatchCanvasProjectAsync(id, new(Owner, ActivityJson: activityJson), ct);
 
@@ -443,6 +471,7 @@ public sealed class GccV2CanvasProjectsController(
             gridName = grid.Name,
             capability,
             rowCount = grid.Rows.Count,
+            appended,
         });
     }
 
@@ -793,7 +822,7 @@ public sealed class GccV2CanvasProjectsController(
         string Message, string? CreatedBy = null);
 
     public sealed record ConvertToGridRequest(
-        string? Capability = null, string? CreatedBy = null);
+        string? Capability = null, string? CreatedBy = null, Guid? TargetGridId = null);
 
     public sealed record SendToAgentRequest(
         string? CapabilityId = null, string? CreatedBy = null);
