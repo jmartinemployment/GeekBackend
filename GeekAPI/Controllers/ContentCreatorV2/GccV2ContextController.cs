@@ -20,6 +20,7 @@ public sealed class GccV2ContextController(
     GccV2ContextResolver resolver,
     GccV2ContextIngestionWake ingestionWake,
     GccV2UrlKnowledgeService urlKnowledge,
+    GccV2UrlAttachmentService urlAttachment,
     GccV2JobEventWriter jobEvents,
     GccV2JobWake jobWake,
     IConfiguration configuration) : ControllerBase, IAsyncActionFilter
@@ -521,6 +522,43 @@ public sealed class GccV2ContextController(
         });
     }
 
+    /// <summary>
+    /// Create a temporary run attachment from a public http(s) URL (SSRF-gated HTTP, no Playwright).
+    /// </summary>
+    [HttpPost("creates/{createId:guid}/attachments/from-url")]
+    public async Task<ActionResult<object>> CreateAttachmentFromUrl(
+        Guid createId, [FromBody] AttachmentFromUrlRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var (result, status, error, errorCode) = await urlAttachment.IngestAsync(
+            Owner, createId, request.Url, request.Name, ct);
+        if (result is null)
+        {
+            return StatusCode((int)status, new
+            {
+                contractVersion = "gcc-attachment-from-url.v1",
+                error,
+                errorCode,
+            });
+        }
+
+        return Accepted(new
+        {
+            contractVersion = "gcc-attachment-from-url.v1",
+            attachmentId = result.AttachmentId,
+            createId = result.CreateId,
+            finalUrl = result.FinalUrl,
+            title = result.Title,
+            safeFileName = result.SafeFileName,
+            contentCompleteness = result.ContentCompleteness,
+            statusCode = result.StatusCode,
+            byteSize = result.ByteSize,
+            contentSha256 = result.ContentSha256,
+            ingestionJobId = result.IngestionJobId,
+            state = result.IngestionState,
+        });
+    }
+
     [HttpDelete("creates/{createId:guid}/attachments/{attachmentId:guid}")]
     public async Task<IActionResult> DeleteAttachment(Guid createId, Guid attachmentId, CancellationToken ct)
     {
@@ -810,6 +848,7 @@ public sealed class GccV2ContextController(
         Guid? AssetId, string FileName, string MediaType, long ByteSize, string Sha256, string? Language);
     public sealed record KnowledgeFromUrlRequest(
         string? Url, string? Name = null, IReadOnlyList<string>? Tags = null, Guid? AssetId = null);
+    public sealed record AttachmentFromUrlRequest(string? Url, string? Name = null);
     public sealed record CreateBrandKitVersionRequest(JsonElement VoicePolicy);
     public sealed record AttachmentUploadRequest(
         string FileName, string MediaType, long ByteSize, string Sha256);

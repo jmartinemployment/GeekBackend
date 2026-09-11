@@ -85,6 +85,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<IGccV2ContextConnector, GccV2UrlContextConnector>();
         services.AddSingleton<GccV2ContextConnectorRegistry>();
         services.AddScoped<GccV2UrlKnowledgeService>();
+        services.AddScoped<GccV2UrlAttachmentService>();
         services.AddHttpClient<IGccV2KnowledgeIndexer, GccV2HttpKnowledgeIndexer>(client =>
         {
             var baseUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');
