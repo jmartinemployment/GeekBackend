@@ -115,6 +115,15 @@ public static class ContentCreatorV2ServiceRegistration
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("GeekContentCreator-SkillQuarantine/1.0");
         });
+        services.AddHttpClient<GccV2TaskAgentPageHydrator>(client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(GccPartnerResearchCaps.FetchTimeoutSeconds);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                AutomaticDecompression = System.Net.DecompressionMethods.All,
+            });
         services.AddScoped<GccV2JobModelPolicyOverrideStore>();
         services.AddScoped<GccV2PlanService>();
         services.AddScoped<GccV2ReviewAdapter>();

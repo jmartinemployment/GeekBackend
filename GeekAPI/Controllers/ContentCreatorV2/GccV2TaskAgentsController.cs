@@ -17,7 +17,8 @@ public sealed class GccV2TaskAgentsController(
     GccV2SkillAdminPolicy admin,
     HttpGccV2Repository repo,
     GccV2ContextResolver contextResolver,
-    GccV2GscSearchAnalyticsClient gscSearch) : ControllerBase
+    GccV2GscSearchAnalyticsClient gscSearch,
+    GccV2TaskAgentPageHydrator pageHydrator) : ControllerBase
 {
     private string Owner => user.UserId.ToString("D");
 
@@ -141,6 +142,40 @@ public sealed class GccV2TaskAgentsController(
         if (!GccV2StudioTemplateRenderer.CanAccessPublishedStudio(version, Owner))
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "Private Studio agents are owner-only." });
         return Ok(Detail(definition, version));
+    }
+
+    /// <summary>
+    /// Fetch a public http(s) page and extract visible content for diagnostic forms.
+    /// Uses SSRF-gated HTTP (not Playwright). Fail-closed on blocked hosts / empty extract.
+    /// </summary>
+    [HttpPost("fetch-page")]
+    public async Task<ActionResult<object>> FetchPage(
+        [FromBody] FetchPageRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var outcome = await pageHydrator.HydrateAsync(request.Url, ct);
+        if (!outcome.Ok)
+        {
+            return StatusCode((int)outcome.HttpStatus, new
+            {
+                contractVersion = GccV2TaskAgentPageHydrator.ContractVersion,
+                error = outcome.ErrorMessage,
+                errorCode = outcome.ErrorCode,
+                statusCode = outcome.StatusCode,
+            });
+        }
+
+        return Ok(new
+        {
+            contractVersion = GccV2TaskAgentPageHydrator.ContractVersion,
+            finalUrl = outcome.FinalUrl,
+            title = outcome.Title,
+            visibleContent = outcome.VisibleContent,
+            statusCode = outcome.StatusCode,
+            loadTimeMs = outcome.LoadTimeMs,
+            contentCompleteness = outcome.ContentCompleteness,
+            crawlable = outcome.Crawlable == true ? "yes" : "no",
+        });
     }
 
     /// <summary>
@@ -665,6 +700,7 @@ public sealed class GccV2TaskAgentsController(
         return admin.IsAuthorized(user);
     }
 
+    public sealed record FetchPageRequest(string? Url);
     public sealed record CreateRunRequest(
         JsonElement Input, Guid? VersionId = null, Guid? ContextManifestId = null,
         string? ContextManifestDigest = null, JsonElement? ModelSnapshot = null,
