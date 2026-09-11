@@ -302,6 +302,57 @@ public sealed class GccV2ContextController(
         }));
     }
 
+    /// <summary>
+    /// Create an accepted Brand Kit revision with an updated typed voicePolicy overlay.
+    /// Accepted kits are immutable; this always appends a new version for the profile.
+    /// </summary>
+    [HttpPost("brand-kits/{profileId:guid}/versions")]
+    public async Task<ActionResult<object>> CreateBrandKitVersion(
+        Guid profileId, [FromBody] CreateBrandKitVersionRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        if (request.VoicePolicy.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+            || request.VoicePolicy.ValueKind != JsonValueKind.Object)
+        {
+            return BadRequest(new { error = "voicePolicy object is required." });
+        }
+
+        var voiceValidation = GccV2BrandVoicePolicy.Validate(request.VoicePolicy);
+        if (voiceValidation is not null) return BadRequest(new { error = voiceValidation });
+
+        var kits = (await repository.ListBrandKitsByOwnerAsync(Owner, ct))
+            .Where(x => x.DerivedFromProfileId == profileId)
+            .OrderByDescending(x => x.Version)
+            .ToList();
+        var source = kits.FirstOrDefault(x => x.VoiceStatus == "accepted") ?? kits.FirstOrDefault();
+        if (source is null) return NotFound(new { error = "Brand Kit profile was not found." });
+
+        var mergedJson = MergeVoicePolicyIntoKitJson(source.KitJson, request.VoicePolicy);
+        var kitValidation = GccV2BrandVoicePolicy.ValidateKitJson(mergedJson);
+        if (kitValidation is not null) return BadRequest(new { error = kitValidation });
+
+        var created = await repository.CreateBrandKitAsync(new(
+            profileId,
+            source.ClientId,
+            mergedJson,
+            "accepted",
+            Owner), ct);
+        created = await repository.PatchBrandKitAsync(created.Id, new(
+            VoiceStatus: "accepted",
+            AcceptedAtUtc: DateTimeOffset.UtcNow,
+            ActorUserId: Owner), ct);
+
+        return Ok(new
+        {
+            id = created.Id,
+            profileId,
+            versionNumber = created.Version,
+            lifecycle = "approved",
+            digest = created.CanonicalSha256 ?? GccV2CanonicalJson.Sha256(created.KitJson),
+            data = JsonSerializer.Deserialize<JsonElement>(created.KitJson),
+        });
+    }
+
     [HttpGet("{route:regex(^audiences|style-guides|visual-guidelines|product-schemas|products$)}")]
     public async Task<ActionResult<IReadOnlyList<JsonElement>>> ListCatalog(
         string route, CancellationToken ct)
@@ -688,6 +739,28 @@ public sealed class GccV2ContextController(
         catch (JsonException) { }
         return "Brand Kit";
     }
+
+    private static string MergeVoicePolicyIntoKitJson(string? existingKitJson, JsonElement voicePolicy)
+    {
+        using var document = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(existingKitJson) ? "{}" : existingKitJson);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(property.Name, "voicePolicy", StringComparison.Ordinal))
+                    continue;
+                property.WriteTo(writer);
+            }
+            writer.WritePropertyName("voicePolicy");
+            voicePolicy.WriteTo(writer);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     private static bool IsSha256(string value) =>
         value.Length == 64 && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
     private static string? ValidateProduct(CreateCatalogVersionRequest request, string schemaJson)
@@ -737,6 +810,7 @@ public sealed class GccV2ContextController(
         Guid? AssetId, string FileName, string MediaType, long ByteSize, string Sha256, string? Language);
     public sealed record KnowledgeFromUrlRequest(
         string? Url, string? Name = null, IReadOnlyList<string>? Tags = null, Guid? AssetId = null);
+    public sealed record CreateBrandKitVersionRequest(JsonElement VoicePolicy);
     public sealed record AttachmentUploadRequest(
         string FileName, string MediaType, long ByteSize, string Sha256);
     public sealed record CompleteUploadRequest(long ByteSize, string Sha256);

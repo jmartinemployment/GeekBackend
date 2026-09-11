@@ -75,10 +75,18 @@ public sealed class GccV2AgentExecutionFactory(
             manifest.CanonicalJson, manifest.Sha256, manifest.Signature, manifest.SigningKeyId);
         var governedContext = new List<RagGovernedContextEntryDto>();
         foreach (var entry in manifest.Entries.Where(x =>
-                     x.ContextKind is "audience" or "style_guide" or "visual_guideline" or "product_schema" or "product"))
+                     x.ContextKind is "audience" or "style_guide" or "visual_guideline"
+                         or "product_schema" or "product" or "brand_kit"))
         {
             if (entry.VersionId is null)
                 throw new InvalidOperationException("Governed policy entry has no immutable version.");
+
+            if (entry.ContextKind == "brand_kit")
+            {
+                governedContext.Add(await HydrateBrandKitAsync(entry, job.OwnerUserId, ct));
+                continue;
+            }
+
             var version = await repo.GetContextVersionAsync(
                 entry.ContextKind, entry.VersionId.Value, job.OwnerUserId, ct)
                 ?? throw new InvalidOperationException("Governed policy entry is no longer readable.");
@@ -316,6 +324,43 @@ public sealed class GccV2AgentExecutionFactory(
                 filtered[property.Name] = property.Value.Clone();
         }
         return JsonSerializer.SerializeToElement(filtered);
+    }
+
+    private async Task<RagGovernedContextEntryDto> HydrateBrandKitAsync(
+        GccV2RunContextManifestEntryDto entry, string ownerUserId, CancellationToken ct)
+    {
+        var kit = await repo.GetBrandKitAsync(entry.VersionId!.Value, ct)
+            ?? throw new InvalidOperationException("Governed Brand Voice kit is no longer readable.");
+        if (!string.Equals(kit.OwnerUserId, ownerUserId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Governed Brand Voice kit is not owned by this run.");
+        if (!string.Equals(kit.VoiceStatus, "accepted", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Governed Brand Voice kit must be accepted.");
+        var digest = kit.CanonicalSha256 ?? GccV2CanonicalJson.Sha256(kit.KitJson);
+        if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(entry.ContentSha256),
+                Encoding.ASCII.GetBytes(digest)))
+            throw new InvalidOperationException("Governed Brand Voice digest no longer matches its manifest.");
+
+        using var document = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(kit.KitJson) ? "{}" : kit.KitJson);
+        JsonElement voicePayload;
+        if (document.RootElement.TryGetProperty("voicePolicy", out var voicePolicy)
+            && voicePolicy.ValueKind == JsonValueKind.Object)
+        {
+            var validation = GccV2BrandVoicePolicy.Validate(voicePolicy);
+            if (validation is not null)
+                throw new InvalidOperationException(validation);
+            voicePayload = voicePolicy.Clone();
+        }
+        else
+        {
+            voicePayload = JsonSerializer.SerializeToElement(new { schemaVersion = 1 });
+        }
+
+        return new(
+            "brand_kit", entry.StableId, entry.VersionId.Value,
+            entry.VersionNumber ?? kit.Version, entry.ContentSha256,
+            voicePayload, null, null, null, null);
     }
 
 }

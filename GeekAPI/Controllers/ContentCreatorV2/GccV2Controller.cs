@@ -821,6 +821,9 @@ public class GccV2Controller : ControllerBase
             return BadRequest(new { error = "No brand kit found for this job's site profile." });
 
         var kitJson = MergeBrandKitEdits(kit.KitJson, request);
+        var voiceValidation = GccV2BrandVoicePolicy.ValidateKitJson(kitJson);
+        if (voiceValidation is not null)
+            return BadRequest(new { error = voiceValidation });
         await _repo.PatchBrandKitAsync(
             kit.Id,
             new PatchGccV2BrandKitCommand(

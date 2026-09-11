@@ -378,4 +378,17 @@ public sealed record GccV2BrandKitContent
     public string VoiceStatus { get; init; } = "provisional";
     public IReadOnlyList<string> CtaPhrases { get; init; } = [];
     public IReadOnlyList<string> Notes { get; init; } = [];
+    /// <summary>Optional typed gateable overlay (avoid/banned phrases). Soft identity stays above.</summary>
+    public GccV2BrandVoicePolicyContent? VoicePolicy { get; init; }
+}
+
+/// <summary>Deterministic Brand Voice constraints nested under KitJson.voicePolicy.</summary>
+public sealed record GccV2BrandVoicePolicyContent
+{
+    public int SchemaVersion { get; init; } = 1;
+    public IReadOnlyList<string> ToneAttributes { get; init; } = [];
+    public IReadOnlyList<string> PreferredPhrases { get; init; } = [];
+    public IReadOnlyList<string> AvoidPhrases { get; init; } = [];
+    public IReadOnlyList<string> BannedClaims { get; init; } = [];
+    public string? CustomInstructions { get; init; }
 }
