@@ -74,4 +74,82 @@ public sealed class GccV2ArtifactChangeOverTimeTests
         Assert.False(result.Available);
         Assert.Contains("No prior", result.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void SubjectKeyFromInput_uses_subject_page_url()
+    {
+        var key = GccV2ArtifactChangeOverTime.SubjectKeyFromInput(
+            """
+            {
+              "subjectPages": [
+                { "source": { "url": "https://Brand.Example/Docs/" }, "visibleContent": "# Brand" }
+              ]
+            }
+            """);
+        Assert.Equal("https://brand.example/docs", key);
+    }
+
+    [Fact]
+    public void TryReadFindingSnapshot_reads_prioritized_actions_and_gaps()
+    {
+        var ok = GccV2ArtifactChangeOverTime.TryReadFindingSnapshot(
+            """
+            {
+              "prioritizedActions": [
+                {
+                  "actionId": "a1",
+                  "priority": "high",
+                  "dimension": "proof",
+                  "action": "Add verified proof"
+                }
+              ],
+              "contentGap": {
+                "gaps": [
+                  { "gapId": "g1", "dimension": "pricing", "status": "supportedGap" }
+                ]
+              }
+            }
+            """,
+            out var findings);
+
+        Assert.True(ok);
+        Assert.Equal("high", findings["action:a1"].Priority);
+        Assert.Equal("supportedGap", findings["gap:g1"].Priority);
+    }
+
+    [Fact]
+    public void CompareFindings_reports_added_removed_and_priority_shifts_without_scores()
+    {
+        var current = new Dictionary<string, GccV2ArtifactChangeOverTime.FindingSnapshot>
+        {
+            ["action:a1"] = new("high", "Add verified proof"),
+            ["action:a2"] = new("medium", "Clarify pricing"),
+        };
+        var prior = new Dictionary<string, GccV2ArtifactChangeOverTime.FindingSnapshot>
+        {
+            ["action:a1"] = new("medium", "Add verified proof"),
+            ["action:old"] = new("low", "Old FAQ action"),
+        };
+
+        var result = GccV2ArtifactChangeOverTime.CompareFindings(
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            DateTimeOffset.Parse("2026-09-10T12:00:00Z"),
+            "https://brand.example/docs",
+            current,
+            prior);
+
+        Assert.True(result.Available);
+        Assert.Null(result.OverallDelta);
+        Assert.Null(result.CurrentOverall);
+        Assert.Contains(result.Findings, f => f.Change == "added" && f.Key == "action:a2");
+        Assert.Contains(result.Findings, f => f.Change == "removed" && f.Key == "action:old");
+        Assert.Contains(result.Findings, f =>
+            f.Change == "priorityChanged"
+            && f.Key == "action:a1"
+            && f.CurrentPriority == "high"
+            && f.PriorPriority == "medium");
+        Assert.Contains("added", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("priority shifted", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("overall score", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -7,7 +7,8 @@ using GeekAPI.HttpClients;
 namespace GeekAPI.Services.ContentCreatorV2.TaskAgents;
 
 /// <summary>
-/// Deterministic readiness / scorecard deltas vs a prior succeeded run for the same subject.
+/// Deterministic readiness scorecard and competitor-finding deltas vs a prior succeeded run
+/// for the same subject.
 /// </summary>
 internal static class GccV2ArtifactChangeOverTime
 {
@@ -16,6 +17,13 @@ internal static class GccV2ArtifactChangeOverTime
         double? Current,
         double? Prior,
         double? Delta);
+
+    public sealed record FindingDelta(
+        string Key,
+        string Change,
+        string? CurrentPriority,
+        string? PriorPriority,
+        string Summary);
 
     public sealed record ChangeOverTimeResult(
         bool Available,
@@ -26,6 +34,7 @@ internal static class GccV2ArtifactChangeOverTime
         double? PriorOverall,
         double? OverallDelta,
         IReadOnlyList<DimensionDelta> Dimensions,
+        IReadOnlyList<FindingDelta> Findings,
         string Message);
 
     public static string? SubjectKeyFromInput(string? inputJson)
@@ -57,15 +66,41 @@ internal static class GccV2ArtifactChangeOverTime
                 && TryReadString(owned, "url", out var ownedUrl) && !string.IsNullOrWhiteSpace(ownedUrl))
                 return NormalizeSubject(ownedUrl);
 
+            foreach (var pageArrayName in new[] { "subjectPages", "brandPages" })
+            {
+                if (!root.TryGetProperty(pageArrayName, out var pages)
+                    || pages.ValueKind != JsonValueKind.Array
+                    || pages.GetArrayLength() == 0)
+                {
+                    continue;
+                }
+
+                var first = pages[0];
+                if (first.ValueKind != JsonValueKind.Object) continue;
+                if (TryReadPageUrl(first, out var pageUrl) && !string.IsNullOrWhiteSpace(pageUrl))
+                    return NormalizeSubject(pageUrl!);
+                if (TryReadString(first, "visibleContent", out var visible)
+                    && !string.IsNullOrWhiteSpace(visible))
+                {
+                    return BodySubjectKey(visible!);
+                }
+            }
+
             // Same exact input → same subject when no URL is present (re-audit of pasted body).
             if (root.TryGetProperty("document", out var bodyDoc)
                 && bodyDoc.ValueKind == JsonValueKind.Object
                 && TryReadString(bodyDoc, "bodyMarkdown", out var body)
                 && !string.IsNullOrWhiteSpace(body))
             {
-                var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(NormalizeSubject(body))))
-                    .ToLowerInvariant();
-                return $"body:{hash[..16]}";
+                return BodySubjectKey(body!);
+            }
+
+            if (root.TryGetProperty("document", out var contentDoc)
+                && contentDoc.ValueKind == JsonValueKind.Object
+                && TryReadString(contentDoc, "visibleContent", out var content)
+                && !string.IsNullOrWhiteSpace(content))
+            {
+                return BodySubjectKey(content!);
             }
         }
         catch (JsonException)
@@ -113,6 +148,46 @@ internal static class GccV2ArtifactChangeOverTime
         }
     }
 
+    public static bool TryReadFindingSnapshot(
+        string? payloadJson,
+        out Dictionary<string, FindingSnapshot> findings)
+    {
+        findings = new Dictionary<string, FindingSnapshot>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(payloadJson)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            var root = document.RootElement;
+            if (root.TryGetProperty("prioritizedActions", out var actions)
+                && actions.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in actions.EnumerateArray())
+                    TryAddActionFinding(entry, findings);
+            }
+
+            if (root.TryGetProperty("contentGap", out var contentGap)
+                && contentGap.ValueKind == JsonValueKind.Object
+                && contentGap.TryGetProperty("gaps", out var nestedGaps)
+                && nestedGaps.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in nestedGaps.EnumerateArray())
+                    TryAddGapFinding(entry, findings);
+            }
+
+            if (root.TryGetProperty("gaps", out var gaps) && gaps.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in gaps.EnumerateArray())
+                    TryAddGapFinding(entry, findings);
+            }
+
+            return findings.Count > 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     public static ChangeOverTimeResult Compare(
         Guid? priorRunId,
         DateTimeOffset? priorCompletedAtUtc,
@@ -125,7 +200,7 @@ internal static class GccV2ArtifactChangeOverTime
         if (priorRunId is null)
         {
             return new ChangeOverTimeResult(
-                false, null, null, subjectKey, currentOverall, null, null, [],
+                false, null, null, subjectKey, currentOverall, null, null, [], [],
                 "No prior succeeded run for this subject.");
         }
 
@@ -162,6 +237,70 @@ internal static class GccV2ArtifactChangeOverTime
             priorOverall,
             overallDelta,
             dimDeltas,
+            [],
+            message);
+    }
+
+    public static ChangeOverTimeResult CompareFindings(
+        Guid? priorRunId,
+        DateTimeOffset? priorCompletedAtUtc,
+        string? subjectKey,
+        IReadOnlyDictionary<string, FindingSnapshot> current,
+        IReadOnlyDictionary<string, FindingSnapshot> prior)
+    {
+        if (priorRunId is null)
+        {
+            return new ChangeOverTimeResult(
+                false, null, null, subjectKey, null, null, null, [], [],
+                "No prior succeeded run for this subject.");
+        }
+
+        var deltas = new List<FindingDelta>();
+        foreach (var key in current.Keys.OrderBy(x => x, StringComparer.Ordinal))
+        {
+            var cur = current[key];
+            if (!prior.TryGetValue(key, out var old))
+            {
+                deltas.Add(new FindingDelta(key, "added", cur.Priority, null, cur.Summary));
+                continue;
+            }
+
+            if (!string.Equals(cur.Priority, old.Priority, StringComparison.OrdinalIgnoreCase)
+                && (!string.IsNullOrWhiteSpace(cur.Priority) || !string.IsNullOrWhiteSpace(old.Priority)))
+            {
+                deltas.Add(new FindingDelta(
+                    key, "priorityChanged", cur.Priority, old.Priority, cur.Summary));
+            }
+        }
+
+        foreach (var key in prior.Keys.OrderBy(x => x, StringComparer.Ordinal))
+        {
+            if (current.ContainsKey(key)) continue;
+            var old = prior[key];
+            deltas.Add(new FindingDelta(key, "removed", null, old.Priority, old.Summary));
+        }
+
+        var added = deltas.Count(x => x.Change == "added");
+        var removed = deltas.Count(x => x.Change == "removed");
+        var shifted = deltas.Count(x => x.Change == "priorityChanged");
+        var parts = new List<string>();
+        if (added > 0) parts.Add($"{added} finding{(added == 1 ? "" : "s")} added");
+        if (removed > 0) parts.Add($"{removed} removed");
+        if (shifted > 0) parts.Add($"{shifted} priority shifted");
+        var message = parts.Count == 0
+            ? "Competitor findings unchanged since last audit."
+            : string.Join(", ", parts) + " since last audit.";
+
+        return new ChangeOverTimeResult(
+            true,
+            priorRunId,
+            priorCompletedAtUtc,
+            subjectKey,
+            null,
+            null,
+            null,
+            [],
+            deltas,
             message);
     }
 
@@ -179,7 +318,9 @@ internal static class GccV2ArtifactChangeOverTime
             return Compare(null, null, null, null, [], null, []);
 
         var currentPayload = LatestPayload(current);
-        if (!TryReadScoreSnapshot(currentPayload, out var currentOverall, out var currentDims))
+        var hasScores = TryReadScoreSnapshot(currentPayload, out var currentOverall, out var currentDims);
+        var hasFindings = TryReadFindingSnapshot(currentPayload, out var currentFindings);
+        if (!hasScores && !hasFindings)
             return null;
 
         var prior = candidatePriors
@@ -196,18 +337,40 @@ internal static class GccV2ArtifactChangeOverTime
             .FirstOrDefault();
 
         if (prior is null)
-            return Compare(null, null, subjectKey, currentOverall, currentDims, null, []);
+        {
+            return hasScores
+                ? Compare(null, null, subjectKey, currentOverall, currentDims, null, [])
+                : CompareFindings(null, null, subjectKey, currentFindings, new Dictionary<string, FindingSnapshot>());
+        }
 
-        TryReadScoreSnapshot(LatestPayload(prior), out var priorOverall, out var priorDims);
-        return Compare(
-            prior.Id,
-            prior.CompletedAtUtc ?? prior.UpdatedAtUtc,
-            subjectKey,
-            currentOverall,
-            currentDims,
-            priorOverall,
-            priorDims);
+        var priorPayload = LatestPayload(prior);
+        if (hasScores && TryReadScoreSnapshot(priorPayload, out var priorOverall, out var priorDims))
+        {
+            return Compare(
+                prior.Id,
+                prior.CompletedAtUtc ?? prior.UpdatedAtUtc,
+                subjectKey,
+                currentOverall,
+                currentDims,
+                priorOverall,
+                priorDims);
+        }
+
+        if (hasFindings)
+        {
+            TryReadFindingSnapshot(priorPayload, out var priorFindings);
+            return CompareFindings(
+                prior.Id,
+                prior.CompletedAtUtc ?? prior.UpdatedAtUtc,
+                subjectKey,
+                currentFindings,
+                priorFindings);
+        }
+
+        return null;
     }
+
+    public sealed record FindingSnapshot(string Priority, string Summary);
 
     private static string? LatestPayload(GccV2TaskRunDto run) =>
         run.Artifacts?
@@ -216,8 +379,67 @@ internal static class GccV2ArtifactChangeOverTime
             .Select(v => v.PayloadJson)
             .FirstOrDefault();
 
+    private static string BodySubjectKey(string body)
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(NormalizeSubject(body))))
+            .ToLowerInvariant();
+        return $"body:{hash[..16]}";
+    }
+
     private static string NormalizeSubject(string value) =>
         value.Trim().TrimEnd('/').ToLowerInvariant();
+
+    private static bool TryReadPageUrl(JsonElement page, out string? value)
+    {
+        if (TryReadString(page, "url", out value) && !string.IsNullOrWhiteSpace(value))
+            return true;
+        if (page.TryGetProperty("source", out var source) && source.ValueKind == JsonValueKind.Object
+            && TryReadString(source, "url", out value) && !string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    private static void TryAddActionFinding(
+        JsonElement entry, Dictionary<string, FindingSnapshot> findings)
+    {
+        if (entry.ValueKind != JsonValueKind.Object) return;
+        TryReadString(entry, "actionId", out var actionId);
+        TryReadString(entry, "action", out var action);
+        TryReadString(entry, "dimension", out var dimension);
+        TryReadString(entry, "priority", out var priority);
+        var summary = !string.IsNullOrWhiteSpace(action)
+            ? action!
+            : !string.IsNullOrWhiteSpace(dimension)
+                ? dimension!
+                : "action";
+        var key = !string.IsNullOrWhiteSpace(actionId)
+            ? $"action:{actionId}"
+            : $"action:{NormalizeSubject($"{dimension}|{summary}")}";
+        findings[key] = new FindingSnapshot(priority ?? "", Truncate(summary));
+    }
+
+    private static void TryAddGapFinding(
+        JsonElement entry, Dictionary<string, FindingSnapshot> findings)
+    {
+        if (entry.ValueKind != JsonValueKind.Object) return;
+        TryReadString(entry, "gapId", out var gapId);
+        TryReadString(entry, "dimension", out var dimension);
+        TryReadString(entry, "status", out var status);
+        var summary = !string.IsNullOrWhiteSpace(dimension)
+            ? $"{dimension} ({status ?? "unknown"})"
+            : status ?? "gap";
+        var key = !string.IsNullOrWhiteSpace(gapId)
+            ? $"gap:{gapId}"
+            : $"gap:{NormalizeSubject(summary)}";
+        findings[key] = new FindingSnapshot(status ?? "", Truncate(summary));
+    }
+
+    private static string Truncate(string value) =>
+        value.Length <= 160 ? value : value[..157] + "...";
 
     private static bool TryReadString(JsonElement parent, string name, out string? value)
     {

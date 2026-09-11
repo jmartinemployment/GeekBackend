@@ -411,6 +411,14 @@ public sealed class GccV2TaskAgentsController(
                         prior = d.Prior,
                         delta = d.Delta,
                     }),
+                    findings = change.Findings.Select(f => new
+                    {
+                        key = f.Key,
+                        change = f.Change,
+                        currentPriority = f.CurrentPriority,
+                        priorPriority = f.PriorPriority,
+                        summary = f.Summary,
+                    }),
                     message = change.Message,
                 };
             }
