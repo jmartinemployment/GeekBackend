@@ -124,6 +124,53 @@ public sealed class GccV2GridsController(
         });
     }
 
+    [HttpPost("{id:guid}/rows/import")]
+    public async Task<ActionResult<object>> ImportRows(
+        Guid id, ImportPublicGridRowsRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var existing = await repo.GetGridAsync(id, Owner, ct);
+        if (existing is null) return NotFound();
+
+        var topics = GccV2GridTopicImport.Parse(request.Text, request.Topics);
+        if (topics.Count == 0)
+        {
+            return BadRequest(new
+            {
+                error = "No topics found. Paste one topic per line (CSV first column) or supply topics[].",
+            });
+        }
+
+        if (topics.Count > GccV2GridTopicImport.MaxTopicsPerImport)
+        {
+            return BadRequest(new
+            {
+                error = $"Import is limited to {GccV2GridTopicImport.MaxTopicsPerImport} topics per request.",
+            });
+        }
+
+        if (existing.Rows.Count + topics.Count > GccV2GridTopicImport.MaxTotalRows)
+        {
+            return BadRequest(new
+            {
+                error = $"Grid would exceed {GccV2GridTopicImport.MaxTotalRows} rows.",
+            });
+        }
+
+        var inputJsons = topics
+            .Select(topic => JsonSerializer.Serialize(new { topic }, JsonOpts))
+            .ToList();
+        await repo.CreateGridRowsBulkAsync(id, new(Owner, inputJsons), ct);
+        var grid = await repo.GetGridAsync(id, Owner, ct)
+            ?? throw new InvalidOperationException("Grid could not be reloaded.");
+        return Ok(new
+        {
+            contractVersion = ContractVersion,
+            importedCount = topics.Count,
+            grid = Detail(grid),
+        });
+    }
+
     [HttpPost("{id:guid}/runs")]
     public async Task<ActionResult<object>> CreateRun(Guid id, CreatePublicGridRunRequest request, CancellationToken ct)
     {
@@ -763,6 +810,9 @@ public sealed class GccV2GridsController(
         JsonElement? Config = null);
 
     public sealed record CreatePublicGridRowRequest(JsonElement? Input = null);
+
+    public sealed record ImportPublicGridRowsRequest(
+        string? Text = null, IReadOnlyList<string>? Topics = null);
 
     public sealed record CreatePublicGridRunRequest(string? Mode = null, int? SampleSize = null);
 

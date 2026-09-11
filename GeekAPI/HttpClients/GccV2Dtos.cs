@@ -736,6 +736,9 @@ public sealed record PatchGccV2GridCommand(
 public sealed record CreateGccV2GridRowCommand(
     string OwnerUserId, string? InputJson = null);
 
+public sealed record CreateGccV2GridRowsBulkCommand(
+    string OwnerUserId, IReadOnlyList<string> InputJsons);
+
 public sealed record CreateGccV2GridRunCommand(
     string OwnerUserId, string? Mode = null, int? SampleSize = null, string? ActorUserId = null,
     IReadOnlyDictionary<string, string>? RowArtifactJsonByRowId = null);

@@ -553,6 +553,10 @@ public class HttpGccV2Repository
         Guid gridId, CreateGccV2GridRowCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2GridRowDto>($"repo/content-creator-v2/grids/{gridId}/rows", command, ct);
 
+    public Task<IReadOnlyList<GccV2GridRowDto>> CreateGridRowsBulkAsync(
+        Guid gridId, CreateGccV2GridRowsBulkCommand command, CancellationToken ct = default) =>
+        PostListAsync<GccV2GridRowDto>($"repo/content-creator-v2/grids/{gridId}/rows/bulk", command, ct);
+
     public Task<GccV2GridDto> CreateGridRunAsync(
         Guid gridId, CreateGccV2GridRunCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2GridDto>($"repo/content-creator-v2/grids/{gridId}/runs", command, ct);
@@ -766,6 +770,15 @@ public class HttpGccV2Repository
             _logger.LogError(ex, "GET list {Path} failed", path);
             throw;
         }
+    }
+
+    private async Task<IReadOnlyList<T>> PostListAsync<T>(string path, object body, CancellationToken ct)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PostAsync(path, content, ct);
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<List<T>>(json, JsonOpts) ?? new List<T>();
     }
 
     private static string TruncateBody(string body) =>

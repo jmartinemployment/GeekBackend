@@ -254,6 +254,46 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
         return CreatedAtAction(nameof(Get), new { id = grid.Id, ownerUserId = grid.OwnerUserId }, row);
     }
 
+    [HttpPost("{id:guid}/rows/bulk")]
+    public async Task<ActionResult<IReadOnlyList<GccV2GridRow>>> CreateRowsBulk(
+        Guid id, CreateGridRowsBulkCommand command, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(command.OwnerUserId))
+            return BadRequest("ownerUserId is required.");
+        if (command.InputJsons is null || command.InputJsons.Count == 0)
+            return BadRequest("inputJsons must contain at least one row.");
+        if (command.InputJsons.Count > 100)
+            return BadRequest("inputJsons is limited to 100 rows per request.");
+
+        var grid = await db.GccV2Grids
+            .Include(g => g.Rows)
+            .SingleOrDefaultAsync(g => g.Id == id && g.OwnerUserId == command.OwnerUserId, ct);
+        if (grid is null) return NotFound();
+
+        var now = DateTimeOffset.UtcNow;
+        var nextIndex = grid.Rows.Count == 0 ? 0 : grid.Rows.Max(r => r.RowIndex) + 1;
+        var created = new List<GccV2GridRow>(command.InputJsons.Count);
+        foreach (var inputJson in command.InputJsons)
+        {
+            var row = new GccV2GridRow
+            {
+                GridId = grid.Id,
+                RowIndex = nextIndex++,
+                InputJson = string.IsNullOrWhiteSpace(inputJson) ? "{}" : inputJson,
+                Status = "pending",
+                UpdatedAtUtc = now,
+            };
+            created.Add(row);
+            db.Add(row);
+        }
+
+        if (grid.Status is "draft" or "complete")
+            grid.Status = "ready";
+        grid.UpdatedAtUtc = now;
+        await db.SaveChangesAsync(ct);
+        return Ok(created);
+    }
+
     [HttpPost("{id:guid}/runs")]
     public async Task<ActionResult<GccV2Grid>> CreateRun(
         Guid id, CreateGridRunCommand command, CancellationToken ct)
@@ -758,6 +798,9 @@ public sealed class GccV2GridsController(ContentCreatorV2DbContext db) : Control
 
     public sealed record CreateGridRowCommand(
         string OwnerUserId, string? InputJson = null);
+
+    public sealed record CreateGridRowsBulkCommand(
+        string OwnerUserId, IReadOnlyList<string> InputJsons);
 
     public sealed record CreateGridRunCommand(
         string OwnerUserId, string? Mode = null, int? SampleSize = null, string? ActorUserId = null,

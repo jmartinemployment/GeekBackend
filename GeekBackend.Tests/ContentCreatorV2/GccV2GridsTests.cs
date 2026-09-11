@@ -226,6 +226,39 @@ public sealed class GccV2GridsTests
         Assert.Empty(otherList);
     }
 
+    [Fact]
+    public async Task CreateRowsBulk_appends_topics_in_order()
+    {
+        await using var db = Db();
+        var controller = new GccV2GridsController(db);
+        const string owner = "11111111-1111-1111-1111-111111111111";
+
+        var created = Assert.IsType<GccV2Grid>(Assert.IsType<CreatedAtActionResult>(
+            (await controller.Create(new(owner, "Bulk grid"), default)).Result).Value);
+        Assert.IsType<CreatedAtActionResult>((await controller.CreateRow(
+            created.Id, new(owner, """{"topic":"Existing"}"""), default)).Result);
+
+        var bulk = Assert.IsAssignableFrom<IReadOnlyList<GccV2GridRow>>(
+            Assert.IsType<OkObjectResult>((await controller.CreateRowsBulk(
+                created.Id,
+                new(owner, [
+                    """{"topic":"Topic Alpha"}""",
+                    """{"topic":"Topic Beta"}""",
+                    """{"topic":"Topic, Gamma"}""",
+                ]),
+                default)).Result).Value);
+
+        Assert.Equal(3, bulk.Count);
+        Assert.Equal(1, bulk[0].RowIndex);
+        Assert.Equal(2, bulk[1].RowIndex);
+        Assert.Equal(3, bulk[2].RowIndex);
+
+        var loaded = Assert.IsType<GccV2Grid>(Assert.IsType<OkObjectResult>(
+            (await controller.Get(created.Id, owner, default)).Result).Value);
+        Assert.Equal(4, loaded.Rows.Count);
+        Assert.Equal("ready", loaded.Status);
+    }
+
     private static async Task SeedPublishedFaqAgentAsync(ContentCreatorV2DbContext db)
     {
         var agents = new GccV2TaskAgentsController(db);
