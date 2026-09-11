@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Workflow.Providers;
 
 namespace GeekAPI.Services.ContentCreatorV2.TaskAgents;
 
@@ -140,7 +141,8 @@ public sealed class GccV2TaskRunWorker(
             }
             if (isStudioTemplate)
             {
-                output = ExecuteStudioTemplate(definition, workflow.RootElement, input.RootElement);
+                output = await ExecuteStudioTemplateAsync(
+                    services, definition, version, workflow.RootElement, input.RootElement, ct);
                 evidence = "[]";
                 citations = "[]";
             }
@@ -234,37 +236,46 @@ public sealed class GccV2TaskRunWorker(
         && engine.ValueKind == JsonValueKind.String
         && string.Equals(engine.GetString(), GccV2RoiProjectionEngine.Engine, StringComparison.Ordinal);
 
-    private static JsonElement ExecuteStudioTemplate(
+    private static async Task<JsonElement> ExecuteStudioTemplateAsync(
+        IServiceProvider services,
         GccV2TaskAgentDefinitionDto definition,
+        GccV2TaskAgentVersionDto version,
         JsonElement workflow,
-        JsonElement input)
+        JsonElement input,
+        CancellationToken ct)
     {
-        var instructionsTemplate = workflow.TryGetProperty("instructionsTemplate", out var template)
-            && template.ValueKind == JsonValueKind.String
-            ? template.GetString() ?? ""
-            : "";
-        var exampleOutput = workflow.TryGetProperty("exampleOutput", out var example)
-            && example.ValueKind == JsonValueKind.String
-            ? example.GetString() ?? ""
-            : "";
+        var instructionsTemplate = GccV2StudioLlmExecutor.ReadString(workflow, "instructionsTemplate");
+        var exampleOutput = GccV2StudioLlmExecutor.ReadString(workflow, "exampleOutput");
+        var evaluationPrompt = GccV2StudioLlmExecutor.ReadString(workflow, "evaluationPrompt");
+        var temperature = GccV2StudioLlmExecutor.ReadTemperature(workflow);
+        var model = GccV2StudioLlmExecutor.FirstAllowedModel(version.AllowedModelsJson);
+
         var render = GccV2StudioTemplateRenderer.Render(
             instructionsTemplate, definition.DisplayName, definition.Description, input);
         if (render.MissingTokens.Count > 0)
             throw new InvalidOperationException(
                 $"Studio instruction template has unresolved tokens: {string.Join(", ", render.MissingTokens)}.");
 
-        var payload = GccV2CanonicalJson.Serialize(new
-        {
-            artifactType = GccV2StudioTemplateRenderer.ArtifactType,
-            methodology = "instruction-template-dry-execution.v1",
-            renderedInstructions = render.RenderedInstructions,
+        var providers = services.GetRequiredService<IContentProviderFactory>();
+        var provider = providers.GetDefault();
+        var request = GccV2StudioLlmExecutor.BuildRequest(
+            render.RenderedInstructions,
             exampleOutput,
-            inputs = input,
-            warnings = new[]
-            {
-                "LLM generation is not enabled for Studio v1; this artifact validates the template and inputs only.",
-            },
-        });
+            evaluationPrompt,
+            temperature,
+            model);
+        var completion = await provider.CompleteAsync(request, ct);
+        var generated = (completion.Content ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(generated))
+            throw new InvalidOperationException("Studio LLM returned empty content.");
+
+        var payload = GccV2StudioLlmExecutor.BuildArtifactJson(
+            render.RenderedInstructions,
+            exampleOutput,
+            evaluationPrompt,
+            input,
+            generated,
+            string.IsNullOrWhiteSpace(completion.ModelUsed) ? (model ?? "default") : completion.ModelUsed);
         using var document = JsonDocument.Parse(payload);
         return document.RootElement.Clone();
     }
