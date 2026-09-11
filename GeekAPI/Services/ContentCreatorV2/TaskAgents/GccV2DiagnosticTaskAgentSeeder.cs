@@ -199,6 +199,17 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
                 new { id = "visibleContent", label = "Visible page content", type = "longText", required = true },
                 new
                 {
+                    id = "technicalCrawlable",
+                    label = "Page crawlable",
+                    type = "select",
+                    required = false,
+                    options = new[] { "yes", "no" },
+                    placeholder = "yes",
+                },
+                new { id = "technicalStatusCode", label = "HTTP status code", type = "shortText", required = false, placeholder = "200" },
+                new { id = "technicalLoadTimeMs", label = "Load time (ms)", type = "shortText", required = false, placeholder = "1800" },
+                new
+                {
                     id = "contentCompleteness",
                     label = "Source completeness",
                     type = "select",
@@ -208,12 +219,32 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
                 },
             },
         },
-        "fact-density" or "entity-mapper" or "schema-markup" => new
+        "fact-density" or "schema-markup" => new
         {
             fields = new object[]
             {
                 new { id = "sourceUrl", label = "Source URL", type = "shortText", required = false },
                 new { id = "visibleContent", label = "Visible page content", type = "longText", required = true },
+                new
+                {
+                    id = "contentCompleteness",
+                    label = "Source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
+            },
+        },
+        "entity-mapper" => new
+        {
+            fields = new object[]
+            {
+                new { id = "sourceUrl", label = "Source URL", type = "shortText", required = false },
+                new { id = "visibleContent", label = "Visible page content", type = "longText", required = true },
+                new { id = "entitySeeds", label = "Entity seeds", type = "shortText", required = false, placeholder = "Comma-separated entity names" },
+                new { id = "competitorUrl", label = "Competitor page URL", type = "shortText", required = false },
+                new { id = "competitorContent", label = "Competitor page content", type = "longText", required = false },
                 new
                 {
                     id = "contentCompleteness",
@@ -235,13 +266,104 @@ public sealed class GccV2DiagnosticTaskAgentSeeder(
                 new { id = "importedQueries", label = "Imported queries", type = "longText", required = false },
             },
         },
-        "ai-readiness-comparison" or "content-gap" or "competitor-audit" or "competitor-positioning" => new
+        "ai-readiness-comparison" => new
         {
             fields = new object[]
             {
                 new { id = "sourceUrl", label = "Subject URL", type = "shortText", required = false },
                 new { id = "subjectContent", label = "Subject page content", type = "longText", required = true },
+                new { id = "competitorName", label = "Competitor 1 name", type = "shortText", required = false },
+                new { id = "competitorContent", label = "Competitor 1 page content", type = "longText", required = true },
+                new { id = "competitor2Name", label = "Competitor 2 name", type = "shortText", required = false },
+                new { id = "competitor2Content", label = "Competitor 2 page content", type = "longText", required = false },
+                new { id = "competitor3Name", label = "Competitor 3 name", type = "shortText", required = false },
+                new { id = "competitor3Content", label = "Competitor 3 page content", type = "longText", required = false },
+                new { id = "competitor4Name", label = "Competitor 4 name", type = "shortText", required = false },
+                new { id = "competitor4Content", label = "Competitor 4 page content", type = "longText", required = false },
+                new
+                {
+                    id = "subjectCompleteness",
+                    label = "Subject source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
+                new
+                {
+                    id = "competitorCompleteness",
+                    label = "Competitor source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
+            },
+        },
+        "content-gap" or "competitor-audit" => new
+        {
+            fields = new object[]
+            {
+                new { id = "sourceUrl", label = "Subject URL", type = "shortText", required = false },
+                new { id = "subjectContent", label = "Subject page content", type = "longText", required = true },
+                new { id = "competitorName", label = "Competitor 1 name", type = "shortText", required = false },
+                new { id = "competitorContent", label = "Competitor 1 page content", type = "longText", required = true },
+                new { id = "competitor2Name", label = "Competitor 2 name", type = "shortText", required = false },
+                new { id = "competitor2Content", label = "Competitor 2 page content", type = "longText", required = false },
+                new { id = "competitor3Name", label = "Competitor 3 name", type = "shortText", required = false },
+                new { id = "competitor3Content", label = "Competitor 3 page content", type = "longText", required = false },
+                new { id = "competitor4Name", label = "Competitor 4 name", type = "shortText", required = false },
+                new { id = "competitor4Content", label = "Competitor 4 page content", type = "longText", required = false },
+                new
+                {
+                    id = "subjectCompleteness",
+                    label = "Subject source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
+                new
+                {
+                    id = "competitorCompleteness",
+                    label = "Competitor source completeness",
+                    type = "select",
+                    required = false,
+                    options = new[] { "full", "partial" },
+                    placeholder = "full",
+                },
+            },
+        },
+        "competitor-positioning" => new
+        {
+            fields = new object[]
+            {
+                new { id = "sourceUrl", label = "Brand URL", type = "shortText", required = false },
+                new { id = "subjectContent", label = "Brand page content", type = "longText", required = true },
+                new { id = "competitorName", label = "Competitor name", type = "shortText", required = false },
                 new { id = "competitorContent", label = "Competitor page content", type = "longText", required = true },
+                new { id = "aiObservationModel", label = "AI answer model / engine", type = "shortText", required = false },
+                new { id = "aiObservationQuery", label = "AI answer query", type = "shortText", required = false },
+                new { id = "aiObservationRawResponse", label = "AI answer raw response", type = "longText", required = false },
+                new { id = "aiObservationObservedAtUtc", label = "AI answer observed at (UTC)", type = "shortText", required = false },
+                new
+                {
+                    id = "aiObservationSubjectMentioned",
+                    label = "Subject mentioned in AI answer",
+                    type = "select",
+                    required = false,
+                    options = new[] { "yes", "no", "unknown" },
+                    placeholder = "unknown",
+                },
+                new
+                {
+                    id = "aiObservationCompetitorMentioned",
+                    label = "Competitor mentioned in AI answer",
+                    type = "select",
+                    required = false,
+                    options = new[] { "yes", "no" },
+                    placeholder = "no",
+                },
                 new
                 {
                     id = "subjectCompleteness",

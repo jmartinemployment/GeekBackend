@@ -492,6 +492,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
                     ? seedUri.Host
                     : null;
                 var need = BuildRagNeed(topic, seed, crawlType);
+                // Corpus /v1/query returns topK distinct texts (2026-09-11). This
+                // path already used preferParent collapse; absolute token growth
+                // is still the largest among gcc-v2 consumers — re-check WRITE
+                // injection budgets. See plan/crawl-architecture.md.
                 var rag = await _rag.QueryAsync(
                     need: need,
                     runId: run.Id,

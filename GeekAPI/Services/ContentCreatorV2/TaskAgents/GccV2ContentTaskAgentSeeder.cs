@@ -194,9 +194,15 @@ public sealed class GccV2ContentTaskAgentSeeder(
             fields = new object[]
             {
                 new { id = "subjectName", label = "Subject name", type = "shortText", required = true },
-                new { id = "competitorName", label = "Competitor name", type = "shortText", required = true },
                 new { id = "subjectContent", label = "Subject page content", type = "longText", required = true },
-                new { id = "competitorContent", label = "Competitor page content", type = "longText", required = true },
+                new { id = "competitorName", label = "Competitor 1 name", type = "shortText", required = false },
+                new { id = "competitorContent", label = "Competitor 1 page content", type = "longText", required = true },
+                new { id = "competitor2Name", label = "Competitor 2 name", type = "shortText", required = false },
+                new { id = "competitor2Content", label = "Competitor 2 page content", type = "longText", required = false },
+                new { id = "competitor3Name", label = "Competitor 3 name", type = "shortText", required = false },
+                new { id = "competitor3Content", label = "Competitor 3 page content", type = "longText", required = false },
+                new { id = "competitor4Name", label = "Competitor 4 name", type = "shortText", required = false },
+                new { id = "competitor4Content", label = "Competitor 4 page content", type = "longText", required = false },
                 new { id = "sourceUrl", label = "Subject URL", type = "shortText", required = false },
                 new
                 {
@@ -245,9 +251,15 @@ public sealed class GccV2ContentTaskAgentSeeder(
             fields = new object[]
             {
                 new { id = "brandName", label = "Brand name", type = "shortText", required = true },
-                new { id = "competitorName", label = "Competitor name", type = "shortText", required = true },
                 new { id = "brandContent", label = "Brand page content", type = "longText", required = true },
-                new { id = "competitorContent", label = "Competitor page content", type = "longText", required = true },
+                new { id = "competitorName", label = "Competitor 1 name", type = "shortText", required = false },
+                new { id = "competitorContent", label = "Competitor 1 page content", type = "longText", required = true },
+                new { id = "competitor2Name", label = "Competitor 2 name", type = "shortText", required = false },
+                new { id = "competitor2Content", label = "Competitor 2 page content", type = "longText", required = false },
+                new { id = "competitor3Name", label = "Competitor 3 name", type = "shortText", required = false },
+                new { id = "competitor3Content", label = "Competitor 3 page content", type = "longText", required = false },
+                new { id = "competitor4Name", label = "Competitor 4 name", type = "shortText", required = false },
+                new { id = "competitor4Content", label = "Competitor 4 page content", type = "longText", required = false },
                 new { id = "focusQuery", label = "Focus query", type = "shortText", required = false },
                 new { id = "sourceUrl", label = "Brand URL", type = "shortText", required = false },
                 new

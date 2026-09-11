@@ -233,6 +233,10 @@ public sealed class RagGenerateService
                     "GraphRAG soft-disabled (GEEK_RAG_GRAPH_ENABLED=false). Using parent hybrid retrieval for slides/strategy.");
         }
 
+        // Corpus /v1/query: topK is distinct texts (2026-09-11). ShortForm used to
+        // skip parent collapse via preferChild:true — largest proportional fill
+        // change on the tightest budget. Re-measure prompt token use before
+        // lowering topK. Templates (/v1/templates/query) are a separate path.
         var (preferParent, preferChild, topK) = family switch
         {
             RagRetrievalFamily.ShortForm => ((bool?)false, (bool?)true, 5),
