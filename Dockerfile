@@ -17,22 +17,19 @@ COPY GeekAPI/ GeekBackend/GeekAPI/
 RUN dotnet restore GeekBackend/GeekAPI/GeekAPI.csproj \
     && dotnet publish GeekBackend/GeekAPI/GeekAPI.csproj -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS final
+# Mobile Playwright hierarchy crawl (Content Creator) — Chromium ships in this
+# base image. Matches Dockerfile.repository, and the tag tracks the
+# Microsoft.Playwright package version in GeekAPI.csproj (1.51.0): bump both together.
+#
+# Previously this built from dotnet/aspnet and installed Chromium by hand after
+# COPYing the publish output. That put ~28 MB of apt indexes, PowerShell and a
+# full browser install below a layer invalidated by every code change, so each
+# deploy re-downloaded the lot — 3 minutes when archive.ubuntu.com was healthy,
+# 28 minutes when it was not.
+FROM mcr.microsoft.com/playwright/dotnet:v1.51.0-noble AS final
 WORKDIR /app
 
-# Mobile Playwright hierarchy crawl (Content Creator) — Chromium + OS deps via Playwright CLI.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=build /app/publish .
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget ca-certificates \
-    && wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb \
-    && dpkg -i /tmp/packages-microsoft-prod.deb \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends powershell \
-    && pwsh ./playwright.ps1 install --with-deps chromium \
-    && apt-get purge -y wget powershell \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* /tmp/*
 
 ENTRYPOINT ["dotnet", "GeekAPI.dll"]
