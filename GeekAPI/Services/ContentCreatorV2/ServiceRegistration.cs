@@ -82,7 +82,9 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddHttpClient<IGccV2ContextObjectStore, GccV2S3ContextObjectStore>();
         services.AddSingleton<IGccV2MalwareScanner, GccV2ClamAvMalwareScanner>();
         services.AddSingleton<GccV2DocumentExtractor>();
+        services.AddSingleton<IGccV2ContextConnector, GccV2UrlContextConnector>();
         services.AddSingleton<GccV2ContextConnectorRegistry>();
+        services.AddScoped<GccV2UrlKnowledgeService>();
         services.AddHttpClient<IGccV2KnowledgeIndexer, GccV2HttpKnowledgeIndexer>(client =>
         {
             var baseUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');

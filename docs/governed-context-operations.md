@@ -11,7 +11,7 @@
 - Quotas: 10 MiB/file, 100 MiB/run attachments, and 1 GiB/owner by default.
 - Approved parsers: UTF-8 text, Markdown, HTML, PDF (PdfPig), DOCX, PPTX, and XLSX (bounded local Open XML extraction).
 - Image, audio, and video remain fail-closed until local OCR/transcription/keyframe models, golden fixtures, resource budgets, and data-processing approval are configured. They must not be routed to a hosted parser.
-- Connector SPI is enabled but ships with no connector. Google Search Console is specifically excluded until an owner-authenticated Geek-SEO service boundary is approved.
+- Connector SPI ships with the `url` connector (`POST …/knowledge/from-url`). Drive/SharePoint and Google Search Console remain out until owner-authenticated service boundaries are approved.
 
 ## Threat model and controls
 
