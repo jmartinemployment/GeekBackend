@@ -2,6 +2,7 @@ using System.Security.Claims;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.AgentTests;
+using GeekAPI.Services.ContentCreatorV2.TaskAgents;
 using GeekAPI.Services.ContentCreatorV2.Context;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using Microsoft.AspNetCore.Authorization;
@@ -39,6 +40,7 @@ public sealed class GccV2RealtimeHub : Hub
 
     public static string ProjectSiteRunGroup(Guid runId) => $"project-site:{runId:D}";
     public static string AgentTestGroup(Guid testRunId) => $"agent-test:{testRunId:D}";
+    public static string TaskAgentRunGroup(Guid runId) => $"task-agent-run:{runId:D}";
     public static string ContextIngestionGroup(Guid ingestionJobId) => $"context-ingestion:{ingestionJobId:D}";
     public static string ContextIngestionOwnerGroup(string ownerUserId) =>
         $"context-ingestion-owner:{ownerUserId.ToLowerInvariant()}";
@@ -92,6 +94,35 @@ public sealed class GccV2RealtimeHub : Hub
 
     public Task LeaveAgentTest(Guid testRunId) =>
         Groups.RemoveFromGroupAsync(Context.ConnectionId, AgentTestGroup(testRunId));
+
+    public async Task JoinTaskAgentRun(Guid runId)
+    {
+        var userId = Context.User?.FindFirst("sub")?.Value
+            ?? Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId)) throw new HubException("Unauthorized");
+
+        var run = await _repo.GetTaskRunAsync(runId, userId, Context.ConnectionAborted);
+        if (run is null)
+        {
+            _logger.LogWarning("User {UserId} denied JoinTaskAgentRun for {RunId}.", userId, runId);
+            throw new HubException("Task run not found.");
+        }
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, TaskAgentRunGroup(runId));
+        var events = await _repo.GetTaskRunEventsAsync(runId, afterSeq: 0, Context.ConnectionAborted);
+        var merged = run with { Events = events };
+        await Clients.Caller.SendAsync(
+            "TaskAgentRunEvent",
+            GccV2TaskAgentRunProgressNotifier.ToEvent(
+                merged,
+                "snapshot",
+                GccV2TaskAgentRunProgressNotifier.LatestSeq(merged),
+                "Snapshot"),
+            Context.ConnectionAborted);
+    }
+
+    public Task LeaveTaskAgentRun(Guid runId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, TaskAgentRunGroup(runId));
 
     public async Task JoinProjectSiteCrawl(Guid runId)
     {

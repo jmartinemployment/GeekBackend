@@ -18,7 +18,8 @@ public sealed class GccV2TaskAgentsController(
     HttpGccV2Repository repo,
     GccV2ContextResolver contextResolver,
     GccV2GscSearchAnalyticsClient gscSearch,
-    GccV2TaskAgentPageHydrator pageHydrator) : ControllerBase
+    GccV2TaskAgentPageHydrator pageHydrator,
+    GccV2TaskAgentRunProgressNotifier taskRunNotifier) : ControllerBase
 {
     private string Owner => user.UserId.ToString("D");
 
@@ -357,6 +358,12 @@ public sealed class GccV2TaskAgentsController(
             budget, GccV2CanonicalJson.Sha256(budget),
             source, GccV2CanonicalJson.Sha256(source),
             request.RetryOfRunId, Owner), ct);
+        await taskRunNotifier.PushAsync(
+            run,
+            "snapshot",
+            GccV2TaskAgentRunProgressNotifier.LatestSeq(run),
+            "Queued",
+            ct);
         return AcceptedAtAction(nameof(GetRun), new { runId = run.Id }, new
         {
             contractVersion = "gcc-task-run.v1",
@@ -518,6 +525,12 @@ public sealed class GccV2TaskAgentsController(
             "cancelled", "cancelled", 100, "cancelled",
             GccV2CanonicalJson.Serialize(new { requestedBy = Owner }), Owner,
             null, null, null, true), ct);
+        await taskRunNotifier.PushAsync(
+            cancelled,
+            "update",
+            GccV2TaskAgentRunProgressNotifier.LatestSeq(cancelled),
+            "Task run cancelled.",
+            ct);
         return Ok(cancelled);
     }
 

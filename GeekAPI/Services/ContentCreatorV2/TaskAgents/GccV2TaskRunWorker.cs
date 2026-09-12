@@ -49,6 +49,7 @@ public sealed class GccV2TaskRunWorker(
         GccV2TaskRunDto run,
         CancellationToken ct)
     {
+        var notifier = services.GetRequiredService<GccV2TaskAgentRunProgressNotifier>();
         try
         {
             var definition = await repo.GetTaskAgentAsync(
@@ -73,7 +74,7 @@ public sealed class GccV2TaskRunWorker(
                 && mode.ValueKind == JsonValueKind.String
                 && string.Equals(mode.GetString(), GccV2StudioTemplateRenderer.Mode, StringComparison.Ordinal);
 
-            await repo.TransitionTaskRunAsync(run.Id, new(
+            run = await repo.TransitionTaskRunAsync(run.Id, new(
                 "running", "analyzing", 25, "analysis-started",
                 GccV2CanonicalJson.Serialize(new
                 {
@@ -81,6 +82,7 @@ public sealed class GccV2TaskRunWorker(
                 }),
                 _instanceId, _instanceId,
                 DateTimeOffset.UtcNow.AddMinutes(10), null), ct);
+            await PushRunEventAsync(notifier, run, "Executing task agent.", ct);
 
             using var input = JsonDocument.Parse(run.InputJson);
             JsonElement output;
@@ -203,7 +205,7 @@ public sealed class GccV2TaskRunWorker(
                     ? (parentArtifactVersionIds.Count == 0 ? null : "derived-from")
                     : lineageRelationship,
                 ExpectedClaimedBy: _instanceId), ct);
-            await repo.TransitionTaskRunAsync(run.Id, new(
+            run = await repo.TransitionTaskRunAsync(run.Id, new(
                 "succeeded", "complete", 100, "completed",
                 GccV2CanonicalJson.Serialize(new
                 {
@@ -212,16 +214,18 @@ public sealed class GccV2TaskRunWorker(
                     artifactVersion.Digest,
                 }),
                 _instanceId, _instanceId, null, null), ct);
+            await PushRunEventAsync(notifier, run, "Task agent complete.", ct);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogError(exception, "Task-agent run {RunId} failed.", run.Id);
             try
             {
-                await repo.TransitionTaskRunAsync(run.Id, new(
+                run = await repo.TransitionTaskRunAsync(run.Id, new(
                     "failed", "failed", 100, "failed",
                     GccV2CanonicalJson.Serialize(new { error = exception.Message }),
                     _instanceId, _instanceId, null, exception.Message), ct);
+                await PushRunEventAsync(notifier, run, exception.Message, ct);
             }
             catch (Exception transitionException)
             {
@@ -230,6 +234,18 @@ public sealed class GccV2TaskRunWorker(
             }
         }
     }
+
+    private static async Task PushRunEventAsync(
+        GccV2TaskAgentRunProgressNotifier notifier,
+        GccV2TaskRunDto run,
+        string? message,
+        CancellationToken ct) =>
+        await notifier.PushAsync(
+            run,
+            "update",
+            GccV2TaskAgentRunProgressNotifier.LatestSeq(run),
+            message,
+            ct);
 
     private static bool IsRoiProjection(JsonElement workflow) =>
         workflow.TryGetProperty("engine", out var engine)

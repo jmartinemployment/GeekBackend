@@ -122,6 +122,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2SpecialistCoordinator>();
         services.AddSingleton<GccV2AgentTestWake>();
         services.AddScoped<GccV2AgentTestProgressNotifier>();
+        services.AddScoped<GccV2TaskAgentRunProgressNotifier>();
         services.AddScoped<GccV2AgentRagSmokeExecutor>();
         services.AddScoped<GccV2GitHubSkillImporter>();
         services.AddHttpClient(nameof(GccV2GitHubSkillImporter), client =>
