@@ -25,6 +25,7 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2ProjectSiteCrawlPage> GccV2ProjectSiteCrawlPages => Set<GccV2ProjectSiteCrawlPage>();
     public virtual DbSet<GccV2ProjectSiteCrawlLink> GccV2ProjectSiteCrawlLinks => Set<GccV2ProjectSiteCrawlLink>();
     public virtual DbSet<GccV2ResearchEntity> GccV2ResearchEntities => Set<GccV2ResearchEntity>();
+    public virtual DbSet<GccV2AdTemplate> GccV2AdTemplates => Set<GccV2AdTemplate>();
     public virtual DbSet<GccV2SkillPackage> GccV2SkillPackages => Set<GccV2SkillPackage>();
     public virtual DbSet<GccV2SkillVersion> GccV2SkillVersions => Set<GccV2SkillVersion>();
     public virtual DbSet<GccV2SkillFile> GccV2SkillFiles => Set<GccV2SkillFile>();
@@ -517,6 +518,18 @@ public class ContentCreatorV2DbContext : DbContext
                 .HasDatabaseName("ix_gcc_v2_research_entities_role_name");
             entity.HasIndex(x => x.Name).IsUnique()
                 .HasDatabaseName("ux_gcc_v2_research_entities_name");
+        });
+
+        modelBuilder.Entity<GccV2AdTemplate>(entity =>
+        {
+            entity.ToTable("gcc_v2_ad_templates");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.Channel).HasMaxLength(64);
+            entity.Property(x => x.Framework).HasMaxLength(64);
+            entity.Property(x => x.Body).IsRequired().HasColumnType("text");
+            entity.Property(x => x.CreatedBy).IsRequired().HasMaxLength(256);
+            entity.HasIndex(x => x.CreatedAtUtc).HasDatabaseName("ix_gcc_v2_ad_templates_created");
         });
     }
 }

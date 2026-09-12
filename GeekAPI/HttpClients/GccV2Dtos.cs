@@ -313,6 +313,10 @@ public sealed record GccV2ResearchEntityDto(
     Guid Id, string Name, string Role, string? PrimaryUrl, string? Notes,
     string CreatedBy, DateTimeOffset CreatedAtUtc, DateTimeOffset? ArchivedAtUtc);
 
+public sealed record GccV2AdTemplateDto(
+    Guid Id, string Name, string? Channel, string? Framework, string Body,
+    string CreatedBy, DateTimeOffset CreatedAtUtc, DateTimeOffset? ArchivedAtUtc);
+
 public sealed record GccV2SkillPackageDto(
     Guid Id, string Slug, string DisplayName, string Description, string SourceRepository,
     string SourcePath, string Publisher, string LifecycleState, bool IsFirstParty,
@@ -347,6 +351,9 @@ public sealed record CreateGccV2ResearchEntityCommand(
     string Name, string Role, string? PrimaryUrl, string? Notes, string Actor);
 
 public sealed record UpdateGccV2ResearchEntityCommand(string? Role, string? PrimaryUrl, string? Notes);
+
+public sealed record CreateGccV2AdTemplateCommand(
+    string Name, string? Channel, string? Framework, string Body, string Actor);
 
 public sealed record ImportGccV2SkillCommand(
     string Slug, string DisplayName, string Description, string SourceRepository, string SourcePath,

@@ -292,6 +292,20 @@ public class HttpGccV2Repository
     public Task<GccV2ResearchEntityDto> ArchiveResearchEntityAsync(Guid id, CancellationToken ct = default) =>
         PostAsync<GccV2ResearchEntityDto>($"repo/content-creator-v2/research-entities/{id}/archive", new { }, ct);
 
+    // Ad-copy few-shot templates — shared across sessions instead of localStorage-only.
+
+    public Task<IReadOnlyList<GccV2AdTemplateDto>> ListAdTemplatesAsync(
+        bool includeArchived = false, CancellationToken ct = default) =>
+        GetListAsync<GccV2AdTemplateDto>(
+            "repo/content-creator-v2/ad-templates" + (includeArchived ? "?includeArchived=true" : ""), ct);
+
+    public Task<GccV2AdTemplateDto> CreateAdTemplateAsync(
+        CreateGccV2AdTemplateCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2AdTemplateDto>("repo/content-creator-v2/ad-templates", command, ct);
+
+    public Task<GccV2AdTemplateDto> ArchiveAdTemplateAsync(Guid id, CancellationToken ct = default) =>
+        PostAsync<GccV2AdTemplateDto>($"repo/content-creator-v2/ad-templates/{id}/archive", new { }, ct);
+
     // Governed skills registry. All persistence remains behind GeekRepository.
 
     public Task<IReadOnlyList<GccV2SkillPackageDto>> ListSkillsAsync(
