@@ -29,7 +29,7 @@ public sealed class GccV2PipelineRun
     public Guid PipelineDefinitionId { get; set; }
     public int DefinitionVersionNumber { get; set; }
     public string DefinitionDigest { get; set; } = string.Empty;
-    /// <summary>queued | running | paused | succeeded | failed | cancelled</summary>
+    /// <summary>queued | running | paused | awaiting-approval | succeeded | failed | cancelled</summary>
     public string Status { get; set; } = "queued";
     public string ActorUserId { get; set; } = string.Empty;
     public string InputJson { get; set; } = "{}";
@@ -49,7 +49,7 @@ public sealed class GccV2PipelineWorkItem
     public Guid PipelineRunId { get; set; }
     public int WorkItemIndex { get; set; }
     public string InputJson { get; set; } = "{}";
-    /// <summary>pending | running | succeeded | failed | cancelled | skipped</summary>
+    /// <summary>pending | running | awaiting-approval | succeeded | failed | cancelled | skipped</summary>
     public string Status { get; set; } = "pending";
     public string? Error { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;

@@ -137,6 +137,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
         var runsController = new GccV2TaskRunsController(db);
         var history = new List<object>();
         var anyFailed = false;
+        var anyAwaitingApproval = false;
         Guid? canvasProjectId = null;
         for (var index = 0; index < workItemInputs.Count; index++)
         {
@@ -150,6 +151,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
             run.WorkItems.Add(workItem);
 
             var failed = false;
+            var awaitingApproval = false;
             foreach (var stage in stages)
             {
                 var attempt = new GccV2PipelineStageAttempt
@@ -207,6 +209,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
                                 run.ActorUserId,
                                 run.Id,
                                 stage.Key,
+                                index,
                                 ct);
                             attempt.Status = "succeeded";
                             attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
@@ -322,6 +325,25 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
                     attempt.OutputJson = GccV2PipelineStageOutputs.ForPublishHandoff(
                         stage.DisplayName, stage.Lifecycle, index, projectId, assetId, title);
                 }
+                else if (stage.Kind == "approval")
+                {
+                    attempt.Status = "awaiting-approval";
+                    attempt.OutputJson = GccV2PipelineStageOutputs.ForApprovalPending(
+                        stage.DisplayName, stage.Lifecycle, index);
+                    workItem.StageAttempts.Add(attempt);
+                    history.Add(new
+                    {
+                        atUtc = DateTimeOffset.UtcNow,
+                        workItemIndex = index,
+                        stageKey = stage.Key,
+                        lifecycle = stage.Lifecycle,
+                        status = attempt.Status,
+                        actor = run.ActorUserId,
+                        taskRunId = (Guid?)null,
+                    });
+                    awaitingApproval = true;
+                    break;
+                }
                 else
                 {
                     attempt.Status = "succeeded";
@@ -342,15 +364,29 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
                 });
             }
 
-            workItem.Status = failed ? "failed" : "succeeded";
+            workItem.Status = failed
+                ? "failed"
+                : awaitingApproval
+                    ? "awaiting-approval"
+                    : "succeeded";
             workItem.Error = failed ? $"Work item failed at stage '{failStageKey ?? attemptStageKey(workItem)}'." : null;
             workItem.UpdatedAtUtc = DateTimeOffset.UtcNow;
             anyFailed |= failed;
+            anyAwaitingApproval |= awaitingApproval;
         }
 
-        run.Status = anyFailed ? "failed" : "succeeded";
-        run.Error = anyFailed ? "One or more work items failed; later stages on failed items were skipped." : null;
-        run.CompletedAtUtc = DateTimeOffset.UtcNow;
+        if (anyAwaitingApproval && !anyFailed)
+        {
+            run.Status = "awaiting-approval";
+            run.Error = null;
+            run.CompletedAtUtc = null;
+        }
+        else
+        {
+            run.Status = anyFailed ? "failed" : "succeeded";
+            run.Error = anyFailed ? "One or more work items failed; later stages on failed items were skipped." : null;
+            run.CompletedAtUtc = DateTimeOffset.UtcNow;
+        }
         run.HistoryJson = JsonSerializer.Serialize(history, JsonOpts);
         db.Add(run);
         definition.UpdatedAtUtc = DateTimeOffset.UtcNow;
@@ -512,6 +548,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
         string actor,
         Guid pipelineRunId,
         string stageKey,
+        int workItemIndex,
         CancellationToken ct)
     {
         var inputCanonical = GccV2TaskAgentsController.Canonical(
@@ -519,7 +556,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
         var emptyCanonical = GccV2TaskAgentsController.Canonical("{}", JsonValueKind.Object);
         var emptyDigest = GccV2TaskAgentsController.Hash(emptyCanonical);
         var inputDigest = GccV2TaskAgentsController.Hash(inputCanonical);
-        var instanceId = $"pipeline-run:{pipelineRunId:N}:{stageKey}";
+        var instanceId = $"pipeline-run:{pipelineRunId:N}:{stageKey}:wi{workItemIndex}";
 
         var created = Unwrap<GccV2TaskRun>(
             (await runs.Create(new GccV2TaskRunsController.CreateRunCommand(
@@ -690,12 +727,15 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
         throw new InvalidOperationException($"Could not {action} (HTTP {status}): {error}");
     }
 
-    [HttpPost("runs/{runId:guid}/{transition:regex(^pause|resume|cancel$)}")]
+    [HttpPost("runs/{runId:guid}/{transition:regex(^pause|resume|cancel|approve|reject$)}")]
     public async Task<ActionResult<PipelineGraph>> TransitionRun(
         Guid runId, string transition, [FromBody] ActorCommand command, CancellationToken ct)
     {
         var run = await db.GccV2PipelineRuns
             .Include(x => x.PipelineDefinition)
+            .Include(x => x.WorkItems)
+                .ThenInclude(w => w.StageAttempts)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(x =>
                 x.Id == runId && x.PipelineDefinition.OwnerUserId == command.OwnerUserId, ct);
         if (run is null) return NotFound();
@@ -721,12 +761,407 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
                 run.Status = "cancelled";
                 run.CompletedAtUtc = now;
                 run.Error = "Cancelled by operator.";
+                foreach (var item in run.WorkItems.Where(w =>
+                    w.Status is "running" or "awaiting-approval" or "pending"))
+                {
+                    item.Status = "cancelled";
+                    item.UpdatedAtUtc = now;
+                    foreach (var attempt in item.StageAttempts.Where(a => a.Status == "awaiting-approval"))
+                    {
+                        attempt.Status = "cancelled";
+                        attempt.CompletedAtUtc = now;
+                        attempt.Error = "Cancelled by operator.";
+                    }
+                }
+                break;
+            case "approve":
+                if (run.Status != "awaiting-approval")
+                    return Conflict(new { error = "Only awaiting-approval runs can be approved." });
+                await ContinueAfterApprovalAsync(run, command.ActorUserId?.Trim() ?? command.OwnerUserId, approved: true, ct);
+                break;
+            case "reject":
+                if (run.Status != "awaiting-approval")
+                    return Conflict(new { error = "Only awaiting-approval runs can be rejected." });
+                await ContinueAfterApprovalAsync(run, command.ActorUserId?.Trim() ?? command.OwnerUserId, approved: false, ct);
                 break;
         }
         run.PipelineDefinition.UpdatedAtUtc = now;
+        // Nested TaskRun controllers SaveChanges on this shared DbContext; accept any rows that
+        // remain tracked as Added so the outer pipeline SaveChanges does not re-insert them.
+        AcceptAddedTaskRunGraph(db);
+        await RepairPipelineGraphStatesAsync(db, ct);
         await db.SaveChangesAsync(ct);
         return Ok(await ReloadGraph(run.PipelineDefinitionId, command.OwnerUserId, ct)
             ?? throw new InvalidOperationException("Pipeline disappeared after transition."));
+    }
+
+    /// <summary>
+    /// Nested TaskRun/Artifact controller calls persist via SaveChanges but can leave entities
+    /// tracked as Added on the shared scoped DbContext. Treat them as Unchanged so an outer
+    /// pipeline SaveChanges does not try to insert them again.
+    /// </summary>
+    static void AcceptAddedTaskRunGraph(ContentCreatorV2DbContext db)
+    {
+        foreach (var entry in db.ChangeTracker.Entries()
+                     .Where(e => e.State == EntityState.Added
+                                 && (e.Entity is GccV2TaskRun
+                                     || e.Entity is GccV2TaskRunEvent
+                                     || e.Entity is GccV2TaskArtifact
+                                     || e.Entity is GccV2TaskArtifactVersion
+                                     || e.Entity is GccV2TaskArtifactLineage))
+                     .ToList())
+        {
+            entry.State = EntityState.Unchanged;
+        }
+    }
+
+    /// <summary>
+    /// Nested SaveChanges on the shared tracker can leave StageAttempts as Modified without an
+    /// insert (seen with EF InMemory). Reclassify missing rows as Added before the outer save.
+    /// </summary>
+    static async Task RepairPipelineGraphStatesAsync(ContentCreatorV2DbContext db, CancellationToken ct)
+    {
+        var modifiedAttempts = db.ChangeTracker.Entries<GccV2PipelineStageAttempt>()
+            .Where(e => e.State == EntityState.Modified)
+            .ToList();
+        if (modifiedAttempts.Count == 0) return;
+
+        var ids = modifiedAttempts.Select(e => e.Entity.Id).ToList();
+        var existing = (await db.GccV2PipelineStageAttempts.AsNoTracking()
+                .Where(a => ids.Contains(a.Id))
+                .Select(a => a.Id)
+                .ToListAsync(ct))
+            .ToHashSet();
+
+        foreach (var entry in modifiedAttempts)
+        {
+            if (!existing.Contains(entry.Entity.Id))
+                entry.State = EntityState.Added;
+        }
+    }
+
+    private async Task ContinueAfterApprovalAsync(
+        GccV2PipelineRun run,
+        string actorUserId,
+        bool approved,
+        CancellationToken ct)
+    {
+        var stages = JsonSerializer.Deserialize<List<StageSeed>>(run.PipelineDefinition.StagesJson, JsonOpts) ?? [];
+        var history = new List<object>();
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(run.HistoryJson))
+            {
+                var prior = JsonSerializer.Deserialize<List<object>>(run.HistoryJson, JsonOpts);
+                if (prior is not null) history.AddRange(prior);
+            }
+        }
+        catch (JsonException)
+        {
+            // Start a fresh history tail.
+        }
+
+        var anyFailed = false;
+        var stillAwaiting = false;
+        Guid? canvasProjectId = null;
+        var runsController = new GccV2TaskRunsController(db);
+        // Attach new StageAttempts only after all nested TaskRun SaveChanges complete.
+        var deferredAttempts = new List<(GccV2PipelineWorkItem WorkItem, List<GccV2PipelineStageAttempt> Attempts)>();
+
+        foreach (var workItem in run.WorkItems.OrderBy(w => w.WorkItemIndex))
+        {
+            var pending = workItem.StageAttempts
+                .FirstOrDefault(a => a.Status == "awaiting-approval" && a.Kind == "approval");
+            if (pending is null)
+            {
+                if (workItem.Status == "failed") anyFailed = true;
+                continue;
+            }
+
+            if (!approved)
+            {
+                pending.Status = "failed";
+                pending.CompletedAtUtc = DateTimeOffset.UtcNow;
+                pending.Error = "Rejected by operator.";
+                pending.OutputJson = GccV2PipelineStageOutputs.ForApprovalRejected(
+                    pending.DisplayName, pending.LifecycleStage, workItem.WorkItemIndex, actorUserId);
+                workItem.Status = "failed";
+                workItem.Error = $"Rejected at stage '{pending.StageKey}'.";
+                workItem.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                anyFailed = true;
+                history.Add(new
+                {
+                    atUtc = pending.CompletedAtUtc,
+                    workItemIndex = workItem.WorkItemIndex,
+                    stageKey = pending.StageKey,
+                    lifecycle = pending.LifecycleStage,
+                    status = pending.Status,
+                    actor = actorUserId,
+                });
+                continue;
+            }
+
+            pending.Status = "succeeded";
+            pending.CompletedAtUtc = DateTimeOffset.UtcNow;
+            pending.OutputJson = GccV2PipelineStageOutputs.ForApprovalApproved(
+                pending.DisplayName, pending.LifecycleStage, workItem.WorkItemIndex, actorUserId);
+            history.Add(new
+            {
+                atUtc = pending.CompletedAtUtc,
+                workItemIndex = workItem.WorkItemIndex,
+                stageKey = pending.StageKey,
+                lifecycle = pending.LifecycleStage,
+                status = pending.Status,
+                actor = actorUserId,
+            });
+
+            var remaining = stages
+                .SkipWhile(s => !string.Equals(s.Key, pending.StageKey, StringComparison.Ordinal))
+                .Skip(1)
+                .ToList();
+            var failed = false;
+            var awaitingApproval = false;
+            var index = workItem.WorkItemIndex;
+            var newAttempts = new List<GccV2PipelineStageAttempt>();
+
+            foreach (var stage in remaining)
+            {
+                var attempt = new GccV2PipelineStageAttempt
+                {
+                    StageKey = stage.Key,
+                    LifecycleStage = stage.Lifecycle,
+                    Kind = stage.Kind,
+                    DisplayName = stage.DisplayName,
+                    CapabilityId = stage.CapabilityId,
+                    Handoff = stage.Handoff,
+                    AttemptNumber = 1,
+                    StartedAtUtc = DateTimeOffset.UtcNow,
+                };
+
+                if (stage.Kind == "approval")
+                {
+                    attempt.Status = "awaiting-approval";
+                    attempt.OutputJson = GccV2PipelineStageOutputs.ForApprovalPending(
+                        stage.DisplayName, stage.Lifecycle, index);
+                    newAttempts.Add(attempt);
+                    history.Add(new
+                    {
+                        atUtc = DateTimeOffset.UtcNow,
+                        workItemIndex = index,
+                        stageKey = stage.Key,
+                        lifecycle = stage.Lifecycle,
+                        status = attempt.Status,
+                        actor = actorUserId,
+                    });
+                    awaitingApproval = true;
+                    break;
+                }
+
+                if (stage.Kind == "task-agent"
+                    && string.Equals(stage.CapabilityId, "roi-business-calculator", StringComparison.Ordinal))
+                {
+                    attempt.Status = "succeeded";
+                    attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                    attempt.OutputJson = GccV2PipelineStageOutputs.ForRoiProjection(index, stage.Lifecycle);
+                }
+                else if (stage.Kind == "task-agent")
+                {
+                    var agent = await ResolvePublishedAgentAsync(stage.CapabilityId, ct);
+                    if (agent is null)
+                    {
+                        attempt.Status = "failed";
+                        attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                        attempt.Error = $"No published task agent for capability '{stage.CapabilityId}'.";
+                        failed = true;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var executed = await CompleteTaskRunForStageAsync(
+                                runsController,
+                                agent,
+                                run.PipelineDefinition.OwnerUserId,
+                                workItem.InputJson,
+                                actorUserId,
+                                run.Id,
+                                stage.Key,
+                                index,
+                                ct);
+                            AcceptAddedTaskRunGraph(db);
+                            attempt.Status = "succeeded";
+                            attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                            attempt.TaskRunId = executed.TaskRunId;
+                            attempt.ArtifactVersionId = executed.ArtifactVersionId;
+                            attempt.OutputJson = GccV2PipelineStageOutputs.ForTaskRun(
+                                stage.CapabilityId,
+                                stage.DisplayName,
+                                stage.Lifecycle,
+                                index,
+                                executed.TaskRunId,
+                                executed.ArtifactVersionId,
+                                agent.ArtifactType,
+                                executed.Preview,
+                                executed.Payload);
+                        }
+                        catch (Exception ex)
+                        {
+                            AcceptAddedTaskRunGraph(db);
+                            attempt.Status = "failed";
+                            attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                            attempt.Error = ex.Message;
+                            failed = true;
+                        }
+                    }
+                }
+                else if (stage.Kind == "handoff"
+                    && string.Equals(stage.Handoff, "canvas", StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        var source = workItem.StageAttempts.Concat(newAttempts)
+                            .Where(a => a.Status == "succeeded"
+                                && a.TaskRunId is not null
+                                && a.ArtifactVersionId is not null)
+                            .OrderByDescending(a => a.CompletedAtUtc)
+                            .FirstOrDefault();
+                        if (source?.TaskRunId is null || source.ArtifactVersionId is null)
+                        {
+                            throw new InvalidOperationException(
+                                "Canvas handoff requires a prior succeeded task-agent artifact.");
+                        }
+
+                        canvasProjectId ??= await EnsurePipelineCanvasProjectAsync(
+                            run.PipelineDefinition.OwnerUserId,
+                            run.PipelineDefinition.Name,
+                            run.Id,
+                            actorUserId,
+                            ct);
+
+                        var attached = await AttachArtifactToCanvasAsync(
+                            canvasProjectId.Value,
+                            run.PipelineDefinition.OwnerUserId,
+                            actorUserId,
+                            source.TaskRunId.Value,
+                            source.ArtifactVersionId.Value,
+                            stage.DisplayName,
+                            ct);
+
+                        attempt.Status = "succeeded";
+                        attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                        attempt.OutputJson = GccV2PipelineStageOutputs.ForCanvasHandoff(
+                            stage.DisplayName,
+                            stage.Lifecycle,
+                            index,
+                            canvasProjectId.Value,
+                            attached.AssetId,
+                            attached.AssetVersionId,
+                            source.TaskRunId.Value,
+                            source.ArtifactVersionId.Value,
+                            attached.ArtifactType,
+                            attached.Title);
+                    }
+                    catch (Exception ex)
+                    {
+                        attempt.Status = "failed";
+                        attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                        attempt.Error = ex.Message;
+                        failed = true;
+                    }
+                }
+                else if (stage.Kind == "handoff"
+                    && string.Equals(stage.Handoff, "publish", StringComparison.Ordinal))
+                {
+                    var canvasAttempt = workItem.StageAttempts.Concat(newAttempts)
+                        .LastOrDefault(a => a.Status == "succeeded"
+                            && string.Equals(a.Handoff, "canvas", StringComparison.Ordinal));
+                    Guid? projectId = null;
+                    Guid? assetId = null;
+                    string? title = null;
+                    if (canvasAttempt?.OutputJson is { } canvasJson)
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(canvasJson);
+                            if (doc.RootElement.TryGetProperty("projectId", out var projectEl)
+                                && Guid.TryParse(projectEl.GetString(), out var parsedProject))
+                                projectId = parsedProject;
+                            if (doc.RootElement.TryGetProperty("assetId", out var assetEl)
+                                && Guid.TryParse(assetEl.GetString(), out var parsedAsset))
+                                assetId = parsedAsset;
+                            if (doc.RootElement.TryGetProperty("title", out var titleEl)
+                                && titleEl.ValueKind == JsonValueKind.String)
+                                title = titleEl.GetString();
+                        }
+                        catch (JsonException)
+                        {
+                        }
+                    }
+
+                    attempt.Status = "succeeded";
+                    attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                    attempt.OutputJson = GccV2PipelineStageOutputs.ForPublishHandoff(
+                        stage.DisplayName, stage.Lifecycle, index, projectId, assetId, title);
+                }
+                else
+                {
+                    attempt.Status = "succeeded";
+                    attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                    attempt.OutputJson = GccV2PipelineStageOutputs.ForHandoff(
+                        stage.Handoff, stage.DisplayName, stage.Lifecycle, index);
+                }
+
+                newAttempts.Add(attempt);
+                history.Add(new
+                {
+                    atUtc = attempt.CompletedAtUtc ?? DateTimeOffset.UtcNow,
+                    workItemIndex = index,
+                    stageKey = stage.Key,
+                    lifecycle = stage.Lifecycle,
+                    status = attempt.Status,
+                    actor = actorUserId,
+                    taskRunId = attempt.TaskRunId,
+                });
+                if (failed) break;
+            }
+
+            deferredAttempts.Add((workItem, newAttempts));
+
+            workItem.Status = failed
+                ? "failed"
+                : awaitingApproval
+                    ? "awaiting-approval"
+                    : "succeeded";
+            workItem.Error = failed
+                ? $"Work item failed after approval at stage '{newAttempts.LastOrDefault(a => a.Status == "failed")?.StageKey ?? workItem.StageAttempts.LastOrDefault(a => a.Status == "failed")?.StageKey ?? "unknown"}'."
+                : null;
+            workItem.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            anyFailed |= failed;
+            stillAwaiting |= awaitingApproval;
+        }
+
+        foreach (var (workItem, attempts) in deferredAttempts)
+        {
+            foreach (var attempt in attempts)
+                workItem.StageAttempts.Add(attempt);
+        }
+
+        if (stillAwaiting && !anyFailed)
+        {
+            run.Status = "awaiting-approval";
+            run.CompletedAtUtc = null;
+            run.Error = null;
+        }
+        else
+        {
+            run.Status = anyFailed ? "failed" : "succeeded";
+            run.CompletedAtUtc = DateTimeOffset.UtcNow;
+            run.Error = anyFailed
+                ? (approved ? "One or more work items failed after approval." : "Pipeline run rejected by operator.")
+                : null;
+        }
+
+        run.HistoryJson = JsonSerializer.Serialize(history, JsonOpts);
     }
 
     private async Task<GccV2PipelineDefinition?> LoadOwned(

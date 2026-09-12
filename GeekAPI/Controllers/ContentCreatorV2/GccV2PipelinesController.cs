@@ -102,7 +102,7 @@ public sealed class GccV2PipelinesController(
         return Ok(new { contractVersion = ContractVersion, pipeline = Detail(pipeline) });
     }
 
-    [HttpPost("runs/{runId:guid}/{transition:regex(^pause|resume|cancel$)}")]
+    [HttpPost("runs/{runId:guid}/{transition:regex(^pause|resume|cancel|approve|reject$)}")]
     public async Task<ActionResult<object>> TransitionRun(
         Guid runId, string transition, CancellationToken ct)
     {

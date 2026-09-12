@@ -38,13 +38,31 @@ public sealed class GccV2PipelinesTaskRunFanOutTests
                 default)).Result).Value);
 
         Assert.Single(afterRun.Runs);
-        Assert.Equal("succeeded", afterRun.Runs[0].Status);
+        Assert.Equal("awaiting-approval", afterRun.Runs[0].Status);
         Assert.Equal(2, afterRun.Runs[0].WorkItems.Count);
+        foreach (var item in afterRun.Runs[0].WorkItems)
+        {
+            Assert.Equal("awaiting-approval", item.Status);
+            var approval = Assert.Single(item.StageAttempts, a => a.Kind == "approval");
+            Assert.Equal("awaiting-approval", approval.Status);
+            Assert.DoesNotContain(item.StageAttempts, a => a.Handoff == "publish");
+        }
 
+        // Pause before publish: only query + faq TaskRuns per work item (no readiness yet).
+        Assert.Equal(4, await db.GccV2TaskRuns.CountAsync(r => r.OwnerUserId == owner));
+
+        var afterApprove = Assert.IsType<GccV2PipelinesController.PipelineGraph>(
+            Assert.IsType<OkObjectResult>((await controller.TransitionRun(
+                afterRun.Runs[0].Id,
+                "approve",
+                new(owner, owner),
+                default)).Result).Value);
+
+        Assert.Equal("succeeded", afterApprove.Runs[0].Status);
         // 2 work items × 3 task-agent stages (query/faq/readiness); ROI + handoffs do not create TaskRuns.
         Assert.Equal(6, await db.GccV2TaskRuns.CountAsync(r => r.OwnerUserId == owner));
 
-        foreach (var item in afterRun.Runs[0].WorkItems)
+        foreach (var item in afterApprove.Runs[0].WorkItems)
         {
             var taskAgentAttempts = item.StageAttempts
                 .Where(a => a.Kind == "task-agent" && a.CapabilityId != "roi-business-calculator")
@@ -73,6 +91,11 @@ public sealed class GccV2PipelinesTaskRunFanOutTests
             Assert.Equal("canvas-attach", canvasOutput.RootElement.GetProperty("mode").GetString());
             Assert.False(string.IsNullOrWhiteSpace(canvasOutput.RootElement.GetProperty("projectId").GetString()));
             Assert.False(string.IsNullOrWhiteSpace(canvasOutput.RootElement.GetProperty("assetId").GetString()));
+
+            var approval = Assert.Single(item.StageAttempts, a => a.Kind == "approval");
+            Assert.Equal("succeeded", approval.Status);
+            using var approvalOutput = JsonDocument.Parse(approval.OutputJson!);
+            Assert.Equal("approval-approved", approvalOutput.RootElement.GetProperty("mode").GetString());
 
             var publish = Assert.Single(item.StageAttempts, a => a.Handoff == "publish");
             using var publishOutput = JsonDocument.Parse(publish.OutputJson!);

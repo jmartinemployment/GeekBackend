@@ -77,7 +77,8 @@ public static class GccV2PipelineStagePolicy
           {"key":"plan-queries","lifecycle":"plan","kind":"task-agent","capabilityId":"query-planner","displayName":"Query Planner","dependsOn":[]},
           {"key":"create-faq","lifecycle":"create","kind":"task-agent","capabilityId":"faq-generator","displayName":"FAQ Generator","dependsOn":["plan-queries"]},
           {"key":"adapt-canvas","lifecycle":"adapt","kind":"handoff","handoff":"canvas","displayName":"Canvas adapt","dependsOn":["create-faq"]},
-          {"key":"activate-publish","lifecycle":"activate","kind":"handoff","handoff":"publish","displayName":"Publish handoff","dependsOn":["adapt-canvas"]},
+          {"key":"approve-publish","lifecycle":"activate","kind":"approval","displayName":"Approve for publish","dependsOn":["adapt-canvas"]},
+          {"key":"activate-publish","lifecycle":"activate","kind":"handoff","handoff":"publish","displayName":"Publish handoff","dependsOn":["approve-publish"]},
           {"key":"optimize-readiness","lifecycle":"optimize","kind":"task-agent","capabilityId":"ai-readiness","displayName":"AI Readiness Score","dependsOn":["activate-publish"]},
           {"key":"optimize-roi","lifecycle":"optimize","kind":"task-agent","capabilityId":"roi-business-calculator","displayName":"ROI Business Calculator","dependsOn":["optimize-readiness"]}
         ]

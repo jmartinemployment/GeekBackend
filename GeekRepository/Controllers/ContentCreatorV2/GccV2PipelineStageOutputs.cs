@@ -96,6 +96,40 @@ internal static class GccV2PipelineStageOutputs
             externalCms = false,
         }, JsonOpts);
 
+    public static string ForApprovalPending(string displayName, string lifecycle, int workItemIndex) =>
+        JsonSerializer.Serialize(new
+        {
+            mode = "approval-pending",
+            summary = $"Waiting for operator approval: {displayName}.",
+            lifecycle,
+            workItemIndex,
+            displayName,
+        }, JsonOpts);
+
+    public static string ForApprovalApproved(
+        string displayName, string lifecycle, int workItemIndex, string actorUserId) =>
+        JsonSerializer.Serialize(new
+        {
+            mode = "approval-approved",
+            summary = $"Approved {displayName}.",
+            lifecycle,
+            workItemIndex,
+            displayName,
+            approvedBy = actorUserId,
+        }, JsonOpts);
+
+    public static string ForApprovalRejected(
+        string displayName, string lifecycle, int workItemIndex, string actorUserId) =>
+        JsonSerializer.Serialize(new
+        {
+            mode = "approval-rejected",
+            summary = $"Rejected {displayName}.",
+            lifecycle,
+            workItemIndex,
+            displayName,
+            rejectedBy = actorUserId,
+        }, JsonOpts);
+
     /// <summary>
     /// Deterministic directional ROI stub aligned with gcc-roi-formulas.v1 defaults
     /// (workflowVolume 48, baseline 90m, assisted 25m, adoption 0.7, success 0.65, …).
