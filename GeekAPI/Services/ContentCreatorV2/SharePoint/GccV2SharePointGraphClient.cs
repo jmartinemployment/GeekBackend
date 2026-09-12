@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using GeekAPI.Services.ContentCreatorV2.Context;
 
 namespace GeekAPI.Services.ContentCreatorV2.SharePoint;
 
@@ -189,15 +190,22 @@ public sealed class GccV2SharePointGraphClient(IHttpClientFactory httpClientFact
         if (string.IsNullOrWhiteSpace(mimeType))
             throw new InvalidOperationException("SharePoint item is not a downloadable file.");
 
-        if (mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
-            || mimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+        if (mimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
             || mimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "Image, audio, and video SharePoint files remain fail-closed until local OCR/transcription is configured.");
+                "Audio and video SharePoint files remain fail-closed until local transcription is configured.");
         }
 
-        if (!DownloadableMime.Contains(mimeType)
+        if (mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!GccV2LocalOcrEnv.IsConfigured || !GccV2LocalOcrEnv.IsImageMediaType(mimeType))
+            {
+                throw new InvalidOperationException(
+                    "Image SharePoint files remain fail-closed until local OCR is configured (GEEK_CC_OCR_COMMAND + GEEK_CC_OCR_DATA_PROCESSING_APPROVED=true).");
+            }
+        }
+        else if (!DownloadableMime.Contains(mimeType)
             && !mimeType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
             && !mimeType.Contains("officedocument", StringComparison.OrdinalIgnoreCase)
             && !mimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
@@ -269,13 +277,17 @@ public sealed class GccV2SharePointGraphClient(IHttpClientFactory httpClientFact
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
-    private static string NormalizeMediaType(string mimeType) =>
-        mimeType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase) ? "text/markdown"
-        : mimeType.Equals("text/html", StringComparison.OrdinalIgnoreCase) ? "text/html"
-        : mimeType.Equals("text/csv", StringComparison.OrdinalIgnoreCase) ? "text/csv"
-        : mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) ? "text/plain"
-        : mimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf"
-        : mimeType;
+    private static string NormalizeMediaType(string mimeType)
+    {
+        if (GccV2LocalOcrEnv.IsImageMediaType(mimeType))
+            return GccV2LocalOcrEnv.NormalizeImageMediaType(mimeType);
+        return mimeType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase) ? "text/markdown"
+            : mimeType.Equals("text/html", StringComparison.OrdinalIgnoreCase) ? "text/html"
+            : mimeType.Equals("text/csv", StringComparison.OrdinalIgnoreCase) ? "text/csv"
+            : mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) ? "text/plain"
+            : mimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf"
+            : mimeType;
+    }
 
     private static string EnsureExtension(string baseName, string mediaType)
     {
@@ -289,6 +301,11 @@ public sealed class GccV2SharePointGraphClient(IHttpClientFactory httpClientFact
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ".docx",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation" => ".pptx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => ".xlsx",
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/tiff" => ".tiff",
             _ => Path.HasExtension(baseName) ? "" : ".bin",
         };
         if (string.IsNullOrEmpty(ext)) return baseName;

@@ -6,7 +6,7 @@ namespace GeekBackend.Tests.ContentCreatorV2;
 
 public sealed class GccV2DocumentExtractorTests
 {
-    private readonly GccV2DocumentExtractor _extractor = new();
+    private readonly GccV2DocumentExtractor _extractor = new(new GccV2DisabledLocalOcrEngine());
 
     [Fact]
     public async Task Extracts_docx_locally_with_bounded_text_coordinates()
@@ -57,6 +57,46 @@ public sealed class GccV2DocumentExtractorTests
             new MemoryStream(spoofed), "application/pdf", spoofed.Length, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Images_fail_closed_when_local_ocr_is_disabled()
+    {
+        var png = MinimalPng();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _extractor.ExtractAsync(new MemoryStream(png), "image/png", png.Length, CancellationToken.None));
+        Assert.Contains("OCR remains fail-closed", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Images_use_local_ocr_engine_when_available()
+    {
+        var png = MinimalPng();
+        var extractor = new GccV2DocumentExtractor(new FakeOcrEngine("Governed handbook OCR"));
+        var result = await extractor.ExtractAsync(
+            new MemoryStream(png), "image/png", png.Length, CancellationToken.None);
+
+        Assert.Equal("Governed handbook OCR", result.Text);
+        Assert.Equal("FakeOcr", result.ParserName);
+        Assert.Contains(@"""kind"":""image-ocr""", result.CoordinatesJson);
+    }
+
+    [Fact]
+    public async Task Audio_and_video_stay_fail_closed()
+    {
+        var bytes = Encoding.UTF8.GetBytes("not really audio");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _extractor.ExtractAsync(new MemoryStream(bytes), "audio/mpeg", bytes.Length, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _extractor.ExtractAsync(new MemoryStream(bytes), "video/mp4", bytes.Length, CancellationToken.None));
+    }
+
+    [Fact]
+    public void Image_signature_checks_reject_spoofed_png()
+    {
+        var spoofed = Encoding.UTF8.GetBytes("not a png");
+        Assert.Throws<InvalidOperationException>(() =>
+            GccV2TesseractCliOcrEngine.EnsureImageSignature(spoofed, "image/png"));
+    }
+
     private static byte[] OfficeArchive(params (string Path, string Content)[] entries)
     {
         using var output = new MemoryStream();
@@ -70,6 +110,28 @@ public sealed class GccV2DocumentExtractorTests
             }
         }
         return output.ToArray();
+    }
+
+    /// <summary>1×1 transparent PNG.</summary>
+    private static byte[] MinimalPng() =>
+    [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+        0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+        0x42, 0x60, 0x82,
+    ];
+
+    private sealed class FakeOcrEngine(string text) : IGccV2LocalOcrEngine
+    {
+        public bool IsAvailable => true;
+
+        public Task<GccV2LocalOcrResult> RecognizeAsync(byte[] imageBytes, string mediaType, CancellationToken ct)
+        {
+            GccV2TesseractCliOcrEngine.EnsureImageSignature(
+                imageBytes, GccV2LocalOcrEnv.NormalizeImageMediaType(mediaType));
+            return Task.FromResult(new GccV2LocalOcrResult(text, "FakeOcr", "1"));
+        }
     }
 
     private const string Docx =

@@ -29,7 +29,7 @@ public sealed class GccV2ContextController(
     IConfiguration configuration) : ControllerBase, IAsyncActionFilter
 {
     private const long DefaultMaxFileBytes = 10 * 1024 * 1024;
-    private static readonly HashSet<string> SupportedMediaTypes =
+    private static readonly HashSet<string> BaseSupportedMediaTypes =
     [
         "text/plain", "text/markdown", "text/html", "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -37,10 +37,26 @@ public sealed class GccV2ContextController(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ];
 
+    private static HashSet<string> SupportedMediaTypes()
+    {
+        var types = new HashSet<string>(BaseSupportedMediaTypes, StringComparer.OrdinalIgnoreCase);
+        if (GccV2LocalOcrEnv.IsConfigured)
+        {
+            foreach (var imageType in GccV2LocalOcrEnv.ImageMediaTypes)
+            {
+                if (imageType is "image/jpg" or "image/tif") continue;
+                types.Add(GccV2LocalOcrEnv.NormalizeImageMediaType(imageType));
+            }
+        }
+
+        return types;
+    }
+
     [HttpGet("context/capabilities")]
     public ActionResult<object> Capabilities()
     {
         if (!user.IsAuthenticated) return Unauthorized();
+        var ocrConfigured = GccV2LocalOcrEnv.IsConfigured;
         return Ok(new
         {
             manifestSchema = "run-context-manifest.v1",
@@ -51,11 +67,14 @@ public sealed class GccV2ContextController(
                 ingestion = FeatureEnabled("Ingestion"),
                 resolution = FeatureEnabled("Resolution"),
                 manifestRetrieval = FeatureEnabled("ManifestRetrieval"),
+                localImageOcr = ocrConfigured,
             },
-            supportedMediaTypes = SupportedMediaTypes.Order(StringComparer.Ordinal),
+            supportedMediaTypes = SupportedMediaTypes().Order(StringComparer.Ordinal),
             blockedModalities = new
             {
-                image = "No approved local OCR/vision model is configured.",
+                image = ocrConfigured
+                    ? null
+                    : "No approved local OCR/vision model is configured.",
                 audio = "No approved local transcription model is configured.",
                 video = "No approved local transcript/keyframe pipeline is configured.",
             },
@@ -896,7 +915,7 @@ public sealed class GccV2ContextController(
     private string? ValidateUpload(string fileName, string mediaType, long byteSize, string sha256)
     {
         if (SafeFileName(fileName) != fileName.Trim()) return "fileName contains unsafe path or control characters";
-        if (!SupportedMediaTypes.Contains(NormalizeMediaType(mediaType))) return "mediaType is not supported";
+        if (!SupportedMediaTypes().Contains(NormalizeMediaType(mediaType))) return "mediaType is not supported";
         if (byteSize <= 0 || byteSize > MaxFileBytes) return $"byteSize must be 1..{MaxFileBytes}";
         return IsSha256(sha256) ? null : "sha256 is invalid";
     }
@@ -905,7 +924,13 @@ public sealed class GccV2ContextController(
         var name = Path.GetFileName(value.Trim());
         return new string(name.Where(c => !char.IsControl(c) && c is not '/' and not '\\').ToArray());
     }
-    private static string NormalizeMediaType(string value) => value.Split(';', 2)[0].Trim().ToLowerInvariant();
+    private static string NormalizeMediaType(string value)
+    {
+        var normalized = value.Split(';', 2)[0].Trim().ToLowerInvariant();
+        return GccV2LocalOcrEnv.IsImageMediaType(normalized)
+            ? GccV2LocalOcrEnv.NormalizeImageMediaType(normalized)
+            : normalized;
+    }
     private static string BrandName(string json)
     {
         try

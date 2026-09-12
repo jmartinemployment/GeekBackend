@@ -10,7 +10,7 @@ namespace GeekAPI.Services.ContentCreatorV2.Context;
 public sealed record GccV2ExtractedDocument(
     string Text, string ParserName, string ParserVersion, string CoordinatesJson);
 
-public sealed class GccV2DocumentExtractor
+public sealed class GccV2DocumentExtractor(IGccV2LocalOcrEngine ocr)
 {
     private const int MaxCharacters = 2_000_000;
     private const int MaxPdfPages = 500;
@@ -32,6 +32,19 @@ public sealed class GccV2DocumentExtractor
             throw new InvalidOperationException("Executable content is not accepted.");
 
         var normalizedMediaType = mediaType.Split(';', 2)[0].Trim().ToLowerInvariant();
+        if (normalizedMediaType is "image/jpg") normalizedMediaType = "image/jpeg";
+        if (normalizedMediaType is "image/tif") normalizedMediaType = "image/tiff";
+
+        if (GccV2LocalOcrEnv.IsImageMediaType(normalizedMediaType))
+            return await ExtractImageAsync(bytes, normalizedMediaType, ct);
+
+        if (normalizedMediaType.StartsWith("audio/", StringComparison.Ordinal)
+            || normalizedMediaType.StartsWith("video/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Audio and video remain fail-closed until local transcription/keyframe models are configured.");
+        }
+
         return normalizedMediaType switch
         {
             "text/plain" or "text/markdown" or "text/html" =>
@@ -45,6 +58,24 @@ public sealed class GccV2DocumentExtractor
                 ExtractSheets(bytes),
             _ => throw new InvalidOperationException("Media type has no approved local parser."),
         };
+    }
+
+    private async Task<GccV2ExtractedDocument> ExtractImageAsync(
+        byte[] bytes, string mediaType, CancellationToken ct)
+    {
+        if (!ocr.IsAvailable)
+        {
+            throw new InvalidOperationException(
+                "Image OCR remains fail-closed until GEEK_CC_OCR_COMMAND and GEEK_CC_OCR_DATA_PROCESSING_APPROVED=true are set.");
+        }
+
+        var result = await ocr.RecognizeAsync(bytes, mediaType, ct);
+        var text = result.Text;
+        EnsureCharacterLimit(text.Length);
+        return Complete(new StringBuilder(text), result.EngineName, result.EngineVersion,
+        [
+            new { kind = "image-ocr", mediaType, startChar = 0, endChar = text.Length },
+        ]);
     }
 
     private static GccV2ExtractedDocument ExtractText(byte[] bytes, string mediaType)

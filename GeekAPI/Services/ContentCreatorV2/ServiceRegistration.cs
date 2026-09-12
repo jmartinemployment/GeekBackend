@@ -82,6 +82,10 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2ContextResolver>();
         services.AddHttpClient<IGccV2ContextObjectStore, GccV2S3ContextObjectStore>();
         services.AddSingleton<IGccV2MalwareScanner, GccV2ClamAvMalwareScanner>();
+        services.AddSingleton<IGccV2LocalOcrEngine>(_ =>
+            GccV2LocalOcrEnv.IsConfigured
+                ? new GccV2TesseractCliOcrEngine()
+                : new GccV2DisabledLocalOcrEngine());
         services.AddSingleton<GccV2DocumentExtractor>();
         services.AddSingleton<IGccV2ContextConnector, GccV2UrlContextConnector>();
         services.AddSingleton<IGccV2ContextConnector, GccV2GscContextConnector>();

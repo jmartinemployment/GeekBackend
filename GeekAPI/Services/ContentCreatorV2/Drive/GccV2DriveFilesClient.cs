@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using GeekAPI.Services.ContentCreatorV2.Context;
 
 namespace GeekAPI.Services.ContentCreatorV2.Drive;
 
@@ -133,12 +134,25 @@ public sealed class GccV2DriveFilesClient(IHttpClientFactory httpClientFactory)
             ? linkEl.GetString()?.Trim() ?? $"https://drive.google.com/file/d/{id}/view"
             : $"https://drive.google.com/file/d/{id}/view";
 
-        if (mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
-            || mimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+        if (mimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
             || mimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "Image, audio, and video Drive files remain fail-closed until local OCR/transcription is configured.");
+                "Audio and video Drive files remain fail-closed until local transcription is configured.");
+        }
+
+        if (mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!GccV2LocalOcrEnv.IsConfigured || !GccV2LocalOcrEnv.IsImageMediaType(mimeType))
+            {
+                throw new InvalidOperationException(
+                    "Image Drive files remain fail-closed until local OCR is configured (GEEK_CC_OCR_COMMAND + GEEK_CC_OCR_DATA_PROCESSING_APPROVED=true).");
+            }
+        }
+        else if (!DownloadableMime.Contains(mimeType) && !GoogleExportMime.ContainsKey(mimeType))
+        {
+            throw new InvalidOperationException(
+                $"Drive mime type '{mimeType}' is not in the approved Knowledge parser set.");
         }
 
         byte[] bytes;
@@ -155,7 +169,7 @@ public sealed class GccV2DriveFilesClient(IHttpClientFactory httpClientFactory)
             mediaType = exportMime == "text/csv" ? "text/csv" : "text/plain";
             fileName = SanitizeFileName(name) + (exportMime == "text/csv" ? ".csv" : ".txt");
         }
-        else if (DownloadableMime.Contains(mimeType))
+        else if (DownloadableMime.Contains(mimeType) || GccV2LocalOcrEnv.IsImageMediaType(mimeType))
         {
             bytes = await DownloadAsync(
                 client,
@@ -209,13 +223,17 @@ public sealed class GccV2DriveFilesClient(IHttpClientFactory httpClientFactory)
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
-    private static string NormalizeMediaType(string mimeType) =>
-        mimeType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase) ? "text/markdown"
-        : mimeType.Equals("text/html", StringComparison.OrdinalIgnoreCase) ? "text/html"
-        : mimeType.Equals("text/csv", StringComparison.OrdinalIgnoreCase) ? "text/csv"
-        : mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) ? "text/plain"
-        : mimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf"
-        : mimeType;
+    private static string NormalizeMediaType(string mimeType)
+    {
+        if (GccV2LocalOcrEnv.IsImageMediaType(mimeType))
+            return GccV2LocalOcrEnv.NormalizeImageMediaType(mimeType);
+        return mimeType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase) ? "text/markdown"
+            : mimeType.Equals("text/html", StringComparison.OrdinalIgnoreCase) ? "text/html"
+            : mimeType.Equals("text/csv", StringComparison.OrdinalIgnoreCase) ? "text/csv"
+            : mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) ? "text/plain"
+            : mimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf"
+            : mimeType;
+    }
 
     private static string EnsureExtension(string baseName, string mediaType)
     {
@@ -229,6 +247,11 @@ public sealed class GccV2DriveFilesClient(IHttpClientFactory httpClientFactory)
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ".docx",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation" => ".pptx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => ".xlsx",
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/tiff" => ".tiff",
             _ => ".bin",
         };
         return baseName.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ? baseName : baseName + ext;
