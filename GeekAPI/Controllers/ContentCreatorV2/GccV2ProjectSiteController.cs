@@ -150,6 +150,12 @@ public class GccV2ProjectSiteController : ControllerBase
         {
             return Conflict(new { error = exception.Message });
         }
+        catch (HttpRequestException exception)
+        {
+            // A repository rejection is a promotion failure, not an opaque server fault.
+            return StatusCode(StatusCodes.Status502BadGateway,
+                new { error = $"The source library rejected this website: {exception.Message}" });
+        }
     }
 
     [HttpGet("runs/{runId:guid}/pages")]

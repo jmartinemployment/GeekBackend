@@ -45,17 +45,16 @@ public sealed class GccV2ProjectSiteKnowledgeService(
             var existingResource = existingVersion.Resources!
                 .OrderByDescending(resource => resource.ResourceKind == "normalized_text")
                 .First(resource => resource.ResourceKind is "original" or "normalized_text");
-            if (approve && existingVersion.LifecycleState == "draft")
+            // Approval requires extraction and indexing to be ready; when they are not, the
+            // ingestion worker finishes the approval it finds requested in the provenance.
+            if (approve && IsIndexed(existingVersion))
             {
-                await repository.TransitionKnowledgeAsync(existingVersion.Id, "review",
-                    new(ownerUserId, ownerUserId, "Promoted from completed owned website research."), ct);
-                existingVersion = await repository.TransitionKnowledgeAsync(existingVersion.Id, "approve",
-                    new(ownerUserId, ownerUserId, "Approved during website-source promotion."), ct);
-            }
-            else if (approve && existingVersion.LifecycleState == "in_review")
-            {
-                existingVersion = await repository.TransitionKnowledgeAsync(existingVersion.Id, "approve",
-                    new(ownerUserId, ownerUserId, "Approved during website-source promotion."), ct);
+                if (existingVersion.LifecycleState == "draft")
+                    await repository.TransitionKnowledgeAsync(existingVersion.Id, "review",
+                        new(ownerUserId, ownerUserId, "Promoted from completed owned website research."), ct);
+                if (existingVersion.LifecycleState is "draft" or "in_review")
+                    existingVersion = await repository.TransitionKnowledgeAsync(existingVersion.Id, "approve",
+                        new(ownerUserId, ownerUserId, "Approved during website-source promotion."), ct);
             }
 
             Guid? ingestionJobId = null;
@@ -127,6 +126,7 @@ public sealed class GccV2ProjectSiteKnowledgeService(
             {
                 promotedBy = ownerUserId,
                 promotedAtUtc = DateTimeOffset.UtcNow,
+                autoApprove = approve,
             }),
             run.CompletedAtUtc,
             ownerUserId), ct);
@@ -149,10 +149,8 @@ public sealed class GccV2ProjectSiteKnowledgeService(
         var lifecycle = version.LifecycleState;
         if (approve)
         {
-            await repository.TransitionKnowledgeAsync(version.Id, "review",
+            version = await repository.TransitionKnowledgeAsync(version.Id, "review",
                 new(ownerUserId, ownerUserId, "Promoted from completed owned website research."), ct);
-            version = await repository.TransitionKnowledgeAsync(version.Id, "approve",
-                new(ownerUserId, ownerUserId, "Approved during website-source promotion."), ct);
             lifecycle = version.LifecycleState;
         }
 
@@ -208,6 +206,23 @@ public sealed class GccV2ProjectSiteKnowledgeService(
         }
         return output.ToString();
     }
+
+    public static bool WantsAutoApproval(string provenanceJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(provenanceJson);
+            return document.RootElement.TryGetProperty("autoApprove", out var value)
+                && value.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsIndexed(GccV2KnowledgeAssetVersionDto version) =>
+        version is { ExtractionState: "ready", IndexState: "ready" };
 
     private static Guid? SourceRunId(string descriptorJson)
     {

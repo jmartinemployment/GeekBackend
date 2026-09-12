@@ -187,6 +187,7 @@ public sealed class GccV2ContextIngestionWorker(
                     sourceSha256 = original.Sha256, derivedSha256 = derivedSha,
                 }), IndexState: "ready"), ct);
             await notifier.NotifyAsync(ready, ct);
+            await ApproveIfRequestedAsync(repo, job.OwnerUserId, version, ct);
             RecordOutcome(job, "succeeded");
         }
         catch (Exception ex)
@@ -203,6 +204,33 @@ public sealed class GccV2ContextIngestionWorker(
             {
                 logger.LogError(transitionEx, "Could not persist terminal failure for context ingestion {JobId}.", id);
             }
+        }
+    }
+
+    /// <summary>
+    /// Finishes an approval the promoting caller asked for but could not perform: approval is
+    /// legal only once extraction and indexing are ready, which this job has just made true.
+    /// </summary>
+    private async Task ApproveIfRequestedAsync(
+        HttpGccV2Repository repo, string ownerUserId, GccV2KnowledgeAssetVersionDto version,
+        CancellationToken ct)
+    {
+        if (!GccV2ProjectSiteKnowledgeService.WantsAutoApproval(version.ProvenanceJson)) return;
+        if (version.LifecycleState is not ("draft" or "in_review")) return;
+        try
+        {
+            var current = version.LifecycleState == "draft"
+                ? await repo.TransitionKnowledgeAsync(version.Id, "review",
+                    new(ownerUserId, ownerUserId, "Indexed after website-source promotion."), ct)
+                : version;
+            if (current.LifecycleState == "in_review")
+                await repo.TransitionKnowledgeAsync(version.Id, "approve",
+                    new(ownerUserId, ownerUserId, "Approved after website-source promotion indexed."), ct);
+        }
+        catch (Exception ex)
+        {
+            // Ingestion itself succeeded; leave the revision reviewable rather than failing the job.
+            logger.LogWarning(ex, "Auto-approval after ingestion failed for knowledge {VersionId}.", version.Id);
         }
     }
 
