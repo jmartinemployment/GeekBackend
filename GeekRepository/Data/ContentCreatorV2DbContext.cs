@@ -24,6 +24,7 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2ProjectSiteCrawlRun> GccV2ProjectSiteCrawlRuns => Set<GccV2ProjectSiteCrawlRun>();
     public virtual DbSet<GccV2ProjectSiteCrawlPage> GccV2ProjectSiteCrawlPages => Set<GccV2ProjectSiteCrawlPage>();
     public virtual DbSet<GccV2ProjectSiteCrawlLink> GccV2ProjectSiteCrawlLinks => Set<GccV2ProjectSiteCrawlLink>();
+    public virtual DbSet<GccV2ResearchEntity> GccV2ResearchEntities => Set<GccV2ResearchEntity>();
     public virtual DbSet<GccV2SkillPackage> GccV2SkillPackages => Set<GccV2SkillPackage>();
     public virtual DbSet<GccV2SkillVersion> GccV2SkillVersions => Set<GccV2SkillVersion>();
     public virtual DbSet<GccV2SkillFile> GccV2SkillFiles => Set<GccV2SkillFile>();
@@ -501,6 +502,21 @@ public class ContentCreatorV2DbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.AgentVersion).WithMany().HasForeignKey(x => x.AgentVersionId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccV2ResearchEntity>(entity =>
+        {
+            entity.ToTable("gcc_v2_research_entities");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.Role).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.PrimaryUrl).HasMaxLength(2048);
+            entity.Property(x => x.Notes).HasMaxLength(2000);
+            entity.Property(x => x.CreatedBy).IsRequired().HasMaxLength(256);
+            entity.HasIndex(x => new { x.Role, x.Name })
+                .HasDatabaseName("ix_gcc_v2_research_entities_role_name");
+            entity.HasIndex(x => x.Name).IsUnique()
+                .HasDatabaseName("ux_gcc_v2_research_entities_name");
         });
     }
 }

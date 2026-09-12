@@ -309,6 +309,10 @@ public sealed record GccV2ProjectSiteCrawlPageActivityDto(
     int PageCount,
     DateTimeOffset? LastCrawledAtUtc);
 
+public sealed record GccV2ResearchEntityDto(
+    Guid Id, string Name, string Role, string? PrimaryUrl, string? Notes,
+    string CreatedBy, DateTimeOffset CreatedAtUtc, DateTimeOffset? ArchivedAtUtc);
+
 public sealed record GccV2SkillPackageDto(
     Guid Id, string Slug, string DisplayName, string Description, string SourceRepository,
     string SourcePath, string Publisher, string LifecycleState, bool IsFirstParty,
@@ -338,6 +342,11 @@ public sealed record GccV2SkillAuditEventDto(
     Guid Id, Guid PackageId, Guid? VersionId, string Actor, string Action,
     string? SourceIp, string? RequestId, string? BeforeState, string? AfterState,
     DateTimeOffset CreatedAtUtc);
+
+public sealed record CreateGccV2ResearchEntityCommand(
+    string Name, string Role, string? PrimaryUrl, string? Notes, string Actor);
+
+public sealed record UpdateGccV2ResearchEntityCommand(string? Role, string? PrimaryUrl, string? Notes);
 
 public sealed record ImportGccV2SkillCommand(
     string Slug, string DisplayName, string Description, string SourceRepository, string SourcePath,

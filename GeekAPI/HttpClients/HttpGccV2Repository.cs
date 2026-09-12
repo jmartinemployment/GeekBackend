@@ -268,6 +268,30 @@ public class HttpGccV2Repository
         CancellationToken ct = default) =>
         PostAsync<object>("repo/content-creator-v2/project-site/links/batch", command, ct);
 
+    // Canonical partner/competitor entities — shared by the RAG writer and every task agent.
+    // See plans/make-content-creator-workable.md Milestone 1.
+
+    public Task<IReadOnlyList<GccV2ResearchEntityDto>> ListResearchEntitiesAsync(
+        string? role = null, bool includeArchived = false, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(role)) query.Add($"role={Uri.EscapeDataString(role)}");
+        if (includeArchived) query.Add("includeArchived=true");
+        return GetListAsync<GccV2ResearchEntityDto>(
+            "repo/content-creator-v2/research-entities" + (query.Count == 0 ? "" : $"?{string.Join("&", query)}"), ct);
+    }
+
+    public Task<GccV2ResearchEntityDto> CreateResearchEntityAsync(
+        CreateGccV2ResearchEntityCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2ResearchEntityDto>("repo/content-creator-v2/research-entities", command, ct);
+
+    public Task<GccV2ResearchEntityDto> UpdateResearchEntityAsync(
+        Guid id, UpdateGccV2ResearchEntityCommand command, CancellationToken ct = default) =>
+        PatchAsync<GccV2ResearchEntityDto>($"repo/content-creator-v2/research-entities/{id}", command, ct);
+
+    public Task<GccV2ResearchEntityDto> ArchiveResearchEntityAsync(Guid id, CancellationToken ct = default) =>
+        PostAsync<GccV2ResearchEntityDto>($"repo/content-creator-v2/research-entities/{id}/archive", new { }, ct);
+
     // Governed skills registry. All persistence remains behind GeekRepository.
 
     public Task<IReadOnlyList<GccV2SkillPackageDto>> ListSkillsAsync(
