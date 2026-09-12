@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
@@ -11,6 +13,11 @@ namespace GeekAPI.Services.ContentCreatorV2.Publish;
 /// <summary>Shared JSON-LD builder for export, CMS publish, and job ResultJson persistence.</summary>
 public sealed class GccV2JsonLdBuilder
 {
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        WriteIndented = true,
+    };
+
     private readonly CompanyProfileOptions _company;
     private readonly ITechnicalArticleSchemaBuilder _articleSchema;
     private readonly IBlogPostingSchemaBuilder _blogSchema;
@@ -71,7 +78,7 @@ public sealed class GccV2JsonLdBuilder
             ContentDocumentText.CountWords(document));
 
         var normalized = GccV2LongFormTypes.Normalize(contentType);
-        return normalized switch
+        var primary = normalized switch
         {
             GccV2LongFormTypes.Pillar or GccV2LongFormTypes.TechArticle or GccV2LongFormTypes.Comparison
                 or GccV2LongFormTypes.CaseStudy or GccV2LongFormTypes.Alternatives
@@ -87,6 +94,9 @@ public sealed class GccV2JsonLdBuilder
                 new SoftwareApplicationDescriptor(title, metaDescription, canonicalUrl)),
             _ => null,
         };
+
+        if (primary is null) return null;
+        return MergeFaqPage(primary, ExtractFaqPairs(document));
     }
 
     public string? CanonicalUrlFor(string contentType, string slug, string? toolPageKind)
@@ -104,6 +114,117 @@ public sealed class GccV2JsonLdBuilder
             GccV2LongFormTypes.Tool => CombineUrl(_company.ToolBaseUrl, "marketing", slug),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Extract FAQ Q/A pairs from People Also Ask / FAQ sections (child headings = questions).
+    /// </summary>
+    public static IReadOnlyList<(string Question, string Answer)> ExtractFaqPairs(ContentDocument document)
+    {
+        var pairs = new List<(string, string)>();
+        foreach (var section in document.Sections)
+        {
+            if (!IsFaqSection(section)) continue;
+            CollectFaqPairs(section, pairs);
+        }
+
+        return pairs;
+    }
+
+    internal static string MergeFaqPage(
+        string primaryJsonLd,
+        IReadOnlyList<(string Question, string Answer)> faqPairs)
+    {
+        if (faqPairs.Count == 0) return primaryJsonLd;
+
+        var faqNode = new JsonObject
+        {
+            ["@type"] = "FAQPage",
+            ["mainEntity"] = new JsonArray(
+                faqPairs.Select(pair => (JsonNode)new JsonObject
+                {
+                    ["@type"] = "Question",
+                    ["name"] = pair.Question,
+                    ["acceptedAnswer"] = new JsonObject
+                    {
+                        ["@type"] = "Answer",
+                        ["text"] = pair.Answer,
+                    },
+                }).ToArray()),
+        };
+
+        try
+        {
+            var root = JsonNode.Parse(primaryJsonLd)?.AsObject();
+            if (root is null) return primaryJsonLd;
+
+            if (root["@graph"] is JsonArray graph)
+            {
+                graph.Add(faqNode);
+                return root.ToJsonString(JsonOpts);
+            }
+
+            // Single primary node → wrap with FAQ in @graph.
+            root.Remove("@context");
+            var wrapped = new JsonObject
+            {
+                ["@context"] = "https://schema.org",
+                ["@graph"] = new JsonArray(root, faqNode),
+            };
+            return wrapped.ToJsonString(JsonOpts);
+        }
+        catch (JsonException)
+        {
+            return primaryJsonLd;
+        }
+    }
+
+    private static bool IsFaqSection(Section section) =>
+        section.Heading.Contains("People Also Ask", StringComparison.OrdinalIgnoreCase)
+        || section.Heading.Contains("FAQ", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(section.Tag, "faq", StringComparison.OrdinalIgnoreCase);
+
+    private static void CollectFaqPairs(Section section, List<(string Question, string Answer)> pairs)
+    {
+        if (section.Children.Count > 0)
+        {
+            foreach (var child in section.Children)
+            {
+                var question = child.Heading.Trim();
+                var answer = FlattenParagraphs(child).Trim();
+                if (question.Length > 0 && answer.Length > 0)
+                    pairs.Add((question, answer));
+            }
+
+            return;
+        }
+
+        // Flat FAQ: paragraphs that look like Q: / A: are uncommon; prefer question-shaped headings only.
+        var body = FlattenParagraphs(section).Trim();
+        if (section.Heading.TrimEnd().EndsWith('?') && body.Length > 0)
+            pairs.Add((section.Heading.Trim(), body));
+    }
+
+    private static string FlattenParagraphs(Section section)
+    {
+        var parts = new List<string>();
+        foreach (var paragraph in section.Paragraphs)
+        {
+            switch (paragraph)
+            {
+                case TextParagraph text:
+                    parts.Add(string.Join(" ", text.Runs.Select(r => r.Text)));
+                    break;
+                case ListParagraph list:
+                    parts.AddRange(list.Items.Select(item => string.Join(" ", item.Select(r => r.Text))));
+                    break;
+            }
+        }
+
+        foreach (var child in section.Children)
+            parts.Add(FlattenParagraphs(child));
+
+        return string.Join(" ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
     }
 
     private static string CombineUrl(string baseUrl, string department, string slug) =>
