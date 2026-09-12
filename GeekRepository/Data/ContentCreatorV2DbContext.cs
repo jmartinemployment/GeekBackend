@@ -69,6 +69,7 @@ public class ContentCreatorV2DbContext : DbContext
     public virtual DbSet<GccV2TaskAgentLibraryPreference> GccV2TaskAgentLibraryPreferences => Set<GccV2TaskAgentLibraryPreference>();
     public virtual DbSet<GccV2GscConnection> GccV2GscConnections => Set<GccV2GscConnection>();
     public virtual DbSet<GccV2DriveConnection> GccV2DriveConnections => Set<GccV2DriveConnection>();
+    public virtual DbSet<GccV2SharePointConnection> GccV2SharePointConnections => Set<GccV2SharePointConnection>();
     public virtual DbSet<GccV2CustomerOutcome> GccV2CustomerOutcomes => Set<GccV2CustomerOutcome>();
     public virtual DbSet<GccV2CanvasProject> GccV2CanvasProjects => Set<GccV2CanvasProject>();
     public virtual DbSet<GccV2CanvasAsset> GccV2CanvasAssets => Set<GccV2CanvasAsset>();
@@ -88,6 +89,7 @@ public class ContentCreatorV2DbContext : DbContext
         modelBuilder.ConfigureGccV2TaskAgentKernel();
         modelBuilder.ConfigureGccV2Gsc();
         modelBuilder.ConfigureGccV2Drive();
+        modelBuilder.ConfigureGccV2SharePoint();
         modelBuilder.ConfigureGccV2CustomerOutcomes();
         modelBuilder.ConfigureGccV2CanvasProjects();
         modelBuilder.ConfigureGccV2Grids();

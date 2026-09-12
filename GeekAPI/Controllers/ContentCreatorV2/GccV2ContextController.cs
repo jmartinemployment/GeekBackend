@@ -22,6 +22,7 @@ public sealed class GccV2ContextController(
     GccV2UrlKnowledgeService urlKnowledge,
     GccV2GscKnowledgeService gscKnowledge,
     GccV2DriveKnowledgeService driveKnowledge,
+    GccV2SharePointKnowledgeService sharePointKnowledge,
     GccV2UrlAttachmentService urlAttachment,
     GccV2JobEventWriter jobEvents,
     GccV2JobWake jobWake,
@@ -358,6 +359,51 @@ public sealed class GccV2ContextController(
             driveConnectionId = result.DriveConnectionId,
             accountLabel = result.AccountLabel,
             fileId = result.FileId,
+            title = result.Title,
+            mediaType = result.MediaType,
+            byteSize = result.ByteSize,
+            contentSha256 = result.ContentSha256,
+            ingestionJobId = result.IngestionJobId,
+            state = result.IngestionState,
+        });
+    }
+
+    /// <summary>
+    /// Create Knowledge from an owner-owned SharePoint/OneDrive connection (approved media types only).
+    /// </summary>
+    [HttpPost("knowledge/from-sharepoint")]
+    public async Task<ActionResult<object>> CreateKnowledgeFromSharePoint(
+        [FromBody] KnowledgeFromSharePointRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var (result, status, error, errorCode) = await sharePointKnowledge.IngestAsync(
+            Owner,
+            request.SharePointConnectionId ?? Guid.Empty,
+            request.ItemIdOrUrl,
+            request.Name,
+            request.Tags,
+            request.AssetId,
+            ct);
+        if (result is null)
+        {
+            return StatusCode((int)status, new
+            {
+                contractVersion = "gcc-knowledge-from-sharepoint.v1",
+                error,
+                errorCode,
+            });
+        }
+
+        return Accepted(new
+        {
+            contractVersion = "gcc-knowledge-from-sharepoint.v1",
+            connectorId = GccV2SharePointContextConnector.ConnectorId,
+            assetId = result.AssetId,
+            versionId = result.VersionId,
+            resourceId = result.ResourceId,
+            sharePointConnectionId = result.SharePointConnectionId,
+            accountLabel = result.AccountLabel,
+            itemId = result.ItemId,
             title = result.Title,
             mediaType = result.MediaType,
             byteSize = result.ByteSize,
@@ -954,6 +1000,12 @@ public sealed class GccV2ContextController(
     public sealed record KnowledgeFromDriveRequest(
         Guid? DriveConnectionId,
         string? FileIdOrUrl,
+        string? Name = null,
+        IReadOnlyList<string>? Tags = null,
+        Guid? AssetId = null);
+    public sealed record KnowledgeFromSharePointRequest(
+        Guid? SharePointConnectionId,
+        string? ItemIdOrUrl,
         string? Name = null,
         IReadOnlyList<string>? Tags = null,
         Guid? AssetId = null);

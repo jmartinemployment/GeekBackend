@@ -142,10 +142,16 @@ builder.Services.AddHttpClient("GccV2GoogleApis", client =>
 {
     client.Timeout = TimeSpan.FromMinutes(2);
 });
+builder.Services.AddHttpClient("GccV2MicrosoftGraph", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscSearchAnalyticsClient>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscOAuthStateStore>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Drive.GccV2DriveFilesClient>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Drive.GccV2DriveOAuthStateStore>();
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.SharePoint.GccV2SharePointGraphClient>();
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.SharePoint.GccV2SharePointOAuthStateStore>();
 
 var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
 builder.Services.AddHttpClient<GeekAPI.Services.GeekSeo.HttpGeekSeoSiteAnalyzerClient>(client =>

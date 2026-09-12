@@ -14,8 +14,10 @@ public class ApiKeyMiddleware
         "/api/case-studies",
         "/api/departments",
         "/api/use-cases",
-        // Google OAuth redirect (ownership enforced via signed state, not API key).
+        // OAuth provider redirects (ownership enforced via signed state, not API key).
         "/api/geek-content-creator-v2/gsc/oauth/callback",
+        "/api/geek-content-creator-v2/drive/oauth/callback",
+        "/api/geek-content-creator-v2/sharepoint/oauth/callback",
     };
 
     private readonly RequestDelegate _next;

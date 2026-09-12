@@ -490,6 +490,23 @@ public sealed record UpsertGccV2DriveConnectionCommand(
     byte[]? EncryptedRefreshToken,
     byte[]? EncryptionIv,
     byte[]? EncryptionTag);
+public sealed record GccV2SharePointConnectionDto(
+    Guid Id,
+    string OwnerUserId,
+    string AccountLabel,
+    string Status,
+    byte[] EncryptedRefreshToken,
+    byte[] EncryptionIv,
+    byte[] EncryptionTag,
+    DateTimeOffset ConnectedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+public sealed record UpsertGccV2SharePointConnectionCommand(
+    string OwnerUserId,
+    string AccountLabel,
+    string? Status,
+    byte[]? EncryptedRefreshToken,
+    byte[]? EncryptionIv,
+    byte[]? EncryptionTag);
 public sealed record GccV2CustomerOutcomeDto(
     Guid Id,
     string OwnerUserId,

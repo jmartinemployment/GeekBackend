@@ -446,6 +446,22 @@ public class HttpGccV2Repository
             $"repo/content-creator-v2/drive/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
             ct);
 
+    public Task<IReadOnlyList<GccV2SharePointConnectionDto>> ListSharePointConnectionsAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2SharePointConnectionDto>(
+            $"repo/content-creator-v2/sharepoint/connections?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2SharePointConnectionDto?> GetSharePointConnectionAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2SharePointConnectionDto>(
+            $"repo/content-creator-v2/sharepoint/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2SharePointConnectionDto> UpsertSharePointConnectionAsync(
+        UpsertGccV2SharePointConnectionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2SharePointConnectionDto>("repo/content-creator-v2/sharepoint/connections", command, ct);
+    public Task DeleteSharePointConnectionAsync(Guid id, string ownerUserId, CancellationToken ct = default) =>
+        DeleteAsync(
+            $"repo/content-creator-v2/sharepoint/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
+            ct);
+
     public Task<IReadOnlyList<GccV2CustomerOutcomeDto>> ListCustomerOutcomesAsync(
         string ownerUserId, CancellationToken ct = default) =>
         GetListAsync<GccV2CustomerOutcomeDto>(
