@@ -144,6 +144,8 @@ builder.Services.AddHttpClient("GccV2GoogleApis", client =>
 });
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscSearchAnalyticsClient>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscOAuthStateStore>();
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Drive.GccV2DriveFilesClient>();
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Drive.GccV2DriveOAuthStateStore>();
 
 var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
 builder.Services.AddHttpClient<GeekAPI.Services.GeekSeo.HttpGeekSeoSiteAnalyzerClient>(client =>

@@ -21,6 +21,7 @@ public sealed class GccV2ContextController(
     GccV2ContextIngestionWake ingestionWake,
     GccV2UrlKnowledgeService urlKnowledge,
     GccV2GscKnowledgeService gscKnowledge,
+    GccV2DriveKnowledgeService driveKnowledge,
     GccV2UrlAttachmentService urlAttachment,
     GccV2JobEventWriter jobEvents,
     GccV2JobWake jobWake,
@@ -314,6 +315,51 @@ public sealed class GccV2ContextController(
             siteUrl = result.SiteUrl,
             title = result.Title,
             queryCount = result.QueryCount,
+            byteSize = result.ByteSize,
+            contentSha256 = result.ContentSha256,
+            ingestionJobId = result.IngestionJobId,
+            state = result.IngestionState,
+        });
+    }
+
+    /// <summary>
+    /// Create Knowledge from an owner-owned Google Drive connection (approved media types only).
+    /// </summary>
+    [HttpPost("knowledge/from-drive")]
+    public async Task<ActionResult<object>> CreateKnowledgeFromDrive(
+        [FromBody] KnowledgeFromDriveRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var (result, status, error, errorCode) = await driveKnowledge.IngestAsync(
+            Owner,
+            request.DriveConnectionId ?? Guid.Empty,
+            request.FileIdOrUrl,
+            request.Name,
+            request.Tags,
+            request.AssetId,
+            ct);
+        if (result is null)
+        {
+            return StatusCode((int)status, new
+            {
+                contractVersion = "gcc-knowledge-from-drive.v1",
+                error,
+                errorCode,
+            });
+        }
+
+        return Accepted(new
+        {
+            contractVersion = "gcc-knowledge-from-drive.v1",
+            connectorId = GccV2DriveContextConnector.ConnectorId,
+            assetId = result.AssetId,
+            versionId = result.VersionId,
+            resourceId = result.ResourceId,
+            driveConnectionId = result.DriveConnectionId,
+            accountLabel = result.AccountLabel,
+            fileId = result.FileId,
+            title = result.Title,
+            mediaType = result.MediaType,
             byteSize = result.ByteSize,
             contentSha256 = result.ContentSha256,
             ingestionJobId = result.IngestionJobId,
@@ -902,6 +948,12 @@ public sealed class GccV2ContextController(
         DateOnly? StartDate = null,
         DateOnly? EndDate = null,
         int? RowLimit = null,
+        string? Name = null,
+        IReadOnlyList<string>? Tags = null,
+        Guid? AssetId = null);
+    public sealed record KnowledgeFromDriveRequest(
+        Guid? DriveConnectionId,
+        string? FileIdOrUrl,
         string? Name = null,
         IReadOnlyList<string>? Tags = null,
         Guid? AssetId = null);

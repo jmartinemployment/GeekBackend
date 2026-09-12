@@ -430,6 +430,22 @@ public class HttpGccV2Repository
             $"repo/content-creator-v2/gsc/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
             ct);
 
+    public Task<IReadOnlyList<GccV2DriveConnectionDto>> ListDriveConnectionsAsync(
+        string ownerUserId, CancellationToken ct = default) =>
+        GetListAsync<GccV2DriveConnectionDto>(
+            $"repo/content-creator-v2/drive/connections?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2DriveConnectionDto?> GetDriveConnectionAsync(
+        Guid id, string ownerUserId, CancellationToken ct = default) =>
+        GetAsync<GccV2DriveConnectionDto>(
+            $"repo/content-creator-v2/drive/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}", ct);
+    public Task<GccV2DriveConnectionDto> UpsertDriveConnectionAsync(
+        UpsertGccV2DriveConnectionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccV2DriveConnectionDto>("repo/content-creator-v2/drive/connections", command, ct);
+    public Task DeleteDriveConnectionAsync(Guid id, string ownerUserId, CancellationToken ct = default) =>
+        DeleteAsync(
+            $"repo/content-creator-v2/drive/connections/{id:D}?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
+            ct);
+
     public Task<IReadOnlyList<GccV2CustomerOutcomeDto>> ListCustomerOutcomesAsync(
         string ownerUserId, CancellationToken ct = default) =>
         GetListAsync<GccV2CustomerOutcomeDto>(

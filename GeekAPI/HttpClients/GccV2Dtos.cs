@@ -473,6 +473,23 @@ public sealed record UpsertGccV2GscConnectionCommand(
     byte[]? EncryptedRefreshToken,
     byte[]? EncryptionIv,
     byte[]? EncryptionTag);
+public sealed record GccV2DriveConnectionDto(
+    Guid Id,
+    string OwnerUserId,
+    string AccountLabel,
+    string Status,
+    byte[] EncryptedRefreshToken,
+    byte[] EncryptionIv,
+    byte[] EncryptionTag,
+    DateTimeOffset ConnectedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+public sealed record UpsertGccV2DriveConnectionCommand(
+    string OwnerUserId,
+    string AccountLabel,
+    string? Status,
+    byte[]? EncryptedRefreshToken,
+    byte[]? EncryptionIv,
+    byte[]? EncryptionTag);
 public sealed record GccV2CustomerOutcomeDto(
     Guid Id,
     string OwnerUserId,
