@@ -44,17 +44,30 @@ public sealed class GccV2SkillSnapshotSigner
 
     public GccV2SkillSnapshotSigner(IConfiguration configuration)
     {
-        var value = configuration["GccV2Skills:SnapshotSigningKey"]
-            ?? Environment.GetEnvironmentVariable("SKILL_SNAPSHOT_SIGNING_KEY");
+        // Prefer non-empty values: empty appsettings keys must not mask Railway env.
+        var value = FirstNonEmpty(
+            configuration["GccV2Skills:SnapshotSigningKey"],
+            Environment.GetEnvironmentVariable("SKILL_SNAPSHOT_SIGNING_KEY"));
         if (!string.IsNullOrWhiteSpace(value))
         {
             _key = Encoding.UTF8.GetBytes(value);
             if (_key.Length < 32)
                 throw new InvalidOperationException("SKILL_SNAPSHOT_SIGNING_KEY must contain at least 32 UTF-8 bytes.");
         }
-        KeyId = configuration["GccV2Skills:SnapshotSigningKeyId"]
-            ?? Environment.GetEnvironmentVariable("SKILL_SNAPSHOT_SIGNING_KEY_ID")
+        KeyId = FirstNonEmpty(
+            configuration["GccV2Skills:SnapshotSigningKeyId"],
+            Environment.GetEnvironmentVariable("SKILL_SNAPSHOT_SIGNING_KEY_ID"))
             ?? "gcc-skills-1";
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+        }
+
+        return null;
     }
 
     public string SignDigest(string snapshotDigest)
