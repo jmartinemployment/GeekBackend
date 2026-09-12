@@ -69,10 +69,57 @@ public sealed class GccV2TaskAgentPageHydratorTests
         Assert.Equal(200, outcome.StatusCode);
         Assert.Equal("yes", outcome.Crawlable == true ? "yes" : "no");
         Assert.Equal("full", outcome.ContentCompleteness);
+        Assert.Equal(GccV2TaskAgentPageHydrator.EngineHttp, outcome.Engine);
         Assert.Contains("AI Readiness Guide", outcome.VisibleContent);
         Assert.Contains("Checklist", outcome.VisibleContent);
         Assert.Contains("factual density", outcome.VisibleContent);
         Assert.True(outcome.LoadTimeMs is > 0);
+    }
+
+    [Fact]
+    public async Task Falls_back_to_playwright_when_http_extract_is_thin()
+    {
+        const string thinHtml = """
+            <html><head><title>App</title></head>
+            <body><div id="root">Loading…</div></body></html>
+            """;
+        const string renderedHtml = """
+            <html><head><title>Rendered Guide</title></head>
+            <body>
+              <h1>Rendered Guide</h1>
+              <p>This Playwright-rendered page includes enough visible characters for governed Knowledge extraction after the SPA shell failed HTTP extraction.</p>
+              <p>Operators should verify crawlability and factual density on JavaScript-heavy documentation sites before publishing.</p>
+            </body></html>
+            """;
+        var handler = new RecordingHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(thinHtml, Encoding.UTF8, "text/html"),
+            }));
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+        var rendered = new StubRenderedHtmlSource(new GccV2RenderedHtml(
+            "https://example.com/spa", renderedHtml, 200));
+        var hydrator = new GccV2TaskAgentPageHydrator(http, rendered);
+
+        var outcome = await hydrator.HydrateAsync("https://example.com/spa", CancellationToken.None, PublicOnly);
+
+        Assert.True(outcome.Ok);
+        Assert.Equal(GccV2TaskAgentPageHydrator.EnginePlaywright, outcome.Engine);
+        Assert.Equal("full", outcome.ContentCompleteness);
+        Assert.Contains("Playwright-rendered page", outcome.VisibleContent);
+    }
+
+    [Fact]
+    public void ShouldTryPlaywright_only_for_partial_or_extract_failures()
+    {
+        Assert.True(GccV2TaskAgentPageHydrator.ShouldTryPlaywright(new(
+            true, null, null, HttpStatusCode.OK, "https://x", "t", "thin", 200, 1, "partial", true, "http")));
+        Assert.False(GccV2TaskAgentPageHydrator.ShouldTryPlaywright(new(
+            true, null, null, HttpStatusCode.OK, "https://x", "t", "ok", 200, 1, "full", true, "http")));
+        Assert.True(GccV2TaskAgentPageHydrator.ShouldTryPlaywright(new(
+            false, "extract", "no", HttpStatusCode.UnprocessableEntity, null, null, null, 200, null, null, null)));
+        Assert.False(GccV2TaskAgentPageHydrator.ShouldTryPlaywright(new(
+            false, "ssrf", "blocked", HttpStatusCode.BadRequest, null, null, null, null, null, null, null)));
     }
 
     [Fact]
@@ -89,6 +136,12 @@ public sealed class GccV2TaskAgentPageHydratorTests
         Assert.Contains("# Title", text);
         Assert.Contains("## Section", text);
         Assert.Contains("enough characters", text);
+    }
+
+    private sealed class StubRenderedHtmlSource(GccV2RenderedHtml html) : IGccV2RenderedHtmlSource
+    {
+        public Task<GccV2RenderedHtml?> TryFetchAsync(string url, CancellationToken ct) =>
+            Task.FromResult<GccV2RenderedHtml?>(html);
     }
 
     private sealed class RecordingHandler : HttpMessageHandler

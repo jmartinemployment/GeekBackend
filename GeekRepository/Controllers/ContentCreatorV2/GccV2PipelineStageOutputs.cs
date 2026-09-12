@@ -45,6 +45,57 @@ internal static class GccV2PipelineStageOutputs
             workItemIndex,
         }, JsonOpts);
 
+    public static string ForCanvasHandoff(
+        string displayName,
+        string lifecycle,
+        int workItemIndex,
+        Guid projectId,
+        Guid assetId,
+        Guid assetVersionId,
+        Guid taskRunId,
+        Guid artifactVersionId,
+        string artifactType,
+        string title) =>
+        JsonSerializer.Serialize(new
+        {
+            handoff = "canvas",
+            mode = "canvas-attach",
+            summary = $"Attached {title} to Canvas project.",
+            lifecycle,
+            workItemIndex,
+            displayName,
+            projectId = projectId.ToString("D"),
+            assetId = assetId.ToString("D"),
+            assetVersionId = assetVersionId.ToString("D"),
+            taskRunId = taskRunId.ToString("D"),
+            artifactVersionId = artifactVersionId.ToString("D"),
+            artifactType,
+            title,
+        }, JsonOpts);
+
+    public static string ForPublishHandoff(
+        string displayName,
+        string lifecycle,
+        int workItemIndex,
+        Guid? projectId,
+        Guid? assetId,
+        string? title) =>
+        JsonSerializer.Serialize(new
+        {
+            handoff = "publish",
+            mode = "publish-ready",
+            summary = projectId is null
+                ? $"Marked {displayName} ready without a Canvas asset."
+                : $"Marked “{title}” ready to publish (no external CMS).",
+            lifecycle,
+            workItemIndex,
+            displayName,
+            projectId = projectId?.ToString("D"),
+            assetId = assetId?.ToString("D"),
+            title,
+            externalCms = false,
+        }, JsonOpts);
+
     /// <summary>
     /// Deterministic directional ROI stub aligned with gcc-roi-formulas.v1 defaults
     /// (workflowVolume 48, baseline 90m, assisted 25m, adoption 0.7, success 0.65, …).

@@ -3,48 +3,64 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreatorV2.TaskAgents;
+using GeekAPI.Services.ContentCreatorV2.Gsc;
 
 namespace GeekAPI.Services.ContentCreatorV2.Context;
 
-public sealed record GccV2UrlKnowledgeResult(
+public sealed record GccV2GscKnowledgeResult(
     Guid AssetId,
     Guid VersionId,
     Guid ResourceId,
-    string FinalUrl,
+    Guid GscConnectionId,
+    string SiteUrl,
     string Title,
-    string ContentCompleteness,
-    int StatusCode,
+    int QueryCount,
     long ByteSize,
     string ContentSha256,
     string IngestionState,
-    Guid IngestionJobId,
-    string? HydrateEngine = null);
+    Guid IngestionJobId);
 
-public sealed class GccV2UrlKnowledgeService(
+public sealed class GccV2GscKnowledgeService(
     HttpGccV2Repository repository,
     IGccV2ContextObjectStore objectStore,
     GccV2ContextIngestionWake ingestionWake,
-    GccV2TaskAgentPageHydrator pageHydrator,
+    GccV2GscSearchAnalyticsClient search,
     IConfiguration configuration)
 {
-    public async Task<(GccV2UrlKnowledgeResult? Result, HttpStatusCode Status, string? Error, string? ErrorCode)>
+    public async Task<(GccV2GscKnowledgeResult? Result, HttpStatusCode Status, string? Error, string? ErrorCode)>
         IngestAsync(
             string ownerUserId,
-            string? url,
+            Guid gscConnectionId,
+            DateOnly? startDate,
+            DateOnly? endDate,
+            int? rowLimit,
             string? name,
             IReadOnlyList<string>? tags,
             Guid? assetId,
             CancellationToken ct)
     {
-        var outcome = await pageHydrator.HydrateAsync(url, ct).ConfigureAwait(false);
-        if (!outcome.Ok || string.IsNullOrWhiteSpace(outcome.VisibleContent))
+        if (gscConnectionId == Guid.Empty)
         {
-            return (null, outcome.HttpStatus, outcome.ErrorMessage ?? "Could not fetch page content.",
-                outcome.ErrorCode ?? "extract");
+            return (null, HttpStatusCode.BadRequest, "gscConnectionId is required.", "validation");
         }
 
-        var bytes = Encoding.UTF8.GetBytes(outcome.VisibleContent);
+        var end = endDate ?? DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var start = startDate ?? end.AddDays(-90);
+        if (start > end)
+            return (null, HttpStatusCode.BadRequest, "startDate must be on or before endDate.", "validation");
+
+        var limit = rowLimit is null or < 1 ? 200 : Math.Min(rowLimit.Value, 1000);
+        var fetched = await GccV2GscKnowledgeFormatter.FetchRowsAsync(
+            repository, search, ownerUserId, gscConnectionId, start, end, limit, ct)
+            .ConfigureAwait(false);
+        if (!fetched.Ok)
+        {
+            return (null, fetched.Status, fetched.Error ?? "GSC Knowledge ingest failed.",
+                fetched.ErrorCode ?? "gsc_fetch");
+        }
+
+        var markdown = GccV2GscKnowledgeFormatter.ToMarkdown(fetched);
+        var bytes = Encoding.UTF8.GetBytes(markdown);
         var usage = await repository.GetContextQuotaUsageAsync(ownerUserId, ct: ct).ConfigureAwait(false);
         if (usage is null)
             return (null, HttpStatusCode.ServiceUnavailable, "Source-library quota is unavailable.", "quota");
@@ -58,13 +74,12 @@ public sealed class GccV2UrlKnowledgeService(
         }
 
         var sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        var finalUrl = outcome.FinalUrl ?? url!.Trim();
-        var host = Uri.TryCreate(finalUrl, UriKind.Absolute, out var finalUri)
-            ? finalUri.Host
-            : "url";
-        var title = string.IsNullOrWhiteSpace(outcome.Title) ? host : outcome.Title!.Trim();
-        var assetName = string.IsNullOrWhiteSpace(name) ? title : name.Trim();
-        var tagList = new List<string> { "url", host };
+        var title = string.IsNullOrWhiteSpace(name)
+            ? $"GSC queries · {fetched.SiteUrl}"
+            : name.Trim();
+        var tagList = new List<string> { "gsc", "search-console" };
+        if (!string.IsNullOrWhiteSpace(fetched.SiteUrl))
+            tagList.Add(fetched.SiteUrl);
         if (tags is not null)
         {
             foreach (var tag in tags)
@@ -80,39 +95,40 @@ public sealed class GccV2UrlKnowledgeService(
             ? await repository.GetKnowledgeAsync(existingId, ownerUserId, ct).ConfigureAwait(false)
             : await repository.CreateKnowledgeAsync(new(
                 ownerUserId,
-                assetName,
-                $"Fetched from {finalUrl}",
+                title,
+                $"Observed Search Console queries for {fetched.SiteUrl}",
                 JsonSerializer.Serialize(tagList),
-                "url_document",
+                "gsc_document",
                 ownerUserId), ct).ConfigureAwait(false);
         if (asset is null)
             return (null, HttpStatusCode.NotFound, "Knowledge asset was not found.", "not_found");
 
-        var fetchedAt = DateTimeOffset.UtcNow;
         var sourceDescriptor = new
         {
-            type = "url_connector",
-            connectorId = GccV2UrlContextConnector.ConnectorId,
-            url = url!.Trim(),
-            finalUrl,
-            fetchedAtUtc = fetchedAt,
-            title,
-            statusCode = outcome.StatusCode,
-            contentCompleteness = outcome.ContentCompleteness,
-            loadTimeMs = outcome.LoadTimeMs,
-            hydrateEngine = outcome.Engine,
+            type = "gsc_connector",
+            connectorId = GccV2GscContextConnector.ConnectorId,
+            gscConnectionId = fetched.ConnectionId.ToString("D"),
+            siteUrl = fetched.SiteUrl,
+            startDate = start.ToString("yyyy-MM-dd"),
+            endDate = end.ToString("yyyy-MM-dd"),
+            rowLimit = limit,
+            fetchedAtUtc = fetched.FetchedAtUtc,
+            queryCount = fetched.Rows.Count,
+            sourceId = fetched.SourceId,
         };
         var provenance = new
         {
-            sourceLabel = title,
-            sourceUrl = finalUrl,
-            sourceTimestampUtc = fetchedAt,
-            parser = nameof(GccV2TaskAgentPageHydrator),
+            sourceLabel = fetched.SiteUrl,
+            sourceUrl = fetched.SiteUrl,
+            sourceTimestampUtc = fetched.FetchedAtUtc,
+            parser = nameof(GccV2GscContextConnector),
             parserVersion = "1",
             contentDigest = $"sha256:{sha256}",
-            contentCompleteness = outcome.ContentCompleteness,
-            statusCode = outcome.StatusCode,
-            hydrateEngine = outcome.Engine,
+            connectorId = GccV2GscContextConnector.ConnectorId,
+            gscConnectionId = fetched.ConnectionId.ToString("D"),
+            queryCount = fetched.Rows.Count,
+            demandDisclaimer =
+                "Observed GSC queries are first-party search analytics, not traffic, volume, ranking, or demand scores.",
         };
         var canonical = GccV2CanonicalJson.Serialize(new
         {
@@ -131,7 +147,7 @@ public sealed class GccV2UrlKnowledgeService(
             "en",
             JsonSerializer.Serialize(sourceDescriptor),
             JsonSerializer.Serialize(provenance),
-            fetchedAt,
+            fetched.FetchedAtUtc,
             ownerUserId), ct).ConfigureAwait(false);
 
         var objectKey =
@@ -142,7 +158,7 @@ public sealed class GccV2UrlKnowledgeService(
                 .ConfigureAwait(false);
         }
 
-        var safeName = $"{SanitizeFileName(host)}.md";
+        var safeName = $"{SanitizeFileName(fetched.SiteUrl)}.md";
         var resource = await repository.AddKnowledgeResourceAsync(version.Id, new(
             ownerUserId,
             "original",
@@ -152,32 +168,36 @@ public sealed class GccV2UrlKnowledgeService(
             "text/markdown; charset=utf-8",
             safeName,
             "quarantined",
-            CoordinatesJson: JsonSerializer.Serialize(new { finalUrl, title })), ct)
+            CoordinatesJson: JsonSerializer.Serialize(new
+            {
+                siteUrl = fetched.SiteUrl,
+                gscConnectionId = fetched.ConnectionId,
+                queryCount = fetched.Rows.Count,
+            })), ct)
             .ConfigureAwait(false);
 
         var ingestion = await repository.QueueKnowledgeIngestionAsync(version.Id, new(
             ownerUserId, objectKey, bytes.LongLength, sha256), ct).ConfigureAwait(false);
         ingestionWake.Wake(ingestion.Id);
 
-        return (new GccV2UrlKnowledgeResult(
+        return (new GccV2GscKnowledgeResult(
             asset.Id,
             version.Id,
             resource.Id,
-            finalUrl,
+            fetched.ConnectionId,
+            fetched.SiteUrl,
             title,
-            outcome.ContentCompleteness ?? "partial",
-            outcome.StatusCode ?? 0,
+            fetched.Rows.Count,
             bytes.LongLength,
             sha256,
             string.IsNullOrWhiteSpace(ingestion.Status) ? "queued" : ingestion.Status,
-            ingestion.Id,
-            outcome.Engine), HttpStatusCode.Accepted, null, null);
+            ingestion.Id), HttpStatusCode.Accepted, null, null);
     }
 
     private static string SanitizeFileName(string value)
     {
         var chars = value.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '.' ? ch : '-').ToArray();
         var cleaned = new string(chars).Trim('-');
-        return string.IsNullOrWhiteSpace(cleaned) ? "page" : cleaned;
+        return string.IsNullOrWhiteSpace(cleaned) ? "gsc-queries" : cleaned;
     }
 }

@@ -1,30 +1,13 @@
 using System.Text;
 using System.Text.Json;
-using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 using GeekAPI.Services.ContentCreatorV2.TaskAgents;
 
 namespace GeekAPI.Services.ContentCreatorV2.Context;
 
 /// <summary>First Knowledge connector: public http(s) URL → governed text revision.</summary>
-public sealed class GccV2UrlContextConnector : IGccV2ContextConnector
+public sealed class GccV2UrlContextConnector(IServiceScopeFactory scopeFactory) : IGccV2ContextConnector
 {
     public const string ConnectorId = "url";
-
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly GccV2SafeOutboundUrl.HostResolver? _resolve;
-
-    public GccV2UrlContextConnector(IHttpClientFactory httpClientFactory)
-        : this(httpClientFactory, resolve: null)
-    {
-    }
-
-    public GccV2UrlContextConnector(
-        IHttpClientFactory httpClientFactory,
-        GccV2SafeOutboundUrl.HostResolver? resolve)
-    {
-        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        _resolve = resolve;
-    }
 
     public string Id => ConnectorId;
 
@@ -57,9 +40,9 @@ public sealed class GccV2UrlContextConnector : IGccV2ContextConnector
             throw new InvalidOperationException("URL connector sourceDescriptor requires url.");
         }
 
-        var http = _httpClientFactory.CreateClient(nameof(GccV2TaskAgentPageHydrator));
-        var hydrator = new GccV2TaskAgentPageHydrator(http);
-        var outcome = await hydrator.HydrateAsync(url, ct, _resolve).ConfigureAwait(false);
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var hydrator = scope.ServiceProvider.GetRequiredService<GccV2TaskAgentPageHydrator>();
+        var outcome = await hydrator.HydrateAsync(url, ct).ConfigureAwait(false);
         if (!outcome.Ok || string.IsNullOrWhiteSpace(outcome.VisibleContent))
         {
             throw new InvalidOperationException(
@@ -80,6 +63,7 @@ public sealed class GccV2UrlContextConnector : IGccV2ContextConnector
             parserVersion = "1",
             contentCompleteness = outcome.ContentCompleteness,
             statusCode = outcome.StatusCode,
+            hydrateEngine = outcome.Engine,
         });
 
         return new GccV2ConnectorRevision(

@@ -70,6 +70,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<GccV2PlaywrightBrowserHolder>();
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();
         services.AddScoped<GccV2PageFetcher>();
+        services.AddScoped<IGccV2RenderedHtmlSource, GccV2PlaywrightRenderedHtmlSource>();
         services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2ProjectSiteKnowledgeService>();
@@ -83,9 +84,11 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<IGccV2MalwareScanner, GccV2ClamAvMalwareScanner>();
         services.AddSingleton<GccV2DocumentExtractor>();
         services.AddSingleton<IGccV2ContextConnector, GccV2UrlContextConnector>();
+        services.AddSingleton<IGccV2ContextConnector, GccV2GscContextConnector>();
         services.AddSingleton<GccV2ContextConnectorRegistry>();
         services.AddScoped<GccV2UrlKnowledgeService>();
         services.AddScoped<GccV2UrlAttachmentService>();
+        services.AddScoped<GccV2GscKnowledgeService>();
         services.AddHttpClient<IGccV2KnowledgeIndexer, GccV2HttpKnowledgeIndexer>(client =>
         {
             var baseUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');

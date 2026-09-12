@@ -13,7 +13,7 @@ public sealed class GccV2UrlContextConnectorTests
     public void Registry_lists_url_connector()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IHttpClientFactory, StubHttpClientFactory>();
+        services.AddSingleton<IServiceScopeFactory, StubScopeFactory>();
         services.AddSingleton<IGccV2ContextConnector, GccV2UrlContextConnector>();
         services.AddSingleton<GccV2ContextConnectorRegistry>();
         using var provider = services.BuildServiceProvider();
@@ -26,7 +26,7 @@ public sealed class GccV2UrlContextConnectorTests
     [Fact]
     public void CanRefresh_requires_url_descriptor()
     {
-        var connector = new GccV2UrlContextConnector(new StubHttpClientFactory());
+        var connector = new GccV2UrlContextConnector(new StubScopeFactory());
         using var ok = JsonDocument.Parse("""{"connectorId":"url","url":"https://example.com/a"}""");
         using var missing = JsonDocument.Parse("""{"connectorId":"url"}""");
         using var other = JsonDocument.Parse("""{"connectorId":"drive","url":"https://example.com/a"}""");
@@ -39,7 +39,12 @@ public sealed class GccV2UrlContextConnectorTests
     [Fact]
     public async Task FetchAsync_rejects_ssrf_targets()
     {
-        var connector = new GccV2UrlContextConnector(new StubHttpClientFactory());
+        var services = new ServiceCollection();
+        services.AddSingleton<IHttpClientFactory>(_ => new StubHttpClientFactory());
+        services.AddTransient<GccV2TaskAgentPageHydrator>(sp =>
+            new GccV2TaskAgentPageHydrator(sp.GetRequiredService<IHttpClientFactory>().CreateClient("x")));
+        using var provider = services.BuildServiceProvider();
+        var connector = new GccV2UrlContextConnector(provider.GetRequiredService<IServiceScopeFactory>());
         using var descriptor = JsonDocument.Parse("""{"connectorId":"url","url":"http://127.0.0.1/"}""");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -63,7 +68,12 @@ public sealed class GccV2UrlContextConnectorTests
             {
                 Content = new StringContent(html, Encoding.UTF8, "text/html"),
             }));
-        var connector = new GccV2UrlContextConnector(factory);
+        var services = new ServiceCollection();
+        services.AddSingleton<IHttpClientFactory>(_ => factory);
+        services.AddTransient<GccV2TaskAgentPageHydrator>(sp =>
+            new GccV2TaskAgentPageHydrator(sp.GetRequiredService<IHttpClientFactory>().CreateClient("x")));
+        using var provider = services.BuildServiceProvider();
+        var connector = new GccV2UrlContextConnector(provider.GetRequiredService<IServiceScopeFactory>());
         using var descriptor = JsonDocument.Parse("""{"connectorId":"url","url":"https://example.com/kb"}""");
 
         var revision = await connector.FetchAsync(descriptor.RootElement, "owner", CancellationToken.None);
@@ -74,6 +84,17 @@ public sealed class GccV2UrlContextConnectorTests
         Assert.Contains("Knowledge Page", text);
         Assert.Equal("https://example.com/kb", revision.SourceUrl);
         Assert.Contains("markdown", revision.MediaType, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class StubScopeFactory : IServiceScopeFactory
+    {
+        public IServiceScope CreateScope() => new StubScope();
+
+        private sealed class StubScope : IServiceScope
+        {
+            public IServiceProvider ServiceProvider { get; } = new ServiceCollection().BuildServiceProvider();
+            public void Dispose() { }
+        }
     }
 
     private sealed class StubHttpClientFactory : IHttpClientFactory

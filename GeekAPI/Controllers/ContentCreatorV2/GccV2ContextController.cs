@@ -20,6 +20,7 @@ public sealed class GccV2ContextController(
     GccV2ContextResolver resolver,
     GccV2ContextIngestionWake ingestionWake,
     GccV2UrlKnowledgeService urlKnowledge,
+    GccV2GscKnowledgeService gscKnowledge,
     GccV2UrlAttachmentService urlAttachment,
     GccV2JobEventWriter jobEvents,
     GccV2JobWake jobWake,
@@ -235,7 +236,8 @@ public sealed class GccV2ContextController(
     }
 
     /// <summary>
-    /// Create Knowledge from a public http(s) URL via the URL connector (SSRF-gated HTTP, no Playwright).
+    /// Create Knowledge from a public http(s) URL via the URL connector (SSRF-gated HTTP,
+    /// with mobile Playwright fallback when extraction is thin or empty).
     /// </summary>
     [HttpPost("knowledge/from-url")]
     public async Task<ActionResult<object>> CreateKnowledgeFromUrl(
@@ -265,6 +267,53 @@ public sealed class GccV2ContextController(
             title = result.Title,
             contentCompleteness = result.ContentCompleteness,
             statusCode = result.StatusCode,
+            byteSize = result.ByteSize,
+            contentSha256 = result.ContentSha256,
+            ingestionJobId = result.IngestionJobId,
+            state = result.IngestionState,
+            hydrateEngine = result.HydrateEngine,
+        });
+    }
+
+    /// <summary>
+    /// Create Knowledge from an owner-owned Google Search Console connection (observed queries markdown).
+    /// </summary>
+    [HttpPost("knowledge/from-gsc")]
+    public async Task<ActionResult<object>> CreateKnowledgeFromGsc(
+        [FromBody] KnowledgeFromGscRequest request, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var (result, status, error, errorCode) = await gscKnowledge.IngestAsync(
+            Owner,
+            request.GscConnectionId ?? Guid.Empty,
+            request.StartDate,
+            request.EndDate,
+            request.RowLimit,
+            request.Name,
+            request.Tags,
+            request.AssetId,
+            ct);
+        if (result is null)
+        {
+            return StatusCode((int)status, new
+            {
+                contractVersion = "gcc-knowledge-from-gsc.v1",
+                error,
+                errorCode,
+            });
+        }
+
+        return Accepted(new
+        {
+            contractVersion = "gcc-knowledge-from-gsc.v1",
+            connectorId = GccV2GscContextConnector.ConnectorId,
+            assetId = result.AssetId,
+            versionId = result.VersionId,
+            resourceId = result.ResourceId,
+            gscConnectionId = result.GscConnectionId,
+            siteUrl = result.SiteUrl,
+            title = result.Title,
+            queryCount = result.QueryCount,
             byteSize = result.ByteSize,
             contentSha256 = result.ContentSha256,
             ingestionJobId = result.IngestionJobId,
@@ -848,6 +897,14 @@ public sealed class GccV2ContextController(
         Guid? AssetId, string FileName, string MediaType, long ByteSize, string Sha256, string? Language);
     public sealed record KnowledgeFromUrlRequest(
         string? Url, string? Name = null, IReadOnlyList<string>? Tags = null, Guid? AssetId = null);
+    public sealed record KnowledgeFromGscRequest(
+        Guid? GscConnectionId,
+        DateOnly? StartDate = null,
+        DateOnly? EndDate = null,
+        int? RowLimit = null,
+        string? Name = null,
+        IReadOnlyList<string>? Tags = null,
+        Guid? AssetId = null);
     public sealed record AttachmentFromUrlRequest(string? Url, string? Name = null);
     public sealed record CreateBrandKitVersionRequest(JsonElement VoicePolicy);
     public sealed record AttachmentUploadRequest(

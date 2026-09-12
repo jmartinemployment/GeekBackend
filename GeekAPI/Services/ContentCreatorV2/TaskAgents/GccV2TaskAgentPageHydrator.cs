@@ -9,17 +9,23 @@ using GeekAPI.Services.ContentCreatorV2.Partner;
 namespace GeekAPI.Services.ContentCreatorV2.TaskAgents;
 
 /// <summary>
-/// SSRF-gated HTTP(S) page hydrate for task-agent forms (no Playwright).
-/// Fills visible content + technical snapshot fields from operator-supplied URLs.
+/// SSRF-gated page hydrate for Knowledge, run attachments, and task-agent forms.
+/// Tries plain HTTP first; when extraction is empty/thin and a rendered HTML source is configured,
+/// falls back to mobile Playwright (Pixel 7) without changing the SSRF gate.
 /// </summary>
-public sealed class GccV2TaskAgentPageHydrator(HttpClient http)
+public sealed class GccV2TaskAgentPageHydrator(
+    HttpClient http,
+    IGccV2RenderedHtmlSource? renderedHtml = null)
 {
     public const string ContractVersion = "gcc-task-agent-page-hydrate.v1";
     public const int MaxRedirects = 5;
     public const int ThinContentChars = 120;
     public const int MaxVisibleContentChars = GccPartnerResearchCaps.MaxCharsPerPage;
+    public const string EngineHttp = "http";
+    public const string EnginePlaywright = "playwright";
 
     private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
+    private readonly IGccV2RenderedHtmlSource? _renderedHtml = renderedHtml;
 
     public async Task<GccV2TaskAgentPageHydrateOutcome> HydrateAsync(
         string? url,
@@ -31,6 +37,48 @@ public sealed class GccV2TaskAgentPageHydrator(HttpClient http)
             return Fail("ssrf", rejectionReason ?? "URL is not allowed.", statusCode: null, HttpStatusCode.BadRequest);
         }
 
+        var httpOutcome = await HydrateHttpAsync(safeUri, ct, resolve).ConfigureAwait(false);
+        if (!ShouldTryPlaywright(httpOutcome) || _renderedHtml is null)
+            return httpOutcome;
+
+        var rendered = await TryHydratePlaywrightAsync(safeUri.AbsoluteUri, ct, resolve).ConfigureAwait(false);
+        if (rendered is null)
+            return httpOutcome;
+
+        return PreferBetter(httpOutcome, rendered);
+    }
+
+    internal static bool ShouldTryPlaywright(GccV2TaskAgentPageHydrateOutcome httpOutcome)
+    {
+        if (httpOutcome.Ok)
+            return string.Equals(httpOutcome.ContentCompleteness, "partial", StringComparison.OrdinalIgnoreCase);
+
+        return httpOutcome.ErrorCode is "empty" or "extract";
+    }
+
+    internal static GccV2TaskAgentPageHydrateOutcome PreferBetter(
+        GccV2TaskAgentPageHydrateOutcome httpOutcome,
+        GccV2TaskAgentPageHydrateOutcome playwrightOutcome)
+    {
+        if (!playwrightOutcome.Ok)
+            return httpOutcome;
+        if (!httpOutcome.Ok)
+            return playwrightOutcome;
+
+        var httpLen = httpOutcome.VisibleContent?.Length ?? 0;
+        var pwLen = playwrightOutcome.VisibleContent?.Length ?? 0;
+        var httpFull = string.Equals(httpOutcome.ContentCompleteness, "full", StringComparison.OrdinalIgnoreCase);
+        var pwFull = string.Equals(playwrightOutcome.ContentCompleteness, "full", StringComparison.OrdinalIgnoreCase);
+        if (pwFull && !httpFull) return playwrightOutcome;
+        if (pwLen > httpLen + 40) return playwrightOutcome;
+        return httpOutcome;
+    }
+
+    private async Task<GccV2TaskAgentPageHydrateOutcome> HydrateHttpAsync(
+        Uri safeUri,
+        CancellationToken ct,
+        GccV2SafeOutboundUrl.HostResolver? resolve)
+    {
         var sw = Stopwatch.StartNew();
         Uri current = safeUri;
         HttpResponseMessage? response = null;
@@ -115,42 +163,13 @@ public sealed class GccV2TaskAgentPageHydrator(HttpClient http)
                 return Fail("ssrf", finalReason ?? "Final URL is not allowed.", statusCode, HttpStatusCode.BadRequest);
             }
 
-            if (string.IsNullOrWhiteSpace(html))
-            {
-                return Fail("empty", "Page body was empty.", statusCode, HttpStatusCode.UnprocessableEntity);
-            }
-
-            var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(finalUrl, html);
-            if (GccV2ArticleHtmlExtractor.IsEmpty(extracted)
-                && string.IsNullOrWhiteSpace(extracted.Title))
-            {
-                return Fail("extract", "Could not extract visible page content.", statusCode, HttpStatusCode.UnprocessableEntity);
-            }
-
-            var visible = FormatVisibleContent(extracted);
-            if (string.IsNullOrWhiteSpace(visible))
-            {
-                return Fail("extract", "Could not extract visible page content.", statusCode, HttpStatusCode.UnprocessableEntity);
-            }
-
-            var truncatedContent = visible.Length >= MaxVisibleContentChars || truncatedHtml;
-            var thin = visible.Length < ThinContentChars;
-            var completeness = truncatedContent || thin || statusCode is < 200 or >= 300
-                ? "partial"
-                : "full";
-
-            return new GccV2TaskAgentPageHydrateOutcome(
-                Ok: true,
-                ErrorCode: null,
-                ErrorMessage: null,
-                HttpStatus: HttpStatusCode.OK,
-                FinalUrl: finalUrl,
-                Title: extracted.Title,
-                VisibleContent: visible,
-                StatusCode: statusCode,
-                LoadTimeMs: Math.Max(1, (long)sw.Elapsed.TotalMilliseconds),
-                ContentCompleteness: completeness,
-                Crawlable: statusCode is >= 200 and < 400);
+            return BuildFromHtml(
+                html,
+                finalUrl,
+                statusCode,
+                Math.Max(1, (long)sw.Elapsed.TotalMilliseconds),
+                truncatedHtml,
+                EngineHttp);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -168,6 +187,91 @@ public sealed class GccV2TaskAgentPageHydrator(HttpClient http)
         {
             response?.Dispose();
         }
+    }
+
+    private async Task<GccV2TaskAgentPageHydrateOutcome?> TryHydratePlaywrightAsync(
+        string url,
+        CancellationToken ct,
+        GccV2SafeOutboundUrl.HostResolver? resolve)
+    {
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var rendered = await _renderedHtml!.TryFetchAsync(url, ct).ConfigureAwait(false);
+            sw.Stop();
+            if (rendered is null || string.IsNullOrWhiteSpace(rendered.Html))
+                return null;
+
+            if (!GccV2SafeOutboundUrl.TryValidate(rendered.FinalUrl, out _, out var finalReason, resolve))
+            {
+                return Fail(
+                    "ssrf",
+                    finalReason ?? "Playwright final URL is not allowed.",
+                    rendered.StatusCode,
+                    HttpStatusCode.BadRequest);
+            }
+
+            return BuildFromHtml(
+                rendered.Html,
+                rendered.FinalUrl,
+                rendered.StatusCode,
+                Math.Max(1, (long)sw.Elapsed.TotalMilliseconds),
+                truncatedHtml: false,
+                EnginePlaywright);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static GccV2TaskAgentPageHydrateOutcome BuildFromHtml(
+        string html,
+        string finalUrl,
+        int statusCode,
+        long loadTimeMs,
+        bool truncatedHtml,
+        string engine)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return Fail("empty", "Page body was empty.", statusCode, HttpStatusCode.UnprocessableEntity);
+
+        var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(finalUrl, html);
+        if (GccV2ArticleHtmlExtractor.IsEmpty(extracted)
+            && string.IsNullOrWhiteSpace(extracted.Title))
+        {
+            return Fail("extract", "Could not extract visible page content.", statusCode, HttpStatusCode.UnprocessableEntity);
+        }
+
+        var visible = FormatVisibleContent(extracted);
+        if (string.IsNullOrWhiteSpace(visible))
+        {
+            return Fail("extract", "Could not extract visible page content.", statusCode, HttpStatusCode.UnprocessableEntity);
+        }
+
+        var truncatedContent = visible.Length >= MaxVisibleContentChars || truncatedHtml;
+        var thin = visible.Length < ThinContentChars;
+        var completeness = truncatedContent || thin || statusCode is < 200 or >= 300
+            ? "partial"
+            : "full";
+
+        return new GccV2TaskAgentPageHydrateOutcome(
+            Ok: true,
+            ErrorCode: null,
+            ErrorMessage: null,
+            HttpStatus: HttpStatusCode.OK,
+            FinalUrl: finalUrl,
+            Title: extracted.Title,
+            VisibleContent: visible,
+            StatusCode: statusCode,
+            LoadTimeMs: loadTimeMs,
+            ContentCompleteness: completeness,
+            Crawlable: statusCode is >= 200 and < 400,
+            Engine: engine);
     }
 
     public static string FormatVisibleContent(GccQuoteablePage page)
@@ -222,7 +326,8 @@ public sealed class GccV2TaskAgentPageHydrator(HttpClient http)
             StatusCode: statusCode,
             LoadTimeMs: null,
             ContentCompleteness: null,
-            Crawlable: null);
+            Crawlable: null,
+            Engine: null);
 
     /// <summary>Stops reading after <paramref name="maxBytes"/> and records truncation.</summary>
     private sealed class LimitedReadStream : Stream
@@ -258,20 +363,25 @@ public sealed class GccV2TaskAgentPageHydrator(HttpClient http)
             }
 
             var remaining = (int)Math.Min(count, _maxBytes - _read);
-            var n = _inner.Read(buffer, offset, remaining);
-            _read += n;
-            if (n == 0 && _read >= _maxBytes) Truncated = true;
-            else if (_read >= _maxBytes && n > 0)
+            if (remaining <= 0)
             {
-                // Peek one more byte if possible to know whether more content existed.
-                Span<byte> probe = stackalloc byte[1];
-                if (_inner.Read(probe) > 0) Truncated = true;
+                Truncated = true;
+                return 0;
+            }
+
+            var n = _inner.Read(buffer, offset, remaining);
+            if (n > 0)
+            {
+                _read += n;
+                if (_read >= _maxBytes)
+                    Truncated = true;
             }
 
             return n;
         }
 
-        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        public override async Task<int> ReadAsync(
+            byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             if (_read >= _maxBytes)
             {
@@ -280,33 +390,18 @@ public sealed class GccV2TaskAgentPageHydrator(HttpClient http)
             }
 
             var remaining = (int)Math.Min(count, _maxBytes - _read);
-            var n = await _inner.ReadAsync(buffer.AsMemory(offset, remaining), cancellationToken).ConfigureAwait(false);
-            _read += n;
-            if (_read >= _maxBytes && n > 0)
-            {
-                var probe = new byte[1];
-                if (await _inner.ReadAsync(probe.AsMemory(0, 1), cancellationToken).ConfigureAwait(false) > 0)
-                    Truncated = true;
-            }
-
-            return n;
-        }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_read >= _maxBytes)
+            if (remaining <= 0)
             {
                 Truncated = true;
                 return 0;
             }
 
-            var remaining = (int)Math.Min(buffer.Length, _maxBytes - _read);
-            var n = await _inner.ReadAsync(buffer[..remaining], cancellationToken).ConfigureAwait(false);
-            _read += n;
-            if (_read >= _maxBytes && n > 0)
+            var n = await _inner.ReadAsync(buffer.AsMemory(offset, remaining), cancellationToken)
+                .ConfigureAwait(false);
+            if (n > 0)
             {
-                var probe = new byte[1];
-                if (await _inner.ReadAsync(probe.AsMemory(0, 1), cancellationToken).ConfigureAwait(false) > 0)
+                _read += n;
+                if (_read >= _maxBytes)
                     Truncated = true;
             }
 
@@ -337,4 +432,5 @@ public sealed record GccV2TaskAgentPageHydrateOutcome(
     int? StatusCode,
     long? LoadTimeMs,
     string? ContentCompleteness,
-    bool? Crawlable);
+    bool? Crawlable,
+    string? Engine = null);

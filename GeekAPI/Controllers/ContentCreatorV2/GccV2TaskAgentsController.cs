@@ -146,7 +146,7 @@ public sealed class GccV2TaskAgentsController(
 
     /// <summary>
     /// Fetch a public http(s) page and extract visible content for diagnostic forms.
-    /// Uses SSRF-gated HTTP (not Playwright). Fail-closed on blocked hosts / empty extract.
+    /// SSRF-gated HTTP first; optional mobile Playwright fallback when extraction is thin/empty.
     /// </summary>
     [HttpPost("fetch-page")]
     public async Task<ActionResult<object>> FetchPage(
@@ -175,6 +175,7 @@ public sealed class GccV2TaskAgentsController(
             loadTimeMs = outcome.LoadTimeMs,
             contentCompleteness = outcome.ContentCompleteness,
             crawlable = outcome.Crawlable == true ? "yes" : "no",
+            hydrateEngine = outcome.Engine,
         });
     }
 

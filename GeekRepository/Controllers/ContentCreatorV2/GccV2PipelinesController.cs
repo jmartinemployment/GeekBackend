@@ -137,6 +137,7 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
         var runsController = new GccV2TaskRunsController(db);
         var history = new List<object>();
         var anyFailed = false;
+        Guid? canvasProjectId = null;
         for (var index = 0; index < workItemInputs.Count; index++)
         {
             var workItem = new GccV2PipelineWorkItem
@@ -231,6 +232,96 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
                         }
                     }
                 }
+                else if (stage.Kind == "handoff"
+                    && string.Equals(stage.Handoff, "canvas", StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        var source = workItem.StageAttempts
+                            .Where(a => a.Status == "succeeded"
+                                && a.TaskRunId is not null
+                                && a.ArtifactVersionId is not null)
+                            .OrderByDescending(a => a.CompletedAtUtc)
+                            .FirstOrDefault();
+                        if (source?.TaskRunId is null || source.ArtifactVersionId is null)
+                        {
+                            throw new InvalidOperationException(
+                                "Canvas handoff requires a prior succeeded task-agent artifact.");
+                        }
+
+                        canvasProjectId ??= await EnsurePipelineCanvasProjectAsync(
+                            definition.OwnerUserId,
+                            definition.Name,
+                            run.Id,
+                            run.ActorUserId,
+                            ct);
+
+                        var attached = await AttachArtifactToCanvasAsync(
+                            canvasProjectId.Value,
+                            definition.OwnerUserId,
+                            run.ActorUserId,
+                            source.TaskRunId.Value,
+                            source.ArtifactVersionId.Value,
+                            stage.DisplayName,
+                            ct);
+
+                        attempt.Status = "succeeded";
+                        attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                        attempt.OutputJson = GccV2PipelineStageOutputs.ForCanvasHandoff(
+                            stage.DisplayName,
+                            stage.Lifecycle,
+                            index,
+                            canvasProjectId.Value,
+                            attached.AssetId,
+                            attached.AssetVersionId,
+                            source.TaskRunId.Value,
+                            source.ArtifactVersionId.Value,
+                            attached.ArtifactType,
+                            attached.Title);
+                    }
+                    catch (Exception ex)
+                    {
+                        attempt.Status = "failed";
+                        attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                        attempt.Error = ex.Message;
+                        failed = true;
+                    }
+                }
+                else if (stage.Kind == "handoff"
+                    && string.Equals(stage.Handoff, "publish", StringComparison.Ordinal))
+                {
+                    var canvasAttempt = workItem.StageAttempts
+                        .LastOrDefault(a => a.Status == "succeeded"
+                            && string.Equals(a.Handoff, "canvas", StringComparison.Ordinal));
+                    Guid? projectId = null;
+                    Guid? assetId = null;
+                    string? title = null;
+                    if (canvasAttempt?.OutputJson is { } canvasJson)
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(canvasJson);
+                            if (doc.RootElement.TryGetProperty("projectId", out var projectEl)
+                                && Guid.TryParse(projectEl.GetString(), out var parsedProject))
+                                projectId = parsedProject;
+                            if (doc.RootElement.TryGetProperty("assetId", out var assetEl)
+                                && Guid.TryParse(assetEl.GetString(), out var parsedAsset))
+                                assetId = parsedAsset;
+                            if (doc.RootElement.TryGetProperty("title", out var titleEl)
+                                && titleEl.ValueKind == JsonValueKind.String)
+                                title = titleEl.GetString();
+                        }
+                        catch (JsonException)
+                        {
+                            // Fall through with null refs.
+                        }
+                    }
+
+                    attempt.Status = "succeeded";
+                    attempt.CompletedAtUtc = DateTimeOffset.UtcNow;
+                    attempt.OutputJson = GccV2PipelineStageOutputs.ForPublishHandoff(
+                        stage.DisplayName, stage.Lifecycle, index, projectId, assetId, title);
+                }
                 else
                 {
                     attempt.Status = "succeeded";
@@ -277,6 +368,92 @@ public sealed class GccV2PipelinesController(ContentCreatorV2DbContext db) : Con
 
     private sealed record CompletedStageTaskRun(
         Guid TaskRunId, Guid ArtifactVersionId, JsonElement Payload, string Preview);
+
+    private sealed record AttachedCanvasAsset(
+        Guid AssetId, Guid AssetVersionId, string ArtifactType, string Title);
+
+    private async Task<Guid> EnsurePipelineCanvasProjectAsync(
+        string ownerUserId,
+        string pipelineName,
+        Guid pipelineRunId,
+        string actorUserId,
+        CancellationToken ct)
+    {
+        var canvas = new GccV2CanvasProjectsController(db);
+        var created = Unwrap<GccV2CanvasProject>(
+            (await canvas.Create(new(
+                ownerUserId,
+                $"{pipelineName} · pipeline handoffs",
+                $"Assets attached from pipeline run {pipelineRunId:D}.",
+                "in-progress",
+                JsonSerializer.Serialize(new[]
+                {
+                    new
+                    {
+                        id = Guid.NewGuid().ToString("D"),
+                        kind = "handoff",
+                        actor = actorUserId,
+                        occurredAt = DateTimeOffset.UtcNow.ToString("O"),
+                        message = $"Created for pipeline run {pipelineRunId:D}.",
+                    },
+                }, JsonOpts)), ct)).Result,
+            "create canvas project");
+        return created.Id;
+    }
+
+    private async Task<AttachedCanvasAsset> AttachArtifactToCanvasAsync(
+        Guid projectId,
+        string ownerUserId,
+        string actorUserId,
+        Guid taskRunId,
+        Guid artifactVersionId,
+        string stageDisplayName,
+        CancellationToken ct)
+    {
+        var version = await db.GccV2TaskArtifactVersions
+            .AsNoTracking()
+            .Include(v => v.Artifact)
+            .SingleOrDefaultAsync(v =>
+                v.Id == artifactVersionId
+                && v.Artifact.RunId == taskRunId
+                && v.Artifact.OwnerUserId == ownerUserId, ct);
+        if (version is null)
+            throw new InvalidOperationException("Source task artifact version was not found.");
+
+        var artifactType = version.Artifact.ArtifactType;
+        var title = $"{stageDisplayName} · {artifactType}";
+        var canvas = new GccV2CanvasProjectsController(db);
+        var asset = Unwrap<GccV2CanvasAsset>(
+            (await canvas.CreateAsset(projectId, new(ownerUserId, title, "report"), ct)).Result,
+            "create canvas asset");
+
+        var provenanceJson = JsonSerializer.Serialize(new
+        {
+            origin = "pipeline",
+            note = $"Attached from pipeline stage {stageDisplayName}.",
+            sourceRunId = taskRunId.ToString("D"),
+            sourceArtifactVersionId = artifactVersionId.ToString("D"),
+            artifactType,
+            digest = version.Digest,
+        }, JsonOpts);
+        var summary = string.IsNullOrWhiteSpace(version.PayloadJson)
+            ? $"Pipeline handoff for {artifactType}."
+            : version.PayloadJson.Length > 400
+                ? version.PayloadJson[..400]
+                : version.PayloadJson;
+
+        var assetVersion = Unwrap<GccV2CanvasAssetVersion>(
+            (await canvas.AppendVersion(projectId, asset.Id, new(
+                ownerUserId,
+                actorUserId,
+                "draft",
+                summary,
+                string.IsNullOrWhiteSpace(version.EvidenceJson) ? "[]" : version.EvidenceJson,
+                provenanceJson), ct)).Result,
+            "append canvas asset version");
+
+        return new AttachedCanvasAsset(asset.Id, assetVersion.Id, artifactType, title);
+    }
 
     private async Task<ResolvedTaskAgent?> ResolvePublishedAgentAsync(
         string? capability, CancellationToken ct)

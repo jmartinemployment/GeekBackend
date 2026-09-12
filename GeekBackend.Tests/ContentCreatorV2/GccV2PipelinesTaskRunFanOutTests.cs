@@ -67,7 +67,23 @@ public sealed class GccV2PipelinesTaskRunFanOutTests
             Assert.Equal("roiProjection.v1", roiOutput.RootElement.GetProperty("artifactType").GetString());
 
             Assert.All(item.StageAttempts.Where(a => a.Kind == "handoff"), a => Assert.Null(a.TaskRunId));
+            var canvas = Assert.Single(item.StageAttempts, a => a.Handoff == "canvas");
+            Assert.Equal("succeeded", canvas.Status);
+            using var canvasOutput = JsonDocument.Parse(canvas.OutputJson!);
+            Assert.Equal("canvas-attach", canvasOutput.RootElement.GetProperty("mode").GetString());
+            Assert.False(string.IsNullOrWhiteSpace(canvasOutput.RootElement.GetProperty("projectId").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(canvasOutput.RootElement.GetProperty("assetId").GetString()));
+
+            var publish = Assert.Single(item.StageAttempts, a => a.Handoff == "publish");
+            using var publishOutput = JsonDocument.Parse(publish.OutputJson!);
+            Assert.Equal("publish-ready", publishOutput.RootElement.GetProperty("mode").GetString());
+            Assert.Equal(
+                canvasOutput.RootElement.GetProperty("projectId").GetString(),
+                publishOutput.RootElement.GetProperty("projectId").GetString());
         }
+
+        Assert.Equal(1, await db.GccV2CanvasProjects.CountAsync(p => p.OwnerUserId == owner));
+        Assert.Equal(2, await db.GccV2CanvasAssets.CountAsync());
     }
 
     [Fact]
