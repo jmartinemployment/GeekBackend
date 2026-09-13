@@ -204,9 +204,11 @@ public sealed class GeekCrawlerRagValidation
 public sealed class GeekCrawlerRagCitationDto
 {
     public string? PageId { get; init; }
+    public string? RunId { get; init; }
     public string Url { get; init; } = "";
     public string? Title { get; init; }
     public string? SectionTitle { get; init; }
+    public string? SectionKey { get; init; }
     public string Quote { get; init; } = "";
     public string? CrawlType { get; init; }
 }
@@ -829,9 +831,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                     .Select(c => new GeekCrawlerRagCitationDto
                     {
                         PageId = c.PageId,
+                        RunId = c.RunId,
                         Url = c.Url ?? "",
                         Title = c.Title,
                         SectionTitle = c.SectionTitle,
+                        SectionKey = c.SectionKey,
                         Quote = c.Quote ?? "",
                         CrawlType = c.CrawlType,
                     })
@@ -1285,9 +1289,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
     private sealed class CitationDto
     {
         public string? PageId { get; set; }
+        public string? RunId { get; set; }
         public string? Url { get; set; }
         public string? Title { get; set; }
         public string? SectionTitle { get; set; }
+        public string? SectionKey { get; set; }
         public string? Quote { get; set; }
         public string? CrawlType { get; set; }
     }

@@ -269,9 +269,13 @@ public sealed class RagGenerateSourceDto
 public sealed class RagCitationDto
 {
     public string? PageId { get; init; }
+    /// <summary>Geek-Crawler / project-site run that produced the cited page, when known.</summary>
+    public string? RunId { get; init; }
     public string Url { get; init; } = "";
     public string? Title { get; init; }
     public string? SectionTitle { get; init; }
+    /// <summary>Create WRITE section key this citation supports (Canvas-ready).</summary>
+    public string? SectionKey { get; init; }
     public string Quote { get; init; } = "";
     public string? CrawlType { get; init; }
 }

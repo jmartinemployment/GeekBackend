@@ -1142,9 +1142,11 @@ public sealed class RagGenerateService
                 .Select(c => new RagCitationDto
                 {
                     PageId = c.PageId,
+                    RunId = c.RunId,
                     Url = c.Url,
                     Title = c.Title,
                     SectionTitle = c.SectionTitle,
+                    SectionKey = c.SectionKey,
                     Quote = c.Quote,
                     CrawlType = c.CrawlType,
                 })

@@ -492,7 +492,167 @@ public sealed record GccV2ResearchEvidenceManifest(
     IReadOnlyList<string> EvidenceGaps,
     IReadOnlyList<string> Conflicts,
     IReadOnlyList<string> Warnings,
-    DateTimeOffset AssembledAtUtc)
+    DateTimeOffset AssembledAtUtc,
+    IReadOnlyList<GccV2EvidenceIndexReadiness>? IndexReadiness = null,
+    IReadOnlyList<RagCitationDto>? CandidateQuotes = null,
+    IReadOnlyList<string>? InternalLinkOpportunities = null)
 {
+    public const string CurrentVersion = "gcc-v2-research-evidence-manifest.v1";
+
+    /// <summary>
+    /// Pre-PLAN gate: required project-site evidence present and no hard conflicts.
+    /// Partner/competitor gaps stay in <see cref="Warnings"/> (notify-and-skip).
+    /// </summary>
     public bool Ready => EvidenceGaps.Count == 0 && Conflicts.Count == 0;
+}
+
+/// <summary>Index readiness for one evidence run/source before PLAN.</summary>
+public sealed record GccV2EvidenceIndexReadiness(
+    string Role,
+    Guid? RunId,
+    string? Label,
+    bool Indexed,
+    string? Detail);
+
+/// <summary>
+/// Partner/competitor identity with <b>role per request</b> (same company may be partner
+/// on one create and competitor on another). Does not mutate the durable ResearchEntity row.
+/// </summary>
+public sealed record GccV2ResearchEntityRef(
+    Guid? EntityId,
+    string DisplayName,
+    string Role,
+    string? PrimaryUrl,
+    string? StableKey)
+{
+    public const string RolePartner = "partner";
+    public const string RoleCompetitor = "competitor";
+
+    public static GccV2ResearchEntityRef FromStored(
+        Guid id,
+        string name,
+        string requestRole,
+        string? primaryUrl)
+    {
+        var role = NormalizeRole(requestRole);
+        return new(
+            id,
+            name.Trim(),
+            role,
+            string.IsNullOrWhiteSpace(primaryUrl) ? null : primaryUrl.Trim(),
+            StableKeyFrom(primaryUrl, id));
+    }
+
+    public static GccV2ResearchEntityRef FromUrl(string url, string requestRole, string? displayName = null)
+    {
+        var trimmed = url.Trim();
+        return new(
+            null,
+            string.IsNullOrWhiteSpace(displayName) ? trimmed : displayName.Trim(),
+            NormalizeRole(requestRole),
+            trimmed,
+            StableKeyFrom(trimmed, null));
+    }
+
+    public static string NormalizeRole(string? role) =>
+        string.Equals(role?.Trim(), RoleCompetitor, StringComparison.OrdinalIgnoreCase)
+            ? RoleCompetitor
+            : RolePartner;
+
+    public static string StableKeyFrom(string? primaryUrl, Guid? entityId)
+    {
+        if (!string.IsNullOrWhiteSpace(primaryUrl)
+            && Uri.TryCreate(primaryUrl.Trim(), UriKind.Absolute, out var uri))
+            return uri.GetLeftPart(UriPartial.Authority).ToLowerInvariant();
+        return entityId is Guid id ? id.ToString("D") : (primaryUrl ?? "").Trim().ToLowerInvariant();
+    }
+}
+
+/// <summary>Assembles an inspectable evidence manifest from the generation brief before PLAN.</summary>
+public static class GccV2PrePlanEvidenceManifestAssembler
+{
+    public static GccV2ResearchEvidenceManifest Assemble(GccV2GenerationBrief brief)
+    {
+        var gaps = new List<string>();
+        var warnings = new List<string>();
+        var readiness = new List<GccV2EvidenceIndexReadiness>();
+        var internalLinks = new List<string>();
+
+        if (brief.ProjectSiteCrawlRunId is Guid siteRun)
+        {
+            readiness.Add(new("project_site", siteRun, brief.SiteUrl, Indexed: true,
+                "Project-site crawl run id present on create/job."));
+        }
+        else
+        {
+            gaps.Add("Missing required project-site crawl run id.");
+            readiness.Add(new("project_site", null, brief.SiteUrl, Indexed: false,
+                "No project-site crawl run bound to this create."));
+        }
+
+        if (brief.PartnerSourceRunId is Guid partnerRun)
+        {
+            readiness.Add(new(GccV2ResearchEntityRef.RolePartner, partnerRun,
+                brief.OperatorTools.FirstOrDefault(), Indexed: true,
+                "Partner run id present on brief."));
+        }
+        else if (brief.OperatorTools.Count > 0)
+        {
+            warnings.Add("Partner tools listed but no partnerSourceRunId — partner retrieval may be empty.");
+            readiness.Add(new(GccV2ResearchEntityRef.RolePartner, null,
+                brief.OperatorTools.FirstOrDefault(), Indexed: false,
+                "Operator tools present without partner crawl run."));
+        }
+
+        if (brief.CompetitorSourceRunId is Guid competitorRun)
+        {
+            readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, competitorRun,
+                brief.CompetitorUrls.FirstOrDefault(), Indexed: true,
+                "Competitor run id present on brief."));
+        }
+        else if (brief.CompetitorUrls.Count > 0)
+        {
+            warnings.Add("Competitor URLs listed but no competitorSourceRunId — differentiation research may be empty.");
+            readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, null,
+                brief.CompetitorUrls.FirstOrDefault(), Indexed: false,
+                "Competitor URLs present without competitor crawl run."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(brief.SiteSectionJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(brief.SiteSectionJson);
+                if (doc.RootElement.TryGetProperty("relatedPages", out var pages)
+                    && pages.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var page in pages.EnumerateArray())
+                    {
+                        var url = page.ValueKind == JsonValueKind.Object
+                                  && page.TryGetProperty("url", out var urlEl)
+                            ? urlEl.GetString()
+                            : page.ValueKind == JsonValueKind.String ? page.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(url))
+                            internalLinks.Add(url!);
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                warnings.Add("Site section JSON could not be parsed for internal-link opportunities.");
+            }
+        }
+
+        return new GccV2ResearchEvidenceManifest(
+            GccV2ResearchEvidenceManifest.CurrentVersion,
+            Sources: [],
+            VerifiedCitations: [],
+            EvidenceGaps: gaps,
+            Conflicts: [],
+            Warnings: warnings,
+            AssembledAtUtc: DateTimeOffset.UtcNow,
+            IndexReadiness: readiness,
+            CandidateQuotes: [],
+            InternalLinkOpportunities: internalLinks);
+    }
 }

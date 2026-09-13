@@ -223,6 +223,89 @@ public sealed class GccV2UnifiedRagTests
         Assert.Equal("Problem. Agitate. Solve.", template.Body);
     }
 
+    [Fact]
+    public void Pre_plan_evidence_manifest_gates_on_project_site_and_warns_on_partner_gaps()
+    {
+        var siteRun = Guid.NewGuid();
+        var createId = Guid.NewGuid();
+        var briefId = Guid.NewGuid();
+        var brief = new GccV2BriefDto(
+            briefId, createId, 1, "topic", "blog",
+            """{"operatorTools":["Evidence Engine"],"competitorUrls":["https://rival.example"]}""",
+            null, DateTimeOffset.UtcNow);
+        var create = new GccV2CreateDto(
+            createId, Guid.NewGuid().ToString("D"), "topic", "blog", DateTimeOffset.UtcNow, null,
+            """{"relatedPages":[{"url":"https://example.com/research"}]}""",
+            "https://example.com", siteRun);
+        var job = new GccV2JobDto(
+            Guid.NewGuid(), "blog", briefId, create.OwnerUserId, createId,
+            "plan", "running", 1, null, null, null, null, null, null,
+            DateTimeOffset.UtcNow, null, null, null, siteRun);
+        var assembled = GccV2GenerationBriefAssembler.Assemble(job, brief, create, null);
+
+        var ready = GccV2PrePlanEvidenceManifestAssembler.Assemble(assembled);
+        Assert.Equal(GccV2ResearchEvidenceManifest.CurrentVersion, ready.Version);
+        Assert.True(ready.Ready);
+        Assert.Empty(ready.EvidenceGaps);
+        Assert.Contains(ready.Warnings, w => w.Contains("partner", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(ready.Warnings, w => w.Contains("competitor", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("https://example.com/research", ready.InternalLinkOpportunities!);
+        Assert.Contains(ready.IndexReadiness!, r => r is { Role: "project_site", Indexed: true });
+
+        var ungated = Brief("""{"title":"No site run"}""");
+        var blocked = GccV2PrePlanEvidenceManifestAssembler.Assemble(ungated);
+        Assert.False(blocked.Ready);
+        Assert.Contains(blocked.EvidenceGaps, g => g.Contains("project-site", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Research_entity_ref_separates_role_per_request_from_stable_identity()
+    {
+        var id = Guid.NewGuid();
+        var asPartner = GccV2ResearchEntityRef.FromStored(
+            id, "Acme Tools", "partner", "https://acme.example/pricing");
+        var asCompetitor = GccV2ResearchEntityRef.FromStored(
+            id, "Acme Tools", "competitor", "https://acme.example/pricing");
+
+        Assert.Equal(GccV2ResearchEntityRef.RolePartner, asPartner.Role);
+        Assert.Equal(GccV2ResearchEntityRef.RoleCompetitor, asCompetitor.Role);
+        Assert.Equal(asPartner.StableKey, asCompetitor.StableKey);
+        Assert.Equal("https://acme.example", asPartner.StableKey);
+
+        var fromUrl = GccV2ResearchEntityRef.FromUrl(
+            "https://Rival.Example/path", "COMPETITOR", "Rival Co");
+        Assert.Equal(GccV2ResearchEntityRef.RoleCompetitor, fromUrl.Role);
+        Assert.Equal("Rival Co", fromUrl.DisplayName);
+        Assert.Equal("https://rival.example", fromUrl.StableKey);
+    }
+
+    [Fact]
+    public void Citation_dto_round_trips_run_id_and_section_key()
+    {
+        var citation = new RagCitationDto
+        {
+            PageId = "page-1",
+            RunId = Guid.NewGuid().ToString("D"),
+            Url = "https://example.com/doc",
+            Title = "Doc",
+            SectionTitle = "Pricing",
+            SectionKey = "lede",
+            Quote = "Verified quote span.",
+            CrawlType = "partner",
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(citation);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<RagCitationDto>(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(citation.PageId, restored!.PageId);
+        Assert.Equal(citation.RunId, restored.RunId);
+        Assert.Equal(citation.SectionKey, restored.SectionKey);
+        Assert.Equal(citation.Quote, restored.Quote);
+        Assert.Equal("partner", restored.CrawlType);
+        Assert.DoesNotContain("competitor", restored.CrawlType, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("repair", "repair")]
     [InlineData("final-synthesis", "finalSynthesis")]
