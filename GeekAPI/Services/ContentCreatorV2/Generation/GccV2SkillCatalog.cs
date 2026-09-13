@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using GeekAPI.HttpClients;
 
 namespace GeekAPI.Services.ContentCreatorV2.Generation;
@@ -21,6 +22,11 @@ public sealed record GccV2SkillDefinition(
     string OutputRequirements,
     string ValidationChecks)
 {
+    /// Server-side integrity hashing only (see GccV2SkillCatalog.Validate/Definitions below) — never
+    /// part of the wire contract. Geek-Crawler-Rag's SkillExecutionEnvelope schema forbids unknown
+    /// fields, so a computed property here got serialized by System.Text.Json's default reflection
+    /// and 422'd every plan/write RAG call until this was marked JsonIgnore.
+    [JsonIgnore]
     public string CanonicalContent => string.Join(
         "\n", PromptInstructions, RetrievalHints, OutputRequirements, ValidationChecks);
 }
