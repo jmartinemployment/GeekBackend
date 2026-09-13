@@ -845,24 +845,28 @@ public sealed class GccV2JobWorker : BackgroundService
         };
     }
 
-    private static object BuildFinalEvidenceManifest(GccV2WriteOutput output)
+    private static GccV2ResearchEvidenceManifest BuildFinalEvidenceManifest(GccV2WriteOutput output)
     {
         var warnings = output.Provenance.SelectMany(p => p.Warnings).Distinct().ToList();
-        return new
-        {
-            ready = output.Citations.Count > 0,
-            sources = output.Citations.Select(c => new
+        var sources = output.Sources.Count > 0
+            ? output.Sources
+            : output.Citations.Select(c => new RagGenerateSourceDto
             {
-                c.PageId,
-                c.Url,
-                c.Title,
-                c.CrawlType,
-            }).DistinctBy(s => $"{s.PageId}|{s.Url}").ToList(),
-            evidenceGaps = output.Citations.Count == 0
-                ? new[] { "No verified citations were returned for the completed output." }
+                PageId = c.PageId,
+                Url = c.Url,
+                Title = c.Title,
+                CrawlType = c.CrawlType,
+                Kind = "page",
+            }).DistinctBy(s => $"{s.PageId}|{s.Url}").ToList();
+        return new GccV2ResearchEvidenceManifest(
+            GccV2ResearchEvidenceManifest.CurrentVersion,
+            sources,
+            output.Citations,
+            output.Citations.Count == 0
+                ? ["No verified citations were returned for the completed output."]
                 : [],
-            conflicts = Array.Empty<string>(),
+            [],
             warnings,
-        };
+            DateTimeOffset.UtcNow);
     }
 }

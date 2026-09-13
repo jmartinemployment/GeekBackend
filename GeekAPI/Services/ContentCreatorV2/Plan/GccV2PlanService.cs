@@ -114,6 +114,21 @@ public sealed class GccV2PlanService
         }
 
         var generationBrief = GccV2GenerationBriefAssembler.Assemble(job, brief, create, brandKit);
+        var prePlanManifest = GccV2PrePlanEvidenceManifestAssembler.Assemble(generationBrief);
+        if (!prePlanManifest.Ready)
+        {
+            throw new InvalidOperationException(
+                "Pre-PLAN evidence gate failed: " + string.Join(" ", prePlanManifest.EvidenceGaps));
+        }
+
+        // operatorTools from the brief are partners (never competitor H2s / crawl seeds).
+        foreach (var tool in generationBrief.OperatorTools)
+        {
+            if (IsRejectedOutlineName(tool)) continue;
+            if (partnerToolNames.Contains(tool, StringComparer.OrdinalIgnoreCase)) continue;
+            partnerToolNames.Add(tool);
+        }
+
         var skillSnapshot = await GccV2SkillSnapshotStore.LoadOrCreateAsync(_repo, job, ct);
         var route = GccV2ContentTypeRagMapper.Map(contentType);
         var jobModelPolicy = await _jobModelPolicies.LoadLatestAsync(job.Id, ct);
@@ -278,14 +293,22 @@ public sealed class GccV2PlanService
         if (ragResult.Sources.Count == 0) evidenceGaps.Add("No retrievable sources were returned for PLAN.");
         if (ragResult.Citations is null || ragResult.Citations.Count == 0)
             evidenceGaps.Add("No quote-verified citations were returned for PLAN.");
+        var warnings = ragResult.Warnings
+            .Concat(ragResult.EvidenceWarnings)
+            .Concat(prePlanManifest.Warnings)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         var manifest = new GccV2ResearchEvidenceManifest(
-            "gcc-v2-research-manifest/1",
+            GccV2ResearchEvidenceManifest.CurrentVersion,
             ragResult.Sources,
             ragResult.Citations ?? [],
             evidenceGaps,
             [],
-            ragResult.Warnings.Concat(ragResult.EvidenceWarnings).Distinct().ToList(),
-            DateTimeOffset.UtcNow);
+            warnings,
+            DateTimeOffset.UtcNow,
+            IndexReadiness: prePlanManifest.IndexReadiness,
+            CandidateQuotes: ragResult.Citations ?? [],
+            InternalLinkOpportunities: prePlanManifest.InternalLinkOpportunities);
         var outline = new GccV2PlanOutline(
             sections, topicChildren, ragResult.Citations, provenance, manifest, researchPlan);
 
@@ -371,6 +394,28 @@ public sealed class GccV2PlanService
                 {
                     if (t.ValueKind != JsonValueKind.Object) continue;
                     if (t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
+                    {
+                        var name = n.GetString();
+                        if (IsRejectedOutlineName(name)) continue;
+                        AddName(name);
+                    }
+                }
+            }
+
+            if (doc.RootElement.TryGetProperty("operatorTools", out var operatorTools)
+                && operatorTools.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in operatorTools.EnumerateArray())
+                {
+                    if (t.ValueKind == JsonValueKind.String)
+                    {
+                        var name = t.GetString();
+                        if (IsRejectedOutlineName(name)) continue;
+                        AddName(name);
+                    }
+                    else if (t.ValueKind == JsonValueKind.Object
+                             && t.TryGetProperty("name", out var n)
+                             && n.ValueKind == JsonValueKind.String)
                     {
                         var name = n.GetString();
                         if (IsRejectedOutlineName(name)) continue;

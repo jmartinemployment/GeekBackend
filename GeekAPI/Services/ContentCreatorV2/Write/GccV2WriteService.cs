@@ -523,12 +523,14 @@ public sealed class GccV2WriteService
 
         var rebuilt = current.AllSections.Select((original, index) =>
         {
-            var sectionCitations = response.Citations
-                .Where(citation => string.Equals(
-                    citation.SectionTitle?.Trim(),
-                    original.Heading,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            var sectionCitations = StampSectionKey(
+                response.Citations
+                    .Where(citation => string.Equals(
+                        citation.SectionTitle?.Trim(),
+                        original.Heading,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToList(),
+                original.SectionKey);
             return original with
             {
                 Section = parsed[index],
@@ -546,7 +548,7 @@ public sealed class GccV2WriteService
             TokensUsed = current.TokensUsed,
             Keywords = current.Keywords,
             ToolPage = current.ToolPage,
-            Citations = response.Citations,
+            Citations = GccV2WriteOutput.MergeCitations(rebuilt),
             Provenance = current.Provenance.Append(provenance).ToList(),
             Sources = response.Sources.Count > 0 ? response.Sources : sources,
         };
@@ -1099,8 +1101,9 @@ public sealed class GccV2WriteService
             response.Provenance?.ExecutionVersion,
             response.AgentExecution ?? response.Provenance?.AgentExecution);
         var section = MarkdownToSection(content, heading);
+        var citations = StampSectionKey(response.Citations, sectionKey);
         var write = new GccV2WriteSection(
-            sectionKey, heading, "problem", section, false, response.Citations ?? [], provenance, response.Sources);
+            sectionKey, heading, "problem", section, false, citations, provenance, response.Sources);
         await PersistAndEmitAsync(wc, ownerUserId, "write", "SectionDrafted", write, 0, ct);
         return new GccV2WriteOutput
         {
@@ -1307,8 +1310,28 @@ public sealed class GccV2WriteService
             MapSkillProvenance(response.Provenance?.Skills),
             response.Provenance?.ExecutionVersion,
             response.AgentExecution ?? response.Provenance?.AgentExecution);
+        var citations = StampSectionKey(response.Citations, entry.Key);
         return new GccV2WriteSection(
-            entry.Key, entry.Heading, entry.Job, section, false, response.Citations ?? [], provenance, response.Sources);
+            entry.Key, entry.Heading, entry.Job, section, false, citations, provenance, response.Sources);
+    }
+
+    /// <summary>Bind citations to the Create section key for Canvas <c>sectionCitations</c>.</summary>
+    internal static IReadOnlyList<RagCitationDto> StampSectionKey(
+        IReadOnlyList<RagCitationDto>? citations,
+        string sectionKey)
+    {
+        if (citations is null || citations.Count == 0) return [];
+        return citations.Select(c => new RagCitationDto
+        {
+            PageId = c.PageId,
+            RunId = c.RunId,
+            Url = c.Url,
+            Title = c.Title,
+            SectionTitle = c.SectionTitle,
+            SectionKey = string.IsNullOrWhiteSpace(c.SectionKey) ? sectionKey : c.SectionKey,
+            Quote = c.Quote,
+            CrawlType = c.CrawlType,
+        }).ToList();
     }
 
     private static GccV2SkillExecutionSnapshot SkillExecution(GccV2WriteContext wc, string stage) =>

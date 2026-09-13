@@ -306,6 +306,49 @@ public sealed class GccV2UnifiedRagTests
         Assert.DoesNotContain("competitor", restored.CrawlType, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Write_stamps_section_key_without_overwriting_existing()
+    {
+        var stamped = GccV2WriteService.StampSectionKey(
+            [
+                new RagCitationDto
+                {
+                    Url = "https://partner.example/a",
+                    Quote = "Partner quote",
+                    CrawlType = "partner",
+                },
+                new RagCitationDto
+                {
+                    Url = "https://partner.example/b",
+                    Quote = "Already bound",
+                    SectionKey = "proof",
+                    CrawlType = "partner",
+                },
+            ],
+            "lede");
+
+        Assert.Equal("lede", stamped[0].SectionKey);
+        Assert.Equal("proof", stamped[1].SectionKey);
+        Assert.All(stamped, c => Assert.Equal("partner", c.CrawlType));
+    }
+
+    [Fact]
+    public void Partner_tool_names_include_operator_tools_and_never_competitor_urls()
+    {
+        var names = GeekAPI.Services.ContentCreatorV2.Plan.GccV2PlanService.ExtractPartnerToolNames("""
+        {
+          "operatorTools": [{"name":"Evidence Engine","url":"https://partner.example"}],
+          "competitorUrls": ["https://rival.example"],
+          "hierarchyPlan": {"recommendedTools":[{"name":"Ops Board"}]}
+        }
+        """);
+
+        Assert.Contains("Evidence Engine", names);
+        Assert.Contains("Ops Board", names);
+        Assert.DoesNotContain(names, n => n.Contains("rival", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(names, n => n.StartsWith("http", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData("repair", "repair")]
     [InlineData("final-synthesis", "finalSynthesis")]
