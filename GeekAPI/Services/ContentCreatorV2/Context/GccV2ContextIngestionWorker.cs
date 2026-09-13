@@ -44,11 +44,9 @@ public sealed class GccV2HttpKnowledgeIndexer(
     {
         if (http.BaseAddress is null)
             throw new InvalidOperationException("GEEK_CRAWLER_RAG_URL is required for Knowledge indexing.");
-        if (http.BaseAddress.Scheme != Uri.UriSchemeHttps
-            && !string.Equals(http.BaseAddress.Host, "localhost", StringComparison.OrdinalIgnoreCase)
-            && http.BaseAddress.Host is not ("127.0.0.1" or "::1"))
+        if (!GccV2RagTransportPolicy.IsAllowedBaseAddress(http.BaseAddress))
             throw new InvalidOperationException(
-                "GEEK_CRAWLER_RAG_URL must use HTTPS (localhost HTTP allowed only for local dev).");
+                "GEEK_CRAWLER_RAG_URL must use HTTPS (localhost HTTP or GEEK_CRAWLER_RAG_ALLOW_INSECURE_HTTP_HOSTS only).");
 
         var auth = signer.CreateEnvelope(
             request.OwnerUserId, request.AssetVersionId.ToString("D"),
@@ -70,11 +68,9 @@ public sealed class GccV2HttpKnowledgeIndexer(
     {
         if (http.BaseAddress is null)
             throw new InvalidOperationException("GEEK_CRAWLER_RAG_URL is required for Knowledge deletion.");
-        if (http.BaseAddress.Scheme != Uri.UriSchemeHttps
-            && !string.Equals(http.BaseAddress.Host, "localhost", StringComparison.OrdinalIgnoreCase)
-            && http.BaseAddress.Host is not ("127.0.0.1" or "::1"))
+        if (!GccV2RagTransportPolicy.IsAllowedBaseAddress(http.BaseAddress))
             throw new InvalidOperationException(
-                "GEEK_CRAWLER_RAG_URL must use HTTPS (localhost HTTP allowed only for local dev).");
+                "GEEK_CRAWLER_RAG_URL must use HTTPS (localhost HTTP or GEEK_CRAWLER_RAG_ALLOW_INSECURE_HTTP_HOSTS only).");
 
         var auth = signer.CreateEnvelope(
             request.OwnerUserId, request.AssetVersionId.ToString("D"),
