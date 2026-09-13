@@ -1037,6 +1037,10 @@ namespace GeekRepository.Data.Migrations.ContentCreatorV2
                     b.Property<int>("ProgressPercent")
                         .HasColumnType("integer");
 
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
