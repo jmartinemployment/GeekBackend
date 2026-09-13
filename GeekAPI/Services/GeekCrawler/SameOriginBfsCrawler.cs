@@ -37,7 +37,8 @@ public sealed class SameOriginBfsCrawler
         CancellationToken ct,
         GeekCrawlerBfsResume? resume = null,
         IReadOnlyList<string>? extraSeedUrls = null,
-        OriginCrawlLiveMetrics? liveMetrics = null)
+        OriginCrawlLiveMetrics? liveMetrics = null,
+        DateTimeOffset? deadlineUtc = null)
     {
         if (seedUrls.Count == 0) return;
         if (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri)) return;
@@ -48,6 +49,22 @@ public sealed class SameOriginBfsCrawler
         var pendingBatch = new List<CrawledPageResult>();
         var batchLock = new object();
         var inFlight = 0;
+
+        void ThrowIfBudgetExceeded()
+        {
+            if (deadlineUtc is DateTimeOffset deadline && DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new GeekCrawlerBudgetExceededException(
+                    $"Crawl exceeded MaxCrawlDurationMinutes={GeekCrawlerCaps.MaxCrawlDurationMinutes}.");
+            }
+
+            if (liveMetrics is not null
+                && liveMetrics.BytesFetched > GeekCrawlerCaps.MaxBytesFetchedPerRun)
+            {
+                throw new GeekCrawlerBudgetExceededException(
+                    $"Crawl exceeded MaxBytesFetchedPerRun={GeekCrawlerCaps.MaxBytesFetchedPerRun}.");
+            }
+        }
 
         bool IsSameOrigin(Uri u) =>
             string.Equals(
@@ -60,6 +77,8 @@ public sealed class SameOriginBfsCrawler
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return;
             if (!IsSameOrigin(u)) return;
+            if (!GeekCrawlerSeedNormalizer.IsAllowedCrawlUri(u, out _)) return;
+            if (seen.Count >= GeekCrawlerCaps.MaxUrlsPerRun) return;
             var key = GeekCrawlerUrlKeys.CrawlKey(u.AbsoluteUri);
             if (!seen.TryAdd(key, 0)) return;
             queue.Enqueue(u.AbsoluteUri);
@@ -121,6 +140,8 @@ public sealed class SameOriginBfsCrawler
         {
             while (true)
             {
+                ThrowIfBudgetExceeded();
+
                 if (!queue.TryDequeue(out var url))
                 {
                     if (Volatile.Read(ref inFlight) == 0 && queue.IsEmpty)
@@ -134,7 +155,19 @@ public sealed class SameOriginBfsCrawler
                 try
                 {
                     ct.ThrowIfCancellationRequested();
+                    ThrowIfBudgetExceeded();
+                    if (seen.Count > GeekCrawlerCaps.MaxUrlsPerRun)
+                    {
+                        _logger.LogWarning(
+                            "Geek-Crawler origin {Origin} hit MaxUrlsPerRun={Cap}; stopping enqueue expansion.",
+                            origin, GeekCrawlerCaps.MaxUrlsPerRun);
+                        break;
+                    }
                     var fetched = await _fetcher.FetchAsync(url, ct).ConfigureAwait(false);
+                    if (fetched.Html is not null)
+                        liveMetrics?.AddBytes(System.Text.Encoding.UTF8.GetByteCount(fetched.Html));
+                    ThrowIfBudgetExceeded();
+
                     var links = fetched.Html is not null
                         ? GeekCrawlerLinkExtractor.ExtractAllLinks(fetched.Html, fetched.FinalUrl, origin)
                         : [];
@@ -169,7 +202,14 @@ public sealed class SameOriginBfsCrawler
 
         var workerCount = Math.Max(1, _options.ParallelismPerOrigin);
         var workers = Enumerable.Range(0, workerCount).Select(_ => WorkerAsync()).ToArray();
-        await Task.WhenAll(workers).ConfigureAwait(false);
+        try
+        {
+            await Task.WhenAll(workers).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (TryUnwrapBudgetExceeded(ex) is { } budget)
+        {
+            throw budget;
+        }
 
         List<CrawledPageResult>? finalBatch;
         lock (batchLock)
@@ -187,5 +227,19 @@ public sealed class SameOriginBfsCrawler
             origin,
             seen.Count,
             workerCount);
+    }
+
+    private static GeekCrawlerBudgetExceededException? TryUnwrapBudgetExceeded(Exception ex)
+    {
+        if (ex is GeekCrawlerBudgetExceededException direct)
+            return direct;
+        if (ex is AggregateException aggregate)
+        {
+            return aggregate.Flatten().InnerExceptions
+                .OfType<GeekCrawlerBudgetExceededException>()
+                .FirstOrDefault();
+        }
+
+        return null;
     }
 }

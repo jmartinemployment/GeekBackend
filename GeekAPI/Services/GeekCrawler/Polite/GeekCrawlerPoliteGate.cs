@@ -106,6 +106,16 @@ public sealed class GeekCrawlerPoliteGate
         try
         {
             var robotsUri = new Uri(new Uri(origin + "/", UriKind.Absolute), "/robots.txt");
+            if (!GeekCrawlerSeedNormalizer.TryValidateResolvedCrawlUrl(robotsUri.AbsoluteUri, out var robotsReject))
+            {
+                _logger.LogWarning(
+                    "[geek-crawler] robots.txt blocked for {Origin}: {Reason}",
+                    origin, robotsReject);
+                controller.MarkRequestCompleted(_defaultHostDelay, _clock);
+                _registry.SetRobots(origin, null);
+                return null;
+            }
+
             using var response = await _http.GetAsync(robotsUri, ct).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {

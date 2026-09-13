@@ -49,6 +49,13 @@ public sealed class MobilePageFetcher
 
     private async Task<FetchedPage> FetchWithinSlotAsync(Uri uri, string url, CancellationToken ct)
     {
+        if (!GeekCrawlerSeedNormalizer.TryValidateResolvedCrawlUrl(url, out var seedReject))
+        {
+            _logger.LogWarning("Geek-Crawler blocked fetch to disallowed target {Url}: {Reason}", url, seedReject);
+            _polite.CompleteFetch(uri, 0);
+            return new FetchedPage(url, url, 0, true, null, seedReject ?? "disallowed-target");
+        }
+
         var robots = await _polite.PrepareFetchAsync(uri, ct).ConfigureAwait(false);
         if (!robots.Allowed)
         {
@@ -88,6 +95,14 @@ public sealed class MobilePageFetcher
 
             var finalUrl = response?.Url ?? page.Url ?? url;
             var status = response?.Status ?? 0;
+            if (!GeekCrawlerSeedNormalizer.TryValidateResolvedCrawlUrl(finalUrl, out var finalReject))
+            {
+                _logger.LogWarning(
+                    "Geek-Crawler blocked final URL after navigation {FinalUrl}: {Reason}",
+                    finalUrl, finalReject);
+                _polite.CompleteFetch(uri, 0);
+                return new FetchedPage(url, finalUrl, 0, true, null, finalReject ?? "disallowed-final-url");
+            }
 
             if (status is (int)HttpStatusCode.TooManyRequests or (int)HttpStatusCode.ServiceUnavailable)
             {

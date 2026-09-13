@@ -1,7 +1,7 @@
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using GeekAPI.Services.GeekCrawler.Polite;
-
 using GeekApplication.Models.GeekCrawler;
 
 namespace GeekAPI.Services.GeekCrawler;
@@ -31,20 +31,16 @@ public sealed class GeekCrawlerSitemapSeeder
             return [];
 
         var sitemapUrl = new Uri(originUri, "/sitemap.xml");
-        string xml;
+        string? xml;
         try
         {
-            using var response = await _http.GetAsync(sitemapUrl, ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            xml = await GetStringWithValidatedRedirectsAsync(sitemapUrl.AbsoluteUri, ct)
+                .ConfigureAwait(false);
+            if (xml is null)
             {
-                _logger.LogDebug(
-                    "No sitemap at {SitemapUrl} (HTTP {Status}).",
-                    sitemapUrl,
-                    (int)response.StatusCode);
+                _logger.LogDebug("No sitemap at {SitemapUrl}.", sitemapUrl);
                 return [];
             }
-
-            xml = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException
                                    || !ct.IsCancellationRequested)
@@ -113,10 +109,10 @@ public sealed class GeekCrawlerSitemapSeeder
             {
                 try
                 {
-                    using var response = await _http.GetAsync(childSitemap, ct).ConfigureAwait(false);
-                    if (!response.IsSuccessStatusCode)
+                    var childXml = await GetStringWithValidatedRedirectsAsync(childSitemap!, ct)
+                        .ConfigureAwait(false);
+                    if (childXml is null)
                         continue;
-                    var childXml = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                     urls.AddRange(ParseUrlLocs(childXml, rootUri));
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -131,6 +127,70 @@ public sealed class GeekCrawlerSitemapSeeder
         urls.AddRange(ParseUrlLocs(xml, rootUri));
         return urls;
     }
+
+    /// <summary>
+    /// Manual redirect follow with SSRF re-validation at every hop.
+    /// HttpClient has AllowAutoRedirect=false for this client.
+    /// </summary>
+    private async Task<string?> GetStringWithValidatedRedirectsAsync(string url, CancellationToken ct)
+    {
+        var current = url;
+        for (var hop = 0; hop <= GeekCrawlerCaps.MaxRedirectsPerNavigation; hop++)
+        {
+            if (!GeekCrawlerSeedNormalizer.TryValidateResolvedCrawlUrl(current, out var reject))
+            {
+                _logger.LogWarning(
+                    "Rejected sitemap fetch URL {Url}: {Reason}",
+                    current,
+                    reject);
+                return null;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, current);
+            using var response = await _http.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    ct)
+                .ConfigureAwait(false);
+
+            if (IsRedirect(response.StatusCode))
+            {
+                var location = response.Headers.Location;
+                if (location is null)
+                    return null;
+
+                current = location.IsAbsoluteUri
+                    ? location.AbsoluteUri
+                    : new Uri(new Uri(current), location).AbsoluteUri;
+                continue;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug(
+                    "Sitemap fetch {Url} returned HTTP {Status}.",
+                    current,
+                    (int)response.StatusCode);
+                return null;
+            }
+
+            return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        }
+
+        _logger.LogWarning(
+            "Sitemap fetch exceeded MaxRedirectsPerNavigation={Cap} starting from {Url}.",
+            GeekCrawlerCaps.MaxRedirectsPerNavigation,
+            url);
+        return null;
+    }
+
+    private static bool IsRedirect(HttpStatusCode status) =>
+        status is HttpStatusCode.Moved
+            or HttpStatusCode.Redirect
+            or HttpStatusCode.RedirectMethod
+            or HttpStatusCode.TemporaryRedirect
+            or HttpStatusCode.PermanentRedirect
+            or HttpStatusCode.MultipleChoices;
 
     private static List<string> ParseUrlLocs(string xml, Uri rootUri)
     {

@@ -195,6 +195,7 @@ public sealed class GccV2ContextIngestionJob
     public DateTimeOffset? LeaseUntilUtc { get; set; }
     public DateTimeOffset? HeartbeatAtUtc { get; set; }
     public string? TerminalError { get; set; }
+    public uint Revision { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAtUtc { get; set; }

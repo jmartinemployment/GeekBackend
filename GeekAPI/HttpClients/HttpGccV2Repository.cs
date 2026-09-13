@@ -779,10 +779,33 @@ public class HttpGccV2Repository
         return JsonSerializer.Deserialize<GccV2ContextIngestionJobDto>(
             await res.Content.ReadAsStringAsync(ct), JsonOpts);
     }
+    public async Task<GccV2ContextIngestionJobDto?> TryTransitionContextIngestionJobAsync(
+        Guid id, TransitionGccV2ContextIngestionJobCommand command, CancellationToken ct = default)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(command, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PostAsync(
+            $"repo/content-creator-v2/context/ingestion-jobs/{id}/transition", content, ct);
+        if (res.StatusCode == HttpStatusCode.Conflict) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccV2ContextIngestionJobDto>(
+            await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+
     public Task<GccV2ContextIngestionJobDto> TransitionContextIngestionJobAsync(
         Guid id, TransitionGccV2ContextIngestionJobCommand command, CancellationToken ct = default) =>
         PostAsync<GccV2ContextIngestionJobDto>(
             $"repo/content-creator-v2/context/ingestion-jobs/{id}/transition", command, ct);
+
+    public async Task<GccV2ContextIngestionJobDto?> ForceTerminalContextIngestionFailureAsync(
+        Guid id, ForceTerminalGccV2ContextIngestionFailureCommand command, CancellationToken ct = default)
+    {
+        var res = await _http.PostAsJsonAsync(
+            $"repo/content-creator-v2/context/ingestion-jobs/{id}/force-terminal-failure", command, JsonOpts, ct);
+        if (res.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccV2ContextIngestionJobDto>(
+            await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
 
     private async Task<int> PostSeedCountAsync(string path, CancellationToken ct)
     {

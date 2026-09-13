@@ -97,6 +97,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2GscKnowledgeService>();
         services.AddScoped<GccV2DriveKnowledgeService>();
         services.AddScoped<GccV2SharePointKnowledgeService>();
+        services.AddSingleton<GccV2TrustedAssetSigner>();
         services.AddHttpClient<IGccV2KnowledgeIndexer, GccV2HttpKnowledgeIndexer>(client =>
         {
             var baseUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');

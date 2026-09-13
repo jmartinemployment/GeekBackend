@@ -1,3 +1,4 @@
+using System.Net;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.GeekCrawler.Polite;
@@ -28,11 +29,19 @@ public static class GeekCrawlerServiceRegistration
             // Host delay can be 0–1s for local proves; robots/WAF fetches still need a real timeout.
             // A too-short timeout surfaces as OperationCanceledException and looks like a cancel.
             client.Timeout = TimeSpan.FromSeconds(Math.Max(60, options.HostDelaySeconds + 5));
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.All,
         });
 
         services.AddHttpClient<GeekCrawlerSitemapSeeder>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(60);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.All,
         });
 
         services.AddSingleton<GeekCrawlerPlaywrightHolder>();

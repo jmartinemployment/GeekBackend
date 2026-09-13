@@ -116,6 +116,7 @@ internal static class GccV2GovernedContextConfiguration
         ingestion.Property(x => x.Status).HasMaxLength(32);
         ingestion.Property(x => x.ClaimedByInstanceId).HasMaxLength(128);
         ingestion.Property(x => x.TerminalError).HasMaxLength(4096);
+        ingestion.Property(x => x.Revision).IsConcurrencyToken();
         ingestion.HasIndex(x => new { x.Status, x.LeaseUntilUtc });
         ingestion.HasIndex(x => new { x.OwnerUserId, x.TargetKind, x.TargetId });
 

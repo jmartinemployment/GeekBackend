@@ -717,7 +717,9 @@ public sealed record QueueGccV2KnowledgeIngestionCommand(
     string OwnerUserId, string ObjectKey, long ByteSize, string Sha256);
 public sealed record TransitionGccV2ContextIngestionJobCommand(
     string Status, int ProgressPercent, string EventType, string? EventPayloadJson = null,
-    string? TerminalError = null, string? IndexState = null);
+    string? TerminalError = null, string? IndexState = null, string? ClaimedByInstanceId = null);
+public sealed record ForceTerminalGccV2ContextIngestionFailureCommand(
+    string ClaimedByInstanceId, string? TerminalError = null, string? EventPayloadJson = null);
 
 // Durable canvas projects (multi-asset owner-scoped workspaces).
 

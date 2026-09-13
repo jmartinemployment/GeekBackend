@@ -368,18 +368,34 @@ public class GeekCrawlerSeedUrlDebugTests
     }
 
     [Fact]
-    public void TryNormalizeSeedUrl_rejects_host_without_dot()
+    public void TryNormalizeSeedUrl_rejects_private_and_loopback_targets()
     {
         Assert.False(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("https://activecampaign", out _));
         Assert.True(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("https://www.activecampaign.com", out _));
-        Assert.True(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("http://localhost", out _));
+        Assert.False(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("http://localhost", out _));
+        Assert.False(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("http://127.0.0.1/", out _));
+        Assert.False(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("http://169.254.169.254/latest/meta-data/", out _));
+        Assert.False(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("http://10.0.0.5/", out _));
+        Assert.False(GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl("https://example.com:8443/", out _));
     }
 
     [Fact]
-    public void ValidateRawSeeds_returns_error_for_invalid_host()
+    public void ValidateRawSeeds_enforces_max_seed_count()
     {
-        var error = GeekCrawlerSeedNormalizer.ValidateRawSeeds(["https://activecampaign"]);
-        Assert.NotNull(error);
+        var seeds = Enumerable.Range(0, GeekCrawlerCaps.MaxSeedsPerRequest + 1)
+            .Select(i => $"https://example{i}.com")
+            .ToArray();
+        var error = GeekCrawlerSeedNormalizer.ValidateRawSeeds(seeds);
+        Assert.Contains("At most", error);
+    }
+
+    [Fact]
+    public void IsDisallowedAddress_covers_metadata_and_ula()
+    {
+        Assert.True(GeekCrawlerSeedNormalizer.IsDisallowedAddress(IPAddress.Parse("169.254.169.254")));
+        Assert.True(GeekCrawlerSeedNormalizer.IsDisallowedAddress(IPAddress.Parse("192.168.1.1")));
+        Assert.True(GeekCrawlerSeedNormalizer.IsDisallowedAddress(IPAddress.Parse("fc00::1")));
+        Assert.False(GeekCrawlerSeedNormalizer.IsDisallowedAddress(IPAddress.Parse("1.1.1.1")));
     }
 }
 
@@ -681,6 +697,14 @@ public class GeekCrawlerCapsTests
     [Fact]
     public void NavigationTimeout_is_30_seconds() =>
         Assert.Equal(30_000, GeekCrawlerCaps.NavigationTimeoutMs);
+
+    [Fact]
+    public void Resource_budgets_are_configured()
+    {
+        Assert.Equal(180, GeekCrawlerCaps.MaxCrawlDurationMinutes);
+        Assert.Equal(500L * 1024 * 1024, GeekCrawlerCaps.MaxBytesFetchedPerRun);
+        Assert.Equal(5, GeekCrawlerCaps.MaxRedirectsPerNavigation);
+    }
 }
 
 public class GeekCrawlerSitemapSeederTests
@@ -769,6 +793,46 @@ public class GeekCrawlerSitemapSeederTests
         var urls = await seeder.CollectAllowedUrlsAsync("https://example.com", CancellationToken.None);
 
         Assert.Equal(GeekCrawlerCaps.MaxSitemapUrlsPerOrigin, urls.Count);
+    }
+
+    [Fact]
+    public async Task CollectAllowedUrlsAsync_rejects_redirect_to_private_ip()
+    {
+        var hops = 0;
+        var handler = new StubHttpHandler(req =>
+        {
+            hops++;
+            if (hops == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.Redirect)
+                {
+                    Headers = { Location = new Uri("http://127.0.0.1/sitemap.xml") },
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("<urlset></urlset>"),
+            };
+        });
+        var http = new HttpClient(handler);
+        var registry = new GeekCrawlerHostRegistry(GeekCrawlerOptions.FromConfiguration(
+            new ConfigurationBuilder().Build()));
+        var gate = new GeekCrawlerPoliteGate(
+            new HttpClient(),
+            registry,
+            TimeProvider.System,
+            GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder().Build()),
+            NullLogger<GeekCrawlerPoliteGate>.Instance);
+        var seeder = new GeekCrawlerSitemapSeeder(
+            http,
+            gate,
+            NullLogger<GeekCrawlerSitemapSeeder>.Instance);
+
+        var urls = await seeder.CollectAllowedUrlsAsync("https://example.com", CancellationToken.None);
+
+        Assert.Empty(urls);
+        Assert.Equal(1, hops);
     }
 
     private sealed class StubHttpHandler : HttpMessageHandler

@@ -94,6 +94,24 @@ public sealed class GeekCrawlerService
             throw new InvalidOperationException("Invalid crawlType.");
         if (seeds.Count == 0)
             throw new InvalidOperationException("At least one seed URL is required.");
+        if (seeds.Count > GeekCrawlerCaps.MaxSeedsPerRequest)
+            throw new InvalidOperationException(
+                $"At most {GeekCrawlerCaps.MaxSeedsPerRequest} seed URLs are allowed per request.");
+
+        foreach (var seed in seeds)
+        {
+            if (!GeekCrawlerSeedNormalizer.TryValidateResolvedCrawlUrl(seed, out var reject))
+                throw new InvalidOperationException(reject ?? $"Disallowed seed URL: {seed}");
+        }
+
+        var active = await _repo.ListRunsForUserAsync(
+            ownerUserId, crawlType: null, limit: 50, ct).ConfigureAwait(false);
+        var concurrent = active.Count(r =>
+            string.Equals(r.Status, "pending", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(r.Status, "running", StringComparison.OrdinalIgnoreCase));
+        if (concurrent >= GeekCrawlerCaps.MaxConcurrentCrawlsPerOwner)
+            throw new InvalidOperationException(
+                $"At most {GeekCrawlerCaps.MaxConcurrentCrawlsPerOwner} concurrent crawls are allowed per owner.");
 
         var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(seeds);
         var type = crawlType.Trim();
@@ -254,6 +272,7 @@ public sealed class GeekCrawlerService
                     StringComparer.OrdinalIgnoreCase);
 
             var crawlStartedAt = DateTimeOffset.UtcNow;
+            var crawlDeadlineUtc = crawlStartedAt.AddMinutes(GeekCrawlerCaps.MaxCrawlDurationMinutes);
             var liveMetrics = new OriginCrawlLiveMetrics();
 
             if (resume is not null)
@@ -270,6 +289,12 @@ public sealed class GeekCrawlerService
             foreach (var (origin, originSeeds) in hostGroups)
             {
                 ct.ThrowIfCancellationRequested();
+                if (DateTimeOffset.UtcNow >= crawlDeadlineUtc)
+                {
+                    throw new GeekCrawlerBudgetExceededException(
+                        $"Crawl exceeded MaxCrawlDurationMinutes={GeekCrawlerCaps.MaxCrawlDurationMinutes}.");
+                }
+
                 if (!originStats.ContainsKey(origin))
                     originStats[origin] = new OriginProgressStats();
 
@@ -337,7 +362,8 @@ public sealed class GeekCrawlerService
                     ct,
                     originResume,
                     sitemapUrls,
-                    liveMetrics).ConfigureAwait(false);
+                    liveMetrics,
+                    crawlDeadlineUtc).ConfigureAwait(false);
             }
 
             hostProgress = GeekCrawlerHostProgress.BuildHostProgress(hostGroups.Keys, originStats);
@@ -366,6 +392,12 @@ public sealed class GeekCrawlerService
                 "Geek-Crawler run {RunId} complete for user {OwnerUserId}.",
                 runId,
                 current.OwnerUserId);
+        }
+        catch (GeekCrawlerBudgetExceededException ex)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler run {RunId} stopped on resource budget.", runId);
+            if (current is not null)
+                await FailRunAsync(current, ex.Message, ct, hostProgress).ConfigureAwait(false);
         }
         catch (GeekCrawlerPlaywrightUnavailableException ex)
         {

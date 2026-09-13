@@ -172,6 +172,7 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
                 existingJob.HeartbeatAtUtc = null;
                 existingJob.CompletedAtUtc = null;
                 existingJob.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                existingJob.Revision++;
                 version.ExtractionState = "queued";
                 version.IndexState = "pending";
                 var seq = existingJob.Events.Count == 0 ? 1 : existingJob.Events.Max(x => x.Seq) + 1;
@@ -229,7 +230,8 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
             UPDATE content_creator_v2.gcc_v2_context_ingestion_jobs
             SET ""ClaimedByInstanceId"" = {instanceId}, ""ClaimedAtUtc"" = {now},
                 ""HeartbeatAtUtc"" = {now}, ""LeaseUntilUtc"" = {now.AddSeconds(Math.Max(10, leaseSeconds))},
-                ""Status"" = 'running', ""AttemptCount"" = ""AttemptCount"" + 1, ""UpdatedAtUtc"" = {now}
+                ""Status"" = 'running', ""AttemptCount"" = ""AttemptCount"" + 1, ""UpdatedAtUtc"" = {now},
+                ""Revision"" = ""Revision"" + 1
             WHERE ""Id"" = {id} AND (
                 ""Status"" = 'queued' OR
                 (""Status"" = 'running' AND ""LeaseUntilUtc"" IS NOT NULL AND ""LeaseUntilUtc"" < {now})
@@ -246,12 +248,24 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
         if (job is null) return NotFound();
         if (command.ProgressPercent is < 0 or > 100) return BadRequest("progressPercent must be 0..100");
         var terminal = command.Status is "ready" or "failed" or "cancelled";
-        if (job.Status is "ready" or "failed" or "cancelled") return Conflict("Ingestion is already terminal.");
+        if (job.Status is "ready" or "failed" or "cancelled")
+        {
+            // Idempotent: repeat terminal transition with same status is OK.
+            if (terminal && string.Equals(job.Status, command.Status, StringComparison.Ordinal))
+                return Ok(job);
+            return Conflict("Ingestion is already terminal.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(command.ClaimedByInstanceId)
+            && !string.Equals(job.ClaimedByInstanceId, command.ClaimedByInstanceId, StringComparison.Ordinal))
+            return Conflict("Ingestion job is claimed by another worker instance.");
+
         job.Status = command.Status;
         job.ProgressPercent = command.ProgressPercent;
         job.TerminalError = command.TerminalError;
         job.HeartbeatAtUtc = DateTimeOffset.UtcNow;
         job.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        job.Revision++;
         if (terminal)
         {
             job.CompletedAtUtc = DateTimeOffset.UtcNow;
@@ -273,8 +287,92 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
             var attachment = await db.GccV2RunAttachments.SingleAsync(x => x.Id == job.TargetId, ct);
             attachment.IngestionState = command.Status;
         }
-        await db.SaveChangesAsync(ct);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict("Ingestion job was modified concurrently.");
+        }
+
         return Ok(job);
+    }
+
+    /// <summary>
+    /// Terminal failure path that does not depend on a successful non-terminal transition.
+    /// Uses a single atomic UPDATE so a mid-fail conflict cannot leave the job non-terminal forever.
+    /// </summary>
+    [HttpPost("ingestion-jobs/{id:guid}/force-terminal-failure")]
+    public async Task<ActionResult<GccV2ContextIngestionJob>> ForceTerminalFailure(
+        Guid id, [FromBody] ForceTerminalFailureCommand command, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(command.ClaimedByInstanceId))
+            return BadRequest("claimedByInstanceId is required");
+        var now = DateTimeOffset.UtcNow;
+        var error = string.IsNullOrWhiteSpace(command.TerminalError)
+            ? "failed"
+            : command.TerminalError.Length <= 1000 ? command.TerminalError : command.TerminalError[..1000];
+        var rows = await db.Database.ExecuteSqlInterpolatedAsync($@"
+            UPDATE content_creator_v2.gcc_v2_context_ingestion_jobs
+            SET ""Status"" = 'failed',
+                ""ProgressPercent"" = 100,
+                ""TerminalError"" = {error},
+                ""CompletedAtUtc"" = {now},
+                ""ClaimedByInstanceId"" = NULL,
+                ""LeaseUntilUtc"" = NULL,
+                ""HeartbeatAtUtc"" = {now},
+                ""UpdatedAtUtc"" = {now},
+                ""Revision"" = ""Revision"" + 1
+            WHERE ""Id"" = {id}
+              AND ""Status"" NOT IN ('ready', 'failed', 'cancelled')
+              AND (""ClaimedByInstanceId"" IS NULL OR ""ClaimedByInstanceId"" = {command.ClaimedByInstanceId})", ct);
+        if (rows == 0)
+        {
+            var existing = await db.GccV2ContextIngestionJobs.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (existing is null) return NotFound();
+            if (existing.Status is "ready" or "failed" or "cancelled")
+                return Ok(existing);
+            return Conflict("Could not force terminal failure (claim lost or concurrent update).");
+        }
+
+        var job = await db.GccV2ContextIngestionJobs.Include(x => x.Events)
+            .SingleAsync(x => x.Id == id, ct);
+        var seq = job.Events.Count == 0 ? 1 : job.Events.Max(x => x.Seq) + 1;
+        job.Events.Add(new GccV2ContextIngestionEvent
+        {
+            Seq = seq,
+            Type = "failed",
+            PayloadJson = command.EventPayloadJson ?? "{}",
+        });
+        if (job.TargetKind == "knowledge")
+        {
+            var version = await db.GccV2KnowledgeAssetVersions.SingleOrDefaultAsync(x => x.Id == job.TargetId, ct);
+            if (version is not null)
+            {
+                version.ExtractionState = "failed";
+                version.IndexState = "failed";
+            }
+        }
+        else if (job.TargetKind == "run_attachment")
+        {
+            var attachment = await db.GccV2RunAttachments.SingleOrDefaultAsync(x => x.Id == job.TargetId, ct);
+            if (attachment is not null) attachment.IngestionState = "failed";
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Job row already terminal from the atomic UPDATE; event append is best-effort.
+        }
+
+        return Ok(await db.GccV2ContextIngestionJobs.AsNoTracking().Include(x => x.Events)
+            .SingleAsync(x => x.Id == id, ct));
     }
 
     [HttpPost("knowledge/versions/{versionId:guid}/{transition}")]
@@ -834,7 +932,9 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
         string OwnerUserId, string ObjectKey, long ByteSize, string Sha256);
     public sealed record TransitionIngestionJobCommand(
         string Status, int ProgressPercent, string EventType, string? EventPayloadJson,
-        string? TerminalError, string? IndexState);
+        string? TerminalError, string? IndexState, string? ClaimedByInstanceId = null);
+    public sealed record ForceTerminalFailureCommand(
+        string ClaimedByInstanceId, string? TerminalError = null, string? EventPayloadJson = null);
     public sealed record TransitionCommand(string OwnerUserId, string ActorUserId, string? Reason);
     public sealed record CreateCatalogCommand(
         string Kind, string OwnerUserId, string Name, string? Description, string ActorUserId);

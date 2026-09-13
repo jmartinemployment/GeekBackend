@@ -28,17 +28,40 @@ public sealed record GccV2KnowledgeIndexRequest(
     string OwnerUserId, Guid AssetId, Guid AssetVersionId, Guid ResourceId,
     string SourceSha256, string DerivedSha256, string ObjectKey, string MediaType,
     string ParserName, string ParserVersion, string Content, string Lifecycle,
-    JsonElement SourceCoordinates, string ContextKind = "knowledge");
+    JsonElement SourceCoordinates, string ContextKind = "knowledge",
+    string? CallerIdentity = null, string? Nonce = null, DateTimeOffset? ExpiresAtUtc = null,
+    string? SigningKeyId = null, string? Signature = null);
 public sealed record GccV2KnowledgeDeleteRequest(
-    string OwnerUserId, Guid AssetVersionId, Guid ResourceId);
+    string OwnerUserId, Guid AssetVersionId, Guid ResourceId,
+    string? CallerIdentity = null, string? Nonce = null, DateTimeOffset? ExpiresAtUtc = null,
+    string? SigningKeyId = null, string? Signature = null);
 
-public sealed class GccV2HttpKnowledgeIndexer(HttpClient http) : IGccV2KnowledgeIndexer
+public sealed class GccV2HttpKnowledgeIndexer(
+    HttpClient http,
+    GccV2TrustedAssetSigner signer) : IGccV2KnowledgeIndexer
 {
     public async Task IndexAsync(GccV2KnowledgeIndexRequest request, CancellationToken ct)
     {
         if (http.BaseAddress is null)
             throw new InvalidOperationException("GEEK_CRAWLER_RAG_URL is required for Knowledge indexing.");
-        using var response = await http.PostAsJsonAsync("v1/context/assets/index", request, ct);
+        if (http.BaseAddress.Scheme != Uri.UriSchemeHttps
+            && !string.Equals(http.BaseAddress.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+            && http.BaseAddress.Host is not ("127.0.0.1" or "::1"))
+            throw new InvalidOperationException(
+                "GEEK_CRAWLER_RAG_URL must use HTTPS (localhost HTTP allowed only for local dev).");
+
+        var auth = signer.CreateEnvelope(
+            request.OwnerUserId, request.AssetVersionId.ToString("D"),
+            request.ResourceId.ToString("D"), request.DerivedSha256);
+        var body = request with
+        {
+            CallerIdentity = auth.CallerIdentity,
+            Nonce = auth.Nonce,
+            ExpiresAtUtc = auth.ExpiresAtUtc,
+            SigningKeyId = auth.SigningKeyId,
+            Signature = auth.Signature,
+        };
+        using var response = await http.PostAsJsonAsync("v1/context/assets/index", body, ct);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Knowledge index rejected the revision with HTTP {(int)response.StatusCode}.");
     }
@@ -47,7 +70,24 @@ public sealed class GccV2HttpKnowledgeIndexer(HttpClient http) : IGccV2Knowledge
     {
         if (http.BaseAddress is null)
             throw new InvalidOperationException("GEEK_CRAWLER_RAG_URL is required for Knowledge deletion.");
-        using var response = await http.PostAsJsonAsync("v1/context/assets/delete", request, ct);
+        if (http.BaseAddress.Scheme != Uri.UriSchemeHttps
+            && !string.Equals(http.BaseAddress.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+            && http.BaseAddress.Host is not ("127.0.0.1" or "::1"))
+            throw new InvalidOperationException(
+                "GEEK_CRAWLER_RAG_URL must use HTTPS (localhost HTTP allowed only for local dev).");
+
+        var auth = signer.CreateEnvelope(
+            request.OwnerUserId, request.AssetVersionId.ToString("D"),
+            request.ResourceId.ToString("D"), "delete");
+        var body = request with
+        {
+            CallerIdentity = auth.CallerIdentity,
+            Nonce = auth.Nonce,
+            ExpiresAtUtc = auth.ExpiresAtUtc,
+            SigningKeyId = auth.SigningKeyId,
+            Signature = auth.Signature,
+        };
+        using var response = await http.PostAsJsonAsync("v1/context/assets/delete", body, ct);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(
                 $"Knowledge index rejected the tombstone with HTTP {(int)response.StatusCode}.");
@@ -146,7 +186,7 @@ public sealed class GccV2ContextIngestionWorker(
                     "run_attachment"), ct);
                 var readyAttachment = await repo.TransitionContextIngestionJobAsync(id, new(
                     "ready", 100, "ready", JsonSerializer.Serialize(new { attachmentId = attachment.Id }),
-                    IndexState: "not_applicable"), ct);
+                    IndexState: "not_applicable", ClaimedByInstanceId: _instanceId), ct);
                 await notifier.NotifyAsync(readyAttachment, ct);
                 RecordOutcome(job, "succeeded");
                 return;
@@ -185,7 +225,7 @@ public sealed class GccV2ContextIngestionWorker(
                 {
                     assetId = asset.Id, versionId = version.Id, resourceId = resource.Id,
                     sourceSha256 = original.Sha256, derivedSha256 = derivedSha,
-                }), IndexState: "ready"), ct);
+                }), IndexState: "ready", ClaimedByInstanceId: _instanceId), ct);
             await notifier.NotifyAsync(ready, ct);
             await ApproveIfRequestedAsync(repo, job.OwnerUserId, version, ct);
             RecordOutcome(job, "succeeded");
@@ -196,9 +236,12 @@ public sealed class GccV2ContextIngestionWorker(
             RecordOutcome(job, "failed");
             try
             {
-                var failed = await repo.TransitionContextIngestionJobAsync(id, new(
-                    "failed", 100, "failed", "{}", Sanitize(ex.Message), "failed"), ct);
-                await notifier.NotifyAsync(failed, ct);
+                var failed = await repo.ForceTerminalContextIngestionFailureAsync(id, new(
+                    _instanceId, Sanitize(ex.Message), "{}"), ct);
+                if (failed is not null)
+                    await notifier.NotifyAsync(failed, ct);
+                else
+                    logger.LogError("Could not persist terminal failure for context ingestion {JobId}.", id);
             }
             catch (Exception transitionEx)
             {
@@ -234,13 +277,27 @@ public sealed class GccV2ContextIngestionWorker(
         }
     }
 
-    private static async Task Transition(
+    private async Task Transition(
         HttpGccV2Repository repo, GccV2ContextIngestionNotifier notifier,
         Guid id, string state, int progress, CancellationToken ct)
     {
-        var job = await repo.TransitionContextIngestionJobAsync(id,
-            new(state, progress, state, JsonSerializer.Serialize(new { status = state, progress })), ct);
-        await notifier.NotifyAsync(job, ct);
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var job = await repo.TryTransitionContextIngestionJobAsync(id,
+                new(state, progress, state, JsonSerializer.Serialize(new { status = state, progress }),
+                    ClaimedByInstanceId: _instanceId), ct);
+            if (job is not null)
+            {
+                await notifier.NotifyAsync(job, ct);
+                return;
+            }
+
+            logger.LogWarning("Context ingestion transition conflict for {JobId}; retry {Attempt}.", id, attempt);
+            await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), ct);
+        }
+
+        throw new InvalidOperationException($"Context ingestion transition failed after {maxAttempts} attempts.");
     }
 
     private static string Sanitize(string value) =>

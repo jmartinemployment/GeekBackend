@@ -97,6 +97,8 @@ builder.Services.AddDbContext<GeekRepository.Data.GeekCrawlerDbContext>(options 
 
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
+builder.Services.AddExceptionHandler<GeekRepository.Infrastructure.DbUpdateConcurrencyExceptionHandler>();
+builder.Services.AddProblemDetails();
 builder.Services.AddHostedService<SqlMigrationRunner>();
 
 var app = builder.Build();
@@ -113,11 +115,16 @@ await EnsureGeekCrawlerMongoIndexesAsync(app, startupLogger);
 await RewriteRetiredSiteAnalysisHistoryNamesAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
 
+app.UseExceptionHandler();
 app.Use(async (context, next) =>
 {
     try
     {
         await next();
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+        throw; // handled by DbUpdateConcurrencyExceptionHandler → 409
     }
     catch (Exception ex)
     {
