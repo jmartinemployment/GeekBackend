@@ -118,7 +118,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
     }
 
     [Fact]
-    public async Task Index_query_page_and_generate_follow_protocol_and_propagate_key()
+    public async Task Index_query_and_page_follow_protocol_and_propagate_key()
     {
         var runId = Guid.NewGuid();
         var client = _factory.Services.GetRequiredService<IGeekCrawlerRagClient>();
@@ -133,23 +133,13 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             entityNames: ["Fixture Co"],
             retrievalMode: "hybrid");
         var page = await client.GetPageMarkdownAsync(RagProtocolStubHandler.ArticlePageId);
-        var generated = await client.GenerateAsync(new GeekCrawlerRagGenerateRequest
-        {
-            WritingIntent = "blog",
-            Topic = "Deterministic evidence",
-            PartnerRunId = runId.ToString("D"),
-            TargetEntities = ["Fixture Co"],
-        });
 
         Assert.Equal("queued", index?.State);
         Assert.Equal("hybrid", query?.Retrieval);
         var quoteable = Assert.Single(query!.Pages);
         Assert.Equal(RagProtocolStubHandler.ArticlePageId, quoteable.PageId);
         Assert.Equal(RagProtocolStubHandler.ArticleMarkdown, page?.Markdown);
-        var citation = Assert.Single(generated!.Citations);
-        Assert.Equal(page!.PageId, citation.PageId);
-        Assert.Equal(page.Url, citation.Url);
-        Assert.Contains(citation.Quote, page.Markdown, StringComparison.Ordinal);
+        Assert.Contains(RagProtocolStubHandler.CitationQuote, page!.Markdown, StringComparison.Ordinal);
 
         Assert.All(
             _factory.Rag.Requests.Where(r => r.Path.StartsWith("/v1/", StringComparison.Ordinal)),
@@ -163,173 +153,9 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         using var queryJson = JsonDocument.Parse(queryRequest.Body);
         Assert.True(queryJson.RootElement.GetProperty("preferParent").GetBoolean());
         Assert.Equal("Fixture Co", queryJson.RootElement.GetProperty("entityNames")[0].GetString());
-    }
-
-    [Fact]
-    public async Task Staged_outline_and_section_requests_preserve_keys_and_context()
-    {
-        var client = _factory.Services.GetRequiredService<IGeekCrawlerRagClient>();
-
-        var outline = await client.GenerateAsync(new GeekCrawlerRagGenerateRequest
-        {
-            WritingIntent = "blog",
-            Topic = "Staged article",
-            GenerationStage = "outline",
-        });
-        var section = await client.GenerateAsync(new GeekCrawlerRagGenerateRequest
-        {
-            WritingIntent = "blog",
-            Topic = "Staged article",
-            GenerationStage = "section",
-            Outline =
-            [
-                new GeekCrawlerRagOutlineSectionDto
-                {
-                    Key = "section-1",
-                    Heading = "Verified claims",
-                    Brief = "Use evidence.",
-                },
-            ],
-            SectionKey = "section-1",
-            SectionHeading = "Verified claims",
-            SectionBrief = "Use evidence.",
-            CompletedSectionSummaries = ["Introduction completed."],
-            CanonicalBrief = JsonSerializer.SerializeToElement(new
-            {
-                version = "gcc-v2-generation-brief.v1",
-                targetKeyword = "verified RAG",
-            }),
-            ModelPolicyPreset = "custom",
-            ModelPolicyVersion = "content-model-policy.v1",
-            StageModelOverrides = new Dictionary<string, string> { ["section"] = "o3" },
-        });
-
-        Assert.Equal("section-1", Assert.Single(outline!.Outline!).Key);
-        Assert.Equal("A section with a verified claim.", section!.Content);
-
-        var sectionRequest = _factory.Rag.Requests.Last(r =>
-            r.Path == "/v1/generate"
-            && r.Body.Contains("\"generationStage\":\"section\"", StringComparison.Ordinal));
-        using var json = JsonDocument.Parse(sectionRequest.Body);
-        var root = json.RootElement;
-        Assert.Equal("section-1", root.GetProperty("sectionKey").GetString());
-        Assert.Equal("section-1", root.GetProperty("outline")[0].GetProperty("key").GetString());
-        Assert.Equal(
-            "Introduction completed.",
-            root.GetProperty("completedSectionSummaries")[0].GetString());
-        Assert.Equal("o3", root.GetProperty("stageModelOverrides").GetProperty("section").GetString());
-        Assert.Equal("content-model-policy.v1", root.GetProperty("modelPolicyVersion").GetString());
-        Assert.Equal(
-            "gcc-v2-generation-brief.v1",
-            root.GetProperty("canonicalBrief").GetProperty("version").GetString());
-        Assert.False(root.TryGetProperty("briefContext", out _));
-        Assert.False(root.TryGetProperty("model", out _));
-        Assert.Equal(RagProtocolStubHandler.ArticlePageId, section.Provenance!.EvidenceIds[0]);
-        Assert.Equal(RagProtocolStubHandler.ArticlePageId, outline!.Outline![0].EvidenceIds[0]);
-    }
-
-    [Fact]
-    public async Task Final_synthesis_forwards_full_contract_and_normalizes_provenance()
-    {
-        var client = _factory.Services.GetRequiredService<IGeekCrawlerRagClient>();
-        const string draft = "# Draft\n\n## Introduction\n\nA complete draft.";
-        var result = await client.GenerateAsync(new GeekCrawlerRagGenerateRequest
-        {
-            WritingIntent = "technical-article",
-            Topic = "Final synthesis",
-            GenerationStage = "finalSynthesis",
-            DraftContent = draft,
-            Sources =
-            [
-                new GeekCrawlerRagGenerateSourceDto
-                {
-                    PageId = RagProtocolStubHandler.ArticlePageId,
-                    Url = RagProtocolStubHandler.ArticleUrl,
-                    Title = "Fixture article",
-                    Entity = "Fixture Co",
-                    CrawlType = "partner",
-                    Kind = "page",
-                },
-            ],
-            CanonicalBrief = JsonSerializer.SerializeToElement(new
-            {
-                version = "gcc-v2-generation-brief.v1",
-                targetKeyword = "final synthesis",
-            }),
-            ModelPolicyPreset = "best-quality",
-            ModelPolicyVersion = "content-model-policy.v1",
-        });
-
-        Assert.Equal(draft, result!.Content);
-        Assert.Equal("finalSynthesis", result.Provenance!.GenerationStage);
-        Assert.Equal("o1-pro", result.Provenance.ModelUsed);
-        Assert.Single(result.Citations);
-
-        var request = _factory.Rag.Requests.Last(r =>
-            r.Path == "/v1/generate"
-            && r.Body.Contains("\"generationStage\":\"finalSynthesis\"", StringComparison.Ordinal));
-        using var json = JsonDocument.Parse(request.Body);
-        var root = json.RootElement;
-        Assert.Equal(draft, root.GetProperty("draftContent").GetString());
-        Assert.Equal(
-            "gcc-v2-generation-brief.v1",
-            root.GetProperty("canonicalBrief").GetProperty("version").GetString());
-        var source = Assert.Single(root.GetProperty("sources").EnumerateArray());
-        Assert.Equal("Fixture Co", source.GetProperty("entity").GetString());
-        Assert.Equal("partner", source.GetProperty("crawlType").GetString());
-        Assert.Equal("page", source.GetProperty("kind").GetString());
-    }
-
-    [Fact]
-    public async Task Validation_forwards_full_contract_and_parses_typed_result()
-    {
-        var client = _factory.Services.GetRequiredService<IGeekCrawlerRagClient>();
-        const string draft = "# Draft\n\n## Introduction\n\nA source-grounded short form.";
-        var result = await client.GenerateAsync(new GeekCrawlerRagGenerateRequest
-        {
-            WritingIntent = "Short Form",
-            Topic = "Typed validation",
-            GenerationStage = "validation",
-            DraftContent = draft,
-            Sources =
-            [
-                new GeekCrawlerRagGenerateSourceDto
-                {
-                    PageId = RagProtocolStubHandler.ArticlePageId,
-                    Url = RagProtocolStubHandler.ArticleUrl,
-                    CrawlType = "partner",
-                    Kind = "page",
-                },
-            ],
-            CanonicalBrief = JsonSerializer.SerializeToElement(new
-            {
-                version = "gcc-v2-generation-brief.v1",
-                contentType = "social",
-                targetKeyword = "typed validation",
-            }),
-            ModelPolicyPreset = "custom",
-            ModelPolicyVersion = "content-model-policy.v1",
-            StageModelOverrides = new Dictionary<string, string> { ["validation"] = "o3" },
-        });
-
-        Assert.NotNull(result);
-        Assert.Null(result!.Content);
-        Assert.True(result.Validation!.Approved);
-        Assert.Equal(0, result.Validation.UnsupportedClaimCount);
-        Assert.Equal(96, result.Validation.BriefAlignmentScore);
-        Assert.Equal("validation", result.Provenance!.GenerationStage);
-        Assert.Equal("o3", result.Provenance.ModelUsed);
-
-        var request = _factory.Rag.Requests.Last(r =>
-            r.Path == "/v1/generate"
-            && r.Body.Contains("\"generationStage\":\"validation\"", StringComparison.Ordinal));
-        using var json = JsonDocument.Parse(request.Body);
-        var root = json.RootElement;
-        Assert.Equal(draft, root.GetProperty("draftContent").GetString());
-        Assert.Equal("social", root.GetProperty("canonicalBrief").GetProperty("contentType").GetString());
-        Assert.Equal("partner", root.GetProperty("sources")[0].GetProperty("crawlType").GetString());
-        Assert.Equal("custom", root.GetProperty("modelPolicyPreset").GetString());
-        Assert.Equal("o3", root.GetProperty("stageModelOverrides").GetProperty("validation").GetString());
+        Assert.DoesNotContain(
+            _factory.Rag.Requests,
+            r => r.Path == "/v1/generate");
     }
 
     [Fact]
@@ -368,106 +194,72 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
     }
 
     [Fact]
-    public async Task Validation_missing_typed_scores_fails_closed()
-    {
-        _factory.Rag.MalformedValidation = true;
-        try
-        {
-            using var scope = _factory.Services.CreateScope();
-            var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
-            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                service.GenerateAsync(
-                    GeekApiTestFactory.OwnerUserId.ToString(),
-                    new RagGenerateRequest
-                    {
-                        WritingIntent = RagWritingIntents.TechnicalArticle,
-                        Topic = "Malformed validation",
-                        GenerationStage = "validation",
-                        DraftContent = "# Draft\n\n## Evidence\n\nA claim.",
-                        Sources =
-                        [
-                            new RagGenerateSourceDto
-                            {
-                                PageId = RagProtocolStubHandler.ArticlePageId,
-                                Url = RagProtocolStubHandler.ArticleUrl,
-                                Kind = "page",
-                            },
-                        ],
-                        CanonicalBrief = JsonSerializer.SerializeToElement(new
-                        {
-                            version = "gcc-v2-generation-brief.v1",
-                            contentType = "blog",
-                        }),
-                        ModelPolicyPreset = "best-quality",
-                        ModelPolicyVersion = ContentModelPolicy.CurrentVersion,
-                        RequestedModel = ContentModelPolicy.O3,
-                        SkillExecution = GccV2SkillCatalog.Resolve("blog"),
-                        RequireCiteable = true,
-                    },
-                    default));
-
-            Assert.Contains("missing or malformed", error.Message, StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            _factory.Rag.MalformedValidation = false;
-        }
-    }
-
-    [Fact]
-    public async Task Strict_repair_contract_preserves_stage_runs_templates_attempt_and_skills()
+    public async Task Generate_without_create_library_fails_closed()
     {
         using var scope = _factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
-        var partnerRunId = Guid.NewGuid();
-        var competitorRunId = Guid.NewGuid();
-        var attemptId = Guid.NewGuid().ToString("D");
-        var snapshot = GccV2SkillCatalog.Resolve("ads");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateAsync(
+                GeekApiTestFactory.OwnerUserId.ToString(),
+                new RagGenerateRequest
+                {
+                    WritingIntent = RagWritingIntents.TechnicalArticle,
+                    Topic = "Legacy generate path",
+                    GenerationStage = "validation",
+                    RequireCiteable = true,
+                },
+                default));
 
+        Assert.Contains("CreateLibraryDraft", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Create_library_validation_stage_returns_local_validation()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
+        const string draft = "# Draft\n\n## Introduction\n\nA source-grounded short form.";
+        var partnerRunId = Guid.NewGuid();
         var result = await service.GenerateAsync(
             GeekApiTestFactory.OwnerUserId.ToString(),
             new RagGenerateRequest
             {
-                WritingIntent = RagWritingIntents.SocialAd,
-                Topic = "Repair grounded ad copy",
+                WritingIntent = RagWritingIntents.TechnicalArticle,
+                Topic = "Library validation",
                 PartnerRunId = partnerRunId,
-                CompetitorRunId = competitorRunId,
-                AdTemplates =
-                [
-                    new RagAdTemplateDto
-                    {
-                        Id = "pas",
-                        Name = "PAS",
-                        Body = "Problem. Agitate. Solve.",
-                    },
-                ],
-                GenerationStage = "repair",
-                SectionKey = "ad",
-                SectionHeading = "Advertising variation",
-                SectionBrief = "Remove unsupported claims.",
-                ModelPolicyPreset = "best-quality",
-                ModelPolicyVersion = ContentModelPolicy.CurrentVersion,
-                RequestedModel = ContentModelPolicy.O3,
-                AttemptId = attemptId,
-                SkillExecution = snapshot,
-                RequireCiteable = true,
+                GenerationStage = "validation",
+                DraftContent = draft,
+                CreateLibraryDraft = true,
+                ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
             },
             default);
 
-        Assert.Equal("repair", result.Provenance?.GenerationStage);
-        Assert.Equal(attemptId, result.Provenance?.AttemptId);
-        Assert.Equal(snapshot.SnapshotHash, result.Provenance?.Skills?.SnapshotHash);
-        var captured = _factory.Rag.Requests.Last(request =>
-            request.Path == "/v1/generate"
-            && request.Body.Contains("\"generationStage\":\"repair\"", StringComparison.Ordinal));
-        using var json = JsonDocument.Parse(captured.Body);
-        var root = json.RootElement;
-        Assert.Equal(partnerRunId.ToString("D"), root.GetProperty("partnerRunId").GetString());
-        Assert.Equal(competitorRunId.ToString("D"), root.GetProperty("competitorRunId").GetString());
-        Assert.Equal("Problem. Agitate. Solve.",
-            root.GetProperty("adTemplates")[0].GetProperty("body").GetString());
-        Assert.Equal(RagProducerCapabilities.RequiredExecutionVersion,
-            root.GetProperty("executionVersion").GetString());
+        Assert.Equal(draft, result.Content);
+        Assert.True(result.Validation!.Approved);
+        Assert.Equal(RagProducerCapabilities.CreateLibraryExecutionVersion, result.Provenance?.ExecutionVersion);
+        Assert.DoesNotContain(
+            _factory.Rag.Requests,
+            r => r.Path == "/v1/generate");
+    }
+
+    [Fact]
+    public async Task Create_library_repair_requires_create_library_draft_flag()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateAsync(
+                GeekApiTestFactory.OwnerUserId.ToString(),
+                new RagGenerateRequest
+                {
+                    WritingIntent = RagWritingIntents.SocialAd,
+                    Topic = "Repair grounded ad copy",
+                    PartnerRunId = Guid.NewGuid(),
+                    GenerationStage = "repair",
+                    SectionHeading = "Advertising variation",
+                    RequireCiteable = true,
+                },
+                default));
     }
 
     [Fact]
@@ -640,12 +432,6 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             var runId = Guid.NewGuid();
             Assert.Null(await client.EnqueueIndexAsync(runId));
             Assert.Null(await client.GetPageMarkdownAsync(RagProtocolStubHandler.ArticlePageId));
-            Assert.Null(await client.GenerateAsync(new GeekCrawlerRagGenerateRequest
-            {
-                WritingIntent = "blog",
-                Topic = "Unavailable",
-            }));
-
             var query = await client.QueryAsync("unavailable", runId);
             Assert.NotNull(query);
             Assert.Empty(query.Pages);

@@ -47,8 +47,8 @@ public sealed class RagGenerateRequest
     /// <summary>Expected effective model, used locally to reject producer substitution.</summary>
     public string? RequestedModel { get; set; }
     /// <summary>
-    /// Legacy: force Geek-Crawler-Rag <c>/v1/generate</c>. Create uses
-    /// <see cref="CreateLibraryDraft"/> instead (RAG = library only).
+    /// When true, canonical Create PLAN/WRITE/VALIDATE must fail if RAG library drafting is unavailable.
+    /// Does not call <c>/v1/generate</c> — use <see cref="CreateLibraryDraft"/> for drafting.
     /// </summary>
     public bool RequireCiteable { get; set; }
     /// <summary>
@@ -96,7 +96,9 @@ public sealed class RagGenerateProvenanceDto
 
 public static class RagProducerCapabilities
 {
+    /// <summary>Legacy rag-generate.v2 — removed; retained for migration checks only.</summary>
     public const string RequiredExecutionVersion = "rag-generate.v2";
+    /// <summary>Legacy rag-generate.v3 agent generate — removed; Create uses library drafting.</summary>
     public const string AgentExecutionVersion = "rag-generate.v3";
     /// <summary>
     /// Create's canonical writer: GeekAPI drafts grounded on RAG query/pages.
@@ -332,7 +334,7 @@ public sealed class RagGenerateResponse
     public bool SoftDisabled { get; init; }
     public string? ModelUsed { get; init; }
     public string? RetrievalMode { get; init; }
-    public string PromptVersion { get; init; } = "rag-generate/1";
+    public string PromptVersion { get; init; } = "";
     public RagGenerateProvenanceDto? Provenance { get; init; }
     public RagValidationDto? Validation { get; init; }
     public RagAgentExecutionProvenanceDto? AgentExecution { get; init; }

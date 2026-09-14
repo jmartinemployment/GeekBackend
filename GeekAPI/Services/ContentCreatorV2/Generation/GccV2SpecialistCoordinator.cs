@@ -43,55 +43,36 @@ public sealed class GccV2SpecialistCoordinator(
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public async Task PrepareProducerAsync(
+    // Primary-ctor deps retained for DI shape; specialist RAG generate path is removed.
+    private readonly GccV2AgentTeamResolver _teams = teams;
+    private readonly GccV2SkillSnapshotRegistry _skillSnapshots = skillSnapshots;
+    private readonly GccV2AgentExecutionFactory _executions = executions;
+    private readonly RagGenerateService _rag = rag;
+
+    public Task PrepareProducerAsync(
         GccV2JobDto job,
         Guid ownerUserId,
         RagGenerateRequest producerRequest,
         GccV2SignedSkillExecutionEnvelopeV2 producerEnvelope,
         CancellationToken ct)
     {
-        var snapshot = teams.ValidatePersisted(job);
-        var stage = producerRequest.GenerationStage;
-        var coordinatorExecutionId = Guid.NewGuid().ToString("D");
-        var persisted = await LoadArtifactsAsync(job.Id, ct);
-        var contributions = persisted.Contributions.ToList();
-        var reviews = persisted.Reviews.ToList();
-        foreach (var item in Participants(snapshot, stage, "contributor"))
+        // Agent-team RAG /v1/generate specialists are removed. Create drafting is GeekAPI
+        // CreateLibraryDraft only — do not call RAG generate for contributors/producers.
+        if (!producerRequest.CreateLibraryDraft
+            || producerRequest.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion
+            || producerRequest.ExecutionVersion == RagProducerCapabilities.RequiredExecutionVersion)
         {
-            var attemptId = Guid.NewGuid().ToString("D");
-            var envelope = await skillSnapshots.BuildEnvelopeAsync(job, attemptId, stage, ct);
-            var request = Clone(producerRequest);
-            request.ExecutionVersion = RagProducerCapabilities.AgentExecutionVersion;
-            request.JobId = job.Id.ToString("D");
-            request.AttemptId = attemptId;
-            request.SignedSkillExecution = envelope;
-            request.SpecialistContributions = contributions;
-            request.SpecialistReviews = reviews;
-            request.AgentExecution = await executions.CreateForMemberAsync(
-                job, attemptId, stage, "contributor", coordinatorExecutionId,
-                item.Member, envelope, request, ct);
-            var response = await rag.GenerateAsync(job.OwnerUserId, request, ct)
-                ?? throw new InvalidOperationException($"Contributor '{item.Member.Slug}' returned no response.");
-            var contribution = response.SpecialistContribution
-                ?? throw new InvalidOperationException($"Contributor '{item.Member.Slug}' omitted specialistContribution.");
-            await PersistReturnedAsync(job, ownerUserId, item.Member, item.Participation,
-                request.AgentExecution, contribution, response.SpecialistArtifactDigest, ct);
-            if (!contributions.Any(x =>
-                GccV2AgentExecutionFactory.CanonicalDigest(x) == response.SpecialistArtifactDigest))
-                contributions.Add(contribution);
+            throw new InvalidOperationException(
+                "Agent RAG generate is removed. Create must use CreateLibraryDraft with gcc-create-library.v1.");
         }
 
-        producerRequest.ExecutionVersion = RagProducerCapabilities.AgentExecutionVersion;
-        producerRequest.JobId = job.Id.ToString("D");
+        _ = (job, ownerUserId, producerEnvelope, ct);
+        producerRequest.ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion;
         producerRequest.SignedSkillExecution = producerEnvelope;
-        producerRequest.SpecialistContributions = contributions;
-        producerRequest.SpecialistReviews = reviews;
-        producerRequest.AgentExecution = await executions.CreateAsync(
-            job, producerRequest.AttemptId, stage, "producer", coordinatorExecutionId,
-            producerEnvelope, producerRequest, ct);
+        return Task.CompletedTask;
     }
 
-    public async Task CompleteProducerAndRunReviewersAsync(
+    public Task CompleteProducerAndRunReviewersAsync(
         GccV2JobDto job,
         Guid ownerUserId,
         RagGenerateRequest producerRequest,
@@ -99,74 +80,19 @@ public sealed class GccV2SpecialistCoordinator(
         object canonicalOutput,
         CancellationToken ct)
     {
-        var snapshot = teams.ValidatePersisted(job);
-        var stage = producerRequest.GenerationStage;
-        var producers = Participants(snapshot, stage, "producer").ToList();
-        if (producers.Count != 1)
-            throw new InvalidOperationException($"The team must have exactly one producer for {stage}.");
-        var producerExecution = producerResponse.AgentExecution
-            ?? throw new InvalidOperationException("Producer response omitted agentExecution provenance.");
-        var canonicalElement = JsonSerializer.SerializeToElement(canonicalOutput, Json);
-        var canonicalDigest = GccV2AgentExecutionFactory.CanonicalDigest(canonicalOutput);
-        await PersistAsync(job, ownerUserId, producers[0].Member, producers[0].Participation,
-            producerExecution.StageExecutionId, canonicalDigest, canonicalElement, ct);
-
-        var coordinatorExecutionId = producerExecution.CoordinatorExecutionId;
-        var contributions = producerRequest.SpecialistContributions?.ToList() ?? [];
-        var reviews = producerRequest.SpecialistReviews?.ToList() ?? [];
-        var currentReviews = new List<RagSpecialistReviewDto>();
-        foreach (var item in Participants(snapshot, stage, "reviewer"))
+        if (!producerRequest.CreateLibraryDraft
+            || producerRequest.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion
+            || producerRequest.ExecutionVersion == RagProducerCapabilities.RequiredExecutionVersion)
         {
-            var attemptId = Guid.NewGuid().ToString("D");
-            var envelope = await skillSnapshots.BuildEnvelopeAsync(job, attemptId, stage, ct);
-            var request = Clone(producerRequest);
-            request.AttemptId = attemptId;
-            request.JobId = job.Id.ToString("D");
-            request.SignedSkillExecution = envelope;
-            request.SpecialistContributions = contributions;
-            request.SpecialistReviews = reviews;
-            request.AgentExecution = await executions.CreateForMemberAsync(
-                job, attemptId, stage, "reviewer", coordinatorExecutionId,
-                item.Member, envelope, request, ct);
-            var response = await rag.GenerateAsync(job.OwnerUserId, request, ct)
-                ?? throw new InvalidOperationException($"Reviewer '{item.Member.Slug}' returned no response.");
-            var review = response.SpecialistReview
-                ?? throw new InvalidOperationException($"Reviewer '{item.Member.Slug}' omitted specialistReview.");
-            await PersistReturnedAsync(job, ownerUserId, item.Member, item.Participation,
-                request.AgentExecution, review, response.SpecialistArtifactDigest, ct);
-            currentReviews.Add(review);
-            if (!reviews.Any(x =>
-                GccV2AgentExecutionFactory.CanonicalDigest(x) == response.SpecialistArtifactDigest))
-                reviews.Add(review);
+            throw new InvalidOperationException(
+                "Agent RAG generate is removed. Create must use CreateLibraryDraft with gcc-create-library.v1.");
         }
 
-        var outcome = ClassifyReviews(currentReviews);
-        if (outcome.Decision == "changesRequired")
-        {
-            await events.AppendAsync(job.Id, ownerUserId, "ReviewerChangesRequired", new
-            {
-                stage,
-                issueCount = outcome.Issues.Count,
-                issues = outcome.Issues,
-            }, ct: ct);
-            var review = new GccV2SpecialistReviewException(stage, outcome);
-            throw new RagAgentStoppedException(
-                RagAgentStopReason.ReviewerChangesRequired, review.Message, outcome.Issues);
-        }
-        if (outcome.Decision == "rejected")
-        {
-            await events.AppendAsync(job.Id, ownerUserId, "ReviewerRejected", new
-            {
-                stage,
-                issueCount = outcome.Issues.Count,
-                issues = outcome.Issues,
-            }, ct: ct);
-            var review = new GccV2SpecialistReviewException(stage, outcome);
-            throw new RagAgentStoppedException(
-                RagAgentStopReason.ReviewerRejected, review.Message, outcome.Issues);
-        }
+        _ = (job, ownerUserId, producerResponse, canonicalOutput, ct);
+        return Task.CompletedTask;
     }
 
+    // Retained helpers for digest/review classification used by tests and VALIDATE repair mapping.
     private async Task PersistReturnedAsync(
         GccV2JobDto job, Guid ownerUserId, GccV2AgentTeamMember member,
         GccV2AgentTeamParticipation participation, RagAgentExecutionRequestDto execution,

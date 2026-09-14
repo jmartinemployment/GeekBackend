@@ -5,8 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace GeekAPI.Controllers.Rag;
 
 /// <summary>
-/// Intent-routed RAG writing for Content Creator v2 / operators.
-/// Soft-disabled when Geek-Crawler-Rag is unset or <c>GEEK_RAG_GENERATE_ENABLED=false</c>.
+/// RAG evidence library for Content Creator v2: status, entity catalog, template index.
+/// Drafting uses <see cref="RagGenerateService"/> with <c>CreateLibraryDraft</c> (query + pages only).
 /// </summary>
 [ApiController]
 [Route("api/rag")]
@@ -28,13 +28,13 @@ public sealed class RagController : ControllerBase
         return Ok(new
         {
             ok = true,
-            product = "geek-rag-generate",
-            available = status.Available,
+            product = "geek-rag-library",
+            available = status.RagClientEnabled,
             userId = _user.IsAuthenticated ? _user.UserId.ToString("D") : null,
         });
     }
 
-    /// <summary>Soft-detect availability + intent/entity catalogs for the phi UI.</summary>
+    /// <summary>Library availability + intent/entity catalogs for the phi UI.</summary>
     [HttpGet("status")]
     public ActionResult<RagGenerateStatusDto> Status()
     {
@@ -47,29 +47,6 @@ public sealed class RagController : ControllerBase
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         return Ok(new { entities = RagEntitySeedList.Names });
-    }
-
-    [HttpPost("generate")]
-    public async Task<ActionResult<RagGenerateResponse>> Generate(
-        [FromBody] RagGenerateRequest? request,
-        CancellationToken ct)
-    {
-        if (!_user.IsAuthenticated) return Unauthorized();
-        if (request is null)
-            return BadRequest(new { error = "body required" });
-
-        try
-        {
-            var result = await _generate.GenerateAsync(
-                _user.UserId.ToString("D"),
-                request,
-                ct).ConfigureAwait(false);
-            return Ok(result);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
     }
 
     /// <summary>Phase D2 — upsert ad templates into Geek-Crawler-Rag (owned by content-creator-v2).</summary>

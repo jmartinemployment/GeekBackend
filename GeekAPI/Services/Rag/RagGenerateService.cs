@@ -1,8 +1,7 @@
 using System.Text;
 using System.Text.Json;
-using GeekAPI.HttpClients;
-using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
@@ -11,10 +10,8 @@ using GeekApplication.Models.GeekCrawler;
 namespace GeekAPI.Services.Rag;
 
 /// <summary>
-/// Intent-routed drafts grounded on partner + competitor Geek-Crawler-Rag chunks.
-/// Soft-disabled when RAG URL unset or <c>GEEK_RAG_GENERATE_ENABLED=false</c>.
-/// Phase F: long-form uses o1/o3 via <see cref="RagModelRouter"/>.
-/// Phase D: slides/strategy + ad-template few-shot (soft-disable when Rag index missing).
+/// Create library drafts: RAG query + pages only; GeekAPI completes via <see cref="DraftFromCreateLibraryAsync"/>.
+/// Legacy <c>/v1/generate</c> and non-library generate paths are removed (fail closed).
 /// </summary>
 public sealed class RagGenerateService
 {
@@ -25,59 +22,45 @@ public sealed class RagGenerateService
     };
 
     private readonly IGeekCrawlerRagClient _rag;
-    private readonly HttpGeekCrawlerRepository _crawlerRepo;
     private readonly IContentProviderFactory _providers;
     private readonly ILogger<RagGenerateService> _logger;
-    private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
-    private readonly bool _generateEnabled;
     private readonly bool _graphEnabled;
     private readonly bool _adTemplateIndexEnabled;
-    private readonly bool _citeableGenerateEnabled;
 
     public RagGenerateService(
         IGeekCrawlerRagClient rag,
-        HttpGeekCrawlerRepository crawlerRepo,
         IContentProviderFactory providers,
-        GccV2SkillSnapshotRegistry skillSnapshots,
         ILogger<RagGenerateService> logger)
     {
         _rag = rag;
-        _crawlerRepo = crawlerRepo;
         _providers = providers;
-        _skillSnapshots = skillSnapshots;
         _logger = logger;
-        _generateEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_GENERATE_ENABLED"));
-        // Default ON now that Geek-Crawler-Rag Phase D1/D2 ships; set =false to soft-disable.
         _graphEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_GRAPH_ENABLED"));
         _adTemplateIndexEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_AD_TEMPLATES_ENABLED"));
-        // Default ON — Rag multi-step citeable generate; set =false to force GeekAPI one-shot.
-        _citeableGenerateEnabled = ParseEnabledFlag(
-            Environment.GetEnvironmentVariable("GEEK_RAG_CITEABLE_GENERATE_ENABLED"));
     }
 
     public RagGenerateStatusDto GetStatus()
     {
         var ragOn = _rag.IsEnabled;
-        var genOn = _generateEnabled && ragOn;
         string? reason = null;
-        if (!_generateEnabled)
-            reason = "RAG generate soft-disabled (GEEK_RAG_GENERATE_ENABLED=false).";
-        else if (!ragOn)
+        if (!ragOn)
             reason = "Geek-Crawler-Rag client disabled (GEEK_CRAWLER_RAG_URL unset).";
 
+        // Library availability only — RAG generate is removed (CiteableGenerateAvailable
+        // means Create can use library query + GeekAPI draft, not /v1/generate).
         return new RagGenerateStatusDto
         {
-            Available = genOn,
+            Available = ragOn,
             RagClientEnabled = ragOn,
-            GenerateEnabled = _generateEnabled,
+            GenerateEnabled = false,
             Reason = reason,
             WritingIntents = RagWritingIntents.All,
             EntitySeeds = RagEntitySeedList.Names,
             LongFormModel = RagModelRouter.ResolveModel(RagRetrievalFamily.LongForm),
             ShortFormModel = RagModelRouter.ResolveModel(RagRetrievalFamily.ShortForm),
-            GraphRetrievalAvailable = genOn && _graphEnabled,
-            AdTemplateIndexAvailable = genOn && _adTemplateIndexEnabled,
-            CiteableGenerateAvailable = genOn && _citeableGenerateEnabled && ragOn,
+            GraphRetrievalAvailable = ragOn && _graphEnabled,
+            AdTemplateIndexAvailable = ragOn && _adTemplateIndexEnabled,
+            CiteableGenerateAvailable = false,
             ModelPolicyVersion = ContentModelPolicy.CurrentVersion,
             ApprovedStageModels = ContentModelPolicy.ApprovedStageModels,
         };
@@ -88,287 +71,13 @@ public sealed class RagGenerateService
         RagGenerateRequest request,
         CancellationToken ct)
     {
-        // #region agent log
-        try
+        if (!request.CreateLibraryDraft)
         {
-            var line = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                sessionId = "e6b2fc",
-                runId = "post-fix",
-                hypothesisId = "A",
-                location = "RagGenerateService.GenerateAsync:entry",
-                message = "GenerateAsync entry",
-                data = new
-                {
-                    createLibraryDraft = request.CreateLibraryDraft,
-                    requireCiteable = request.RequireCiteable,
-                    executionVersion = request.ExecutionVersion,
-                    stage = request.GenerationStage,
-                },
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            });
-            await System.IO.File.AppendAllTextAsync(
-                "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
-                line + "\n",
-                ct).ConfigureAwait(false);
-        }
-        catch { /* local debug file may be absent on Railway */ }
-        // #endregion
-
-        if (request.CreateLibraryDraft)
-            return await DraftFromCreateLibraryAsync(ownerUserId, request, ct).ConfigureAwait(false);
-
-        var status = GetStatus();
-        if (!status.Available)
-        {
-            if (request.RequireCiteable)
-                throw new InvalidOperationException(
-                    $"{status.Reason ?? "RAG generate unavailable."} Canonical PLAN/WRITE cannot continue without citeable RAG.");
-            return new RagGenerateResponse
-            {
-                Intent = request.WritingIntent?.Trim() ?? "",
-                SoftDisabled = true,
-                Content = null,
-                PromptVersion = "rag-generate/unavailable",
-                Warnings = [status.Reason ?? "RAG generate unavailable."],
-            };
+            throw new InvalidOperationException(
+                "RAG generate is removed. Create must set CreateLibraryDraft=true to draft using RAG query and pages only.");
         }
 
-        if (!RagWritingIntents.TryNormalize(request.WritingIntent, out var intent))
-            throw new ArgumentException(
-                "writingIntent must be one of: " + string.Join(", ", RagWritingIntents.All));
-
-        var topic = (request.Topic ?? "").Trim();
-        if (topic.Length < 3)
-            throw new ArgumentException("topic is required (min 3 characters).");
-
-        var entities = NormalizeEntities(request.TargetEntities);
-        var templates = NormalizeTemplates(request.AdTemplates).ToList();
-        var family = RagWritingIntents.FamilyOf(intent);
-        var warnings = new List<string>();
-        var model = string.IsNullOrWhiteSpace(request.RequestedModel)
-            ? RagModelRouter.ResolveModel(family)
-            : request.RequestedModel.Trim();
-        var stage = NormalizeGenerationStage(request.GenerationStage);
-        if (request.RequireCiteable)
-        {
-            var capabilities = await _rag.GetCapabilitiesAsync(ct).ConfigureAwait(false);
-            var agentV3 = request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion;
-            var envelopeVersion = agentV3
-                ? request.SignedSkillExecution?.EnvelopeVersion
-                : request.SkillExecution?.EnvelopeVersion;
-            if (agentV3)
-            {
-                if (request.SignedSkillExecution is null || request.AgentExecution is null)
-                    throw new InvalidOperationException("Canonical v3 generation requires signed v2 skillExecution and agentExecution.");
-                _skillSnapshots.Validate(request.SignedSkillExecution, stage);
-                if (request.SignedSkillExecution.AttemptId != request.AttemptId)
-                    throw new InvalidOperationException("Signed skill snapshot attemptId mismatch.");
-                if (string.IsNullOrWhiteSpace(request.JobId)
-                    || request.JobId != request.SignedSkillExecution.JobId
-                    || request.JobId != request.AgentExecution.JobId
-                    || request.AttemptId != request.AgentExecution.AttemptId
-                    || stage != request.AgentExecution.Stage)
-                    throw new InvalidOperationException(
-                        "v3 jobId, attemptId, and stage must match both signed execution snapshots.");
-            }
-            else
-            {
-                if (request.SkillExecution is null)
-                    throw new InvalidOperationException("Canonical v2 generation requires immutable v1 skillExecution.");
-                GccV2SkillCatalog.ForStage(request.SkillExecution, stage);
-            }
-            if (!capabilities.ExecutionVersions.Contains(request.ExecutionVersion, StringComparer.Ordinal)
-                || envelopeVersion is null
-                || !capabilities.SkillEnvelopeVersions.Contains(envelopeVersion, StringComparer.Ordinal)
-                || !capabilities.GenerationStages.Contains(stage, StringComparer.Ordinal)
-                || (agentV3 && !capabilities.ToolsAllowed)
-                || (!agentV3 && (!string.Equals(
-                    capabilities.SpecialistExecutorVersion,
-                    RagProducerCapabilities.RequiredSpecialistExecutorVersion,
-                    StringComparison.Ordinal)
-                || RagProducerCapabilities.RequiredSpecialists.Any(required =>
-                    !capabilities.SpecialistExecutors.Contains(required, StringComparer.Ordinal))
-                || capabilities.ToolsAllowed)))
-                throw new InvalidOperationException(
-                    $"RAG producer does not support execution '{request.ExecutionVersion}', skill envelope " +
-                    $"'{envelopeVersion}', stage '{stage}', and its required execution boundary.");
-        }
-        if (stage == "section" && string.IsNullOrWhiteSpace(request.SectionHeading))
-            throw new ArgumentException("sectionHeading is required for section generation.");
-        if (stage is "validation" or "finalSynthesis")
-        {
-            if (string.IsNullOrWhiteSpace(request.DraftContent))
-                throw new ArgumentException($"draftContent is required for {stage} generation.");
-            if (request.CanonicalBrief is null)
-                throw new ArgumentException($"canonicalBrief is required for {stage} generation.");
-            if (request.Sources is not { Count: > 0 })
-                throw new ArgumentException($"sources are required for {stage} generation.");
-            if (string.IsNullOrWhiteSpace(request.ModelPolicyPreset))
-                throw new ArgumentException($"modelPolicyPreset is required for {stage} generation.");
-            if (string.IsNullOrWhiteSpace(request.ModelPolicyVersion))
-                throw new ArgumentException($"modelPolicyVersion is required for {stage} generation.");
-            if (string.IsNullOrWhiteSpace(request.RequestedModel))
-                throw new ArgumentException($"requestedModel is required for {stage} generation.");
-        }
-
-        var partnerRunId = request.PartnerRunId;
-        var competitorRunId = request.CompetitorRunId;
-        if (!request.RequireCiteable)
-        {
-            partnerRunId ??= (await PickLatestRunAsync(ownerUserId, CrawlTypes.Partner, ct).ConfigureAwait(false))?.Id;
-            competitorRunId ??= (await PickLatestRunAsync(ownerUserId, CrawlTypes.Competitors, ct).ConfigureAwait(false))?.Id;
-        }
-
-        if (partnerRunId is null && competitorRunId is null)
-        {
-            warnings.Add(
-                request.RequireCiteable
-                    ? "No immutable partner or competitor source run IDs were supplied."
-                    : "No partner or competitors crawl runs found for this account. Generate continues with empty research.");
-        }
-
-        if (_citeableGenerateEnabled)
-        {
-            var citeable = await TryCiteableGenerateAsync(
-                    intent,
-                    topic,
-                    entities,
-                    templates,
-                    partnerRunId,
-                    competitorRunId,
-                    family,
-                    model,
-                    request,
-                    warnings,
-                    ct)
-                .ConfigureAwait(false);
-            if (citeable is not null)
-                return citeable;
-            if (stage != "complete" || request.RequireCiteable)
-            {
-                throw new InvalidOperationException(
-                    $"Citeable RAG {stage} generation is unavailable. Verify GEEK_CRAWLER_RAG_URL, " +
-                    "GEEK_RAG_GENERATE_ENABLED, and GEEK_RAG_CITEABLE_GENERATE_ENABLED, then retry.");
-            }
-            warnings.Add("Rag citeable generate unavailable; falling back to GeekAPI one-shot.");
-        }
-
-        string? retrievalMode = null;
-        if (family == RagRetrievalFamily.Slides)
-        {
-            if (_graphEnabled)
-                retrievalMode = "graph";
-            else
-                warnings.Add(
-                    "GraphRAG soft-disabled (GEEK_RAG_GRAPH_ENABLED=false). Using parent hybrid retrieval for slides/strategy.");
-        }
-
-        // Corpus /v1/query: topK is distinct texts (2026-09-11). ShortForm used to
-        // skip parent collapse via preferChild:true — largest proportional fill
-        // change on the tightest budget. Re-measure prompt token use before
-        // lowering topK. Templates (/v1/templates/query) are a separate path.
-        var (preferParent, preferChild, topK) = family switch
-        {
-            RagRetrievalFamily.ShortForm => ((bool?)false, (bool?)true, 5),
-            RagRetrievalFamily.Battlecard => ((bool?)true, (bool?)false, 8),
-            RagRetrievalFamily.Slides => ((bool?)true, (bool?)false, 10),
-            _ => ((bool?)true, (bool?)false, 10),
-        };
-
-        var partnerQuery = await QueryRunAsync(
-            partnerRunId,
-            BuildNeed(intent, topic, entities, CrawlTypes.Partner),
-            CrawlTypes.Partner,
-            topK,
-            preferParent,
-            preferChild,
-            entities,
-            retrievalMode,
-            warnings,
-            ct).ConfigureAwait(false);
-
-        var competitorQuery = await QueryRunAsync(
-            competitorRunId,
-            BuildNeed(intent, topic, entities, CrawlTypes.Competitors),
-            CrawlTypes.Competitors,
-            topK,
-            preferParent,
-            preferChild,
-            entities,
-            retrievalMode,
-            warnings,
-            ct).ConfigureAwait(false);
-
-        var partnerPages = partnerQuery.Pages;
-        var competitorPages = competitorQuery.Pages;
-
-        if (family == RagRetrievalFamily.ShortForm)
-        {
-            if (_adTemplateIndexEnabled && templates.Count < 3)
-            {
-                var fromIndex = await _rag.QueryTemplatesAsync(
-                    need: $"{intent}; {topic}",
-                    topK: 3,
-                    entityTags: entities.Count > 0 ? entities : null,
-                    ct: ct).ConfigureAwait(false);
-                if (fromIndex is not null)
-                {
-                    if (!string.IsNullOrWhiteSpace(fromIndex.Warning))
-                        warnings.Add(fromIndex.Warning);
-                    foreach (var t in fromIndex.Templates)
-                    {
-                        if (templates.Any(x => string.Equals(x.Id, t.Id, StringComparison.OrdinalIgnoreCase)))
-                            continue;
-                        templates.Add(new RagAdTemplateDto
-                        {
-                            Id = t.Id,
-                            Name = t.Name,
-                            Channel = t.Channel,
-                            Framework = t.Framework,
-                            Body = t.Body,
-                        });
-                        if (templates.Count >= 3) break;
-                    }
-                }
-            }
-
-            if (templates.Count == 0)
-            {
-                warnings.Add(
-                    "No ad templates supplied and none retrieved from Rag index. Short-form continues without few-shot exemplars.");
-            }
-        }
-
-        var sources = BuildSources(partnerPages, competitorPages, entities);
-        IReadOnlyList<RagThemeSourceDto>? themeSources = null;
-        if (family == RagRetrievalFamily.Slides)
-        {
-            themeSources = MapRagThemes(partnerQuery.Themes.Concat(competitorQuery.Themes).ToList());
-            if (themeSources.Count == 0)
-                themeSources = BuildThemeSources(partnerPages, competitorPages, entities);
-        }
-
-        var effectiveMode = retrievalMode
-                            ?? partnerQuery.Retrieval
-                            ?? competitorQuery.Retrieval
-                            ?? "hybrid";
-
-        return family switch
-        {
-            RagRetrievalFamily.Battlecard => await WriteBattlecardAsync(
-                intent, topic, entities, partnerPages, competitorPages, sources, warnings, model, effectiveMode, ct)
-                .ConfigureAwait(false),
-            RagRetrievalFamily.ShortForm => await WriteShortFormAsync(
-                intent, topic, entities, templates, partnerPages, competitorPages, sources, warnings, model, effectiveMode, ct)
-                .ConfigureAwait(false),
-            RagRetrievalFamily.Slides => await WriteSlidesAsync(
-                intent, topic, entities, partnerPages, competitorPages, sources, themeSources, warnings, model, effectiveMode, ct)
-                .ConfigureAwait(false),
-            _ => await WriteLongFormAsync(
-                intent, topic, entities, partnerPages, competitorPages, sources, warnings, model, effectiveMode, ct)
-                .ConfigureAwait(false),
-        };
+        return await DraftFromCreateLibraryAsync(ownerUserId, request, ct).ConfigureAwait(false);
     }
 
     public async Task<GeekCrawlerRagTemplateIndexResult?> IndexAdTemplatesAsync(
@@ -426,32 +135,6 @@ public sealed class RagGenerateService
 
         if (stage == "researchPlanning")
         {
-            // #region agent log
-            try
-            {
-                var line = System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    sessionId = "e6b2fc",
-                    runId = "post-fix",
-                    hypothesisId = "B",
-                    location = "RagGenerateService.DraftFromCreateLibraryAsync:researchPlanning",
-                    message = "Create library researchPlanning run IDs",
-                    data = new
-                    {
-                        partnerRunId,
-                        competitorRunId,
-                        hasCanonicalBrief = request.CanonicalBrief is not null,
-                    },
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                });
-                await System.IO.File.AppendAllTextAsync(
-                    "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
-                    line + "\n",
-                    ct).ConfigureAwait(false);
-            }
-            catch { /* local debug file may be absent on Railway */ }
-            // #endregion
-
             // Partner/competitor library runs are optional enrichment for blog/pillar.
             // Pre-PLAN evidence gate already fail-closes when a content type requires them.
             // Project-site grounding is handled in PLAN separately — do not require crawler runs here.
@@ -887,43 +570,6 @@ public sealed class RagGenerateService
         return string.Join("; ", parts);
     }
 
-    private static IReadOnlyList<RagThemeSourceDto> MapRagThemes(IReadOnlyList<GeekCrawlerRagThemeDto> themes)
-    {
-        return themes
-            .Where(t => !string.IsNullOrWhiteSpace(t.Label))
-            .Select(t => new RagThemeSourceDto
-            {
-                Label = t.Label,
-                Relationship = t.Relationship,
-                Entity = t.Entity,
-                Url = t.Url,
-            })
-            .Take(16)
-            .ToList();
-    }
-
-    private async Task<GeekCrawlerRunDto?> PickLatestRunAsync(
-        string ownerUserId,
-        string crawlType,
-        CancellationToken ct)
-    {
-        var runs = await _crawlerRepo.ListRunsForUserAsync(ownerUserId, crawlType, limit: 20, ct)
-            .ConfigureAwait(false);
-        return runs
-            .OrderByDescending(r => StatusRank(r.Status))
-            .ThenByDescending(r => r.CompletedAtUtc ?? r.StartedAtUtc ?? r.CreatedAtUtc)
-            .FirstOrDefault();
-    }
-
-    private static int StatusRank(string? status) =>
-        status?.Trim().ToLowerInvariant() switch
-        {
-            "complete" => 3,
-            "external" => 2,
-            "running" => 1,
-            _ => 0,
-        };
-
     private async Task<RagGenerateResponse> WriteLongFormAsync(
         string intent,
         string topic,
@@ -952,154 +598,6 @@ public sealed class RagGenerateService
         {
             Intent = intent,
             Content = text,
-            Sources = sources,
-            Warnings = warnings,
-            ModelUsed = modelUsed,
-            RetrievalMode = retrievalMode,
-        };
-    }
-
-    private async Task<RagGenerateResponse> WriteShortFormAsync(
-        string intent,
-        string topic,
-        IReadOnlyList<string> entities,
-        IReadOnlyList<RagAdTemplateDto> templates,
-        IReadOnlyList<GccQuoteablePage> partner,
-        IReadOnlyList<GccQuoteablePage> competitor,
-        IReadOnlyList<RagGenerateSourceDto> sources,
-        List<string> warnings,
-        string model,
-        string retrievalMode,
-        CancellationToken ct)
-    {
-        var system = """
-            You write short-form copy (ads, social, blurbs). Prefer punchy impact points from research.
-            When FEW-SHOT AD TEMPLATES are provided, mirror their structure/framework while grounding
-            claims in the research excerpts — do not copy trademarks or invent unsupported claims.
-            Return JSON only: {"variations":["...","...","..."]} with 2–3 distinct options.
-            No rival CTAs.
-            """;
-        var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor);
-        if (templates.Count > 0)
-        {
-            user += "\n\nFEW-SHOT AD TEMPLATES (structure exemplars — adapt, do not plagiarize):\n";
-            foreach (var t in templates.Take(3))
-            {
-                user += $"- [{t.Name}] channel={t.Channel ?? "n/a"} framework={t.Framework ?? "n/a"}\n{t.Body}\n\n";
-            }
-        }
-
-        user += "\n\nProduce 2–3 short variations grounded in the top impact points.";
-
-        var (raw, modelUsed) = await CompleteAsync(system, user, model, temperature: 0.55, maxTokens: 1200, ct)
-            .ConfigureAwait(false);
-        var variations = ParseVariations(raw);
-        if (variations.Count == 0 && !string.IsNullOrWhiteSpace(raw))
-            variations = [raw.Trim()];
-
-        var sourceList = sources.ToList();
-        foreach (var t in templates.Take(3))
-        {
-            sourceList.Add(new RagGenerateSourceDto
-            {
-                Url = $"template://{t.Id}",
-                Title = t.Name,
-                Entity = t.Channel,
-                CrawlType = "ad-template",
-                Kind = "template",
-            });
-        }
-
-        return new RagGenerateResponse
-        {
-            Intent = intent,
-            Variations = variations,
-            Content = variations.Count > 0 ? variations[0] : null,
-            Sources = sourceList,
-            AppliedTemplates = templates.Count > 0 ? templates : null,
-            Warnings = warnings,
-            ModelUsed = modelUsed,
-            RetrievalMode = retrievalMode,
-        };
-    }
-
-    private async Task<RagGenerateResponse> WriteSlidesAsync(
-        string intent,
-        string topic,
-        IReadOnlyList<string> entities,
-        IReadOnlyList<GccQuoteablePage> partner,
-        IReadOnlyList<GccQuoteablePage> competitor,
-        IReadOnlyList<RagGenerateSourceDto> sources,
-        IReadOnlyList<RagThemeSourceDto>? themeSources,
-        List<string> warnings,
-        string model,
-        string retrievalMode,
-        CancellationToken ct)
-    {
-        var system = """
-            You write pitch-slide / strategy outlines for partner ecosystem storytelling.
-            Prefer theme-level structure (problem → insight → proof → differentiation → ask).
-            Return Markdown with ## Slide N: Title headings and 2–4 bullets per slide.
-            Use COMPETITOR research only for differentiation — no rival CTAs.
-            """;
-        var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor);
-        if (themeSources is { Count: > 0 })
-        {
-            user += "\n\nTHEME RELATIONSHIPS (entity-level hints):\n";
-            foreach (var t in themeSources.Take(12))
-                user += $"- {t.Label}" + (string.IsNullOrWhiteSpace(t.Relationship) ? "" : $" ({t.Relationship})") + "\n";
-        }
-
-        user += "\n\nProduce a 6–10 slide outline for this intent.";
-
-        var (text, modelUsed) = await CompleteAsync(system, user, model, temperature: 0.4, maxTokens: 3000, ct)
-            .ConfigureAwait(false);
-
-        return new RagGenerateResponse
-        {
-            Intent = intent,
-            Content = text,
-            Sources = sources,
-            ThemeSources = themeSources,
-            Warnings = warnings,
-            ModelUsed = modelUsed,
-            RetrievalMode = retrievalMode,
-        };
-    }
-
-    private async Task<RagGenerateResponse> WriteBattlecardAsync(
-        string intent,
-        string topic,
-        IReadOnlyList<string> entities,
-        IReadOnlyList<GccQuoteablePage> partner,
-        IReadOnlyList<GccQuoteablePage> competitor,
-        IReadOnlyList<RagGenerateSourceDto> sources,
-        List<string> warnings,
-        string model,
-        string retrievalMode,
-        CancellationToken ct)
-    {
-        var system = """
-            You write competitive battlecards for sales/enablement.
-            Return JSON only with keys:
-            partnerSummary (string), competitorSummary (string),
-            differentiators (string[]), risks (string[]).
-            Ground claims in the provided excerpts. Never invent features.
-            """;
-        var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor)
-                   + "\n\nProduce a battlecard comparing partner strengths vs competitor approaches.";
-
-        var (raw, modelUsed) = await CompleteAsync(system, user, model, temperature: 0.35, maxTokens: 2000, ct)
-            .ConfigureAwait(false);
-        var battlecard = ParseBattlecard(raw);
-
-        return new RagGenerateResponse
-        {
-            Intent = intent,
-            Battlecard = battlecard,
-            Content = battlecard is null
-                ? raw
-                : FormatBattlecardMarkdown(battlecard),
             Sources = sources,
             Warnings = warnings,
             ModelUsed = modelUsed,
@@ -1285,32 +783,6 @@ public sealed class RagGenerateService
         return list;
     }
 
-    private static IReadOnlyList<RagAdTemplateDto> NormalizeTemplates(IEnumerable<RagAdTemplateDto>? raw)
-    {
-        if (raw is null) return [];
-        var list = new List<RagAdTemplateDto>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in raw)
-        {
-            if (t is null) continue;
-            var body = (t.Body ?? "").Trim();
-            if (body.Length < 8) continue;
-            var id = string.IsNullOrWhiteSpace(t.Id) ? Guid.NewGuid().ToString("N")[..12] : t.Id.Trim();
-            if (!seen.Add(id)) continue;
-            list.Add(new RagAdTemplateDto
-            {
-                Id = id,
-                Name = string.IsNullOrWhiteSpace(t.Name) ? id : t.Name.Trim(),
-                Channel = t.Channel?.Trim(),
-                Framework = t.Framework?.Trim(),
-                Body = Truncate(body, 2000),
-            });
-            if (list.Count >= 5) break;
-        }
-
-        return list;
-    }
-
     internal static IReadOnlyList<string> ParseVariations(string raw)
     {
         var json = ExtractJsonObject(raw);
@@ -1356,361 +828,6 @@ public sealed class RagGenerateService
         if (start < 0 || end <= start) return null;
         return raw[start..(end + 1)];
     }
-
-    private static string FormatBattlecardMarkdown(RagBattlecardDto card)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("## Partner summary");
-        sb.AppendLine(card.PartnerSummary);
-        sb.AppendLine();
-        sb.AppendLine("## Competitor summary");
-        sb.AppendLine(card.CompetitorSummary);
-        sb.AppendLine();
-        sb.AppendLine("## Differentiators");
-        foreach (var d in card.Differentiators)
-            sb.AppendLine($"- {d}");
-        sb.AppendLine();
-        sb.AppendLine("## Risks / watch-outs");
-        foreach (var r in card.Risks)
-            sb.AppendLine($"- {r}");
-        return sb.ToString().Trim();
-    }
-
-    private async Task<RagGenerateResponse?> TryCiteableGenerateAsync(
-        string intent,
-        string topic,
-        IReadOnlyList<string> entities,
-        IReadOnlyList<RagAdTemplateDto> templates,
-        Guid? partnerRunId,
-        Guid? competitorRunId,
-        RagRetrievalFamily family,
-        string model,
-        RagGenerateRequest request,
-        List<string> warnings,
-        CancellationToken ct)
-    {
-        var stage = NormalizeGenerationStage(request.GenerationStage);
-        var mappedTemplates = templates
-            .Select(t => new GeekCrawlerRagTemplateDto
-            {
-                Id = t.Id,
-                Name = t.Name,
-                Channel = t.Channel,
-                Framework = t.Framework,
-                Body = t.Body,
-            })
-            .ToList();
-
-        var result = await _rag.GenerateAsync(
-            new GeekCrawlerRagGenerateRequest
-            {
-                WritingIntent = intent,
-                Topic = topic,
-                PartnerRunId = partnerRunId?.ToString("D"),
-                CompetitorRunId = competitorRunId?.ToString("D"),
-                TargetEntities = entities.Count > 0 ? entities : null,
-                AdTemplates = mappedTemplates.Count > 0 ? mappedTemplates : null,
-                GraphEnabled = _graphEnabled && family == RagRetrievalFamily.Slides,
-                GenerationStage = NormalizeGenerationStage(request.GenerationStage),
-                Outline = request.Outline?
-                    .Select(s => new GeekCrawlerRagOutlineSectionDto
-                    {
-                        Key = s.Key,
-                        Heading = s.Heading,
-                        Brief = s.Brief,
-                        EvidenceIds = s.EvidenceIds,
-                    })
-                    .ToList(),
-                SectionKey = request.SectionKey,
-                SectionHeading = request.SectionHeading,
-                SectionBrief = request.SectionBrief,
-                CompletedSectionSummaries = request.CompletedSectionSummaries,
-                DraftContent = request.DraftContent,
-                Sources = request.Sources?
-                    .Select(s => new GeekCrawlerRagGenerateSourceDto
-                    {
-                        PageId = s.PageId,
-                        Url = s.Url,
-                        Title = s.Title,
-                        Entity = s.Entity,
-                        CrawlType = s.CrawlType,
-                        Kind = s.Kind,
-                    })
-                    .ToList(),
-                CanonicalBrief = request.CanonicalBrief,
-                ModelPolicyPreset = request.ModelPolicyPreset,
-                ModelPolicyVersion = request.ModelPolicyVersion,
-                StageModelOverrides = request.StageModelOverrides,
-                ExecutionVersion = request.ExecutionVersion,
-                JobId = request.JobId,
-                AttemptId = request.AttemptId,
-                SkillExecution = request.SkillExecution,
-                SignedSkillExecution = request.SignedSkillExecution,
-                AgentExecution = request.AgentExecution,
-                SpecialistContributions = request.SpecialistContributions,
-                SpecialistReviews = request.SpecialistReviews,
-                ResearchPlan = request.ResearchPlan?
-                    .Select(q => new GeekCrawlerRagResearchQueryPlanDto(q.RunId, q.CrawlType, q.Need))
-                    .ToList(),
-            },
-            ct).ConfigureAwait(false);
-
-        if (result is null)
-            return null;
-        if (result.AgentFailure is { } failure)
-            throw new RagAgentStoppedException(failure.StopReason, failure.Detail);
-        if (result.AgentExecution?.StopReason is { } stop and not RagAgentStopReason.Completed)
-            throw new RagAgentStoppedException(stop, $"RAG agent stopped: {stop}.");
-        var returnedModel = result.Provenance?.ModelUsed ?? result.ModelUsed;
-        if (request.RequireCiteable
-            && !string.IsNullOrWhiteSpace(request.RequestedModel)
-            && string.IsNullOrWhiteSpace(returnedModel))
-            throw new InvalidOperationException(
-                "RAG response omitted model provenance; the requested model cannot be verified.");
-        if (!string.IsNullOrWhiteSpace(request.RequestedModel)
-            && !string.IsNullOrWhiteSpace(returnedModel)
-            && !string.Equals(request.RequestedModel, returnedModel, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"RAG returned model '{returnedModel}' after '{request.RequestedModel}' was explicitly requested. " +
-                "Silent model substitution is not allowed.");
-        }
-        if (!string.IsNullOrWhiteSpace(request.ModelPolicyVersion)
-            && !string.Equals(
-                request.ModelPolicyVersion,
-                result.Provenance?.ModelPolicyVersion,
-                StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                $"RAG response did not confirm model policy version '{request.ModelPolicyVersion}'.");
-        if (stage == "validation"
-            && (!string.Equals(
-                    request.ModelPolicyPreset,
-                    result.Provenance?.ModelPolicyPreset,
-                    StringComparison.Ordinal)
-                || string.IsNullOrWhiteSpace(result.Provenance?.PromptVersion)
-                || string.IsNullOrWhiteSpace(result.Provenance?.Retrieval)))
-            throw new InvalidOperationException(
-                "RAG validation response returned incomplete policy or generation provenance.");
-        if (request.RequireCiteable
-            && !string.Equals(
-                stage,
-                result.Provenance?.GenerationStage,
-                StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                $"RAG response did not confirm generation stage '{stage}'.");
-        if (request.RequireCiteable
-            && (!string.Equals(request.ExecutionVersion, result.Provenance?.ExecutionVersion, StringComparison.Ordinal)
-                || !string.Equals(request.AttemptId, result.Provenance?.AttemptId, StringComparison.Ordinal)
-                || !string.Equals(
-                    request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion
-                        ? request.SignedSkillExecution?.SnapshotDigest
-                        : request.SkillExecution?.SnapshotHash,
-                    result.Provenance?.Skills?.SnapshotHash,
-                    StringComparison.Ordinal)
-                || !string.Equals(stage, result.Provenance?.Skills?.Stage, StringComparison.Ordinal)))
-            throw new InvalidOperationException(
-                "RAG response did not confirm execution version, attempt ID, skill snapshot, and stage.");
-        if (request.RequireCiteable
-            && request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion
-            && (result.AgentExecution is null
-                || !string.Equals(stage, result.AgentExecution.Stage, StringComparison.Ordinal)
-                || !string.Equals(request.AgentExecution?.StageExecutionId,
-                    result.AgentExecution.StageExecutionId, StringComparison.Ordinal)
-                || !string.Equals(request.AgentExecution?.CoordinatorExecutionId,
-                    result.AgentExecution.CoordinatorExecutionId, StringComparison.Ordinal)
-                || !string.Equals(request.AgentExecution?.SelectedAgent.Id,
-                    result.AgentExecution.SelectedAgentId, StringComparison.Ordinal)
-                || result.AgentExecution.StopReason != RagAgentStopReason.Completed))
-            throw new InvalidOperationException(
-                "RAG v3 response did not return completed, stage-bound agent execution provenance.");
-        if (request.AgentExecution?.OutputContract == "contributorOutput.v1"
-            && (result.SpecialistContribution is null || result.SpecialistReview is not null
-                || result.SpecialistContribution.ContractVersion != "contributorOutput.v1"
-                || result.SpecialistContribution.Stage != stage))
-            throw new InvalidOperationException("RAG contributor response violated its typed output contract.");
-        if (request.AgentExecution?.OutputContract == "reviewerOutput.v1"
-            && (result.SpecialistReview is null || result.SpecialistContribution is not null
-                || result.SpecialistReview.ContractVersion != "reviewerOutput.v1"
-                || result.SpecialistReview.Stage != stage))
-            throw new InvalidOperationException("RAG reviewer response violated its typed output contract.");
-        if (request.AgentExecution?.OutputContract == "producerOutput.v1"
-            && (result.SpecialistContribution is not null || result.SpecialistReview is not null))
-            throw new InvalidOperationException("RAG producer response returned a specialist side artifact.");
-        var producerOutput = request.AgentExecution?.OutputContract is null or "producerOutput.v1";
-        if (stage == "validation" && producerOutput && result.Validation is null)
-            throw new InvalidOperationException(
-                "RAG validation response was missing or malformed; validation fails closed.");
-        if (stage == "validation" && producerOutput)
-            ValidateTypedValidation(result.Validation!);
-
-        foreach (var w in result.Warnings)
-        {
-            if (!string.IsNullOrWhiteSpace(w))
-                warnings.Add(w);
-        }
-
-        RagBattlecardDto? battlecard = null;
-        if (result.Battlecard is not null)
-        {
-            battlecard = new RagBattlecardDto
-            {
-                PartnerSummary = result.Battlecard.PartnerSummary,
-                CompetitorSummary = result.Battlecard.CompetitorSummary,
-                Differentiators = result.Battlecard.Differentiators,
-                Risks = result.Battlecard.Risks,
-            };
-        }
-
-        IReadOnlyList<RagThemeSourceDto>? themeSources = null;
-        if (family == RagRetrievalFamily.Slides && result.Themes.Count > 0)
-        {
-            themeSources = result.Themes
-                .Select(t => new RagThemeSourceDto
-                {
-                    Label = t.Label,
-                    Relationship = t.Relationship,
-                    Entity = t.Entity,
-                    Url = t.Url,
-                })
-                .ToList();
-        }
-
-        return new RagGenerateResponse
-        {
-            Intent = intent,
-            Content = result.Content
-                      ?? (battlecard is not null ? FormatBattlecardMarkdown(battlecard) : null)
-                      ?? (result.Variations is { Count: > 0 } ? result.Variations[0] : null),
-            Variations = result.Variations,
-            Battlecard = battlecard,
-            Sources = result.Sources
-                .Select(s => new RagGenerateSourceDto
-                {
-                    Url = s.Url,
-                    Title = s.Title,
-                    Entity = s.Entity,
-                    CrawlType = s.CrawlType,
-                    Kind = s.Kind,
-                    PageId = s.PageId,
-                })
-                .ToList(),
-            Citations = result.Citations
-                .Select(c => new RagCitationDto
-                {
-                    PageId = c.PageId,
-                    RunId = c.RunId,
-                    Url = c.Url,
-                    Title = c.Title,
-                    SectionTitle = c.SectionTitle,
-                    SectionKey = c.SectionKey,
-                    Quote = c.Quote,
-                    CrawlType = c.CrawlType,
-                    SourceDigest = c.SourceDigest,
-                    SourceRights = c.SourceRights,
-                })
-                .ToList(),
-            ThemeSources = themeSources,
-            Outline = result.Outline?
-                .Select(s => new RagOutlineSectionDto
-                {
-                    Key = s.Key,
-                    Heading = s.Heading,
-                    Brief = s.Brief,
-                    EvidenceIds = s.EvidenceIds,
-                })
-                .ToList(),
-            ResearchPlan = result.ResearchPlan?
-                .Select(q => new RagResearchQueryPlanDto(q.RunId, q.CrawlType, q.Need))
-                .ToList(),
-            AppliedTemplates = family == RagRetrievalFamily.ShortForm && templates.Count > 0
-                ? templates.ToList()
-                : null,
-            Warnings = warnings,
-            EvidenceWarnings = result.EvidenceWarnings,
-            ModelUsed = returnedModel,
-            RetrievalMode = result.Provenance?.Retrieval ?? result.Retrieval,
-            PromptVersion = result.Provenance?.PromptVersion ?? "rag-generate/1",
-            Provenance = result.Provenance is null
-                ? null
-                : new RagGenerateProvenanceDto
-                {
-                    GenerationStage = result.Provenance.GenerationStage,
-                    ModelUsed = result.Provenance.ModelUsed,
-                    ModelPolicyPreset = result.Provenance.ModelPolicyPreset,
-                    ModelPolicyVersion = result.Provenance.ModelPolicyVersion,
-                    PromptVersion = result.Provenance.PromptVersion,
-                    Retrieval = result.Provenance.Retrieval,
-                    EvidenceIds = result.Provenance.EvidenceIds,
-                    SpecialistExecutor = result.Provenance.SpecialistExecutor,
-                    SpecialistExecutorVersion = result.Provenance.SpecialistExecutorVersion,
-                    ExecutionVersion = result.Provenance.ExecutionVersion,
-                    AttemptId = result.Provenance.AttemptId,
-                    AgentExecution = result.Provenance.AgentExecution,
-                    Skills = result.Provenance.Skills is null
-                        ? null
-                        : new RagSkillProvenanceDto
-                        {
-                            EnvelopeVersion = result.Provenance.Skills.EnvelopeVersion,
-                            CatalogVersion = result.Provenance.Skills.CatalogVersion,
-                            SnapshotHash = result.Provenance.Skills.SnapshotHash,
-                            Stage = result.Provenance.Skills.Stage,
-                            SkillVersions = result.Provenance.Skills.SkillVersions,
-                        },
-                },
-            Validation = result.Validation is null
-                ? null
-                : new RagValidationDto
-                {
-                    Approved = result.Validation.Approved,
-                    Issues = result.Validation.Issues.Select(i => new RagValidationIssueDto
-                    {
-                        SectionTitle = i.SectionTitle,
-                        Category = MapValidationCategory(i.Category),
-                        Detail = i.Detail,
-                        RepairInstruction = i.RepairInstruction,
-                    }).ToList(),
-                    Strengths = result.Validation.Strengths,
-                    UnsupportedClaimCount = result.Validation.UnsupportedClaimCount,
-                    BriefAlignmentScore = result.Validation.BriefAlignmentScore,
-                    EvidenceCoverageScore = result.Validation.EvidenceCoverageScore,
-                    UsefulnessScore = result.Validation.UsefulnessScore,
-                    OriginalityScore = result.Validation.OriginalityScore,
-                    BrandAlignmentScore = result.Validation.BrandAlignmentScore,
-                },
-            AgentExecution = result.AgentExecution ?? result.Provenance?.AgentExecution,
-            AgentFailure = result.AgentFailure,
-            SpecialistContribution = result.SpecialistContribution,
-            SpecialistReview = result.SpecialistReview,
-            SpecialistArtifactDigest = result.SpecialistArtifactDigest,
-        };
-    }
-
-    private static void ValidateTypedValidation(GeekCrawlerRagValidation validation)
-    {
-        var unsupportedIssues = validation.Issues.Count(
-            issue => issue.Category == GeekCrawlerRagValidationIssueCategory.UnsupportedClaim);
-        if (validation.UnsupportedClaimCount < unsupportedIssues
-            || (validation.UnsupportedClaimCount > 0 && validation.Approved)
-            || (!validation.Approved && validation.Issues.Count == 0))
-            throw new InvalidOperationException(
-                "RAG validation response was internally inconsistent; validation fails closed.");
-    }
-
-    private static RagValidationIssueCategory MapValidationCategory(
-        GeekCrawlerRagValidationIssueCategory category) => category switch
-    {
-        GeekCrawlerRagValidationIssueCategory.UnsupportedClaim => RagValidationIssueCategory.UnsupportedClaim,
-        GeekCrawlerRagValidationIssueCategory.SourceConflict => RagValidationIssueCategory.SourceConflict,
-        GeekCrawlerRagValidationIssueCategory.BriefAlignment => RagValidationIssueCategory.BriefAlignment,
-        GeekCrawlerRagValidationIssueCategory.BrandVoice => RagValidationIssueCategory.BrandVoice,
-        GeekCrawlerRagValidationIssueCategory.OriginalityRepetition => RagValidationIssueCategory.OriginalityRepetition,
-        GeekCrawlerRagValidationIssueCategory.Usefulness => RagValidationIssueCategory.Usefulness,
-        GeekCrawlerRagValidationIssueCategory.Cta => RagValidationIssueCategory.Cta,
-        GeekCrawlerRagValidationIssueCategory.SeoGeo => RagValidationIssueCategory.SeoGeo,
-        GeekCrawlerRagValidationIssueCategory.ContentTypeRequirements => RagValidationIssueCategory.ContentTypeRequirements,
-        _ => throw new InvalidOperationException(
-            $"Unsupported RAG validation issue category '{category}'."),
-    };
 
     private static bool ParseEnabledFlag(string? raw)
     {

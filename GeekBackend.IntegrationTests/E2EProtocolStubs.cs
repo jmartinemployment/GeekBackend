@@ -494,7 +494,6 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
         "# Fixture article\n\nDeterministic citations must exactly match stored Markdown.\n\nMore text.";
 
     public bool FailRequests { get; set; }
-    public bool MalformedValidation { get; set; }
     public IReadOnlyList<CapturedRequest> Requests => _requests.ToArray();
 
     protected override async Task<HttpResponseMessage> SendAsync(
@@ -570,106 +569,6 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
                 url = ArticleUrl,
                 title = "Fixture article",
                 markdown = ArticleMarkdown,
-            });
-        }
-
-        if (request.Method == HttpMethod.Post && path == "/v1/generate")
-        {
-            using var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-            var stage = root.GetProperty("generationStage").GetString();
-            var intent = root.GetProperty("writingIntent").GetString();
-            var preset = root.TryGetProperty("modelPolicyPreset", out var presetElement)
-                ? presetElement.GetString()
-                : null;
-            var requestedModel = preset switch
-            {
-                "o3-only" => "o3",
-                "best-quality" when stage is "outline" or "finalSynthesis" => "o1-pro",
-                "best-quality" => "o3",
-                "custom" when root.TryGetProperty("stageModelOverrides", out var overrides)
-                              && overrides.TryGetProperty(stage!, out var model) => model.GetString(),
-                _ => "fixture-model",
-            };
-            var outline = stage == "outline"
-                ? new[] { new { key = "section-1", heading = "Verified claims", brief = "Use evidence.", evidenceIds = new[] { ArticlePageId } } }
-                : null;
-            object? validation = stage != "validation"
-                ? null
-                : MalformedValidation
-                    ? new { approved = true, issues = Array.Empty<object>(), strengths = Array.Empty<string>() }
-                    : new
-                {
-                    approved = true,
-                    issues = Array.Empty<object>(),
-                    strengths = new[] { "Grounded in the supplied evidence." },
-                    unsupportedClaimCount = 0,
-                    briefAlignmentScore = 96,
-                    evidenceCoverageScore = 94,
-                    usefulnessScore = 92,
-                    originalityScore = 91,
-                    brandAlignmentScore = 95,
-                };
-            return Json(new
-            {
-                intent,
-                content = stage == "validation"
-                    ? null
-                    : stage == "section"
-                    ? "A section with a verified claim."
-                    : stage == "finalSynthesis" && root.TryGetProperty("draftContent", out var draft)
-                        ? draft.GetString()
-                        : "A verified draft.",
-                outline,
-                validation,
-                citations = new[]
-                {
-                    new
-                    {
-                        pageId = ArticlePageId,
-                        url = ArticleUrl,
-                        title = "Fixture article",
-                        sectionTitle = stage == "finalSynthesis" ? "Introduction" : null,
-                        quote = CitationQuote,
-                    },
-                },
-                sources = new[] { new { pageId = ArticlePageId, url = ArticleUrl } },
-                warnings = Array.Empty<string>(),
-                evidenceWarnings = Array.Empty<string>(),
-                retrieval = "hybrid",
-                modelUsed = requestedModel,
-                provenance = new
-                {
-                    generationStage = stage,
-                    modelUsed = requestedModel,
-                    modelPolicyPreset = preset,
-                    modelPolicyVersion = root.TryGetProperty("modelPolicyVersion", out var version)
-                        ? version.GetString()
-                        : null,
-                    promptVersion = "citeable-generate.v2",
-                    retrieval = "hybrid",
-                    evidenceIds = new[] { ArticlePageId },
-                    executionVersion = root.TryGetProperty("executionVersion", out var executionVersion)
-                        ? executionVersion.GetString()
-                        : "rag-generate.v1",
-                    attemptId = root.TryGetProperty("attemptId", out var attemptId)
-                        ? attemptId.GetString()
-                        : Guid.NewGuid().ToString("D"),
-                    skills = root.TryGetProperty("skillExecution", out var skills)
-                        ? new
-                        {
-                            envelopeVersion = skills.GetProperty("envelopeVersion").GetString(),
-                            catalogVersion = skills.GetProperty("catalogVersion").GetString(),
-                            snapshotHash = skills.GetProperty("snapshotHash").GetString(),
-                            stage,
-                            skillVersions = skills.GetProperty("skills").EnumerateArray()
-                                .Where(item => item.GetProperty("supportedStages").EnumerateArray()
-                                    .Any(s => s.GetString() == stage))
-                                .Select(item => $"{item.GetProperty("id").GetString()}@{item.GetProperty("version").GetString()}")
-                                .ToArray(),
-                        }
-                        : null,
-                },
             });
         }
 

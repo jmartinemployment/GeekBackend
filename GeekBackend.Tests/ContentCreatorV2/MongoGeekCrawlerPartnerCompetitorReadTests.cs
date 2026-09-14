@@ -337,11 +337,6 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
 
-        public Task<GeekCrawlerRagGenerateResult?> GenerateAsync(
-            GeekCrawlerRagGenerateRequest request,
-            CancellationToken ct = default) =>
-            Task.FromResult<GeekCrawlerRagGenerateResult?>(null);
-
         public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
             throw new CapabilitiesUnavailableException("Geek-Crawler-Rag is disabled in this test double.");
     }
