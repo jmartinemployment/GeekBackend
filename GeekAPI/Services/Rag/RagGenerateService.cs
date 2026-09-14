@@ -163,16 +163,21 @@ public sealed class RagGenerateService
         };
 
         // Fail closed only for runs that were explicitly bound; empty list = skip that corpus.
+        // Do NOT hard-filter Qdrant by entityNames: Create puts tool labels (Melio, …) in TargetEntities,
+        // but indexed chunks use host/entityName payloads that rarely match those labels — MatchAny then
+        // returns zero pages even when the run is fully indexed. Entities stay in BuildNeed for semantics.
         var partnerQuery = await QueryRunsAsync(
             partnerRunIds,
             ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Partner),
             CrawlTypes.Partner, topK, preferParent, preferChild, entities, null, warnings, ct,
-            failClosed: partnerRunIds.Count > 0).ConfigureAwait(false);
+            failClosed: partnerRunIds.Count > 0,
+            hardFilterEntityNames: false).ConfigureAwait(false);
         var competitorQuery = await QueryRunsAsync(
             competitorRunIds,
             ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Competitors),
             CrawlTypes.Competitors, topK, preferParent, preferChild, entities, null, warnings, ct,
-            failClosed: competitorRunIds.Count > 0).ConfigureAwait(false);
+            failClosed: competitorRunIds.Count > 0,
+            hardFilterEntityNames: false).ConfigureAwait(false);
 
         var partnerPages = partnerQuery.Pages;
         var competitorPages = competitorQuery.Pages;
@@ -181,8 +186,40 @@ public sealed class RagGenerateService
             : BuildSources(partnerPages, competitorPages, entities);
         if (sources.Count == 0
             && (partnerRunIds.Count > 0 || competitorRunIds.Count > 0))
+        {
+            // #region agent log
+            try
+            {
+                System.IO.File.AppendAllText(
+                    "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        sessionId = "e6b2fc",
+                        runId = "post-fix",
+                        hypothesisId = "F-entity-filter",
+                        location = "RagGenerateService.cs:DraftFromCreateLibraryAsync",
+                        message = "empty library pages after query",
+                        data = new
+                        {
+                            stage,
+                            partnerRunCount = partnerRunIds.Count,
+                            competitorRunCount = competitorRunIds.Count,
+                            entityCount = entities.Count,
+                            partnerPageCount = partnerPages.Count,
+                            competitorPageCount = competitorPages.Count,
+                            hardFilterEntityNames = false,
+                        },
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    }) + "\n");
+            }
+            catch { /* local debug file only */ }
+            // #endregion
+            _logger.LogError(
+                "Create library draft empty for stage {Stage}: partnerRuns={PartnerRuns} competitorRuns={CompetitorRuns} entities={EntityCount} partnerPages={PartnerPages} competitorPages={CompetitorPages}",
+                stage, partnerRunIds.Count, competitorRunIds.Count, entities.Count, partnerPages.Count, competitorPages.Count);
             throw new InvalidOperationException(
                 "RAG evidence library returned no pages for the supplied source runs.");
+        }
         if (sources.Count == 0
             && partnerRunIds.Count == 0
             && competitorRunIds.Count == 0
@@ -504,7 +541,8 @@ public sealed class RagGenerateService
         string? retrievalMode,
         List<string> warnings,
         CancellationToken ct,
-        bool failClosed = false)
+        bool failClosed = false,
+        bool hardFilterEntityNames = true)
     {
         if (runIds.Count == 0)
             return new SeedQueryResult([], [], null);
@@ -527,7 +565,8 @@ public sealed class RagGenerateService
                 retrievalMode,
                 warnings,
                 ct,
-                failClosed).ConfigureAwait(false);
+                failClosed,
+                hardFilterEntityNames).ConfigureAwait(false);
             retrieval ??= one.Retrieval;
             foreach (var page in one.Pages)
             {
@@ -553,11 +592,15 @@ public sealed class RagGenerateService
         string? retrievalMode,
         List<string> warnings,
         CancellationToken ct,
-        bool failClosed = false)
+        bool failClosed = false,
+        bool hardFilterEntityNames = true)
     {
         if (runId is null)
             return new SeedQueryResult([], [], null);
 
+        IReadOnlyList<string>? entityFilter = hardFilterEntityNames && entities.Count > 0
+            ? entities
+            : null;
         var result = await _rag.QueryAsync(
             need,
             runId.Value,
@@ -566,9 +609,40 @@ public sealed class RagGenerateService
             topK: topK,
             preferParent: preferParent,
             preferChild: preferChild,
-            entityNames: entities.Count > 0 ? entities : null,
+            entityNames: entityFilter,
             retrievalMode: retrievalMode,
             ct: ct).ConfigureAwait(false);
+
+        // #region agent log
+        try
+        {
+            System.IO.File.AppendAllText(
+                "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId = "e6b2fc",
+                    runId = "post-fix",
+                    hypothesisId = "F-entity-filter",
+                    location = "RagGenerateService.cs:QueryRunAsync",
+                    message = "library query result",
+                    data = new
+                    {
+                        crawlType,
+                        sourceRunId = runId.Value.ToString("D"),
+                        hardFilterEntityNames,
+                        entityFilterCount = entityFilter?.Count ?? 0,
+                        pageCount = result?.Pages.Count ?? -1,
+                        failed = result?.Failed,
+                        nullResult = result is null,
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                }) + "\n");
+        }
+        catch { /* local debug file only */ }
+        // #endregion
+        _logger.LogInformation(
+            "Create library query {CrawlType} run {RunId}: pages={PageCount} entityFilter={EntityFilter} hardFilter={HardFilter}",
+            crawlType, runId, result?.Pages.Count ?? -1, entityFilter?.Count ?? 0, hardFilterEntityNames);
 
         if (result is null)
         {
