@@ -439,12 +439,9 @@ public sealed class GccV2WriteService
             wc.JobModelPolicyOverride);
         var draft = ToStableMarkdown(current);
         var attemptId = Guid.NewGuid().ToString("D");
-        var hasAgentTeam = !string.IsNullOrWhiteSpace(wc.Job.AgentTeamSnapshotJson);
-        var envelope = hasAgentTeam
-            ? await _skillSnapshots.BuildEnvelopeAsync(wc.Job, attemptId, "finalSynthesis", ct) : null;
         await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
-            new { stage = "finalSynthesis", attemptId, executionVersion = hasAgentTeam
-                ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion }, ct: ct);
+            new { stage = "finalSynthesis", attemptId,
+                executionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
         var request = new RagGenerateRequest
         {
@@ -453,12 +450,9 @@ public sealed class GccV2WriteService
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "finalSynthesis",
-                ExecutionVersion = hasAgentTeam
-                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
-                JobId = hasAgentTeam ? wc.Job.Id.ToString("D") : null,
+                ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
                 AttemptId = attemptId,
                 SkillExecution = SkillExecution(wc, "finalSynthesis"),
-                SignedSkillExecution = envelope,
                 DraftContent = draft,
                 Sources = sources,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
@@ -468,21 +462,19 @@ public sealed class GccV2WriteService
                     wc.GenerationBrief, selection, "finalSynthesis", wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
+                CreateLibraryDraft = true,
         };
-        if (hasAgentTeam)
-            await _specialists.PrepareProducerAsync(
-                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, envelope!, ct);
         var response = await _rag.GenerateAsync(wc.Job.OwnerUserId, request, ct);
         stopwatch.Stop();
+        if (response.SoftDisabled)
+            throw new InvalidOperationException(
+                "Create final synthesis cannot continue: SoftDisabled is not a citeable Create success path.");
         if (string.IsNullOrWhiteSpace(response.Content))
-            throw new InvalidOperationException("Citeable RAG returned no final-synthesis content.");
+            throw new InvalidOperationException("Create library writer returned no final-synthesis content.");
         if (response.Citations is not { Count: > 0 })
             throw new InvalidOperationException("Final synthesis returned no verified citations.");
         if (response.Provenance is null)
             throw new InvalidOperationException("Final synthesis returned no provenance.");
-        if (hasAgentTeam)
-            await _specialists.CompleteProducerAndRunReviewersAsync(
-                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, response, response.Content, ct);
 
         var parsed = ParseSynthesizedMarkdown(response.Content, current.AllSections);
         var evidenceIds = response.Citations.Select(c => c.PageId)
@@ -1047,15 +1039,13 @@ public sealed class GccV2WriteService
         var stage = route.IsImagePrompt ? ContentGenerationStage.ImagePrompt : ContentGenerationStage.Complete;
         var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
         var attemptId = Guid.NewGuid().ToString("D");
-        // One-shot complete is always negotiated as rag-generate.v2; Python rejects complete on v3.
-        var agentContract = await _skillSnapshots.NegotiateAsync(wc.Job, attemptId, "complete", ct);
         await _events.AppendAsync(wc.Job.Id, ownerUserId, "AgentStageStarted",
             new
             {
                 stage = "complete",
                 attemptId,
-                executionVersion = agentContract.ExecutionVersion,
-                negotiationReason = agentContract.NegotiationReasonCode,
+                executionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
+                negotiationReason = "gcc_create_library",
             }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
         var response = await _rag.GenerateAsync(
@@ -1073,10 +1063,9 @@ public sealed class GccV2WriteService
                     ? wc.GenerationBrief.AdTemplates.ToList()
                     : null,
                 GenerationStage = "complete",
-                ExecutionVersion = agentContract.ExecutionVersion,
+                ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
                 AttemptId = attemptId,
                 SkillExecution = SkillExecution(wc, "complete"),
-                SignedSkillExecution = agentContract.Envelope,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
                 ModelPolicyVersion = selection.PolicyVersion,
@@ -1084,8 +1073,12 @@ public sealed class GccV2WriteService
                     wc.GenerationBrief, selection, "complete", wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
+                CreateLibraryDraft = true,
             },
             ct);
+        if (response.SoftDisabled)
+            throw new InvalidOperationException(
+                "Create complete cannot continue: SoftDisabled is not a citeable Create success path.");
         stopwatch.Stop();
         var content = response.Content ?? response.Variations?.FirstOrDefault();
         if (string.IsNullOrWhiteSpace(content))
@@ -1106,7 +1099,7 @@ public sealed class GccV2WriteService
             MapSkillProvenance(response.Provenance?.Skills),
             response.Provenance?.ExecutionVersion,
             response.AgentExecution ?? response.Provenance?.AgentExecution,
-            agentContract.NegotiationReasonCode);
+            "gcc_create_library");
         var section = MarkdownToSection(content, heading);
         var citations = StampSectionKey(response.Citations, sectionKey);
         var write = new GccV2WriteSection(
@@ -1243,12 +1236,9 @@ public sealed class GccV2WriteService
         var selection = _modelPolicy.Select(stage, wc.GenerationBrief, wc.JobModelPolicyOverride);
         var producerStage = ContentModelPolicy.ProducerStage(stage);
         var attemptId = Guid.NewGuid().ToString("D");
-        var hasAgentTeam = !string.IsNullOrWhiteSpace(wc.Job.AgentTeamSnapshotJson);
-        var envelope = hasAgentTeam
-            ? await _skillSnapshots.BuildEnvelopeAsync(wc.Job, attemptId, producerStage, ct) : null;
         await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
-            new { stage = producerStage, attemptId, executionVersion = hasAgentTeam
-                ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion }, ct: ct);
+            new { stage = producerStage, attemptId,
+                executionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
         var request = new RagGenerateRequest
         {
@@ -1258,12 +1248,9 @@ public sealed class GccV2WriteService
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = producerStage,
-                ExecutionVersion = hasAgentTeam
-                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
-                JobId = hasAgentTeam ? wc.Job.Id.ToString("D") : null,
+                ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
                 AttemptId = attemptId,
                 SkillExecution = SkillExecution(wc, producerStage),
-                SignedSkillExecution = envelope,
                 Outline = wc.Outline.Sections.Select(s => new RagOutlineSectionDto
                 {
                     Key = s.Key,
@@ -1282,18 +1269,16 @@ public sealed class GccV2WriteService
                     wc.GenerationBrief, selection, producerStage, wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
+                CreateLibraryDraft = true,
         };
-        if (hasAgentTeam)
-            await _specialists.PrepareProducerAsync(
-                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, envelope!, ct);
         var response = await _rag.GenerateAsync(wc.Job.OwnerUserId, request, ct);
         stopwatch.Stop();
+        if (response.SoftDisabled)
+            throw new InvalidOperationException(
+                "Create section cannot continue: SoftDisabled is not a citeable Create success path.");
         if (string.IsNullOrWhiteSpace(response.Content))
-            throw new InvalidOperationException($"Citeable RAG returned no content for section '{entry.Heading}'.");
+            throw new InvalidOperationException($"Create library writer returned no content for section '{entry.Heading}'.");
         request.DraftContent = response.Content;
-        if (hasAgentTeam)
-            await _specialists.CompleteProducerAndRunReviewersAsync(
-                wc.Job, ParseOwner(wc.Job.OwnerUserId), request, response, response.Content, ct);
 
         var section = MarkdownToSection(response.Content, entry.Heading);
         var evidenceIds = (response.Citations ?? []).Select(c => c.PageId)

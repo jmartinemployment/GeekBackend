@@ -155,7 +155,7 @@ public sealed class GccV2PlanService
             PartnerRunId = generationBrief.PartnerSourceRunId,
             CompetitorRunId = generationBrief.CompetitorSourceRunId,
             GenerationStage = "researchPlanning",
-            ExecutionVersion = RagProducerCapabilities.RequiredExecutionVersion,
+            ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
             AttemptId = researchAttemptId,
             SkillExecution = GccV2SkillCatalog.ForStage(skillSnapshot, "researchPlanning"),
             CanonicalBrief = generationBrief.ToCanonicalBrief(),
@@ -165,6 +165,7 @@ public sealed class GccV2PlanService
                 generationBrief, researchSelection, "researchPlanning", jobModelPolicy),
             RequestedModel = researchSelection.EffectiveModel,
             RequireCiteable = true,
+            CreateLibraryDraft = true,
         };
         var researchResult = await _rag.GenerateAsync(job.OwnerUserId, researchRequest, ct);
         var researchPlan = researchResult.ResearchPlan?.ToList() ?? [];
@@ -174,9 +175,6 @@ public sealed class GccV2PlanService
             generationBrief,
             jobModelPolicy);
         var attemptId = Guid.NewGuid().ToString("D");
-        var hasAgentTeam = !string.IsNullOrWhiteSpace(job.AgentTeamSnapshotJson);
-        var envelope = hasAgentTeam
-            ? await _skillSnapshots.BuildEnvelopeAsync(job, attemptId, "outline", ct) : null;
         var stopwatch = Stopwatch.StartNew();
         var ragRequest = new RagGenerateRequest
         {
@@ -187,12 +185,9 @@ public sealed class GccV2PlanService
                 PartnerRunId = generationBrief.PartnerSourceRunId,
                 CompetitorRunId = generationBrief.CompetitorSourceRunId,
                 GenerationStage = "outline",
-                ExecutionVersion = hasAgentTeam
-                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
-                JobId = hasAgentTeam ? job.Id.ToString("D") : null,
+                ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
                 AttemptId = attemptId,
                 SkillExecution = GccV2SkillCatalog.ForStage(skillSnapshot, "outline"),
-                SignedSkillExecution = envelope,
                 CanonicalBrief = generationBrief.ToCanonicalBrief(),
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),
                 ModelPolicyVersion = selection.PolicyVersion,
@@ -200,13 +195,14 @@ public sealed class GccV2PlanService
                     generationBrief, selection, "outline", jobModelPolicy),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
+                CreateLibraryDraft = true,
                 ResearchPlan = researchPlan.Count > 0 ? researchPlan : null,
         };
-        if (hasAgentTeam)
-            await _specialists.PrepareProducerAsync(
-                job, Guid.Parse(job.OwnerUserId), ragRequest, envelope!, ct);
         var ragResult = await _rag.GenerateAsync(job.OwnerUserId, ragRequest, ct);
         stopwatch.Stop();
+        if (ragResult.SoftDisabled)
+            throw new InvalidOperationException(
+                "Create outline cannot continue: SoftDisabled is not a citeable Create success path.");
         var ragOutline = ragResult.Outline?
             .Where(s => !string.IsNullOrWhiteSpace(s.Heading))
             .Select((s, i) => (
@@ -216,11 +212,8 @@ public sealed class GccV2PlanService
                 s.EvidenceIds))
             .ToList() ?? [];
         if (ragOutline.Count == 0)
-            throw new InvalidOperationException("Citeable RAG returned no outline sections.");
+            throw new InvalidOperationException("Create library writer returned no outline sections.");
         ragRequest.Outline = ragResult.Outline?.ToList();
-        if (hasAgentTeam)
-            await _specialists.CompleteProducerAndRunReviewersAsync(
-                job, Guid.Parse(job.OwnerUserId), ragRequest, ragResult, ragOutline, ct);
 
         var sectionDefs = ragOutline.Select(s => (Key: s.Item1, Heading: s.Item2)).ToList();
         var sectionBriefs = ragOutline.GroupBy(s => s.Item1, StringComparer.OrdinalIgnoreCase)

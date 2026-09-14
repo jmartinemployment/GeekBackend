@@ -185,12 +185,9 @@ public sealed class GccV2ValidateService
             wc.GenerationBrief,
             wc.JobModelPolicyOverride);
         var attemptId = Guid.NewGuid().ToString("D");
-        var hasAgentTeam = !string.IsNullOrWhiteSpace(wc.Job.AgentTeamSnapshotJson);
-        var envelope = hasAgentTeam
-            ? await _skillSnapshots.BuildEnvelopeAsync(wc.Job, attemptId, "validation", ct) : null;
         await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
-            new { stage = "validation", attemptId, executionVersion = hasAgentTeam
-                ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion }, ct: ct);
+            new { stage = "validation", attemptId,
+                executionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion }, ct: ct);
         var ragRequest = new RagGenerateRequest
         {
                 WritingIntent = route.WritingIntent,
@@ -198,15 +195,12 @@ public sealed class GccV2ValidateService
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "validation",
-                ExecutionVersion = hasAgentTeam
-                    ? RagProducerCapabilities.AgentExecutionVersion : RagProducerCapabilities.RequiredExecutionVersion,
-                JobId = hasAgentTeam ? wc.Job.Id.ToString("D") : null,
+                ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
                 AttemptId = attemptId,
                 SkillExecution = GccV2SkillCatalog.ForStage(
                     wc.SkillSnapshot
                     ?? throw new InvalidOperationException("VALIDATE requires the persisted pre-PLAN skill snapshot."),
                     "validation"),
-                SignedSkillExecution = envelope,
                 DraftContent = GccV2WriteService.ToStableMarkdown(output),
                 Sources = sources,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
@@ -216,30 +210,13 @@ public sealed class GccV2ValidateService
                     wc.GenerationBrief, selection, "validation", wc.JobModelPolicyOverride),
                 RequestedModel = selection.EffectiveModel,
                 RequireCiteable = true,
+                CreateLibraryDraft = true,
         };
-        if (hasAgentTeam)
-            await _specialists.PrepareProducerAsync(
-                wc.Job, ParseOwner(wc.Job.OwnerUserId), ragRequest, envelope!, ct);
         var ragResponse = await _rag.GenerateAsync(wc.Job.OwnerUserId, ragRequest, ct);
+        if (ragResponse.SoftDisabled)
+            throw new InvalidOperationException(
+                "Create validation cannot continue: SoftDisabled is not a citeable Create success path.");
         IReadOnlyList<RagSpecialistReviewIssueDto> reviewerIssues = [];
-        if (hasAgentTeam)
-        {
-            try
-            {
-                await _specialists.CompleteProducerAndRunReviewersAsync(
-                    wc.Job, ParseOwner(wc.Job.OwnerUserId), ragRequest, ragResponse,
-                    ragResponse.Validation ?? throw new InvalidOperationException("Validation producer omitted typed output."), ct);
-            }
-            catch (RagAgentStoppedException ex) when (ex.Reason == RagAgentStopReason.ReviewerChangesRequired)
-            {
-                // Feed reviewer issues into the existing VALIDATE→REPAIR loop instead of
-                // blind-retrying the whole job.
-                reviewerIssues = ex.ReviewIssues;
-                _logger.LogInformation(
-                    "Reviewer changesRequired for job {JobId}: {IssueCount} issue(s) will enter REPAIR.",
-                    wc.Job.Id, reviewerIssues.Count);
-            }
-        }
         if (ragResponse.AgentExecution is { } trace)
         {
             foreach (var skill in trace.ActivatedSkills)
@@ -277,12 +254,26 @@ public sealed class GccV2ValidateService
         if (RequiresCitationEvidenceGate(contentType)
             && GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled())
         {
+            var rawBrief = string.IsNullOrWhiteSpace(wc.Brief.RawBriefJson)
+                ? (wc.GenerationBrief.RawBrief.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                    ? null
+                    : wc.GenerationBrief.RawBrief.GetRawText())
+                : wc.Brief.RawBriefJson;
+            var partnerTokens = GccV2PartnerMentionGate.CollectPartnerTokens(
+                wc.GenerationBrief.OperatorTools,
+                rawBrief);
             var audit = await GccV2CitationEvidenceGuard.AuditWriteOutputAsync(
                 output,
                 wc.GenerationBrief.PartnerSourceRunId,
                 wc.GenerationBrief.CompetitorSourceRunId,
                 _ragClient,
-                ct);
+                ct,
+                partnerTokens);
+            audit = GccV2CitationEvidenceGuard.ApplySourceRights(
+                output,
+                audit.Citations,
+                audit.EvidenceGaps,
+                rawBrief);
             citationGaps = audit.EvidenceGaps;
             if (audit.Citations.Count > 0)
             {

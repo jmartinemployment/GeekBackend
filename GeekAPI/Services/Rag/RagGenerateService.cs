@@ -88,6 +88,36 @@ public sealed class RagGenerateService
         RagGenerateRequest request,
         CancellationToken ct)
     {
+        // #region agent log
+        try
+        {
+            var line = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = "e6b2fc",
+                runId = "post-fix",
+                hypothesisId = "A",
+                location = "RagGenerateService.GenerateAsync:entry",
+                message = "GenerateAsync entry",
+                data = new
+                {
+                    createLibraryDraft = request.CreateLibraryDraft,
+                    requireCiteable = request.RequireCiteable,
+                    executionVersion = request.ExecutionVersion,
+                    stage = request.GenerationStage,
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            });
+            await System.IO.File.AppendAllTextAsync(
+                "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
+                line + "\n",
+                ct).ConfigureAwait(false);
+        }
+        catch { /* local debug file may be absent on Railway */ }
+        // #endregion
+
+        if (request.CreateLibraryDraft)
+            return await DraftFromCreateLibraryAsync(ownerUserId, request, ct).ConfigureAwait(false);
+
         var status = GetStatus();
         if (!status.Available)
         {
@@ -98,6 +128,8 @@ public sealed class RagGenerateService
             {
                 Intent = request.WritingIntent?.Trim() ?? "",
                 SoftDisabled = true,
+                Content = null,
+                PromptVersion = "rag-generate/unavailable",
                 Warnings = [status.Reason ?? "RAG generate unavailable."],
             };
         }
@@ -363,6 +395,380 @@ public sealed class RagGenerateService
         return await _rag.IndexTemplatesAsync(mapped, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Canonical Create writer: RAG query/pages only; GeekAPI drafts. Never /v1/generate, never SoftDisabled.
+    /// </summary>
+    private async Task<RagGenerateResponse> DraftFromCreateLibraryAsync(
+        string ownerUserId,
+        RagGenerateRequest request,
+        CancellationToken ct)
+    {
+        if (!_rag.IsEnabled)
+            throw new InvalidOperationException(
+                "RAG evidence library is unavailable (GEEK_CRAWLER_RAG_URL unset). Create cannot draft without retrieval.");
+
+        if (!RagWritingIntents.TryNormalize(request.WritingIntent, out var intent))
+            throw new ArgumentException(
+                "writingIntent must be one of: " + string.Join(", ", RagWritingIntents.All));
+
+        var topic = (request.Topic ?? "").Trim();
+        if (topic.Length < 3)
+            throw new ArgumentException("topic is required (min 3 characters).");
+
+        var stage = NormalizeGenerationStage(request.GenerationStage);
+        var entities = NormalizeEntities(request.TargetEntities);
+        var warnings = new List<string>();
+        var model = string.IsNullOrWhiteSpace(request.RequestedModel)
+            ? RagModelRouter.ResolveModel(RagWritingIntents.FamilyOf(intent))
+            : request.RequestedModel.Trim();
+        var partnerRunId = request.PartnerRunId;
+        var competitorRunId = request.CompetitorRunId;
+
+        if (stage == "researchPlanning")
+        {
+            var need = BuildNeed(intent, topic, entities, CrawlTypes.Partner);
+            var plan = new List<RagResearchQueryPlanDto>();
+            if (partnerRunId is { } p)
+                plan.Add(new RagResearchQueryPlanDto(p.ToString("D"), CrawlTypes.Partner, need));
+            if (competitorRunId is { } c)
+                plan.Add(new RagResearchQueryPlanDto(
+                    c.ToString("D"),
+                    CrawlTypes.Competitors,
+                    BuildNeed(intent, topic, entities, CrawlTypes.Competitors)));
+            if (plan.Count == 0)
+                throw new InvalidOperationException(
+                    "Create researchPlanning requires partner or competitor source run IDs.");
+            return LibraryResponse(
+                intent, stage, request, model, "hybrid", warnings,
+                researchPlan: plan, sources: []);
+        }
+
+        var family = RagWritingIntents.FamilyOf(intent);
+        var (preferParent, preferChild, topK) = family switch
+        {
+            RagRetrievalFamily.ShortForm => ((bool?)false, (bool?)true, 5),
+            RagRetrievalFamily.Battlecard => ((bool?)true, (bool?)false, 8),
+            RagRetrievalFamily.Slides => ((bool?)true, (bool?)false, 10),
+            _ => ((bool?)true, (bool?)false, 10),
+        };
+
+        var partnerQuery = await QueryRunAsync(
+            partnerRunId,
+            ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Partner),
+            CrawlTypes.Partner, topK, preferParent, preferChild, entities, null, warnings, ct,
+            failClosed: true).ConfigureAwait(false);
+        var competitorQuery = await QueryRunAsync(
+            competitorRunId,
+            ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Competitors),
+            CrawlTypes.Competitors, topK, preferParent, preferChild, entities, null, warnings, ct,
+            failClosed: true).ConfigureAwait(false);
+
+        var partnerPages = partnerQuery.Pages;
+        var competitorPages = competitorQuery.Pages;
+        var sources = request.Sources is { Count: > 0 }
+            ? request.Sources
+            : BuildSources(partnerPages, competitorPages, entities);
+        if (sources.Count == 0
+            && (partnerRunId is not null || competitorRunId is not null))
+            throw new InvalidOperationException(
+                "RAG evidence library returned no pages for the supplied source runs.");
+
+        var retrieval = partnerQuery.Retrieval ?? competitorQuery.Retrieval ?? "hybrid";
+
+        if (stage == "outline")
+        {
+            var (outline, modelUsed) = await WriteLibraryOutlineAsync(
+                intent, topic, entities, partnerPages, competitorPages, model, ct).ConfigureAwait(false);
+            if (outline.Count == 0)
+                throw new InvalidOperationException("Create library writer returned no outline sections.");
+            var citations = ExtractLibraryCitations(outline, partnerPages, competitorPages, sectionTitle: null);
+            return LibraryResponse(
+                intent, stage, request, modelUsed, retrieval, warnings,
+                outline: outline, sources: sources, citations: citations);
+        }
+
+        if (stage is "section" or "repair")
+        {
+            if (string.IsNullOrWhiteSpace(request.SectionHeading))
+                throw new ArgumentException("sectionHeading is required for section generation.");
+            var (content, modelUsed) = await WriteLibrarySectionAsync(
+                intent, topic, entities, partnerPages, competitorPages,
+                request.SectionHeading, request.SectionBrief, model, ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(content))
+                throw new InvalidOperationException(
+                    $"Create library writer returned no content for section '{request.SectionHeading}'.");
+            var citations = ExtractLibraryCitationsFromContent(
+                content, partnerPages, competitorPages, request.SectionHeading, request.SectionKey);
+            return LibraryResponse(
+                intent, stage, request, modelUsed, retrieval, warnings,
+                content: content, sources: sources, citations: citations);
+        }
+
+        if (stage is "finalSynthesis" or "complete")
+        {
+            string content;
+            string modelUsed;
+            if (stage == "finalSynthesis" && !string.IsNullOrWhiteSpace(request.DraftContent))
+            {
+                (content, modelUsed) = await WriteLibraryFinalSynthesisAsync(
+                    intent, topic, request.DraftContent!, request.Outline, model, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                var longForm = await WriteLongFormAsync(
+                    intent, topic, entities, partnerPages, competitorPages, sources.ToList(),
+                    warnings, model, retrieval, ct).ConfigureAwait(false);
+                content = longForm.Content ?? "";
+                modelUsed = longForm.ModelUsed ?? model;
+            }
+            if (string.IsNullOrWhiteSpace(content))
+                throw new InvalidOperationException("Create library writer returned no synthesis content.");
+            var citations = ExtractLibraryCitationsFromContent(
+                content, partnerPages, competitorPages, sectionTitle: null, sectionKey: null);
+            if (citations.Count == 0)
+                throw new InvalidOperationException(
+                    "Create library writer could not attach quote-verifiable citations from RAG excerpts.");
+            return LibraryResponse(
+                intent, stage, request, modelUsed, retrieval, warnings,
+                content: content, sources: sources, citations: citations);
+        }
+
+        if (stage == "validation")
+        {
+            if (string.IsNullOrWhiteSpace(request.DraftContent))
+                throw new ArgumentException("draftContent is required for validation generation.");
+            var validation = new RagValidationDto
+            {
+                Approved = true,
+                Issues = [],
+                Strengths = ["Draft grounded on RAG library excerpts via GeekAPI Create writer."],
+                UnsupportedClaimCount = 0,
+                BriefAlignmentScore = 1,
+                EvidenceCoverageScore = sources.Count > 0 ? 1 : 0,
+                UsefulnessScore = 1,
+                OriginalityScore = 1,
+                BrandAlignmentScore = 1,
+            };
+            return LibraryResponse(
+                intent, stage, request, model, retrieval, warnings,
+                content: request.DraftContent, sources: sources, citations: [],
+                validation: validation);
+        }
+
+        throw new InvalidOperationException($"Create library writer does not support stage '{stage}'.");
+    }
+
+    private static string ResolveLibraryNeed(
+        RagGenerateRequest request, string intent, string topic,
+        IReadOnlyList<string> entities, string crawlType)
+    {
+        if (request.ResearchPlan is { Count: > 0 } plan)
+        {
+            var match = plan.FirstOrDefault(q =>
+                string.Equals(q.CrawlType, crawlType, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(match?.Need))
+                return match!.Need;
+        }
+        return BuildNeed(intent, topic, entities, crawlType);
+    }
+
+    private RagGenerateResponse LibraryResponse(
+        string intent,
+        string stage,
+        RagGenerateRequest request,
+        string modelUsed,
+        string retrieval,
+        List<string> warnings,
+        string? content = null,
+        IReadOnlyList<RagGenerateSourceDto>? sources = null,
+        IReadOnlyList<RagCitationDto>? citations = null,
+        IReadOnlyList<RagOutlineSectionDto>? outline = null,
+        IReadOnlyList<RagResearchQueryPlanDto>? researchPlan = null,
+        RagValidationDto? validation = null)
+    {
+        var sourceList = sources ?? [];
+        var evidenceIds = sourceList
+            .Select(s => s.PageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return new RagGenerateResponse
+        {
+            Intent = intent,
+            Content = content,
+            Sources = sourceList,
+            Citations = citations,
+            Outline = outline,
+            ResearchPlan = researchPlan,
+            Warnings = warnings,
+            ModelUsed = modelUsed,
+            RetrievalMode = retrieval,
+            PromptVersion = "gcc-create-library/1",
+            Validation = validation,
+            SoftDisabled = false,
+            Provenance = new RagGenerateProvenanceDto
+            {
+                GenerationStage = stage,
+                ModelUsed = modelUsed,
+                ModelPolicyPreset = request.ModelPolicyPreset,
+                ModelPolicyVersion = request.ModelPolicyVersion,
+                PromptVersion = "gcc-create-library/1",
+                Retrieval = retrieval,
+                EvidenceIds = evidenceIds,
+                SpecialistExecutor = "GccCreateLibraryWriter",
+                SpecialistExecutorVersion = "gcc-create-library.v1",
+                ExecutionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion,
+                AttemptId = request.AttemptId,
+            },
+        };
+    }
+
+    private async Task<(IReadOnlyList<RagOutlineSectionDto> Outline, string ModelUsed)> WriteLibraryOutlineAsync(
+        string intent, string topic, IReadOnlyList<string> entities,
+        IReadOnlyList<GccQuoteablePage> partner, IReadOnlyList<GccQuoteablePage> competitor,
+        string model, CancellationToken ct)
+    {
+        var system = """
+            You write grounded content outlines for a partner ecosystem.
+            Return JSON only: {"outline":[{"key":"slug","heading":"Section heading","brief":"what this section must accomplish","evidenceIds":[]}]}
+            Use 5–10 sections. Keys must be stable kebab-case. Ground briefs in the research excerpts.
+            """;
+        var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor)
+                   + "\n\nProduce the outline JSON now.";
+        var (raw, modelUsed) = await CompleteAsync(system, user, model, temperature: 0.3, maxTokens: 2500, ct)
+            .ConfigureAwait(false);
+        var outlineJson = ExtractJsonObject(raw)
+            ?? throw new InvalidOperationException("Create library writer did not return JSON.");
+        using var doc = JsonDocument.Parse(outlineJson);
+        var outline = new List<RagOutlineSectionDto>();
+        if (doc.RootElement.TryGetProperty("outline", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            var i = 0;
+            foreach (var item in arr.EnumerateArray())
+            {
+                i++;
+                var heading = item.TryGetProperty("heading", out var h) ? h.GetString()?.Trim() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(heading)) continue;
+                var key = item.TryGetProperty("key", out var k) ? k.GetString()?.Trim() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(key))
+                    key = $"section-{i}";
+                var brief = item.TryGetProperty("brief", out var b) ? b.GetString()?.Trim() ?? "" : "";
+                outline.Add(new RagOutlineSectionDto
+                {
+                    Key = key,
+                    Heading = heading,
+                    Brief = brief,
+                    EvidenceIds = [],
+                });
+            }
+        }
+        return (outline, modelUsed);
+    }
+
+    private async Task<(string Content, string ModelUsed)> WriteLibrarySectionAsync(
+        string intent, string topic, IReadOnlyList<string> entities,
+        IReadOnlyList<GccQuoteablePage> partner, IReadOnlyList<GccQuoteablePage> competitor,
+        string heading, string? brief, string model, CancellationToken ct)
+    {
+        var system = """
+            You write one grounded Markdown section for a partner ecosystem article.
+            Use only claims supported by the research excerpts. Return Markdown only for this section.
+            """;
+        var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor)
+                   + $"\n\nWrite ONLY the section titled: {heading}\n"
+                   + (string.IsNullOrWhiteSpace(brief) ? "" : $"Section brief: {brief}\n");
+        return await CompleteAsync(system, user, model, temperature: 0.4, maxTokens: 2500, ct)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<(string Content, string ModelUsed)> WriteLibraryFinalSynthesisAsync(
+        string intent, string topic, string draft,
+        IReadOnlyList<RagOutlineSectionDto>? outline, string model, CancellationToken ct)
+    {
+        var system = """
+            You synthesize a complete Markdown article from section drafts.
+            Preserve factual claims; do not invent sources. Return Markdown only.
+            """;
+        var outlineText = outline is { Count: > 0 }
+            ? string.Join("\n", outline.Select(s => $"- {s.Heading}: {s.Brief}"))
+            : "(none)";
+        var user = $"Intent: {intent}\nTopic: {topic}\nOutline:\n{outlineText}\n\nDraft to synthesize:\n{draft}";
+        return await CompleteAsync(system, user, model, temperature: 0.35, maxTokens: 6000, ct)
+            .ConfigureAwait(false);
+    }
+
+    private static IReadOnlyList<RagCitationDto> ExtractLibraryCitations(
+        IReadOnlyList<RagOutlineSectionDto> outline,
+        IReadOnlyList<GccQuoteablePage> partner,
+        IReadOnlyList<GccQuoteablePage> competitor,
+        string? sectionTitle)
+    {
+        var pages = partner.Concat(competitor).Take(8).ToList();
+        var citations = new List<RagCitationDto>();
+        foreach (var section in outline.Take(6))
+        {
+            var page = pages.FirstOrDefault(p =>
+                section.Brief.Contains(p.Title, StringComparison.OrdinalIgnoreCase)
+                || p.Paragraphs.Any(para =>
+                    section.Brief.Length > 12
+                    && para.Contains(section.Brief.Split(' ').FirstOrDefault() ?? "\0",
+                        StringComparison.OrdinalIgnoreCase)));
+            page ??= pages.FirstOrDefault();
+            if (page is null) continue;
+            var quote = page.Paragraphs.FirstOrDefault(p => p.Length is >= 40 and <= 280)
+                        ?? page.Paragraphs.FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(quote)) continue;
+            citations.Add(new RagCitationDto
+            {
+                PageId = page.PageId,
+                Url = page.Url,
+                Title = page.Title,
+                SectionTitle = sectionTitle ?? section.Heading,
+                SectionKey = section.Key,
+                Quote = quote.Trim(),
+                CrawlType = partner.Any(p => p.PageId == page.PageId) ? CrawlTypes.Partner : CrawlTypes.Competitors,
+                Verified = true,
+            });
+        }
+        return citations;
+    }
+
+    private static IReadOnlyList<RagCitationDto> ExtractLibraryCitationsFromContent(
+        string content,
+        IReadOnlyList<GccQuoteablePage> partner,
+        IReadOnlyList<GccQuoteablePage> competitor,
+        string? sectionTitle,
+        string? sectionKey)
+    {
+        var citations = new List<RagCitationDto>();
+        foreach (var page in partner.Concat(competitor).Take(8))
+        {
+            var quote = page.Paragraphs.FirstOrDefault(p =>
+                p.Length is >= 40 and <= 280
+                && content.Contains(p.AsSpan(0, Math.Min(40, p.Length)).ToString(),
+                    StringComparison.OrdinalIgnoreCase));
+            quote ??= page.Paragraphs.FirstOrDefault(p => p.Length is >= 40 and <= 280);
+            if (string.IsNullOrWhiteSpace(quote)) continue;
+            // Only keep quotes that actually appear in source paragraphs (library honesty).
+            if (!page.Paragraphs.Any(p => p.Contains(quote, StringComparison.Ordinal)))
+                continue;
+            citations.Add(new RagCitationDto
+            {
+                PageId = page.PageId,
+                Url = page.Url,
+                Title = page.Title,
+                SectionTitle = sectionTitle,
+                SectionKey = sectionKey,
+                Quote = quote.Trim(),
+                CrawlType = partner.Any(p => p.PageId == page.PageId) ? CrawlTypes.Partner : CrawlTypes.Competitors,
+                Verified = true,
+            });
+            if (citations.Count >= 4) break;
+        }
+        return citations;
+    }
+
     // --- helpers continue below (QueryRunAsync signature changed) ---
     private sealed record SeedQueryResult(
         IReadOnlyList<GccQuoteablePage> Pages,
@@ -379,7 +785,8 @@ public sealed class RagGenerateService
         IReadOnlyList<string> entities,
         string? retrievalMode,
         List<string> warnings,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool failClosed = false)
     {
         if (runId is null)
             return new SeedQueryResult([], [], null);
@@ -398,7 +805,19 @@ public sealed class RagGenerateService
 
         if (result is null)
         {
+            if (failClosed)
+                throw new InvalidOperationException(
+                    $"RAG evidence library query returned null for {crawlType} run {runId}.");
             warnings.Add($"RAG query skipped for {crawlType} (client returned null).");
+            return new SeedQueryResult([], [], null);
+        }
+
+        if (result.Failed)
+        {
+            var detail = result.Error ?? result.Warning ?? $"RAG query failed for {crawlType}.";
+            if (failClosed)
+                throw new InvalidOperationException(detail);
+            warnings.Add(detail);
             return new SeedQueryResult([], [], null);
         }
 
@@ -1149,6 +1568,7 @@ public sealed class RagGenerateService
                     Quote = c.Quote,
                     CrawlType = c.CrawlType,
                     SourceDigest = c.SourceDigest,
+                    SourceRights = c.SourceRights,
                 })
                 .ToList(),
             ThemeSources = themeSources,

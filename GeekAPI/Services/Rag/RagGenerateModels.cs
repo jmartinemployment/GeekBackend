@@ -46,8 +46,16 @@ public sealed class RagGenerateRequest
     public IReadOnlyList<RagResearchQueryPlanDto>? ResearchPlan { get; set; }
     /// <summary>Expected effective model, used locally to reject producer substitution.</summary>
     public string? RequestedModel { get; set; }
-    /// <summary>Canonical jobs require quote-verified RAG and may not use the local one-shot writer.</summary>
+    /// <summary>
+    /// Legacy: force Geek-Crawler-Rag <c>/v1/generate</c>. Create uses
+    /// <see cref="CreateLibraryDraft"/> instead (RAG = library only).
+    /// </summary>
     public bool RequireCiteable { get; set; }
+    /// <summary>
+    /// Create PLAN/WRITE/VALIDATE: GeekAPI drafts using RAG query + page excerpts only.
+    /// Never calls <c>/v1/generate</c>. Never SoftDisabled success.
+    /// </summary>
+    public bool CreateLibraryDraft { get; set; }
 }
 
 public sealed record RagContextManifestEnvelopeDto(
@@ -90,6 +98,11 @@ public static class RagProducerCapabilities
 {
     public const string RequiredExecutionVersion = "rag-generate.v2";
     public const string AgentExecutionVersion = "rag-generate.v3";
+    /// <summary>
+    /// Create's canonical writer: GeekAPI drafts grounded on RAG query/pages.
+    /// Not a soft-disable fallback from rag-generate.* — RAG generate is not Create's writer.
+    /// </summary>
+    public const string CreateLibraryExecutionVersion = "gcc-create-library.v1";
     public const string RequiredSkillEnvelopeVersion = GccV2SkillExecutionSnapshot.CurrentEnvelopeVersion;
     public const string AgentSkillEnvelopeVersion = GccV2SignedSkillExecutionEnvelopeV2.CurrentEnvelopeVersion;
     public const string RequiredSpecialistExecutorVersion = "bounded-specialists.v1";
@@ -282,6 +295,8 @@ public sealed class RagCitationDto
     public string? SourceDigest { get; init; }
     /// <summary>True only after quote↔source verify (and role checks) succeed.</summary>
     public bool? Verified { get; init; }
+    /// <summary>consented | licensed | unknown | prohibited. Missing ≡ unknown (P1.5).</summary>
+    public string? SourceRights { get; init; }
 }
 
 public sealed class RagThemeSourceDto
