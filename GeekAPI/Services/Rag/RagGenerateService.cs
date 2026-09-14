@@ -426,6 +426,35 @@ public sealed class RagGenerateService
 
         if (stage == "researchPlanning")
         {
+            // #region agent log
+            try
+            {
+                var line = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId = "e6b2fc",
+                    runId = "post-fix",
+                    hypothesisId = "B",
+                    location = "RagGenerateService.DraftFromCreateLibraryAsync:researchPlanning",
+                    message = "Create library researchPlanning run IDs",
+                    data = new
+                    {
+                        partnerRunId,
+                        competitorRunId,
+                        hasCanonicalBrief = request.CanonicalBrief is not null,
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                });
+                await System.IO.File.AppendAllTextAsync(
+                    "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
+                    line + "\n",
+                    ct).ConfigureAwait(false);
+            }
+            catch { /* local debug file may be absent on Railway */ }
+            // #endregion
+
+            // Partner/competitor library runs are optional enrichment for blog/pillar.
+            // Pre-PLAN evidence gate already fail-closes when a content type requires them.
+            // Project-site grounding is handled in PLAN separately — do not require crawler runs here.
             var need = BuildNeed(intent, topic, entities, CrawlTypes.Partner);
             var plan = new List<RagResearchQueryPlanDto>();
             if (partnerRunId is { } p)
@@ -436,8 +465,8 @@ public sealed class RagGenerateService
                     CrawlTypes.Competitors,
                     BuildNeed(intent, topic, entities, CrawlTypes.Competitors)));
             if (plan.Count == 0)
-                throw new InvalidOperationException(
-                    "Create researchPlanning requires partner or competitor source run IDs.");
+                warnings.Add(
+                    "No partner/competitor library runs on brief; researchPlanning is empty (project-site / brief grounding only).");
             return LibraryResponse(
                 intent, stage, request, model, "hybrid", warnings,
                 researchPlan: plan, sources: []);
@@ -452,16 +481,17 @@ public sealed class RagGenerateService
             _ => ((bool?)true, (bool?)false, 10),
         };
 
+        // Fail closed only for runs that were explicitly bound; null run = skip that corpus.
         var partnerQuery = await QueryRunAsync(
             partnerRunId,
             ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Partner),
             CrawlTypes.Partner, topK, preferParent, preferChild, entities, null, warnings, ct,
-            failClosed: true).ConfigureAwait(false);
+            failClosed: partnerRunId is not null).ConfigureAwait(false);
         var competitorQuery = await QueryRunAsync(
             competitorRunId,
             ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Competitors),
             CrawlTypes.Competitors, topK, preferParent, preferChild, entities, null, warnings, ct,
-            failClosed: true).ConfigureAwait(false);
+            failClosed: competitorRunId is not null).ConfigureAwait(false);
 
         var partnerPages = partnerQuery.Pages;
         var competitorPages = competitorQuery.Pages;
@@ -472,6 +502,14 @@ public sealed class RagGenerateService
             && (partnerRunId is not null || competitorRunId is not null))
             throw new InvalidOperationException(
                 "RAG evidence library returned no pages for the supplied source runs.");
+        if (sources.Count == 0
+            && partnerRunId is null
+            && competitorRunId is null
+            && stage is not ("validation" or "finalSynthesis"))
+        {
+            warnings.Add(
+                "No partner/competitor library pages; Create library writer will ground on brief/topic only.");
+        }
 
         var retrieval = partnerQuery.Retrieval ?? competitorQuery.Retrieval ?? "hybrid";
 
