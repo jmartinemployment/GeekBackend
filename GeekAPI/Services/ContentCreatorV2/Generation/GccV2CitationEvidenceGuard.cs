@@ -23,7 +23,8 @@ public static class GccV2CitationEvidenceGuard
         Guid? partnerRunId,
         Guid? competitorRunId,
         IGeekCrawlerRagClient? ragClient,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<GccV2PartnerMentionGate.PartnerToken>? partnerTokens = null)
     {
         var gaps = new List<string>();
         var audited = new List<RagCitationDto>();
@@ -72,6 +73,10 @@ public static class GccV2CitationEvidenceGuard
             }
         }
 
+        var withVerified = ApplyAuditedCitations(output, audited);
+        if (partnerTokens is { Count: > 0 })
+            gaps.AddRange(GccV2PartnerMentionGate.CollectGaps(withVerified, partnerTokens));
+
         return new AuditResult(audited, gaps.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
@@ -80,7 +85,8 @@ public static class GccV2CitationEvidenceGuard
         GccV2WriteOutput output,
         Guid? partnerRunId,
         Guid? competitorRunId,
-        IReadOnlyDictionary<string, string>? markdownByPageId)
+        IReadOnlyDictionary<string, string>? markdownByPageId,
+        IReadOnlyList<GccV2PartnerMentionGate.PartnerToken>? partnerTokens = null)
     {
         var gaps = new List<string>();
         var audited = new List<RagCitationDto>();
@@ -117,7 +123,29 @@ public static class GccV2CitationEvidenceGuard
             }
         }
 
+        var withVerified = ApplyAuditedCitations(output, audited);
+        if (partnerTokens is { Count: > 0 })
+            gaps.AddRange(GccV2PartnerMentionGate.CollectGaps(withVerified, partnerTokens));
+
         return new AuditResult(audited, gaps.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    /// <summary>
+    /// Apply sourceRights resolution + ship gaps after citation verify / partner-mention audit.
+    /// </summary>
+    public static AuditResult ApplySourceRights(
+        GccV2WriteOutput outputAfterVerify,
+        IReadOnlyList<RagCitationDto> auditedCitations,
+        IReadOnlyList<string> existingGaps,
+        string? rawBriefJson)
+    {
+        var overrides = GccV2SourceRightsGate.ParseBriefOverrides(rawBriefJson);
+        var working = auditedCitations.Count > 0
+            ? ApplyAuditedCitations(outputAfterVerify, auditedCitations)
+            : outputAfterVerify;
+        var (stamped, rightsGaps) = GccV2SourceRightsGate.ApplyAndCollectGaps(working, overrides);
+        var gaps = existingGaps.Concat(rightsGaps).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return new AuditResult(stamped, gaps);
     }
 
     /// <summary>Stamp audited <see cref="RagCitationDto.Verified"/> back onto WRITE sections for ResultJson.</summary>
@@ -259,5 +287,6 @@ public static class GccV2CitationEvidenceGuard
             CrawlType = c.CrawlType,
             SourceDigest = c.SourceDigest,
             Verified = verified,
+            SourceRights = c.SourceRights,
         };
 }

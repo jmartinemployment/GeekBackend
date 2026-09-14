@@ -22,8 +22,8 @@ public interface IGeekCrawlerRagClient
     Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default);
 
     /// <summary>
-    /// Retrieve English chunks for a need. Empty list + warning on miss (notify-and-skip).
-    /// Returns null when the client is disabled.
+    /// Retrieve English chunks for a need. Returns null when the client is disabled.
+    /// HTTP/transport failures set <see cref="GeekCrawlerRagQueryResult.Failed"/> — empty Pages must not be treated as success.
     /// Optional preferParent/preferChild and entityNames are forward-compatible with
     /// Geek-Crawler-Rag Phase B (ignored by older indexers).
     /// </summary>
@@ -211,6 +211,7 @@ public sealed class GeekCrawlerRagCitationDto
     public string Quote { get; init; } = "";
     public string? CrawlType { get; init; }
     public string? SourceDigest { get; init; }
+    public string? SourceRights { get; init; }
 }
 
 public sealed class GeekCrawlerRagGenerateSourceDto
@@ -272,6 +273,9 @@ public sealed class GeekCrawlerRagQueryResult
     public required Guid RunId { get; init; }
     public required IReadOnlyList<GccQuoteablePage> Pages { get; init; }
     public string? Warning { get; init; }
+    /// <summary>True when the RAG query HTTP call failed or threw — empty Pages must not be treated as success.</summary>
+    public bool Failed { get; init; }
+    public string? Error { get; init; }
     public IReadOnlyList<GeekCrawlerRagThemeDto> Themes { get; init; } = [];
     public string? Retrieval { get; init; }
 }
@@ -525,7 +529,9 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 {
                     RunId = runId,
                     Pages = [],
-                    Warning = $"RAG query failed ({(int)response.StatusCode}). Continuing without it.",
+                    Failed = true,
+                    Error = $"RAG query failed ({(int)response.StatusCode}).",
+                    Warning = $"RAG query failed ({(int)response.StatusCode}).",
                 };
             }
 
@@ -539,7 +545,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 Themes = MapThemes(dto?.Themes),
                 Retrieval = dto?.Retrieval,
                 Warning = pages.Count == 0
-                    ? (dto?.Warning ?? "No RAG chunks returned. Continuing without it.")
+                    ? (dto?.Warning ?? "No RAG chunks returned for this query.")
                     : dto?.Warning,
             };
         }
@@ -550,7 +556,9 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             {
                 RunId = runId,
                 Pages = [],
-                Warning = "RAG query unavailable. Continuing without it.",
+                Failed = true,
+                Error = "RAG query unavailable.",
+                Warning = "RAG query unavailable.",
             };
         }
     }
@@ -839,6 +847,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                         Quote = c.Quote ?? "",
                         CrawlType = c.CrawlType,
                         SourceDigest = c.SourceDigest,
+                        SourceRights = c.SourceRights,
                     })
                     .ToList(),
                 Sources = (dto.Sources ?? [])
@@ -1327,6 +1336,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Quote { get; set; }
         public string? CrawlType { get; set; }
         public string? SourceDigest { get; set; }
+        public string? SourceRights { get; set; }
     }
 
     private sealed class GenerateSourceDto
