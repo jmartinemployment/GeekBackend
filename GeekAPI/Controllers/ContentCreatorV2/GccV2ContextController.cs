@@ -756,7 +756,21 @@ public sealed class GccV2ContextController(
             return NotFound(new { error = "The saved create is unavailable for the current owner." });
         var brief = request.BriefId is { } id ? await repository.GetBriefAsync(id, ct)
             : (await repository.ListBriefsByCreateAsync(request.CreateId, ct)).FirstOrDefault();
-        if (brief is null) return BadRequest(new { error = "A persisted brief is required." });
+        if (brief is null)
+        {
+            // Context preflight runs on Review before /generate; persist a provisional brief
+            // so PrepareAsync can resolve a manifest without a chicken-and-egg failure.
+            var rawBriefJson = string.IsNullOrWhiteSpace(request.RawBriefJson)
+                ? "{}"
+                : request.RawBriefJson.Trim();
+            brief = await repository.CreateBriefAsync(
+                new CreateGccV2BriefCommand(
+                    request.CreateId,
+                    TargetKeyword: null,
+                    ContentType: create.ContentType,
+                    RawBriefJson: rawBriefJson),
+                ct);
+        }
         await repository.CreateContextSelectionAsync(new(
             Owner, request.CreateId, JsonSerializer.Serialize(request.Selection), Owner), ct);
         var prepared = await resolver.PrepareAsync(Guid.NewGuid(), request.CreateId, brief.Id, Owner,
@@ -1047,7 +1061,8 @@ public sealed class GccV2ContextController(
         DateTimeOffset? EffectiveFromUtc, DateTimeOffset? EffectiveUntilUtc);
     public sealed record ResolveContextRequest(
         Guid CreateId, Guid? BriefId, GccV2ContextSelectionRequest Selection,
-        IReadOnlyList<string>? SelectedAgentIds = null);
+        IReadOnlyList<string>? SelectedAgentIds = null,
+        string? RawBriefJson = null);
     public sealed record ResolveTaskAgentContextRequest(
         GccV2ContextSelectionRequest Selection,
         IReadOnlyList<string>? SelectedAgentIds = null);
