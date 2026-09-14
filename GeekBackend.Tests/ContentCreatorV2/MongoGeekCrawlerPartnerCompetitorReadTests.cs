@@ -1,6 +1,7 @@
 using EphemeralMongo;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
 using GeekRepository.Data.Entities.GeekCrawler;
@@ -340,5 +341,8 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             GeekCrawlerRagGenerateRequest request,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagGenerateResult?>(null);
+
+        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
+            throw new CapabilitiesUnavailableException("Geek-Crawler-Rag is disabled in this test double.");
     }
 }

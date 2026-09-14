@@ -275,7 +275,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
             var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
             if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
-                quoteable.Add(extracted);
+            {
+                quoteable.Add(GccV2SeedHtmlProvenance.StampSeedHtml(
+                    extracted, page.RunId, page.Id, page.Html, page.CrawledAtUtc));
+            }
         }
 
         return quoteable;
@@ -415,7 +418,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
             var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
             if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
-                quoteable.Add(extracted);
+            {
+                quoteable.Add(GccV2SeedHtmlProvenance.StampSeedHtml(
+                    extracted, page.RunId, page.Id, page.Html, page.CrawledAtUtc));
+            }
         }
 
         return quoteable;
@@ -465,6 +471,8 @@ public sealed class GccV2GeekCrawlerResearchResolver
             return ([], DescribeUnavailableResearch(seed, crawlType), null);
         }
 
+        GccV2SeedHtmlProvenance.EnsureRunAuthorized(ownerUserId, run.OwnerUserId, run.Id);
+
         var seedSet = BuildSeedMatchSet(normalized);
         string? softWarning = null;
 
@@ -513,7 +521,12 @@ public sealed class GccV2GeekCrawlerResearchResolver
                     if (filtered.Count == 0)
                         filtered = rag.Pages.ToList();
                     if (filtered.Count > 0)
-                        return (filtered, softWarning, run.Id);
+                    {
+                        var stamped = filtered
+                            .Select(p => GccV2SeedHtmlProvenance.StampRagChunk(p, run.Id))
+                            .ToList();
+                        return (stamped, softWarning, run.Id);
+                    }
                 }
             }
         }
@@ -803,7 +816,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
             var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
             if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
-                quoteable.Add(extracted);
+            {
+                quoteable.Add(GccV2SeedHtmlProvenance.StampSeedHtml(
+                    extracted, page.RunId, page.Id, page.Html, page.CrawledAtUtc));
+            }
         }
 
         return quoteable;

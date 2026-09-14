@@ -71,8 +71,7 @@ public interface IGeekCrawlerRagClient
         CancellationToken ct = default) =>
         Task.FromResult<JsonElement?>(null);
 
-    Task<GeekCrawlerRagCapabilities?> GetCapabilitiesAsync(CancellationToken ct = default) =>
-        Task.FromResult<GeekCrawlerRagCapabilities?>(null);
+    Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default);
 }
 
 public sealed class GeekCrawlerRagCapabilities
@@ -211,6 +210,7 @@ public sealed class GeekCrawlerRagCitationDto
     public string? SectionKey { get; init; }
     public string Quote { get; init; } = "";
     public string? CrawlType { get; init; }
+    public string? SourceDigest { get; init; }
 }
 
 public sealed class GeekCrawlerRagGenerateSourceDto
@@ -838,6 +838,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                         SectionKey = c.SectionKey,
                         Quote = c.Quote ?? "",
                         CrawlType = c.CrawlType,
+                        SourceDigest = c.SourceDigest,
                     })
                     .ToList(),
                 Sources = (dto.Sources ?? [])
@@ -915,37 +916,65 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         }
     }
 
-    public async Task<GeekCrawlerRagCapabilities?> GetCapabilitiesAsync(CancellationToken ct = default)
+    public async Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default)
     {
-        if (!_enabled) return null;
+        if (!_enabled)
+        {
+            throw new CapabilitiesUnavailableException(
+                "Geek-Crawler-Rag is disabled (GEEK_CRAWLER_RAG_URL unset). Configure RAG and retry.");
+        }
+
         try
         {
             using var response = await _http.GetAsync("v1/capabilities", ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return null;
+            var status = (int)response.StatusCode;
+            if (status >= 500 || status == 408 || status == 429)
+            {
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag capabilities transport failure HTTP {Status}", status);
+                throw new CapabilitiesTransportError(
+                    $"RAG capabilities unavailable (HTTP {status}). Retry the job.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag capabilities unavailable HTTP {Status}", status);
+                throw new CapabilitiesUnavailableException(
+                    $"RAG capabilities endpoint returned HTTP {status}. Fix RAG config / re-deploy.");
+            }
+
             var dto = await response.Content.ReadFromJsonAsync<CapabilitiesDto>(JsonOpts, ct)
                 .ConfigureAwait(false);
-            return dto is null
-                ? null
-                : new GeekCrawlerRagCapabilities
-                {
-                    ExecutionVersions = dto.ExecutionVersions ?? [],
-                    SkillEnvelopeVersions = dto.SkillEnvelopeVersions ?? [],
-                    GenerationStages = dto.GenerationStages ?? [],
-                    AgentGenerationStages = dto.AgentGenerationStages
-                        ?? (dto.GenerationStages ?? [])
-                            .Where(s => !string.Equals(s, "complete", StringComparison.Ordinal))
-                            .ToList(),
-                    SpecialistExecutors = dto.SpecialistExecutors ?? [],
-                    SpecialistExecutorVersion = dto.SpecialistExecutorVersion ?? "",
-                    ToolsAllowed = dto.ToolsAllowed,
-                    AgentTraceVersions = dto.AgentTraceVersions ?? [],
-                    AgentToolVersions = dto.AgentToolVersions ?? [],
-                };
+            if (dto is null)
+            {
+                throw new CapabilitiesUnavailableException(
+                    "RAG capabilities response body was empty or malformed.");
+            }
+
+            return new GeekCrawlerRagCapabilities
+            {
+                ExecutionVersions = dto.ExecutionVersions ?? [],
+                SkillEnvelopeVersions = dto.SkillEnvelopeVersions ?? [],
+                GenerationStages = dto.GenerationStages ?? [],
+                AgentGenerationStages = dto.AgentGenerationStages
+                    ?? (dto.GenerationStages ?? [])
+                        .Where(s => !string.Equals(s, "complete", StringComparison.Ordinal))
+                        .ToList(),
+                SpecialistExecutors = dto.SpecialistExecutors ?? [],
+                SpecialistExecutorVersion = dto.SpecialistExecutorVersion ?? "",
+                ToolsAllowed = dto.ToolsAllowed,
+                AgentTraceVersions = dto.AgentTraceVersions ?? [],
+                AgentToolVersions = dto.AgentToolVersions ?? [],
+            };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException
+                                   and not CapabilitiesTransportError
+                                   and not CapabilitiesUnavailableException)
         {
             _logger.LogWarning(ex, "Geek-Crawler-Rag capabilities request threw");
-            return null;
+            throw new CapabilitiesTransportError(
+                "RAG capabilities request failed (network/timeout). Retry the job.", ex);
         }
     }
 
@@ -1077,7 +1106,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 Paragraphs: paragraphs,
                 PageId: group.Select(c => c.PageId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id)),
                 SectionTitle: group.Select(c => c.SectionTitle)
-                    .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s))));
+                    .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)),
+                RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk));
 
             if (pages.Count >= GccPartnerResearchCaps.MaxUrls)
                 break;
@@ -1296,6 +1326,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? SectionKey { get; set; }
         public string? Quote { get; set; }
         public string? CrawlType { get; set; }
+        public string? SourceDigest { get; set; }
     }
 
     private sealed class GenerateSourceDto

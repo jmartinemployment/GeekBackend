@@ -614,11 +614,39 @@ public sealed class GccV2ContextAdapter
                 }
 
                 if (headings.Count == 0 && paragraphs.Count == 0) continue;
+
+                var pageId = TryGetPropertyIgnoreCase(el, "pageId", out var pid) && pid.ValueKind == JsonValueKind.String
+                    ? pid.GetString()
+                    : null;
+                var sectionTitle = TryGetPropertyIgnoreCase(el, "sectionTitle", out var st) && st.ValueKind == JsonValueKind.String
+                    ? st.GetString()
+                    : null;
+                var runId = TryGetPropertyIgnoreCase(el, "runId", out var rid) && rid.ValueKind == JsonValueKind.String
+                    ? rid.GetString()
+                    : null;
+                var retrievalMode = TryGetPropertyIgnoreCase(el, "retrievalMode", out var rm) && rm.ValueKind == JsonValueKind.String
+                    ? rm.GetString()
+                    : null;
+                var sourceDigest = TryGetPropertyIgnoreCase(el, "sourceDigest", out var sd) && sd.ValueKind == JsonValueKind.String
+                    ? sd.GetString()
+                    : null;
+                DateTimeOffset? crawledAt = null;
+                if (TryGetPropertyIgnoreCase(el, "crawledAtUtc", out var ca)
+                    && ca.ValueKind == JsonValueKind.String
+                    && DateTimeOffset.TryParse(ca.GetString(), out var parsedCrawl))
+                    crawledAt = parsedCrawl;
+
                 pages.Add(new GccQuoteablePage(
                     url!.Trim(),
                     string.IsNullOrWhiteSpace(title) ? url!.Trim() : title!.Trim(),
                     headings,
-                    paragraphs));
+                    paragraphs,
+                    pageId,
+                    sectionTitle,
+                    runId,
+                    retrievalMode,
+                    sourceDigest,
+                    crawledAt));
             }
 
             return pages;

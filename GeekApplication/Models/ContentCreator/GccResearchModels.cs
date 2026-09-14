@@ -61,7 +61,18 @@ public sealed record GccQuoteablePage(
     IReadOnlyList<HeadingDto> Headings,
     IReadOnlyList<string> Paragraphs,
     string? PageId = null,
-    string? SectionTitle = null);
+    string? SectionTitle = null,
+    /// <summary>Authorized crawl run that produced this page (Geek-Crawler or project-site).</summary>
+    string? RunId = null,
+    /// <summary><c>rag_chunk</c> from Geek-Crawler-Rag index; <c>seed_html</c> from crawl HTML extract.</summary>
+    string? RetrievalMode = null,
+    /// <summary>SHA-256 hex of source HTML or concatenated paragraph text used for extract.</summary>
+    string? SourceDigest = null,
+    DateTimeOffset? CrawledAtUtc = null)
+{
+    public const string RetrievalModeRagChunk = "rag_chunk";
+    public const string RetrievalModeSeedHtml = "seed_html";
+}
 
 public static class GccResearchCaps
 {

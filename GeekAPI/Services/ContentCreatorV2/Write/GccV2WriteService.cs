@@ -1050,7 +1050,13 @@ public sealed class GccV2WriteService
         // One-shot complete is always negotiated as rag-generate.v2; Python rejects complete on v3.
         var agentContract = await _skillSnapshots.NegotiateAsync(wc.Job, attemptId, "complete", ct);
         await _events.AppendAsync(wc.Job.Id, ownerUserId, "AgentStageStarted",
-            new { stage = "complete", attemptId, executionVersion = agentContract.ExecutionVersion }, ct: ct);
+            new
+            {
+                stage = "complete",
+                attemptId,
+                executionVersion = agentContract.ExecutionVersion,
+                negotiationReason = agentContract.NegotiationReasonCode,
+            }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
         var response = await _rag.GenerateAsync(
             wc.Job.OwnerUserId,
@@ -1099,7 +1105,8 @@ public sealed class GccV2WriteService
                 ?? throw new InvalidOperationException("RAG complete response omitted attempt ID."),
             MapSkillProvenance(response.Provenance?.Skills),
             response.Provenance?.ExecutionVersion,
-            response.AgentExecution ?? response.Provenance?.AgentExecution);
+            response.AgentExecution ?? response.Provenance?.AgentExecution,
+            agentContract.NegotiationReasonCode);
         var section = MarkdownToSection(content, heading);
         var citations = StampSectionKey(response.Citations, sectionKey);
         var write = new GccV2WriteSection(
@@ -1331,6 +1338,8 @@ public sealed class GccV2WriteService
             SectionKey = string.IsNullOrWhiteSpace(c.SectionKey) ? sectionKey : c.SectionKey,
             Quote = c.Quote,
             CrawlType = c.CrawlType,
+            SourceDigest = c.SourceDigest,
+            Verified = c.Verified,
         }).ToList();
     }
 

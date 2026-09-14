@@ -1,6 +1,7 @@
 using System.Text;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentCreatorV2.Drive;
 using GeekAPI.Services.ContentCreatorV2.Gsc;
 using Microsoft.AspNetCore.Mvc;
@@ -40,7 +41,7 @@ public sealed class GccV2DriveController(
 
     /// <summary>
     /// Registers a Drive account for this owner. Live OAuth stores encrypted refresh tokens;
-    /// stub connections (empty ciphertext) are allowed for local/e2e Knowledge ingest.
+    /// stub connections only when <see cref="GccV2StubConnectionPolicy"/> allows.
     /// </summary>
     [HttpPost("connections")]
     public async Task<ActionResult<object>> UpsertConnection(UpsertConnectionRequest request, CancellationToken ct)
@@ -66,12 +67,23 @@ public sealed class GccV2DriveController(
             (cipher, iv, tag) = GccV2GscCredentialProtector.Encrypt(request.RefreshToken.Trim());
             status = "connected";
         }
+        else if (!GccV2StubConnectionPolicy.AreStubsAllowed())
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error =
+                    "Drive stub connections are disabled. Configure Google OAuth or enable "
+                    + $"{GccV2StubConnectionPolicy.AllowEnvName} only on Development/e2e.",
+                mode = "oauth_required",
+            });
+        }
 
         var saved = await repo.UpsertDriveConnectionAsync(
             new UpsertGccV2DriveConnectionCommand(Owner, accountLabel, status, cipher, iv, tag), ct);
         return Ok(new
         {
             contractVersion = "gcc-drive-connections.v1",
+            mode = status == "stub" ? "stub" : "oauth",
             connection = Summary(saved),
         });
     }
@@ -90,11 +102,12 @@ public sealed class GccV2DriveController(
         if (!user.IsAuthenticated) return Unauthorized();
         if (!GccV2DriveOAuthEnv.IsConfigured)
         {
+            var stubs = GccV2StubConnectionPolicy.AreStubsAllowed();
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {
                 error =
                     "Drive Google OAuth is not configured. Set GEEK_CC_DRIVE_GOOGLE_REDIRECT_URI (and client id/secret or fall back to GSC Google client vars) plus GEEK_CC_GSC_ENCRYPTION_KEY.",
-                mode = "stub",
+                mode = stubs ? "stub" : "oauth_required",
             });
         }
 

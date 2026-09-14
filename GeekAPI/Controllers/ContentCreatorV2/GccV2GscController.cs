@@ -1,6 +1,7 @@
 using System.Text;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentCreatorV2.Gsc;
 using Microsoft.AspNetCore.Mvc;
 
@@ -36,8 +37,8 @@ public sealed class GccV2GscController(
 
     /// <summary>
     /// Registers a verified GSC property for this owner. Live OAuth callback stores encrypted tokens;
-    /// stub connections (empty ciphertext) are allowed so Query Planner can use CC-owned connection IDs
-    /// without calling Geek SEO.
+    /// stub connections (empty ciphertext) only when <see cref="GccV2StubConnectionPolicy"/> allows
+    /// (local/e2e + GCC_V2_ALLOW_STUB_CONNECTIONS).
     /// </summary>
     [HttpPost("connections")]
     public async Task<ActionResult<object>> UpsertConnection(UpsertConnectionRequest request, CancellationToken ct)
@@ -63,12 +64,23 @@ public sealed class GccV2GscController(
             (cipher, iv, tag) = GccV2GscCredentialProtector.Encrypt(request.RefreshToken.Trim());
             status = "connected";
         }
+        else if (!GccV2StubConnectionPolicy.AreStubsAllowed())
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error =
+                    "GSC stub connections are disabled. Configure Google OAuth or enable "
+                    + $"{GccV2StubConnectionPolicy.AllowEnvName} only on Development/e2e.",
+                mode = "oauth_required",
+            });
+        }
 
         var saved = await repo.UpsertGscConnectionAsync(
             new UpsertGccV2GscConnectionCommand(Owner, siteUrl, status, cipher, iv, tag), ct);
         return Ok(new
         {
             contractVersion = "gcc-gsc-connections.v1",
+            mode = status == "stub" ? "stub" : "oauth",
             connection = Summary(saved),
         });
     }
@@ -82,8 +94,8 @@ public sealed class GccV2GscController(
     }
 
     /// <summary>
-    /// Starts Google OAuth for a CC-owned GSC connection. Returns 503 when Google env is unset
-    /// so the UI can fall back to a stub connection in local/e2e.
+    /// Starts Google OAuth for a CC-owned GSC connection. Returns 503 when Google env is unset.
+    /// Stub mode is only advertised when <see cref="GccV2StubConnectionPolicy"/> allows it.
     /// </summary>
     [HttpGet("oauth/connect-url")]
     public ActionResult<object> ConnectUrl(
@@ -93,11 +105,12 @@ public sealed class GccV2GscController(
         if (!user.IsAuthenticated) return Unauthorized();
         if (!GccV2GscOAuthEnv.IsConfigured)
         {
+            var stubs = GccV2StubConnectionPolicy.AreStubsAllowed();
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {
                 error =
                     "GSC Google OAuth is not configured. Set GEEK_CC_GSC_GOOGLE_CLIENT_ID/SECRET, GEEK_CC_GSC_GOOGLE_REDIRECT_URI, and GEEK_CC_GSC_ENCRYPTION_KEY.",
-                mode = "stub",
+                mode = stubs ? "stub" : "oauth_required",
             });
         }
 

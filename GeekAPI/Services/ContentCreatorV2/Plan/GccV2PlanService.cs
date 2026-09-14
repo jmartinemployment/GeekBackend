@@ -4,6 +4,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.Rag;
 using System.Diagnostics;
@@ -119,6 +120,13 @@ public sealed class GccV2PlanService
         {
             throw new InvalidOperationException(
                 "Pre-PLAN evidence gate failed: " + string.Join(" ", prePlanManifest.EvidenceGaps));
+        }
+
+        if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is { } groundingRunId
+            && groundingRunId != Guid.Empty)
+        {
+            var sitePages = await _repo.ListProjectSiteCrawlPagesAsync(groundingRunId, limit: 50, offset: 0, ct);
+            GccV2ProjectSiteGrounding.EnsureUsableSeedHtml(groundingRunId, sitePages);
         }
 
         // operatorTools from the brief are partners (never competitor H2s / crawl seeds).
@@ -261,11 +269,14 @@ public sealed class GccV2PlanService
         if (GccV2LongFormTypes.ExpectsFaqSection(contentType))
         {
             var paaQuestions = ExtractPaaQuestions(brief.RawBriefJson, keyword, partnerToolNames);
-            sections.Add(new GccV2PlanOutlineSection(
-                "people-also-ask",
-                "People Also Ask",
-                "faq",
-                paaQuestions));
+            if (paaQuestions.Count > 0)
+            {
+                sections.Add(new GccV2PlanOutlineSection(
+                    "people-also-ask",
+                    "People Also Ask",
+                    "faq",
+                    paaQuestions));
+            }
         }
 
         var evidenceIds = (ragResult.Citations ?? []).Select(c => c.PageId)
@@ -440,7 +451,7 @@ public sealed class GccV2PlanService
                || n.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static List<string> ExtractPaaQuestions(
+    internal static List<string> ExtractPaaQuestions(
         string? rawBriefJson,
         string keyword,
         IReadOnlyList<string> partnerToolNames)
@@ -469,12 +480,8 @@ public sealed class GccV2PlanService
         if (fromBrief.Count > 0)
             return fromBrief.Take(12).ToList();
 
-        var title = Capitalize(keyword);
-        var fallback = new List<string> { $"What is {title}?" };
-        foreach (var tool in partnerToolNames.Take(3))
-            fallback.Add($"How does {tool} help with {title}?");
-        fallback.Add($"What should teams prioritize for {title}?");
-        return fallback.Take(5).ToList();
+        // Never invent PAA/FAQ lines — operator-curated paaQuestions only (create-form contract).
+        return [];
     }
 
     private static List<string> ExtractRecommendedToolNames(string? rawBriefJson) =>

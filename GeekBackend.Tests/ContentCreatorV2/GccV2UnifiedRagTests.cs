@@ -1,5 +1,6 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -292,6 +293,8 @@ public sealed class GccV2UnifiedRagTests
             SectionKey = "lede",
             Quote = "Verified quote span.",
             CrawlType = "partner",
+            SourceDigest = "abc",
+            Verified = true,
         };
 
         var json = System.Text.Json.JsonSerializer.Serialize(citation);
@@ -303,6 +306,8 @@ public sealed class GccV2UnifiedRagTests
         Assert.Equal(citation.SectionKey, restored.SectionKey);
         Assert.Equal(citation.Quote, restored.Quote);
         Assert.Equal("partner", restored.CrawlType);
+        Assert.True(restored.Verified);
+        Assert.Equal("abc", restored.SourceDigest);
         Assert.DoesNotContain("competitor", restored.CrawlType, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -333,6 +338,181 @@ public sealed class GccV2UnifiedRagTests
     }
 
     [Fact]
+    public void Citation_evidence_guard_requires_verified_span_and_blocks_role_leak()
+    {
+        var partnerRun = Guid.NewGuid();
+        var competitorRun = Guid.NewGuid();
+        var markdown = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["page-partner"] = "ApprovalMax automates invoice approval workflows for finance teams.",
+        };
+
+        var lede = new GccV2WriteSection(
+            "lede", "Introduction", "problem",
+            new Section("h2", "Introduction",
+            [
+                new TextParagraph([new Run(string.Join(' ', Enumerable.Repeat("word", 50)))]),
+            ], null, []),
+            false,
+            [
+                new RagCitationDto
+                {
+                    PageId = "page-partner",
+                    RunId = partnerRun.ToString("D"),
+                    Url = "https://approvalmax.com",
+                    Quote = "ApprovalMax automates invoice approval workflows for finance teams.",
+                    CrawlType = "partner",
+                },
+            ]);
+        var body = new GccV2WriteSection(
+            "proof", "Proof", "proof",
+            new Section("h2", "Proof",
+            [
+                new TextParagraph([new Run(string.Join(' ', Enumerable.Repeat("evidence", 50)))]),
+            ], null, []),
+            false,
+            [
+                new RagCitationDto
+                {
+                    PageId = "page-partner",
+                    RunId = competitorRun.ToString("D"),
+                    Url = "https://rival.example",
+                    Quote = "ApprovalMax automates invoice approval workflows for finance teams.",
+                    CrawlType = "partner",
+                },
+            ]);
+        var output = new GccV2WriteOutput
+        {
+            Title = "T",
+            MetaDescription = "M",
+            Lede = lede,
+            Sections = [body],
+        };
+
+        var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
+            output, partnerRun, competitorRun, markdown);
+
+        Assert.Contains(audit.EvidenceGaps, g => g.Contains("inconsistent", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(audit.Citations, c => c.SectionKey == "lede" && c.Verified == true);
+        Assert.Contains(audit.Citations, c => c.SectionKey == "proof" && c.Verified == false);
+    }
+
+    [Fact]
+    public void Citation_evidence_guard_flags_missing_section_citation()
+    {
+        var section = new GccV2WriteSection(
+            "proof", "Proof", "proof",
+            new Section("h2", "Proof",
+            [
+                new TextParagraph([new Run(string.Join(' ', Enumerable.Repeat("evidence", 50)))]),
+            ], null, []),
+            false,
+            []);
+        var output = new GccV2WriteOutput
+        {
+            Title = "T",
+            MetaDescription = "M",
+            Lede = section,
+            Sections = [],
+        };
+
+        var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
+            output, null, null, new Dictionary<string, string>());
+
+        Assert.Contains(audit.EvidenceGaps, g => g.Contains("lacks a verified citation", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Ship_ready_fails_when_citation_evidence_gaps_present()
+    {
+        var report = new GccV2ValidationReport(
+            "approved",
+            null,
+            100,
+            100,
+            true,
+            [],
+            RagValidation: new RagValidationDto
+            {
+                Approved = true,
+                Issues = [],
+                Strengths = ["ok"],
+                UnsupportedClaimCount = 0,
+                BriefAlignmentScore = 1,
+                EvidenceCoverageScore = 1,
+                UsefulnessScore = 1,
+                OriginalityScore = 1,
+                BrandAlignmentScore = 1,
+            },
+            CitationEvidenceGaps: ["Section 'proof' lacks a verified citation (evidence gap)."]);
+
+        Assert.False(report.ShipReady);
+    }
+
+    [Fact]
+    public void Apply_audited_citations_stamps_verified_onto_write_sections()
+    {
+        var partnerRun = Guid.NewGuid();
+        var markdown = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["page-1"] = "Exact partner quote for verify.",
+        };
+        var lede = new GccV2WriteSection(
+            "lede", "Introduction", "problem",
+            new Section("h2", "Introduction",
+            [
+                new TextParagraph([new Run(string.Join(' ', Enumerable.Repeat("word", 50)))]),
+            ], null, []),
+            false,
+            [
+                new RagCitationDto
+                {
+                    PageId = "page-1",
+                    RunId = partnerRun.ToString("D"),
+                    Url = "https://approvalmax.com",
+                    Quote = "Exact partner quote for verify.",
+                    CrawlType = "partner",
+                },
+            ]);
+        var output = new GccV2WriteOutput
+        {
+            Title = "T",
+            MetaDescription = "M",
+            Lede = lede,
+            Sections = [],
+        };
+
+        var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
+            output, partnerRun, null, markdown);
+        var stamped = GccV2CitationEvidenceGuard.ApplyAuditedCitations(output, audit.Citations);
+
+        Assert.True(stamped.Lede.Citations![0].Verified);
+        Assert.Equal("lede", stamped.Lede.Citations[0].SectionKey);
+        Assert.True(stamped.Citations[0].Verified);
+    }
+
+    [Fact]
+    public void Citeable_create_v1_flag_defaults_on_and_honors_override()
+    {
+        var previous = GccV2CiteableCreateFlags.OverrideEnabled;
+        try
+        {
+            GccV2CiteableCreateFlags.OverrideEnabled = null;
+            Assert.True(GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled());
+
+            GccV2CiteableCreateFlags.OverrideEnabled = false;
+            Assert.False(GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled());
+
+            GccV2CiteableCreateFlags.OverrideEnabled = true;
+            Assert.True(GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled());
+        }
+        finally
+        {
+            GccV2CiteableCreateFlags.OverrideEnabled = previous;
+        }
+    }
+
+    [Fact]
     public void Partner_tool_names_include_operator_tools_and_never_competitor_urls()
     {
         var names = GeekAPI.Services.ContentCreatorV2.Plan.GccV2PlanService.ExtractPartnerToolNames("""
@@ -347,6 +527,123 @@ public sealed class GccV2UnifiedRagTests
         Assert.Contains("Ops Board", names);
         Assert.DoesNotContain(names, n => n.Contains("rival", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(names, n => n.StartsWith("http", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Citation_evidence_guard_rejects_non_verbatim_quote()
+    {
+        var partnerRun = Guid.NewGuid();
+        var markdown = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["page-1"] = "Only this exact sentence is on the page.",
+        };
+        var lede = new GccV2WriteSection(
+            "lede", "Introduction", "problem",
+            new Section("h2", "Introduction",
+            [
+                new TextParagraph([new Run(string.Join(' ', Enumerable.Repeat("word", 50)))]),
+            ], null, []),
+            false,
+            [
+                new RagCitationDto
+                {
+                    PageId = "page-1",
+                    RunId = partnerRun.ToString("D"),
+                    Url = "https://approvalmax.com",
+                    Quote = "This paraphrase is not on the page.",
+                    CrawlType = "partner",
+                },
+            ]);
+        var output = new GccV2WriteOutput
+        {
+            Title = "T",
+            MetaDescription = "M",
+            Lede = lede,
+            Sections = [],
+        };
+
+        var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
+            output, partnerRun, null, markdown);
+
+        Assert.Contains(audit.EvidenceGaps, g => g.Contains("exact span", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(audit.Citations, c => c.Verified == false);
+    }
+
+    [Fact]
+    public void Citation_evidence_guard_fails_closed_when_markdown_missing()
+    {
+        var lede = new GccV2WriteSection(
+            "lede", "Introduction", "problem",
+            new Section("h2", "Introduction",
+            [
+                new TextParagraph([new Run(string.Join(' ', Enumerable.Repeat("word", 50)))]),
+            ], null, []),
+            false,
+            [
+                new RagCitationDto
+                {
+                    PageId = "missing-page",
+                    RunId = Guid.NewGuid().ToString("D"),
+                    Url = "https://approvalmax.com",
+                    Quote = "Any quote",
+                    CrawlType = "partner",
+                },
+            ]);
+        var output = new GccV2WriteOutput
+        {
+            Title = "T",
+            MetaDescription = "M",
+            Lede = lede,
+            Sections = [],
+        };
+
+        var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
+            output, null, null, new Dictionary<string, string>());
+
+        Assert.Contains(audit.EvidenceGaps, g => g.Contains("could not load source", StringComparison.OrdinalIgnoreCase));
+        Assert.All(audit.Citations, c => Assert.False(c.Verified));
+    }
+
+    [Fact]
+    public void Persisted_validation_report_includes_citation_gaps_and_kill_switch()
+    {
+        var report = new GccV2ValidationReport(
+            "rejected",
+            "gap",
+            80,
+            80,
+            true,
+            [],
+            RagValidation: new RagValidationDto
+            {
+                Approved = false,
+                Issues = [],
+                Strengths = [],
+                UnsupportedClaimCount = 1,
+                BriefAlignmentScore = 0.5,
+                EvidenceCoverageScore = 0.5,
+                UsefulnessScore = 0.5,
+                OriginalityScore = 0.5,
+                BrandAlignmentScore = 0.5,
+            },
+            CitationEvidenceGaps: ["Section 'proof' lacks a verified citation (evidence gap)."]);
+
+        var previous = GccV2CiteableCreateFlags.OverrideEnabled;
+        try
+        {
+            GccV2CiteableCreateFlags.OverrideEnabled = true;
+            var payload = GccV2ValidateService.BuildPersistedReportPayload(report, attempt: 0);
+            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            Assert.True(doc.RootElement.GetProperty("citeableCreateV1").GetBoolean());
+            Assert.Equal(
+                "Section 'proof' lacks a verified citation (evidence gap).",
+                doc.RootElement.GetProperty("citationEvidenceGaps")[0].GetString());
+        }
+        finally
+        {
+            GccV2CiteableCreateFlags.OverrideEnabled = previous;
+        }
     }
 
     [Theory]

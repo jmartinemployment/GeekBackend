@@ -165,6 +165,27 @@ public sealed class GccV2JobWorker : BackgroundService
             await RunWriteThenValidateStageAsync(
                 jobId, ownerUserId, claimed, repo, writer, writeService, validateService, scope, ct);
         }
+        catch (CapabilitiesTransportError ex) when (claimed.AttemptCount < 3)
+        {
+            await writer.TransitionAsync(jobId, ownerUserId, new ApplyGccV2JobTransitionCommand(
+                Status: "pending",
+                Error: $"capabilities:transport:{ex.Message}",
+                ReleaseClaim: true,
+                EventType: "AgentStageRetryScheduled",
+                EventPayloadJson: JsonSerializer.Serialize(new
+                {
+                    reason = "capabilities_transport",
+                    detail = ex.Message,
+                    attempt = claimed.AttemptCount,
+                }, JsonOpts),
+                Wake: true), ct);
+            _wake.Wake(jobId);
+        }
+        catch (CapabilitiesUnavailableException ex)
+        {
+            await FailJobAsync(writer, jobId, ownerUserId,
+                $"RAG capabilities unavailable — {ex.Message}", ct);
+        }
         catch (RagAgentStoppedException ex) when (ex.IsTransient && claimed.AttemptCount < 3)
         {
             await writer.TransitionAsync(jobId, ownerUserId, new ApplyGccV2JobTransitionCommand(
@@ -642,7 +663,9 @@ public sealed class GccV2JobWorker : BackgroundService
             provenance = outcome.Final.Provenance.LastOrDefault(),
             modelPolicy = EffectiveModelPolicy(wc),
             approvedStageModels = ContentModelPolicy.ApprovedStageModels,
-            evidenceManifest = BuildFinalEvidenceManifest(outcome.Final),
+            evidenceManifest = BuildFinalEvidenceManifest(outcome.Final, outcome.Report),
+            citationEvidenceGaps = outcome.Report.CitationEvidenceGaps ?? Array.Empty<string>(),
+            citeableCreateV1 = GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled(),
             validationReport = outcome.Report,
             shipReady = outcome.ShipReady,
             outstandingIssues = outcome.OutstandingIssues,
@@ -845,7 +868,9 @@ public sealed class GccV2JobWorker : BackgroundService
         };
     }
 
-    private static GccV2ResearchEvidenceManifest BuildFinalEvidenceManifest(GccV2WriteOutput output)
+    private static GccV2ResearchEvidenceManifest BuildFinalEvidenceManifest(
+        GccV2WriteOutput output,
+        GccV2ValidationReport report)
     {
         var warnings = output.Provenance.SelectMany(p => p.Warnings).Distinct().ToList();
         var sources = output.Sources.Count > 0
@@ -858,15 +883,28 @@ public sealed class GccV2JobWorker : BackgroundService
                 CrawlType = c.CrawlType,
                 Kind = "page",
             }).DistinctBy(s => $"{s.PageId}|{s.Url}").ToList();
+
+        var verified = output.Citations.Where(c => c.Verified == true).ToList();
+        var candidates = output.Citations.Where(c => c.Verified != true).ToList();
+        var verificationAttempted = output.Citations.Any(c => c.Verified is not null)
+            || (report.CitationEvidenceGaps?.Count ?? 0) > 0;
+
+        var gaps = new List<string>();
+        if (report.CitationEvidenceGaps is { Count: > 0 })
+            gaps.AddRange(report.CitationEvidenceGaps);
+        else if (output.Citations.Count == 0)
+            gaps.Add("No verified citations were returned for the completed output.");
+        else if (verificationAttempted && verified.Count == 0)
+            gaps.Add("No verified citations were returned for the completed output.");
+
         return new GccV2ResearchEvidenceManifest(
             GccV2ResearchEvidenceManifest.CurrentVersion,
             sources,
-            output.Citations,
-            output.Citations.Count == 0
-                ? ["No verified citations were returned for the completed output."]
-                : [],
+            verified,
+            gaps.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             [],
             warnings,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            CandidateQuotes: candidates.Count > 0 ? candidates : null);
     }
 }

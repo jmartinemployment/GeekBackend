@@ -120,8 +120,7 @@ public sealed class RagGenerateService
         var stage = NormalizeGenerationStage(request.GenerationStage);
         if (request.RequireCiteable)
         {
-            var capabilities = await _rag.GetCapabilitiesAsync(ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("RAG producer capabilities are unavailable; strict execution cannot be negotiated.");
+            var capabilities = await _rag.GetCapabilitiesAsync(ct).ConfigureAwait(false);
             var agentV3 = request.ExecutionVersion == RagProducerCapabilities.AgentExecutionVersion;
             var envelopeVersion = agentV3
                 ? request.SignedSkillExecution?.EnvelopeVersion
@@ -1149,6 +1148,7 @@ public sealed class RagGenerateService
                     SectionKey = c.SectionKey,
                     Quote = c.Quote,
                     CrawlType = c.CrawlType,
+                    SourceDigest = c.SourceDigest,
                 })
                 .ToList(),
             ThemeSources = themeSources,

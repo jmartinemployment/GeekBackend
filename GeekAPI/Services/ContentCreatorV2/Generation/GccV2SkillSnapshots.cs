@@ -145,27 +145,49 @@ public sealed class GccV2SkillSnapshotRegistry(
         return unsigned with { SnapshotDigest = digest, Signature = signer.SignDigest(digest) };
     }
 
-    public async Task<(string ExecutionVersion, GccV2SignedSkillExecutionEnvelopeV2? Envelope)> NegotiateAsync(
+    public async Task<GccV2CapabilitiesNegotiation> NegotiateAsync(
         GccV2JobDto job, string attemptId, string stage, CancellationToken ct)
     {
         // One-shot `complete` is rag-generate.v2 only — Python rejects it on v3.
-        if (!signer.IsConfigured || stage == "complete")
-            return (RagProducerCapabilities.RequiredExecutionVersion, null);
+        if (!signer.IsConfigured)
+        {
+            return new GccV2CapabilitiesNegotiation(
+                RagProducerCapabilities.RequiredExecutionVersion,
+                null,
+                GccV2CapabilitiesNegotiationReason.SignerUnconfigured);
+        }
+
+        if (stage == "complete")
+        {
+            return new GccV2CapabilitiesNegotiation(
+                RagProducerCapabilities.RequiredExecutionVersion,
+                null,
+                GccV2CapabilitiesNegotiationReason.CompleteStageV2Only);
+        }
+
         var capabilities = await rag.GetCapabilitiesAsync(ct);
-        var agentStages = capabilities?.AgentGenerationStages is { Count: > 0 } listed
+        var agentStages = capabilities.AgentGenerationStages is { Count: > 0 } listed
             ? listed
-            : (capabilities?.GenerationStages ?? [])
+            : (capabilities.GenerationStages ?? [])
                 .Where(s => !string.Equals(s, "complete", StringComparison.Ordinal))
                 .ToList();
-        if (capabilities?.ExecutionVersions.Contains(RagProducerCapabilities.AgentExecutionVersion, StringComparer.Ordinal) == true
+        if (capabilities.ExecutionVersions.Contains(RagProducerCapabilities.AgentExecutionVersion, StringComparer.Ordinal)
             && capabilities.SkillEnvelopeVersions.Contains(GccV2SignedSkillExecutionEnvelopeV2.CurrentEnvelopeVersion, StringComparer.Ordinal)
             && capabilities.AgentTraceVersions.Contains("agent-trace.v1", StringComparer.Ordinal)
             && capabilities.AgentToolVersions.Contains("agent-tools.v1", StringComparer.Ordinal)
             && capabilities.ToolsAllowed
             && agentStages.Contains(stage, StringComparer.Ordinal))
-            return (RagProducerCapabilities.AgentExecutionVersion,
-                await BuildEnvelopeAsync(job, attemptId, stage, ct));
-        return (RagProducerCapabilities.RequiredExecutionVersion, null);
+        {
+            return new GccV2CapabilitiesNegotiation(
+                RagProducerCapabilities.AgentExecutionVersion,
+                await BuildEnvelopeAsync(job, attemptId, stage, ct),
+                GccV2CapabilitiesNegotiationReason.AgentV3);
+        }
+
+        return new GccV2CapabilitiesNegotiation(
+            RagProducerCapabilities.RequiredExecutionVersion,
+            null,
+            GccV2CapabilitiesNegotiationReason.CapabilitiesV2Only);
     }
 
     public void Validate(GccV2SignedSkillExecutionEnvelopeV2 envelope, string stage)

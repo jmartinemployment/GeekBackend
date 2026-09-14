@@ -1,6 +1,7 @@
 using System.Text;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentCreatorV2.Gsc;
 using GeekAPI.Services.ContentCreatorV2.SharePoint;
 using Microsoft.AspNetCore.Mvc;
@@ -54,12 +55,23 @@ public sealed class GccV2SharePointController(
             (cipher, iv, tag) = GccV2GscCredentialProtector.Encrypt(request.RefreshToken.Trim());
             status = "connected";
         }
+        else if (!GccV2StubConnectionPolicy.AreStubsAllowed())
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error =
+                    "SharePoint stub connections are disabled. Configure Microsoft OAuth or enable "
+                    + $"{GccV2StubConnectionPolicy.AllowEnvName} only on Development/e2e.",
+                mode = "oauth_required",
+            });
+        }
 
         var saved = await repo.UpsertSharePointConnectionAsync(
             new UpsertGccV2SharePointConnectionCommand(Owner, accountLabel, status, cipher, iv, tag), ct);
         return Ok(new
         {
             contractVersion = "gcc-sharepoint-connections.v1",
+            mode = status == "stub" ? "stub" : "oauth",
             connection = Summary(saved),
         });
     }
@@ -78,11 +90,12 @@ public sealed class GccV2SharePointController(
         if (!user.IsAuthenticated) return Unauthorized();
         if (!GccV2SharePointOAuthEnv.IsConfigured)
         {
+            var stubs = GccV2StubConnectionPolicy.AreStubsAllowed();
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {
                 error =
                     "SharePoint Microsoft OAuth is not configured. Set GEEK_CC_SHAREPOINT_CLIENT_ID/SECRET, GEEK_CC_SHAREPOINT_REDIRECT_URI, and GEEK_CC_GSC_ENCRYPTION_KEY (optional GEEK_CC_SHAREPOINT_TENANT).",
-                mode = "stub",
+                mode = stubs ? "stub" : "oauth_required",
             });
         }
 

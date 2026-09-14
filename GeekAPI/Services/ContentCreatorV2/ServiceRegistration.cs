@@ -156,6 +156,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2HtmlExportService>();
         services.AddScoped<GccV2AiVisibilityService>();
         services.AddMemoryCache();
+        services.AddHostedService<GccV2StubConnectionStartupGuard>();
         services.AddHostedService<GccV2FirstPartySkillSeeder>();
         services.AddHostedService<GccV2FirstPartyAgentSeeder>();
         services.AddHostedService<GccV2AgentTestWorker>();

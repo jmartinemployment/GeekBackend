@@ -105,6 +105,7 @@ public sealed class GccV2CmsPublishService
                 ? GccV2ToolSlugHelper.SlugifyKeyword(create.Title)
                 : SlugHelper.Slugify(title);
         var documentJson = JsonSerializer.Serialize(document, ResultJsonOpts);
+        int? mutatedPostId = null;
 
         try
         {
@@ -112,6 +113,7 @@ public sealed class GccV2CmsPublishService
             var categorySlug = string.IsNullOrWhiteSpace(request.CategorySlug)
                 ? DefaultCategorySlug(contentType)
                 : request.CategorySlug.Trim();
+            // Preflight: category must resolve before any CMS create/update mutation.
             categorySlug = await ResolveCategorySlugAsync(categorySlug, ct);
 
             var authorId = _company.DefaultBlogAuthorId > 0 ? _company.DefaultBlogAuthorId : (int?)null;
@@ -187,7 +189,10 @@ public sealed class GccV2CmsPublishService
                 var updated = await _blog.UpdatePostAsync(existingId, command, ct);
                 if (!updated)
                 {
-                    return await FailAsync(create, job, ownerUserId, title, slug, "CMS post could not be updated.", ct, documentJson);
+                    return await FailAsync(
+                        create, job, ownerUserId, title, slug,
+                        "CMS post could not be updated.", ct, documentJson,
+                        externalPostId: existingId);
                 }
 
                 postId = existingId;
@@ -196,6 +201,7 @@ public sealed class GccV2CmsPublishService
             {
                 postId = await _blog.CreatePostAsync(command, ct);
             }
+            mutatedPostId = postId;
             var publicUrl = BuildPublicUrl(contentType, languageCode, slug);
             var status = request.IsPublished ? "published" : "draft";
 
@@ -236,7 +242,9 @@ public sealed class GccV2CmsPublishService
         catch (Exception ex)
         {
             _logger.LogError(ex, "CMS publish failed for create {CreateId} job {JobId}.", create.Id, job.Id);
-            return await FailAsync(create, job, ownerUserId, title, slug, ex.Message, ct, documentJson);
+            return await FailAsync(
+                create, job, ownerUserId, title, slug, ex.Message, ct, documentJson,
+                externalPostId: mutatedPostId);
         }
     }
 
@@ -248,7 +256,8 @@ public sealed class GccV2CmsPublishService
         string slug,
         string error,
         CancellationToken ct,
-        string? documentJson = null)
+        string? documentJson = null,
+        int? externalPostId = null)
     {
         Guid? recordId = null;
         try
@@ -259,7 +268,7 @@ public sealed class GccV2CmsPublishService
                 job.OwnerUserId,
                 Channel: "blog",
                 Status: "failed",
-                ExternalPostId: null,
+                ExternalPostId: externalPostId,
                 Slug: slug,
                 PublicUrl: null,
                 Title: title,
@@ -275,6 +284,7 @@ public sealed class GccV2CmsPublishService
                 createId = create.Id,
                 jobId = job.Id,
                 publishRecordId = record.Id,
+                externalPostId,
                 error,
             }, ct: ct);
         }
@@ -283,7 +293,7 @@ public sealed class GccV2CmsPublishService
             _logger.LogError(persistEx, "Could not persist failed publish record for job {JobId}.", job.Id);
         }
 
-        return new GccV2CmsPublishResult(false, "failed", null, null, null, error, null, recordId);
+        return new GccV2CmsPublishResult(false, "failed", null, null, externalPostId, error, null, recordId);
     }
 
     /// <summary>Long-form article-like types map to Pillar/TechnicalArticle; guide/listicle/blog to Blog/BlogPosting.</summary>
@@ -305,9 +315,7 @@ public sealed class GccV2CmsPublishService
         _ => "blog",
     };
 
-    /// <summary>If the preferred slug is missing from the CMS taxonomy, fall back to a blog-like
-    /// category (or the first category) so publish fails with a clear message only when the
-    /// taxonomy is empty.</summary>
+    /// <summary>Preferred category must exist in the CMS taxonomy. No silent substitute.</summary>
     private async Task<string> ResolveCategorySlugAsync(string preferredSlug, CancellationToken ct)
     {
         IReadOnlyList<CategoryDto> categories;
@@ -317,32 +325,12 @@ public sealed class GccV2CmsPublishService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not list blog categories; using preferred slug {Slug}.", preferredSlug);
-            return preferredSlug;
-        }
-
-        if (categories.Count == 0)
             throw new InvalidOperationException(
-                "geek_blog.categories is empty — seed at least one category before publishing.");
-
-        if (categories.Any(c => string.Equals(c.Slug, preferredSlug, StringComparison.OrdinalIgnoreCase)))
-            return preferredSlug;
-
-        var blogLike = categories.FirstOrDefault(c =>
-            c.Slug.Contains("blog", StringComparison.OrdinalIgnoreCase)
-            || (c.Name?.Contains("blog", StringComparison.OrdinalIgnoreCase) ?? false));
-        if (blogLike is not null)
-        {
-            _logger.LogWarning(
-                "Category slug '{Preferred}' not found; falling back to '{Fallback}'.",
-                preferredSlug, blogLike.Slug);
-            return blogLike.Slug;
+                $"Could not list CMS categories to validate slug '{preferredSlug}'. Fix CMS connectivity and retry.",
+                ex);
         }
 
-        _logger.LogWarning(
-            "Category slug '{Preferred}' not found; falling back to first category '{Fallback}'.",
-            preferredSlug, categories[0].Slug);
-        return categories[0].Slug;
+        return GccV2CmsCategoryGate.ResolveOrThrow(preferredSlug, categories);
     }
 
     private string BuildPublicUrl(string contentType, string languageCode, string slug)

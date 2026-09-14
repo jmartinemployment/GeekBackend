@@ -1,5 +1,6 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
+using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.GeekCrawler;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -567,6 +568,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
 
         Assert.NotNull(merged.BriefJson);
         Assert.Contains("partnerResearch", merged.BriefJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"retrievalMode\":\"seed_html\"", merged.BriefJson!, StringComparison.Ordinal);
         Assert.Single(merged.PartnerResearchWarnings);
         Assert.Contains("still running", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("jotform.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
@@ -646,6 +648,9 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             GeekCrawlerRagGenerateRequest request,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagGenerateResult?>(null);
+
+        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
+            throw new CapabilitiesUnavailableException("Geek-Crawler-Rag is disabled in this test double.");
     }
 
     private sealed class FakeGeekCrawlerRagClient : IGeekCrawlerRagClient
@@ -707,6 +712,9 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             GeekCrawlerRagGenerateRequest request,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagGenerateResult?>(null);
+
+        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
+            throw new CapabilitiesUnavailableException("Fake RAG client has no capabilities endpoint.");
     }
 
     private sealed class FakeReadRepo : IGccV2GeekCrawlerReadRepository

@@ -7,6 +7,7 @@ using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Gcw;
+using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Domain.Entities;
 
@@ -34,13 +35,15 @@ public sealed record GccV2ValidationReport(
     IReadOnlyList<RagCitationDto>? ValidationCitations = null,
     RagGenerateProvenanceDto? ValidationProvenance = null,
     string? ValidationModelUsed = null,
-    IReadOnlyList<string>? ValidationEvidenceWarnings = null)
+    IReadOnlyList<string>? ValidationEvidenceWarnings = null,
+    IReadOnlyList<string>? CitationEvidenceGaps = null)
 {
     public bool ShipReady => OverlapHits.Count == 0
         && ReviewVerdict == "approved"
         && RagValidation is { Approved: true, UnsupportedClaimCount: 0 }
         && PolishShipReady
-        && GuardrailRestructureCount == 0;
+        && GuardrailRestructureCount == 0
+        && (CitationEvidenceGaps is null || CitationEvidenceGaps.Count == 0);
 }
 
 public sealed record GccV2ValidateOutcome(GccV2WriteOutput Final, GccV2ValidationReport Report, bool ShipReady, bool OutstandingIssues, int RepairAttempts);
@@ -70,6 +73,7 @@ public sealed class GccV2ValidateService
     private readonly ContentModelPolicy _modelPolicy;
     private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
     private readonly GccV2SpecialistCoordinator _specialists;
+    private readonly IGeekCrawlerRagClient _ragClient;
     private readonly ILogger<GccV2ValidateService> _logger;
 
     public GccV2ValidateService(
@@ -82,6 +86,7 @@ public sealed class GccV2ValidateService
         ContentModelPolicy modelPolicy,
         GccV2SkillSnapshotRegistry skillSnapshots,
         GccV2SpecialistCoordinator specialists,
+        IGeekCrawlerRagClient ragClient,
         ILogger<GccV2ValidateService> logger)
     {
         _repo = repo;
@@ -93,6 +98,7 @@ public sealed class GccV2ValidateService
         _modelPolicy = modelPolicy;
         _skillSnapshots = skillSnapshots;
         _specialists = specialists;
+        _ragClient = ragClient;
         _logger = logger;
     }
 
@@ -104,7 +110,9 @@ public sealed class GccV2ValidateService
 
         while (true)
         {
-            var report = await EvaluateAsync(wc, current, ct);
+            var evaluated = await EvaluateAsync(wc, current, ct);
+            current = evaluated.Output;
+            var report = evaluated.Report;
             await PersistAndEmitReportAsync(wc.Job.Id, ownerUserId, report, attempt, ct);
 
             if (report.ShipReady || attempt >= MaxRepairAttempts)
@@ -121,7 +129,9 @@ public sealed class GccV2ValidateService
     public async Task<GccV2ValidateOutcome> RunReadinessFixAsync(
         GccV2WriteContext wc, Guid ownerUserId, GccV2WriteOutput current, CancellationToken ct)
     {
-        var report = await EvaluateAsync(wc, current, ct);
+        var evaluated = await EvaluateAsync(wc, current, ct);
+        current = evaluated.Output;
+        var report = evaluated.Report;
         if (!HasReadinessFailures(report))
         {
             await PersistAndEmitReportAsync(wc.Job.Id, ownerUserId, report, attempt: 0, ct);
@@ -129,7 +139,9 @@ public sealed class GccV2ValidateService
         }
 
         var repaired = await RepairAsync(wc, ownerUserId, current, report, attempt: 1, ct);
-        report = await EvaluateAsync(wc, repaired, ct);
+        evaluated = await EvaluateAsync(wc, repaired, ct);
+        repaired = evaluated.Output;
+        report = evaluated.Report;
         await PersistAndEmitReportAsync(wc.Job.Id, ownerUserId, report, attempt: 1, ct);
         var outstanding = !report.ShipReady || HasReadinessFailures(report);
         return new GccV2ValidateOutcome(repaired, report, report.ShipReady, outstanding, 1);
@@ -139,7 +151,9 @@ public sealed class GccV2ValidateService
         (report.SeoChecks?.Any(c => !c.Passed) ?? false)
         || (report.GeoChecks?.Any(c => !c.Passed) ?? false);
 
-    private async Task<GccV2ValidationReport> EvaluateAsync(GccV2WriteContext wc, GccV2WriteOutput output, CancellationToken ct)
+    private sealed record EvaluateResult(GccV2ValidationReport Report, GccV2WriteOutput Output);
+
+    private async Task<EvaluateResult> EvaluateAsync(GccV2WriteContext wc, GccV2WriteOutput output, CancellationToken ct)
     {
         var contentType = (wc.Job.ContentType ?? "blog").ToLowerInvariant();
         var document = output.ToContentDocument();
@@ -257,7 +271,36 @@ public sealed class GccV2ValidateService
             : string.Join("\n", validation.Issues.Select(issue =>
                 $"[Section: \"{issue.SectionTitle ?? "Document"}\"] {issue.Detail}"));
 
-        return new GccV2ValidationReport(
+        IReadOnlyList<string> citationGaps = [];
+        IReadOnlyList<RagCitationDto> validationCitations = ragResponse.Citations ?? [];
+        var outputAfter = output;
+        if (RequiresCitationEvidenceGate(contentType)
+            && GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled())
+        {
+            var audit = await GccV2CitationEvidenceGuard.AuditWriteOutputAsync(
+                output,
+                wc.GenerationBrief.PartnerSourceRunId,
+                wc.GenerationBrief.CompetitorSourceRunId,
+                _ragClient,
+                ct);
+            citationGaps = audit.EvidenceGaps;
+            if (audit.Citations.Count > 0)
+            {
+                validationCitations = audit.Citations;
+                outputAfter = GccV2CitationEvidenceGuard.ApplyAuditedCitations(output, audit.Citations);
+            }
+            if (citationGaps.Count > 0 && reviewVerdict == "approved")
+                reviewVerdict = "rejected";
+            if (citationGaps.Count > 0)
+            {
+                var gapNotes = string.Join("\n", citationGaps.Select(g => $"[Section: \"Evidence\"] {g}"));
+                reviewNotes = string.IsNullOrWhiteSpace(reviewNotes)
+                    ? gapNotes
+                    : reviewNotes + "\n" + gapNotes;
+            }
+        }
+
+        var report = new GccV2ValidationReport(
             reviewVerdict,
             reviewNotes,
             gate.Seo.Score,
@@ -272,11 +315,18 @@ public sealed class GccV2ValidateService
             gate.Geo.Summary,
             gate.Seo.Checks,
             validation,
-            ragResponse.Citations ?? [],
+            validationCitations,
             ragResponse.Provenance,
             ragResponse.ModelUsed,
-            ragResponse.EvidenceWarnings);
+            ragResponse.EvidenceWarnings,
+            citationGaps);
+        return new EvaluateResult(report, outputAfter);
     }
+
+    private static bool RequiresCitationEvidenceGate(string contentType) =>
+        contentType is "blog" or "pillar" or "guide" or "tech-article" or "whitepaper"
+            or "listicle" or "case-study" or "comparison" or "alternatives"
+            or "tool" or "service" or "local";
 
     /// <summary>
     /// Maps specialist reviewer <c>changesRequired</c> issues onto the typed RAG validation
@@ -412,6 +462,8 @@ public sealed class GccV2ValidateService
             }).ToList(),
             outstandingIssues = !report.ShipReady,
             repairAttempt = attempt,
+            citationEvidenceGaps = report.CitationEvidenceGaps ?? Array.Empty<string>(),
+            citeableCreateV1 = GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled(),
         };
 
     private async Task<GccV2WriteOutput> RepairAsync(

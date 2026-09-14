@@ -24,8 +24,7 @@ public sealed class GccV2AgentRagSmokeExecutor(
         if (!rag.IsEnabled || !skillSigner.IsConfigured || !agentSigner.IsConfigured)
             return new(false, !required, "RAG or execution signing is not configured.", null);
         var capabilities = await rag.GetCapabilitiesAsync(ct);
-        if (capabilities is null
-            || !capabilities.ExecutionVersions.Contains(RagProducerCapabilities.AgentExecutionVersion)
+        if (!capabilities.ExecutionVersions.Contains(RagProducerCapabilities.AgentExecutionVersion)
             || !capabilities.SkillEnvelopeVersions.Contains(GccV2SignedSkillExecutionEnvelopeV2.CurrentEnvelopeVersion)
             || !capabilities.ToolsAllowed)
             return new(false, !required, "RAG does not advertise the strict v3 specialist protocol.", null);
