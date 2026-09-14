@@ -260,6 +260,40 @@ public sealed class GccV2UnifiedRagTests
     }
 
     [Fact]
+    public void Pre_plan_tool_content_type_fails_closed_without_partner_run()
+    {
+        var siteRun = Guid.NewGuid();
+        var createId = Guid.NewGuid();
+        var briefId = Guid.NewGuid();
+        var brief = new GccV2BriefDto(
+            briefId, createId, 1, "ApprovalMax", "tool",
+            """{"operatorTools":["ApprovalMax | https://approvalmax.com"]}""",
+            null, DateTimeOffset.UtcNow);
+        var create = new GccV2CreateDto(
+            createId, Guid.NewGuid().ToString("D"), "ApprovalMax", "tool", DateTimeOffset.UtcNow, null,
+            """{"relatedPages":[{"url":"https://example.com/"}]}""",
+            "https://example.com", siteRun);
+        var job = new GccV2JobDto(
+            Guid.NewGuid(), "tool", briefId, create.OwnerUserId, createId,
+            "plan", "running", 1, null, null, null, null, null, null,
+            DateTimeOffset.UtcNow, null, null, null, siteRun);
+        var assembled = GccV2GenerationBriefAssembler.Assemble(job, brief, create, null);
+
+        var blocked = GccV2PrePlanEvidenceManifestAssembler.Assemble(assembled);
+        Assert.False(blocked.Ready);
+        Assert.Contains(blocked.EvidenceGaps, g => g.Contains("partner", StringComparison.OrdinalIgnoreCase));
+
+        // Same brief with partner run id on job/create path: assemble via raw JSON fields.
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("tool", 0));
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("ads", 1));
+        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("ads", 0));
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("comparison", 1));
+        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("blog", 1));
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("alternatives", 1));
+        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("blog", 1));
+    }
+
+    [Fact]
     public void Research_entity_ref_separates_role_per_request_from_stable_identity()
     {
         var id = Guid.NewGuid();

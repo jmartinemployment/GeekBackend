@@ -591,11 +591,21 @@ public static class GccV2PrePlanEvidenceManifestAssembler
                 "No project-site crawl run bound to this create."));
         }
 
+        var contentType = (brief.ContentType ?? "").Trim().ToLowerInvariant();
+        var partnerRequired = RequiresPartnerRunFailClosed(contentType, brief.OperatorTools.Count);
+
         if (brief.PartnerSourceRunId is Guid partnerRun)
         {
             readiness.Add(new(GccV2ResearchEntityRef.RolePartner, partnerRun,
                 brief.OperatorTools.FirstOrDefault(), Indexed: true,
                 "Partner run id present on brief."));
+        }
+        else if (partnerRequired)
+        {
+            gaps.Add(PartnerFailClosedMessage(contentType));
+            readiness.Add(new(GccV2ResearchEntityRef.RolePartner, null,
+                brief.OperatorTools.FirstOrDefault(), Indexed: false,
+                "Partner crawl run required for this content type — bind an indexed partner run before PLAN."));
         }
         else if (brief.OperatorTools.Count > 0)
         {
@@ -605,11 +615,20 @@ public static class GccV2PrePlanEvidenceManifestAssembler
                 "Operator tools present without partner crawl run."));
         }
 
+        var competitorRequired = RequiresCompetitorRunFailClosed(contentType, brief.CompetitorUrls.Count);
         if (brief.CompetitorSourceRunId is Guid competitorRun)
         {
             readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, competitorRun,
                 brief.CompetitorUrls.FirstOrDefault(), Indexed: true,
                 "Competitor run id present on brief."));
+        }
+        else if (competitorRequired)
+        {
+            gaps.Add(
+                "Named competitors require an indexed competitor crawl run for comparison/alternatives — bind competitorSourceRunId or remove competitor URLs.");
+            readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, null,
+                brief.CompetitorUrls.FirstOrDefault(), Indexed: false,
+                "Competitor crawl run required when competitor URLs are named."));
         }
         else if (brief.CompetitorUrls.Count > 0)
         {
@@ -656,4 +675,32 @@ public static class GccV2PrePlanEvidenceManifestAssembler
             CandidateQuotes: [],
             InternalLinkOpportunities: internalLinks);
     }
+
+    /// <summary>
+    /// M3 partner policy: <c>tool</c> always; <c>ads</c> when operator tools drive creative;
+    /// <c>comparison</c>/<c>alternatives</c> when partner tools are named.
+    /// </summary>
+    internal static bool RequiresPartnerRunFailClosed(string contentType, int operatorToolCount) =>
+        contentType switch
+        {
+            "tool" => true,
+            "ads" => operatorToolCount > 0,
+            "comparison" or "alternatives" => operatorToolCount > 0,
+            _ => false,
+        };
+
+    internal static bool RequiresCompetitorRunFailClosed(string contentType, int competitorUrlCount) =>
+        contentType is "comparison" or "alternatives" && competitorUrlCount > 0;
+
+    private static string PartnerFailClosedMessage(string contentType) => contentType switch
+    {
+        "tool" =>
+            "Tool pages require an indexed partner crawl run — bind partnerSourceRunId (re-crawl the partner if needed).",
+        "ads" =>
+            "Partner-driven ads require an indexed partner crawl run — bind partnerSourceRunId or clear operatorTools.",
+        "comparison" or "alternatives" =>
+            "Named partners require an indexed partner crawl run for comparison/alternatives — bind partnerSourceRunId or remove partner tools.",
+        _ =>
+            "Partner crawl run is required for this content type before PLAN.",
+    };
 }
