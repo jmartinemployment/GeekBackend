@@ -318,25 +318,6 @@ public class GccV2Controller : ControllerBase
             // ignore
         }
 
-        // #region agent log
-        GeekAPI.Diagnostics.AgentDebugLog.Write(
-            "E",
-            "GccV2Controller.PreflightPartnerTools",
-            "Partner tools preflight",
-            new
-            {
-                createId = id,
-                toolCount = tools.Count,
-                matchedHeading,
-                matchTopic,
-                matchedPath,
-                hasSiteHierarchy = siteHierarchy is not null,
-                firstToolNames = tools.Take(8).Select(t => t.Name).ToList(),
-                toolsPathCount = tools.Count(t =>
-                    GccV2SiteSection.HrefLooksLikeOnSiteToolPage(t.Url)),
-            });
-        // #endregion
-
         var message = tools.Count > 0
             ? $"Found {tools.Count} partner tool(s). Each will be discussed in the draft. Confirm to start content creation."
             : "No partner tools found from the site hierarchy or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.";
@@ -561,9 +542,13 @@ public class GccV2Controller : ControllerBase
 
             return GccV2SiteHierarchyService.MergeIntoBriefJson(rawBriefJson, hierarchy);
         }
+        catch (GeekAPI.Services.GeekCrawler.GeekCrawlerPlaywrightUnavailableException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "siteHierarchy crawl soft-failed for siteUrl {SiteUrl}", siteUrl);
+            _logger.LogWarning(ex, "siteHierarchy crawl failed for siteUrl {SiteUrl}; not inventing a tree", siteUrl);
             return rawBriefJson;
         }
     }

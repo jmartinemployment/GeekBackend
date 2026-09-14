@@ -80,16 +80,16 @@ public sealed class RagGenerateService
         return await DraftFromCreateLibraryAsync(ownerUserId, request, ct).ConfigureAwait(false);
     }
 
-    public async Task<GeekCrawlerRagTemplateIndexResult?> IndexAdTemplatesAsync(
+    public async Task<GeekCrawlerRagTemplateIndexResult> IndexAdTemplatesAsync(
         IReadOnlyList<RagAdTemplateDto> templates,
         CancellationToken ct)
     {
         if (!_rag.IsEnabled || !_adTemplateIndexEnabled)
-            return new GeekCrawlerRagTemplateIndexResult
-            {
-                Upserted = 0,
-                Warning = "Ad template index soft-disabled or RAG unavailable.",
-            };
+        {
+            throw new InvalidOperationException(
+                "Ad template index requires RAG and GEEK_RAG_AD_TEMPLATES_ENABLED. "
+                + "Soft-disabled index success is forbidden.");
+        }
 
         var mapped = templates
             .Select(t => new GeekCrawlerRagTemplateDto
@@ -101,7 +101,9 @@ public sealed class RagGenerateService
                 Body = t.Body,
             })
             .ToList();
-        return await _rag.IndexTemplatesAsync(mapped, ct).ConfigureAwait(false);
+        return await _rag.IndexTemplatesAsync(mapped, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                "Ad template index returned no result from the research library.");
     }
 
     /// <summary>
@@ -135,9 +137,14 @@ public sealed class RagGenerateService
 
         if (stage == "researchPlanning")
         {
-            // Partner/competitor library runs are optional enrichment for blog/pillar.
-            // Pre-PLAN evidence gate already fail-closes when a content type requires them.
-            // Project-site grounding is handled in PLAN separately — do not require crawler runs here.
+            // Appendix A: partner + competitor library runs required on every Create.
+            if (partnerRunIds.Count == 0 || competitorRunIds.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "Create researchPlanning requires bound partnerSourceRunIds and competitorSourceRunIds "
+                    + "(Appendix A). Brief/topic-only research plans are forbidden.");
+            }
+
             var need = BuildNeed(intent, topic, entities, CrawlTypes.Partner);
             var plan = new List<RagResearchQueryPlanDto>();
             foreach (var p in partnerRunIds)
@@ -145,9 +152,6 @@ public sealed class RagGenerateService
             var competitorNeed = BuildNeed(intent, topic, entities, CrawlTypes.Competitors);
             foreach (var c in competitorRunIds)
                 plan.Add(new RagResearchQueryPlanDto(c.ToString("D"), CrawlTypes.Competitors, competitorNeed));
-            if (plan.Count == 0)
-                warnings.Add(
-                    "No partner/competitor library runs on brief; researchPlanning is empty (project-site / brief grounding only).");
             return LibraryResponse(
                 intent, stage, request, model, "hybrid", warnings,
                 researchPlan: plan, sources: []);
@@ -187,46 +191,26 @@ public sealed class RagGenerateService
         if (sources.Count == 0
             && (partnerRunIds.Count > 0 || competitorRunIds.Count > 0))
         {
-            // #region agent log
-            try
-            {
-                System.IO.File.AppendAllText(
-                    "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
-                    System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        sessionId = "e6b2fc",
-                        runId = "post-fix",
-                        hypothesisId = "F-entity-filter",
-                        location = "RagGenerateService.cs:DraftFromCreateLibraryAsync",
-                        message = "empty library pages after query",
-                        data = new
-                        {
-                            stage,
-                            partnerRunCount = partnerRunIds.Count,
-                            competitorRunCount = competitorRunIds.Count,
-                            entityCount = entities.Count,
-                            partnerPageCount = partnerPages.Count,
-                            competitorPageCount = competitorPages.Count,
-                            hardFilterEntityNames = false,
-                        },
-                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    }) + "\n");
-            }
-            catch { /* local debug file only */ }
-            // #endregion
             _logger.LogError(
                 "Create library draft empty for stage {Stage}: partnerRuns={PartnerRuns} competitorRuns={CompetitorRuns} entities={EntityCount} partnerPages={PartnerPages} competitorPages={CompetitorPages}",
                 stage, partnerRunIds.Count, competitorRunIds.Count, entities.Count, partnerPages.Count, competitorPages.Count);
             throw new InvalidOperationException(
                 "RAG evidence library returned no pages for the supplied source runs.");
         }
+
+        if (partnerRunIds.Count == 0 || competitorRunIds.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Create library draft requires bound partnerSourceRunIds and competitorSourceRunIds "
+                + "(Appendix A). Brief/topic-only grounding is forbidden.");
+        }
+
         if (sources.Count == 0
-            && partnerRunIds.Count == 0
-            && competitorRunIds.Count == 0
             && stage is not ("validation" or "finalSynthesis"))
         {
-            warnings.Add(
-                "No partner/competitor library pages; Create library writer will ground on brief/topic only.");
+            throw new InvalidOperationException(
+                "RAG evidence library returned no partner/competitor pages for Create draft. "
+                + "Brief/topic-only grounding is forbidden.");
         }
 
         var retrieval = partnerQuery.Retrieval ?? competitorQuery.Retrieval ?? "hybrid";
@@ -613,33 +597,6 @@ public sealed class RagGenerateService
             retrievalMode: retrievalMode,
             ct: ct).ConfigureAwait(false);
 
-        // #region agent log
-        try
-        {
-            System.IO.File.AppendAllText(
-                "/Users/jeffmartin/development/content-creator-v2/.cursor/debug-e6b2fc.log",
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    sessionId = "e6b2fc",
-                    runId = "post-fix",
-                    hypothesisId = "F-entity-filter",
-                    location = "RagGenerateService.cs:QueryRunAsync",
-                    message = "library query result",
-                    data = new
-                    {
-                        crawlType,
-                        sourceRunId = runId.Value.ToString("D"),
-                        hardFilterEntityNames,
-                        entityFilterCount = entityFilter?.Count ?? 0,
-                        pageCount = result?.Pages.Count ?? -1,
-                        failed = result?.Failed,
-                        nullResult = result is null,
-                    },
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                }) + "\n");
-        }
-        catch { /* local debug file only */ }
-        // #endregion
         _logger.LogInformation(
             "Create library query {CrawlType} run {RunId}: pages={PageCount} entityFilter={EntityFilter} hardFilter={HardFilter}",
             crawlType, runId, result?.Pages.Count ?? -1, entityFilter?.Count ?? 0, hardFilterEntityNames);

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
+using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.Services.ContentCreatorV2.ToolPages;
 
@@ -17,12 +19,42 @@ public static class GccV2ToolPageSchemaBuilder
     public static string BuildToolPage(
         ContentMetadata metadata,
         string pillarArticleUrl,
-        SoftwareApplicationDescriptor about)
+        SoftwareApplicationDescriptor about,
+        GccPartnerExtractionDocument? partnerExtraction = null,
+        IReadOnlyList<GccQuoteablePage>? partnerPages = null)
     {
-        var node = BuildNode(about);
-        node["@context"] = "https://schema.org";
+        Dictionary<string, object?> node;
+        var libraryNode = partnerExtraction is not null && partnerPages is { Count: > 0 }
+            ? GccV2PartnerSoftwareApplicationJsonLd.TryBuild(partnerExtraction, partnerPages)
+            : null;
+
+        if (libraryNode is { Count: > 0 })
+        {
+            GccV2PartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(libraryNode, partnerExtraction!);
+            node = new Dictionary<string, object?>(libraryNode)
+            {
+                ["@context"] = "https://schema.org",
+                ["@type"] = "SoftwareApplication",
+            };
+            if (!string.IsNullOrWhiteSpace(about.Name))
+                node["name"] = about.Name.Trim();
+            if (!string.IsNullOrWhiteSpace(about.Url))
+                node["url"] = about.Url;
+        }
+        else
+        {
+            node = BuildNode(about);
+            node["@context"] = "https://schema.org";
+        }
+
         node["headline"] = metadata.Headline;
-        node["description"] = metadata.Description;
+        if (!node.TryGetValue("description", out var desc)
+            || desc is null
+            || string.IsNullOrWhiteSpace(desc.ToString()))
+        {
+            node["description"] = metadata.Description;
+        }
+
         node["url"] = metadata.CanonicalUrl;
         node["image"] = new[] { metadata.MainImageUrl };
         node["author"] = new Dictionary<string, object?>

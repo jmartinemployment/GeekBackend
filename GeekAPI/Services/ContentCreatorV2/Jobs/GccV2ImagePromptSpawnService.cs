@@ -50,12 +50,6 @@ public sealed class GccV2ImagePromptSpawnService
         return options;
     }
 
-    private static readonly HashSet<string> SpawnSourceTypes =
-    [
-        ..GccV2LongFormTypes.AllTypes,
-        "email", "social", "ads",
-    ];
-
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2JobWake _wake;
     private readonly GccV2AgentTeamResolver _agentTeams;
@@ -79,7 +73,7 @@ public sealed class GccV2ImagePromptSpawnService
     public async Task<SpawnResult> SpawnForReadyJobAsync(GccV2JobDto sourceJob, CancellationToken ct)
     {
         var contentType = (sourceJob.ContentType ?? "").Trim().ToLowerInvariant();
-        if (!SpawnSourceTypes.Contains(contentType))
+        if (!GccV2LongFormTypes.UsesHeroAndSectionImagePrompts(contentType))
             return new SpawnResult(0, 0, null, null);
 
         if (string.IsNullOrWhiteSpace(sourceJob.ResultJson))
@@ -193,61 +187,30 @@ public sealed class GccV2ImagePromptSpawnService
         return new SpawnResult(spawned, skippedExisting, null, null);
     }
 
-    /// <summary>§3.1 spawn table — pillar/blog heroes + H2 sections (FAQ excluded); one companion per short-form type.</summary>
+    /// <summary>
+    /// Spawn table: every parent type (including tool; tools = partners) gets H1/hero + non-FAQ H2s.
+    /// Never called for <c>image-prompt</c> parents (excluded from
+    /// <see cref="GccV2LongFormTypes.UsesHeroAndSectionImagePrompts"/>).
+    /// </summary>
     public static IReadOnlyList<ImagePromptSpawnTarget> BuildTargets(
         string contentType,
         string title,
         ContentDocument? document)
     {
         var normalized = (contentType ?? "").Trim().ToLowerInvariant();
+        if (!GccV2LongFormTypes.UsesHeroAndSectionImagePrompts(normalized))
+            return [];
+
         var targets = new List<ImagePromptSpawnTarget>();
-
-        switch (normalized)
-        {
-            case GccV2LongFormTypes.Pillar:
-                AddHeroAndSections(targets, "pillar", title, document);
-                break;
-
-            case GccV2LongFormTypes.Blog:
-                AddHeroAndSections(targets, "blog", title, document);
-                break;
-
-            case GccV2LongFormTypes.Tool:
-                targets.Add(new ImagePromptSpawnTarget("tool", title, 1));
-                break;
-
-            case GccV2LongFormTypes.Comparison:
-            case GccV2LongFormTypes.CaseStudy:
-            case GccV2LongFormTypes.Alternatives:
-            case GccV2LongFormTypes.TechArticle:
-            case GccV2LongFormTypes.Service:
-            case GccV2LongFormTypes.Local:
-            case GccV2LongFormTypes.Whitepaper:
-                AddHeroAndSections(targets, normalized, title, document);
-                break;
-
-            case GccV2LongFormTypes.Guide:
-            case GccV2LongFormTypes.Listicle:
-                AddHeroAndSections(targets, normalized, title, document);
-                break;
-
-            case "email":
-                targets.Add(new ImagePromptSpawnTarget("email", title, 0));
-                break;
-
-            case "social":
-                targets.Add(new ImagePromptSpawnTarget("social", title, 0));
-                break;
-
-            case "ads":
-                targets.Add(new ImagePromptSpawnTarget("ads", title, 0));
-                break;
-        }
-
+        AddH1AndH2Targets(targets, normalized, title, document);
         return targets;
     }
 
-    private static void AddHeroAndSections(
+    /// <summary>
+    /// Order 0 = <c>{sourceType}-hero</c> from title; then distinct body H1s; then non-FAQ H2s
+    /// (missing tag treated as H2).
+    /// </summary>
+    private static void AddH1AndH2Targets(
         List<ImagePromptSpawnTarget> targets,
         string sourceType,
         string title,
@@ -257,8 +220,24 @@ public sealed class GccV2ImagePromptSpawnService
         var order = 1;
         foreach (var section in document?.Sections ?? [])
         {
-            if (PillarSectionClassifier.IsFaqSectionTitle(section.Heading)) continue;
-            targets.Add(new ImagePromptSpawnTarget(sourceType, section.Heading, order++));
+            var heading = (section.Heading ?? "").Trim();
+            if (heading.Length == 0) continue;
+            var tag = (section.Tag ?? "").Trim().ToLowerInvariant();
+            var isH1 = tag == "h1";
+            // Missing tag → H2 for backward compatibility with older documents.
+            var isH2 = tag.Length == 0 || tag == "h2";
+            if (!isH1 && !isH2) continue;
+            if (PillarSectionClassifier.IsFaqSectionTitle(heading)) continue;
+            if (isH1
+                && string.Equals(
+                    heading,
+                    (title ?? "").Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            targets.Add(new ImagePromptSpawnTarget(sourceType, heading, order++));
         }
     }
 

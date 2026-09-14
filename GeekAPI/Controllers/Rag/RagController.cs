@@ -60,10 +60,6 @@ public sealed class RagController : ControllerBase
             return BadRequest(new { error = "templates required" });
 
         var result = await _generate.IndexAdTemplatesAsync(templates, ct).ConfigureAwait(false);
-        return Ok(result ?? new GeekAPI.Services.GeekCrawler.GeekCrawlerRagTemplateIndexResult
-        {
-            Upserted = 0,
-            Warning = "RAG unavailable",
-        });
+        return Ok(result);
     }
 }

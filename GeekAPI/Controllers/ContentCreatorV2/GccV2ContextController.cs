@@ -672,8 +672,7 @@ public sealed class GccV2ContextController(
             return Conflict(new { error = "Stored object size or checksum does not match the upload grant." });
         var result = await repository.FinalizeRunAttachmentAsync(uploadId,
             new(Owner, verified.ByteSize, verified.Sha256), ct);
-        var jobs = await repository.ListContextIngestionJobsAsync("queued", limit: 200, ct: ct);
-        var job = jobs.SingleOrDefault(x => x.TargetKind == "run_attachment" && x.TargetId == uploadId);
+        var job = await repository.GetContextIngestionJobByTargetAsync("run_attachment", uploadId, ct);
         if (job is null) return Conflict(new { error = "Attachment ingestion job was not queued." });
         ingestionWake.Wake(job.Id);
         return Accepted(new
@@ -729,6 +728,25 @@ public sealed class GccV2ContextController(
         await knowledgeIndexer.DeleteAsync(new(Owner, attachmentId, attachmentId), ct);
         await objectStore.DeleteAsync(attachment.ObjectKey, ct);
         return NoContent();
+    }
+
+    [HttpGet("creates/{createId:guid}/attachments/{attachmentId:guid}")]
+    public async Task<ActionResult<object>> GetAttachment(Guid createId, Guid attachmentId, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated) return Unauthorized();
+        var attachment = await repository.GetRunAttachmentAsync(attachmentId, Owner, ct);
+        if (attachment is null || attachment.CreateId != createId) return NotFound();
+        return Ok(new
+        {
+            id = attachment.Id,
+            createId = attachment.CreateId,
+            safeFileName = attachment.SafeFileName,
+            mediaType = attachment.MediaType,
+            byteSize = attachment.ByteSize,
+            ingestionState = attachment.IngestionState,
+            finalizedAtUtc = attachment.FinalizedAtUtc,
+            retainUntilUtc = attachment.RetainUntilUtc,
+        });
     }
 
     [HttpGet("context/ingestion/events")]

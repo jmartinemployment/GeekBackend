@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
@@ -60,7 +61,16 @@ public sealed class GccV2PartnerToolWriteService
             []);
         var pillarExcerpt = pillar?.Excerpt;
 
-        var app = new SoftwareApplicationDescriptor(toolName, research?.Summary, null);
+        var partnerResearchPages = ParsePartnerResearchPages(wc.Brief.RawBriefJson);
+        var partnerExtraction = GccV2PartnerUrlResearchService.ParsePartnerExtraction(wc.Brief.RawBriefJson)
+            ?? (partnerResearchPages.Count > 0
+                ? GccV2PartnerExtractionService.ExtractFromPages(partnerResearchPages)
+                : null);
+        var descriptionFromExtraction = partnerExtraction?.Advertisements.FirstOrDefault()?.MarketingHook;
+        var app = new SoftwareApplicationDescriptor(
+            toolName,
+            descriptionFromExtraction ?? research?.Summary,
+            null);
         var tokens = 0;
         var headings = GccV2ToolPagePromptBuilder.PartnerSectionHeadings;
         var parsedSections = new List<Section>();
@@ -130,7 +140,6 @@ public sealed class GccV2PartnerToolWriteService
 
         var toolUrl = $"{wc.BaseContext.ToolBaseUrl.TrimEnd('/')}/{GccV2ToolSlugHelper.DefaultDepartment}/{slug}";
         var pillarArticleUrl = pillar?.CanonicalUrl ?? "";
-        var partnerResearchPages = ParsePartnerResearchPages(wc.Brief.RawBriefJson);
         var attributionQuote = await BuildAttributionQuoteAsync(
             wc, toolName, sourceUrl, research, partnerResearchPages, ct);
         tokens += attributionQuote.Tokens;
@@ -154,7 +163,9 @@ public sealed class GccV2PartnerToolWriteService
         var jsonLd = GccV2ToolPageSchemaBuilder.BuildToolPage(
             schemaMeta,
             pillarArticleUrl,
-            app with { Url = toolUrl });
+            app with { Url = toolUrl },
+            partnerExtraction,
+            partnerResearchPages);
 
         return new GccV2WriteOutput
         {
@@ -233,38 +244,9 @@ public sealed class GccV2PartnerToolWriteService
         if (!string.IsNullOrWhiteSpace(quote))
             return (quote, 0);
 
-        if (string.IsNullOrWhiteSpace(pageText))
-        {
-            throw new ContentGenerationException(
-                $"Partner tool page for {toolName.Trim()} requires a verbatim source blockquote but no research text was found for {sourceUrl}.");
-        }
-
-        try
-        {
-            var result = await wc.Provider.CompleteAsync(
-                _prompts.BuildSourceQuotePrompt(toolName, sourceUrl, pageText), ct);
-            var text = GccV2ToolResearchExtractor.StripWrappingQuotes((result.Content ?? "").Trim());
-            if (GccV2ToolResearchExtractor.IsMinimalVerbatimQuote(text)
-                && GccV2ToolResearchExtractor.IsVerbatimFromPage(text, pageText))
-            {
-                return (text, (result.PromptTokens ?? 0) + (result.CompletionTokens ?? 0));
-            }
-        }
-        catch (ContentGenerationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Verbatim source quote selection failed for {Tool}.", toolName);
-        }
-
-        quote = page is null ? "" : GccV2ToolResearchExtractor.PickBestVerbatimQuote(page);
-        if (!string.IsNullOrWhiteSpace(quote))
-            return (quote, 0);
-
         throw new ContentGenerationException(
-            $"Partner tool page for {toolName.Trim()} requires a verbatim source blockquote but none could be extracted from {sourceUrl}.");
+            $"Partner tool page for {toolName.Trim()} requires a strict verbatim source blockquote from {sourceUrl}. "
+            + "Softened best-paragraph and LLM quote substitutes are forbidden for citeable attribution.");
     }
 
     private async Task<IReadOnlyList<GccQuoteablePage>> LoadPartnerResearchForCreateAsync(Guid createId, CancellationToken ct)

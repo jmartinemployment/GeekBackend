@@ -209,6 +209,17 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
         return value is null ? NotFound() : Ok(value);
     }
 
+    [HttpGet("ingestion-jobs/by-target/{targetKind}/{targetId:guid}")]
+    public async Task<ActionResult<GccV2ContextIngestionJob>> GetIngestionJobByTarget(
+        string targetKind, Guid targetId, CancellationToken ct)
+    {
+        var value = await db.GccV2ContextIngestionJobs.AsNoTracking()
+            .Where(x => x.TargetKind == targetKind && x.TargetId == targetId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        return value is null ? NotFound() : Ok(value);
+    }
+
     [HttpGet("ingestion-jobs/by-status/{status}")]
     public async Task<ActionResult<IReadOnlyList<GccV2ContextIngestionJob>>> ListIngestionJobs(
         string status, [FromQuery] DateTimeOffset? leaseBefore, [FromQuery] int limit = 200,
@@ -232,10 +243,12 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
                 ""HeartbeatAtUtc"" = {now}, ""LeaseUntilUtc"" = {now.AddSeconds(Math.Max(10, leaseSeconds))},
                 ""Status"" = 'running', ""AttemptCount"" = ""AttemptCount"" + 1, ""UpdatedAtUtc"" = {now},
                 ""Revision"" = ""Revision"" + 1
-            WHERE ""Id"" = {id} AND (
-                ""Status"" = 'queued' OR
-                (""Status"" = 'running' AND ""LeaseUntilUtc"" IS NOT NULL AND ""LeaseUntilUtc"" < {now})
-            )", ct);
+            WHERE ""Id"" = {id}
+              AND ""Status"" NOT IN ('ready', 'failed', 'cancelled')
+              AND (
+                ""Status"" = 'queued'
+                OR (""LeaseUntilUtc"" IS NOT NULL AND ""LeaseUntilUtc"" < {now})
+              )", ct);
         if (rows == 0) return Conflict();
         return Ok(await db.GccV2ContextIngestionJobs.AsNoTracking().SingleAsync(x => x.Id == id, ct));
     }
@@ -271,6 +284,11 @@ public sealed class GccV2ContextController(ContentCreatorV2DbContext db) : Contr
             job.CompletedAtUtc = DateTimeOffset.UtcNow;
             job.ClaimedByInstanceId = null;
             job.LeaseUntilUtc = null;
+        }
+        else
+        {
+            // Keep healthy mid-pipeline jobs from being reclaimed while work continues.
+            job.LeaseUntilUtc = DateTimeOffset.UtcNow.AddSeconds(300);
         }
         var seq = job.Events.Count == 0 ? 1 : job.Events.Max(x => x.Seq) + 1;
         job.Events.Add(new GccV2ContextIngestionEvent

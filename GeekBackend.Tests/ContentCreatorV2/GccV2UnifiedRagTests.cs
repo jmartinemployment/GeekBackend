@@ -227,7 +227,7 @@ public sealed class GccV2UnifiedRagTests
     }
 
     [Fact]
-    public void Pre_plan_evidence_manifest_gates_on_project_site_and_warns_on_partner_gaps()
+    public void Pre_plan_evidence_manifest_fails_closed_without_partner_or_competitor_runs()
     {
         var siteRun = Guid.NewGuid();
         var createId = Guid.NewGuid();
@@ -246,19 +246,19 @@ public sealed class GccV2UnifiedRagTests
             DateTimeOffset.UtcNow, null, null, null, siteRun);
         var assembled = GccV2GenerationBriefAssembler.Assemble(job, brief, create, null);
 
-        var ready = GccV2PrePlanEvidenceManifestAssembler.Assemble(assembled);
-        Assert.Equal(GccV2ResearchEvidenceManifest.CurrentVersion, ready.Version);
-        Assert.True(ready.Ready);
-        Assert.Empty(ready.EvidenceGaps);
-        Assert.Contains(ready.Warnings, w => w.Contains("partner", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(ready.Warnings, w => w.Contains("competitor", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains("https://example.com/research", ready.InternalLinkOpportunities!);
-        Assert.Contains(ready.IndexReadiness!, r => r is { Role: "project_site", Indexed: true });
+        var blocked = GccV2PrePlanEvidenceManifestAssembler.Assemble(assembled);
+        Assert.Equal(GccV2ResearchEvidenceManifest.CurrentVersion, blocked.Version);
+        Assert.False(blocked.Ready);
+        Assert.Contains(blocked.EvidenceGaps, g => g.Contains("partner", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(blocked.EvidenceGaps, g => g.Contains("competitor", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(blocked.Warnings, w => w.Contains("may be empty", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("https://example.com/research", blocked.InternalLinkOpportunities!);
+        Assert.Contains(blocked.IndexReadiness!, r => r is { Role: "project_site", Indexed: true });
 
         var ungated = Brief("""{"title":"No site run"}""");
-        var blocked = GccV2PrePlanEvidenceManifestAssembler.Assemble(ungated);
-        Assert.False(blocked.Ready);
-        Assert.Contains(blocked.EvidenceGaps, g => g.Contains("project-site", StringComparison.OrdinalIgnoreCase));
+        var siteBlocked = GccV2PrePlanEvidenceManifestAssembler.Assemble(ungated);
+        Assert.False(siteBlocked.Ready);
+        Assert.Contains(siteBlocked.EvidenceGaps, g => g.Contains("project-site", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -288,11 +288,12 @@ public sealed class GccV2UnifiedRagTests
         // Same brief with partner run id on job/create path: assemble via raw JSON fields.
         Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("tool", 0));
         Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("ads", 1));
-        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("ads", 0));
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("ads", 0));
         Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("comparison", 1));
-        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("blog", 1));
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("blog", 1));
         Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("alternatives", 1));
-        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("blog", 1));
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("blog", 1));
+        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("pillar", 0));
     }
 
     [Fact]

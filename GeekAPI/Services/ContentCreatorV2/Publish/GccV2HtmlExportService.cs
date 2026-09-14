@@ -275,10 +275,11 @@ public sealed class GccV2HtmlExportService
         {
             "pillar-hero" => "image-prompts/pillar",
             "blog-hero" => "image-prompts/blog",
+            "email" or "email-hero" => "image-prompts/email",
+            "social" or "social-hero" => "image-prompts/social/linkedin",
+            "ads" or "ads-hero" => "image-prompts/ads",
+            "linkedin-document" or "linkedin-document-hero" => "image-prompts/linkedin-document",
             "tool" => "image-prompts/sections",
-            "email" => "image-prompts/email",
-            "social" => "image-prompts/social/linkedin",
-            "ads" => "image-prompts/ads",
             _ when normalized.EndsWith("-hero", StringComparison.Ordinal) =>
                 $"image-prompts/{normalized[..^"-hero".Length]}",
             "pillar" or "blog" => "image-prompts/sections",
@@ -292,11 +293,12 @@ public sealed class GccV2HtmlExportService
         if (sectionMeta is null) return articleSlug;
 
         var sourceType = sectionMeta.SourceType.Trim().ToLowerInvariant();
-        if (sourceType.EndsWith("-hero", StringComparison.Ordinal)
-            || sourceType is "tool" or "email" or "social" or "ads")
+        if (sourceType.EndsWith("-hero", StringComparison.Ordinal))
             return $"{articleSlug}-{sourceType}";
 
-        if (sourceType is "pillar" or "blog" || GccV2LongFormTypes.IsLongForm(sourceType))
+        if (sourceType is "pillar" or "blog"
+            || GccV2LongFormTypes.IsLongForm(sourceType)
+            || GccV2LongFormTypes.UsesHeroAndSectionImagePrompts(sourceType))
             return $"{articleSlug}-{sourceType}-h2-{SlugHelper.Slugify(sectionMeta.Heading)}";
 
         return $"{articleSlug}-{sourceType}";

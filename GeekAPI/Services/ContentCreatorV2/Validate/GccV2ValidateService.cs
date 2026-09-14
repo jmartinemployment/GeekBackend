@@ -5,6 +5,7 @@ using GeekAPI.Services.ContentCreatorV2.Geo;
 using GeekAPI.Services.ContentCreatorV2.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Gcw;
 using GeekAPI.Services.GeekCrawler;
@@ -268,8 +269,11 @@ public sealed class GccV2ValidateService
             var partnerTokens = GccV2PartnerMentionGate.CollectPartnerTokens(
                 wc.GenerationBrief.OperatorTools,
                 rawBrief);
+            var partnerExtraction = GccV2PartnerUrlResearchService.ParsePartnerExtraction(rawBrief);
+            var outputForAudit = GccV2PartnerCitableBridge.AttachVerifiedCitables(
+                output, partnerExtraction, partnerTokens);
             var audit = await GccV2CitationEvidenceGuard.AuditWriteOutputAsync(
-                output,
+                outputForAudit,
                 wc.GenerationBrief.PartnerSourceRunIds,
                 wc.GenerationBrief.CompetitorSourceRunIds,
                 _ragClient,
@@ -280,7 +284,13 @@ public sealed class GccV2ValidateService
                 audit.Citations,
                 audit.EvidenceGaps,
                 rawBrief);
-            citationGaps = audit.EvidenceGaps;
+            var competitorExtraction = GccV2PartnerUrlResearchService.ParseCompetitorExtraction(rawBrief);
+            var claimRiskGaps = GccV2CompetitorClaimRiskGate.CollectGaps(
+                outputForAudit, competitorExtraction);
+            citationGaps = audit.EvidenceGaps
+                .Concat(claimRiskGaps)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             if (audit.Citations.Count > 0)
             {
                 validationCitations = audit.Citations;

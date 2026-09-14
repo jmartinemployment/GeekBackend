@@ -30,18 +30,22 @@ public static class GccV2CitationEvidenceGuard
         var audited = new List<RagCitationDto>();
         var markdownCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
-        async Task<string?> LoadMarkdown(string pageId)
+        async Task<string?> LoadMarkdownForCitation(RagCitationDto citation)
         {
-            if (markdownCache.TryGetValue(pageId, out var cached)) return cached;
+            if (string.IsNullOrWhiteSpace(citation.PageId)) return null;
+            var cacheKey = $"{citation.RunId}|{citation.PageId}";
+            if (markdownCache.TryGetValue(cacheKey, out var cached)) return cached;
             if (ragClient is null)
             {
-                markdownCache[pageId] = null;
+                markdownCache[cacheKey] = null;
                 return null;
             }
 
-            var page = await ragClient.GetPageMarkdownAsync(pageId, ct).ConfigureAwait(false);
+            var page = await ragClient.GetPageMarkdownAsync(citation.PageId!, ct, citation.RunId)
+                .ConfigureAwait(false);
             var md = page?.Markdown;
-            markdownCache[pageId] = md;
+            markdownCache[cacheKey] = md;
+            markdownCache[citation.PageId!] = md;
             return md;
         }
 
@@ -55,7 +59,7 @@ public static class GccV2CitationEvidenceGuard
                     section.SectionKey,
                     partnerRunIds,
                     competitorRunIds,
-                    LoadMarkdown,
+                    () => LoadMarkdownForCitation(citation),
                     gaps,
                     ct).ConfigureAwait(false);
                 stamped.Add(next);
@@ -224,14 +228,12 @@ public static class GccV2CitationEvidenceGuard
         string sectionKey,
         IReadOnlyList<Guid> partnerRunIds,
         IReadOnlyList<Guid> competitorRunIds,
-        Func<string, Task<string?>> loadMarkdown,
+        Func<Task<string?>> loadMarkdown,
         List<string> gaps,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        string? markdown = null;
-        if (!string.IsNullOrWhiteSpace(citation.PageId))
-            markdown = await loadMarkdown(citation.PageId!).ConfigureAwait(false);
+        var markdown = await loadMarkdown().ConfigureAwait(false);
         return AuditOneSync(citation, sectionKey, partnerRunIds, competitorRunIds, markdown, gaps);
     }
 

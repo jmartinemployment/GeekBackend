@@ -128,13 +128,31 @@ public sealed class GccV2ContextIngestionWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await RecoverOnce(stoppingToken);
-        while (await wake.Reader.WaitToReadAsync(stoppingToken))
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(45));
+        var recoverLoop = Task.Run(async () =>
         {
-            while (wake.Reader.TryRead(out var id))
+            while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                try { await ProcessAsync(id, stoppingToken); }
-                catch (Exception ex) { logger.LogError(ex, "Context ingestion wake failed for {JobId}.", id); }
+                try { await RecoverOnce(stoppingToken); }
+                catch (Exception ex) { logger.LogError(ex, "Periodic context ingestion recovery failed."); }
             }
+        }, stoppingToken);
+
+        try
+        {
+            while (await wake.Reader.WaitToReadAsync(stoppingToken))
+            {
+                while (wake.Reader.TryRead(out var id))
+                {
+                    try { await ProcessAsync(id, stoppingToken); }
+                    catch (Exception ex) { logger.LogError(ex, "Context ingestion wake failed for {JobId}.", id); }
+                }
+            }
+        }
+        finally
+        {
+            try { await recoverLoop; }
+            catch (OperationCanceledException) { /* shutdown */ }
         }
     }
 
@@ -142,10 +160,15 @@ public sealed class GccV2ContextIngestionWorker(
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<HttpGccV2Repository>();
+        var now = DateTimeOffset.UtcNow;
         foreach (var job in await repo.ListContextIngestionJobsAsync("queued", limit: 200, ct: ct))
             wake.Wake(job.Id);
-        foreach (var job in await repo.ListContextIngestionJobsAsync("running", DateTimeOffset.UtcNow, 200, ct))
-            wake.Wake(job.Id);
+        // Lease-expired mid-pipeline (running/scanning/extracting/indexing) must be reclaimable.
+        foreach (var status in new[] { "running", "scanning", "extracting", "indexing" })
+        {
+            foreach (var job in await repo.ListContextIngestionJobsAsync(status, now, 200, ct))
+                wake.Wake(job.Id);
+        }
     }
 
     private async Task ProcessAsync(Guid id, CancellationToken ct)

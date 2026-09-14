@@ -68,6 +68,25 @@ public sealed class GccV2PartnerToolWriteTests
     }
 
     [Fact]
+    public void ResolveAttributionQuote_is_strict_only_no_best_paragraph_soften()
+    {
+        var page = new GccQuoteablePage(
+            "https://pipedrive.com/crm",
+            "Pipedrive CRM",
+            [],
+            ["Pipedrive helps sales teams win today."]);
+
+        var quote = GccV2ToolResearchExtractor.ResolveAttributionQuote(
+            page.Url,
+            [page],
+            storedQuote: null,
+            pageText: GccV2ToolResearchExtractor.FormatPageText(page));
+
+        Assert.Equal("", quote);
+        Assert.Equal("", GccV2ToolResearchExtractor.PickVerbatimQuote(page));
+    }
+
+    [Fact]
     public void RequireSourceAttributionHtml_emits_blockquote_and_visit_link()
     {
         const string url = "https://pipedrive.com/product";

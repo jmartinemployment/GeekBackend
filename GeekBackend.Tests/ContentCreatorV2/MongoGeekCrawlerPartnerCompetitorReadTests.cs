@@ -336,7 +336,8 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
 
         public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
             string pageId,
-            CancellationToken ct = default) =>
+            CancellationToken ct = default,
+            string? runId = null) =>
             Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
 
         public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>

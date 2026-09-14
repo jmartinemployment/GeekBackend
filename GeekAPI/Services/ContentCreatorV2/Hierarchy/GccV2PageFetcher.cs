@@ -33,8 +33,8 @@ public sealed class GccV2PageFetcher
         var browser = await _browserHolder.EnsureBrowserAsync(ct);
         if (browser is null)
         {
-            _logger.LogWarning("Hierarchy page fetch skipped — Playwright browser unavailable for {Url}", safeUri);
-            return null;
+            throw new GeekAPI.Services.GeekCrawler.GeekCrawlerPlaywrightUnavailableException(
+                $"Playwright browser unavailable for hierarchy fetch of {safeUri}. Required crawls fail closed.");
         }
 
         IBrowserContext? context = null;

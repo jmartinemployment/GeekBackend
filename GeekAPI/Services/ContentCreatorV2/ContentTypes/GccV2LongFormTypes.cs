@@ -35,8 +35,9 @@ public static class GccV2LongFormTypes
 
     private static readonly HashSet<string> HeroAndSectionImagePrompts = new(StringComparer.OrdinalIgnoreCase)
     {
-        Pillar, Blog, Comparison, CaseStudy, Guide, Alternatives,
+        Pillar, Blog, Tool, Comparison, CaseStudy, Guide, Alternatives,
         TechArticle, Listicle, Service, Local, Whitepaper,
+        "email", "social", "ads", "linkedin-document",
     };
 
     private static readonly HashSet<string> CmsPublishable = new(StringComparer.OrdinalIgnoreCase)

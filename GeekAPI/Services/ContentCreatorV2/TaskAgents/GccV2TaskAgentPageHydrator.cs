@@ -10,8 +10,8 @@ namespace GeekAPI.Services.ContentCreatorV2.TaskAgents;
 
 /// <summary>
 /// SSRF-gated page hydrate for Knowledge, run attachments, and task-agent forms.
-/// Tries plain HTTP first; when extraction is empty/thin and a rendered HTML source is configured,
-/// falls back to mobile Playwright (Pixel 7) without changing the SSRF gate.
+/// Dual-engine strategy: plain HTTP first, then mobile Playwright (Pixel 7) when HTTP is empty/thin.
+/// Both engines failing is a hard fail — never empty success.
 /// </summary>
 public sealed class GccV2TaskAgentPageHydrator(
     HttpClient http,
@@ -38,12 +38,29 @@ public sealed class GccV2TaskAgentPageHydrator(
         }
 
         var httpOutcome = await HydrateHttpAsync(safeUri, ct, resolve).ConfigureAwait(false);
-        if (!ShouldTryPlaywright(httpOutcome) || _renderedHtml is null)
+        if (!ShouldTryPlaywright(httpOutcome))
             return httpOutcome;
+
+        if (_renderedHtml is null)
+        {
+            if (httpOutcome.Ok) return httpOutcome;
+            return Fail(
+                "playwright_unavailable",
+                "HTTP hydrate failed and Playwright dual-engine is not configured.",
+                httpOutcome.StatusCode,
+                HttpStatusCode.BadGateway);
+        }
 
         var rendered = await TryHydratePlaywrightAsync(safeUri.AbsoluteUri, ct, resolve).ConfigureAwait(false);
         if (rendered is null)
-            return httpOutcome;
+        {
+            if (httpOutcome.Ok) return httpOutcome;
+            return Fail(
+                "hydrate_failed",
+                "Both HTTP and Playwright hydrate engines failed for this URL.",
+                httpOutcome.StatusCode,
+                HttpStatusCode.BadGateway);
+        }
 
         return PreferBetter(httpOutcome, rendered);
     }

@@ -137,6 +137,19 @@ public sealed class GccV2PlanService
             partnerToolNames.Add(tool);
         }
 
+        var competitorExtraction = GccV2PartnerUrlResearchService.ParseCompetitorExtraction(
+            brief.RawBriefJson);
+        var competitorRoute = GccV2CompetitorTypePlanRouting.Route(competitorExtraction);
+        var targetEntities = GccV2CompetitorTypePlanRouting.FilterProductEntities(
+            generationBrief.TargetEntities.Concat(partnerToolNames)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+            competitorRoute.ContentOnlyRivalNames)
+            .Take(12)
+            .ToList();
+        var topicWithTypeRouting = string.IsNullOrWhiteSpace(competitorRoute.GuidanceBlock)
+            ? $"{generationBrief.Title}: {generationBrief.TargetKeyword}"
+            : $"{generationBrief.Title}: {generationBrief.TargetKeyword}\n{competitorRoute.GuidanceBlock}";
+
         var skillSnapshot = await GccV2SkillSnapshotStore.LoadOrCreateAsync(_repo, job, ct);
         var route = GccV2ContentTypeRagMapper.Map(contentType);
         var jobModelPolicy = await _jobModelPolicies.LoadLatestAsync(job.Id, ct);
@@ -149,9 +162,8 @@ public sealed class GccV2PlanService
         var researchRequest = new RagGenerateRequest
         {
             WritingIntent = route.WritingIntent,
-            Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
-            TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
-                .Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList(),
+            Topic = topicWithTypeRouting,
+            TargetEntities = targetEntities,
             PartnerRunIds = generationBrief.PartnerSourceRunIds.ToList(),
             CompetitorRunIds = generationBrief.CompetitorSourceRunIds.ToList(),
             PartnerRunId = generationBrief.PartnerSourceRunId,
@@ -181,9 +193,8 @@ public sealed class GccV2PlanService
         var ragRequest = new RagGenerateRequest
         {
                 WritingIntent = route.WritingIntent,
-                Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
-                TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
-                    .Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList(),
+                Topic = topicWithTypeRouting,
+                TargetEntities = targetEntities,
                 PartnerRunIds = generationBrief.PartnerSourceRunIds.ToList(),
                 CompetitorRunIds = generationBrief.CompetitorSourceRunIds.ToList(),
                 PartnerRunId = generationBrief.PartnerSourceRunId,
@@ -209,6 +220,7 @@ public sealed class GccV2PlanService
                 "Create outline cannot continue: SoftDisabled is not a citeable Create success path.");
         var ragOutline = ragResult.Outline?
             .Where(s => !string.IsNullOrWhiteSpace(s.Heading))
+            .Where(s => !IsContentOnlyRivalHeading(s.Heading, competitorRoute.ContentOnlyRivalNames))
             .Select((s, i) => (
                 string.IsNullOrWhiteSpace(s.Key) ? Slugify(s.Heading, i + 1) : s.Key.Trim(),
                 s.Heading.Trim(),
@@ -446,6 +458,20 @@ public sealed class GccV2PlanService
         if (n.Length == 0) return true;
         return n.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
                || n.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Content-only rivals must not become product-substitute H2s (competitor-extraction §2).</summary>
+    internal static bool IsContentOnlyRivalHeading(
+        string? heading,
+        IReadOnlyList<string> contentOnlyRivalNames)
+    {
+        var h = (heading ?? "").Trim().TrimEnd(':').Trim();
+        if (h.Length == 0 || contentOnlyRivalNames.Count == 0) return false;
+        return contentOnlyRivalNames.Any(name =>
+            string.Equals(h, name, StringComparison.OrdinalIgnoreCase)
+            || h.Equals(name + " vs us", StringComparison.OrdinalIgnoreCase)
+            || h.StartsWith(name + " ", StringComparison.OrdinalIgnoreCase)
+               && h.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 4);
     }
 
     internal static List<string> ExtractPaaQuestions(

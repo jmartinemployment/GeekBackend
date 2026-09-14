@@ -6,6 +6,7 @@ using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
 using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.DTOs;
@@ -1026,7 +1027,35 @@ public sealed class GccV2WriteService
 
     private async Task<GccV2WriteOutput> WriteAdsAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
-        return await WriteRagCompleteAsync(wc, ownerUserId, "ads-body", "Advertising variations", ct);
+        var seed = BuildPartnerExtractionAdsSeed(wc.Brief.RawBriefJson);
+        return await WriteRagCompleteAsync(wc, ownerUserId, "ads-body", "Advertising variations", ct, seed);
+    }
+
+    private static string? BuildPartnerExtractionAdsSeed(string? rawBriefJson)
+    {
+        var extraction = GccV2PartnerUrlResearchService.ParsePartnerExtraction(rawBriefJson);
+        if (extraction is null) return null;
+
+        var lines = new List<string>
+        {
+            "PARTNER EXTRACTION — use only these grounded ad/pricing/CTA assets; do not invent offers or prices:",
+        };
+        foreach (var ad in extraction.Advertisements.Take(8))
+            lines.Add($"HOOK: {ad.MarketingHook} | PAIN: {ad.PainPointTrigger} | CTA: {ad.CtaWrapper}");
+        foreach (var offer in extraction.OfferCtas.Take(6))
+            lines.Add($"OFFER: {offer.CtaLabel} → {offer.DestinationUrl} ({offer.OfferType})");
+        foreach (var tier in extraction.PricingCatalog.Take(6))
+        {
+            var price = tier.ListPrice is { } lp ? $"{tier.PriceCurrency} {lp}" : "unstated";
+            lines.Add($"PRICING: {tier.TierName} {price} {tier.BillingPeriod} ({tier.OriginProofUrl})");
+        }
+
+        foreach (var faq in extraction.FaqBank.Take(4))
+            lines.Add($"OBJECTION: {faq.Question} → {faq.VerifiedAnswer}");
+        foreach (var d in extraction.Disqualifiers.Take(4))
+            lines.Add($"LIMIT: [{d.LimitType}] {d.LimitDetail}");
+
+        return lines.Count <= 1 ? null : string.Join("\n", lines);
     }
 
     private async Task<GccV2WriteOutput> WriteRagCompleteAsync(

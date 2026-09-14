@@ -151,9 +151,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
             partner.BriefJson,
             ct,
             topic);
+        var enriched = await EnrichPartnerExtractionAfterCompetitorAsync(competitor.BriefJson, ct)
+            .ConfigureAwait(false);
         var local = await MergeLocalResearchAsync(
             ownerUserId,
-            competitor.BriefJson,
+            enriched,
             projectSiteUrl,
             projectSiteCrawlRunId,
             ct,
@@ -165,6 +167,82 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 .Concat(competitor.PartnerResearchWarnings)
                 .Concat(local.PartnerResearchWarnings)
                 .ToList());
+    }
+
+    private Task<string?> EnrichPartnerExtractionAfterCompetitorAsync(
+        string? rawBriefJson,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(rawBriefJson))
+            return Task.FromResult(rawBriefJson);
+
+        var extraction = GccV2PartnerUrlResearchService.ParsePartnerExtraction(rawBriefJson);
+        if (extraction is null)
+            return Task.FromResult<string?>(rawBriefJson);
+
+        var competitorPages = ParseResearchPages(rawBriefJson, "competitorResearch");
+        var competitorExtraction = GccV2PartnerUrlResearchService.ParseCompetitorExtraction(rawBriefJson);
+        var partnerNames = GccV2PartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson)
+            .Select(r => r.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (partnerNames.Count == 0)
+        {
+            partnerNames = ParseResearchPages(rawBriefJson, "partnerResearch")
+                .Select(p => p.Title)
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        // Prefer structured competitor deficits when present; else paragraph scan.
+        if (competitorExtraction is { DeficitRouter.Count: > 0 })
+        {
+            var fromRouter = competitorExtraction.DeficitRouter
+                .Select(d => new GccPartnerAlternativesAsset(
+                    d.TriggerDeficit,
+                    d.RecommendedSwap.Count > 0 ? d.RecommendedSwap : partnerNames,
+                    d.PivotCopy ?? "",
+                    d.Provenance))
+                .ToList();
+            var mergedAlts = extraction.Alternatives
+                .Concat(fromRouter)
+                .GroupBy(a => a.TriggerDeficit, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .Take(40)
+                .ToList();
+            var joinedDoc = extraction with { Alternatives = mergedAlts };
+            return Task.FromResult(
+                GccV2PartnerUrlResearchService.MergePartnerExtractionIntoBriefJson(rawBriefJson, joinedDoc));
+        }
+
+        if (competitorPages.Count == 0)
+            return Task.FromResult<string?>(rawBriefJson);
+
+        var joined = GccV2PartnerAlternativesJoin.EnrichWithCompetitorDeficits(
+            extraction, competitorPages, partnerNames);
+        return Task.FromResult(
+            GccV2PartnerUrlResearchService.MergePartnerExtractionIntoBriefJson(rawBriefJson, joined));
+    }
+
+    private static IReadOnlyList<GccQuoteablePage> ParseResearchPages(string rawBriefJson, string propertyName)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!doc.RootElement.TryGetProperty(propertyName, out var el)
+                || el.ValueKind != JsonValueKind.Array)
+                return [];
+            return el.Deserialize<List<GccQuoteablePage>>(
+                       new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                   ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     public async Task<GccV2ExternalResearchMergeResult> MergeLocalResearchAsync(
@@ -344,9 +422,36 @@ public sealed class GccV2GeekCrawlerResearchResolver
             quoteable.Count,
             projectSiteUrl);
 
+        var toolNames = GccV2PartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson)
+            .Select(r => r.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var extraction = GccV2PartnerExtractionService.ExtractFromPages(quoteable, toolNames);
+        if (_rag.IsEnabled)
+        {
+            extraction = await GccV2PartnerExtractionVerify.VerifyAgainstLibraryAsync(
+                extraction, _rag, rawBriefJson, ct).ConfigureAwait(false);
+        }
+
+        var briefWithResearch = GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(
+            rawBriefJson, quoteable);
+        var briefWithExtraction = GccV2PartnerUrlResearchService.MergePartnerExtractionIntoBriefJson(
+            briefWithResearch, extraction);
+
+        _logger.LogInformation(
+            "Partner extraction v{Version}: citables={Citables} (mdVerified={MdVerified}), ads={Ads}, pricing={Pricing}, faq={Faq}, offers={Offers}.",
+            extraction.ExtractorVersion,
+            extraction.Citables.Count,
+            extraction.Citables.Count(c => c.Provenance.MarkdownVerified),
+            extraction.Advertisements.Count,
+            extraction.PricingCatalog.Count,
+            extraction.FaqBank.Count,
+            extraction.OfferCtas.Count);
+
         return new GccV2ExternalResearchMergeResult(
             MergeSourceRunIds(
-                GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, quoteable),
+                briefWithExtraction,
                 singularPropertyName: "partnerSourceRunId",
                 pluralPropertyName: "partnerSourceRunIds",
                 selectedRunIds),
@@ -396,9 +501,40 @@ public sealed class GccV2GeekCrawlerResearchResolver
             quoteable.Count,
             seeds.Count);
 
+        var partnerNames = GccV2PartnerUrlResearchService.CollectPartnerToolRows(rawBriefJson)
+            .Select(r => r.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var extraction = GccV2CompetitorExtractionService.ExtractFromPages(
+            quoteable, partnerNames, seeds);
+        if (_rag.IsEnabled)
+        {
+            extraction = await GccV2CompetitorExtractionVerify.VerifyAgainstLibraryAsync(
+                extraction, _rag, rawBriefJson, ct).ConfigureAwait(false);
+        }
+
+        var jsonLd = GccV2CompetitorSoftwareApplicationJsonLd.TryBuild(extraction, quoteable);
+        if (jsonLd is not null)
+            extraction = extraction with { SoftwareApplicationJsonLd = jsonLd };
+
+        var briefWithResearch = GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(
+            rawBriefJson, quoteable);
+        var briefWithExtraction = GccV2PartnerUrlResearchService.MergeCompetitorExtractionIntoBriefJson(
+            briefWithResearch, extraction);
+
+        _logger.LogInformation(
+            "Competitor extraction v{Version}: pricing={Pricing}, deficits={Deficits}, framing={Framing}, claimRisk={ClaimRisk}, typeLabels={Types}.",
+            extraction.ExtractorVersion,
+            extraction.PricingCatalog.Count,
+            extraction.DeficitRouter.Count,
+            extraction.FramingBank.Count,
+            extraction.ClaimRiskFlags.Count,
+            extraction.TypeLabels.Count);
+
         return new GccV2ExternalResearchMergeResult(
             MergeSourceRunIds(
-                GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, quoteable),
+                briefWithExtraction,
                 singularPropertyName: "competitorSourceRunId",
                 pluralPropertyName: "competitorSourceRunIds",
                 selectedRunIds),
@@ -484,159 +620,78 @@ public sealed class GccV2GeekCrawlerResearchResolver
         GccV2SeedHtmlProvenance.EnsureRunAuthorized(ownerUserId, run.OwnerUserId, run.Id);
 
         var seedSet = BuildSeedMatchSet(normalized);
-        var libraryOnly = IsLibraryOnlyExternalCrawlType(crawlType);
-
-        if (libraryOnly)
+        // All external Create research (partner, competitor, local) is library-only — no Mongo seed-HTML.
+        if (!_rag.IsEnabled)
         {
-            if (!_rag.IsEnabled)
-            {
-                _logger.LogWarning(
-                    "Geek-Crawler-Rag disabled; cannot resolve {CrawlType} seed {Seed} (library-only, no seed HTML).",
-                    crawlType,
-                    seed);
-                return ([], DescribeLibraryUnavailable(seed, crawlType, "research library is disabled"), run.Id);
-            }
-
-            var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
-            var indexState = indexStatus?.State;
-            if (indexState is not null && IndexBuildingStates.Contains(indexState))
-            {
-                _logger.LogInformation(
-                    "Geek-Crawler-Rag index {State} for {CrawlType} run {RunId}; fail closed (no seed HTML).",
-                    indexState,
-                    crawlType,
-                    run.Id);
-                return ([], DescribeIndexNotReady(seed, crawlType, indexState), run.Id);
-            }
-
-            if (indexState is not null
-                && !IndexQueryableStates.Contains(indexState)
-                && !string.Equals(indexState, "failed", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(indexState, "skipped", StringComparison.OrdinalIgnoreCase))
-            {
-                return ([], DescribeLibraryUnavailable(seed, crawlType, $"index state '{indexState}' is not queryable"), run.Id);
-            }
-
-            // complete → query; failed/skipped/unknown → query once; empty = fail closed (no Mongo).
-            var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
-                ? seedUri.Host
-                : null;
-            var need = BuildRagNeed(topic, seed, crawlType);
-            var rag = await _rag.QueryAsync(
-                need: need,
-                runId: run.Id,
-                crawlType: crawlType,
-                host: host,
-                topK: 12,
-                preferParent: true,
-                preferChild: false,
-                ct: ct).ConfigureAwait(false);
-            if (rag is null || rag.Pages.Count == 0)
-            {
-                _logger.LogInformation(
-                    "Geek-Crawler-Rag returned no pages for {CrawlType} run {RunId} seed {Seed}; fail closed.",
-                    crawlType,
-                    run.Id,
-                    seed);
-                return ([], DescribeLibraryUnavailable(seed, crawlType, "research index returned no pages for this seed"), run.Id);
-            }
-
-            var filtered = rag.Pages
-                .Where(p => PageMatchesSeed(p.Url, seedSet) || HostMatchesSeed(p.Url, seedSet))
-                .ToList();
-            if (filtered.Count == 0)
-            {
-                _logger.LogInformation(
-                    "Geek-Crawler-Rag pages for {CrawlType} run {RunId} did not match seed {Seed}; fail closed (no unfiltered adopt).",
-                    crawlType,
-                    run.Id,
-                    seed);
-                return ([], DescribeLibraryUnavailable(seed, crawlType, "no indexed pages matched this seed URL or host"), run.Id);
-            }
-
-            var stamped = filtered
-                .Select(p => GccV2SeedHtmlProvenance.StampRagChunk(p, run.Id))
-                .ToList();
-            return (stamped, null, run.Id);
+            _logger.LogWarning(
+                "Geek-Crawler-Rag disabled; cannot resolve {CrawlType} seed {Seed} (library-only, no seed HTML).",
+                crawlType,
+                seed);
+            return ([], DescribeLibraryUnavailable(seed, crawlType, "research library is disabled"), run.Id);
         }
 
-        // External local (and any non–library-only type): prefer RAG, then Mongo HTML extract.
-        string? softWarning = null;
-        if (_rag.IsEnabled)
+        var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
+        var indexState = indexStatus?.State;
+        if (indexState is not null && IndexBuildingStates.Contains(indexState))
         {
-            var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
-            var indexState = indexStatus?.State;
-            if (indexState is not null && IndexBuildingStates.Contains(indexState))
-            {
-                softWarning = DescribeIndexNotReady(seed, crawlType, indexState);
-                _logger.LogInformation(
-                    "Geek-Crawler-Rag index {State} for {CrawlType} run {RunId}; using seed HTML if available.",
-                    indexState,
-                    crawlType,
-                    run.Id);
-            }
-            else if (indexState is null || IndexQueryableStates.Contains(indexState)
-                     || string.Equals(indexState, "failed", StringComparison.OrdinalIgnoreCase)
-                     || string.Equals(indexState, "skipped", StringComparison.OrdinalIgnoreCase))
-            {
-                var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
-                    ? seedUri.Host
-                    : null;
-                var need = BuildRagNeed(topic, seed, crawlType);
-                var rag = await _rag.QueryAsync(
-                    need: need,
-                    runId: run.Id,
-                    crawlType: crawlType,
-                    host: host,
-                    topK: 12,
-                    preferParent: true,
-                    preferChild: false,
-                    ct: ct).ConfigureAwait(false);
-                if (rag is not null && rag.Pages.Count > 0)
-                {
-                    var filtered = rag.Pages
-                        .Where(p => PageMatchesSeed(p.Url, seedSet) || HostMatchesSeed(p.Url, seedSet))
-                        .ToList();
-                    if (filtered.Count == 0)
-                        filtered = rag.Pages.ToList();
-                    if (filtered.Count > 0)
-                    {
-                        var stamped = filtered
-                            .Select(p => GccV2SeedHtmlProvenance.StampRagChunk(p, run.Id))
-                            .ToList();
-                        return (stamped, softWarning, run.Id);
-                    }
-                }
-            }
+            _logger.LogInformation(
+                "Geek-Crawler-Rag index {State} for {CrawlType} run {RunId}; fail closed (no seed HTML).",
+                indexState,
+                crawlType,
+                run.Id);
+            return ([], DescribeIndexNotReady(seed, crawlType, indexState), run.Id);
         }
 
-        var quoteable = await ExtractQuoteableFromCrawlerPagesAsync(run.Id, seedSet, ct);
-        if (quoteable.Count > 0)
+        if (indexState is not null
+            && !IndexQueryableStates.Contains(indexState)
+            && !string.Equals(indexState, "failed", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(indexState, "skipped", StringComparison.OrdinalIgnoreCase))
         {
-            if (!string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation(
-                    "Using partial Geek-Crawler {CrawlType} run ({Status}) for {Seed}.",
-                    crawlType,
-                    run.Status,
-                    seed);
-            }
-
-            return (quoteable, softWarning, run.Id);
+            return ([], DescribeLibraryUnavailable(seed, crawlType, $"index state '{indexState}' is not queryable"), run.Id);
         }
 
-        _logger.LogInformation(
-            "Geek-Crawler {CrawlType} run {RunId} ({Status}) has no extractable page for {Seed}.",
-            crawlType,
-            run.Id,
-            run.Status,
-            seed);
-        return ([], softWarning ?? DescribeUnavailableResearch(seed, crawlType), run.Id);
+        // complete → query; failed/skipped/unknown → query once; empty = fail closed (no Mongo).
+        var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
+            ? seedUri.Host
+            : null;
+        var need = BuildRagNeed(topic, seed, crawlType);
+        var rag = await _rag.QueryAsync(
+            need: need,
+            runId: run.Id,
+            crawlType: crawlType,
+            host: host,
+            topK: 12,
+            preferParent: true,
+            preferChild: false,
+            ct: ct).ConfigureAwait(false);
+        if (rag is null || rag.Pages.Count == 0)
+        {
+            _logger.LogInformation(
+                "Geek-Crawler-Rag returned no pages for {CrawlType} run {RunId} seed {Seed}; fail closed.",
+                crawlType,
+                run.Id,
+                seed);
+            return ([], DescribeLibraryUnavailable(seed, crawlType, "research index returned no pages for this seed"), run.Id);
+        }
+
+        var filtered = rag.Pages
+            .Where(p => PageMatchesSeed(p.Url, seedSet) || HostMatchesSeed(p.Url, seedSet))
+            .ToList();
+        if (filtered.Count == 0)
+        {
+            _logger.LogInformation(
+                "Geek-Crawler-Rag pages for {CrawlType} run {RunId} did not match seed {Seed}; fail closed (no unfiltered adopt).",
+                crawlType,
+                run.Id,
+                seed);
+            return ([], DescribeLibraryUnavailable(seed, crawlType, "no indexed pages matched this seed URL or host"), run.Id);
+        }
+
+        var stamped = filtered
+            .Select(p => GccV2SeedHtmlProvenance.StampRagChunk(p, run.Id))
+            .ToList();
+        return (stamped, null, run.Id);
     }
-
-    private static bool IsLibraryOnlyExternalCrawlType(string crawlType) =>
-        string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase)
-        || string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase);
 
     internal static string? MergeSourceRunIds(
         string? rawBriefJson,
@@ -769,30 +824,24 @@ public sealed class GccV2GeekCrawlerResearchResolver
     internal static string DescribeIndexNotReady(string seed, string crawlType, string state)
     {
         var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
-        if (IsLibraryOnlyExternalCrawlType(crawlType))
-        {
-            var label = string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase)
-                ? "Competitor"
-                : "Partner";
-            return $"{label} research index for {host} is still {state}; indexed library pages are required (no seed-HTML fallback).";
-        }
-
-        var softLabel = crawlType switch
-        {
-            CrawlTypes.Local => "Local",
-            _ => "Partner",
-        };
-        return $"{softLabel} research index for {host} is still {state}; using seed pages if available. Generate continues.";
+        var label = CrawlTypeLabel(crawlType);
+        return $"{label} research index for {host} is still {state}; indexed library pages are required (no seed-HTML fallback).";
     }
 
     internal static string DescribeLibraryUnavailable(string seed, string crawlType, string reason)
     {
         var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
-        var label = string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase)
-            ? "Competitor"
-            : "Partner";
+        var label = CrawlTypeLabel(crawlType);
         return $"{label} research for {host} unavailable ({reason}). Indexed library retrieval is required — no seed-HTML fallback.";
     }
+
+    private static string CrawlTypeLabel(string crawlType) =>
+        crawlType switch
+        {
+            _ when string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase) => "Competitor",
+            _ when string.Equals(crawlType, CrawlTypes.Local, StringComparison.OrdinalIgnoreCase) => "Local",
+            _ => "Partner",
+        };
 
     private static string? ReadString(JsonElement root, string name) =>
         root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String
@@ -890,20 +939,8 @@ public sealed class GccV2GeekCrawlerResearchResolver
     internal static string DescribeUnavailableResearch(string seed, string crawlType)
     {
         var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
-        if (IsLibraryOnlyExternalCrawlType(crawlType))
-        {
-            var label = string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase)
-                ? "Competitor"
-                : "Partner";
-            return $"{label} research for {host} unavailable (no usable crawl run or indexed library pages). Indexed library retrieval is required — no seed-HTML fallback.";
-        }
-
-        var prefix = crawlType switch
-        {
-            CrawlTypes.Local => $"Local research for {host} unavailable",
-            _ => $"Partner research for {host} unavailable",
-        };
-        return $"{prefix} (external crawl did not finish or has no extractable pages). Continuing without it.";
+        var label = CrawlTypeLabel(crawlType);
+        return $"{label} research for {host} unavailable (no usable crawl run or indexed library pages). Indexed library retrieval is required — no seed-HTML fallback.";
     }
 
     private static HashSet<string> BuildSeedMatchSet(IEnumerable<string> seeds)
@@ -926,33 +963,6 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
         return GeekCrawlerSeedNormalizer.TryNormalizeSeedUrl(pageUrl, out var normalized)
                && seedSet.Contains(normalized);
-    }
-
-    private async Task<List<GccQuoteablePage>> ExtractQuoteableFromCrawlerPagesAsync(
-        Guid runId,
-        HashSet<string> seedSet,
-        CancellationToken ct)
-    {
-        var lookupUrls = ExpandUrlLookupVariants(seedSet);
-        var storedPages = await _crawlerRepo.ListPagesBySeedsAsync(runId, lookupUrls, ct);
-
-        var quoteable = new List<GccQuoteablePage>();
-        foreach (var page in storedPages)
-        {
-            if (string.IsNullOrWhiteSpace(page.Html)) continue;
-
-            var url = string.IsNullOrWhiteSpace(page.FinalUrl) ? page.Url : page.FinalUrl;
-            if (!PageMatchesSeed(url, seedSet)) continue;
-
-            var extracted = GccV2ArticleHtmlExtractor.ExtractPartnerPage(url, page.Html);
-            if (!GccV2ArticleHtmlExtractor.IsEmpty(extracted))
-            {
-                quoteable.Add(GccV2SeedHtmlProvenance.StampSeedHtml(
-                    extracted, page.RunId, page.Id, page.Html, page.CrawledAtUtc));
-            }
-        }
-
-        return quoteable;
     }
 
     private async Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> LoadProjectSitePagesAsync(

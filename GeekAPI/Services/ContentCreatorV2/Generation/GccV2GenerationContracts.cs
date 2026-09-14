@@ -563,8 +563,8 @@ public sealed record GccV2ResearchEvidenceManifest(
     public const string CurrentVersion = "gcc-v2-research-evidence-manifest.v1";
 
     /// <summary>
-    /// Pre-PLAN gate: required project-site evidence present and no hard conflicts.
-    /// Partner/competitor gaps stay in <see cref="Warnings"/> (notify-and-skip).
+    /// Pre-PLAN gate: required project-site + partner + competitor evidence present and no hard conflicts.
+    /// Missing partner/competitor run IDs are <see cref="EvidenceGaps"/> (Appendix A — every Create).
     /// </summary>
     public bool Ready => EvidenceGaps.Count == 0 && Conflicts.Count == 0;
 }
@@ -654,7 +654,7 @@ public static class GccV2PrePlanEvidenceManifestAssembler
         }
 
         var contentType = (brief.ContentType ?? "").Trim().ToLowerInvariant();
-        var partnerRequired = RequiresPartnerRunFailClosed(contentType, brief.OperatorTools.Count);
+        // Appendix A: every Create requires bound partner + competitor crawl runs (fail closed).
 
         if (brief.PartnerSourceRunIds.Count > 0)
         {
@@ -665,22 +665,14 @@ public static class GccV2PrePlanEvidenceManifestAssembler
                     "Partner run id present on brief."));
             }
         }
-        else if (partnerRequired)
+        else
         {
             gaps.Add(PartnerFailClosedMessage(contentType));
             readiness.Add(new(GccV2ResearchEntityRef.RolePartner, null,
                 brief.OperatorTools.FirstOrDefault(), Indexed: false,
-                "Partner crawl run required for this content type — bind indexed partner run(s) before PLAN."));
-        }
-        else if (brief.OperatorTools.Count > 0)
-        {
-            warnings.Add("Partner tools listed but no partnerSourceRunIds — partner retrieval may be empty.");
-            readiness.Add(new(GccV2ResearchEntityRef.RolePartner, null,
-                brief.OperatorTools.FirstOrDefault(), Indexed: false,
-                "Operator tools present without partner crawl run."));
+                "Partner crawl run required for every Create — bind indexed partner run(s) before PLAN."));
         }
 
-        var competitorRequired = RequiresCompetitorRunFailClosed(contentType, brief.CompetitorUrls.Count);
         if (brief.CompetitorSourceRunIds.Count > 0)
         {
             foreach (var competitorRun in brief.CompetitorSourceRunIds)
@@ -690,20 +682,12 @@ public static class GccV2PrePlanEvidenceManifestAssembler
                     "Competitor run id present on brief."));
             }
         }
-        else if (competitorRequired)
+        else
         {
-            gaps.Add(
-                "Named competitors require indexed competitor crawl run(s) for comparison/alternatives — bind competitorSourceRunIds or remove competitor URLs.");
+            gaps.Add(CompetitorFailClosedMessage(contentType));
             readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, null,
                 brief.CompetitorUrls.FirstOrDefault(), Indexed: false,
-                "Competitor crawl run required when competitor URLs are named."));
-        }
-        else if (brief.CompetitorUrls.Count > 0)
-        {
-            warnings.Add("Competitor URLs listed but no competitorSourceRunIds — differentiation research may be empty.");
-            readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, null,
-                brief.CompetitorUrls.FirstOrDefault(), Indexed: false,
-                "Competitor URLs present without competitor crawl run."));
+                "Competitor crawl run required for every Create — bind indexed competitor run(s) before PLAN."));
         }
 
         if (!string.IsNullOrWhiteSpace(brief.SiteSectionJson))
@@ -745,30 +729,44 @@ public static class GccV2PrePlanEvidenceManifestAssembler
     }
 
     /// <summary>
-    /// M3 partner policy: <c>tool</c> always; <c>ads</c> when operator tools drive creative;
-    /// <c>comparison</c>/<c>alternatives</c> when partner tools are named.
+    /// Appendix A: partner crawl run required on every Create (fail closed).
+    /// <paramref name="operatorToolCount"/> retained for call-site compatibility.
     /// </summary>
-    internal static bool RequiresPartnerRunFailClosed(string contentType, int operatorToolCount) =>
-        contentType switch
-        {
-            "tool" => true,
-            "ads" => operatorToolCount > 0,
-            "comparison" or "alternatives" => operatorToolCount > 0,
-            _ => false,
-        };
+    internal static bool RequiresPartnerRunFailClosed(string contentType, int operatorToolCount)
+    {
+        _ = contentType;
+        _ = operatorToolCount;
+        return true;
+    }
 
-    internal static bool RequiresCompetitorRunFailClosed(string contentType, int competitorUrlCount) =>
-        contentType is "comparison" or "alternatives" && competitorUrlCount > 0;
+    /// <summary>
+    /// Appendix A: competitor crawl run required on every Create (fail closed).
+    /// <paramref name="competitorUrlCount"/> retained for call-site compatibility.
+    /// </summary>
+    internal static bool RequiresCompetitorRunFailClosed(string contentType, int competitorUrlCount)
+    {
+        _ = contentType;
+        _ = competitorUrlCount;
+        return true;
+    }
 
     private static string PartnerFailClosedMessage(string contentType) => contentType switch
     {
         "tool" =>
             "Tool pages require indexed partner crawl run(s) — bind partnerSourceRunIds (re-crawl partners if needed).",
         "ads" =>
-            "Partner-driven ads require indexed partner crawl run(s) — bind partnerSourceRunIds or clear operatorTools.",
+            "Ads require indexed partner crawl run(s) — bind partnerSourceRunIds before PLAN.",
         "comparison" or "alternatives" =>
-            "Named partners require indexed partner crawl run(s) for comparison/alternatives — bind partnerSourceRunIds or remove partner tools.",
+            "Comparison/alternatives require indexed partner crawl run(s) — bind partnerSourceRunIds before PLAN.",
         _ =>
-            "Partner crawl run is required for this content type before PLAN.",
+            "Partner crawl run is required for every Create before PLAN — bind partnerSourceRunIds.",
+    };
+
+    private static string CompetitorFailClosedMessage(string contentType) => contentType switch
+    {
+        "comparison" or "alternatives" =>
+            "Comparison/alternatives require indexed competitor crawl run(s) — bind competitorSourceRunIds before PLAN.",
+        _ =>
+            "Competitor crawl run is required for every Create before PLAN — bind competitorSourceRunIds.",
     };
 }

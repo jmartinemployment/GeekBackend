@@ -110,9 +110,8 @@ public sealed class GccV2UrlAttachmentService(
             attachment.Id, new(ownerUserId, verified.ByteSize, verified.Sha256), ct)
             .ConfigureAwait(false);
 
-        var jobs = await repository.ListContextIngestionJobsAsync("queued", limit: 200, ct: ct)
+        var job = await repository.GetContextIngestionJobByTargetAsync("run_attachment", attachment.Id, ct)
             .ConfigureAwait(false);
-        var job = jobs.SingleOrDefault(x => x.TargetKind == "run_attachment" && x.TargetId == attachment.Id);
         if (job is null)
         {
             return (null, HttpStatusCode.Conflict, "Attachment ingestion job was not queued.", "ingestion");

@@ -1,3 +1,4 @@
+using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Context;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
@@ -87,6 +88,27 @@ public sealed class GccV2ContextManifestTests
         Assert.Contains("content-length%3Bcontent-type%3Bhost", grant.UploadUrl.Query);
         Assert.Equal("text/plain", grant.RequiredHeaders["Content-Type"]);
         Assert.DoesNotContain("secret", grant.UploadUrl.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_attachment_blocks_distinguish_not_finalized_failed_and_processing()
+    {
+        var id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var now = DateTimeOffset.Parse("2026-09-14T12:00:00Z");
+        GccV2RunAttachmentDto Attachment(string state, DateTimeOffset? finalized) => new(
+            id, "owner", Guid.NewGuid(), "key", "brief.txt", "text/plain", 12, new string('a', 64),
+            state, now.AddHours(1), now.AddDays(1), finalized, null, now);
+
+        Assert.Equal($"run_attachment:{id}:not_finalized",
+            GccV2ContextResolver.ClassifyRunAttachmentBlock(Attachment("queued", null), now));
+        Assert.Equal($"run_attachment:{id}:failed",
+            GccV2ContextResolver.ClassifyRunAttachmentBlock(Attachment("failed", now), now));
+        Assert.Equal($"run_attachment:{id}:processing",
+            GccV2ContextResolver.ClassifyRunAttachmentBlock(Attachment("scanning", now), now));
+        Assert.Null(GccV2ContextResolver.ClassifyRunAttachmentBlock(Attachment("ready", now), now));
+        Assert.Equal($"run_attachment:{id}:expired",
+            GccV2ContextResolver.ClassifyRunAttachmentBlock(
+                Attachment("ready", now) with { RetainUntilUtc = now.AddMinutes(-1) }, now));
     }
 
     private sealed record ManifestFixture(

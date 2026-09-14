@@ -20,13 +20,13 @@ public sealed class GccV2PlaywrightStartupHostedService : IHostedService
         {
             await _holder.InitializeAsync();
             if (_holder.Browser is null)
-                _logger.LogWarning("Content Creator Playwright browser not available after startup; hierarchy crawl will soft-fail until retry.");
+                _logger.LogWarning("Content Creator Playwright browser not available after startup; hierarchy crawl fails closed until retry.");
             else
                 _logger.LogInformation("Content Creator Playwright Chromium ready for mobile hierarchy crawl.");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Content Creator Playwright startup failed; hierarchy crawl soft-fails.");
+            _logger.LogWarning(ex, "Content Creator Playwright startup failed; hierarchy crawl unavailable until retry.");
         }
     }
 

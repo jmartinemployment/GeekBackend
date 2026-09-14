@@ -152,6 +152,23 @@ public sealed class GccV2FallbackCorrectnessTests
         Assert.DoesNotContain("Continuing without it", source, StringComparison.Ordinal);
         Assert.Contains("Failed = true", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Task<GeekCrawlerRagGenerateResult?> GenerateAsync", source, StringComparison.Ordinal);
+
+        var resolver = File.ReadAllText(Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..",
+            "GeekAPI", "Services", "ContentCreatorV2", "GeekCrawler", "GccV2GeekCrawlerResearchResolver.cs")));
+        Assert.DoesNotContain("Continuing without it", resolver, StringComparison.Ordinal);
+        Assert.DoesNotContain("Generate continues", resolver, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExtractQuoteableFromCrawlerPagesAsync", resolver, StringComparison.Ordinal);
+        Assert.DoesNotContain("keyword-only fallback", File.ReadAllText(Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..",
+            "GeekAPI", "Services", "ContentCreatorV2", "ToolPages", "GccV2ToolOverviewWriteService.cs"))),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Soft-disabled index success is forbidden",
+            File.ReadAllText(Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory, "..", "..", "..", "..",
+                "GeekAPI", "Services", "Rag", "RagGenerateService.cs"))),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -198,7 +215,11 @@ public sealed class GccV2FallbackCorrectnessTests
         Assert.Contains("gcc-create-library.v1", generate, StringComparison.Ordinal);
         Assert.Contains("SoftDisabled = false", generate, StringComparison.Ordinal);
         Assert.Contains(
-            "No partner/competitor library runs on brief",
+            "Brief/topic-only grounding is forbidden",
+            generate,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Brief/topic-only research plans are forbidden",
             generate,
             StringComparison.Ordinal);
     }

@@ -52,10 +52,11 @@ public interface IGeekCrawlerRagClient
         IReadOnlyList<string>? entityTags = null,
         CancellationToken ct = default);
 
-    /// <summary>Fetch Mongo Markdown by pageId. Null when disabled or 404.</summary>
+    /// <summary>Fetch Mongo Markdown by pageId. Null when disabled or 404. Optional runId scopes the library page.</summary>
     Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
         string pageId,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? runId = null);
 
     Task<JsonElement?> RunDiagnosticAsync(
         string endpoint,
@@ -514,13 +515,18 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
     public async Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
         string pageId,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? runId = null)
     {
         if (!_enabled || string.IsNullOrWhiteSpace(pageId))
             return null;
         try
         {
-            using var response = await _http.GetAsync($"v1/pages/{Uri.EscapeDataString(pageId)}", ct)
+            var path = $"v1/pages/{Uri.EscapeDataString(pageId)}";
+            if (!string.IsNullOrWhiteSpace(runId))
+                path += $"?runId={Uri.EscapeDataString(runId.Trim())}";
+
+            using var response = await _http.GetAsync(path, ct)
                 .ConfigureAwait(false);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return null;
@@ -540,7 +546,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             return new GeekCrawlerRagPageMarkdown
             {
                 PageId = dto.PageId ?? pageId,
-                RunId = dto.RunId ?? "",
+                RunId = dto.RunId ?? runId ?? "",
                 Url = dto.Url ?? "",
                 FinalUrl = dto.FinalUrl,
                 Title = dto.Title,

@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Services;
@@ -51,35 +52,6 @@ public sealed class GccV2ContextAdapter
             throw new InvalidOperationException("Brand kit is missing website — cannot write without project site URL.");
 
         var paragraphs = BuildNotesParagraphs(fields, brandKit, siteSection, brandKit.Website!, _company.ToolBaseUrl);
-
-        // #region agent log
-        {
-            var mustIdx = paragraphs.FindIndex(p =>
-                p.Contains("Partner tools for this use case", StringComparison.Ordinal)
-                || p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
-            var researchIdx = paragraphs.FindIndex(p =>
-                p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal)
-                || p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
-            GeekAPI.Diagnostics.AgentDebugLog.Write(
-                "A",
-                "GccV2ContextAdapter.BuildContext",
-                "CrawledParagraphs built for WRITE",
-                new
-                {
-                    paragraphCount = paragraphs.Count,
-                    mustMentionPartnerIdx = mustIdx,
-                    partnerResearchIdx = researchIdx,
-                    mustMentionInFirst5 = mustIdx >= 0 && mustIdx < 5,
-                    partnerResearchInFirst5 = researchIdx >= 0 && researchIdx < 5,
-                    recommendedToolCount = fields.RecommendedTools.Count,
-                    operatorToolCount = fields.OperatorTools.Count,
-                    partnerResearchPageCount = fields.PartnerResearch.Count,
-                    writingNotesHasPartnerTools = BuildPartnerWritingNotes(fields, brandKit.Website!, _company.ToolBaseUrl)
-                        .Contains("Partner tools for this use case", StringComparison.Ordinal),
-                    first5Prefixes = paragraphs.Take(5).Select(p => p.Length <= 80 ? p : p[..80]).ToList(),
-                });
-        }
-        // #endregion
 
         return new ProjectGenerationContext(
             ProjectName: targetKeyword,
@@ -177,6 +149,8 @@ public sealed class GccV2ContextAdapter
             }
         }
 
+        AppendPartnerExtractionNotes(parts, fields.PartnerExtraction);
+
         if (fields.CompetitorResearch is { Count: > 0 } competitorPages)
         {
             parts.Add(
@@ -191,7 +165,147 @@ public sealed class GccV2ContextAdapter
             }
         }
 
+        AppendCompetitorExtractionNotes(parts, fields.CompetitorExtraction);
+
         return string.Join("\n", parts);
+    }
+
+    private static void AppendCompetitorExtractionNotes(
+        List<string> parts,
+        GccCompetitorExtractionDocument? extraction)
+    {
+        if (extraction is null) return;
+        var hasAny = extraction.PricingCatalog.Count > 0
+            || extraction.DeficitRouter.Count > 0
+            || extraction.FramingBank.Count > 0
+            || extraction.ClaimRiskFlags.Count > 0
+            || extraction.TypeLabels.Count > 0
+            || extraction.GapMap.Count > 0
+            || extraction.ComparisonAxes.Count > 0
+            || extraction.DemandSignals.Count > 0;
+        if (!hasAny) return;
+
+        parts.Add(
+            "COMPETITOR EXTRACTION (library-grounded rival payloads — crawlType=competitors only; "
+            + "never label as partner; do not echo claim-risk superlatives as facts; deficit swaps must be partners):");
+
+        foreach (var t in extraction.TypeLabels.Take(4))
+            parts.Add($"- Type: {t.EntityName} = {t.CompetitorType} ({t.TypeRationale}) {t.PrimaryUrl}");
+        foreach (var p in extraction.PricingCatalog.Take(6))
+        {
+            var price = p.ListPrice is { } lp ? $"{p.PriceCurrency} {lp}" : "unstated";
+            parts.Add($"- Rival pricing: {p.TierName} — {price} / {p.BillingPeriod ?? "n/a"} ({p.OriginProofUrl})");
+        }
+
+        foreach (var d in extraction.DeficitRouter.Take(8))
+            parts.Add(
+                $"- Deficit→partner: {d.TriggerDeficit} → swap=[{string.Join(", ", d.RecommendedSwap)}] ({d.OriginProofUrl})");
+        foreach (var g in extraction.GapMap.Take(6))
+            parts.Add($"- Gap [{g.DepthAssessment}]: {g.GapTopic} → {g.OpportunityForUs}");
+        foreach (var f in extraction.FramingBank.Take(6))
+            parts.Add($"- Framing [{f.Sentiment}/{f.FrameType}]: {f.FrameExcerpt}");
+        foreach (var c in extraction.ComparisonAxes.Take(8))
+            parts.Add($"- Rival axis [{c.StandardizedFeatureId}]: {c.RivalCapabilityPayload}");
+        foreach (var c in extraction.ClaimRiskFlags.Take(6))
+            parts.Add($"- Claim risk [{c.RiskKind}]: \"{c.ClaimText}\" → {c.WriteGuidance}");
+        foreach (var d in extraction.DemandSignals.Take(4))
+            parts.Add(
+                $"- Demand: keyword={d.PrimaryKeywordFocus} format={d.ContentFormat} intent={d.SearchIntentCategory}");
+        foreach (var d in extraction.Disqualifiers.Take(4))
+            parts.Add($"- Rival limit [{d.LimitType}]: {d.LimitDetail}");
+    }
+
+    private static void AppendPartnerExtractionNotes(
+        List<string> parts,
+        GccPartnerExtractionDocument? extraction)
+    {
+        if (extraction is null) return;
+        var hasAny = extraction.Citables.Count > 0
+            || extraction.Advertisements.Count > 0
+            || extraction.PricingCatalog.Count > 0
+            || extraction.FaqBank.Count > 0
+            || extraction.OfferCtas.Count > 0
+            || extraction.Comparisons.Count > 0
+            || extraction.Disqualifiers.Count > 0
+            || extraction.Alternatives.Count > 0
+            || extraction.Integrations.Count > 0
+            || extraction.Icp.Count > 0
+            || extraction.ProofPack.Count > 0
+            || extraction.UseCasePlaybooks.Count > 0
+            || extraction.Categories.Count > 0
+            || extraction.FreshnessLog.Count > 0
+            || extraction.BattlecardSlices.Count > 0
+            || extraction.DemoBeats.Count > 0
+            || extraction.ComplianceSnippets.Count > 0
+            || extraction.AffiliateDisclosures.Count > 0;
+        if (!hasAny) return;
+
+        parts.Add(
+            "PARTNER EXTRACTION (library-grounded structured payloads — prefer these over inventing "
+            + "pricing, CTAs, FAQs, feature vectors, or swaps; crawlType=partner for partner assets; "
+            + "competitor-sourced deficits keep crawlType=competitors; do not fabricate missing fields; "
+            + "prefer Markdown-verified citables for claims):");
+
+        foreach (var c in extraction.Citables.Take(10))
+        {
+            var verified = c.Provenance.MarkdownVerified ? "md-verified" : "excerpt-grounded";
+            parts.Add($"- Citable [{verified}]: \"{c.IsolatedClaim}\" ({c.OriginProofUrl})");
+        }
+
+        foreach (var a in extraction.Advertisements.Take(6))
+            parts.Add($"- Ad hook: {a.MarketingHook} | pain: {a.PainPointTrigger} | CTA: {a.CtaWrapper}");
+        foreach (var p in extraction.PricingCatalog.Take(8))
+        {
+            var price = p.ListPrice is { } lp ? $"{p.PriceCurrency} {lp}" : "price not stated";
+            parts.Add($"- Pricing: {p.TierName} — {price} / {p.BillingPeriod ?? "period n/a"} ({p.OriginProofUrl})");
+        }
+
+        foreach (var f in extraction.FaqBank.Take(8))
+            parts.Add($"- FAQ: Q: {f.Question} A: {f.VerifiedAnswer}");
+        foreach (var o in extraction.OfferCtas.Take(6))
+            parts.Add($"- Offer CTA: {o.CtaLabel} → {o.DestinationUrl} ({o.OfferType})");
+        foreach (var c in extraction.Comparisons.Take(8))
+            parts.Add($"- Comparison [{c.StandardizedFeatureId}]: {c.CapabilityPayload}"
+                + (string.IsNullOrWhiteSpace(c.NormalizedCost) ? "" : $" | cost: {c.NormalizedCost}"));
+        foreach (var a in extraction.Alternatives.Take(8))
+        {
+            var side = string.Equals(
+                a.Provenance.CrawlType,
+                GccPartnerExtractionDocument.CrawlTypeCompetitors,
+                StringComparison.OrdinalIgnoreCase)
+                ? "competitor-deficit"
+                : "partner-deficit";
+            parts.Add(
+                $"- Alternatives [{side}]: deficit={a.TriggerDeficit} → swap={string.Join(", ", a.RecommendedSwap)} | {a.PivotCopy}");
+        }
+
+        foreach (var i in extraction.Integrations.Take(8))
+            parts.Add($"- Integration: {i.IntegrationName} ({i.IntegrationType ?? "named"}) {i.ApiOrSdk}");
+        foreach (var i in extraction.Icp.Take(4))
+        {
+            parts.Add(
+                $"- ICP: served=[{string.Join(", ", i.ServedSegments)}] excluded=[{string.Join(", ", i.ExcludedSegments)}] "
+                + $"size={i.CompanySizeBand ?? "n/a"} industries=[{string.Join(", ", i.Industries)}] roles=[{string.Join(", ", i.BuyerRoles)}]");
+        }
+
+        foreach (var d in extraction.Disqualifiers.Take(6))
+            parts.Add($"- Disqualifier [{d.LimitType}]: {d.LimitDetail}");
+        foreach (var p in extraction.ProofPack.Take(6))
+            parts.Add($"- Proof [{p.ProofKind}]: {p.ProofClaim} ({p.OriginProofUrl})");
+        foreach (var u in extraction.UseCasePlaybooks.Take(4))
+            parts.Add($"- Playbook: {u.JobToBeDone} → {string.Join(" | ", u.CitedStepsOrFeatures.Take(3))}");
+        foreach (var c in extraction.Categories.Take(4))
+            parts.Add($"- Category: {c.PrimaryCategory} vs={c.VsCategoryLabel ?? "n/a"}");
+        foreach (var f in extraction.FreshnessLog.Take(4))
+            parts.Add($"- Freshness [{f.ChangeKind}]: {f.ChangeSummary} asOf={f.StatedAsOf ?? "n/a"}");
+        foreach (var b in extraction.BattlecardSlices.Take(4))
+            parts.Add($"- Battlecard: win={b.WinTheme} | landmine={b.Landmine} | {b.CoachingLine}");
+        foreach (var d in extraction.DemoBeats.Take(6))
+            parts.Add($"- Demo beat: {d.BeatTitle} — {d.BeatClaim}");
+        foreach (var c in extraction.ComplianceSnippets.Take(4))
+            parts.Add($"- Compliance [{c.TermKind}]: {c.TermText}");
+        foreach (var a in extraction.AffiliateDisclosures.Take(3))
+            parts.Add($"- Affiliate disclosure: {a.DisclosureText}");
     }
 
     private static string? MergeWritingNotes(string? briefNotes, string partnerNotes)
@@ -350,6 +464,9 @@ public sealed class GccV2ContextAdapter
             }
         }
 
+        AppendPartnerExtractionNotes(paragraphs, fields.PartnerExtraction);
+        AppendCompetitorExtractionNotes(paragraphs, fields.CompetitorExtraction);
+
         if (siteSection?.RelatedPages is { Count: > 0 } pages)
         {
             // Prefer use-case / methodology / non-tool pages for internal links. Tool URLs from the
@@ -503,7 +620,9 @@ public sealed class GccV2ContextAdapter
                 RecommendedTools = recommendedTools,
                 OperatorTools = operatorTools,
                 PartnerResearch = ParsePartnerResearch(rawBriefJson),
+                PartnerExtraction = GccV2PartnerUrlResearchService.ParsePartnerExtraction(rawBriefJson),
                 CompetitorResearch = ParseResearchPages(rawBriefJson, "competitorResearch"),
+                CompetitorExtraction = GccV2PartnerUrlResearchService.ParseCompetitorExtraction(rawBriefJson),
             };
         }
         catch (JsonException ex)
@@ -794,7 +913,9 @@ public sealed class GccV2ContextAdapter
         public IReadOnlyList<RecommendedTool> RecommendedTools { get; init; } = [];
         public IReadOnlyList<RecommendedTool> OperatorTools { get; init; } = [];
         public IReadOnlyList<GccQuoteablePage> PartnerResearch { get; init; } = [];
+        public GccPartnerExtractionDocument? PartnerExtraction { get; init; }
         public IReadOnlyList<GccQuoteablePage> CompetitorResearch { get; init; } = [];
+        public GccCompetitorExtractionDocument? CompetitorExtraction { get; init; }
     }
 
     internal sealed record RecommendedTool(string Name, string? Href);

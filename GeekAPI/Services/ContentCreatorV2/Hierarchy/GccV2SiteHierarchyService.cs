@@ -5,7 +5,8 @@ namespace GeekAPI.Services.ContentCreatorV2.Hierarchy;
 
 /// <summary>
 /// Mobile homepage hierarchy → structured <c>siteHierarchy</c> on the brief.
-/// Soft-fail: never invent a tree when fetch/browser fails.
+/// Soft-skip only when fetch returns no HTML without a required Playwright failure.
+/// Playwright unavailable fails closed (does not invent a tree).
 /// </summary>
 public sealed class GccV2SiteHierarchyService
 {
@@ -42,14 +43,14 @@ public sealed class GccV2SiteHierarchyService
         var fetched = await _fetcher.FetchAsync(homepage, ct);
         if (fetched is null || string.IsNullOrWhiteSpace(fetched.Html))
         {
-            _logger.LogWarning("Hierarchy soft-fail — no HTML for homepage {Homepage}", homepage);
+            _logger.LogWarning("Hierarchy soft-skip — no HTML for homepage {Homepage} (not inventing a tree)", homepage);
             return null;
         }
 
         if (fetched.StatusCode is < 200 or >= 300)
         {
             _logger.LogWarning(
-                "Hierarchy soft-fail — HTTP {Status} for homepage {Homepage}",
+                "Hierarchy soft-skip — HTTP {Status} for homepage {Homepage} (not inventing a tree)",
                 fetched.StatusCode,
                 homepage);
             return null;

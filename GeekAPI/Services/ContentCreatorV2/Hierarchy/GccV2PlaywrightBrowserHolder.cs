@@ -19,7 +19,7 @@ public sealed class GccV2PlaywrightBrowserHolder : IAsyncDisposable
         catch (Exception ex)
         {
             Console.Error.WriteLine(
-                $"ERROR: Content Creator Playwright/Chromium launch failed. Hierarchy crawl soft-fails until retry. {ex}");
+                $"ERROR: Content Creator Playwright/Chromium launch failed. Hierarchy crawl fails closed until retry. {ex}");
             Browser = null;
         }
     }

@@ -227,6 +227,110 @@ public static class GccV2PartnerUrlResearchService
         }
     }
 
+    /// <summary>
+    /// Persists structured partner extraction payloads on the brief as <c>partnerExtraction</c>
+    /// (partner-extraction plan). Keeps <c>partnerResearch</c> excerpts unchanged.
+    /// </summary>
+    public static string? MergePartnerExtractionIntoBriefJson(
+        string? rawBriefJson,
+        GccPartnerExtractionDocument extraction)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "partnerExtraction", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    prop.WriteTo(writer);
+                }
+
+                writer.WritePropertyName("partnerExtraction");
+                JsonSerializer.Serialize(writer, extraction, JsonOpts);
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return rawBriefJson;
+        }
+    }
+
+    public static GccPartnerExtractionDocument? ParsePartnerExtraction(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "partnerExtraction", out var el)
+                || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                return null;
+            return el.Deserialize<GccPartnerExtractionDocument>(JsonOpts);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public static string? MergeCompetitorExtractionIntoBriefJson(
+        string? rawBriefJson,
+        GccCompetitorExtractionDocument extraction)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(rawBriefJson) ? "{}" : rawBriefJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return rawBriefJson;
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "competitorExtraction", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    prop.WriteTo(writer);
+                }
+
+                writer.WritePropertyName("competitorExtraction");
+                JsonSerializer.Serialize(writer, extraction, JsonOpts);
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return rawBriefJson;
+        }
+    }
+
+    public static GccCompetitorExtractionDocument? ParseCompetitorExtraction(string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "competitorExtraction", out var el)
+                || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                return null;
+            return el.Deserialize<GccCompetitorExtractionDocument>(JsonOpts);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static string? MergeCompetitorResearchIntoBriefJson(
         string? rawBriefJson,
         IReadOnlyList<GccQuoteablePage> pages)

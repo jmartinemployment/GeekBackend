@@ -5,7 +5,7 @@ namespace GeekBackend.Tests;
 public sealed class GccV2PlanPartnerNamesTests
 {
     [Fact]
-    public void ExtractPartnerToolNames_uses_recommended_only_and_rejects_urls()
+    public void ExtractPartnerToolNames_includes_recommended_and_operator_tools_rejects_urls()
     {
         const string briefJson = """
             {
@@ -23,7 +23,9 @@ public sealed class GccV2PlanPartnerNamesTests
 
         var names = GccV2PlanService.ExtractPartnerToolNames(briefJson);
 
-        Assert.Single(names);
-        Assert.Equal("Mailchimp", names[0]);
+        Assert.Equal(2, names.Count);
+        Assert.Contains("Mailchimp", names);
+        Assert.Contains("BotPenguin", names);
+        Assert.DoesNotContain(names, n => n.StartsWith("http", StringComparison.OrdinalIgnoreCase));
     }
 }

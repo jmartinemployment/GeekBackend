@@ -762,6 +762,11 @@ public class HttpGccV2Repository
     public Task<GccV2ContextIngestionJobDto?> GetContextIngestionJobAsync(
         Guid id, CancellationToken ct = default) =>
         GetAsync<GccV2ContextIngestionJobDto>($"repo/content-creator-v2/context/ingestion-jobs/{id}", ct);
+    public Task<GccV2ContextIngestionJobDto?> GetContextIngestionJobByTargetAsync(
+        string targetKind, Guid targetId, CancellationToken ct = default) =>
+        GetAsync<GccV2ContextIngestionJobDto>(
+            $"repo/content-creator-v2/context/ingestion-jobs/by-target/{Uri.EscapeDataString(targetKind)}/{targetId}",
+            ct);
     public Task<IReadOnlyList<GccV2ContextIngestionJobDto>> ListContextIngestionJobsAsync(
         string status, DateTimeOffset? leaseBefore = null, int limit = 200, CancellationToken ct = default)
     {

@@ -69,9 +69,9 @@ public sealed class GccV2ToolOverviewWriteService
         var partnerRows = await LoadPartnerResearchAsync(wc.Job.CreateId, ct);
         if (partnerRows.Count == 0)
         {
-            _logger.LogWarning(
-                "No partner tool jobs found for overview job {JobId} — writing keyword-only fallback.",
-                wc.Job.Id);
+            throw new InvalidOperationException(
+                $"Tool overview job {wc.Job.Id} has no partner tool jobs with library research. "
+                + "Keyword-only overview drafts are forbidden — bind partner tools and indexed partner runs.");
         }
 
         var outlineSections = wc.Outline.Sections;

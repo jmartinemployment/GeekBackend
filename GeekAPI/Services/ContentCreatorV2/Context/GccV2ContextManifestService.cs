@@ -258,14 +258,9 @@ public sealed class GccV2ContextResolver(
                 blocks.Add($"run_attachment:{id}:not_owned");
                 continue;
             }
-            if (attachment.FinalizedAtUtc is null || attachment.IngestionState != "ready")
+            if (ClassifyRunAttachmentBlock(attachment) is { } attachmentBlock)
             {
-                blocks.Add($"run_attachment:{id}:not_ready");
-                continue;
-            }
-            if (attachment.RetainUntilUtc <= DateTimeOffset.UtcNow)
-            {
-                blocks.Add($"run_attachment:{id}:expired");
+                blocks.Add(attachmentBlock);
                 continue;
             }
             entries.Add(new("run_attachment", attachment.Id, null, null, attachment.Sha256,
@@ -495,6 +490,24 @@ public sealed class GccV2ContextResolver(
             {
                 FreshnessDecision = freshness,
             });
+    }
+
+    /// <summary>
+    /// Distinct fail-closed codes for run attachments (legacy clients may still see not_ready).
+    /// </summary>
+    public static string? ClassifyRunAttachmentBlock(
+        GccV2RunAttachmentDto attachment, DateTimeOffset? now = null)
+    {
+        var clock = now ?? DateTimeOffset.UtcNow;
+        if (attachment.FinalizedAtUtc is null)
+            return $"run_attachment:{attachment.Id}:not_finalized";
+        if (string.Equals(attachment.IngestionState, "failed", StringComparison.OrdinalIgnoreCase))
+            return $"run_attachment:{attachment.Id}:failed";
+        if (!string.Equals(attachment.IngestionState, "ready", StringComparison.OrdinalIgnoreCase))
+            return $"run_attachment:{attachment.Id}:processing";
+        if (attachment.RetainUntilUtc <= clock)
+            return $"run_attachment:{attachment.Id}:expired";
+        return null;
     }
 
     private static IReadOnlySet<Guid> ParseSchemaFieldIds(string? json)

@@ -45,8 +45,12 @@ public sealed class GccV2ToolResearchExtractor
         }
 
         var sourceQuote = page is null ? "" : PickVerbatimQuote(page);
-        if (string.IsNullOrWhiteSpace(sourceQuote) && page is not null)
-            sourceQuote = PickBestVerbatimQuote(page);
+        if (string.IsNullOrWhiteSpace(sourceQuote))
+        {
+            throw new ContentGenerationException(
+                $"Partner tool research for {toolName} requires a strict verbatim quote from library text ({sourceUrl}). "
+                + "Softened best-paragraph quotes are forbidden for citeable extraction.");
+        }
 
         try
         {
@@ -114,15 +118,20 @@ public sealed class GccV2ToolResearchExtractor
         return "";
     }
 
-    /// <summary>Best-effort verbatim passage when strict <see cref="PickVerbatimQuote"/> finds nothing — still page text, not paraphrase.</summary>
+    /// <summary>
+    /// Best-effort verbatim passage for <b>non-citeable display only</b>.
+    /// Citeable WRITE/VALIDATE must use <see cref="PickVerbatimQuote"/> / <see cref="ResolveAttributionQuote"/>.
+    /// </summary>
     public static string PickBestVerbatimQuote(GccQuoteablePage page) => PickBestVerbatimQuote([page]);
 
+    /// <inheritdoc cref="PickBestVerbatimQuote(GccQuoteablePage)"/>
     public static string PickBestVerbatimQuote(string? sourceUrl, IReadOnlyList<GccQuoteablePage> partnerResearch)
     {
         var page = ResolvePage(sourceUrl, partnerResearch);
         return page is null ? "" : PickBestVerbatimQuote(page);
     }
 
+    /// <inheritdoc cref="PickBestVerbatimQuote(GccQuoteablePage)"/>
     public static string PickBestVerbatimQuote(IReadOnlyList<GccQuoteablePage> pages)
     {
         string? best = null;
@@ -144,7 +153,9 @@ public sealed class GccV2ToolResearchExtractor
         return best ?? "";
     }
 
-    /// <summary>Resolves attribution quote for partner pages — strict verbatim first, then best-effort verbatim from crawled text.</summary>
+    /// <summary>
+    /// Strict attribution quote for citeable partner pages — verified verbatim only (no soft best-paragraph).
+    /// </summary>
     public static string ResolveAttributionQuote(
         string? sourceUrl,
         IReadOnlyList<GccQuoteablePage> partnerResearch,
@@ -154,13 +165,10 @@ public sealed class GccV2ToolResearchExtractor
         var quote = PickVerbatimQuote(sourceUrl, partnerResearch);
         if (!string.IsNullOrWhiteSpace(quote)) return quote;
 
-        quote = PickBestVerbatimQuote(sourceUrl, partnerResearch);
-        if (!string.IsNullOrWhiteSpace(quote)) return quote;
-
         if (!string.IsNullOrWhiteSpace(storedQuote) && !string.IsNullOrWhiteSpace(pageText))
         {
             var candidate = StripWrappingQuotes(storedQuote);
-            if (IsMinimalVerbatimQuote(candidate) && IsVerbatimFromPage(candidate, pageText))
+            if (IsUsableQuote(candidate) && IsVerbatimFromPage(candidate, pageText))
                 return candidate;
         }
 

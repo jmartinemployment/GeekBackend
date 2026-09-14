@@ -375,6 +375,29 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
+    public void DescribeUnavailableResearch_uses_library_only_copy_for_local()
+    {
+        var message = GccV2GeekCrawlerResearchResolver.DescribeUnavailableResearch(
+            "https://directory.example/biz",
+            "local");
+
+        Assert.Contains("Local research", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no seed-HTML fallback", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Continuing without it", message);
+        Assert.DoesNotContain("Generate continues", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DescribeIndexNotReady_never_promises_seed_pages_continue()
+    {
+        var local = GccV2GeekCrawlerResearchResolver.DescribeIndexNotReady(
+            "https://directory.example/biz", "local", "building");
+        Assert.Contains("no seed-HTML fallback", local, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Generate continues", local, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("using seed pages", local, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildRagNeed_includes_title_keyword_and_seed()
     {
         var topic = new GccV2GeekCrawlerResearchResolver.RagTopicContext(
@@ -659,7 +682,8 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
 
         public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
             string pageId,
-            CancellationToken ct = default) =>
+            CancellationToken ct = default,
+            string? runId = null) =>
             Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
 
         public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
@@ -718,7 +742,8 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
 
         public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
             string pageId,
-            CancellationToken ct = default) =>
+            CancellationToken ct = default,
+            string? runId = null) =>
             Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
 
         public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
