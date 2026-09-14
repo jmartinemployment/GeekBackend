@@ -9,7 +9,7 @@ namespace GeekBackend.Tests.ContentCreatorV2;
 public sealed class GccV2GeekCrawlerResearchResolverTests
 {
     [Fact]
-    public async Task ResolveQuoteablePages_completeRun_returnsExtractedPages()
+    public async Task ResolveQuoteablePages_completeRun_without_library_returns_empty()
     {
         var runId = Guid.NewGuid();
         var repo = new FakeReadRepo
@@ -49,14 +49,12 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             ["https://partner.example/tools"],
             CancellationToken.None);
 
-        Assert.Single(pages);
-        Assert.Contains("Partner Tool", pages[0].Title);
-        Assert.Equal(0, repo.ListPagesAsyncCallCount);
-        Assert.Equal(1, repo.ListPagesBySeedsAsyncCallCount);
+        Assert.Empty(pages);
+        Assert.Equal(0, repo.ListPagesBySeedsAsyncCallCount);
     }
 
     [Fact]
-    public async Task ResolveQuoteablePages_failedRun_withMatchingPage_returnsExtractedPages()
+    public async Task ResolveQuoteablePages_failedRun_without_library_returns_empty()
     {
         var runId = Guid.NewGuid();
         var repo = new FakeReadRepo
@@ -96,8 +94,8 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             ["https://www.pipedrive.com"],
             CancellationToken.None);
 
-        Assert.Single(pages);
-        Assert.Contains("Pipedrive", pages[0].Title);
+        Assert.Empty(pages);
+        Assert.Equal(0, repo.ListPagesBySeedsAsyncCallCount);
     }
 
     [Fact]
@@ -171,7 +169,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
         Assert.Equal(brief, merged.BriefJson);
         Assert.Single(merged.PartnerResearchWarnings);
         Assert.Contains("jotform.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Continuing without it", merged.PartnerResearchWarnings[0]);
+        Assert.Contains("no seed-HTML fallback", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -364,14 +362,15 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
-    public void DescribeUnavailableResearch_uses_creator_scope_copy()
+    public void DescribeUnavailableResearch_uses_library_only_copy_for_partners()
     {
         var message = GccV2GeekCrawlerResearchResolver.DescribeUnavailableResearch(
             "https://www.pipedrive.com/",
             "partner");
 
         Assert.Contains("pipedrive.com", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Continuing without it", message);
+        Assert.Contains("no seed-HTML fallback", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Continuing without it", message);
         Assert.DoesNotContain("page limit", message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -506,7 +505,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
-    public async Task MergePartnerResearch_index_building_warns_and_uses_seed_html()
+    public async Task MergePartnerResearch_index_building_fails_closed_without_seed_html()
     {
         var runId = Guid.NewGuid();
         var repo = new FakeReadRepo
@@ -566,14 +565,15 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             null,
             CancellationToken.None);
 
-        Assert.NotNull(merged.BriefJson);
-        Assert.Contains("partnerResearch", merged.BriefJson!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("\"retrievalMode\":\"seed_html\"", merged.BriefJson!, StringComparison.Ordinal);
+        Assert.Equal(brief, merged.BriefJson);
+        Assert.DoesNotContain("partnerResearch", merged.BriefJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("seed_html", merged.BriefJson!, StringComparison.Ordinal);
         Assert.Single(merged.PartnerResearchWarnings);
         Assert.Contains("still running", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no seed-HTML fallback", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("jotform.com", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
         Assert.Null(rag.LastNeed);
-        Assert.Equal(1, repo.ListPagesBySeedsAsyncCallCount);
+        Assert.Equal(0, repo.ListPagesBySeedsAsyncCallCount);
     }
 
     private static GccV2GeekCrawlerResearchResolver CreateResolver(
@@ -587,6 +587,23 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
     [Fact]
+    public void MergeSourceRunIds_persists_all_selected_runs()
+    {
+        var runA = Guid.NewGuid();
+        var runB = Guid.NewGuid();
+        var merged = GccV2GeekCrawlerResearchResolver.MergeSourceRunIds(
+            """{"title":"Draft"}""",
+            singularPropertyName: "partnerSourceRunId",
+            pluralPropertyName: "partnerSourceRunIds",
+            [runA, runB]);
+
+        Assert.Contains(runA.ToString("D"), merged, StringComparison.Ordinal);
+        Assert.Contains(runB.ToString("D"), merged, StringComparison.Ordinal);
+        Assert.Contains("partnerSourceRunIds", merged, StringComparison.Ordinal);
+        Assert.Contains("\"title\":\"Draft\"", merged, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MergeSourceRunId_persists_the_exact_selected_run()
     {
         var runId = Guid.NewGuid();
@@ -596,6 +613,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             runId);
 
         Assert.Contains(runId.ToString("D"), merged, StringComparison.Ordinal);
+        Assert.Contains("partnerSourceRunIds", merged, StringComparison.Ordinal);
         Assert.Contains("\"title\":\"Draft\"", merged, StringComparison.Ordinal);
     }
 

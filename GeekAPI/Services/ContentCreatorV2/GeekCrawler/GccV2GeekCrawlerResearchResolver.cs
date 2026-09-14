@@ -96,8 +96,8 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
 
 /// <summary>
 /// Partner/competitor research at generate: on-site tool pages from the owned project-site
-/// crawl; external URLs from Geek-Crawler-Rag (preferred) or seed HTML when available.
-/// Missing external research is warned and skipped — generate continues.
+/// crawl; external partner/competitor URLs from Geek-Crawler-Rag library only (fail closed —
+/// no Mongo seed-HTML substitute). External local seeds may still use crawl HTML extract.
 /// </summary>
 public sealed class GccV2GeekCrawlerResearchResolver
 {
@@ -314,7 +314,8 @@ public sealed class GccV2GeekCrawlerResearchResolver
         }
 
         var externalSeeds = CollectExternalPartnerSeeds(rawBriefJson, projectSiteUrl);
-        Guid? selectedRunId = null;
+        var selectedRunIds = new List<Guid>();
+        var seenRunIds = new HashSet<Guid>();
         foreach (var seed in externalSeeds)
         {
             var (pages, warning, sourceRunId) = await TryResolveExternalSeedAsync(
@@ -326,7 +327,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
             if (pages.Count > 0)
             {
                 quoteable.AddRange(pages);
-                selectedRunId ??= sourceRunId;
+                if (sourceRunId is { } resolvedRunId
+                    && resolvedRunId != Guid.Empty
+                    && seenRunIds.Add(resolvedRunId))
+                    selectedRunIds.Add(resolvedRunId);
             }
             if (warning is not null)
                 warnings.Add(warning);
@@ -341,10 +345,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
             projectSiteUrl);
 
         return new GccV2ExternalResearchMergeResult(
-            MergeSourceRunId(
+            MergeSourceRunIds(
                 GccV2PartnerUrlResearchService.MergePartnerResearchIntoBriefJson(rawBriefJson, quoteable),
-                "partnerSourceRunId",
-                selectedRunId),
+                singularPropertyName: "partnerSourceRunId",
+                pluralPropertyName: "partnerSourceRunIds",
+                selectedRunIds),
             warnings);
     }
 
@@ -361,7 +366,8 @@ public sealed class GccV2GeekCrawlerResearchResolver
 
         var quoteable = new List<GccQuoteablePage>();
         var warnings = new List<string>();
-        Guid? selectedRunId = null;
+        var selectedRunIds = new List<Guid>();
+        var seenRunIds = new HashSet<Guid>();
         foreach (var seed in seeds)
         {
             var (pages, warning, sourceRunId) = await TryResolveExternalSeedAsync(
@@ -373,7 +379,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
             if (pages.Count > 0)
             {
                 quoteable.AddRange(pages);
-                selectedRunId ??= sourceRunId;
+                if (sourceRunId is { } resolvedRunId
+                    && resolvedRunId != Guid.Empty
+                    && seenRunIds.Add(resolvedRunId))
+                    selectedRunIds.Add(resolvedRunId);
             }
             if (warning is not null)
                 warnings.Add(warning);
@@ -388,10 +397,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
             seeds.Count);
 
         return new GccV2ExternalResearchMergeResult(
-            MergeSourceRunId(
+            MergeSourceRunIds(
                 GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(rawBriefJson, quoteable),
-                "competitorSourceRunId",
-                selectedRunId),
+                singularPropertyName: "competitorSourceRunId",
+                pluralPropertyName: "competitorSourceRunIds",
+                selectedRunIds),
             warnings);
     }
 
@@ -474,9 +484,84 @@ public sealed class GccV2GeekCrawlerResearchResolver
         GccV2SeedHtmlProvenance.EnsureRunAuthorized(ownerUserId, run.OwnerUserId, run.Id);
 
         var seedSet = BuildSeedMatchSet(normalized);
-        string? softWarning = null;
+        var libraryOnly = IsLibraryOnlyExternalCrawlType(crawlType);
 
-        // Prefer Geek-Crawler-Rag chunks when configured; fall back to Mongo HTML extract.
+        if (libraryOnly)
+        {
+            if (!_rag.IsEnabled)
+            {
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag disabled; cannot resolve {CrawlType} seed {Seed} (library-only, no seed HTML).",
+                    crawlType,
+                    seed);
+                return ([], DescribeLibraryUnavailable(seed, crawlType, "research library is disabled"), run.Id);
+            }
+
+            var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
+            var indexState = indexStatus?.State;
+            if (indexState is not null && IndexBuildingStates.Contains(indexState))
+            {
+                _logger.LogInformation(
+                    "Geek-Crawler-Rag index {State} for {CrawlType} run {RunId}; fail closed (no seed HTML).",
+                    indexState,
+                    crawlType,
+                    run.Id);
+                return ([], DescribeIndexNotReady(seed, crawlType, indexState), run.Id);
+            }
+
+            if (indexState is not null
+                && !IndexQueryableStates.Contains(indexState)
+                && !string.Equals(indexState, "failed", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(indexState, "skipped", StringComparison.OrdinalIgnoreCase))
+            {
+                return ([], DescribeLibraryUnavailable(seed, crawlType, $"index state '{indexState}' is not queryable"), run.Id);
+            }
+
+            // complete → query; failed/skipped/unknown → query once; empty = fail closed (no Mongo).
+            var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
+                ? seedUri.Host
+                : null;
+            var need = BuildRagNeed(topic, seed, crawlType);
+            var rag = await _rag.QueryAsync(
+                need: need,
+                runId: run.Id,
+                crawlType: crawlType,
+                host: host,
+                topK: 12,
+                preferParent: true,
+                preferChild: false,
+                ct: ct).ConfigureAwait(false);
+            if (rag is null || rag.Pages.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Geek-Crawler-Rag returned no pages for {CrawlType} run {RunId} seed {Seed}; fail closed.",
+                    crawlType,
+                    run.Id,
+                    seed);
+                return ([], DescribeLibraryUnavailable(seed, crawlType, "research index returned no pages for this seed"), run.Id);
+            }
+
+            var filtered = rag.Pages
+                .Where(p => PageMatchesSeed(p.Url, seedSet) || HostMatchesSeed(p.Url, seedSet))
+                .ToList();
+            if (filtered.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Geek-Crawler-Rag pages for {CrawlType} run {RunId} did not match seed {Seed}; fail closed (no unfiltered adopt).",
+                    crawlType,
+                    run.Id,
+                    seed);
+                return ([], DescribeLibraryUnavailable(seed, crawlType, "no indexed pages matched this seed URL or host"), run.Id);
+            }
+
+            var stamped = filtered
+                .Select(p => GccV2SeedHtmlProvenance.StampRagChunk(p, run.Id))
+                .ToList();
+            return (stamped, null, run.Id);
+        }
+
+        // External local (and any non–library-only type): prefer RAG, then Mongo HTML extract.
+        string? softWarning = null;
         if (_rag.IsEnabled)
         {
             var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
@@ -492,18 +577,12 @@ public sealed class GccV2GeekCrawlerResearchResolver
             }
             else if (indexState is null || IndexQueryableStates.Contains(indexState)
                      || string.Equals(indexState, "failed", StringComparison.OrdinalIgnoreCase)
-                     // Legacy Rag wrote "skipped"; treat like empty-complete (query then fallback).
                      || string.Equals(indexState, "skipped", StringComparison.OrdinalIgnoreCase))
             {
-                // complete → query; failed/skipped/unknown → try once then Mongo fallback
                 var host = Uri.TryCreate(normalized[0], UriKind.Absolute, out var seedUri)
                     ? seedUri.Host
                     : null;
                 var need = BuildRagNeed(topic, seed, crawlType);
-                // Corpus /v1/query returns topK distinct texts (2026-09-11). This
-                // path already used preferParent collapse; absolute token growth
-                // is still the largest among gcc-v2 consumers — re-check WRITE
-                // injection budgets. See plan/crawl-architecture.md.
                 var rag = await _rag.QueryAsync(
                     need: need,
                     runId: run.Id,
@@ -555,9 +634,21 @@ public sealed class GccV2GeekCrawlerResearchResolver
         return ([], softWarning ?? DescribeUnavailableResearch(seed, crawlType), run.Id);
     }
 
-    internal static string? MergeSourceRunId(string? rawBriefJson, string propertyName, Guid? runId)
+    private static bool IsLibraryOnlyExternalCrawlType(string crawlType) =>
+        string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase);
+
+    internal static string? MergeSourceRunIds(
+        string? rawBriefJson,
+        string singularPropertyName,
+        string pluralPropertyName,
+        IReadOnlyList<Guid> runIds)
     {
-        if (runId is null || runId == Guid.Empty) return rawBriefJson;
+        var distinct = runIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        if (distinct.Count == 0) return rawBriefJson;
         JsonObject root;
         try
         {
@@ -568,8 +659,24 @@ public sealed class GccV2GeekCrawlerResearchResolver
         {
             root = new JsonObject();
         }
-        root[propertyName] = runId.Value.ToString("D");
+
+        var array = new JsonArray();
+        foreach (var id in distinct)
+            array.Add(id.ToString("D"));
+        root[pluralPropertyName] = array;
+        // Legacy singular field = first run (older readers / diagnostics).
+        root[singularPropertyName] = distinct[0].ToString("D");
         return root.ToJsonString();
+    }
+
+    /// <summary>Legacy single-run writer — prefers <see cref="MergeSourceRunIds"/>.</summary>
+    internal static string? MergeSourceRunId(string? rawBriefJson, string propertyName, Guid? runId)
+    {
+        if (runId is null || runId == Guid.Empty) return rawBriefJson;
+        var plural = propertyName.EndsWith("Id", StringComparison.Ordinal)
+            ? propertyName[..^2] + "Ids"
+            : propertyName + "s";
+        return MergeSourceRunIds(rawBriefJson, propertyName, plural, [runId.Value]);
     }
 
     /// <summary>Topic fields used to build the Geek-Crawler-Rag query <c>need</c>.</summary>
@@ -662,13 +769,29 @@ public sealed class GccV2GeekCrawlerResearchResolver
     internal static string DescribeIndexNotReady(string seed, string crawlType, string state)
     {
         var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
-        var label = crawlType switch
+        if (IsLibraryOnlyExternalCrawlType(crawlType))
         {
-            CrawlTypes.Competitors => "Competitor",
+            var label = string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase)
+                ? "Competitor"
+                : "Partner";
+            return $"{label} research index for {host} is still {state}; indexed library pages are required (no seed-HTML fallback).";
+        }
+
+        var softLabel = crawlType switch
+        {
             CrawlTypes.Local => "Local",
             _ => "Partner",
         };
-        return $"{label} research index for {host} is still {state}; using seed pages if available. Generate continues.";
+        return $"{softLabel} research index for {host} is still {state}; using seed pages if available. Generate continues.";
+    }
+
+    internal static string DescribeLibraryUnavailable(string seed, string crawlType, string reason)
+    {
+        var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
+        var label = string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase)
+            ? "Competitor"
+            : "Partner";
+        return $"{label} research for {host} unavailable ({reason}). Indexed library retrieval is required — no seed-HTML fallback.";
     }
 
     private static string? ReadString(JsonElement root, string name) =>
@@ -767,9 +890,16 @@ public sealed class GccV2GeekCrawlerResearchResolver
     internal static string DescribeUnavailableResearch(string seed, string crawlType)
     {
         var host = Uri.TryCreate(seed, UriKind.Absolute, out var uri) ? uri.Host : seed;
+        if (IsLibraryOnlyExternalCrawlType(crawlType))
+        {
+            var label = string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase)
+                ? "Competitor"
+                : "Partner";
+            return $"{label} research for {host} unavailable (no usable crawl run or indexed library pages). Indexed library retrieval is required — no seed-HTML fallback.";
+        }
+
         var prefix = crawlType switch
         {
-            CrawlTypes.Competitors => $"Competitor research for {host} unavailable",
             CrawlTypes.Local => $"Local research for {host} unavailable",
             _ => $"Partner research for {host} unavailable",
         };

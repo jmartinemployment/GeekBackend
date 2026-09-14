@@ -134,17 +134,19 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             "https://geekatyourspot.com",
             null,
             CancellationToken.None);
-        Assert.NotNull(partnerMerged.BriefJson);
-        Assert.Contains("partnerResearch", partnerMerged.BriefJson!, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(partnerMerged.PartnerResearchWarnings);
+        Assert.Equal(brief, partnerMerged.BriefJson);
+        Assert.DoesNotContain("partnerResearch", partnerMerged.BriefJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(partnerMerged.PartnerResearchWarnings);
+        Assert.Contains("research library is disabled", partnerMerged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
 
         var competitorMerged = await resolver.MergeCompetitorResearchAsync(
             owner,
-            partnerMerged.BriefJson,
+            brief,
             CancellationToken.None);
-        Assert.NotNull(competitorMerged.BriefJson);
-        Assert.Contains("competitorResearch", competitorMerged.BriefJson!, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(competitorMerged.PartnerResearchWarnings);
+        Assert.Equal(brief, competitorMerged.BriefJson);
+        Assert.DoesNotContain("competitorResearch", competitorMerged.BriefJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(competitorMerged.PartnerResearchWarnings);
+        Assert.Contains("research library is disabled", competitorMerged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
 
         var missing = await resolver.MergeCompetitorResearchAsync(
             owner,

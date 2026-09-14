@@ -342,7 +342,7 @@ public class GccV2Controller : ControllerBase
             : "No partner tools found from the site hierarchy or pasted URLs. Confirm to continue without them, or add tool URLs and re-check.";
 
         const string externalResearchNote =
-            "On-site tools come from your project crawl. External partners and competitors are retrieved from the research index when ready (seed pages as fallback). If an external crawl or index is still building, that source may be skipped or use seed pages only — generate still runs.";
+            "On-site tools come from your project crawl. External partners and competitors must resolve from the research index (library query only) — no seed-HTML fallback. If an external crawl or index is missing, building, or returns no matching pages, that source fails closed.";
 
         return Ok(new
         {
