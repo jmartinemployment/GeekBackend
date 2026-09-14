@@ -547,6 +547,13 @@ public sealed class GccV2UnifiedRagTests
     }
 
     [Fact]
+    public void Citeable_create_v1_disabled_message_states_fail_closed()
+    {
+        Assert.Contains("Fail closed", GccV2CiteableCreateFlags.DisabledFailClosedMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("degraded", GccV2CiteableCreateFlags.DisabledFailClosedMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Partner_tool_names_include_operator_tools_and_never_competitor_urls()
     {
         var names = GeekAPI.Services.ContentCreatorV2.Plan.GccV2PlanService.ExtractPartnerToolNames("""

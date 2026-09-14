@@ -251,9 +251,13 @@ public sealed class GccV2ValidateService
         IReadOnlyList<string> citationGaps = [];
         IReadOnlyList<RagCitationDto> validationCitations = ragResponse.Citations ?? [];
         var outputAfter = output;
-        if (RequiresCitationEvidenceGate(contentType)
-            && GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled())
+        if (RequiresCitationEvidenceGate(contentType))
         {
+            if (!GccV2CiteableCreateFlags.IsCiteableCreateV1Enabled())
+            {
+                throw new InvalidOperationException(GccV2CiteableCreateFlags.DisabledFailClosedMessage);
+            }
+
             var rawBrief = string.IsNullOrWhiteSpace(wc.Brief.RawBriefJson)
                 ? (wc.GenerationBrief.RawBrief.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
                     ? null
