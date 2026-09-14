@@ -520,12 +520,16 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
         {
             return Json(new
             {
-                executionVersions = new[] { "rag-generate.v2" },
-                skillEnvelopeVersions = new[] { "gcc-skill-envelope.v1" },
-                generationStages = new[] { "outline", "section", "repair", "validation", "finalSynthesis", "complete" },
-                specialistExecutors = new[] { "researchPlanning", "outline", "section", "finalSynthesis", "validation", "repair" },
-                specialistExecutorVersion = "bounded-specialists.v1",
+                product = "geek-rag-library",
+                features = new[] { "index", "query", "pages", "templates" },
+                executionVersions = Array.Empty<string>(),
+                skillEnvelopeVersions = Array.Empty<string>(),
+                generationStages = Array.Empty<string>(),
+                agentGenerationStages = Array.Empty<string>(),
+                specialistExecutors = Array.Empty<string>(),
+                specialistExecutorVersion = "",
                 toolsAllowed = false,
+                stageScopedToolsAllowed = false,
             });
         }
         if (request.Method == HttpMethod.Post && path == "/v1/index")
