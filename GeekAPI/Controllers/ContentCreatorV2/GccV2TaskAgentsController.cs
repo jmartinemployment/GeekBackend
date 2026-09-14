@@ -509,7 +509,10 @@ public sealed class GccV2TaskAgentsController(
                     .ToList(),
             },
             compatibleNextActions = JsonSerializer.Deserialize<JsonElement>(version.CompatibleArtifactTypesJson),
-            nextActions = GccV2TaskAgentNextActions.FromCompatibilityJson(version.CompatibleArtifactTypesJson),
+            nextActions = GccV2TaskAgentNextActions.ForCompletedRun(
+                definition.CapabilityId,
+                run.Artifacts?.FirstOrDefault()?.ArtifactType,
+                version.CompatibleArtifactTypesJson),
         });
     }
 

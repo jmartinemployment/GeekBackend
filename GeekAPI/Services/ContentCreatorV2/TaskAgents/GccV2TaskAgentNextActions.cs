@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace GeekAPI.Services.ContentCreatorV2.TaskAgents;
 
-/// <summary>Maps compatibility artifact types onto runnable task-agent capabilities.</summary>
+/// <summary>Maps compatibility artifact types onto runnable task-agent capabilities and Create handoffs.</summary>
 public static class GccV2TaskAgentNextActions
 {
     private static readonly IReadOnlyDictionary<string, (string CapabilityId, string Label)> ByArtifact =
@@ -26,6 +26,52 @@ public static class GccV2TaskAgentNextActions
             ["competitiveResponse.v1"] = ("competitive-response", "Competitive Response"),
             ["roiProjection.v1"] = ("roi-business-calculator", "AI-Based ROI Business Calculator"),
         };
+
+    /// <summary>
+    /// M3: Create deep-links for content-shaped capabilities (prefer Create over expanding the task-agent writer loop).
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, (string ContentType, string Label)> CreateByCapability =
+        new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ai-readiness"] = ("blog", "Write blog in Create"),
+            ["faq-generator"] = ("blog", "Write FAQ blog in Create"),
+            ["citable-claims"] = ("blog", "Write citeable blog in Create"),
+            ["query-planner"] = ("blog", "Write blog in Create"),
+            ["content-gap"] = ("blog", "Write blog in Create"),
+            ["comparison-brief"] = ("comparison", "Write comparison in Create"),
+            ["pillar-outline"] = ("pillar", "Write pillar in Create"),
+            ["pillar-article"] = ("pillar", "Continue pillar in Create"),
+            ["competitive-response"] = ("alternatives", "Write alternatives in Create"),
+        };
+
+    public static IReadOnlyList<object> ForCompletedRun(
+        string capabilityId,
+        string? primaryArtifactType,
+        string compatibilityJson)
+    {
+        var actions = new List<object>();
+        var seenCreate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void TryAddCreate(string? capability)
+        {
+            if (string.IsNullOrWhiteSpace(capability)) return;
+            if (!CreateByCapability.TryGetValue(capability, out var create)) return;
+            if (!seenCreate.Add(create.ContentType)) return;
+            actions.Add(new
+            {
+                label = create.Label,
+                create = new { contentType = create.ContentType },
+            });
+        }
+
+        TryAddCreate(capabilityId);
+        if (!string.IsNullOrWhiteSpace(primaryArtifactType)
+            && ByArtifact.TryGetValue(primaryArtifactType, out var fromArtifact))
+            TryAddCreate(fromArtifact.CapabilityId);
+
+        actions.AddRange(FromCompatibilityJson(compatibilityJson));
+        return actions;
+    }
 
     public static IReadOnlyList<object> FromCompatibilityJson(string compatibilityJson)
     {
