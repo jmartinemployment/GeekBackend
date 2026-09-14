@@ -97,8 +97,25 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public async Task<GccV2SignedAgentTeam> ResolveAsync(
-        IReadOnlyList<Guid>? selectedVersionIds, string contentType, CancellationToken ct)
+    public Task<GccV2SignedAgentTeam> ResolveAsync(
+        IReadOnlyList<Guid>? selectedVersionIds, string contentType, CancellationToken ct) =>
+        ResolveCoreAsync(selectedVersionIds, contentType, requireAllSelected: true, ct);
+
+    /// <summary>
+    /// Resolve the subset of pinned specialist versions that apply to <paramref name="contentType"/>.
+    /// Non-applicable selections are dropped (unlike <see cref="ResolveAsync"/>, which requires every id).
+    /// </summary>
+    public Task<GccV2SignedAgentTeam> ResolveApplicableAsync(
+        IReadOnlyList<Guid> selectedVersionIds, string contentType, CancellationToken ct)
+    {
+        if (selectedVersionIds is not { Count: > 0 })
+            throw new InvalidOperationException("Selected specialist versions are required.");
+        return ResolveCoreAsync(selectedVersionIds, contentType, requireAllSelected: false, ct);
+    }
+
+    private async Task<GccV2SignedAgentTeam> ResolveCoreAsync(
+        IReadOnlyList<Guid>? selectedVersionIds, string contentType, bool requireAllSelected,
+        CancellationToken ct)
     {
         contentType = NormalizeContentType(contentType);
         if (!signer.IsConfigured)
@@ -111,7 +128,8 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
             : allPublished.GroupBy(x => x.Agent.Id).Select(group => group
                 .OrderByDescending(x => Semver(x.Version.SemanticVersion))
                 .ThenByDescending(x => x.Version.CreatedAtUtc).ThenBy(x => x.Version.Id).First()).ToList();
-        if (selectedVersionIds is { Count: > 0 }
+        if (requireAllSelected
+            && selectedVersionIds is { Count: > 0 }
             && selected.Select(x => x.Version.Id).Distinct().Count() != selectedVersionIds.Distinct().Count())
             throw new InvalidOperationException("Every selected specialist version must be published and applicable.");
         var members = selected.Select(ToMember).OrderBy(x => x.Participation.Min(p => p.Order))
@@ -122,6 +140,21 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
         var json = JsonSerializer.Serialize(snapshot, CanonicalJson);
         var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
         return new(snapshot, json, digest, signer.Sign(digest), signer.KeyId);
+    }
+
+    /// <summary>
+    /// Keep only team members (and skill pins) that apply to <paramref name="contentType"/>.
+    /// Same applicability rule as remix <see cref="ResolveChildAsync"/>.
+    /// </summary>
+    public static IReadOnlyList<GccV2AgentTeamMember> ApplicableSubset(
+        IReadOnlyList<GccV2AgentTeamMember> agents, string contentType)
+    {
+        contentType = NormalizeContentType(contentType);
+        return agents.Where(agent =>
+            agent.ContentTypes.Contains(contentType, StringComparer.Ordinal)
+            && agent.Participation.All(participation => agent.Skills.All(skill =>
+                skill.ContentTypes.Contains(contentType, StringComparer.Ordinal)
+                && skill.Stages.Contains(participation.Stage, StringComparer.Ordinal)))).ToList();
     }
 
     public async Task<GccV2SignedAgentTeam> ResolveStableAsync(
@@ -165,11 +198,7 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
     {
         childContentType = NormalizeContentType(childContentType);
         var parentSnapshot = ValidatePersisted(parent);
-        var inherited = parentSnapshot.Agents.Where(agent =>
-            agent.ContentTypes.Contains(childContentType, StringComparer.Ordinal)
-            && agent.Participation.All(participation => agent.Skills.All(skill =>
-                skill.ContentTypes.Contains(childContentType, StringComparer.Ordinal)
-                && skill.Stages.Contains(participation.Stage, StringComparer.Ordinal)))).ToList();
+        var inherited = ApplicableSubset(parentSnapshot.Agents, childContentType).ToList();
         Validate(inherited, childContentType);
         var snapshot = new GccV2AgentTeamSnapshot(
             SnapshotVersion, parentSnapshot.CatalogVersion, DateTimeOffset.UtcNow, inherited);

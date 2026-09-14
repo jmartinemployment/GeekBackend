@@ -200,6 +200,52 @@ public sealed class GccV2SpecialistAgentTests
     }
 
     [Fact]
+    public void ApplicableSubset_KeepsSeoAeoOnPillar_AndDropsThemOnEmail()
+    {
+        var snapshot = JsonSerializer.Deserialize<GccV2AgentTeamSnapshot>(
+            File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "ContentCreatorV2",
+                "Fixtures", "specialist-agent-team.json")),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var writing = Retarget(snapshot.Agents[0], ["pillar", "email"]);
+        var seo = Retarget(snapshot.Agents[1], ["pillar"]);
+        var aeo = Retarget(snapshot.Agents[1] with
+        {
+            AgentId = Guid.Parse("77777777-7777-7777-7777-777777777777"),
+            AgentVersionId = Guid.Parse("88888888-8888-8888-8888-888888888888"),
+            Slug = "aeo",
+            Name = "AEO",
+            Objective = "Review answer-engine readiness.",
+            Instructions = "Review answer-engine readiness.",
+            InstructionsDigest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes("Review answer-engine readiness."))).ToLowerInvariant(),
+            Skills = snapshot.Agents[1].Skills.Select(skill => skill with
+            {
+                SkillVersionId = Guid.Parse("99999999-9999-9999-9999-999999999999"),
+                Slug = "aeo-fundamentals",
+            }).ToList(),
+        }, ["pillar"]);
+
+        var pinned = new[] { writing, seo, aeo };
+        var pillarTeam = GccV2AgentTeamResolver.ApplicableSubset(pinned, "pillar");
+        Assert.Equal(3, pillarTeam.Count);
+        Assert.Contains(pillarTeam, x => x.Slug == "seo");
+        Assert.Contains(pillarTeam, x => x.Slug == "aeo");
+        GccV2AgentTeamResolver.Validate(pillarTeam, "pillar");
+
+        var emailTeam = GccV2AgentTeamResolver.ApplicableSubset(pinned, "email");
+        Assert.Single(emailTeam);
+        Assert.Equal("writing", emailTeam[0].Slug);
+        GccV2AgentTeamResolver.Validate(emailTeam, "email");
+    }
+
+    private static GccV2AgentTeamMember Retarget(GccV2AgentTeamMember agent, string[] contentTypes) =>
+        agent with
+        {
+            ContentTypes = contentTypes,
+            Skills = agent.Skills.Select(skill => skill with { ContentTypes = contentTypes }).ToList(),
+        };
+
+    [Fact]
     public void AgentTeamSigner_DetectsSnapshotTampering()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

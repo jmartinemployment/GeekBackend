@@ -450,7 +450,9 @@ public class GccV2Controller : ControllerBase
         {
             try
             {
-                resolvedTeams[contentType] = await _agentTeams.ResolveAsync(selectedAgentVersionIds, contentType, ct);
+                // Pin was validated against primary on Create; each job gets the applicable subset.
+                resolvedTeams[contentType] = await _agentTeams.ResolveApplicableAsync(
+                    selectedAgentVersionIds, contentType, ct);
             }
             catch (InvalidOperationException ex)
             {

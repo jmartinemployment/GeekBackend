@@ -52,9 +52,26 @@ public sealed class GccV2AgentsController(
         try
         {
             var contentType = request.ContentTypes.FirstOrDefault() ?? "blog";
+            // Full pin must apply to primary; Also drafts get the applicable subset only.
             var resolved = await teams.ResolveStableAsync(request.SelectedAgentIds, contentType, ct);
+            var pinnedVersionIds = resolved.Snapshot.Agents.Select(x => x.AgentVersionId).ToList();
+            var perContentType = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                [contentType] = new
+                {
+                    snapshotDigest = resolved.Digest,
+                    agentSlugs = resolved.Snapshot.Agents.Select(x => x.Slug).ToList(),
+                },
+            };
             foreach (var additional in request.ContentTypes.Skip(1).Distinct(StringComparer.OrdinalIgnoreCase))
-                await teams.ResolveStableAsync(request.SelectedAgentIds, additional, ct);
+            {
+                var subset = await teams.ResolveApplicableAsync(pinnedVersionIds, additional, ct);
+                perContentType[additional] = new
+                {
+                    snapshotDigest = subset.Digest,
+                    agentSlugs = subset.Snapshot.Agents.Select(x => x.Slug).ToList(),
+                };
+            }
             return Ok(new
             {
                 snapshotVersion = resolved.Snapshot.SnapshotVersion,
@@ -62,6 +79,7 @@ public sealed class GccV2AgentsController(
                 snapshotDigest = resolved.Digest,
                 resolvedAtUtc = resolved.Snapshot.ResolvedAtUtc,
                 selectedAgentIds = resolved.Snapshot.Agents.Select(x => x.Slug),
+                perContentType,
                 agents = resolved.Snapshot.Agents.Select(member => new
                 {
                     id = member.Slug,
