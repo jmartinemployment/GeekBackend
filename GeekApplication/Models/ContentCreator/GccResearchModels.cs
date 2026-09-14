@@ -93,7 +93,6 @@ public static class GccResearchCaps
 /// </summary>
 public static class GccPartnerResearchCaps
 {
-    public const int MaxUrls = 12;
     public const int MaxHeadingsPerPage = 60;
     public const int MaxParagraphsPerPage = 80;
     public const int MaxHeadingChars = 300;

@@ -67,8 +67,8 @@ public sealed record GccV2GenerationBrief(
     IReadOnlyList<string> CompetitorUrls,
     IReadOnlyList<string> OperatorTools,
     IReadOnlyList<string> TargetEntities,
-    Guid? PartnerSourceRunId,
-    Guid? CompetitorSourceRunId,
+    IReadOnlyList<Guid> PartnerSourceRunIds,
+    IReadOnlyList<Guid> CompetitorSourceRunIds,
     IReadOnlyList<RagAdTemplateDto> AdTemplates,
     string? SiteUrl,
     Guid? ProjectSiteCrawlRunId,
@@ -77,6 +77,14 @@ public sealed record GccV2GenerationBrief(
     JsonElement RawBrief)
 {
     public const string CurrentVersion = "gcc-v2-generation-brief.v1";
+
+    /// <summary>First partner run when present (legacy singular wire field).</summary>
+    public Guid? PartnerSourceRunId =>
+        PartnerSourceRunIds.Count > 0 ? PartnerSourceRunIds[0] : null;
+
+    /// <summary>First competitor run when present (legacy singular wire field).</summary>
+    public Guid? CompetitorSourceRunId =>
+        CompetitorSourceRunIds.Count > 0 ? CompetitorSourceRunIds[0] : null;
 
     public JsonElement ToCanonicalBrief()
     {
@@ -103,6 +111,9 @@ public sealed record GccV2GenerationBrief(
             competitorUrls = CompetitorUrls,
             operatorTools = OperatorTools,
             targetEntities = TargetEntities,
+            partnerSourceRunIds = PartnerSourceRunIds,
+            competitorSourceRunIds = CompetitorSourceRunIds,
+            // Singular kept for older readers; equals first of each list.
             partnerSourceRunId = PartnerSourceRunId,
             competitorSourceRunId = CompetitorSourceRunId,
             adTemplateIds = AdTemplates.Select(template => template.Id).ToList(),
@@ -158,8 +169,14 @@ public static class GccV2GenerationBriefAssembler
             ReadStrings(root, "competitorUrls"),
             ReadToolStrings(root, "operatorTools"),
             ReadStrings(root, "targetEntities"),
-            ReadGuid(root, "partnerSourceRunId", "partnerRunId", "partnerCrawlRunId"),
-            ReadGuid(root, "competitorSourceRunId", "competitorRunId", "competitorCrawlRunId"),
+            ReadRunIds(
+                root,
+                pluralNames: ["partnerSourceRunIds", "partnerRunIds"],
+                singularNames: ["partnerSourceRunId", "partnerRunId", "partnerCrawlRunId"]),
+            ReadRunIds(
+                root,
+                pluralNames: ["competitorSourceRunIds", "competitorRunIds"],
+                singularNames: ["competitorSourceRunId", "competitorRunId", "competitorCrawlRunId"]),
             ReadAdTemplates(root),
             create?.SiteUrl,
             job.ProjectSiteCrawlRunId ?? create?.ProjectSiteCrawlRunId,
@@ -201,6 +218,51 @@ public static class GccV2GenerationBriefAssembler
             if (ReadString(root, name) is { } raw && Guid.TryParse(raw, out var value))
                 return value;
         return null;
+    }
+
+    /// <summary>
+    /// Union of plural Guid arrays and legacy singular Guid fields (order preserved, distinct).
+    /// </summary>
+    private static IReadOnlyList<Guid> ReadRunIds(
+        JsonElement root,
+        string[] pluralNames,
+        string[] singularNames)
+    {
+        var ids = new List<Guid>();
+        var seen = new HashSet<Guid>();
+
+        void Add(Guid id)
+        {
+            if (id == Guid.Empty || !seen.Add(id)) return;
+            ids.Add(id);
+        }
+
+        foreach (var name in pluralNames)
+        {
+            if (!TryGet(root, name, out var value)) continue;
+            if (value.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in value.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String
+                        && Guid.TryParse(item.GetString(), out var fromArray))
+                        Add(fromArray);
+                }
+            }
+            else if (value.ValueKind == JsonValueKind.String
+                     && Guid.TryParse(value.GetString(), out var fromString))
+            {
+                Add(fromString);
+            }
+        }
+
+        foreach (var name in singularNames)
+        {
+            if (ReadString(root, name) is { } raw && Guid.TryParse(raw, out var singular))
+                Add(singular);
+        }
+
+        return ids;
     }
 
     private static IReadOnlyList<RagAdTemplateDto> ReadAdTemplates(JsonElement root)
@@ -594,45 +656,51 @@ public static class GccV2PrePlanEvidenceManifestAssembler
         var contentType = (brief.ContentType ?? "").Trim().ToLowerInvariant();
         var partnerRequired = RequiresPartnerRunFailClosed(contentType, brief.OperatorTools.Count);
 
-        if (brief.PartnerSourceRunId is Guid partnerRun)
+        if (brief.PartnerSourceRunIds.Count > 0)
         {
-            readiness.Add(new(GccV2ResearchEntityRef.RolePartner, partnerRun,
-                brief.OperatorTools.FirstOrDefault(), Indexed: true,
-                "Partner run id present on brief."));
+            foreach (var partnerRun in brief.PartnerSourceRunIds)
+            {
+                readiness.Add(new(GccV2ResearchEntityRef.RolePartner, partnerRun,
+                    brief.OperatorTools.FirstOrDefault(), Indexed: true,
+                    "Partner run id present on brief."));
+            }
         }
         else if (partnerRequired)
         {
             gaps.Add(PartnerFailClosedMessage(contentType));
             readiness.Add(new(GccV2ResearchEntityRef.RolePartner, null,
                 brief.OperatorTools.FirstOrDefault(), Indexed: false,
-                "Partner crawl run required for this content type — bind an indexed partner run before PLAN."));
+                "Partner crawl run required for this content type — bind indexed partner run(s) before PLAN."));
         }
         else if (brief.OperatorTools.Count > 0)
         {
-            warnings.Add("Partner tools listed but no partnerSourceRunId — partner retrieval may be empty.");
+            warnings.Add("Partner tools listed but no partnerSourceRunIds — partner retrieval may be empty.");
             readiness.Add(new(GccV2ResearchEntityRef.RolePartner, null,
                 brief.OperatorTools.FirstOrDefault(), Indexed: false,
                 "Operator tools present without partner crawl run."));
         }
 
         var competitorRequired = RequiresCompetitorRunFailClosed(contentType, brief.CompetitorUrls.Count);
-        if (brief.CompetitorSourceRunId is Guid competitorRun)
+        if (brief.CompetitorSourceRunIds.Count > 0)
         {
-            readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, competitorRun,
-                brief.CompetitorUrls.FirstOrDefault(), Indexed: true,
-                "Competitor run id present on brief."));
+            foreach (var competitorRun in brief.CompetitorSourceRunIds)
+            {
+                readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, competitorRun,
+                    brief.CompetitorUrls.FirstOrDefault(), Indexed: true,
+                    "Competitor run id present on brief."));
+            }
         }
         else if (competitorRequired)
         {
             gaps.Add(
-                "Named competitors require an indexed competitor crawl run for comparison/alternatives — bind competitorSourceRunId or remove competitor URLs.");
+                "Named competitors require indexed competitor crawl run(s) for comparison/alternatives — bind competitorSourceRunIds or remove competitor URLs.");
             readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, null,
                 brief.CompetitorUrls.FirstOrDefault(), Indexed: false,
                 "Competitor crawl run required when competitor URLs are named."));
         }
         else if (brief.CompetitorUrls.Count > 0)
         {
-            warnings.Add("Competitor URLs listed but no competitorSourceRunId — differentiation research may be empty.");
+            warnings.Add("Competitor URLs listed but no competitorSourceRunIds — differentiation research may be empty.");
             readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, null,
                 brief.CompetitorUrls.FirstOrDefault(), Indexed: false,
                 "Competitor URLs present without competitor crawl run."));
@@ -695,11 +763,11 @@ public static class GccV2PrePlanEvidenceManifestAssembler
     private static string PartnerFailClosedMessage(string contentType) => contentType switch
     {
         "tool" =>
-            "Tool pages require an indexed partner crawl run — bind partnerSourceRunId (re-crawl the partner if needed).",
+            "Tool pages require indexed partner crawl run(s) — bind partnerSourceRunIds (re-crawl partners if needed).",
         "ads" =>
-            "Partner-driven ads require an indexed partner crawl run — bind partnerSourceRunId or clear operatorTools.",
+            "Partner-driven ads require indexed partner crawl run(s) — bind partnerSourceRunIds or clear operatorTools.",
         "comparison" or "alternatives" =>
-            "Named partners require an indexed partner crawl run for comparison/alternatives — bind partnerSourceRunId or remove partner tools.",
+            "Named partners require indexed partner crawl run(s) for comparison/alternatives — bind partnerSourceRunIds or remove partner tools.",
         _ =>
             "Partner crawl run is required for this content type before PLAN.",
     };

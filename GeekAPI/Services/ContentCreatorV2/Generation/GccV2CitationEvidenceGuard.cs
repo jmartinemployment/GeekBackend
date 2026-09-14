@@ -20,8 +20,8 @@ public static class GccV2CitationEvidenceGuard
     /// </summary>
     public static async Task<AuditResult> AuditWriteOutputAsync(
         GccV2WriteOutput output,
-        Guid? partnerRunId,
-        Guid? competitorRunId,
+        IReadOnlyList<Guid> partnerRunIds,
+        IReadOnlyList<Guid> competitorRunIds,
         IGeekCrawlerRagClient? ragClient,
         CancellationToken ct,
         IReadOnlyList<GccV2PartnerMentionGate.PartnerToken>? partnerTokens = null)
@@ -53,8 +53,8 @@ public static class GccV2CitationEvidenceGuard
                 var next = await AuditOneAsync(
                     citation,
                     section.SectionKey,
-                    partnerRunId,
-                    competitorRunId,
+                    partnerRunIds,
+                    competitorRunIds,
                     LoadMarkdown,
                     gaps,
                     ct).ConfigureAwait(false);
@@ -83,8 +83,8 @@ public static class GccV2CitationEvidenceGuard
     /// <summary>Deterministic unit-test entry: no network; markdown supplied per pageId.</summary>
     public static AuditResult AuditWriteOutputForTests(
         GccV2WriteOutput output,
-        Guid? partnerRunId,
-        Guid? competitorRunId,
+        IReadOnlyList<Guid> partnerRunIds,
+        IReadOnlyList<Guid> competitorRunIds,
         IReadOnlyDictionary<string, string>? markdownByPageId,
         IReadOnlyList<GccV2PartnerMentionGate.PartnerToken>? partnerTokens = null)
     {
@@ -105,8 +105,8 @@ public static class GccV2CitationEvidenceGuard
                 var next = AuditOneSync(
                     citation,
                     section.SectionKey,
-                    partnerRunId,
-                    competitorRunId,
+                    partnerRunIds,
+                    competitorRunIds,
                     markdown,
                     gaps);
                 stamped.Add(next);
@@ -191,23 +191,30 @@ public static class GccV2CitationEvidenceGuard
     internal static bool CrawlTypeConflictsWithRun(
         string? crawlType,
         string? runId,
-        Guid? partnerRunId,
-        Guid? competitorRunId)
+        IReadOnlyList<Guid> partnerRunIds,
+        IReadOnlyList<Guid> competitorRunIds)
     {
         if (string.IsNullOrWhiteSpace(runId)) return false;
         var type = (crawlType ?? "").Trim().ToLowerInvariant();
         var isPartnerType = type is "partner";
         var isCompetitorType = type is "competitor" or "competitors";
 
-        if (partnerRunId is Guid p
-            && string.Equals(runId, p.ToString("D"), StringComparison.OrdinalIgnoreCase)
-            && isCompetitorType)
+        if (ContainsRunId(partnerRunIds, runId) && isCompetitorType)
             return true;
 
-        if (competitorRunId is Guid c
-            && string.Equals(runId, c.ToString("D"), StringComparison.OrdinalIgnoreCase)
-            && isPartnerType)
+        if (ContainsRunId(competitorRunIds, runId) && isPartnerType)
             return true;
+
+        return false;
+    }
+
+    private static bool ContainsRunId(IReadOnlyList<Guid> runIds, string runId)
+    {
+        foreach (var id in runIds)
+        {
+            if (string.Equals(runId, id.ToString("D"), StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
 
         return false;
     }
@@ -215,8 +222,8 @@ public static class GccV2CitationEvidenceGuard
     private static async Task<RagCitationDto> AuditOneAsync(
         RagCitationDto citation,
         string sectionKey,
-        Guid? partnerRunId,
-        Guid? competitorRunId,
+        IReadOnlyList<Guid> partnerRunIds,
+        IReadOnlyList<Guid> competitorRunIds,
         Func<string, Task<string?>> loadMarkdown,
         List<string> gaps,
         CancellationToken ct)
@@ -225,14 +232,14 @@ public static class GccV2CitationEvidenceGuard
         string? markdown = null;
         if (!string.IsNullOrWhiteSpace(citation.PageId))
             markdown = await loadMarkdown(citation.PageId!).ConfigureAwait(false);
-        return AuditOneSync(citation, sectionKey, partnerRunId, competitorRunId, markdown, gaps);
+        return AuditOneSync(citation, sectionKey, partnerRunIds, competitorRunIds, markdown, gaps);
     }
 
     private static RagCitationDto AuditOneSync(
         RagCitationDto citation,
         string sectionKey,
-        Guid? partnerRunId,
-        Guid? competitorRunId,
+        IReadOnlyList<Guid> partnerRunIds,
+        IReadOnlyList<Guid> competitorRunIds,
         string? markdown,
         List<string> gaps)
     {
@@ -241,7 +248,7 @@ public static class GccV2CitationEvidenceGuard
             : citation.SectionKey;
 
         if (CrawlTypeConflictsWithRun(
-                citation.CrawlType, citation.RunId, partnerRunId, competitorRunId))
+                citation.CrawlType, citation.RunId, partnerRunIds, competitorRunIds))
         {
             gaps.Add(
                 $"Citation on '{sectionKeyBound}' has crawlType '{citation.CrawlType}' inconsistent with runId.");

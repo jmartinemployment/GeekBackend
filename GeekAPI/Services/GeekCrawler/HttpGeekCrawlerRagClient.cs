@@ -680,9 +680,6 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 SectionTitle: group.Select(c => c.SectionTitle)
                     .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)),
                 RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk));
-
-            if (pages.Count >= GccPartnerResearchCaps.MaxUrls)
-                break;
         }
 
         return pages;

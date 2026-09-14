@@ -183,10 +183,10 @@ public sealed class GccV2ContextAdapter
                 "COMPETITOR PAGE EXCERPTS (research only — use to differentiate our approach; do not quote "
                 + "long passages; do not link to rival sites as product CTAs; never present competitors as "
                 + "recommended tools):");
-            foreach (var page in competitorPages.Take(5))
+            foreach (var page in competitorPages)
             {
                 parts.Add($"[{page.Title}] ({page.Url})");
-                foreach (var para in page.Paragraphs.Take(4))
+                foreach (var para in page.Paragraphs)
                     parts.Add($"- {para}");
             }
         }

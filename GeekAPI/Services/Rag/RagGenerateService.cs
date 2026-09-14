@@ -130,8 +130,8 @@ public sealed class RagGenerateService
         var model = string.IsNullOrWhiteSpace(request.RequestedModel)
             ? RagModelRouter.ResolveModel(RagWritingIntents.FamilyOf(intent))
             : request.RequestedModel.Trim();
-        var partnerRunId = request.PartnerRunId;
-        var competitorRunId = request.CompetitorRunId;
+        var partnerRunIds = request.ResolvePartnerRunIds();
+        var competitorRunIds = request.ResolveCompetitorRunIds();
 
         if (stage == "researchPlanning")
         {
@@ -140,13 +140,11 @@ public sealed class RagGenerateService
             // Project-site grounding is handled in PLAN separately — do not require crawler runs here.
             var need = BuildNeed(intent, topic, entities, CrawlTypes.Partner);
             var plan = new List<RagResearchQueryPlanDto>();
-            if (partnerRunId is { } p)
+            foreach (var p in partnerRunIds)
                 plan.Add(new RagResearchQueryPlanDto(p.ToString("D"), CrawlTypes.Partner, need));
-            if (competitorRunId is { } c)
-                plan.Add(new RagResearchQueryPlanDto(
-                    c.ToString("D"),
-                    CrawlTypes.Competitors,
-                    BuildNeed(intent, topic, entities, CrawlTypes.Competitors)));
+            var competitorNeed = BuildNeed(intent, topic, entities, CrawlTypes.Competitors);
+            foreach (var c in competitorRunIds)
+                plan.Add(new RagResearchQueryPlanDto(c.ToString("D"), CrawlTypes.Competitors, competitorNeed));
             if (plan.Count == 0)
                 warnings.Add(
                     "No partner/competitor library runs on brief; researchPlanning is empty (project-site / brief grounding only).");
@@ -164,17 +162,17 @@ public sealed class RagGenerateService
             _ => ((bool?)true, (bool?)false, 10),
         };
 
-        // Fail closed only for runs that were explicitly bound; null run = skip that corpus.
-        var partnerQuery = await QueryRunAsync(
-            partnerRunId,
+        // Fail closed only for runs that were explicitly bound; empty list = skip that corpus.
+        var partnerQuery = await QueryRunsAsync(
+            partnerRunIds,
             ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Partner),
             CrawlTypes.Partner, topK, preferParent, preferChild, entities, null, warnings, ct,
-            failClosed: partnerRunId is not null).ConfigureAwait(false);
-        var competitorQuery = await QueryRunAsync(
-            competitorRunId,
+            failClosed: partnerRunIds.Count > 0).ConfigureAwait(false);
+        var competitorQuery = await QueryRunsAsync(
+            competitorRunIds,
             ResolveLibraryNeed(request, intent, topic, entities, CrawlTypes.Competitors),
             CrawlTypes.Competitors, topK, preferParent, preferChild, entities, null, warnings, ct,
-            failClosed: competitorRunId is not null).ConfigureAwait(false);
+            failClosed: competitorRunIds.Count > 0).ConfigureAwait(false);
 
         var partnerPages = partnerQuery.Pages;
         var competitorPages = competitorQuery.Pages;
@@ -182,12 +180,12 @@ public sealed class RagGenerateService
             ? request.Sources
             : BuildSources(partnerPages, competitorPages, entities);
         if (sources.Count == 0
-            && (partnerRunId is not null || competitorRunId is not null))
+            && (partnerRunIds.Count > 0 || competitorRunIds.Count > 0))
             throw new InvalidOperationException(
                 "RAG evidence library returned no pages for the supplied source runs.");
         if (sources.Count == 0
-            && partnerRunId is null
-            && competitorRunId is null
+            && partnerRunIds.Count == 0
+            && competitorRunIds.Count == 0
             && stage is not ("validation" or "finalSynthesis"))
         {
             warnings.Add(
@@ -425,9 +423,9 @@ public sealed class RagGenerateService
         IReadOnlyList<GccQuoteablePage> competitor,
         string? sectionTitle)
     {
-        var pages = partner.Concat(competitor).Take(8).ToList();
+        var pages = partner.Concat(competitor).ToList();
         var citations = new List<RagCitationDto>();
-        foreach (var section in outline.Take(6))
+        foreach (var section in outline)
         {
             var page = pages.FirstOrDefault(p =>
                 section.Brief.Contains(p.Title, StringComparison.OrdinalIgnoreCase)
@@ -463,7 +461,7 @@ public sealed class RagGenerateService
         string? sectionKey)
     {
         var citations = new List<RagCitationDto>();
-        foreach (var page in partner.Concat(competitor).Take(8))
+        foreach (var page in partner.Concat(competitor))
         {
             var quote = page.Paragraphs.FirstOrDefault(p =>
                 p.Length is >= 40 and <= 280
@@ -485,7 +483,6 @@ public sealed class RagGenerateService
                 CrawlType = partner.Any(p => p.PageId == page.PageId) ? CrawlTypes.Partner : CrawlTypes.Competitors,
                 Verified = true,
             });
-            if (citations.Count >= 4) break;
         }
         return citations;
     }
@@ -495,6 +492,55 @@ public sealed class RagGenerateService
         IReadOnlyList<GccQuoteablePage> Pages,
         IReadOnlyList<GeekCrawlerRagThemeDto> Themes,
         string? Retrieval);
+
+    private async Task<SeedQueryResult> QueryRunsAsync(
+        IReadOnlyList<Guid> runIds,
+        string need,
+        string crawlType,
+        int topK,
+        bool? preferParent,
+        bool? preferChild,
+        IReadOnlyList<string> entities,
+        string? retrievalMode,
+        List<string> warnings,
+        CancellationToken ct,
+        bool failClosed = false)
+    {
+        if (runIds.Count == 0)
+            return new SeedQueryResult([], [], null);
+
+        var pages = new List<GccQuoteablePage>();
+        var themes = new List<GeekCrawlerRagThemeDto>();
+        string? retrieval = null;
+        var seenPages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var runId in runIds)
+        {
+            var one = await QueryRunAsync(
+                runId,
+                need,
+                crawlType,
+                topK,
+                preferParent,
+                preferChild,
+                entities,
+                retrievalMode,
+                warnings,
+                ct,
+                failClosed).ConfigureAwait(false);
+            retrieval ??= one.Retrieval;
+            foreach (var page in one.Pages)
+            {
+                var key = !string.IsNullOrWhiteSpace(page.PageId) ? page.PageId! : page.Url;
+                if (!seenPages.Add(key)) continue;
+                pages.Add(page);
+            }
+
+            themes.AddRange(one.Themes);
+        }
+
+        return new SeedQueryResult(pages, themes, retrieval);
+    }
 
     private async Task<SeedQueryResult> QueryRunAsync(
         Guid? runId,
@@ -669,18 +715,16 @@ public sealed class RagGenerateService
             sb.AppendLine($"Target entities: {string.Join(", ", entities)}");
         sb.AppendLine();
         sb.AppendLine("PARTNER PAGE EXCERPTS:");
-        AppendPages(sb, partner, maxPages: 5, maxParas: 4);
+        AppendPages(sb, partner);
         sb.AppendLine();
         sb.AppendLine("COMPETITOR PAGE EXCERPTS (research only — differentiate; no rival CTAs):");
-        AppendPages(sb, competitor, maxPages: 5, maxParas: 4);
+        AppendPages(sb, competitor);
         return sb.ToString();
     }
 
     private static void AppendPages(
         StringBuilder sb,
-        IReadOnlyList<GccQuoteablePage> pages,
-        int maxPages,
-        int maxParas)
+        IReadOnlyList<GccQuoteablePage> pages)
     {
         if (pages.Count == 0)
         {
@@ -688,10 +732,10 @@ public sealed class RagGenerateService
             return;
         }
 
-        foreach (var page in pages.Take(maxPages))
+        foreach (var page in pages)
         {
             sb.AppendLine($"[{page.Title}] ({page.Url})");
-            foreach (var para in page.Paragraphs.Take(maxParas))
+            foreach (var para in page.Paragraphs)
                 sb.AppendLine($"- {para}");
         }
     }
@@ -704,7 +748,7 @@ public sealed class RagGenerateService
         var sources = new List<RagGenerateSourceDto>();
         void Add(IEnumerable<GccQuoteablePage> pages, string crawlType)
         {
-            foreach (var page in pages.Take(8))
+            foreach (var page in pages)
             {
                 var entity = entities.FirstOrDefault(e =>
                     page.Title.Contains(e, StringComparison.OrdinalIgnoreCase)
@@ -742,7 +786,7 @@ public sealed class RagGenerateService
             });
         }
 
-        foreach (var page in partner.Take(4))
+        foreach (var page in partner)
         {
             themes.Add(new RagThemeSourceDto
             {
@@ -753,7 +797,7 @@ public sealed class RagGenerateService
             });
         }
 
-        foreach (var page in competitor.Take(4))
+        foreach (var page in competitor)
         {
             themes.Add(new RagThemeSourceDto
             {

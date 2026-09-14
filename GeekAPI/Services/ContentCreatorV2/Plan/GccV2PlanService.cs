@@ -152,6 +152,8 @@ public sealed class GccV2PlanService
             Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
             TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList(),
+            PartnerRunIds = generationBrief.PartnerSourceRunIds.ToList(),
+            CompetitorRunIds = generationBrief.CompetitorSourceRunIds.ToList(),
             PartnerRunId = generationBrief.PartnerSourceRunId,
             CompetitorRunId = generationBrief.CompetitorSourceRunId,
             GenerationStage = "researchPlanning",
@@ -182,6 +184,8 @@ public sealed class GccV2PlanService
                 Topic = $"{generationBrief.Title}: {generationBrief.TargetKeyword}",
                 TargetEntities = generationBrief.TargetEntities.Concat(partnerToolNames)
                     .Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToList(),
+                PartnerRunIds = generationBrief.PartnerSourceRunIds.ToList(),
+                CompetitorRunIds = generationBrief.CompetitorSourceRunIds.ToList(),
                 PartnerRunId = generationBrief.PartnerSourceRunId,
                 CompetitorRunId = generationBrief.CompetitorSourceRunId,
                 GenerationStage = "outline",
@@ -574,7 +578,7 @@ public sealed class GccV2PlanService
             case GccV2LongFormTypes.Alternatives:
             {
                 var alts = partnerToolNames.Count > 0
-                    ? partnerToolNames.Take(6).ToList()
+                    ? partnerToolNames.ToList()
                     : ["Alternative 1", "Alternative 2", "Alternative 3"];
                 return (DedupeByHeading(
                 [
@@ -843,7 +847,7 @@ public sealed class GccV2PlanService
             options.Add(n);
         }
 
-        if (options.Count >= 2) return options.Take(6).ToList();
+        if (options.Count >= 2) return options;
 
         var title = Capitalize(keyword);
         return [$"{title} Option A", $"{title} Option B", $"{title} Option C"];

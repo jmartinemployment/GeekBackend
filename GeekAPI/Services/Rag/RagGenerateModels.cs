@@ -11,6 +11,34 @@ public sealed class RagGenerateRequest
     public List<string>? TargetEntities { get; set; }
     public Guid? PartnerRunId { get; set; }
     public Guid? CompetitorRunId { get; set; }
+    /// <summary>All partner crawl runs to query (union with <see cref="PartnerRunId"/>).</summary>
+    public List<Guid>? PartnerRunIds { get; set; }
+    /// <summary>All competitor crawl runs to query (union with <see cref="CompetitorRunId"/>).</summary>
+    public List<Guid>? CompetitorRunIds { get; set; }
+
+    public IReadOnlyList<Guid> ResolvePartnerRunIds() =>
+        DistinctRunIds(PartnerRunIds, PartnerRunId);
+
+    public IReadOnlyList<Guid> ResolveCompetitorRunIds() =>
+        DistinctRunIds(CompetitorRunIds, CompetitorRunId);
+
+    private static IReadOnlyList<Guid> DistinctRunIds(IEnumerable<Guid>? many, Guid? singular)
+    {
+        var ids = new List<Guid>();
+        var seen = new HashSet<Guid>();
+        if (many is not null)
+        {
+            foreach (var id in many)
+            {
+                if (id == Guid.Empty || !seen.Add(id)) continue;
+                ids.Add(id);
+            }
+        }
+
+        if (singular is { } one && one != Guid.Empty && seen.Add(one))
+            ids.Add(one);
+        return ids;
+    }
 
     /// <summary>Phase D2 — operator-selected ad template exemplars (owned by content-creator-v2).</summary>
     public List<RagAdTemplateDto>? AdTemplates { get; set; }

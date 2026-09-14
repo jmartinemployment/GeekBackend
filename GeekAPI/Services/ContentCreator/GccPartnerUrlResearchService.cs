@@ -42,7 +42,6 @@ public sealed class GccPartnerUrlResearchService
             .OrderBy(t => string.Equals(t.Source, "operator", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .Select(t => t.Url!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(GccPartnerResearchCaps.MaxUrls)
             .ToList();
 
     /// <summary>Operator-pasted rival page URLs (one per line in <c>competitorUrls</c>).</summary>
@@ -65,7 +64,6 @@ public sealed class GccPartnerUrlResearchService
                 if (!TryNormalizeHttpUrl(line, out var normalized)) continue;
                 if (urls.Contains(normalized, StringComparer.OrdinalIgnoreCase)) continue;
                 urls.Add(normalized);
-                if (urls.Count >= 5) break;
             }
 
             return urls;
@@ -97,7 +95,6 @@ public sealed class GccPartnerUrlResearchService
             {
                 foreach (var t in tools.EnumerateArray())
                 {
-                    if (rows.Count >= GccPartnerResearchCaps.MaxUrls) break;
                     if (t.ValueKind != JsonValueKind.Object) continue;
                     var name = TryGetPropertyIgnoreCase(t, "name", out var n) && n.ValueKind == JsonValueKind.String
                         ? n.GetString()?.Trim()

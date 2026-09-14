@@ -447,6 +447,8 @@ public sealed class GccV2WriteService
         {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
+                PartnerRunIds = wc.GenerationBrief.PartnerSourceRunIds.ToList(),
+                CompetitorRunIds = wc.GenerationBrief.CompetitorSourceRunIds.ToList(),
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "finalSynthesis",
@@ -1057,6 +1059,8 @@ public sealed class GccV2WriteService
                     ? $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}"
                     : $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}\nSpecialized source context:\n{seedContext}",
                 TargetEntities = wc.GenerationBrief.TargetEntities.ToList(),
+                PartnerRunIds = wc.GenerationBrief.PartnerSourceRunIds.ToList(),
+                CompetitorRunIds = wc.GenerationBrief.CompetitorSourceRunIds.ToList(),
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 AdTemplates = route.Family == RagRetrievalFamily.ShortForm
@@ -1245,6 +1249,8 @@ public sealed class GccV2WriteService
                 WritingIntent = route.WritingIntent,
                 Topic = $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}",
                 TargetEntities = wc.GenerationBrief.TargetEntities.ToList(),
+                PartnerRunIds = wc.GenerationBrief.PartnerSourceRunIds.ToList(),
+                CompetitorRunIds = wc.GenerationBrief.CompetitorSourceRunIds.ToList(),
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = producerStage,

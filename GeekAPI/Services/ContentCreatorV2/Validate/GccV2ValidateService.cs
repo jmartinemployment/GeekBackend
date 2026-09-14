@@ -192,6 +192,8 @@ public sealed class GccV2ValidateService
         {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
+                PartnerRunIds = wc.GenerationBrief.PartnerSourceRunIds.ToList(),
+                CompetitorRunIds = wc.GenerationBrief.CompetitorSourceRunIds.ToList(),
                 PartnerRunId = wc.GenerationBrief.PartnerSourceRunId,
                 CompetitorRunId = wc.GenerationBrief.CompetitorSourceRunId,
                 GenerationStage = "validation",
@@ -268,8 +270,8 @@ public sealed class GccV2ValidateService
                 rawBrief);
             var audit = await GccV2CitationEvidenceGuard.AuditWriteOutputAsync(
                 output,
-                wc.GenerationBrief.PartnerSourceRunId,
-                wc.GenerationBrief.CompetitorSourceRunId,
+                wc.GenerationBrief.PartnerSourceRunIds,
+                wc.GenerationBrief.CompetitorSourceRunIds,
                 _ragClient,
                 ct,
                 partnerTokens);

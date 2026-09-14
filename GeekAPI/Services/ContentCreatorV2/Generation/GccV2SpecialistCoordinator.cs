@@ -200,6 +200,8 @@ public sealed class GccV2SpecialistCoordinator(
         WritingIntent = source.WritingIntent,
         Topic = source.Topic,
         TargetEntities = source.TargetEntities,
+        PartnerRunIds = source.PartnerRunIds,
+        CompetitorRunIds = source.CompetitorRunIds,
         PartnerRunId = source.PartnerRunId,
         CompetitorRunId = source.CompetitorRunId,
         AdTemplates = source.AdTemplates,

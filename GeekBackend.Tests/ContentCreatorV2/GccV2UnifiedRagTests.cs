@@ -219,6 +219,8 @@ public sealed class GccV2UnifiedRagTests
 
         Assert.Equal(partner, assembled.PartnerSourceRunId);
         Assert.Equal(competitor, assembled.CompetitorSourceRunId);
+        Assert.Equal([partner], assembled.PartnerSourceRunIds);
+        Assert.Equal([competitor], assembled.CompetitorSourceRunIds);
         var template = Assert.Single(assembled.AdTemplates);
         Assert.Equal("pas", template.Id);
         Assert.Equal("Problem. Agitate. Solve.", template.Body);
@@ -424,7 +426,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, partnerRun, competitorRun, markdown);
+            output, [partnerRun], [competitorRun], markdown);
 
         Assert.Contains(audit.EvidenceGaps, g => g.Contains("inconsistent", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(audit.Citations, c => c.SectionKey == "lede" && c.Verified == true);
@@ -451,7 +453,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, null, null, new Dictionary<string, string>());
+            output, Array.Empty<Guid>(), Array.Empty<Guid>(), new Dictionary<string, string>());
 
         Assert.Contains(audit.EvidenceGaps, g => g.Contains("lacks a verified citation", StringComparison.OrdinalIgnoreCase));
     }
@@ -517,7 +519,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, partnerRun, null, markdown);
+            output, [partnerRun], Array.Empty<Guid>(), markdown);
         var stamped = GccV2CitationEvidenceGuard.ApplyAuditedCitations(output, audit.Citations);
 
         Assert.True(stamped.Lede.Citations![0].Verified);
@@ -604,7 +606,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, partnerRun, null, markdown);
+            output, [partnerRun], Array.Empty<Guid>(), markdown);
 
         Assert.Contains(audit.EvidenceGaps, g => g.Contains("exact span", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(audit.Citations, c => c.Verified == false);
@@ -639,7 +641,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, null, null, new Dictionary<string, string>());
+            output, Array.Empty<Guid>(), Array.Empty<Guid>(), new Dictionary<string, string>());
 
         Assert.Contains(audit.EvidenceGaps, g => g.Contains("could not load source", StringComparison.OrdinalIgnoreCase));
         Assert.All(audit.Citations, c => Assert.False(c.Verified));
