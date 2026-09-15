@@ -2,6 +2,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
+using GeekAPI.Services.ContentCreatorV2.Context;
 
 namespace GeekAPI.Services.ContentCreatorV2.ProjectSite;
 
@@ -18,6 +19,7 @@ public sealed class GccV2ProjectSiteCrawlService
     private readonly GccV2ProjectSiteCrawlWake _wake;
     private readonly GccV2ProjectSiteCrawlRunCoordinator _coordinator;
     private readonly GccV2ProjectSiteCrawlProgressNotifier _notifier;
+    private readonly GccV2ProjectSiteKnowledgeService _knowledge;
     private readonly ILogger<GccV2ProjectSiteCrawlService> _logger;
 
     public GccV2ProjectSiteCrawlService(
@@ -27,6 +29,7 @@ public sealed class GccV2ProjectSiteCrawlService
         GccV2ProjectSiteCrawlWake wake,
         GccV2ProjectSiteCrawlRunCoordinator coordinator,
         GccV2ProjectSiteCrawlProgressNotifier notifier,
+        GccV2ProjectSiteKnowledgeService knowledge,
         ILogger<GccV2ProjectSiteCrawlService> logger)
     {
         _repo = repo;
@@ -35,6 +38,7 @@ public sealed class GccV2ProjectSiteCrawlService
         _wake = wake;
         _coordinator = coordinator;
         _notifier = notifier;
+        _knowledge = knowledge;
         _logger = logger;
     }
 
@@ -215,6 +219,7 @@ public sealed class GccV2ProjectSiteCrawlService
                     CompletedAtUtc: DateTimeOffset.UtcNow),
                 ct).ConfigureAwait(false);
             await PushRunAsync(run, pagesWithHtml, ct).ConfigureAwait(false);
+            await PromoteToKnowledgeAsync(run, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -257,4 +262,47 @@ public sealed class GccV2ProjectSiteCrawlService
         var payload = GccV2ProjectSiteCrawlEventMapper.MapRun(run, pageCount);
         await _notifier.PushAsync(payload, run.Id, run.OwnerUserId, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Completing a project-site crawl IS what makes it RAG knowledge.
+    ///
+    /// Previously the only thing that promoted a crawl was a fire-and-forget call in a React callback
+    /// (new-create-form.tsx), so a crawl completing by any other path — API, retry, stall recovery —
+    /// never reached the corpus, and a failed promotion left the wizard advancing with nothing but a
+    /// status string while the operator believed their site was indexed
+    /// (plans/rag-foundation-rewrite.md §2.5, W6).
+    ///
+    /// Failure is logged at Error and does not fail the crawl, which genuinely succeeded. It is
+    /// deliberately not silent: an unpromoted crawl means an incomplete corpus, and that must be
+    /// visible rather than discarded.
+    /// </summary>
+    private async Task PromoteToKnowledgeAsync(
+        GccV2ProjectSiteCrawlRunDto run,
+        CancellationToken ct)
+    {
+        try
+        {
+            var result = await _knowledge
+                .PromoteAsync(run.OwnerUserId, run.Id, name: null, selectedPageIds: null, approve: true, ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation(
+                "Project-site crawl {RunId} promoted to knowledge asset {AssetId} "
+                + "(version {VersionId}, {PageCount} page(s), lifecycle {Lifecycle}, ingestion {Ingestion}).",
+                run.Id, result.AssetId, result.VersionId, result.PageCount,
+                result.LifecycleState, result.IngestionState);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception cause)
+        {
+            _logger.LogError(
+                cause,
+                "Project-site crawl {RunId} completed but could not be promoted to a knowledge source. "
+                + "The crawl succeeded; the corpus does not yet contain it.",
+                run.Id);
+        }
+    }
+
 }
