@@ -1,4 +1,5 @@
 using GeekAPI.Services.ContentCreatorV2.Competitor;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
@@ -27,4 +28,10 @@ internal static class CompetitorExtractionTestDoubles
         new(new GccV2SchemaConstrainedGenerator(),
             new NoProviderFactory(),
             NullLogger<GccV2CompetitorExtractionService>.Instance);
+
+    /// <summary>Partner equivalent — also fails closed to an empty document.</summary>
+    public static GccV2PartnerExtractionService InertPartner() =>
+        new(new GccV2SchemaConstrainedGenerator(),
+            new NoProviderFactory(),
+            NullLogger<GccV2PartnerExtractionService>.Instance);
 }

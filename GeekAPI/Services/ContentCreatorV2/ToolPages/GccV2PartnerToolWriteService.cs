@@ -17,6 +17,7 @@ public sealed class GccV2PartnerToolWriteService
     private readonly HttpGccV2Repository _repo;
     private readonly GccV2ToolPagePromptBuilder _prompts;
     private readonly GccV2ToolResearchExtractor _extractor;
+    private readonly Partner.GccV2PartnerExtractionService _partnerExtraction;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccV2PartnerToolWriteService> _logger;
 
@@ -24,12 +25,14 @@ public sealed class GccV2PartnerToolWriteService
         HttpGccV2Repository repo,
         GccV2ToolPagePromptBuilder prompts,
         GccV2ToolResearchExtractor extractor,
+        Partner.GccV2PartnerExtractionService partnerExtraction,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccV2PartnerToolWriteService> logger)
     {
         _repo = repo;
         _prompts = prompts;
         _extractor = extractor;
+        _partnerExtraction = partnerExtraction;
         _company = company.Value;
         _logger = logger;
     }
@@ -64,7 +67,7 @@ public sealed class GccV2PartnerToolWriteService
         var partnerResearchPages = ParsePartnerResearchPages(wc.Brief.RawBriefJson);
         var partnerExtraction = GccV2PartnerUrlResearchService.ParsePartnerExtraction(wc.Brief.RawBriefJson)
             ?? (partnerResearchPages.Count > 0
-                ? GccV2PartnerExtractionService.ExtractFromPages(partnerResearchPages)
+                ? await _partnerExtraction.ExtractFromPagesAsync(partnerResearchPages, null, ct).ConfigureAwait(false)
                 : null);
         var descriptionFromExtraction = partnerExtraction?.Advertisements.FirstOrDefault()?.MarketingHook;
         var app = new SoftwareApplicationDescriptor(

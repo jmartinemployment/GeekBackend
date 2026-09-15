@@ -337,7 +337,11 @@ public sealed class GccV2ContextAdapter
             || extraction.Alternatives.Count > 0
             || extraction.Integrations.Count > 0
             || extraction.Icp.Count > 0
-            || extraction.ProofPack.Count > 0
+            || extraction.CaseStudies.Count > 0
+            || extraction.Testimonials.Count > 0
+            || extraction.Awards.Count > 0
+            || extraction.FeatureInventory.Count > 0
+            || extraction.TechnicalConstraints.Count > 0
             || extraction.UseCasePlaybooks.Count > 0
             || extraction.Categories.Count > 0
             || extraction.FreshnessLog.Count > 0
@@ -397,8 +401,38 @@ public sealed class GccV2ContextAdapter
 
         foreach (var d in extraction.Disqualifiers.Take(6))
             parts.Add($"- Disqualifier [{d.LimitType}]: {d.LimitDetail}");
-        foreach (var p in extraction.ProofPack.Take(6))
-            parts.Add($"- Proof [{p.ProofKind}]: {p.ProofClaim} ({p.OriginProofUrl})");
+        // Proof is addressable now, so each kind can be used where it actually persuades.
+        foreach (var c in extraction.CaseStudies.Take(6))
+        {
+            var metric = string.IsNullOrWhiteSpace(c.MetricValue)
+                ? ""
+                : $" | {c.MetricName ?? "metric"}: {c.MetricValue}";
+            parts.Add($"- Case study: {c.ClientName}"
+                + (string.IsNullOrWhiteSpace(c.Sector) ? "" : $" ({c.Sector})")
+                + $" — {c.OutcomeClaim}{metric} ({c.OriginProofUrl})");
+        }
+
+        foreach (var t in extraction.Testimonials.Take(6))
+            parts.Add($"- Testimonial: \"{t.QuoteText}\""
+                + (string.IsNullOrWhiteSpace(t.AttributedTo) ? "" : $" — {t.AttributedTo}")
+                + (string.IsNullOrWhiteSpace(t.BuyerRole) ? "" : $", {t.BuyerRole}")
+                + (string.IsNullOrWhiteSpace(t.Industry) ? "" : $" [{t.Industry}]"));
+
+        foreach (var a in extraction.Awards.Take(4))
+            parts.Add($"- Award [{a.Source}]: {a.AwardName}"
+                + (string.IsNullOrWhiteSpace(a.AwardedFor) ? "" : $" for {a.AwardedFor}")
+                + (string.IsNullOrWhiteSpace(a.AwardedPeriod) ? "" : $" ({a.AwardedPeriod})"));
+
+        foreach (var f in extraction.FeatureInventory.Take(12))
+            parts.Add($"- Feature: {f.FeatureName}"
+                + (string.IsNullOrWhiteSpace(f.FeatureCategory) ? "" : $" [{f.FeatureCategory}]")
+                + (string.IsNullOrWhiteSpace(f.GatedToTier) ? "" : $" | gated to: {f.GatedToTier}"));
+
+        foreach (var c in extraction.TechnicalConstraints.Take(6))
+        {
+            var value = c.LimitValue is { } v ? $"{v} {c.LimitUnit ?? ""}".Trim() : "unstated";
+            parts.Add($"- Constraint [{c.ConstraintKind}]: {c.LimitText} (limit: {value})");
+        }
         foreach (var u in extraction.UseCasePlaybooks.Take(4))
             parts.Add($"- Playbook: {u.JobToBeDone} → {string.Join(" | ", u.CitedStepsOrFeatures.Take(3))}");
         foreach (var c in extraction.Categories.Take(4))
@@ -411,8 +445,15 @@ public sealed class GccV2ContextAdapter
             parts.Add($"- Demo beat: {d.BeatTitle} — {d.BeatClaim}");
         foreach (var c in extraction.ComplianceSnippets.Take(4))
             parts.Add($"- Compliance [{c.TermKind}]: {c.TermText}");
+        // JurisdictionOrPolicy had no consumer at all: disclosure text existed but nothing bound it to
+        // a disclosure regime. On the revenue-generating path that is the compliance-shaped hole.
         foreach (var a in extraction.AffiliateDisclosures.Take(3))
-            parts.Add($"- Affiliate disclosure: {a.DisclosureText}");
+        {
+            parts.Add($"- Affiliate disclosure: {a.DisclosureText}"
+                + (string.IsNullOrWhiteSpace(a.JurisdictionOrPolicy)
+                    ? " (no jurisdiction or policy stated on the source — do not assert one)"
+                    : $" [regime: {a.JurisdictionOrPolicy}]"));
+        }
     }
 
     private static string? MergeWritingNotes(string? briefNotes, string partnerNotes)

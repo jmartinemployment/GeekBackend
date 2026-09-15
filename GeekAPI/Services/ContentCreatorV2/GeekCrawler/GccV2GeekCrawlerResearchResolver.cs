@@ -135,6 +135,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
     private readonly IGccV2ProjectSitePageReader _projectSitePages;
     private readonly IGeekCrawlerRagClient _rag;
     private readonly GccV2CompetitorExtractionService _competitorExtraction;
+    private readonly GccV2PartnerExtractionService _partnerExtraction;
     private readonly ILogger<GccV2GeekCrawlerResearchResolver> _logger;
 
     public GccV2GeekCrawlerResearchResolver(
@@ -142,12 +143,14 @@ public sealed class GccV2GeekCrawlerResearchResolver
         IGccV2ProjectSitePageReader projectSitePages,
         IGeekCrawlerRagClient rag,
         GccV2CompetitorExtractionService competitorExtraction,
+        GccV2PartnerExtractionService partnerExtraction,
         ILogger<GccV2GeekCrawlerResearchResolver> logger)
     {
         _crawlerRepo = crawlerRepo;
         _projectSitePages = projectSitePages;
         _rag = rag;
         _competitorExtraction = competitorExtraction;
+        _partnerExtraction = partnerExtraction;
         _logger = logger;
     }
 
@@ -452,7 +455,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var extraction = GccV2PartnerExtractionService.ExtractFromPages(quoteable, toolNames);
+        var extraction = await _partnerExtraction.ExtractFromPagesAsync(quoteable, toolNames, ct).ConfigureAwait(false);
         if (_rag.IsEnabled)
         {
             extraction = await GccV2PartnerExtractionVerify.VerifyAgainstLibraryAsync(

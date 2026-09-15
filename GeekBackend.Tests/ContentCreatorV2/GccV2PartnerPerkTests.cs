@@ -58,3 +58,22 @@ public sealed class GccV2PartnerPerkTests
         Assert.DoesNotContain("AffiliatePerks", properties);
     }
 }
+
+/// <summary>
+/// Affiliate disclosure must bind to a jurisdiction/policy regime when the source states one.
+/// The field previously existed with zero consumers anywhere in the codebase.
+/// </summary>
+public sealed class GccV2AffiliateDisclosureTests
+{
+    [Fact]
+    public void Disclosure_asset_carries_a_jurisdiction_or_policy()
+    {
+        var fields = typeof(GeekApplication.Models.ContentCreator.GccPartnerAffiliateDisclosureAsset)
+            .GetProperties()
+            .Select(p => p.Name)
+            .ToList();
+
+        Assert.Contains("DisclosureText", fields);
+        Assert.Contains("JurisdictionOrPolicy", fields);
+    }
+}

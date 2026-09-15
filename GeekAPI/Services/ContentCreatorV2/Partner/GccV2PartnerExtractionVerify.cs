@@ -58,13 +58,54 @@ public static class GccV2PartnerExtractionVerify
             });
         }
 
-        var proofs = new List<GccPartnerProofAsset>(extraction.ProofPack.Count);
-        foreach (var proof in extraction.ProofPack)
+        // Proof is three addressable types now; each verifies against its own claim-bearing text.
+        var caseStudies = new List<GccPartnerCaseStudyAsset>(extraction.CaseStudies.Count);
+        foreach (var study in extraction.CaseStudies)
         {
-            var md = await LoadMarkdown(proof.Provenance.PageId, proof.Provenance.RunId).ConfigureAwait(false);
-            proofs.Add(proof with
+            var md = await LoadMarkdown(study.Provenance.PageId, study.Provenance.RunId).ConfigureAwait(false);
+            caseStudies.Add(study with
             {
-                Provenance = StampProvenance(proof.Provenance, proof.ProofClaim, md, overrides),
+                Provenance = StampProvenance(study.Provenance, study.OutcomeClaim, md, overrides),
+            });
+        }
+
+        var testimonials = new List<GccPartnerTestimonialAsset>(extraction.Testimonials.Count);
+        foreach (var testimonial in extraction.Testimonials)
+        {
+            var md = await LoadMarkdown(testimonial.Provenance.PageId, testimonial.Provenance.RunId).ConfigureAwait(false);
+            testimonials.Add(testimonial with
+            {
+                Provenance = StampProvenance(testimonial.Provenance, testimonial.QuoteText, md, overrides),
+            });
+        }
+
+        var awards = new List<GccPartnerAwardAsset>(extraction.Awards.Count);
+        foreach (var award in extraction.Awards)
+        {
+            var md = await LoadMarkdown(award.Provenance.PageId, award.Provenance.RunId).ConfigureAwait(false);
+            awards.Add(award with
+            {
+                Provenance = StampProvenance(award.Provenance, award.AwardName, md, overrides),
+            });
+        }
+
+        var features = new List<GccPartnerFeatureAsset>(extraction.FeatureInventory.Count);
+        foreach (var feature in extraction.FeatureInventory)
+        {
+            var md = await LoadMarkdown(feature.Provenance.PageId, feature.Provenance.RunId).ConfigureAwait(false);
+            features.Add(feature with
+            {
+                Provenance = StampProvenance(feature.Provenance, feature.FeatureName, md, overrides),
+            });
+        }
+
+        var constraints = new List<GccPartnerTechnicalConstraintAsset>(extraction.TechnicalConstraints.Count);
+        foreach (var constraint in extraction.TechnicalConstraints)
+        {
+            var md = await LoadMarkdown(constraint.Provenance.PageId, constraint.Provenance.RunId).ConfigureAwait(false);
+            constraints.Add(constraint with
+            {
+                Provenance = StampProvenance(constraint.Provenance, constraint.LimitText, md, overrides),
             });
         }
 
@@ -89,7 +130,11 @@ public static class GccV2PartnerExtractionVerify
         {
             Citables = citables,
             FaqBank = faqs,
-            ProofPack = proofs,
+            CaseStudies = caseStudies,
+            Testimonials = testimonials,
+            Awards = awards,
+            FeatureInventory = features,
+            TechnicalConstraints = constraints,
             PricingCatalog = pricing,
         };
     }

@@ -17,7 +17,11 @@ public sealed record GccPartnerExtractionDocument(
     IReadOnlyList<GccPartnerIcpAsset> Icp,
     IReadOnlyList<GccPartnerIntegrationAsset> Integrations,
     IReadOnlyList<GccPartnerFaqAsset> FaqBank,
-    IReadOnlyList<GccPartnerProofAsset> ProofPack,
+    IReadOnlyList<GccPartnerCaseStudyAsset> CaseStudies,
+    IReadOnlyList<GccPartnerTestimonialAsset> Testimonials,
+    IReadOnlyList<GccPartnerAwardAsset> Awards,
+    IReadOnlyList<GccPartnerFeatureAsset> FeatureInventory,
+    IReadOnlyList<GccPartnerTechnicalConstraintAsset> TechnicalConstraints,
     IReadOnlyList<GccPartnerOfferCtaAsset> OfferCtas,
     IReadOnlyList<GccPartnerDisqualifierAsset> Disqualifiers,
     IReadOnlyList<GccPartnerUseCasePlaybookAsset> UseCasePlaybooks,
@@ -88,6 +92,10 @@ public sealed record GccPartnerPricingTierAsset(
     /// <summary>Restored 2026-09-15 — live consumer: GccV2PartnerExtractionVerify uses this as verify-quote fallback text when present.</summary>
     string? FreeOrTrial,
     string? OverageTerms,
+    /// <summary>Structured per-unit cost, e.g. 15 / "seat" or 0.02 / "credit". Null when not published.</summary>
+    decimal? UnitCostAmount,
+    /// <summary>The unit <see cref="UnitCostAmount"/> is charged per: seat, credit, user, request.</summary>
+    string? UnitCostBasis,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
@@ -111,9 +119,58 @@ public sealed record GccPartnerFaqAsset(
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
-public sealed record GccPartnerProofAsset(
-    string ProofKind,
-    string ProofClaim,
+/// <summary>
+/// Proof was previously one undifferentiated bucket (ProofKind + ProofClaim free text), so a case
+/// study, a testimonial and a G2 badge were indistinguishable and could not be injected at the moment
+/// each is persuasive. They are now three addressable types.
+/// </summary>
+public sealed record GccPartnerCaseStudyAsset(
+    string ClientName,
+    string? Sector,
+    string OutcomeClaim,
+    /// <summary>The headline metric, e.g. "ROI" or "time saved". Null when the study states none.</summary>
+    string? MetricName,
+    /// <summary>The metric's stated value, e.g. "40%" or "12 hours/week". Never computed or rounded.</summary>
+    string? MetricValue,
+    string OriginProofUrl,
+    GccPartnerExtractionProvenance Provenance);
+
+public sealed record GccPartnerTestimonialAsset(
+    string QuoteText,
+    string? AttributedTo,
+    string? BuyerRole,
+    string? Industry,
+    string OriginProofUrl,
+    GccPartnerExtractionProvenance Provenance);
+
+/// <param name="Source">Normalized: g2 | capterra | producthunt | trustpilot | other.</param>
+public sealed record GccPartnerAwardAsset(
+    string AwardName,
+    string Source,
+    string? AwardedFor,
+    string? AwardedPeriod,
+    string OriginProofUrl,
+    GccPartnerExtractionProvenance Provenance);
+
+/// <summary>
+/// The definitive list of what the tool does, distinct from <see cref="GccPartnerComparisonAsset"/>
+/// which is a comparison vector. Prevents the model asserting capabilities the product lacks.
+/// </summary>
+public sealed record GccPartnerFeatureAsset(
+    string FeatureName,
+    string? FeatureCategory,
+    /// <summary>Tier this feature is gated behind when the page states one.</summary>
+    string? GatedToTier,
+    string OriginProofUrl,
+    GccPartnerExtractionProvenance Provenance);
+
+/// <param name="ConstraintKind">api_rate_limit | storage_cap | character_limit | seat_cap | other.</param>
+/// <param name="LimitValue">Numeric limit when published; null when stated only qualitatively.</param>
+public sealed record GccPartnerTechnicalConstraintAsset(
+    string ConstraintKind,
+    decimal? LimitValue,
+    string? LimitUnit,
+    string LimitText,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 

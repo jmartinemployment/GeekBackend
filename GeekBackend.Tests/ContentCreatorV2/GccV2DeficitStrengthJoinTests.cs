@@ -1,4 +1,5 @@
 using GeekAPI.Services.ContentCreatorV2.Competitor;
+using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekApplication.Models.ContentCreator;
 
 namespace GeekBackend.Tests.ContentCreatorV2;
@@ -41,9 +42,7 @@ public sealed class GccV2DeficitStrengthJoinTests
 
     private static GccPartnerExtractionDocument PartnerWithStrength(string axisId, string? chunkId)
     {
-        var empty = new GccPartnerExtractionDocument(
-            GccPartnerExtractionDocument.CurrentExtractorVersion,
-            [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        var empty = GccV2PartnerExtractionService.EmptyDocument();
         return empty with
         {
             Comparisons =
