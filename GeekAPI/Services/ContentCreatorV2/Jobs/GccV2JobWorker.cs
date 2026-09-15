@@ -629,7 +629,10 @@ public sealed class GccV2JobWorker : BackgroundService
             DateTimeOffset.UtcNow,
             keywordsList,
             toolPage?.PillarArticleUrl,
-            toolPage?.Slug);
+            toolPage?.Slug,
+            // Verified, rights-cleared evidence ships as schema.org citation attribution so the
+            // published page is itself citeable. Filtering happens in MergeCitations.
+            outcome.Final.Citations);
         var resultJson = JsonSerializer.Serialize(new
         {
             title = outcome.Final.Title,

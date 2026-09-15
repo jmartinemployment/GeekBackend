@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -44,11 +45,12 @@ public sealed class GccV2JsonLdBuilder
         DateTimeOffset completedAt,
         IReadOnlyList<string> keywords,
         string? pillarArticleUrl,
-        string? slugOverride = null)
+        string? slugOverride = null,
+        IReadOnlyList<RagCitationDto>? citations = null)
     {
         var slug = string.IsNullOrWhiteSpace(slugOverride) ? SlugHelper.Slugify(title) : slugOverride;
         var canonicalUrl = CanonicalUrlFor(contentType, slug, toolPageKind);
-        return Build(contentType, toolPageKind, title, metaDescription, canonicalUrl, document, completedAt, keywords, pillarArticleUrl);
+        return Build(contentType, toolPageKind, title, metaDescription, canonicalUrl, document, completedAt, keywords, pillarArticleUrl, citations);
     }
 
     public string? Build(
@@ -60,7 +62,8 @@ public sealed class GccV2JsonLdBuilder
         ContentDocument document,
         DateTimeOffset completedAt,
         IReadOnlyList<string> keywords,
-        string? pillarArticleUrl)
+        string? pillarArticleUrl,
+        IReadOnlyList<RagCitationDto>? citations = null)
     {
         if (string.IsNullOrWhiteSpace(canonicalUrl)) return null;
 
@@ -96,7 +99,8 @@ public sealed class GccV2JsonLdBuilder
         };
 
         if (primary is null) return null;
-        return MergeFaqPage(primary, ExtractFaqPairs(document));
+        var withFaq = MergeFaqPage(primary, ExtractFaqPairs(document));
+        return citations is { Count: > 0 } ? MergeCitations(withFaq, citations) : withFaq;
     }
 
     public string? CanonicalUrlFor(string contentType, string slug, string? toolPageKind)
@@ -130,6 +134,86 @@ public sealed class GccV2JsonLdBuilder
 
         return pairs;
     }
+
+    /// <summary>
+    /// Emit verified evidence as schema.org <c>citation</c> entries on the primary node, so published
+    /// pages carry real external source attribution rather than internal cross-links alone.
+    ///
+    /// Only citations that are BOTH <see cref="RagCitationDto.Verified"/> == true AND rights-cleared
+    /// (<c>sourceRights</c> ∈ {consented, licensed}, master-plan Appendix B) are emitted — unknown /
+    /// prohibited / missing rights are dropped silently rather than published.
+    ///
+    /// v1's schema builders already set <c>citation</c> to the companion-piece cross-link
+    /// (relatedBlogPostUrl / pillarArticleUrl). That is internal linking, not source attribution, so
+    /// entries are APPENDED to any existing array rather than replacing it, and v1's builders are not
+    /// modified: v1 is live production and off-limits.
+    /// </summary>
+    internal static string MergeCitations(
+        string primaryJsonLd,
+        IReadOnlyList<RagCitationDto> citations)
+    {
+        var emittable = citations
+            .Where(c => c.Verified == true)
+            .Where(c => !string.IsNullOrWhiteSpace(c.Url))
+            .Where(c => IsRightsCleared(c.SourceRights))
+            .GroupBy(c => c.Url, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+
+        if (emittable.Count == 0) return primaryJsonLd;
+
+        try
+        {
+            var root = JsonNode.Parse(primaryJsonLd)?.AsObject();
+            if (root is null) return primaryJsonLd;
+
+            // Target the article/primary node: inside @graph it is the first non-FAQPage entry.
+            var target = root;
+            if (root["@graph"] is JsonArray graph)
+            {
+                var primaryNode = graph
+                    .OfType<JsonObject>()
+                    .FirstOrDefault(n => (string?)n["@type"] is not "FAQPage");
+                if (primaryNode is null) return primaryJsonLd;
+                target = primaryNode;
+            }
+
+            var citationArray = target["citation"] as JsonArray ?? [];
+            // Preserve v1's existing companion cross-links, then append source attribution.
+            var merged = new JsonArray();
+            foreach (var existing in citationArray.ToList())
+            {
+                citationArray.Remove(existing);
+                merged.Add(existing);
+            }
+
+            foreach (var citation in emittable)
+            {
+                var node = new JsonObject
+                {
+                    ["@type"] = "WebPage",
+                    ["url"] = citation.Url,
+                };
+                if (!string.IsNullOrWhiteSpace(citation.Title))
+                    node["name"] = citation.Title;
+                if (!string.IsNullOrWhiteSpace(citation.Quote))
+                    node["description"] = citation.Quote;
+                merged.Add(node);
+            }
+
+            target["citation"] = merged;
+            return root.ToJsonString(JsonOpts);
+        }
+        catch (JsonException)
+        {
+            return primaryJsonLd;
+        }
+    }
+
+    /// <summary>Appendix B: only consented / licensed sources may be displayed.</summary>
+    private static bool IsRightsCleared(string? sourceRights) =>
+        string.Equals(sourceRights, "consented", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(sourceRights, "licensed", StringComparison.OrdinalIgnoreCase);
 
     internal static string MergeFaqPage(
         string primaryJsonLd,
