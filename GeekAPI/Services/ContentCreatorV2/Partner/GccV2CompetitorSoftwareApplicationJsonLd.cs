@@ -6,6 +6,12 @@ namespace GeekAPI.Services.ContentCreatorV2.Partner;
 /// <summary>
 /// Competitor <c>SoftwareApplication</c> JSON-LD (competitor-extraction §10).
 /// Always analysis-only — never sellable partner schema; crawlType stays competitors.
+/// A competitor is never given an <c>offers.url</c> CTA/destination — there is no
+/// <see cref="GccCompetitorOfferCtaAsset"/>; the type no longer exists (see
+/// plans/rag-foundation-rewrite.md §0.000/§3, plans/competitor-extraction-complete.md).
+/// TODO: this builder still emits <c>@type: SoftwareApplication</c> + <c>Offer</c>/<c>priceCurrency</c>
+/// for a rival business, which is itself a category error for a services/agency competitor
+/// (Organization/ProfessionalService is correct) — tracked, not fixed in this pass; see §0.000.
 /// </summary>
 public static class GccV2CompetitorSoftwareApplicationJsonLd
 {
@@ -42,11 +48,10 @@ public static class GccV2CompetitorSoftwareApplicationJsonLd
             node["description"] = description.Trim();
 
         var priced = extraction.PricingCatalog.FirstOrDefault(p => p.ListPrice is not null);
-        var cta = extraction.OfferCtas.FirstOrDefault();
-        if (priced is not null || cta is not null)
+        if (priced is not null)
         {
             var offer = new Dictionary<string, object?> { ["@type"] = "Offer" };
-            if (priced?.ListPrice is { } listPrice)
+            if (priced.ListPrice is { } listPrice)
             {
                 offer["price"] = listPrice.ToString("0.00", CultureInfo.InvariantCulture);
                 offer["priceCurrency"] = string.IsNullOrWhiteSpace(priced.PriceCurrency)
@@ -54,12 +59,11 @@ public static class GccV2CompetitorSoftwareApplicationJsonLd
                     : priced.PriceCurrency;
             }
 
-            if (cta is not null)
-                offer["url"] = cta.DestinationUrl;
-            else if (priced is not null)
-                offer["url"] = priced.OriginProofUrl;
+            // No CTA/destination is ever emitted for a competitor — offer.url points at the
+            // source evidence page, never a conversion path to the rival (§0.000).
+            offer["url"] = priced.OriginProofUrl;
 
-            if (!string.IsNullOrWhiteSpace(priced?.OverageTerms))
+            if (!string.IsNullOrWhiteSpace(priced.OverageTerms))
             {
                 offer["priceSpecification"] = new Dictionary<string, object?>
                 {

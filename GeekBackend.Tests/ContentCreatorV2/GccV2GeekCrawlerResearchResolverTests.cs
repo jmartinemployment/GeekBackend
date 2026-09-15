@@ -753,6 +753,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     private sealed class FakeReadRepo : IGccV2GeekCrawlerReadRepository
     {
         public GeekCrawlerRunDto? LatestRun { get; init; }
+        public GeekCrawlerRunDto? ContainingSeedRun { get; init; }
         public IReadOnlyList<GeekCrawlerPageDto> Pages { get; init; } = [];
         public int ListPagesAsyncCallCount { get; private set; }
         public int ListPagesBySeedsAsyncCallCount { get; private set; }
@@ -789,6 +790,13 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             string seedKey,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRunDto?>(null);
+
+        public Task<GeekCrawlerRunDto?> GetLatestRunContainingSeedAsync(
+            string ownerUserId,
+            string crawlType,
+            string seed,
+            CancellationToken ct = default) =>
+            Task.FromResult(ContainingSeedRun);
     }
 
     private sealed class FakeProjectSitePageReader : IGccV2ProjectSitePageReader

@@ -4,8 +4,17 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekAPI.Services.ContentCreatorV2.Partner;
 
 /// <summary>
-/// Deterministic competitor library extraction (competitor-extraction plan §5–§7).
+/// Deterministic (regex/heuristic) competitor library extraction (competitor-extraction plan §5–§7).
+/// This IS the live production path — called from
+/// <see cref="GeekCrawler.GccV2GeekCrawlerResearchResolver.MergeCompetitorResearchAsync"/>.
+/// No <c>ContentCreatorV2.Synthesis</c> namespace exists in this codebase; do not describe this
+/// service as superseded by one. <see cref="IGccV2SchemaConstrainedGenerator"/>
+/// (<c>Generation/GccV2SchemaConstrainedGenerator.cs</c>) is a real, separate, not-yet-wired seam
+/// for a future schema-constrained rewrite — it has zero current callers and does not replace this.
 /// Always stamps <c>crawlType:"competitors"</c>. Never invents soft success without grounded text.
+/// A competitor entity must never carry a sell/CTA/offer field — competitors are rival businesses,
+/// not products this operator sells (see plans/competitor-extraction-complete.md §1 and
+/// plans/rag-foundation-rewrite.md §0.000).
 /// </summary>
 public static partial class GccV2CompetitorExtractionService
 {
@@ -33,11 +42,6 @@ public static partial class GccV2CompetitorExtractionService
         var typeLabels = new List<GccCompetitorTypeLabelAsset>();
         var deficits = new List<GccCompetitorDeficitRouterAsset>();
         var claimRisk = new List<GccCompetitorClaimRiskAsset>();
-        var adThemes = new List<GccCompetitorAdThemeAsset>();
-        var outlines = new List<GccCompetitorOutlineCloneAsset>();
-        var serp = new List<GccCompetitorSerpPostureAsset>();
-        var changelog = new List<GccCompetitorChangelogAsset>();
-        var compliance = new List<GccCompetitorComplianceSnippetAsset>();
 
         foreach (var page in pages)
         {
@@ -48,11 +52,6 @@ public static partial class GccV2CompetitorExtractionService
             ExtractTypeLabel(page, provenance, competitorSeedUrls, typeLabels);
             ExtractDeficits(page, provenance, swaps, deficits);
             ExtractClaimRisk(page, provenance, claimRisk);
-            ExtractAdThemes(page, provenance, adThemes);
-            ExtractOutline(page, provenance, outlines);
-            ExtractSerp(page, provenance, serp);
-            ExtractChangelog(page, provenance, changelog);
-            ExtractCompliance(page, provenance, compliance);
         }
 
         // Partner-side alternatives that came from competitor-like deficit language on these pages
@@ -70,23 +69,13 @@ public static partial class GccV2CompetitorExtractionService
 
         return new GccCompetitorExtractionDocument(
             GccCompetitorExtractionDocument.CurrentExtractorVersion,
-            DateTimeOffset.UtcNow,
             mirrored.PricingCatalog.Select(p => new GccCompetitorPricingTierAsset(
-                p.TierName, p.ListPrice, p.PriceCurrency, p.BillingPeriod, p.FeatureGates,
-                p.FreeOrTrial, p.OverageTerms, p.PriceEffectiveDate, p.OriginProofUrl,
-                Relabel(p.Provenance))).ToList(),
-            mirrored.Icp.Select(i => new GccCompetitorIcpAsset(
-                i.ServedSegments, i.ExcludedSegments, i.CompanySizeBand, i.Industries, i.BuyerRoles,
-                Relabel(i.Provenance))).ToList(),
-            mirrored.Integrations.Select(i => new GccCompetitorIntegrationAsset(
-                i.IntegrationName, i.IntegrationType, i.ApiOrSdk, i.MarketplacePresence,
-                Relabel(i.Provenance))).ToList(),
+                p.TierName, p.ListPrice, p.PriceCurrency, p.BillingPeriod, p.OverageTerms,
+                p.OriginProofUrl, Relabel(p.Provenance))).ToList(),
             mirrored.FaqBank.Select(f => new GccCompetitorFaqAsset(
                 f.Question, f.VerifiedAnswer, f.OriginProofUrl, Relabel(f.Provenance))).ToList(),
             mirrored.ProofPack.Select(p => new GccCompetitorProofAsset(
                 p.ProofKind, p.ProofClaim, p.OriginProofUrl, Relabel(p.Provenance))).ToList(),
-            mirrored.OfferCtas.Select(o => new GccCompetitorOfferCtaAsset(
-                o.CtaLabel, o.DestinationUrl, o.OfferType, o.CtaWrapper, Relabel(o.Provenance))).ToList(),
             mirrored.Disqualifiers.Select(d => new GccCompetitorDisqualifierAsset(
                 d.LimitType, d.LimitDetail, d.OriginProofUrl, Relabel(d.Provenance))).ToList(),
             Dedup(gapMap, g => g.GapTopic),
@@ -97,24 +86,15 @@ public static partial class GccV2CompetitorExtractionService
             mirrored.Comparisons.Select(c => new GccCompetitorComparisonAxisAsset(
                 c.StandardizedFeatureId,
                 c.CapabilityPayload,
-                c.NormalizedCost,
                 c.Provenance.OriginProofUrl,
                 Relabel(c.Provenance))).ToList(),
-            Dedup(claimRisk, c => c.ClaimText),
-            Dedup(adThemes, a => a.HeadlinePattern + "|" + a.OfferPromise),
-            Dedup(outlines, o => o.SourceUrl),
-            Dedup(serp, s => s.CoverageTopic),
-            Dedup(changelog, c => c.ChangeSummary),
-            Dedup(compliance, c => c.TermKind + "|" + c.TermText));
+            Dedup(claimRisk, c => c.ClaimText));
     }
 
     public static GccCompetitorExtractionDocument EmptyDocument() =>
         new(
             GccCompetitorExtractionDocument.CurrentExtractorVersion,
-            DateTimeOffset.UtcNow,
-            [], [], [], [], [], [], [],
-            [], [], [], [], [], [], [],
-            [], [], [], [], []);
+            [], [], [], [], [], [], [], [], [], [], []);
 
     private static void ExtractGapMap(
         GccQuoteablePage page,
@@ -140,8 +120,6 @@ public static partial class GccV2CompetitorExtractionService
             sink.Add(new GccCompetitorGapMapAsset(
                 topic,
                 depth,
-                null,
-                page.Url,
                 $"Cover {topic} with more depth than the rival page.",
                 provenance));
         }
@@ -156,17 +134,11 @@ public static partial class GccV2CompetitorExtractionService
         {
             if (!UnlikeRegex().IsMatch(paragraph) && !VsRegex().IsMatch(paragraph)) continue;
             var excerpt = Truncate(Normalize(paragraph), 240);
-            var name = UnlikeRegex().Match(paragraph) is { Success: true } m
-                ? Truncate(m.Groups["name"].Value.Trim(), 80)
-                : VsRegex().Match(paragraph) is { Success: true } vs
-                    ? Truncate(vs.Groups["name"].Value.Trim(), 80)
-                    : "unnamed rival";
             var sentiment = paragraph.Contains("unlike", StringComparison.OrdinalIgnoreCase)
                             || paragraph.Contains("don't", StringComparison.OrdinalIgnoreCase)
                 ? "dismissive"
                 : "neutral";
             sink.Add(new GccCompetitorFramingAsset(
-                name,
                 "us_vs_them",
                 excerpt,
                 sentiment,
@@ -206,10 +178,8 @@ public static partial class GccV2CompetitorExtractionService
         sink.Add(new GccCompetitorDemandSignalAsset(
             keyword,
             format,
-            hierarchy,
             intent,
             theme is null ? null : Truncate(Normalize(theme), 160),
-            hierarchy.Count > 0 ? string.Join(" › ", hierarchy.Take(6)) : null,
             provenance));
     }
 
@@ -287,111 +257,9 @@ public static partial class GccV2CompetitorExtractionService
             sink.Add(new GccCompetitorClaimRiskAsset(
                 claim,
                 kind,
-                AsOfRegex().Match(paragraph) is { Success: true } m ? Truncate(m.Groups["asof"].Value.Trim(), 40) : null,
                 page.Url,
                 "do_not_echo_as_fact",
                 provenance with { Quote = claim }));
-        }
-    }
-
-    private static void ExtractAdThemes(
-        GccQuoteablePage page,
-        GccPartnerExtractionProvenance provenance,
-        List<GccCompetitorAdThemeAsset> sink)
-    {
-        var headline = page.Headings.FirstOrDefault(h => h.Level == 1)?.Text
-                       ?? page.Title
-                       ?? page.Paragraphs.FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(headline)) return;
-        var promise = page.Paragraphs.FirstOrDefault(p => p.Length is >= 20 and <= 160)
-                      ?? Truncate(headline, 120);
-        sink.Add(new GccCompetitorAdThemeAsset(
-            Truncate(Normalize(headline), 120),
-            Truncate(Normalize(promise), 160),
-            promise,
-            page.Url,
-            provenance));
-    }
-
-    private static void ExtractOutline(
-        GccQuoteablePage page,
-        GccPartnerExtractionProvenance provenance,
-        List<GccCompetitorOutlineCloneAsset> sink)
-    {
-        var skeleton = page.Headings
-            .Where(h => h.Level is >= 2 and <= 3)
-            .Select(h => $"H{h.Level}: {Truncate(Normalize(h.Text), 100)}")
-            .Take(24)
-            .ToList();
-        if (skeleton.Count < 2) return;
-        sink.Add(new GccCompetitorOutlineCloneAsset(
-            skeleton,
-            page.Url,
-            page.Url.Contains("/blog", StringComparison.OrdinalIgnoreCase) ? "Informational" : "Commercial Investigation",
-            provenance));
-    }
-
-    private static void ExtractSerp(
-        GccQuoteablePage page,
-        GccPartnerExtractionProvenance provenance,
-        List<GccCompetitorSerpPostureAsset> sink)
-    {
-        if (!AuthorityHintRegex().IsMatch(string.Join('\n', page.Paragraphs))
-            && !page.Url.Contains("/blog", StringComparison.OrdinalIgnoreCase)
-            && !page.Url.Contains("advisor", StringComparison.OrdinalIgnoreCase))
-            return;
-
-        var topic = page.Title ?? page.Headings.FirstOrDefault()?.Text ?? "industry coverage";
-        sink.Add(new GccCompetitorSerpPostureAsset(
-            Truncate(Normalize(topic), 120),
-            "Editorial/content-authority posture on rival page",
-            $"Own a product-grounded angle on {Truncate(Normalize(topic), 80)} that content rivals under-serve.",
-            provenance));
-    }
-
-    private static void ExtractChangelog(
-        GccQuoteablePage page,
-        GccPartnerExtractionProvenance provenance,
-        List<GccCompetitorChangelogAsset> sink)
-    {
-        foreach (var paragraph in page.Paragraphs)
-        {
-            if (!ChangeHintRegex().IsMatch(paragraph)) continue;
-            var kind = paragraph.Contains("price", StringComparison.OrdinalIgnoreCase) ? "price_hike"
-                : paragraph.Contains("remov", StringComparison.OrdinalIgnoreCase)
-                  || paragraph.Contains("no longer", StringComparison.OrdinalIgnoreCase)
-                    ? "feature_removed"
-                    : paragraph.Contains("policy", StringComparison.OrdinalIgnoreCase) ? "policy"
-                    : "other";
-            sink.Add(new GccCompetitorChangelogAsset(
-                kind,
-                Truncate(Normalize(paragraph), 240),
-                AsOfRegex().Match(paragraph) is { Success: true } m ? Truncate(m.Groups["asof"].Value.Trim(), 40) : null,
-                page.Url,
-                provenance with { Quote = Truncate(Normalize(paragraph), 240) }));
-        }
-    }
-
-    private static void ExtractCompliance(
-        GccQuoteablePage page,
-        GccPartnerExtractionProvenance provenance,
-        List<GccCompetitorComplianceSnippetAsset> sink)
-    {
-        foreach (var paragraph in page.Paragraphs)
-        {
-            string? kind = null;
-            if (paragraph.Contains("privacy", StringComparison.OrdinalIgnoreCase)) kind = "privacy";
-            else if (Regex.IsMatch(paragraph, @"\bSLA\b", RegexOptions.IgnoreCase)) kind = "sla";
-            else if (paragraph.Contains("SOC 2", StringComparison.OrdinalIgnoreCase)
-                     || paragraph.Contains("security", StringComparison.OrdinalIgnoreCase))
-                kind = "security";
-            else if (paragraph.Contains("residency", StringComparison.OrdinalIgnoreCase)) kind = "residency";
-            if (kind is null) continue;
-            sink.Add(new GccCompetitorComplianceSnippetAsset(
-                kind,
-                Truncate(Normalize(paragraph), 280),
-                page.Url,
-                provenance with { Quote = Truncate(Normalize(paragraph), 280) }));
         }
     }
 
@@ -442,9 +310,6 @@ public static partial class GccV2CompetitorExtractionService
 
     [GeneratedRegex(@"\b(as of|effective)\s+(?<asof>[A-Za-z0-9,\s\-/]{4,40})", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AsOfRegex();
-
-    [GeneratedRegex(@"\b(new pricing|price (hike|increase|change)|updated|changelog|now includes|no longer|removed)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex ChangeHintRegex();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();

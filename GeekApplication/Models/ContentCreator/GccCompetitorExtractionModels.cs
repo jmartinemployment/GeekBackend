@@ -3,16 +3,21 @@ namespace GeekApplication.Models.ContentCreator;
 /// <summary>
 /// Structured competitor library payloads (competitor-extraction plan §5–§7).
 /// Always <c>crawlType:"competitor"</c> (or <c>competitors</c>). Never label as partner.
+/// Pruned shape: Icp, Integrations, ComplianceSnippets, AdThemes, OutlineClones, SerpPosture,
+/// Changelog, and the dead SoftwareApplicationJsonLd cache field were removed — confirmed zero
+/// real downstream consumers by direct grep 2026-09-15. OfferCtas was also removed: a competitor
+/// (a rival business) must never carry a sell CTA/destination URL (see
+/// plans/rag-foundation-rewrite.md §0.000, plans/competitor-extraction-complete.md §1).
+/// CORRECTION 2026-09-15: FaqBank/ProofPack were removed by an earlier pass whose "zero real
+/// downstream consumers... verified by repo-wide grep" claim was false — both are live consumers
+/// of GccV2CompetitorExtractionVerify.cs. Restored. "See the Workstream 1 final report" — no such
+/// report exists on disk; do not cite it as a source.
 /// </summary>
 public sealed record GccCompetitorExtractionDocument(
     string ExtractorVersion,
-    DateTimeOffset ExtractedAtUtc,
     IReadOnlyList<GccCompetitorPricingTierAsset> PricingCatalog,
-    IReadOnlyList<GccCompetitorIcpAsset> Icp,
-    IReadOnlyList<GccCompetitorIntegrationAsset> Integrations,
     IReadOnlyList<GccCompetitorFaqAsset> FaqBank,
     IReadOnlyList<GccCompetitorProofAsset> ProofPack,
-    IReadOnlyList<GccCompetitorOfferCtaAsset> OfferCtas,
     IReadOnlyList<GccCompetitorDisqualifierAsset> Disqualifiers,
     IReadOnlyList<GccCompetitorGapMapAsset> GapMap,
     IReadOnlyList<GccCompetitorFramingAsset> FramingBank,
@@ -20,15 +25,9 @@ public sealed record GccCompetitorExtractionDocument(
     IReadOnlyList<GccCompetitorTypeLabelAsset> TypeLabels,
     IReadOnlyList<GccCompetitorDeficitRouterAsset> DeficitRouter,
     IReadOnlyList<GccCompetitorComparisonAxisAsset> ComparisonAxes,
-    IReadOnlyList<GccCompetitorClaimRiskAsset> ClaimRiskFlags,
-    IReadOnlyList<GccCompetitorAdThemeAsset> AdThemes,
-    IReadOnlyList<GccCompetitorOutlineCloneAsset> OutlineClones,
-    IReadOnlyList<GccCompetitorSerpPostureAsset> SerpPosture,
-    IReadOnlyList<GccCompetitorChangelogAsset> Changelog,
-    IReadOnlyList<GccCompetitorComplianceSnippetAsset> ComplianceSnippets,
-    Dictionary<string, object?>? SoftwareApplicationJsonLd = null)
+    IReadOnlyList<GccCompetitorClaimRiskAsset> ClaimRiskFlags)
 {
-    public const string CurrentExtractorVersion = "gcc-competitor-extraction.v1";
+    public const string CurrentExtractorVersion = "gcc-competitor-extraction.v3";
     public const string CrawlTypeCompetitor = "competitors";
 }
 
@@ -37,45 +36,22 @@ public sealed record GccCompetitorPricingTierAsset(
     decimal? ListPrice,
     string? PriceCurrency,
     string? BillingPeriod,
-    string? FeatureGates,
-    string? FreeOrTrial,
     string? OverageTerms,
-    string? PriceEffectiveDate,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
-public sealed record GccCompetitorIcpAsset(
-    IReadOnlyList<string> ServedSegments,
-    IReadOnlyList<string> ExcludedSegments,
-    string? CompanySizeBand,
-    IReadOnlyList<string> Industries,
-    IReadOnlyList<string> BuyerRoles,
-    GccPartnerExtractionProvenance Provenance);
-
-public sealed record GccCompetitorIntegrationAsset(
-    string IntegrationName,
-    string? IntegrationType,
-    string? ApiOrSdk,
-    string? MarketplacePresence,
-    GccPartnerExtractionProvenance Provenance);
-
+/// <summary>Restored 2026-09-15 — real consumer in GccV2CompetitorExtractionVerify.cs.</summary>
 public sealed record GccCompetitorFaqAsset(
     string Question,
     string VerifiedAnswer,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
+/// <summary>Restored 2026-09-15 — real consumer in GccV2CompetitorExtractionVerify.cs.</summary>
 public sealed record GccCompetitorProofAsset(
     string ProofKind,
     string ProofClaim,
     string OriginProofUrl,
-    GccPartnerExtractionProvenance Provenance);
-
-public sealed record GccCompetitorOfferCtaAsset(
-    string CtaLabel,
-    string DestinationUrl,
-    string OfferType,
-    string? CtaWrapper,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccCompetitorDisqualifierAsset(
@@ -87,13 +63,10 @@ public sealed record GccCompetitorDisqualifierAsset(
 public sealed record GccCompetitorGapMapAsset(
     string GapTopic,
     string DepthAssessment,
-    string? BriefIntentLink,
-    string? RivalUrl,
     string OpportunityForUs,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccCompetitorFramingAsset(
-    string FramedRivalName,
     string FrameType,
     string FrameExcerpt,
     string Sentiment,
@@ -103,10 +76,8 @@ public sealed record GccCompetitorFramingAsset(
 public sealed record GccCompetitorDemandSignalAsset(
     string? PrimaryKeywordFocus,
     string ContentFormat,
-    IReadOnlyList<string> ContentHierarchy,
     string? SearchIntentCategory,
     string? AdOrCopyTheme,
-    string? StructureWorthBeating,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccCompetitorTypeLabelAsset(
@@ -126,46 +97,12 @@ public sealed record GccCompetitorDeficitRouterAsset(
 public sealed record GccCompetitorComparisonAxisAsset(
     string StandardizedFeatureId,
     string RivalCapabilityPayload,
-    string? RivalNormalizedCost,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccCompetitorClaimRiskAsset(
     string ClaimText,
     string RiskKind,
-    string? StatedAsOf,
     string OriginProofUrl,
     string WriteGuidance,
-    GccPartnerExtractionProvenance Provenance);
-
-public sealed record GccCompetitorAdThemeAsset(
-    string HeadlinePattern,
-    string OfferPromise,
-    string? LandingPromise,
-    string OriginProofUrl,
-    GccPartnerExtractionProvenance Provenance);
-
-public sealed record GccCompetitorOutlineCloneAsset(
-    IReadOnlyList<string> OutlineSkeleton,
-    string SourceUrl,
-    string? IntentCategory,
-    GccPartnerExtractionProvenance Provenance);
-
-public sealed record GccCompetitorSerpPostureAsset(
-    string CoverageTopic,
-    string? AuthoritySignal,
-    string OpportunityForUs,
-    GccPartnerExtractionProvenance Provenance);
-
-public sealed record GccCompetitorChangelogAsset(
-    string ChangeKind,
-    string ChangeSummary,
-    string? StatedAsOf,
-    string OriginProofUrl,
-    GccPartnerExtractionProvenance Provenance);
-
-public sealed record GccCompetitorComplianceSnippetAsset(
-    string TermKind,
-    string TermText,
-    string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);

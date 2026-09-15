@@ -19,7 +19,6 @@ public sealed class GccV2CompetitorExtractionCompletionGatesTests
                 new GccCompetitorClaimRiskAsset(
                     "we are the #1 marketing suite for large teams",
                     "superlative",
-                    null,
                     "https://rival.example",
                     "do_not_echo_as_fact",
                     new GccPartnerExtractionProvenance(

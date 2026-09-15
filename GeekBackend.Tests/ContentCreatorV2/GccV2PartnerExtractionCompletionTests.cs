@@ -56,7 +56,6 @@ public sealed class GccV2PartnerExtractionCompletionTests
         var citable = new GccPartnerCitableAsset(
             "Maintains 99.9% API uptime",
             "https://partner.example/docs",
-            DateTimeOffset.UtcNow,
             new GccPartnerExtractionProvenance(
                 "https://partner.example/docs",
                 GccPartnerExtractionDocument.CrawlTypePartner,

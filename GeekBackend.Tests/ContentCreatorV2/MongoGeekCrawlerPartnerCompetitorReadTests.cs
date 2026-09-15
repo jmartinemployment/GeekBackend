@@ -156,6 +156,109 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
         Assert.Contains("Competitor research", missing.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task GetLatestRunContainingSeed_finds_a_seed_crawled_as_part_of_a_larger_batch_run()
+    {
+        var mongo = CreateMongo();
+        const string owner = "mongo-batch-user";
+        const string crawlType = CrawlTypes.Competitors;
+        var seeds = new[]
+        {
+            "https://batch-one.example/",
+            "https://batch-two.example/pricing",
+            "https://batch-three.example/",
+        };
+
+        var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds(seeds);
+        Assert.Equal(seeds.Length, normalized.Count);
+        var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
+        var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(normalized);
+
+        var run = await mongo.CreateRunAsync(new GeekCrawlerRun
+        {
+            OwnerUserId = owner,
+            CrawlType = crawlType,
+            Status = "complete",
+            SeedUrlsJson = seedsJson,
+            SeedKey = seedKey,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            StartedAtUtc = DateTimeOffset.UtcNow,
+            CompletedAtUtc = DateTimeOffset.UtcNow,
+        });
+
+        var targetSeed = normalized[1];
+
+        // Exact whole-set lookups (as used before this fix) must NOT find a batch run from a single seed.
+        var exactSeedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds([targetSeed]);
+        var exactBySeedsJson = await mongo.GetLatestRunAsync(owner, crawlType, exactSeedsJson);
+        Assert.Null(exactBySeedsJson);
+
+        var exactSeedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey([targetSeed]);
+        var exactBySlot = await mongo.GetRunForSlotAsync(owner, crawlType, exactSeedKey);
+        Assert.Null(exactBySlot);
+
+        // The new containment lookup must find it.
+        var containing = await mongo.GetLatestRunContainingSeedAsync(owner, crawlType, targetSeed);
+        Assert.NotNull(containing);
+        Assert.Equal(run.Id, containing!.Id);
+
+        // A seed that merely shares a prefix must NOT false-positive match.
+        var noMatch = await mongo.GetLatestRunContainingSeedAsync(
+            owner, crawlType, "https://batch-two.example/pricing.evil.com");
+        Assert.Null(noMatch);
+
+        if (_runner is null)
+            await mongo.DeleteRunCrawlDataAsync(run.Id);
+    }
+
+    [Fact]
+    public async Task Resolver_resolves_competitor_seed_that_was_crawled_as_part_of_a_batch_run()
+    {
+        var mongo = CreateMongo();
+        const string owner = "mongo-batch-resolver-user";
+        var seeds = new[]
+        {
+            "https://batch-rival-one.example/",
+            "https://batch-rival-two.example/pricing",
+        };
+        var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds(seeds);
+        var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
+        var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(normalized);
+
+        var run = await mongo.CreateRunAsync(new GeekCrawlerRun
+        {
+            OwnerUserId = owner,
+            CrawlType = CrawlTypes.Competitors,
+            Status = "complete",
+            SeedUrlsJson = seedsJson,
+            SeedKey = seedKey,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            StartedAtUtc = DateTimeOffset.UtcNow,
+            CompletedAtUtc = DateTimeOffset.UtcNow,
+        });
+
+        var resolver = new GccV2GeekCrawlerResearchResolver(
+            new MongoReadRepo(mongo),
+            new EmptyProjectSitePageReader(),
+            new DisabledRagClient(),
+            NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
+
+        var targetSeed = normalized[1];
+        var brief = $$"""{"competitorUrls":"{{targetSeed}}"}""";
+
+        var merged = await resolver.MergeCompetitorResearchAsync(owner, brief, CancellationToken.None);
+
+        // Before the fix: "no usable crawl run or indexed library pages" (run not found at all).
+        // After the fix: the run IS found via the batch-containment fallback, so the resolver gets far
+        // enough to hit the (unrelated) "research library is disabled" warning instead.
+        Assert.Single(merged.PartnerResearchWarnings);
+        Assert.Contains("research library is disabled", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("no usable crawl run", merged.PartnerResearchWarnings[0], StringComparison.OrdinalIgnoreCase);
+
+        if (_runner is null)
+            await mongo.DeleteRunCrawlDataAsync(run.Id);
+    }
+
     private MongoGeekCrawlerService CreateMongo() =>
         new(_connectionString, NullLogger<MongoGeekCrawlerService>.Instance);
 
@@ -224,6 +327,16 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             CancellationToken ct = default)
         {
             var run = await mongo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
+            return run is null ? null : ToDto(run);
+        }
+
+        public async Task<GeekCrawlerRunDto?> GetLatestRunContainingSeedAsync(
+            string ownerUserId,
+            string crawlType,
+            string seed,
+            CancellationToken ct = default)
+        {
+            var run = await mongo.GetLatestRunContainingSeedAsync(ownerUserId, crawlType, seed, ct);
             return run is null ? null : ToDto(run);
         }
 

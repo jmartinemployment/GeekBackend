@@ -17,7 +17,6 @@ using GeekAPI.Services.Workflow.Services.PromptBuilders;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using System.Diagnostics;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace GeekAPI.Services.ContentCreatorV2.Write;
 
@@ -708,19 +707,19 @@ public sealed class GccV2WriteService
             var line = lines[i].Trim();
             if (line.Length == 0) { FlushText(); continue; }
             var unordered = line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal);
-            var ordered = Regex.Match(line, @"^\d+\.\s+");
-            if (unordered || ordered.Success)
+            var orderedMatched = TryMatchOrderedListMarker(line, out var orderedMarkerLength);
+            if (unordered || orderedMatched)
             {
                 FlushText();
-                var isOrdered = ordered.Success;
+                var isOrdered = orderedMatched;
                 var items = new List<IReadOnlyList<Run>>();
                 while (i < lines.Count)
                 {
                     line = lines[i].Trim();
-                    var match = Regex.Match(line, @"^\d+\.\s+");
-                    var matches = isOrdered ? match.Success : line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal);
+                    var innerOrderedMatched = TryMatchOrderedListMarker(line, out var innerMarkerLength);
+                    var matches = isOrdered ? innerOrderedMatched : line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal);
                     if (!matches) { i--; break; }
-                    items.Add(ParseRuns(isOrdered ? line[match.Length..] : line[2..]));
+                    items.Add(ParseRuns(isOrdered ? line[innerMarkerLength..] : line[2..]));
                     i++;
                 }
                 result.Add(new ListParagraph(isOrdered, items));
@@ -733,16 +732,70 @@ public sealed class GccV2WriteService
         return result;
     }
 
+    /// <summary>
+    /// Non-regex equivalent of <c>^\d+\.\s+</c> — matches a leading ordered-list marker such as
+    /// "1. " or "12.\t" at the start of an already-trimmed line. Returns the marker's length
+    /// (digits + '.' + one-or-more whitespace) so the caller can slice past it.
+    /// </summary>
+    private static bool TryMatchOrderedListMarker(string line, out int markerLength)
+    {
+        var digitEnd = 0;
+        while (digitEnd < line.Length && char.IsDigit(line[digitEnd])) digitEnd++;
+        if (digitEnd == 0 || digitEnd >= line.Length || line[digitEnd] != '.')
+        {
+            markerLength = 0;
+            return false;
+        }
+
+        var whitespaceEnd = digitEnd + 1;
+        while (whitespaceEnd < line.Length && char.IsWhiteSpace(line[whitespaceEnd])) whitespaceEnd++;
+        if (whitespaceEnd == digitEnd + 1)
+        {
+            markerLength = 0;
+            return false;
+        }
+
+        markerLength = whitespaceEnd;
+        return true;
+    }
+
+    /// <summary>
+    /// Non-regex equivalent of <c>\[([^\]]+)\]\(([^)\s]+)\)</c> — scans for Markdown link syntax
+    /// <c>[text](url)</c> where the link text is non-empty and the url runs until the first
+    /// whitespace or closing paren, mirroring the removed regex's character classes exactly.
+    /// </summary>
     private static IReadOnlyList<Run> ParseRuns(string text)
     {
         var runs = new List<Run>();
         var cursor = 0;
-        foreach (Match match in Regex.Matches(text, @"\[([^\]]+)\]\(([^)\s]+)\)"))
+        var i = 0;
+        while (i < text.Length)
         {
-            if (match.Index > cursor) runs.Add(new Run(text[cursor..match.Index]));
-            runs.Add(new Run(match.Groups[1].Value, Href: match.Groups[2].Value));
-            cursor = match.Index + match.Length;
+            if (text[i] != '[') { i++; continue; }
+
+            var closeBracket = text.IndexOf(']', i + 1);
+            if (closeBracket <= i + 1 || closeBracket + 1 >= text.Length || text[closeBracket + 1] != '(')
+            {
+                i++;
+                continue;
+            }
+
+            var linkText = text[(i + 1)..closeBracket];
+            var urlStart = closeBracket + 2;
+            var urlEnd = urlStart;
+            while (urlEnd < text.Length && text[urlEnd] != ')' && !char.IsWhiteSpace(text[urlEnd])) urlEnd++;
+            if (urlEnd >= text.Length || text[urlEnd] != ')' || urlEnd == urlStart)
+            {
+                i++;
+                continue;
+            }
+
+            if (i > cursor) runs.Add(new Run(text[cursor..i]));
+            runs.Add(new Run(linkText, Href: text[urlStart..urlEnd]));
+            cursor = urlEnd + 1;
+            i = cursor;
         }
+
         if (cursor < text.Length) runs.Add(new Run(text[cursor..]));
         return runs.Count == 0 ? [new Run(text)] : runs;
     }

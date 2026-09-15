@@ -62,6 +62,17 @@ public interface IGccV2GeekCrawlerReadRepository
         string crawlType,
         string seedKey,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Finds the latest run for owner+crawlType whose seed set contains the given single normalized
+    /// seed — resolves a URL that was crawled as part of a larger multi-seed batch run, where
+    /// <see cref="GetLatestRunAsync"/>/<see cref="GetRunForSlotAsync"/> require an exact whole-set match.
+    /// </summary>
+    Task<GeekCrawlerRunDto?> GetLatestRunContainingSeedAsync(
+        string ownerUserId,
+        string crawlType,
+        string seed,
+        CancellationToken ct = default);
 }
 
 public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inner) : IGccV2GeekCrawlerReadRepository
@@ -92,6 +103,13 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
         string seedKey,
         CancellationToken ct = default) =>
         inner.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
+
+    public Task<GeekCrawlerRunDto?> GetLatestRunContainingSeedAsync(
+        string ownerUserId,
+        string crawlType,
+        string seed,
+        CancellationToken ct = default) =>
+        inner.GetLatestRunContainingSeedAsync(ownerUserId, crawlType, seed, ct);
 }
 
 /// <summary>
@@ -514,9 +532,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 extraction, _rag, rawBriefJson, ct).ConfigureAwait(false);
         }
 
-        var jsonLd = GccV2CompetitorSoftwareApplicationJsonLd.TryBuild(extraction, quoteable);
-        if (jsonLd is not null)
-            extraction = extraction with { SoftwareApplicationJsonLd = jsonLd };
+        // GccCompetitorExtractionDocument no longer carries a SoftwareApplicationJsonLd cache field
+        // (dead — computed, never emitted; see plans/rag-foundation-rewrite.md §0.000). Competitor
+        // JSON-LD emission, if ever wired up, must go through a real publish path, not a discard-only
+        // field on the extraction record.
 
         var briefWithResearch = GccV2PartnerUrlResearchService.MergeCompetitorResearchIntoBriefJson(
             rawBriefJson, quoteable);
@@ -881,6 +900,15 @@ public sealed class GccV2GeekCrawlerResearchResolver
         {
             var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(normalized);
             run = await _crawlerRepo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
+        }
+
+        // Exact-set lookups above only match a run crawled for exactly this seed (or this exact seed
+        // set). A seed that was crawled as part of a larger multi-seed batch run (e.g. five competitor
+        // URLs crawled together in one job) has a different SeedKey/SeedUrlsJson and would otherwise
+        // never resolve. Fall back to a containment lookup for the single-seed case.
+        if (run is null && normalized.Count == 1)
+        {
+            run = await _crawlerRepo.GetLatestRunContainingSeedAsync(ownerUserId, crawlType, normalized[0], ct);
         }
 
         return run;

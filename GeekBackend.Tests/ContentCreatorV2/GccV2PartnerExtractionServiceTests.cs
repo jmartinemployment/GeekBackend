@@ -12,7 +12,6 @@ public sealed class GccV2PartnerExtractionServiceTests
         Assert.Equal(GccPartnerExtractionDocument.CurrentExtractorVersion, doc.ExtractorVersion);
         Assert.Empty(doc.Citables);
         Assert.Empty(doc.PricingCatalog);
-        Assert.Null(doc.SoftwareApplicationJsonLd);
     }
 
     [Fact]

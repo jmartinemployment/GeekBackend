@@ -3,10 +3,12 @@ namespace GeekApplication.Models.ContentCreator;
 /// <summary>
 /// Structured partner library payloads (partner-extraction plan §2–§8).
 /// Always <c>crawlType:"partner"</c>. Excerpt-only <see cref="GccQuoteablePage"/> does not satisfy these assets.
+/// Pruned shape: fields with zero real downstream consumers (verified by repo-wide grep during the
+/// Workstream 1 synthesis rebuild) were removed rather than carried forward. See the Workstream 1
+/// final report for the exact drop list and rationale.
 /// </summary>
 public sealed record GccPartnerExtractionDocument(
     string ExtractorVersion,
-    DateTimeOffset ExtractedAtUtc,
     IReadOnlyList<GccPartnerCitableAsset> Citables,
     IReadOnlyList<GccPartnerAdvertisementAsset> Advertisements,
     IReadOnlyList<GccPartnerComparisonAsset> Comparisons,
@@ -24,10 +26,9 @@ public sealed record GccPartnerExtractionDocument(
     IReadOnlyList<GccPartnerBattlecardSliceAsset> BattlecardSlices,
     IReadOnlyList<GccPartnerDemoBeatAsset> DemoBeats,
     IReadOnlyList<GccPartnerComplianceSnippetAsset> ComplianceSnippets,
-    IReadOnlyList<GccPartnerAffiliateDisclosureAsset> AffiliateDisclosures,
-    Dictionary<string, object?>? SoftwareApplicationJsonLd = null)
+    IReadOnlyList<GccPartnerAffiliateDisclosureAsset> AffiliateDisclosures)
 {
-    public const string CurrentExtractorVersion = "gcc-partner-extraction.v2";
+    public const string CurrentExtractorVersion = "gcc-partner-extraction.v3";
     public const string CrawlTypePartner = "partner";
     public const string CrawlTypeCompetitors = "competitors";
 }
@@ -43,7 +44,7 @@ public sealed record GccPartnerExtractionProvenance(
     DateTimeOffset? TemporalAnchorUtc,
     /// <summary>Exact quote span used for verify (usually the claim / answer text).</summary>
     string? Quote = null,
-    /// <summary>0-based start offset of <see cref="Quote"/> in source Markdown when verified.</summary>
+    /// <summary>0-based start offset of <see cref="Quote"/> in source Markdown when verified. Required by master-plan Appendix C ("quote/offsets"); restored 2026-09-15 — the prior pruning pass removed it despite ~18 live consumers including GccV2CitationEvidenceGuard, GccV2ValidateService, RagGenerateService.</summary>
     int? StartChar = null,
     /// <summary>0-based end offset (exclusive) of <see cref="Quote"/> in source Markdown when verified.</summary>
     int? EndChar = null,
@@ -57,7 +58,6 @@ public sealed record GccPartnerExtractionProvenance(
 public sealed record GccPartnerCitableAsset(
     string IsolatedClaim,
     string OriginProofUrl,
-    DateTimeOffset? TemporalAnchorUtc,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccPartnerAdvertisementAsset(
@@ -83,10 +83,11 @@ public sealed record GccPartnerPricingTierAsset(
     decimal? ListPrice,
     string? PriceCurrency,
     string? BillingPeriod,
+    /// <summary>Restored 2026-09-15 — live consumer: GccV2PartnerExtractionVerify uses this as verify-quote fallback text when present.</summary>
     string? FeatureGates,
+    /// <summary>Restored 2026-09-15 — live consumer: GccV2PartnerExtractionVerify uses this as verify-quote fallback text when present.</summary>
     string? FreeOrTrial,
     string? OverageTerms,
-    string? PriceEffectiveDate,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
@@ -102,7 +103,6 @@ public sealed record GccPartnerIntegrationAsset(
     string IntegrationName,
     string? IntegrationType,
     string? ApiOrSdk,
-    string? MarketplacePresence,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccPartnerFaqAsset(
@@ -121,7 +121,6 @@ public sealed record GccPartnerOfferCtaAsset(
     string CtaLabel,
     string DestinationUrl,
     string OfferType,
-    string? CtaWrapper,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccPartnerDisqualifierAsset(
@@ -133,12 +132,10 @@ public sealed record GccPartnerDisqualifierAsset(
 public sealed record GccPartnerUseCasePlaybookAsset(
     string JobToBeDone,
     IReadOnlyList<string> CitedStepsOrFeatures,
-    string? PrimaryCta,
     GccPartnerExtractionProvenance Provenance);
 
 public sealed record GccPartnerCategoryAsset(
     string PrimaryCategory,
-    IReadOnlyList<string> Synonyms,
     string? VsCategoryLabel,
     GccPartnerExtractionProvenance Provenance);
 
@@ -158,7 +155,6 @@ public sealed record GccPartnerBattlecardSliceAsset(
 public sealed record GccPartnerDemoBeatAsset(
     string BeatTitle,
     string BeatClaim,
-    string? SectionAnchor,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
@@ -168,6 +164,12 @@ public sealed record GccPartnerComplianceSnippetAsset(
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);
 
+/// <summary>
+/// Affiliate/reseller disclosure — <see cref="JurisdictionOrPolicy"/> is a real business requirement
+/// for this operator's affiliate model (FTC/consumer-protection disclosure regimes vary by
+/// jurisdiction), so it is kept even though nothing reads it yet; PLAN/WRITE wiring for it is
+/// tracked as follow-up, not dropped as dead weight.
+/// </summary>
 public sealed record GccPartnerAffiliateDisclosureAsset(
     string DisclosureText,
     string? JurisdictionOrPolicy,

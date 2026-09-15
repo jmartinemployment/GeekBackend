@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using GeekRepository.Data.Entities.GeekCrawler;
@@ -31,6 +32,13 @@ public interface IMongoGeekCrawlerService
     Task<List<GeekCrawlerRun>> ListRunsByUserAsync(string ownerUserId, string? crawlType = null, int limit = 50, CancellationToken ct = default);
     Task<GeekCrawlerRun?> GetLatestRunAsync(string ownerUserId, string crawlType, string seedsJson, CancellationToken ct = default);
     Task<GeekCrawlerRun?> GetRunForSlotAsync(string ownerUserId, string crawlType, string seedKey, CancellationToken ct = default);
+    /// <summary>
+    /// Finds the latest run for owner+crawlType whose seed set CONTAINS the given single normalized
+    /// seed — unlike <see cref="GetLatestRunAsync"/>/<see cref="GetRunForSlotAsync"/>, which require an
+    /// exact whole-seed-set match. Lets a single URL resolve against a run that was crawled as part of
+    /// a larger multi-seed batch.
+    /// </summary>
+    Task<GeekCrawlerRun?> GetLatestRunContainingSeedAsync(string ownerUserId, string crawlType, string seed, CancellationToken ct = default);
     Task<List<GeekCrawlerRun>> ListRunsByStatusAsync(string status, int limit = 200, CancellationToken ct = default);
 
     // READ: Links
@@ -480,6 +488,35 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get run for slot for user {UserId}", ownerUserId);
+            throw;
+        }
+    }
+
+    public async Task<GeekCrawlerRun?> GetLatestRunContainingSeedAsync(string ownerUserId, string crawlType, string seed, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId) || string.IsNullOrWhiteSpace(crawlType) || string.IsNullOrWhiteSpace(seed))
+            throw new ArgumentException("All parameters required");
+
+        try
+        {
+            var collection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
+            // SeedUrlsJson is a JSON-serialized string array (e.g. ["https://a","https://b"]).
+            // Match the seed as an exact quoted array element — anchored on both quotes — so
+            // "site.com" cannot false-positive match "site.com.evil.com".
+            var pattern = "\"" + Regex.Escape(seed) + "\"";
+            var filter = Builders<GeekCrawlerRun>.Filter.And(
+                Builders<GeekCrawlerRun>.Filter.Eq(r => r.OwnerUserId, ownerUserId),
+                Builders<GeekCrawlerRun>.Filter.Eq(r => r.CrawlType, crawlType),
+                Builders<GeekCrawlerRun>.Filter.Regex(r => r.SeedUrlsJson, new BsonRegularExpression(pattern)));
+            var run = await collection
+                .Find(filter)
+                .Sort(Builders<GeekCrawlerRun>.Sort.Descending(r => r.CreatedAtUtc))
+                .FirstOrDefaultAsync(ct);
+            return run;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get run containing seed for user {UserId}", ownerUserId);
             throw;
         }
     }

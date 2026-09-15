@@ -72,7 +72,6 @@ public static partial class GccV2PartnerExtractionService
 
         var doc = new GccPartnerExtractionDocument(
             GccPartnerExtractionDocument.CurrentExtractorVersion,
-            DateTimeOffset.UtcNow,
             DedupCitables(citables),
             DedupAds(ads),
             DedupComparisons(comparisons),
@@ -90,8 +89,7 @@ public static partial class GccV2PartnerExtractionService
             DedupBattlecards(battlecards),
             DedupDemoBeats(demoBeats),
             DedupCompliance(compliance),
-            DedupDisclosures(disclosures),
-            SoftwareApplicationJsonLd: null);
+            DedupDisclosures(disclosures));
 
         return doc;
     }
@@ -99,7 +97,6 @@ public static partial class GccV2PartnerExtractionService
     public static GccPartnerExtractionDocument EmptyDocument() =>
         new(
             GccPartnerExtractionDocument.CurrentExtractorVersion,
-            DateTimeOffset.UtcNow,
             [], [], [], [], [], [], [], [], [], [], [],
             [], [], [], [], [], [], []);
 
@@ -117,7 +114,6 @@ public static partial class GccV2PartnerExtractionService
             sink.Add(new GccPartnerCitableAsset(
                 claim,
                 provenance.OriginProofUrl,
-                provenance.TemporalAnchorUtc,
                 provenance));
         }
     }
@@ -256,10 +252,6 @@ public static partial class GccV2PartnerExtractionService
             if (FeatureGateHintRegex().IsMatch(paragraph))
                 gates = Truncate(NormalizeWhitespace(paragraph), 200);
 
-            string? effective = null;
-            if (AsOfRegex().Match(paragraph) is { Success: true } asOf)
-                effective = Truncate(asOf.Groups["asof"].Value.Trim(), 80);
-
             sink.Add(new GccPartnerPricingTierAsset(
                 tier,
                 listPrice,
@@ -268,7 +260,6 @@ public static partial class GccV2PartnerExtractionService
                 gates,
                 trial,
                 overage,
-                effective,
                 provenance.OriginProofUrl,
                 provenance));
         }
@@ -354,16 +345,13 @@ public static partial class GccV2PartnerExtractionService
                 string? api = null;
                 if (ApiSdkRegex().Match(paragraph) is { Success: true } apiMatch)
                     api = Truncate(NormalizeWhitespace(apiMatch.Value), 80);
-                string? marketplace = null;
-                if (MarketplaceRegex().Match(paragraph) is { Success: true } mp)
-                    marketplace = Truncate(NormalizeWhitespace(mp.Value), 120);
-                sink.Add(new GccPartnerIntegrationAsset(name, type, api, marketplace, provenance));
+                sink.Add(new GccPartnerIntegrationAsset(name, type, api, provenance));
             }
 
             if (ApiSdkRegex().IsMatch(paragraph) && !IntegratesWithRegex().IsMatch(paragraph))
             {
                 var api = Truncate(NormalizeWhitespace(ApiSdkRegex().Match(paragraph).Value), 80);
-                sink.Add(new GccPartnerIntegrationAsset("Public API", "API", api, null, provenance));
+                sink.Add(new GccPartnerIntegrationAsset("Public API", "API", api, provenance));
             }
         }
     }
@@ -471,7 +459,7 @@ public static partial class GccV2PartnerExtractionService
                 : label.Contains("affiliate", StringComparison.OrdinalIgnoreCase) ? "affiliate"
                 : "cta";
 
-            sink.Add(new GccPartnerOfferCtaAsset(label, dest, offerType, Truncate(paragraph, 160), provenance));
+            sink.Add(new GccPartnerOfferCtaAsset(label, dest, offerType, provenance));
         }
     }
 
@@ -546,7 +534,7 @@ public static partial class GccV2PartnerExtractionService
                     string.Equals(o.Provenance.OriginProofUrl, provenance.OriginProofUrl, StringComparison.OrdinalIgnoreCase))
                 ?.DestinationUrl;
 
-            sink.Add(new GccPartnerUseCasePlaybookAsset(jtbd, steps, cta, provenance));
+            sink.Add(new GccPartnerUseCasePlaybookAsset(jtbd, steps, provenance));
         }
     }
 
@@ -564,7 +552,7 @@ public static partial class GccV2PartnerExtractionService
             string? vs = null;
             if (VsCategoryRegex().Match(paragraph) is { Success: true } vsMatch)
                 vs = Truncate(NormalizeWhitespace(vsMatch.Groups["vs"].Value), 80);
-            sink.Add(new GccPartnerCategoryAsset(primary, [], vs, provenance));
+            sink.Add(new GccPartnerCategoryAsset(primary, vs, provenance));
         }
     }
 
@@ -621,7 +609,6 @@ public static partial class GccV2PartnerExtractionService
             sink.Add(new GccPartnerDemoBeatAsset(
                 title,
                 Truncate(NormalizeWhitespace(claim), 200),
-                title,
                 provenance.OriginProofUrl,
                 provenance));
         }

@@ -73,6 +73,24 @@ public class GeekCrawlerRunsController : ControllerBase
         return row is null ? NotFound() : Ok(row);
     }
 
+    [HttpGet("containing-seed")]
+    public async Task<ActionResult<GeekCrawlerRun>> GetLatestContainingSeed(
+        [FromQuery] string ownerUserId,
+        [FromQuery] string crawlType,
+        [FromQuery] string seed,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            return BadRequest("ownerUserId is required");
+        if (string.IsNullOrWhiteSpace(crawlType))
+            return BadRequest("crawlType is required");
+        if (string.IsNullOrWhiteSpace(seed))
+            return BadRequest("seed is required");
+
+        var row = await _mongo.GetLatestRunContainingSeedAsync(ownerUserId, crawlType.Trim(), seed, ct);
+        return row is null ? NotFound() : Ok(row);
+    }
+
     [HttpGet("by-status/{status}")]
     public async Task<ActionResult<IReadOnlyList<GeekCrawlerRun>>> ListByStatus(
         string status,

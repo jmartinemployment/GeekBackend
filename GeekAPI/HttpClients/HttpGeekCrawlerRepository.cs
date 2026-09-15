@@ -47,6 +47,17 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
             $"&seedsJson={Uri.EscapeDataString(seedsJson)}",
             ct);
 
+    public Task<GeekCrawlerRunDto?> GetLatestRunContainingSeedAsync(
+        string ownerUserId,
+        string crawlType,
+        string seed,
+        CancellationToken ct = default) =>
+        GetAsync<GeekCrawlerRunDto>(
+            $"repo/geek-crawler/runs/containing-seed?ownerUserId={Uri.EscapeDataString(ownerUserId)}" +
+            $"&crawlType={Uri.EscapeDataString(crawlType)}" +
+            $"&seed={Uri.EscapeDataString(seed)}",
+            ct);
+
     public Task<IReadOnlyList<GeekCrawlerRunDto>> GetRunsByStatusAsync(
         string status,
         int limit = 200,
