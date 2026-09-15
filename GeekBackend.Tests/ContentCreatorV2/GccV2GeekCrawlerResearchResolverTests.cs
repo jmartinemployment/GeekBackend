@@ -607,6 +607,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             crawlerRepo,
             projectSitePages ?? new FakeProjectSitePageReader(),
             rag ?? new DisabledGeekCrawlerRagClient(),
+            CompetitorExtractionTestDoubles.Inert(),
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
     [Fact]

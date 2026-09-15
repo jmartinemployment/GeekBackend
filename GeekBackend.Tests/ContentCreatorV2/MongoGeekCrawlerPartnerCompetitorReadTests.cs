@@ -119,6 +119,7 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             new MongoReadRepo(mongo),
             new EmptyProjectSitePageReader(),
             new DisabledRagClient(),
+            CompetitorExtractionTestDoubles.Inert(),
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
         var brief = $$"""
@@ -241,6 +242,7 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             new MongoReadRepo(mongo),
             new EmptyProjectSitePageReader(),
             new DisabledRagClient(),
+            CompetitorExtractionTestDoubles.Inert(),
             NullLogger<GccV2GeekCrawlerResearchResolver>.Instance);
 
         var targetSeed = normalized[1];

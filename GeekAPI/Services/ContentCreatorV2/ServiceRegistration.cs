@@ -74,6 +74,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2ProjectSiteKnowledgeService>();
+        services.AddScoped<Competitor.GccV2CompetitorExtractionService>();
         services.AddHostedService<GccV2DiagnosticTaskAgentSeeder>();
         services.AddHostedService<GccV2ContentTaskAgentSeeder>();
         services.AddHostedService<GccV2RoiTaskAgentSeeder>();

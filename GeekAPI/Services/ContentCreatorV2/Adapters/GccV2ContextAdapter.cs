@@ -175,44 +175,85 @@ public sealed class GccV2ContextAdapter
         GccCompetitorExtractionDocument? extraction)
     {
         if (extraction is null) return;
-        var hasAny = extraction.PricingCatalog.Count > 0
-            || extraction.DeficitRouter.Count > 0
-            || extraction.FramingBank.Count > 0
-            || extraction.ClaimRiskFlags.Count > 0
-            || extraction.TypeLabels.Count > 0
+        var hasAny = extraction.CoverageMap.Count > 0
             || extraction.GapMap.Count > 0
             || extraction.ComparisonAxes.Count > 0
-            || extraction.DemandSignals.Count > 0;
+            || extraction.DeficitRouter.Count > 0
+            || extraction.PublishedPricing.Count > 0
+            || extraction.FaqBank.Count > 0
+            || extraction.ProofPack.Count > 0
+            || extraction.FramingBank.Count > 0
+            || extraction.ClaimRiskFlags.Count > 0
+            || extraction.DemandSignals.Count > 0
+            || extraction.TypeLabels.Count > 0
+            || extraction.ServiceOfferings.Count > 0
+            || extraction.NamedClients.Count > 0
+            || extraction.GeographicPresence.Count > 0
+            || extraction.TeamCredentials.Count > 0
+            || extraction.PositioningStatements.Count > 0;
         if (!hasAny) return;
 
         parts.Add(
             "COMPETITOR EXTRACTION (library-grounded rival payloads — crawlType=competitors only; "
-            + "never label as partner; do not echo claim-risk superlatives as facts; deficit swaps must be partners):");
+            + "a competitor is a rival SERVICE BUSINESS (Organization/ProfessionalService), never a SaaS "
+            + "product: no seat tiers, billing periods or feature matrices. Never label as partner; "
+            + "do not echo claim-risk superlatives as facts; deficit swaps must be partners):");
 
         foreach (var t in extraction.TypeLabels.Take(4))
             parts.Add($"- Type: {t.EntityName} = {t.CompetitorType} ({t.TypeRationale}) {t.PrimaryUrl}");
-        foreach (var p in extraction.PricingCatalog.Take(6))
-        {
-            var price = p.ListPrice is { } lp ? $"{p.PriceCurrency} {lp}" : "unstated";
-            parts.Add($"- Rival pricing: {p.TierName} — {price} / {p.BillingPeriod ?? "n/a"} ({p.OriginProofUrl})");
-        }
 
-        foreach (var d in extraction.DeficitRouter.Take(8))
-            parts.Add(
-                $"- Deficit→partner: {d.TriggerDeficit} → swap=[{string.Join(", ", d.RecommendedSwap)}] ({d.OriginProofUrl})");
+        // Job 1 — content gaps
+        foreach (var c in extraction.CoverageMap.Take(8))
+            parts.Add($"- Covers [{c.DepthAssessment}]: {c.TopicPath}");
         foreach (var g in extraction.GapMap.Take(6))
             parts.Add($"- Gap [{g.DepthAssessment}]: {g.GapTopic} → {g.OpportunityForUs}");
+
+        // Job 2 — bottom-of-funnel comparison
+        foreach (var a in extraction.ComparisonAxes.Take(8))
+            parts.Add($"- Rival axis [{a.AxisId} · {a.AxisLabel}]: {a.RivalCapabilityPayload}");
+        foreach (var d in extraction.DeficitRouter.Take(8))
+        {
+            var swap = d.RecommendedSwap.Count > 0 ? string.Join(", ", d.RecommendedSwap) : "unjoined";
+            parts.Add($"- Deficit→partner [{d.AxisId}]: {d.TriggerDeficit} → swap=[{swap}] ({d.OriginProofUrl})");
+        }
+
+        foreach (var p in extraction.PublishedPricing.Take(6))
+        {
+            var basis = string.IsNullOrWhiteSpace(p.PricingBasis) ? "basis unstated" : p.PricingBasis;
+            parts.Add($"- Rival published price: {p.PackageName} — {p.PriceText} ({basis}) ({p.OriginProofUrl})");
+        }
+
+        // Job 3 — trust through honesty
+        foreach (var f in extraction.FaqBank.Take(6))
+            parts.Add($"- Rival FAQ: Q: {f.Question} A: {f.VerifiedAnswer}");
+        foreach (var p in extraction.ProofPack.Take(6))
+            parts.Add($"- Rival proof [{p.ProofKind}]: {p.ProofClaim} ({p.OriginProofUrl})");
         foreach (var f in extraction.FramingBank.Take(6))
             parts.Add($"- Framing [{f.Sentiment}/{f.FrameType}]: {f.FrameExcerpt}");
-        foreach (var c in extraction.ComparisonAxes.Take(8))
-            parts.Add($"- Rival axis [{c.StandardizedFeatureId}]: {c.RivalCapabilityPayload}");
         foreach (var c in extraction.ClaimRiskFlags.Take(6))
             parts.Add($"- Claim risk [{c.RiskKind}]: \"{c.ClaimText}\" → {c.WriteGuidance}");
+
+        // Job 4 — SEO de-risking
         foreach (var d in extraction.DemandSignals.Take(4))
             parts.Add(
                 $"- Demand: keyword={d.PrimaryKeywordFocus} format={d.ContentFormat} intent={d.SearchIntentCategory}");
-        foreach (var d in extraction.Disqualifiers.Take(4))
-            parts.Add($"- Rival limit [{d.LimitType}]: {d.LimitDetail}");
+
+        // Agency profile
+        foreach (var s in extraction.ServiceOfferings.Take(8))
+            parts.Add($"- Rival service: {s.ServiceName}"
+                + (string.IsNullOrWhiteSpace(s.EngagementModel) ? "" : $" | engagement: {s.EngagementModel}")
+                + (string.IsNullOrWhiteSpace(s.Specialism) ? "" : $" | specialism: {s.Specialism}"));
+        foreach (var c in extraction.NamedClients.Take(6))
+            parts.Add($"- Rival client: {c.ClientName}"
+                + (string.IsNullOrWhiteSpace(c.Sector) ? "" : $" ({c.Sector})")
+                + (string.IsNullOrWhiteSpace(c.OutcomeClaim) ? "" : $" — {c.OutcomeClaim}"));
+        foreach (var p in extraction.GeographicPresence.Take(6))
+            parts.Add($"- Rival presence [{p.PresenceKind}]: {p.Location}");
+        foreach (var c in extraction.TeamCredentials.Take(6))
+            parts.Add($"- Rival credential [{c.CredentialKind}]: {c.CredentialName}");
+        foreach (var p in extraction.PositioningStatements.Take(6))
+            parts.Add($"- Rival positioning: {p.PositioningStatement}"
+                + (string.IsNullOrWhiteSpace(p.AudienceFocus) ? "" : $" | audience: {p.AudienceFocus}"));
     }
 
     private static void AppendPartnerExtractionNotes(

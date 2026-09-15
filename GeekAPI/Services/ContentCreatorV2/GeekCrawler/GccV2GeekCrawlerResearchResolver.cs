@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
+using GeekAPI.Services.ContentCreatorV2.Competitor;
 using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.ContentCreator;
@@ -133,17 +134,20 @@ public sealed class GccV2GeekCrawlerResearchResolver
     private readonly IGccV2GeekCrawlerReadRepository _crawlerRepo;
     private readonly IGccV2ProjectSitePageReader _projectSitePages;
     private readonly IGeekCrawlerRagClient _rag;
+    private readonly GccV2CompetitorExtractionService _competitorExtraction;
     private readonly ILogger<GccV2GeekCrawlerResearchResolver> _logger;
 
     public GccV2GeekCrawlerResearchResolver(
         IGccV2GeekCrawlerReadRepository crawlerRepo,
         IGccV2ProjectSitePageReader projectSitePages,
         IGeekCrawlerRagClient rag,
+        GccV2CompetitorExtractionService competitorExtraction,
         ILogger<GccV2GeekCrawlerResearchResolver> logger)
     {
         _crawlerRepo = crawlerRepo;
         _projectSitePages = projectSitePages;
         _rag = rag;
+        _competitorExtraction = competitorExtraction;
         _logger = logger;
     }
 
@@ -218,12 +222,15 @@ public sealed class GccV2GeekCrawlerResearchResolver
         // Prefer structured competitor deficits when present; else paragraph scan.
         if (competitorExtraction is { DeficitRouter.Count: > 0 })
         {
-            var fromRouter = competitorExtraction.DeficitRouter
+            // W3: only deficits that completed the counterweight join may become Alternatives copy.
+            // An unjoined deficit has no evidenced partner strength to point at, so it is not
+            // back-filled with partnerNames — that back-fill was the invention path.
+            var fromRouter = GccV2DeficitStrengthJoin.JoinedOnly(competitorExtraction)
                 .Select(d => new GccPartnerAlternativesAsset(
                     d.TriggerDeficit,
-                    d.RecommendedSwap.Count > 0 ? d.RecommendedSwap : partnerNames,
+                    d.RecommendedSwap,
                     d.PivotCopy ?? "",
-                    d.Provenance))
+                    GccV2DeficitStrengthJoin.ToPartnerProvenance(d.Provenance)))
                 .ToList();
             var mergedAlts = extraction.Alternatives
                 .Concat(fromRouter)
@@ -524,8 +531,9 @@ public sealed class GccV2GeekCrawlerResearchResolver
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var extraction = GccV2CompetitorExtractionService.ExtractFromPages(
-            quoteable, partnerNames, seeds);
+        // Competitor-native extraction: no partner extractor, no partner vocabulary, no relabelling.
+        var extraction = await _competitorExtraction
+            .ExtractFromPagesAsync(quoteable, seeds, ct).ConfigureAwait(false);
         if (_rag.IsEnabled)
         {
             extraction = await GccV2CompetitorExtractionVerify.VerifyAgainstLibraryAsync(
@@ -543,9 +551,9 @@ public sealed class GccV2GeekCrawlerResearchResolver
             briefWithResearch, extraction);
 
         _logger.LogInformation(
-            "Competitor extraction v{Version}: pricing={Pricing}, deficits={Deficits}, framing={Framing}, claimRisk={ClaimRisk}, typeLabels={Types}.",
+            "Competitor extraction v{Version}: publishedPricing={Pricing}, deficits={Deficits}, framing={Framing}, claimRisk={ClaimRisk}, typeLabels={Types}.",
             extraction.ExtractorVersion,
-            extraction.PricingCatalog.Count,
+            extraction.PublishedPricing.Count,
             extraction.DeficitRouter.Count,
             extraction.FramingBank.Count,
             extraction.ClaimRiskFlags.Count,

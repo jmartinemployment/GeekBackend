@@ -1,5 +1,5 @@
 using GeekAPI.Services.ContentCreatorV2.Generation;
-using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreatorV2.Competitor;
 using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -21,7 +21,7 @@ public sealed class GccV2CompetitorExtractionCompletionGatesTests
                     "superlative",
                     "https://rival.example",
                     "do_not_echo_as_fact",
-                    new GccPartnerExtractionProvenance(
+                    new GccCompetitorExtractionProvenance(
                         "https://rival.example",
                         GccCompetitorExtractionDocument.CrawlTypeCompetitor,
                         null, null, null, null, null)),
@@ -59,7 +59,7 @@ public sealed class GccV2CompetitorExtractionCompletionGatesTests
                     "editorial",
                     "Forbes Advisor",
                     "https://forbes.example",
-                    new GccPartnerExtractionProvenance(
+                    new GccCompetitorExtractionProvenance(
                         "https://forbes.example",
                         GccCompetitorExtractionDocument.CrawlTypeCompetitor,
                         null, null, null, null, null)),
@@ -68,7 +68,7 @@ public sealed class GccV2CompetitorExtractionCompletionGatesTests
                     "sells product",
                     "Rival Co",
                     "https://rival.example",
-                    new GccPartnerExtractionProvenance(
+                    new GccCompetitorExtractionProvenance(
                         "https://rival.example",
                         GccCompetitorExtractionDocument.CrawlTypeCompetitor,
                         null, null, null, null, null)),
