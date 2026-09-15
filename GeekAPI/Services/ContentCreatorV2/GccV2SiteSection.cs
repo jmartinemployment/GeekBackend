@@ -214,9 +214,14 @@ public static class GccV2SiteSection
             covers.Add($"{page.Url}: {string.Join(" · ", bits.Where(b => !string.IsNullOrWhiteSpace(b)).Distinct())}");
         }
 
+        // competitorOpens is deliberately empty HERE: competitor research has not run at crawl time.
+        // GccV2InformationGain.Enrich fills it once competitor extraction exists. The summary must not
+        // claim "no gaps found" when the truth is "not computed yet" — those are different states, and
+        // it must not instruct an operator to upload a SERP that this path cannot accept.
         var summary = covers.Count == 0
             ? $"No related site pages resolved for “{gapTopic}” — Information Gain needs section context."
-            : $"This site covers {covers.Count} related page(s) near “{gapTopic}”. Upload a saved SERP to compare competitor opens.";
+            : $"This site covers {covers.Count} related page(s) near “{gapTopic}”. "
+              + "Competitor opens not computed yet — competitor research has not run for this create.";
 
         return new InformationGainNote(covers, [], summary);
     }

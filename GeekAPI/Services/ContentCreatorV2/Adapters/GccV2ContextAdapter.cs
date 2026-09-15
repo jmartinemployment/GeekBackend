@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreatorV2.Competitor;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.Partner;
@@ -168,6 +169,44 @@ public sealed class GccV2ContextAdapter
         AppendCompetitorExtractionNotes(parts, fields.CompetitorExtraction);
 
         return string.Join("\n", parts);
+    }
+
+    /// <summary>
+    /// Information Gain: what this site already covers, versus what rivals cover that it does not.
+    /// The note is built at crawl time with competitor opens empty (competitor research has not run
+    /// yet); this is the first point where both halves exist, so it is enriched and rendered here.
+    /// Before this, the note was computed, serialized and read by nothing.
+    /// </summary>
+    private static void AppendInformationGainNotes(
+        List<string> parts,
+        SiteSectionContextDto? siteSection,
+        GccCompetitorExtractionDocument? competitorExtraction)
+    {
+        var note = GccV2InformationGain.Enrich(siteSection?.InformationGain, competitorExtraction);
+        if (note is null) return;
+        if (note.ThisSiteCovers.Count == 0 && note.CompetitorOpens.Count == 0) return;
+
+        parts.Add(
+            "INFORMATION GAIN (do not restate what this site already covers — link to it instead; "
+            + "earn the piece by covering what rivals leave open):");
+
+        foreach (var covered in note.ThisSiteCovers.Take(10))
+            parts.Add($"- Already covered here: {covered}");
+
+        if (note.CompetitorOpens.Count == 0)
+        {
+            parts.Add(
+                "- Competitor opens: none computed. Do not assert a differentiation gap that has not "
+                + "been evidenced.");
+        }
+        else
+        {
+            foreach (var open in note.CompetitorOpens.Take(12))
+                parts.Add($"- Rival covers / we do not: {open}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(note.Summary))
+            parts.Add($"- Gain summary: {note.Summary}");
     }
 
     private static void AppendCompetitorExtractionNotes(
@@ -507,6 +546,7 @@ public sealed class GccV2ContextAdapter
 
         AppendPartnerExtractionNotes(paragraphs, fields.PartnerExtraction);
         AppendCompetitorExtractionNotes(paragraphs, fields.CompetitorExtraction);
+        AppendInformationGainNotes(paragraphs, siteSection, fields.CompetitorExtraction);
 
         if (siteSection?.RelatedPages is { Count: > 0 } pages)
         {
