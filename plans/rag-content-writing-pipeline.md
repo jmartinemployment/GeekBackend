@@ -1,5 +1,7 @@
 # RAG generate (GeekBackend scope)
 
+> **SUPERSEDED — historical only.** RAG is Library-only: `POST /v1/generate` and `rag-generate.*` were removed and must never be revived. Drafting is GeekAPI-side. See `plans/rag-foundation-rewrite.md`.
+
 Status: **Phase C + F + D consumers shipped**; **citeable generate** proxies to Rag `POST /v1/generate` (fallback one-shot).
 
 Sibling: [Geek-Crawler-v2/plans/citeable-rag-output.md](../../Geek-Crawler-v2/plans/citeable-rag-output.md).
