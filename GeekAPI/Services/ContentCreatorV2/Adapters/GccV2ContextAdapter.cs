@@ -167,8 +167,35 @@ public sealed class GccV2ContextAdapter
         }
 
         AppendCompetitorExtractionNotes(parts, fields.CompetitorExtraction);
+        AppendPartnerPerkNotes(parts, fields.OperatorTools);
 
         return string.Join("\n", parts);
+    }
+
+    /// <summary>
+    /// Operator-supplied affiliate perks. These are negotiated with the vendor and appear nowhere on
+    /// their site, so no crawl can reach them and no quote can verify them. They are rendered in
+    /// their own block, explicitly labelled operator-asserted, so they are never laundered into the
+    /// library-grounded partner payloads above.
+    /// </summary>
+    private static void AppendPartnerPerkNotes(
+        List<string> parts,
+        IReadOnlyList<RecommendedTool> operatorTools)
+    {
+        var perks = operatorTools
+            .Where(t => !string.IsNullOrWhiteSpace(t.Perk))
+            .GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+        if (perks.Count == 0) return;
+
+        parts.Add(
+            "PARTNER PERKS (OPERATOR-SUPPLIED, NOT LIBRARY-VERIFIED — these are negotiated offers that "
+            + "do not appear on the vendor's site, so they carry no citation. State them only as the "
+            + "offer they are; never attribute them to the vendor's own published material, and never "
+            + "invent, extend or alter the terms):");
+        foreach (var perk in perks)
+            parts.Add($"- {perk.Name}: {perk.Perk}");
     }
 
     /// <summary>
@@ -547,6 +574,7 @@ public sealed class GccV2ContextAdapter
         AppendPartnerExtractionNotes(paragraphs, fields.PartnerExtraction);
         AppendCompetitorExtractionNotes(paragraphs, fields.CompetitorExtraction);
         AppendInformationGainNotes(paragraphs, siteSection, fields.CompetitorExtraction);
+        AppendPartnerPerkNotes(paragraphs, fields.OperatorTools);
 
         if (siteSection?.RelatedPages is { Count: > 0 } pages)
         {
@@ -886,10 +914,14 @@ public sealed class GccV2ContextAdapter
                 var name = t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
                     ? n.GetString()
                     : null;
+                var perk = t.TryGetProperty("perk", out var pk) && pk.ValueKind == JsonValueKind.String
+                    ? pk.GetString()?.Trim()
+                    : null;
                 if (string.IsNullOrWhiteSpace(href) && string.IsNullOrWhiteSpace(name)) continue;
                 tools.Add(new RecommendedTool(
                     string.IsNullOrWhiteSpace(name) ? GuessToolName(href!) : name!.Trim(),
-                    string.IsNullOrWhiteSpace(href) ? null : href!.Trim()));
+                    string.IsNullOrWhiteSpace(href) ? null : href!.Trim(),
+                    string.IsNullOrWhiteSpace(perk) ? null : perk));
             }
 
             return tools;
@@ -999,5 +1031,10 @@ public sealed class GccV2ContextAdapter
         public GccCompetitorExtractionDocument? CompetitorExtraction { get; init; }
     }
 
-    internal sealed record RecommendedTool(string Name, string? Href);
+    /// <param name="Perk">
+    /// Operator-asserted affiliate perk. Negotiated with the vendor and published nowhere on their
+    /// site, so it can never be crawled or quote-verified. It is rendered in its own block, labelled
+    /// operator-supplied, so the model cannot present it as library-grounded evidence.
+    /// </param>
+    internal sealed record RecommendedTool(string Name, string? Href, string? Perk = null);
 }

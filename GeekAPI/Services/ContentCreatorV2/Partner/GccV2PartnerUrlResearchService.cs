@@ -95,6 +95,7 @@ public static class GccV2PartnerUrlResearchService
                 {
                     string? opName = null;
                     string? opUrl = null;
+                    string? opPerk = null;
                     if (t.ValueKind == JsonValueKind.String)
                     {
                         opUrl = t.GetString();
@@ -109,6 +110,9 @@ public static class GccV2PartnerUrlResearchService
                             : TryGetPropertyIgnoreCase(t, "href", out var h) && h.ValueKind == JsonValueKind.String
                                 ? h.GetString()
                                 : null;
+                        opPerk = TryGetPropertyIgnoreCase(t, "perk", out var pk) && pk.ValueKind == JsonValueKind.String
+                            ? pk.GetString()?.Trim()
+                            : null;
                     }
                     else continue;
 
@@ -117,7 +121,7 @@ public static class GccV2PartnerUrlResearchService
 
                     var idx = FindCrawlToolIndex(rows, opName, dest);
                     if (idx < 0) continue;
-                    rows[idx] = rows[idx] with { Url = dest, Source = "operator" };
+                    rows[idx] = rows[idx] with { Url = dest, Source = "operator", Perk = opPerk };
                 }
             }
 
@@ -192,7 +196,13 @@ public static class GccV2PartnerUrlResearchService
         return map.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
 
-    public sealed record PartnerToolRow(string Name, string? Url, string Source);
+    /// <param name="Perk">
+    /// Operator-asserted affiliate perk (discount code, extended trial, bonus). Negotiated with the
+    /// vendor and published nowhere on their site, so it can never be crawled or verified — it is
+    /// carried separately from library-grounded partner payloads and must always be labelled as
+    /// operator-supplied, never presented as verified evidence.
+    /// </param>
+    public sealed record PartnerToolRow(string Name, string? Url, string Source, string? Perk = null);
 
     public static string? MergePartnerResearchIntoBriefJson(
         string? rawBriefJson,
