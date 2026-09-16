@@ -62,6 +62,7 @@ public sealed class GccV2PlanService
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
     private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
     private readonly GccV2SpecialistCoordinator _specialists;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<GccV2PlanService> _logger;
 
     public GccV2PlanService(
@@ -71,6 +72,7 @@ public sealed class GccV2PlanService
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
         GccV2SkillSnapshotRegistry skillSnapshots,
         GccV2SpecialistCoordinator specialists,
+        IConfiguration configuration,
         ILogger<GccV2PlanService> logger)
     {
         _repo = repo;
@@ -79,6 +81,7 @@ public sealed class GccV2PlanService
         _jobModelPolicies = jobModelPolicies;
         _skillSnapshots = skillSnapshots;
         _specialists = specialists;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -128,6 +131,20 @@ public sealed class GccV2PlanService
         {
             var sitePages = await _repo.ListProjectSiteCrawlPagesAsync(groundingRunId, limit: 50, offset: 0, ct);
             GccV2ProjectSiteGrounding.EnsureUsableSeedHtml(groundingRunId, sitePages);
+        }
+
+        // COST KILL SWITCH - drafting is off by default while v1 is being restored.
+        // Everything above this line is free: brief assembly, the pre-PLAN evidence gate, and the
+        // project-site grounding check. Everything below it calls a model. Stopping here exercises
+        // crawl -> retrieve -> extract -> gates on every create without paying to draft content we
+        // already know is going to be replaced. Flip ContentCreatorV2:DraftingEnabled to true to
+        // generate. This is a hard stop, not a stub: no outline, no sections, no partial draft.
+        if (!_configuration.GetValue("ContentCreatorV2:DraftingEnabled", false))
+        {
+            throw new InvalidOperationException(
+                "Drafting is disabled (ContentCreatorV2:DraftingEnabled=false). Evidence gates passed "
+                + "for this create - crawl, retrieval and extraction all ran - and the job stopped "
+                + "before the first paid model call. Set ContentCreatorV2:DraftingEnabled=true to generate.");
         }
 
         // operatorTools from the brief are partners (never competitor H2s / crawl seeds).
