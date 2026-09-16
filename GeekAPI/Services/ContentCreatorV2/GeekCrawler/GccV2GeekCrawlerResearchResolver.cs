@@ -910,6 +910,17 @@ public sealed class GccV2GeekCrawlerResearchResolver
     /// authorize, check index state - so the answer here cannot drift from what PLAN will decide.
     /// Never throws: an unknown seed reports as not ready with a reason.
     /// </summary>
+    /// <summary>
+    /// Confirms an entered URL by running the same retrieval the Create pipeline runs, rather than
+    /// checking that a crawl run merely exists. The previous version returned ready=true whenever a
+    /// run was present and not mid-index, so a crawl that fetched nothing, indexed nothing, or failed
+    /// indexing still showed as confirmed - and then PLAN reported the seed unavailable. Presence is
+    /// not fitness: the only thing worth confirming is that pages actually come back.
+    ///
+    /// Limit worth knowing: this probes with an empty topic, while PLAN queries with the create's real
+    /// topic. A confirmed seed therefore means "this host has indexed, retrievable pages", not "PLAN
+    /// will find pages for your specific topic".
+    /// </summary>
     public async Task<IReadOnlyList<GccV2SeedReadiness>> CheckSeedReadinessAsync(
         string ownerUserId,
         string crawlType,
@@ -921,43 +932,21 @@ public sealed class GccV2GeekCrawlerResearchResolver
         {
             try
             {
-                var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds([seed]);
-                if (normalized.Count == 0)
+                var (pages, warning, runId) = await TryResolveExternalSeedAsync(
+                    ownerUserId, crawlType, seed, RagTopicContext.Empty, ct);
+
+                string? indexState = null;
+                if (runId is { } id && _rag.IsEnabled)
+                    indexState = (await _rag.GetIndexStatusAsync(id, ct).ConfigureAwait(false))?.State;
+
+                if (pages.Count > 0)
                 {
-                    results.Add(new(seed, false, null, null, "Not a usable URL."));
+                    results.Add(new(seed, true, runId, indexState, null));
                     continue;
                 }
 
-                var run = await FindRunForSeedsAsync(ownerUserId, crawlType, normalized, ct);
-                if (run is null)
-                {
-                    results.Add(new(seed, false, null, null,
-                        "No crawl run for this URL yet — crawl it before creating."));
-                    continue;
-                }
-
-                if (!string.Equals(run.OwnerUserId, ownerUserId, StringComparison.OrdinalIgnoreCase))
-                {
-                    results.Add(new(seed, false, null, null, "A crawl run exists but belongs to another owner."));
-                    continue;
-                }
-
-                if (!_rag.IsEnabled)
-                {
-                    results.Add(new(seed, false, run.Id, null, "Research library is unavailable."));
-                    continue;
-                }
-
-                var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
-                var indexState = indexStatus?.State;
-                if (indexState is not null && IndexBuildingStates.Contains(indexState))
-                {
-                    results.Add(new(seed, false, run.Id, indexState,
-                        "Crawl is still being indexed — try again shortly."));
-                    continue;
-                }
-
-                results.Add(new(seed, true, run.Id, indexState, null));
+                results.Add(new(seed, false, runId, indexState,
+                    warning ?? "No indexed pages are retrievable for this URL yet."));
             }
             catch (Exception cause)
             {
