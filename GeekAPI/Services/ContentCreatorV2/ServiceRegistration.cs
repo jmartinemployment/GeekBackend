@@ -128,6 +128,7 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2AgentExecutionFactory>();
         services.AddScoped<V1Restore.GccV2V1ProjectBridge>();
         services.AddScoped<V1Restore.GccV2V1PlanAdapter>();
+        services.AddScoped<V1Restore.GccV2V1WriteAdapter>();
         services.AddScoped<GccV2SpecialistCoordinator>();
         services.AddSingleton<GccV2AgentTestWake>();
         services.AddScoped<GccV2AgentTestProgressNotifier>();

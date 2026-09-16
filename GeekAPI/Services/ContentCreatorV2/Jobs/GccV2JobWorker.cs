@@ -559,7 +559,8 @@ public sealed class GccV2JobWorker : BackgroundService
                 ? await writeService.ReconstructOutputAsync(job, ct)
                   ?? throw new InvalidOperationException(
                       $"{job.Stage.ToUpperInvariant()} retry could not reconstruct the latest persisted WRITE sections.")
-                : await writeService.WriteAsync(wc, ownerUserId, ct);
+                : await scope.ServiceProvider.GetRequiredService<V1Restore.GccV2V1WriteAdapter>()
+                    .WriteAsync(job, ct);
         }
         catch (GccV2ToolWriteDeferredException ex)
         {
