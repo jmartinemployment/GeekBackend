@@ -34,7 +34,7 @@ public sealed record GccV2ValidationReport(
     IReadOnlyList<GcwSeoAnalyzer.SeoCheck>? SeoChecks = null,
     RagValidationDto? RagValidation = null,
     IReadOnlyList<RagCitationDto>? ValidationCitations = null,
-    RagGenerateProvenanceDto? ValidationProvenance = null,
+    CreateLibraryDraftProvenanceDto? ValidationProvenance = null,
     string? ValidationModelUsed = null,
     IReadOnlyList<string>? ValidationEvidenceWarnings = null,
     IReadOnlyList<string>? CitationEvidenceGaps = null)
@@ -168,7 +168,7 @@ public sealed class GccV2ValidateService
 
         var sources = output.Sources.Count > 0
             ? output.Sources
-            : output.Citations.Select(c => new RagGenerateSourceDto
+            : output.Citations.Select(c => new CreateLibraryDraftSourceDto
             {
                 PageId = c.PageId,
                 Url = c.Url,

@@ -37,7 +37,7 @@ public sealed class RagController : ControllerBase
 
     /// <summary>Library availability + intent/entity catalogs for the phi UI.</summary>
     [HttpGet("status")]
-    public ActionResult<RagGenerateStatusDto> Status()
+    public ActionResult<CreateLibraryStatusDto> Status()
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         return Ok(_generate.GetStatus());

@@ -551,7 +551,7 @@ public sealed record GccV2SkillProvenance(
 
 public sealed record GccV2ResearchEvidenceManifest(
     string Version,
-    IReadOnlyList<RagGenerateSourceDto> Sources,
+    IReadOnlyList<CreateLibraryDraftSourceDto> Sources,
     IReadOnlyList<RagCitationDto> VerifiedCitations,
     IReadOnlyList<string> EvidenceGaps,
     IReadOnlyList<string> Conflicts,

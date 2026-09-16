@@ -40,7 +40,7 @@ public sealed class GccV2CreateLibraryWriter
         _adTemplateIndexEnabled = ParseEnabledFlag(Environment.GetEnvironmentVariable("GEEK_RAG_AD_TEMPLATES_ENABLED"));
     }
 
-    public RagGenerateStatusDto GetStatus()
+    public CreateLibraryStatusDto GetStatus()
     {
         var ragOn = _rag.IsEnabled;
         string? reason = null;
@@ -49,7 +49,7 @@ public sealed class GccV2CreateLibraryWriter
 
         // Library availability only — RAG generate is removed (CiteableGenerateAvailable
         // means Create can use library query + GeekAPI draft, not /v1/generate).
-        return new RagGenerateStatusDto
+        return new CreateLibraryStatusDto
         {
             Available = ragOn,
             RagClientEnabled = ragOn,
@@ -321,7 +321,7 @@ public sealed class GccV2CreateLibraryWriter
         string retrieval,
         List<string> warnings,
         string? content = null,
-        IReadOnlyList<RagGenerateSourceDto>? sources = null,
+        IReadOnlyList<CreateLibraryDraftSourceDto>? sources = null,
         IReadOnlyList<RagCitationDto>? citations = null,
         IReadOnlyList<RagOutlineSectionDto>? outline = null,
         IReadOnlyList<RagResearchQueryPlanDto>? researchPlan = null,
@@ -348,7 +348,7 @@ public sealed class GccV2CreateLibraryWriter
             PromptVersion = "gcc-create-library/1",
             Validation = validation,
             SoftDisabled = false,
-            Provenance = new RagGenerateProvenanceDto
+            Provenance = new CreateLibraryDraftProvenanceDto
             {
                 GenerationStage = stage,
                 ModelUsed = modelUsed,
@@ -654,7 +654,7 @@ public sealed class GccV2CreateLibraryWriter
         IReadOnlyList<string> entities,
         IReadOnlyList<GccQuoteablePage> partner,
         IReadOnlyList<GccQuoteablePage> competitor,
-        IReadOnlyList<RagGenerateSourceDto> sources,
+        IReadOnlyList<CreateLibraryDraftSourceDto> sources,
         List<string> warnings,
         string model,
         string retrievalMode,
@@ -772,12 +772,12 @@ public sealed class GccV2CreateLibraryWriter
         }
     }
 
-    private static IReadOnlyList<RagGenerateSourceDto> BuildSources(
+    private static IReadOnlyList<CreateLibraryDraftSourceDto> BuildSources(
         IReadOnlyList<GccQuoteablePage> partner,
         IReadOnlyList<GccQuoteablePage> competitor,
         IReadOnlyList<string> entities)
     {
-        var sources = new List<RagGenerateSourceDto>();
+        var sources = new List<CreateLibraryDraftSourceDto>();
         void Add(IEnumerable<GccQuoteablePage> pages, string crawlType)
         {
             foreach (var page in pages)
@@ -785,7 +785,7 @@ public sealed class GccV2CreateLibraryWriter
                 var entity = entities.FirstOrDefault(e =>
                     page.Title.Contains(e, StringComparison.OrdinalIgnoreCase)
                     || page.Url.Contains(e.Replace(" ", "", StringComparison.Ordinal), StringComparison.OrdinalIgnoreCase));
-                sources.Add(new RagGenerateSourceDto
+                sources.Add(new CreateLibraryDraftSourceDto
                 {
                     Url = page.Url,
                     Title = page.Title,

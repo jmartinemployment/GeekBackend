@@ -53,7 +53,7 @@ public sealed class CreateLibraryDraftRequest
     public string? SectionBrief { get; set; }
     public List<string>? CompletedSectionSummaries { get; set; }
     public string? DraftContent { get; set; }
-    public IReadOnlyList<RagGenerateSourceDto>? Sources { get; set; }
+    public IReadOnlyList<CreateLibraryDraftSourceDto>? Sources { get; set; }
     public JsonElement? CanonicalBrief { get; set; }
     public string? ModelPolicyPreset { get; set; }
     public string? ModelPolicyVersion { get; set; }
@@ -106,7 +106,7 @@ public sealed class RagOutlineSectionDto
 
 public sealed record RagResearchQueryPlanDto(string RunId, string CrawlType, string Need);
 
-public sealed class RagGenerateProvenanceDto
+public sealed class CreateLibraryDraftProvenanceDto
 {
     public string? GenerationStage { get; init; }
     public string? ModelUsed { get; init; }
@@ -299,7 +299,7 @@ public sealed class RagAdTemplateDto
     public string Body { get; set; } = "";
 }
 
-public sealed class RagGenerateSourceDto
+public sealed class CreateLibraryDraftSourceDto
 {
     public string Url { get; init; } = "";
     public string? Title { get; init; }
@@ -352,7 +352,7 @@ public sealed class CreateLibraryDraftResponse
     public string? Content { get; init; }
     public IReadOnlyList<string>? Variations { get; init; }
     public RagBattlecardDto? Battlecard { get; init; }
-    public IReadOnlyList<RagGenerateSourceDto> Sources { get; init; } = [];
+    public IReadOnlyList<CreateLibraryDraftSourceDto> Sources { get; init; } = [];
     public IReadOnlyList<RagCitationDto>? Citations { get; init; }
     public IReadOnlyList<RagThemeSourceDto>? ThemeSources { get; init; }
     public IReadOnlyList<RagOutlineSectionDto>? Outline { get; init; }
@@ -364,7 +364,7 @@ public sealed class CreateLibraryDraftResponse
     public string? ModelUsed { get; init; }
     public string? RetrievalMode { get; init; }
     public string PromptVersion { get; init; } = "";
-    public RagGenerateProvenanceDto? Provenance { get; init; }
+    public CreateLibraryDraftProvenanceDto? Provenance { get; init; }
     public RagValidationDto? Validation { get; init; }
     public RagAgentExecutionProvenanceDto? AgentExecution { get; init; }
     public RagAgentFailureDto? AgentFailure { get; init; }
@@ -373,7 +373,7 @@ public sealed class CreateLibraryDraftResponse
     public string? SpecialistArtifactDigest { get; init; }
 }
 
-public sealed class RagGenerateStatusDto
+public sealed class CreateLibraryStatusDto
 {
     public bool Available { get; init; }
     public bool RagClientEnabled { get; init; }

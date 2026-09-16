@@ -31,7 +31,7 @@ public sealed record GccV2WriteSection(
     bool UsedFallbackStub,
     IReadOnlyList<RagCitationDto>? Citations = null,
     GccV2GenerationProvenance? Provenance = null,
-    IReadOnlyList<RagGenerateSourceDto>? Sources = null);
+    IReadOnlyList<CreateLibraryDraftSourceDto>? Sources = null);
 
 /// <summary>Everything WRITE produced for a job — enough for VALIDATE to build a
 /// <see cref="ContentDocument"/>, run OverlapGate, and target REPAIR at one section.</summary>
@@ -46,7 +46,7 @@ public sealed class GccV2WriteOutput
     public GccV2ToolPageWriteExtras? ToolPage { get; init; }
     public IReadOnlyList<RagCitationDto> Citations { get; init; } = [];
     public IReadOnlyList<GccV2GenerationProvenance> Provenance { get; init; } = [];
-    public IReadOnlyList<RagGenerateSourceDto> Sources { get; init; } = [];
+    public IReadOnlyList<CreateLibraryDraftSourceDto> Sources { get; init; } = [];
 
     public ContentDocument ToContentDocument() => new(Lede.Section, Sections.Select(s => s.Section).ToList());
 
@@ -85,7 +85,7 @@ public sealed class GccV2WriteOutput
     internal static IReadOnlyList<GccV2GenerationProvenance> MergeProvenance(IEnumerable<GccV2WriteSection> sections) =>
         sections.Select(s => s.Provenance).Where(p => p is not null).Cast<GccV2GenerationProvenance>().ToList();
 
-    internal static IReadOnlyList<RagGenerateSourceDto> MergeSources(IEnumerable<GccV2WriteSection> sections) =>
+    internal static IReadOnlyList<CreateLibraryDraftSourceDto> MergeSources(IEnumerable<GccV2WriteSection> sections) =>
         sections.SelectMany(s => s.Sources ?? [])
             .DistinctBy(s => $"{s.PageId}|{s.Url}|{s.Kind}")
             .ToList();
@@ -421,7 +421,7 @@ public sealed class GccV2WriteService
 
         var sources = current.Sources.Count > 0
             ? current.Sources
-            : current.Citations.Select(c => new RagGenerateSourceDto
+            : current.Citations.Select(c => new CreateLibraryDraftSourceDto
             {
                 PageId = c.PageId,
                 Url = c.Url,
@@ -1687,7 +1687,7 @@ public sealed class GccV2WriteService
         bool? UsedFallbackStub,
         IReadOnlyList<RagCitationDto>? Citations = null,
         GccV2GenerationProvenance? Provenance = null,
-        IReadOnlyList<RagGenerateSourceDto>? Sources = null);
+        IReadOnlyList<CreateLibraryDraftSourceDto>? Sources = null);
 
     private sealed record SectionMeta(
         string Heading,
@@ -1696,7 +1696,7 @@ public sealed class GccV2WriteService
         Section? Section,
         IReadOnlyList<RagCitationDto>? Citations,
         GccV2GenerationProvenance? Provenance,
-        IReadOnlyList<RagGenerateSourceDto>? Sources);
+        IReadOnlyList<CreateLibraryDraftSourceDto>? Sources);
 
     private sealed record JobResultPayload(string? Title, string? MetaDescription, ContentDocument? Document);
 

@@ -139,7 +139,7 @@ public sealed class GccV2RagValidationTests
                     Quote = "Verified quote.",
                 },
             ],
-            ValidationProvenance: new RagGenerateProvenanceDto
+            ValidationProvenance: new CreateLibraryDraftProvenanceDto
             {
                 GenerationStage = "validation",
                 ModelUsed = "o3",

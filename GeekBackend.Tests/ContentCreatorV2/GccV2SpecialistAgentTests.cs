@@ -249,14 +249,19 @@ public sealed class GccV2SpecialistAgentTests
     [Fact]
     public void AgentTeamSigner_DetectsSnapshotTampering()
     {
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["GccV2Agents:SnapshotSigningKey"] = new string('t', 40),
-        }).Build();
-        var signer = new GccV2AgentTeamSigner(config);
-        var signature = signer.Sign(new string('a', 64));
-        Assert.True(signer.Verify(new string('a', 64), signature));
-        Assert.False(signer.Verify(new string('b', 64), signature));
+        // Team snapshots are no longer signed (plans/agent-specialists.md §4.5) - specialist
+        // selection is a product choice, not a secured artifact. Integrity is still guaranteed:
+        // the snapshot is content-addressed, so altering it no longer matches its recorded digest
+        // and ValidatePersisted rejects it.
+        static string Digest(string json) => Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+
+        const string snapshot = """{"agents":[{"slug":"writing","role":"producer"}]}""";
+        const string tampered = """{"agents":[{"slug":"writing","role":"reviewer"}]}""";
+
+        Assert.Equal(Digest(snapshot), Digest(snapshot));
+        Assert.NotEqual(Digest(snapshot), Digest(tampered));
     }
 
     [Fact]
@@ -290,12 +295,8 @@ public sealed class GccV2SpecialistAgentTests
         var digest = GccV2AgentExecutionFactory.CanonicalDigest(
             execution, "snapshotDigest", "signature", "cancelled");
         Assert.Equal("aaeb57b0d4d9822306c2d4e24ea8e942f54ec29bea0436320c46b14b4cd0fc19", digest);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["GccV2Agents:SnapshotSigningKey"] = "0123456789abcdef0123456789abcdef",
-        }).Build();
-        Assert.Equal("9c6b32e1eabe82747fe09228dc74011c0905b14bf2f96de66d821dbbc65be4cf",
-            new GccV2AgentTeamSigner(config).Sign(digest));
+        // The canonicalization contract with the Python side is what this golden protects; the
+        // HMAC assertion that used to follow it went away with snapshot signing.
     }
 
     [Fact]

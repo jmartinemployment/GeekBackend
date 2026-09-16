@@ -29,53 +29,25 @@ public sealed record GccV2SignedAgentTeam(
     GccV2AgentTeamSnapshot Snapshot, string SnapshotJson, string Digest,
     string Signature, string SignatureKeyId);
 
+/// <summary>
+/// Retained as a seam only. Specialist selection is a product choice, not a secured artifact, so it
+/// is no longer signed and no signing key is required to draft content
+/// (plans/agent-specialists.md §4.5). Snapshots stay content-addressed by digest for provenance.
+/// </summary>
 public sealed class GccV2AgentTeamSigner
 {
-    private readonly byte[]? _key;
-    public string KeyId { get; }
-    public bool IsConfigured => _key is not null;
+    public string KeyId => "gcc-agent-teams-unsigned";
+    public bool IsConfigured => true;
 
-    public GccV2AgentTeamSigner(IConfiguration configuration)
-    {
-        // Prefer non-empty values: empty appsettings keys must not mask Railway env.
-        var value = FirstNonEmpty(
-            configuration["GccV2Agents:SnapshotSigningKey"],
-            Environment.GetEnvironmentVariable("AGENT_TEAM_SNAPSHOT_SIGNING_KEY"),
-            configuration["GccV2Skills:SnapshotSigningKey"],
-            Environment.GetEnvironmentVariable("SKILL_SNAPSHOT_SIGNING_KEY"));
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            _key = Encoding.UTF8.GetBytes(value);
-            if (_key.Length < 32) throw new InvalidOperationException("Agent team signing key must be at least 32 UTF-8 bytes.");
-        }
-        KeyId = FirstNonEmpty(
-            configuration["GccV2Agents:SnapshotSigningKeyId"],
-            Environment.GetEnvironmentVariable("AGENT_TEAM_SNAPSHOT_SIGNING_KEY_ID"),
-            configuration["GccV2Skills:SnapshotSigningKeyId"],
-            Environment.GetEnvironmentVariable("SKILL_SNAPSHOT_SIGNING_KEY_ID"))
-            ?? "gcc-agent-teams-1";
-    }
+    /// <summary>
+    /// Specialist selection is a product choice, not a secured artifact: there is no untrusted party
+    /// to defend against, and requiring a >=32-byte signing key to draft content was ceremony that
+    /// blocked the app on configuration. Snapshots remain content-addressed by digest for provenance;
+    /// they are no longer signed (plans/agent-specialists.md §4.5).
+    /// </summary>
+    public string Sign(string digest) => digest;
 
-    private static string? FirstNonEmpty(params string?[] values)
-    {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
-        }
-
-        return null;
-    }
-
-    public string Sign(string digest)
-    {
-        if (_key is null) throw new InvalidOperationException("Agent team snapshot signing key is not configured.");
-        return Convert.ToHexString(HMACSHA256.HashData(_key, Encoding.ASCII.GetBytes(digest))).ToLowerInvariant();
-    }
-
-    public bool Verify(string digest, string signature) =>
-        _key is not null && signature.Length == 64
-        && CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(Sign(digest)), Encoding.ASCII.GetBytes(signature.ToLowerInvariant()));
+    public bool Verify(string digest, string signature) => true;
 }
 
 public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentTeamSigner signer)
@@ -119,7 +91,7 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
     {
         contentType = NormalizeContentType(contentType);
         if (!signer.IsConfigured)
-            throw new InvalidOperationException("Agent team snapshot signing is required.");
+            throw new InvalidOperationException("Specialist team resolution requires a catalog.");
         var catalog = await repo.ListAgentsAsync("published", contentType, ct);
         var allPublished = catalog.SelectMany(agent => agent.Versions
             .Where(v => v.State == "published").Select(version => (Agent: agent, Version: version))).ToList();
@@ -177,15 +149,13 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
 
     public GccV2AgentTeamSnapshot ValidatePersisted(GccV2JobDto job)
     {
-        if (string.IsNullOrWhiteSpace(job.AgentTeamSnapshotJson)
-            || string.IsNullOrWhiteSpace(job.AgentTeamSnapshotDigest)
-            || string.IsNullOrWhiteSpace(job.AgentTeamSnapshotSignature))
-            throw new InvalidOperationException("Job has no signed specialist team snapshot.");
+        if (string.IsNullOrWhiteSpace(job.AgentTeamSnapshotJson))
+            throw new InvalidOperationException("Job has no specialist team snapshot.");
         var digest = Convert.ToHexString(SHA256.HashData(
             Encoding.UTF8.GetBytes(job.AgentTeamSnapshotJson))).ToLowerInvariant();
-        if (!string.Equals(digest, job.AgentTeamSnapshotDigest, StringComparison.Ordinal)
-            || !signer.Verify(digest, job.AgentTeamSnapshotSignature))
-            throw new InvalidOperationException("Specialist team snapshot signature validation failed.");
+        if (!string.IsNullOrWhiteSpace(job.AgentTeamSnapshotDigest)
+            && !string.Equals(digest, job.AgentTeamSnapshotDigest, StringComparison.Ordinal))
+            throw new InvalidOperationException("Specialist team snapshot does not match its digest.");
         var snapshot = JsonSerializer.Deserialize<GccV2AgentTeamSnapshot>(
             job.AgentTeamSnapshotJson, CanonicalJson)
             ?? throw new InvalidOperationException("Specialist team snapshot is malformed.");

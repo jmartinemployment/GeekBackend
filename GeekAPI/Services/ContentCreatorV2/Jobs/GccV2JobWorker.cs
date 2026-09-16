@@ -878,7 +878,7 @@ public sealed class GccV2JobWorker : BackgroundService
         var warnings = output.Provenance.SelectMany(p => p.Warnings).Distinct().ToList();
         var sources = output.Sources.Count > 0
             ? output.Sources
-            : output.Citations.Select(c => new RagGenerateSourceDto
+            : output.Citations.Select(c => new CreateLibraryDraftSourceDto
             {
                 PageId = c.PageId,
                 Url = c.Url,
