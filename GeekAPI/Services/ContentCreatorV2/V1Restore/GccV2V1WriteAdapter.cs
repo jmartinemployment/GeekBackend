@@ -30,15 +30,36 @@ public sealed class GccV2V1WriteAdapter(
         logger.LogInformation(
             "WRITE via v1 for job {JobId}: project {ProjectId}.", job.Id, project.Id);
 
-        var generated = await orchestrator.GeneratePillarBodyAsync(project.Id, null, ct);
+        var generator = GccV2V1ContentTypeRouter.For(job.ContentType);
+        if (generator == GccV2V1Generator.Unsupported)
+            throw new InvalidOperationException(GccV2V1ContentTypeRouter.UnsupportedMessage(job.ContentType));
 
-        var article = generated.Article
-            ?? throw new InvalidOperationException(
-                $"v1 WRITE produced no article for project {project.Id}. Nothing to persist.");
+        var generated = generator switch
+        {
+            GccV2V1Generator.Blog => await orchestrator.GenerateBlogAsync(project.Id, null, ct),
+            GccV2V1Generator.ToolPage => await orchestrator.GenerateToolPagesAsync(project.Id, null, null, null, ct),
+            _ => await orchestrator.GeneratePillarBodyAsync(project.Id, null, ct),
+        };
 
-        var body = article.Body
-            ?? throw new InvalidOperationException(
-                $"v1 WRITE returned an article with no body for project {project.Id}.");
+        var toolPost = generator == GccV2V1Generator.ToolPage
+            ? generated.ToolPosts?.FirstOrDefault()
+            : null;
+
+        var (title, metaDescription, body, keywords, wordCount) = generator switch
+        {
+            GccV2V1Generator.Blog when generated.Blog is { } b =>
+                (b.Title, b.MetaDescription, b.Body, b.Keywords, b.WordCount),
+            GccV2V1Generator.ToolPage when toolPost is { } t =>
+                (t.Title, t.MetaDescription, t.Body, new List<string>(), t.WordCount),
+            _ when generated.Article is { } a =>
+                (a.Title, a.MetaDescription, a.Body, a.Keywords, a.WordCount),
+            _ => throw new InvalidOperationException(
+                $"v1 WRITE ({generator}) produced nothing for project {project.Id}. Nothing to persist."),
+        };
+
+        if (body is null)
+            throw new InvalidOperationException(
+                $"v1 WRITE ({generator}) returned a draft with no body for project {project.Id}.");
 
         if (body.Sections.Count == 0)
             throw new InvalidOperationException(
@@ -61,16 +82,16 @@ public sealed class GccV2V1WriteAdapter(
             .ToList();
 
         logger.LogInformation(
-            "WRITE via v1 for job {JobId}: '{Title}', {SectionCount} sections, {WordCount} words.",
-            job.Id, article.Title, sections.Count, article.WordCount);
+            "WRITE via v1 ({Generator}) for job {JobId}: '{Title}', {SectionCount} sections, {WordCount} words.",
+            generator, job.Id, title, sections.Count, wordCount);
 
         return new GccV2WriteOutput
         {
-            Title = article.Title,
-            MetaDescription = article.MetaDescription,
+            Title = title,
+            MetaDescription = metaDescription,
             Lede = lede,
             Sections = sections,
-            Keywords = article.Keywords,
+            Keywords = keywords,
         };
     }
 }

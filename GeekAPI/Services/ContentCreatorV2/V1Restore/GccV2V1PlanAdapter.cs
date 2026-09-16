@@ -36,13 +36,39 @@ public sealed class GccV2V1PlanAdapter(
             "PLAN via v1 for job {JobId}: project {ProjectId}, keyword '{Keyword}'.",
             job.Id, project.Id, project.TargetKeyword);
 
-        var generated = await orchestrator.GeneratePillarPlanAsync(project.Id, ct);
+        var generator = GccV2V1ContentTypeRouter.For(job.ContentType);
+        if (generator == GccV2V1Generator.Unsupported)
+            throw new InvalidOperationException(GccV2V1ContentTypeRouter.UnsupportedMessage(job.ContentType));
 
-        var article = generated.Article
-            ?? throw new InvalidOperationException(
-                $"v1 PLAN produced no article for project {project.Id}. No outline to persist.");
+        // Blog and tool pages plan their own outline inside their body generators; only the pillar
+        // path has a separate plan stage. For the others the outline is read back off the draft.
+        var generated = generator switch
+        {
+            GccV2V1Generator.Blog => await orchestrator.GenerateBlogAsync(project.Id, null, ct),
+            GccV2V1Generator.ToolPage => await orchestrator.GenerateToolPagesAsync(project.Id, null, null, null, ct),
+            _ => await orchestrator.GeneratePillarPlanAsync(project.Id, ct),
+        };
 
-        var headings = article.SectionOutline
+        var outlineHeadings = generator switch
+        {
+            GccV2V1Generator.Blog => generated.Blog?.SectionOutline,
+            GccV2V1Generator.ToolPage => generated.ToolPosts?.FirstOrDefault()?.Body.Sections
+                .Select(x => x.Heading).ToList(),
+            _ => generated.Article?.SectionOutline,
+        };
+
+        var title = generator switch
+        {
+            GccV2V1Generator.Blog => generated.Blog?.Title,
+            GccV2V1Generator.ToolPage => generated.ToolPosts?.FirstOrDefault()?.Title,
+            _ => generated.Article?.Title,
+        };
+
+        if (outlineHeadings is null)
+            throw new InvalidOperationException(
+                $"v1 PLAN ({generator}) produced nothing for project {project.Id}. No outline to persist.");
+
+        var headings = outlineHeadings
             .Select(h => (h ?? "").Trim())
             .Where(h => h.Length > 0)
             .ToList();
@@ -62,8 +88,8 @@ public sealed class GccV2V1PlanAdapter(
             .ToList();
 
         logger.LogInformation(
-            "PLAN via v1 for job {JobId}: '{Title}', {SectionCount} sections.",
-            job.Id, article.Title, sections.Count);
+            "PLAN via v1 ({Generator}) for job {JobId}: '{Title}', {SectionCount} sections.",
+            generator, job.Id, title, sections.Count);
 
         return new GccV2PlanOutline(sections, project.HierarchyChildHeadings.ToList());
     }
