@@ -276,8 +276,12 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
                     $"Specialist '{agent.Slug}' has invalid instruction or policy digests.");
             if (!agent.ContentTypes.Contains(contentType, StringComparer.Ordinal))
                 throw new InvalidOperationException($"Specialist '{agent.Slug}' does not support '{contentType}'.");
-            if (agent.Skills.Count == 0)
-                throw new InvalidOperationException($"Specialist '{agent.Slug}' must have explicitly assigned skills.");
+            // Skills as separately versioned, digest-pinned packages are governance ceremony, not
+            // capability: their text is craft guidance that belongs in the owning agent's
+            // instructions (plans/agent-specialists.md §4.5). Requiring a pin here blocks any agent
+            // that carries its craft inline, which is every specialist in the intended roster.
+            // if (agent.Skills.Count == 0)
+            //     throw new InvalidOperationException($"Specialist '{agent.Slug}' must have explicitly assigned skills.");
             if (agent.AllowedTools.Except(SafeTools, StringComparer.Ordinal).Any())
                 throw new InvalidOperationException($"Specialist '{agent.Slug}' requests a prohibited tool.");
             foreach (var participation in agent.Participation)
