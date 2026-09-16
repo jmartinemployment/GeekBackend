@@ -12,7 +12,7 @@ public interface IContentProviderFactory
 
 /// <summary>
 /// Resolves the correct <see cref="IContentGenerationProvider"/> implementation using keyed DI
-/// registrations. This is the seam that lets the orchestrator swap LM Studio / OpenAI / Anthropic
+/// registrations. This is the seam that lets the orchestrator swap OpenAI / Anthropic / Groq
 /// per-project (Project.PreferredProvider) without an if/else chain anywhere else in the app.
 /// </summary>
 public class ContentProviderFactory : IContentProviderFactory
@@ -31,10 +31,16 @@ public class ContentProviderFactory : IContentProviderFactory
 
     public IContentGenerationProvider GetDefault()
     {
-        var defaultType = Enum.TryParse<LlmProviderType>(_options.DefaultProvider, out var parsed)
-            ? parsed
-            : LlmProviderType.LmStudio;
+        // No fallback: a misconfigured DefaultProvider must not be quietly swapped for some other
+        // provider. Silently substituting one is how every create ends up billed against a model
+        // nobody chose. Bad configuration stops here instead.
+        if (!Enum.TryParse<LlmProviderType>(_options.DefaultProvider, ignoreCase: true, out var parsed))
+        {
+            throw new InvalidOperationException(
+                $"LlmProviders:DefaultProvider is '{_options.DefaultProvider}', which is not a known "
+                + $"provider. Valid values: {string.Join(", ", Enum.GetNames<LlmProviderType>())}.");
+        }
 
-        return Get(defaultType);
+        return Get(parsed);
     }
 }

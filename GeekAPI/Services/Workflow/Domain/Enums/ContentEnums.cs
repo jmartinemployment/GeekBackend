@@ -2,7 +2,9 @@ namespace GeekAPI.Services.Workflow.Domain.Enums;
 
 public enum LlmProviderType
 {
-    LmStudio = 0,
+    // 0 was LmStudio - removed. It only ever pointed at http://localhost, which this app cannot
+    // reach in any deployed environment. Surviving members keep their persisted numbers, so a
+    // stored 0 now fails loudly at provider resolution instead of silently dialling localhost.
     OpenAi = 1,
     Anthropic = 2,
     Groq = 3

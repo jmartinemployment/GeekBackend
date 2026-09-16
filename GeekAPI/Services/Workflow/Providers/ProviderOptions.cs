@@ -4,20 +4,12 @@ public class LlmProvidersOptions
 {
     public const string SectionName = "LlmProviders";
 
-    public LmStudioOptions LmStudio { get; set; } = new();
     public OpenAiOptions OpenAi { get; set; } = new();
     public AnthropicOptions Anthropic { get; set; } = new();
     public GroqOptions Groq { get; set; } = new();
 
     /// <summary>Which provider services requests when a caller doesn't specify one explicitly.</summary>
-    public string DefaultProvider { get; set; } = "LmStudio";
-}
-
-public class LmStudioOptions
-{
-    public string BaseUrl { get; set; } = "http://localhost:1234/v1/chat/completions";
-    public string Model { get; set; } = "local-model";
-    public int TimeoutSeconds { get; set; } = 900;
+    public string DefaultProvider { get; set; } = "OpenAi";
 }
 
 public class OpenAiOptions

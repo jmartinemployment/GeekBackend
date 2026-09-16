@@ -1278,9 +1278,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
     private static string ResolveModelName(LlmProviderType provider) => provider switch
     {
-        LlmProviderType.LmStudio => "lm-studio-local",
         LlmProviderType.OpenAi => "openai",
         LlmProviderType.Anthropic => "anthropic",
+        LlmProviderType.Groq => "groq",
         _ => "unknown"
     };
 

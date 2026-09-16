@@ -241,7 +241,7 @@ public static class LlmResponseJsonParser
 
     /// <summary>
     /// System.Text.Json does not enforce non-null on a record's reference-typed constructor params —
-    /// a provider without native schema enforcement (OpenAI/Groq/LM Studio today; see the provider
+    /// a provider without native schema enforcement (Groq today; see the provider
     /// reality check in the design plan) can omit "children"/"paragraphs"/"runs" or leave a "text"
     /// field null, which would otherwise NRE the first time anything iterates the tree. Normalize
     /// once at the parse boundary so every downstream consumer can trust the non-null invariant.

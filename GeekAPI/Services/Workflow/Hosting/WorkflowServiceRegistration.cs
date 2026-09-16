@@ -46,7 +46,6 @@ public static class WorkflowServiceRegistration
         services.Configure<LlmProvidersOptions>(configuration.GetSection(LlmProvidersOptions.SectionName));
         services.Configure<CompanyProfileOptions>(configuration.GetSection(CompanyProfileOptions.SectionName));
 
-        services.AddHttpClient<LmStudioProvider>();
         services.AddHttpClient<OpenAiProvider>();
         services.AddHttpClient<AnthropicProvider>();
         services.AddHttpClient<GroqProvider>();
@@ -54,9 +53,6 @@ public static class WorkflowServiceRegistration
         var maxConcurrentLlmCalls = configuration.GetValue<int?>("LlmProviders:MaxConcurrentCalls") ?? 4;
         services.AddSingleton(new LlmConcurrencyGate(maxConcurrentLlmCalls));
 
-        services.AddKeyedTransient<IContentGenerationProvider>(LlmProviderType.LmStudio,
-            (sp, _) => new ConcurrencyLimitingContentGenerationProvider(
-                sp.GetRequiredService<LmStudioProvider>(), sp.GetRequiredService<LlmConcurrencyGate>()));
         services.AddKeyedTransient<IContentGenerationProvider>(LlmProviderType.OpenAi,
             (sp, _) => new ConcurrencyLimitingContentGenerationProvider(
                 sp.GetRequiredService<OpenAiProvider>(), sp.GetRequiredService<LlmConcurrencyGate>()));

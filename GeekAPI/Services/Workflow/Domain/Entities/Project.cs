@@ -26,7 +26,7 @@ public class Project
     /// <summary>Department/category slug (e.g. "accounting") — determines the published URL segment: /use-cases/{Department}/{slug}.</summary>
     public string Department { get; set; } = string.Empty;
     public ProjectStatus Status { get; set; } = ProjectStatus.Draft;
-    public LlmProviderType PreferredProvider { get; set; } = LlmProviderType.LmStudio;
+    public LlmProviderType PreferredProvider { get; set; } = LlmProviderType.OpenAi;
 
     /// <summary>When true, skip LLM title generation for the pillar article and use TargetKeyword verbatim as the title.</summary>
     public bool UseExactKeywordAsTitle { get; set; }

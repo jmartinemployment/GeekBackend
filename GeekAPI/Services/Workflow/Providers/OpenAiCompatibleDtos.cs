@@ -5,7 +5,7 @@ namespace GeekAPI.Services.Workflow.Providers;
 
 /// <summary>
 /// Shared wire format for any backend that speaks the OpenAI /v1/chat/completions
-/// dialect - used by both LmStudioProvider and OpenAiProvider.
+/// dialect - used by OpenAiProvider and GroqProvider.
 /// </summary>
 internal sealed class OpenAiCompatibleRequest
 {
@@ -22,7 +22,7 @@ internal sealed class OpenAiCompatibleRequest
 }
 
 /// <summary>Provider-native structured-output enforcement (OpenAI/Groq's shared
-/// response_format: json_schema contract). Not honored by LmStudioProvider today.</summary>
+/// response_format: json_schema contract).</summary>
 internal sealed class OpenAiResponseFormat
 {
     [JsonPropertyName("type")] public string Type { get; set; } = "json_schema";

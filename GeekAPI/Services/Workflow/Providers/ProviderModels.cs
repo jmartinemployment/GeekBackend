@@ -21,7 +21,7 @@ public record ChatMessage(ChatRole Role, string Content)
 /// <summary>
 /// <paramref name="JsonSchemaName"/>/<paramref name="JsonSchema"/> request provider-native
 /// structured-output enforcement (Anthropic forced tool-use, OpenAI response_format json_schema).
-/// Providers without reliable native enforcement (Groq, LM Studio) ignore these two fields and fall
+/// Providers without reliable native enforcement (Groq) ignore these two fields and fall
 /// back to prompt-only generation — correctness for those is guaranteed by the caller's own
 /// two-tier validation (schema deserialization + content-hygiene scan) after the fact, not by the
 /// provider. See the design plan's "provider reality check."
@@ -50,4 +50,3 @@ public class ContentGenerationException : Exception
     }
 }
 
-public record LmStudioHealthStatus(bool IsReachable, string? ModelId, string? Message);
