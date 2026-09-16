@@ -23,6 +23,16 @@ public interface IGeekCrawlerRagClient
     Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default);
 
     /// <summary>
+    /// Delete every crawler-owned vector for a run. Returns false when the purge could not be
+    /// proven — the caller must then abort the delete rather than orphan vectors whose Markdown
+    /// source is about to disappear.
+    /// </summary>
+    /// Default is <c>false</c> (purge unproven) so an implementation that does not override it
+    /// can never authorize a cascade delete by omission.
+    Task<bool> DeleteRunIndexAsync(Guid runId, CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    /// <summary>
     /// Retrieve English chunks for a need. Returns null when the client is disabled.
     /// HTTP/transport failures set <see cref="GeekCrawlerRagQueryResult.Failed"/> — empty Pages must not be treated as success.
     /// Optional preferParent/preferChild and entityNames are forward-compatible with
@@ -263,6 +273,41 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         {
             _logger.LogWarning(ex, "Geek-Crawler-Rag index enqueue threw for {RunId}", runId);
             return null;
+        }
+    }
+
+    public async Task<bool> DeleteRunIndexAsync(Guid runId, CancellationToken ct = default)
+    {
+        if (!_enabled)
+            return false;
+
+        try
+        {
+            using var response = await _http
+                .DeleteAsync($"v1/index/runs/{runId:D}", ct)
+                .ConfigureAwait(false);
+
+            // 404 means the run holds no points — already in the desired state.
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return true;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                _logger.LogError(
+                    "Geek-Crawler-Rag vector purge failed for {RunId}: {Status} {Body}",
+                    runId,
+                    (int)response.StatusCode,
+                    Truncate(body));
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Geek-Crawler-Rag vector purge threw for {RunId}", runId);
+            return false;
         }
     }
 
