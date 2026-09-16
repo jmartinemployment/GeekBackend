@@ -199,7 +199,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         using var scope = _factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<GccV2CreateLibraryWriter>();
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GenerateAsync(
+            service.DraftAsync(
                 GeekApiTestFactory.OwnerUserId.ToString(),
                 new CreateLibraryDraftRequest
                 {
@@ -220,7 +220,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         var service = scope.ServiceProvider.GetRequiredService<GccV2CreateLibraryWriter>();
         const string draft = "# Draft\n\n## Introduction\n\nA source-grounded short form.";
         var partnerRunId = Guid.NewGuid();
-        var result = await service.GenerateAsync(
+        var result = await service.DraftAsync(
             GeekApiTestFactory.OwnerUserId.ToString(),
             new CreateLibraryDraftRequest
             {
@@ -248,7 +248,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         using var scope = _factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<GccV2CreateLibraryWriter>();
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GenerateAsync(
+            service.DraftAsync(
                 GeekApiTestFactory.OwnerUserId.ToString(),
                 new CreateLibraryDraftRequest
                 {
