@@ -68,12 +68,13 @@ public sealed class GccV2UnifiedRagTests
     {
         var policy = new ContentModelPolicy();
         var best = Brief("""{"modelPolicyPreset":"best-quality"}""");
-        // Every stage defaults to o3-mini. Outline and FinalSynthesis used to default to o1-pro, which
-        // this app cannot call at all: the provider posts to /v1/chat/completions and OpenAI serves
-        // o1-pro only at /v1/responses, so those stages 404'd before reaching a model.
-        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.Outline, best).EffectiveModel);
-        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.Section, best).EffectiveModel);
-        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.FinalSynthesis, best).EffectiveModel);
+        // Every stage defaults to gpt-4o-mini - the cheapest approved model - while the v1 restore
+        // is in progress. o1-pro used to be the Outline/FinalSynthesis default and this app cannot
+        // call it at all: the provider posts to /v1/chat/completions and OpenAI serves o1-pro only
+        // at /v1/responses, so those stages 404'd before reaching a model.
+        Assert.Equal(ContentModelPolicy.Gpt4oMini, policy.Select(ContentGenerationStage.Outline, best).EffectiveModel);
+        Assert.Equal(ContentModelPolicy.Gpt4oMini, policy.Select(ContentGenerationStage.Section, best).EffectiveModel);
+        Assert.Equal(ContentModelPolicy.Gpt4oMini, policy.Select(ContentGenerationStage.FinalSynthesis, best).EffectiveModel);
 
         // o1-pro is no longer approved anywhere, so it cannot be selected back in by override.
         var o1Override = Brief("""
@@ -104,7 +105,7 @@ public sealed class GccV2UnifiedRagTests
         Assert.Throws<InvalidOperationException>(() =>
             policy.Select(ContentGenerationStage.FinalSynthesis, customWithoutFinal));
 
-        var invalid = Brief("""{"modelPolicyPreset":"custom","downgradeConfirmed":true,"modelPolicyOverrides":{"section":"gpt-4o-mini"}}""");
+        var invalid = Brief("""{"modelPolicyPreset":"custom","downgradeConfirmed":true,"modelPolicyOverrides":{"section":"gpt-3.5-turbo"}}""");
         var error = Assert.Throws<InvalidOperationException>(() =>
             policy.Select(ContentGenerationStage.Section, invalid));
         Assert.Contains("not approved", error.Message, StringComparison.OrdinalIgnoreCase);

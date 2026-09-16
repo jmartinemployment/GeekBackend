@@ -332,31 +332,33 @@ public sealed class ContentModelPolicy
     /// Step up to <see cref="O3"/> per stage when a piece needs more depth.
     /// </summary>
     public const string O3Mini = "o3-mini";
+    /// <summary>Cheapest approved model. Default while the v1 restore is in progress.</summary>
+    public const string Gpt4oMini = "gpt-4o-mini";
     public const string StandardMultimodal = "gpt-4o";
 
     private static readonly IReadOnlyDictionary<ContentGenerationStage, IReadOnlySet<string>> Approved =
         new Dictionary<ContentGenerationStage, IReadOnlySet<string>>
         {
-            [ContentGenerationStage.Research] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Outline] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Section] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Repair] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Validation] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.FinalSynthesis] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Complete] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.ImagePrompt] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Research] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Outline] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Section] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Repair] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Validation] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.FinalSynthesis] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Complete] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.ImagePrompt] = new HashSet<string>([Gpt4oMini, O3Mini, O3], StringComparer.OrdinalIgnoreCase),
         };
 
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> ApprovedStageModels { get; } =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
         {
-            ["researchPlanning"] = [O3Mini, O3],
-            ["outline"] = [O3Mini, O3],
-            ["section"] = [O3Mini, O3],
-            ["repair"] = [O3Mini, O3],
-            ["validation"] = [O3Mini, O3],
-            ["finalSynthesis"] = [O3Mini, O3],
-            ["complete"] = [O3Mini, O3],
+            ["researchPlanning"] = [Gpt4oMini, O3Mini, O3],
+            ["outline"] = [Gpt4oMini, O3Mini, O3],
+            ["section"] = [Gpt4oMini, O3Mini, O3],
+            ["repair"] = [Gpt4oMini, O3Mini, O3],
+            ["validation"] = [Gpt4oMini, O3Mini, O3],
+            ["finalSynthesis"] = [Gpt4oMini, O3Mini, O3],
+            ["complete"] = [Gpt4oMini, O3Mini, O3],
         };
 
     public ContentModelSelection Select(
@@ -425,7 +427,12 @@ public sealed class ContentModelPolicy
         // The O3Only preset still pins full o3, so an operator who wants the heavier reasoning model
         // for a given create can ask for it explicitly.
         _ = stage;
-        return preset == ContentModelPreset.O3Only ? O3 : O3Mini;
+        // TEMPORARY COST POSTURE - revert when the v1 restore lands and output is worth judging.
+        // Every create currently produces unusable content (missing v1's prompt layer), so there is
+        // no reason to pay reasoning-model rates to exercise plumbing. gpt-4o-mini is ~7x cheaper
+        // than o3-mini on both input and output and still honors response_format json_schema, which
+        // is all the extractors and the outline stage require.
+        return preset == ContentModelPreset.O3Only ? O3 : Gpt4oMini;
     }
 
     private static ContentModelPreset ParsePreset(JsonElement root) =>

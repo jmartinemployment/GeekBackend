@@ -29,6 +29,10 @@ public sealed class GccV2PartnerExtractionService(
     IContentProviderFactory providers,
     ILogger<GccV2PartnerExtractionService> logger)
 {
+    /// <summary>Sent as response_format.json_schema.name. OpenAI rejects anything outside
+    /// [a-zA-Z0-9_-] with a 400, so this must not pick up the dotted ".v4" version style.</summary>
+    public const string ProviderSchemaName = "partner-extraction-v4";
+
     private static readonly JsonSerializerOptions JsonOpts =
         new(JsonSerializerDefaults.Web)
         {
@@ -385,7 +389,7 @@ public sealed class GccV2PartnerExtractionService(
                     SystemPrompt: SystemPrompt,
                     UserPrompt: userPrompt,
                     JsonSchema: schema,
-                    SchemaName: "partner-extraction.v4",
+                    SchemaName: ProviderSchemaName,
                     Temperature: 0.1),
                 provider,
                 JsonOpts,
