@@ -683,12 +683,13 @@ public static class GccV2PrePlanEvidenceManifestAssembler
                     "Competitor run id present on brief."));
             }
         }
-        else
+        else if (RequiresCompetitorRunFailClosed(contentType, brief.CompetitorUrls.Count))
         {
             gaps.Add(CompetitorFailClosedMessage(contentType));
             readiness.Add(new(GccV2ResearchEntityRef.RoleCompetitor, null,
                 brief.CompetitorUrls.FirstOrDefault(), Indexed: false,
-                "Competitor crawl run required for every Create — bind indexed competitor run(s) before PLAN."));
+                "Competitor crawl run required for comparison and alternatives content — "
+                + "bind indexed competitor run(s) before PLAN."));
         }
 
         if (!string.IsNullOrWhiteSpace(brief.SiteSectionJson))
@@ -741,14 +742,16 @@ public static class GccV2PrePlanEvidenceManifestAssembler
     }
 
     /// <summary>
-    /// Appendix A: competitor crawl run required on every Create (fail closed).
-    /// <paramref name="competitorUrlCount"/> retained for call-site compatibility.
+    /// Competitor evidence is NEVER required. The operator sells implementation of partner tools;
+    /// competitors provide a slim slice — positioning and honest mention — and no Create should be
+    /// blocked for lack of one. Partner evidence remains mandatory.
+    /// Parameters retained for call-site compatibility.
     /// </summary>
     internal static bool RequiresCompetitorRunFailClosed(string contentType, int competitorUrlCount)
     {
         _ = contentType;
         _ = competitorUrlCount;
-        return true;
+        return false;
     }
 
     private static string PartnerFailClosedMessage(string contentType) => contentType switch

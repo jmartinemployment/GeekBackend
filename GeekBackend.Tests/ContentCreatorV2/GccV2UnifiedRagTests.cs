@@ -227,7 +227,7 @@ public sealed class GccV2UnifiedRagTests
     }
 
     [Fact]
-    public void Pre_plan_evidence_manifest_fails_closed_without_partner_or_competitor_runs()
+    public void Pre_plan_evidence_manifest_fails_closed_without_a_partner_run()
     {
         var siteRun = Guid.NewGuid();
         var createId = Guid.NewGuid();
@@ -250,7 +250,9 @@ public sealed class GccV2UnifiedRagTests
         Assert.Equal(GccV2ResearchEvidenceManifest.CurrentVersion, blocked.Version);
         Assert.False(blocked.Ready);
         Assert.Contains(blocked.EvidenceGaps, g => g.Contains("partner", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(blocked.EvidenceGaps, g => g.Contains("competitor", StringComparison.OrdinalIgnoreCase));
+        // A missing competitor run is no longer a gap: competitors are optional, partner evidence is
+        // the mandatory half.
+        Assert.DoesNotContain(blocked.EvidenceGaps, g => g.Contains("competitor", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(blocked.Warnings, w => w.Contains("may be empty", StringComparison.OrdinalIgnoreCase));
         Assert.Contains("https://example.com/research", blocked.InternalLinkOpportunities!);
         Assert.Contains(blocked.IndexReadiness!, r => r is { Role: "project_site", Indexed: true });
@@ -291,9 +293,12 @@ public sealed class GccV2UnifiedRagTests
         Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("ads", 0));
         Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("comparison", 1));
         Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresPartnerRunFailClosed("blog", 1));
-        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("alternatives", 1));
-        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("blog", 1));
-        Assert.True(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("pillar", 0));
+        // Competitor evidence is never required - it is a slim slice (positioning and honest
+        // mention), and no Create should be blocked for lack of a rival. Partner evidence is the
+        // mandatory half.
+        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("alternatives", 1));
+        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("blog", 1));
+        Assert.False(GccV2PrePlanEvidenceManifestAssembler.RequiresCompetitorRunFailClosed("pillar", 0));
     }
 
     [Fact]

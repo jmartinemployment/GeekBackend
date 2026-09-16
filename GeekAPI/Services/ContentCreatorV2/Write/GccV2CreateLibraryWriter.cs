@@ -199,18 +199,24 @@ public sealed class GccV2CreateLibraryWriter
                 "RAG evidence library returned no pages for the supplied source runs.");
         }
 
-        if (partnerRunIds.Count == 0 || competitorRunIds.Count == 0)
+        // Partner evidence is mandatory: the operator sells implementation of partner tools, so a
+        // draft without partner grounding has nothing to recommend. Competitors are OPTIONAL - they
+        // sharpen positioning when present, and plenty of pieces need none. Requiring both was wrong
+        // and blocked every create that named no rival.
+        if (partnerRunIds.Count == 0)
         {
             throw new InvalidOperationException(
-                "Create library draft requires bound partnerSourceRunIds and competitorSourceRunIds "
-                + "(Appendix A). Brief/topic-only grounding is forbidden.");
+                "Create library draft requires bound partnerSourceRunIds. "
+                + "Brief/topic-only grounding is forbidden.");
         }
 
-        if (sources.Count == 0
+        if (partnerPages.Count == 0
             && stage is not ("validation" or "finalSynthesis"))
         {
+            // Checked on partner pages specifically, not the combined source list: competitor pages
+            // must never stand in for missing partner evidence.
             throw new InvalidOperationException(
-                "RAG evidence library returned no partner/competitor pages for Create draft. "
+                "RAG evidence library returned no partner pages for Create draft. "
                 + "Brief/topic-only grounding is forbidden.");
         }
 
