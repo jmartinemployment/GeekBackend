@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
@@ -29,7 +30,14 @@ public sealed class GccV2CompetitorExtractionService(
     ILogger<GccV2CompetitorExtractionService> logger)
 {
     private static readonly JsonSerializerOptions JsonOpts =
-        new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
+        new(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true,
+            // Explicit resolver required: JsonSchemaExporter marks the options read-only, and
+            // reflection-based resolution is not picked up implicitly - without this every call
+            // throws "must specify a TypeInfoResolver setting before being marked as read-only".
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+        };
 
     private const int MaxParagraphsPerPage = 40;
     private const int MaxParagraphChars = 1_200;

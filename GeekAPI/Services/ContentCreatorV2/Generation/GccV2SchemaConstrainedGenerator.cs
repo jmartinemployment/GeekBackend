@@ -1,5 +1,6 @@
 using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using GeekAPI.Services.Workflow.Providers;
 
 namespace GeekAPI.Services.ContentCreatorV2.Generation;
@@ -63,7 +64,14 @@ public sealed record GccV2SchemaConstrainedCompletion<T>(
 public sealed class GccV2SchemaConstrainedGenerator : IGccV2SchemaConstrainedGenerator
 {
     private static readonly JsonSerializerOptions DefaultOptions =
-        new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
+        new(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true,
+            // Explicit resolver required: JsonSchemaExporter marks the options read-only, and
+            // reflection-based resolution is not picked up implicitly - without this every call
+            // throws "must specify a TypeInfoResolver setting before being marked as read-only".
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+        };
 
     public async Task<GccV2SchemaConstrainedCompletion<T>> CompleteAsync<T>(
         GccV2SchemaConstrainedRequest request,
