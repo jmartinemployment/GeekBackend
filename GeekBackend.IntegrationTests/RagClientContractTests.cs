@@ -367,7 +367,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             false,
             Sources:
             [
-                new RagGenerateSourceDto
+                new CreateLibraryDraftSourceDto
                 {
                     PageId = RagProtocolStubHandler.ArticlePageId,
                     Url = RagProtocolStubHandler.ArticleUrl,
