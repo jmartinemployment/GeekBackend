@@ -14,6 +14,10 @@ namespace GeekAPI.Services.ContentCreatorV2.Competitor;
 /// Opens are derived from competitor-native extraction rather than a saved SERP upload: once the
 /// competitor extractor looks for topical coverage, <c>GapMap</c> and <c>CoverageMap</c> are a
 /// better source than a pasted results page and need no new operator input.
+///
+/// SEPARATE CONCERN: those two fields exist for content gap analysis, which is outside Content
+/// Creation's scope. This anti-duplication check is their only in-scope consumer — it stops a draft
+/// restating what the site already publishes. Do not extend this into topic discovery.
 /// </summary>
 public static class GccV2InformationGain
 {

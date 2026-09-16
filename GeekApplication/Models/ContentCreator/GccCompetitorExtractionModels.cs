@@ -18,7 +18,12 @@ namespace GeekApplication.Models.ContentCreator;
 public sealed record GccCompetitorExtractionDocument(
     string ExtractorVersion,
 
-    // Job 1 — find content gaps
+    // SEPARATE CONCERN — content gap analysis is outside the scope of Content Creation.
+    // These two fields serve gap discovery ("what should we write about?"), which belongs to a
+    // different system. They are retained here only because Information Gain consumes them during
+    // drafting to avoid restating what this site already covers — an anti-duplication check, not
+    // topic discovery. Do not grow gap-analysis capability on this document; if Information Gain
+    // stops needing them, both fields leave with it.
     IReadOnlyList<GccCompetitorCoverageAsset> CoverageMap,
     IReadOnlyList<GccCompetitorGapMapAsset> GapMap,
 
@@ -81,7 +86,13 @@ public sealed record GccCompetitorExtractionProvenance(
  * Job 1 — content gaps                                             *
  * ---------------------------------------------------------------- */
 
-/// <summary>What the rival covers and how deeply — the input gap-finding needs and never had.</summary>
+/// <summary>
+/// What the rival covers and how deeply.
+///
+/// SEPARATE CONCERN: this is content gap analysis, which is outside Content Creation's scope. Its only
+/// in-scope consumer is Information Gain, which uses it to stop a draft restating coverage this site
+/// already has. It is not a topic-discovery feature and must not become one here.
+/// </summary>
 public sealed record GccCompetitorCoverageAsset(
     string TopicPath,
     string DepthAssessment,
@@ -89,6 +100,12 @@ public sealed record GccCompetitorCoverageAsset(
     string OriginProofUrl,
     GccCompetitorExtractionProvenance Provenance);
 
+/// <summary>
+/// A topic the rival covers that this site does not, framed as an opportunity.
+///
+/// SEPARATE CONCERN: content gap analysis belongs to a different system. Retained only as the source
+/// of Information Gain's <c>CompetitorOpens</c> during drafting (GccV2InformationGain.Enrich).
+/// </summary>
 public sealed record GccCompetitorGapMapAsset(
     string GapTopic,
     string DepthAssessment,
