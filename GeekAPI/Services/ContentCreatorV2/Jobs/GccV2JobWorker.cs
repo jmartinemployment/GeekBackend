@@ -37,12 +37,14 @@ public sealed class GccV2JobWorker : BackgroundService
     private readonly ConcurrentDictionary<Guid, int> _staleClaimAttempts = new();
     private readonly GccV2JobWake _wake;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<GccV2JobWorker> _logger;
 
-    public GccV2JobWorker(GccV2JobWake wake, IServiceScopeFactory scopeFactory, ILogger<GccV2JobWorker> logger)
+    public GccV2JobWorker(GccV2JobWake wake, IServiceScopeFactory scopeFactory, IConfiguration configuration, ILogger<GccV2JobWorker> logger)
     {
         _wake = wake;
         _scopeFactory = scopeFactory;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -155,8 +157,8 @@ public sealed class GccV2JobWorker : BackgroundService
             teamResolver.ValidatePersisted(claimed);
             if (string.Equals(claimed.Stage, "plan", StringComparison.OrdinalIgnoreCase))
             {
-                var planService = scope.ServiceProvider.GetRequiredService<GccV2PlanService>();
-                await RunPlanStageAsync(jobId, ownerUserId, claimed, repo, writer, planService, ct);
+                var planWriter = scope.ServiceProvider.GetRequiredService<V1Restore.GccV2V1PlanAdapter>();
+                await RunPlanStageAsync(jobId, ownerUserId, claimed, repo, writer, planWriter, ct);
                 return;
             }
 
@@ -316,7 +318,7 @@ public sealed class GccV2JobWorker : BackgroundService
         GccV2JobDto job,
         HttpGccV2Repository repo,
         GccV2JobEventWriter writer,
-        GccV2PlanService planService,
+        V1Restore.GccV2V1PlanAdapter planWriter,
         CancellationToken ct)
     {
         await writer.AppendAsync(jobId, ownerUserId, "JobStageChanged", new { stage = "plan" }, ct: ct);
@@ -328,6 +330,17 @@ public sealed class GccV2JobWorker : BackgroundService
             return;
         }
 
+        // COST KILL SWITCH - gates whichever writer runs. It used to sit inside
+        // GccV2PlanService.BuildOutlineAsync; PLAN no longer calls that, so leaving it there would
+        // have silently un-gated spending the moment PLAN moved to v1.
+        if (!_configuration.GetValue("ContentCreatorV2:DraftingEnabled", false))
+        {
+            await FailJobAsync(writer, jobId, ownerUserId,
+                "Drafting is disabled (ContentCreatorV2:DraftingEnabled=false). Set it to true to generate.",
+                ct);
+            return;
+        }
+
         GccV2PlanOutline outline;
         try
         {
@@ -335,7 +348,7 @@ public sealed class GccV2JobWorker : BackgroundService
                 new { stage = "researchPlanning" }, ct: ct);
             await writer.AppendAsync(jobId, ownerUserId, "AgentStageStarted",
                 new { stage = "outline" }, ct: ct);
-            outline = await planService.BuildOutlineAsync(job, brief, ct);
+            outline = await planWriter.BuildOutlineAsync(job, brief, ct);
             if (outline.ResearchPlan is { Count: > 0 } plan)
             {
                 await writer.AppendAsync(jobId, ownerUserId, "AgentStageCompleted", new
