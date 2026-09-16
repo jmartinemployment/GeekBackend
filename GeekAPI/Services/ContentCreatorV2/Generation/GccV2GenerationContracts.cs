@@ -319,33 +319,44 @@ public sealed record ContentModelSelection(
 public sealed class ContentModelPolicy
 {
     public const string CurrentVersion = "content-model-policy.v1";
+    /// <summary>
+    /// Retained for contract compatibility only. NOT approved for any stage: the provider speaks
+    /// /v1/chat/completions and OpenAI serves this model only at /v1/responses.
+    /// </summary>
     public const string O1Pro = "o1-pro";
     public const string O3 = "o3";
+
+    /// <summary>
+    /// Default for every stage. Cheapest of the family, serves /v1/chat/completions, supports prompt
+    /// caching, and suits factual RAG extraction — search, pull a direct answer, cite a source.
+    /// Step up to <see cref="O3"/> per stage when a piece needs more depth.
+    /// </summary>
+    public const string O3Mini = "o3-mini";
     public const string StandardMultimodal = "gpt-4o";
 
     private static readonly IReadOnlyDictionary<ContentGenerationStage, IReadOnlySet<string>> Approved =
         new Dictionary<ContentGenerationStage, IReadOnlySet<string>>
         {
-            [ContentGenerationStage.Research] = new HashSet<string>([O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Outline] = new HashSet<string>([O1Pro, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Section] = new HashSet<string>([O3, O1Pro], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Repair] = new HashSet<string>([O3, O1Pro], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Validation] = new HashSet<string>([O3, O1Pro], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.FinalSynthesis] = new HashSet<string>([O1Pro, O3], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.Complete] = new HashSet<string>([O3, O1Pro], StringComparer.OrdinalIgnoreCase),
-            [ContentGenerationStage.ImagePrompt] = new HashSet<string>([O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Research] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Outline] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Section] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Repair] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Validation] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.FinalSynthesis] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.Complete] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
+            [ContentGenerationStage.ImagePrompt] = new HashSet<string>([O3Mini, O3], StringComparer.OrdinalIgnoreCase),
         };
 
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> ApprovedStageModels { get; } =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
         {
-            ["researchPlanning"] = [O3],
-            ["outline"] = [O1Pro, O3],
-            ["section"] = [O3, O1Pro],
-            ["repair"] = [O3, O1Pro],
-            ["validation"] = [O3, O1Pro],
-            ["finalSynthesis"] = [O1Pro, O3],
-            ["complete"] = [O3, O1Pro],
+            ["researchPlanning"] = [O3Mini, O3],
+            ["outline"] = [O3Mini, O3],
+            ["section"] = [O3Mini, O3],
+            ["repair"] = [O3Mini, O3],
+            ["validation"] = [O3Mini, O3],
+            ["finalSynthesis"] = [O3Mini, O3],
+            ["complete"] = [O3Mini, O3],
         };
 
     public ContentModelSelection Select(
@@ -405,9 +416,16 @@ public sealed class ContentModelPolicy
 
     private static string DefaultFor(ContentGenerationStage stage, ContentModelPreset preset)
     {
-        if (stage == ContentGenerationStage.ImagePrompt) return O3;
-        if (preset == ContentModelPreset.O3Only) return O3;
-        return stage is ContentGenerationStage.Outline or ContentGenerationStage.FinalSynthesis ? O1Pro : O3;
+        // o3-mini for every stage by default. Outline and FinalSynthesis used to default to o1-pro,
+        // which this app cannot call at all: the provider posts to /v1/chat/completions and OpenAI
+        // serves o1-pro only at /v1/responses, so those stages 404'd before reaching a model. o3-mini
+        // is also ~75x cheaper on input than o1-pro ($2 vs $150 per 1M), supports prompt caching, and
+        // suits the factual extraction this pipeline does against verified RAG Markdown.
+        //
+        // The O3Only preset still pins full o3, so an operator who wants the heavier reasoning model
+        // for a given create can ask for it explicitly.
+        _ = stage;
+        return preset == ContentModelPreset.O3Only ? O3 : O3Mini;
     }
 
     private static ContentModelPreset ParsePreset(JsonElement root) =>
@@ -770,7 +788,9 @@ public static class GccV2PrePlanEvidenceManifestAssembler
     {
         "comparison" or "alternatives" =>
             "Comparison/alternatives require indexed competitor crawl run(s) — bind competitorSourceRunIds before PLAN.",
+        // Unreachable while RequiresCompetitorRunFailClosed returns false. Kept accurate so it does
+        // not reintroduce the "required for every Create" claim if the gate is ever re-enabled.
         _ =>
-            "Competitor crawl run is required for every Create before PLAN — bind competitorSourceRunIds.",
+            "Competitor crawl run not bound — optional, so this does not block PLAN.",
     };
 }

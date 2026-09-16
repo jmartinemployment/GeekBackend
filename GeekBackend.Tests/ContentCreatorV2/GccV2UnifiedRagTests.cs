@@ -68,9 +68,19 @@ public sealed class GccV2UnifiedRagTests
     {
         var policy = new ContentModelPolicy();
         var best = Brief("""{"modelPolicyPreset":"best-quality"}""");
-        Assert.Equal(ContentModelPolicy.O1Pro, policy.Select(ContentGenerationStage.Outline, best).EffectiveModel);
-        Assert.Equal(ContentModelPolicy.O3, policy.Select(ContentGenerationStage.Section, best).EffectiveModel);
-        Assert.Equal(ContentModelPolicy.O1Pro, policy.Select(ContentGenerationStage.FinalSynthesis, best).EffectiveModel);
+        // Every stage defaults to o3-mini. Outline and FinalSynthesis used to default to o1-pro, which
+        // this app cannot call at all: the provider posts to /v1/chat/completions and OpenAI serves
+        // o1-pro only at /v1/responses, so those stages 404'd before reaching a model.
+        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.Outline, best).EffectiveModel);
+        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.Section, best).EffectiveModel);
+        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.FinalSynthesis, best).EffectiveModel);
+
+        // o1-pro is no longer approved anywhere, so it cannot be selected back in by override.
+        var o1Override = Brief("""
+        {"modelPolicy":{"version":"content-model-policy.v1","preset":"custom","stageModels":{"Outline":"o1-pro"},"downgradeConfirmed":true}}
+        """);
+        Assert.Throws<InvalidOperationException>(
+            () => policy.Select(ContentGenerationStage.Outline, o1Override));
 
         var o3Only = Brief("""{"modelPolicyPreset":"o3-only","downgradeConfirmed":true}""");
         Assert.Equal(ContentModelPolicy.O3, policy.Select(ContentGenerationStage.Outline, o3Only).EffectiveModel);

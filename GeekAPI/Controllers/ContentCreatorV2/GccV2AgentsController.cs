@@ -169,7 +169,7 @@ public sealed class GccV2AgentsController(
             && !string.Equals(request.ModelPolicy.Version, ContentModelPolicy.CurrentVersion, StringComparison.Ordinal))
             return BadRequest(new { error = $"modelPolicy.version must be {ContentModelPolicy.CurrentVersion}." });
         var allowedModels = (request.AllowedModels ?? request.ModelPolicy?.AllowedModels)?.ToList()
-            ?? [ContentModelPolicy.O3, ContentModelPolicy.O1Pro];
+            ?? [ContentModelPolicy.O3Mini, ContentModelPolicy.O3];
         if (participation.Count == 0 || contentTypes.Count == 0 || allowedTools.Count == 0 || allowedModels.Count == 0)
             return BadRequest(new { error = "stages, contentTypes, allowedTools, and allowedModels cannot be empty." });
         var agent = await repo.CreateAgentAsync(new(

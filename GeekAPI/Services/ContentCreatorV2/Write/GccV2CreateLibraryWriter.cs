@@ -138,12 +138,15 @@ public sealed class GccV2CreateLibraryWriter
 
         if (stage == "researchPlanning")
         {
-            // Appendix A: partner + competitor library runs required on every Create.
-            if (partnerRunIds.Count == 0 || competitorRunIds.Count == 0)
+            // Partner evidence is mandatory; competitors are optional. The operator sells
+            // implementation of partner tools, so a research plan with no partner run has nothing to
+            // plan against - but plenty of pieces name no rival, and requiring one failed every
+            // create that did not. Competitor queries below are added only when runs are bound.
+            if (partnerRunIds.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "Create researchPlanning requires bound partnerSourceRunIds and competitorSourceRunIds "
-                    + "(Appendix A). Brief/topic-only research plans are forbidden.");
+                    "Create researchPlanning requires bound partnerSourceRunIds. "
+                    + "Brief/topic-only research plans are forbidden.");
             }
 
             var need = BuildNeed(intent, topic, entities, CrawlTypes.Partner);
@@ -203,7 +206,11 @@ public sealed class GccV2CreateLibraryWriter
         // draft without partner grounding has nothing to recommend. Competitors are OPTIONAL - they
         // sharpen positioning when present, and plenty of pieces need none. Requiring both was wrong
         // and blocked every create that named no rival.
-        if (partnerRunIds.Count == 0)
+        // Exempt for the same reason the page check below is: validation and final synthesis operate
+        // on an already-drafted document rather than retrieving new evidence, so demanding source runs
+        // there fails work that was properly grounded when it was written.
+        if (partnerRunIds.Count == 0
+            && stage is not ("validation" or "finalSynthesis"))
         {
             throw new InvalidOperationException(
                 "Create library draft requires bound partnerSourceRunIds. "
