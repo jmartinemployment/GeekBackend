@@ -50,17 +50,22 @@ public sealed class GccV2V1ProjectBridge(
         var existing = (await projects.ListAsync(p => p.LinkedCreateId == createId, ct)).FirstOrDefault();
         var project = existing ?? new Project { ClientId = client.Id };
 
-        // The operator's Title is the subject they asked for. v1 otherwise writes its own title from
-        // TargetKeyword, which is how the title entered on the Create stopped reaching the output.
-        var operatorTitle = (create.Title ?? "").Trim();
+        // TargetKeyword is the join key, not a label. It has to match the H4 heading on the site so
+        // the generated page links to that Pillar, and it is what the hierarchy assignment is keyed
+        // against. It therefore comes from the brief and is never overwritten by the Create's Title -
+        // an earlier version of this bridge did overwrite it, which would have broken that link.
         var keyword = (brief.TargetKeyword ?? "").Trim();
-        if (operatorTitle.Length == 0 && keyword.Length == 0)
+        if (keyword.Length == 0)
             throw new InvalidOperationException(
-                $"Create {createId} has neither a title nor a target keyword; v1 has no subject to write about.");
+                $"Create {createId} has no target keyword. v1 keys the site-hierarchy match and the "
+                + "Pillar link on it, so there is nothing to match against.");
 
-        project.Name = operatorTitle.Length > 0 ? operatorTitle : keyword;
-        project.TargetKeyword = operatorTitle.Length > 0 ? operatorTitle : keyword;
-        project.UseExactKeywordAsTitle = operatorTitle.Length > 0;
+        // Title equals the keyword verbatim - the operator's normal setting, and the reason the H4
+        // match and the Pillar link line up. v1 otherwise writes its own title from the keyword.
+        // Create carries no per-run control for this yet; when it does, this is where it binds.
+        project.Name = string.IsNullOrWhiteSpace(create.Title) ? keyword : create.Title.Trim();
+        project.TargetKeyword = keyword;
+        project.UseExactKeywordAsTitle = true;
 
         project.ProjectUrl = (create.SiteUrl ?? "").Trim();
         project.SiteAnalysisId = create.ProjectSiteCrawlRunId;
