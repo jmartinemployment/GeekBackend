@@ -37,7 +37,7 @@ public sealed class GccV2FirstPartyAgentSeeder(
                             "activate_skill", "read_skill_resource", "submit_contribution", "submit_review",
                             "submit_research_plan", "submit_outline", "submit_section", "submit_repair",
                             "submit_validation", "submit_final_synthesis"],
-                        [ContentModelPolicy.O1Pro, ContentModelPolicy.O3],
+                        [ContentModelPolicy.O3Mini, ContentModelPolicy.O3],
                         [definition.SkillVersionId], definition.Participation,
                         "system:first-party-seed", null, "startup-seed",
                         definition.Objective, ContentModelPolicy.CurrentVersion), cancellationToken);
