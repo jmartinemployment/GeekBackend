@@ -168,7 +168,7 @@ public sealed class GccV2RagValidationTests
     [InlineData("validation", "validation")]
     [InlineData(" VALIDATION ", "validation")]
     public void Validation_generation_stage_is_normalized(string raw, string expected) =>
-        Assert.Equal(expected, RagGenerateService.NormalizeGenerationStage(raw));
+        Assert.Equal(expected, GccV2CreateLibraryWriter.NormalizeGenerationStage(raw));
 
     private static RagValidationDto Validation(
         bool approved,

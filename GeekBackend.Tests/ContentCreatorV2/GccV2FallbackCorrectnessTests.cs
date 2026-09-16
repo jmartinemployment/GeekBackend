@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
 using GeekAPI.Services.ContentCreatorV2.Generation;
@@ -167,7 +168,7 @@ public sealed class GccV2FallbackCorrectnessTests
             "Soft-disabled index success is forbidden",
             File.ReadAllText(Path.GetFullPath(Path.Combine(
                 AppContext.BaseDirectory, "..", "..", "..", "..",
-                "GeekAPI", "Services", "Rag", "RagGenerateService.cs"))),
+                "GeekAPI", "Services", "ContentCreatorV2", "Write", "GccV2CreateLibraryWriter.cs"))),
             StringComparison.Ordinal);
     }
 
@@ -176,7 +177,7 @@ public sealed class GccV2FallbackCorrectnessTests
     {
         var path = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..",
-            "GeekAPI", "Services", "Rag", "RagGenerateService.cs"));
+            "GeekAPI", "Services", "ContentCreatorV2", "Write", "GccV2CreateLibraryWriter.cs"));
         var source = File.ReadAllText(path);
         Assert.Contains("if (!request.CreateLibraryDraft)", source, StringComparison.Ordinal);
         Assert.Contains("RAG generate is removed", source, StringComparison.Ordinal);
@@ -209,7 +210,7 @@ public sealed class GccV2FallbackCorrectnessTests
                 StringComparison.Ordinal);
         }
 
-        var generate = File.ReadAllText(Rel("GeekAPI", "Services", "Rag", "RagGenerateService.cs"));
+        var generate = File.ReadAllText(Rel("GeekAPI", "Services", "ContentCreatorV2", "Write", "GccV2CreateLibraryWriter.cs"));
         Assert.Contains("if (!request.CreateLibraryDraft)", generate, StringComparison.Ordinal);
         Assert.Contains("DraftFromCreateLibraryAsync", generate, StringComparison.Ordinal);
         Assert.Contains("gcc-create-library.v1", generate, StringComparison.Ordinal);

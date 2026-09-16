@@ -70,7 +70,7 @@ public sealed class GccV2ValidateService
     private readonly GccV2WriteService _writeService;
     private readonly GuardrailGateService _guardrailGate;
     private readonly GccV2RestructurePassService _restructurePass;
-    private readonly RagGenerateService _rag;
+    private readonly GccV2CreateLibraryWriter _rag;
     private readonly ContentModelPolicy _modelPolicy;
     private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
     private readonly GccV2SpecialistCoordinator _specialists;
@@ -83,7 +83,7 @@ public sealed class GccV2ValidateService
         GccV2WriteService writeService,
         GuardrailGateService guardrailGate,
         GccV2RestructurePassService restructurePass,
-        RagGenerateService rag,
+        GccV2CreateLibraryWriter rag,
         ContentModelPolicy modelPolicy,
         GccV2SkillSnapshotRegistry skillSnapshots,
         GccV2SpecialistCoordinator specialists,
@@ -189,7 +189,7 @@ public sealed class GccV2ValidateService
         await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
             new { stage = "validation", attemptId,
                 executionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion }, ct: ct);
-        var ragRequest = new RagGenerateRequest
+        var ragRequest = new CreateLibraryDraftRequest
         {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
@@ -215,7 +215,7 @@ public sealed class GccV2ValidateService
                 RequireCiteable = true,
                 CreateLibraryDraft = true,
         };
-        var ragResponse = await _rag.GenerateAsync(wc.Job.OwnerUserId, ragRequest, ct);
+        var ragResponse = await _rag.DraftAsync(wc.Job.OwnerUserId, ragRequest, ct);
         if (ragResponse.SoftDisabled)
             throw new InvalidOperationException(
                 "Create validation cannot continue: SoftDisabled is not a citeable Create success path.");

@@ -3,6 +3,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.BrandKit;
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.Rag;
+using GeekAPI.Services.ContentCreatorV2.Write;
 
 namespace GeekAPI.Services.ContentCreatorV2.Generation;
 

@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Gcw;
@@ -145,7 +146,7 @@ public sealed class GccV2WriteService
     private readonly IContentProviderFactory _providers;
     private readonly GccV2PartnerToolWriteService _partnerToolWrite;
     private readonly GccV2ToolOverviewWriteService _toolOverviewWrite;
-    private readonly RagGenerateService _rag;
+    private readonly GccV2CreateLibraryWriter _rag;
     private readonly ContentModelPolicy _modelPolicy;
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
     private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
@@ -160,7 +161,7 @@ public sealed class GccV2WriteService
         IContentProviderFactory providers,
         GccV2PartnerToolWriteService partnerToolWrite,
         GccV2ToolOverviewWriteService toolOverviewWrite,
-        RagGenerateService rag,
+        GccV2CreateLibraryWriter rag,
         ContentModelPolicy modelPolicy,
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
         GccV2SkillSnapshotRegistry skillSnapshots,
@@ -443,7 +444,7 @@ public sealed class GccV2WriteService
             new { stage = "finalSynthesis", attemptId,
                 executionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
-        var request = new RagGenerateRequest
+        var request = new CreateLibraryDraftRequest
         {
                 WritingIntent = route.WritingIntent,
                 Topic = wc.GenerationBrief.TargetKeyword,
@@ -466,7 +467,7 @@ public sealed class GccV2WriteService
                 RequireCiteable = true,
                 CreateLibraryDraft = true,
         };
-        var response = await _rag.GenerateAsync(wc.Job.OwnerUserId, request, ct);
+        var response = await _rag.DraftAsync(wc.Job.OwnerUserId, request, ct);
         stopwatch.Stop();
         if (response.SoftDisabled)
             throw new InvalidOperationException(
@@ -1132,9 +1133,9 @@ public sealed class GccV2WriteService
                 negotiationReason = "gcc_create_library",
             }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
-        var response = await _rag.GenerateAsync(
+        var response = await _rag.DraftAsync(
             wc.Job.OwnerUserId,
-            new RagGenerateRequest
+            new CreateLibraryDraftRequest
             {
                 WritingIntent = route.WritingIntent,
                 Topic = string.IsNullOrWhiteSpace(seedContext)
@@ -1326,7 +1327,7 @@ public sealed class GccV2WriteService
             new { stage = producerStage, attemptId,
                 executionVersion = RagProducerCapabilities.CreateLibraryExecutionVersion }, ct: ct);
         var stopwatch = Stopwatch.StartNew();
-        var request = new RagGenerateRequest
+        var request = new CreateLibraryDraftRequest
         {
                 WritingIntent = route.WritingIntent,
                 Topic = $"{wc.GenerationBrief.Title}: {wc.GenerationBrief.TargetKeyword}",
@@ -1359,7 +1360,7 @@ public sealed class GccV2WriteService
                 RequireCiteable = true,
                 CreateLibraryDraft = true,
         };
-        var response = await _rag.GenerateAsync(wc.Job.OwnerUserId, request, ct);
+        var response = await _rag.DraftAsync(wc.Job.OwnerUserId, request, ct);
         stopwatch.Stop();
         if (response.SoftDisabled)
             throw new InvalidOperationException(

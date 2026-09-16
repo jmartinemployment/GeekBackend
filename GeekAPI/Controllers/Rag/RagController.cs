@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Auth;
 using GeekAPI.Services.Rag;
 using Microsoft.AspNetCore.Mvc;
@@ -6,16 +7,16 @@ namespace GeekAPI.Controllers.Rag;
 
 /// <summary>
 /// RAG evidence library for Content Creator v2: status, entity catalog, template index.
-/// Drafting uses <see cref="RagGenerateService"/> with <c>CreateLibraryDraft</c> (query + pages only).
+/// Drafting uses <see cref="GccV2CreateLibraryWriter"/> with <c>CreateLibraryDraft</c> (query + pages only).
 /// </summary>
 [ApiController]
 [Route("api/rag")]
 public sealed class RagController : ControllerBase
 {
     private readonly ICurrentUserContext _user;
-    private readonly RagGenerateService _generate;
+    private readonly GccV2CreateLibraryWriter _generate;
 
-    public RagController(ICurrentUserContext user, RagGenerateService generate)
+    public RagController(ICurrentUserContext user, GccV2CreateLibraryWriter generate)
     {
         _user = user;
         _generate = generate;

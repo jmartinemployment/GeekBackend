@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Text.Json.Serialization;
 using DotNetEnv;
 using GeekAPI.Auth;
@@ -106,7 +107,7 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddContentCreatorV2(builder.Configuration);
 builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
-builder.Services.AddScoped<GeekAPI.Services.Rag.RagGenerateService>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Write.GccV2CreateLibraryWriter>();
 
 // GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]
 // (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade). Additive: existing

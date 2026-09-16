@@ -1,10 +1,11 @@
+using GeekAPI.Services.Rag;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 
-namespace GeekAPI.Services.Rag;
+namespace GeekAPI.Services.ContentCreatorV2.Write;
 
-public sealed class RagGenerateRequest
+public sealed class CreateLibraryDraftRequest
 {
     public string WritingIntent { get; set; } = "";
     public string Topic { get; set; } = "";
@@ -345,7 +346,7 @@ public sealed class RagBattlecardDto
     public List<string> Risks { get; set; } = [];
 }
 
-public sealed class RagGenerateResponse
+public sealed class CreateLibraryDraftResponse
 {
     public required string Intent { get; init; }
     public string? Content { get; init; }

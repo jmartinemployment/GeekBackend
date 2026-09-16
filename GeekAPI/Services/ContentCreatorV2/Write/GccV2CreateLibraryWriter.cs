@@ -1,3 +1,4 @@
+using GeekAPI.Services.Rag;
 using System.Text;
 using System.Text.Json;
 using GeekAPI.Services.ContentCreatorV2.Generation;
@@ -7,13 +8,13 @@ using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
 using GeekApplication.Models.GeekCrawler;
 
-namespace GeekAPI.Services.Rag;
+namespace GeekAPI.Services.ContentCreatorV2.Write;
 
 /// <summary>
 /// Create library drafts: RAG query + pages only; GeekAPI completes via <see cref="DraftFromCreateLibraryAsync"/>.
 /// Legacy <c>/v1/generate</c> and non-library generate paths are removed (fail closed).
 /// </summary>
-public sealed class RagGenerateService
+public sealed class GccV2CreateLibraryWriter
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -23,14 +24,14 @@ public sealed class RagGenerateService
 
     private readonly IGeekCrawlerRagClient _rag;
     private readonly IContentProviderFactory _providers;
-    private readonly ILogger<RagGenerateService> _logger;
+    private readonly ILogger<GccV2CreateLibraryWriter> _logger;
     private readonly bool _graphEnabled;
     private readonly bool _adTemplateIndexEnabled;
 
-    public RagGenerateService(
+    public GccV2CreateLibraryWriter(
         IGeekCrawlerRagClient rag,
         IContentProviderFactory providers,
-        ILogger<RagGenerateService> logger)
+        ILogger<GccV2CreateLibraryWriter> logger)
     {
         _rag = rag;
         _providers = providers;
@@ -66,9 +67,9 @@ public sealed class RagGenerateService
         };
     }
 
-    public async Task<RagGenerateResponse> GenerateAsync(
+    public async Task<CreateLibraryDraftResponse> DraftAsync(
         string ownerUserId,
-        RagGenerateRequest request,
+        CreateLibraryDraftRequest request,
         CancellationToken ct)
     {
         if (!request.CreateLibraryDraft)
@@ -109,9 +110,9 @@ public sealed class RagGenerateService
     /// <summary>
     /// Canonical Create writer: RAG query/pages only; GeekAPI drafts. Never /v1/generate, never SoftDisabled.
     /// </summary>
-    private async Task<RagGenerateResponse> DraftFromCreateLibraryAsync(
+    private async Task<CreateLibraryDraftResponse> DraftFromCreateLibraryAsync(
         string ownerUserId,
-        RagGenerateRequest request,
+        CreateLibraryDraftRequest request,
         CancellationToken ct)
     {
         if (!_rag.IsEnabled)
@@ -299,7 +300,7 @@ public sealed class RagGenerateService
     }
 
     private static string ResolveLibraryNeed(
-        RagGenerateRequest request, string intent, string topic,
+        CreateLibraryDraftRequest request, string intent, string topic,
         IReadOnlyList<string> entities, string crawlType)
     {
         if (request.ResearchPlan is { Count: > 0 } plan)
@@ -312,10 +313,10 @@ public sealed class RagGenerateService
         return BuildNeed(intent, topic, entities, crawlType);
     }
 
-    private RagGenerateResponse LibraryResponse(
+    private CreateLibraryDraftResponse LibraryResponse(
         string intent,
         string stage,
-        RagGenerateRequest request,
+        CreateLibraryDraftRequest request,
         string modelUsed,
         string retrieval,
         List<string> warnings,
@@ -333,7 +334,7 @@ public sealed class RagGenerateService
             .Cast<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        return new RagGenerateResponse
+        return new CreateLibraryDraftResponse
         {
             Intent = intent,
             Content = content,
@@ -647,7 +648,7 @@ public sealed class RagGenerateService
         return string.Join("; ", parts);
     }
 
-    private async Task<RagGenerateResponse> WriteLongFormAsync(
+    private async Task<CreateLibraryDraftResponse> WriteLongFormAsync(
         string intent,
         string topic,
         IReadOnlyList<string> entities,
@@ -671,7 +672,7 @@ public sealed class RagGenerateService
 
         var (text, modelUsed) = await CompleteAsync(system, user, model, temperature: 0.45, maxTokens: 4096, ct)
             .ConfigureAwait(false);
-        return new RagGenerateResponse
+        return new CreateLibraryDraftResponse
         {
             Intent = intent,
             Content = text,

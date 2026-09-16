@@ -696,7 +696,7 @@ public sealed class GccV2UnifiedRagTests
     [InlineData("researchPlanning", "researchPlanning")]
     public void Producer_stage_normalization_preserves_true_stage_identity(string input, string expected)
     {
-        Assert.Equal(expected, RagGenerateService.NormalizeGenerationStage(input));
+        Assert.Equal(expected, GccV2CreateLibraryWriter.NormalizeGenerationStage(input));
     }
 
     private static GccV2GenerationBrief Brief(string raw)

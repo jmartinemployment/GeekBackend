@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GeekAPI.HttpClients;
@@ -56,7 +57,7 @@ public sealed class GccV2PlanService
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private readonly HttpGccV2Repository _repo;
-    private readonly RagGenerateService _rag;
+    private readonly GccV2CreateLibraryWriter _rag;
     private readonly ContentModelPolicy _modelPolicy;
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
     private readonly GccV2SkillSnapshotRegistry _skillSnapshots;
@@ -65,7 +66,7 @@ public sealed class GccV2PlanService
 
     public GccV2PlanService(
         HttpGccV2Repository repo,
-        RagGenerateService rag,
+        GccV2CreateLibraryWriter rag,
         ContentModelPolicy modelPolicy,
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
         GccV2SkillSnapshotRegistry skillSnapshots,
@@ -159,7 +160,7 @@ public sealed class GccV2PlanService
         var researchSelection = _modelPolicy.Select(
             ContentGenerationStage.Research, generationBrief, jobModelPolicy);
         var researchAttemptId = Guid.NewGuid().ToString("D");
-        var researchRequest = new RagGenerateRequest
+        var researchRequest = new CreateLibraryDraftRequest
         {
             WritingIntent = route.WritingIntent,
             Topic = topicWithTypeRouting,
@@ -181,7 +182,7 @@ public sealed class GccV2PlanService
             RequireCiteable = true,
             CreateLibraryDraft = true,
         };
-        var researchResult = await _rag.GenerateAsync(job.OwnerUserId, researchRequest, ct);
+        var researchResult = await _rag.DraftAsync(job.OwnerUserId, researchRequest, ct);
         var researchPlan = researchResult.ResearchPlan?.ToList() ?? [];
 
         var selection = _modelPolicy.Select(
@@ -190,7 +191,7 @@ public sealed class GccV2PlanService
             jobModelPolicy);
         var attemptId = Guid.NewGuid().ToString("D");
         var stopwatch = Stopwatch.StartNew();
-        var ragRequest = new RagGenerateRequest
+        var ragRequest = new CreateLibraryDraftRequest
         {
                 WritingIntent = route.WritingIntent,
                 Topic = topicWithTypeRouting,
@@ -213,7 +214,7 @@ public sealed class GccV2PlanService
                 CreateLibraryDraft = true,
                 ResearchPlan = researchPlan.Count > 0 ? researchPlan : null,
         };
-        var ragResult = await _rag.GenerateAsync(job.OwnerUserId, ragRequest, ct);
+        var ragResult = await _rag.DraftAsync(job.OwnerUserId, ragRequest, ct);
         stopwatch.Stop();
         if (ragResult.SoftDisabled)
             throw new InvalidOperationException(

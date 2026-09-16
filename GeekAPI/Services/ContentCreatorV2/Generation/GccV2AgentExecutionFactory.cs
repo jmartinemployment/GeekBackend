@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -35,7 +36,7 @@ public sealed class GccV2AgentExecutionFactory(
         string role,
         string coordinatorExecutionId,
         GccV2SignedSkillExecutionEnvelopeV2 envelope,
-        RagGenerateRequest request,
+        CreateLibraryDraftRequest request,
         CancellationToken ct)
     {
         var team = teams.ValidatePersisted(job);
@@ -56,7 +57,7 @@ public sealed class GccV2AgentExecutionFactory(
         string coordinatorExecutionId,
         GccV2AgentTeamMember member,
         GccV2SignedSkillExecutionEnvelopeV2 envelope,
-        RagGenerateRequest request,
+        CreateLibraryDraftRequest request,
         CancellationToken ct)
     {
         var manifest = await repo.GetContextManifestByJobAsync(job.Id, job.OwnerUserId, ct)
@@ -172,7 +173,7 @@ public sealed class GccV2AgentExecutionFactory(
         return execution;
     }
 
-    public static IReadOnlyList<RagArtifactInputReferenceDto> ArtifactInputs(RagGenerateRequest request)
+    public static IReadOnlyList<RagArtifactInputReferenceDto> ArtifactInputs(CreateLibraryDraftRequest request)
     {
         var result = new List<RagArtifactInputReferenceDto>();
         if (request.ContextManifest is { } manifest)

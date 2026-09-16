@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Text.Json;
 using GeekAPI.Services.Workflow.Providers;
 
@@ -5,10 +6,10 @@ namespace GeekAPI.Services.ContentCreatorV2.Generation;
 
 /// <summary>
 /// PLACEHOLDER SEAM — Workstream 1 (parallel effort, see plans/master-plan.md) is adding a public
-/// JSON-schema-constrained completion method to <c>RagGenerateService</c>
-/// (<c>GeekAPI/Services/Rag/RagGenerateService.cs</c>), reusing the
+/// JSON-schema-constrained completion method to <c>GccV2CreateLibraryWriter</c>
+/// (<c>GeekAPI/Services/Rag/GccV2CreateLibraryWriter.cs</c>), reusing the
 /// <c>ContentSectionJsonSchema</c>/<c>JsonSchemaExporter</c> pattern already proven there. As of
-/// this reroute, that method had not landed yet (no new commits on <c>RagGenerateService.cs</c> or
+/// this reroute, that method had not landed yet (no new commits on <c>GccV2CreateLibraryWriter.cs</c> or
 /// <c>GccV2GenerationContracts.cs</c> in the main tree).
 ///
 /// This interface is the seam every Workstream 2 call site should depend on instead of calling
@@ -19,7 +20,7 @@ namespace GeekAPI.Services.ContentCreatorV2.Generation;
 /// so schema hints reach the provider now, and it enforces strict deserialization against the
 /// requested schema shape.
 ///
-/// TODO(workstream-1-handoff): once <c>RagGenerateService</c> exposes its real schema-constrained
+/// TODO(workstream-1-handoff): once <c>GccV2CreateLibraryWriter</c> exposes its real schema-constrained
 /// method, delete <see cref="GccV2SchemaConstrainedGenerator"/>'s body and either (a) make it a thin
 /// delegator to that method, or (b) repoint the DI registration in
 /// <c>GeekAPI/Services/ContentCreatorV2/ServiceRegistration.cs</c> at a new implementation backed by

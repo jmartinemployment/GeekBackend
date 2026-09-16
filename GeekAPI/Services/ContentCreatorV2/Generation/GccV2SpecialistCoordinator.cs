@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Jobs;
@@ -38,7 +39,7 @@ public sealed class GccV2SpecialistCoordinator(
     GccV2AgentTeamResolver teams,
     GccV2SkillSnapshotRegistry skillSnapshots,
     GccV2AgentExecutionFactory executions,
-    RagGenerateService rag,
+    GccV2CreateLibraryWriter rag,
     GccV2JobEventWriter events)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -47,12 +48,12 @@ public sealed class GccV2SpecialistCoordinator(
     private readonly GccV2AgentTeamResolver _teams = teams;
     private readonly GccV2SkillSnapshotRegistry _skillSnapshots = skillSnapshots;
     private readonly GccV2AgentExecutionFactory _executions = executions;
-    private readonly RagGenerateService _rag = rag;
+    private readonly GccV2CreateLibraryWriter _rag = rag;
 
     public Task PrepareProducerAsync(
         GccV2JobDto job,
         Guid ownerUserId,
-        RagGenerateRequest producerRequest,
+        CreateLibraryDraftRequest producerRequest,
         GccV2SignedSkillExecutionEnvelopeV2 producerEnvelope,
         CancellationToken ct)
     {
@@ -75,8 +76,8 @@ public sealed class GccV2SpecialistCoordinator(
     public Task CompleteProducerAndRunReviewersAsync(
         GccV2JobDto job,
         Guid ownerUserId,
-        RagGenerateRequest producerRequest,
-        RagGenerateResponse producerResponse,
+        CreateLibraryDraftRequest producerRequest,
+        CreateLibraryDraftResponse producerResponse,
         object canonicalOutput,
         CancellationToken ct)
     {
@@ -195,7 +196,7 @@ public sealed class GccV2SpecialistCoordinator(
             reviews.DistinctBy(x => GccV2AgentExecutionFactory.CanonicalDigest(x)).ToList());
     }
 
-    private static RagGenerateRequest Clone(RagGenerateRequest source) => new()
+    private static CreateLibraryDraftRequest Clone(CreateLibraryDraftRequest source) => new()
     {
         WritingIntent = source.WritingIntent,
         Topic = source.Topic,

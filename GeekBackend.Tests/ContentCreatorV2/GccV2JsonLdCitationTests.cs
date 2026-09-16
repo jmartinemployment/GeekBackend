@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.Rag;
+using GeekAPI.Services.ContentCreatorV2.Write;
 
 namespace GeekBackend.Tests.ContentCreatorV2;
 

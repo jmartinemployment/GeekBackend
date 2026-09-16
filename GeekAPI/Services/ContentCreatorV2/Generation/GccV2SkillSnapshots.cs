@@ -5,6 +5,7 @@ using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Rag;
+using GeekAPI.Services.ContentCreatorV2.Write;
 
 namespace GeekAPI.Services.ContentCreatorV2.Generation;
 

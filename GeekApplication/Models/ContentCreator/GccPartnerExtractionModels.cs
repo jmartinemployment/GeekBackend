@@ -48,7 +48,7 @@ public sealed record GccPartnerExtractionProvenance(
     DateTimeOffset? TemporalAnchorUtc,
     /// <summary>Exact quote span used for verify (usually the claim / answer text).</summary>
     string? Quote = null,
-    /// <summary>0-based start offset of <see cref="Quote"/> in source Markdown when verified. Required by master-plan Appendix C ("quote/offsets"); restored 2026-09-15 — the prior pruning pass removed it despite ~18 live consumers including GccV2CitationEvidenceGuard, GccV2ValidateService, RagGenerateService.</summary>
+    /// <summary>0-based start offset of <see cref="Quote"/> in source Markdown when verified. Required by master-plan Appendix C ("quote/offsets"); restored 2026-09-15 — the prior pruning pass removed it despite ~18 live consumers including GccV2CitationEvidenceGuard, GccV2ValidateService, GccV2CreateLibraryWriter.</summary>
     int? StartChar = null,
     /// <summary>0-based end offset (exclusive) of <see cref="Quote"/> in source Markdown when verified.</summary>
     int? EndChar = null,

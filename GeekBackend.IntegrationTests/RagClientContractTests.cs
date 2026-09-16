@@ -1,3 +1,4 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 extern alias GeekApi;
 
 using System.Text.Json;
@@ -197,11 +198,11 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
     public async Task Generate_without_create_library_fails_closed()
     {
         using var scope = _factory.Services.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
+        var service = scope.ServiceProvider.GetRequiredService<GccV2CreateLibraryWriter>();
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.GenerateAsync(
                 GeekApiTestFactory.OwnerUserId.ToString(),
-                new RagGenerateRequest
+                new CreateLibraryDraftRequest
                 {
                     WritingIntent = RagWritingIntents.TechnicalArticle,
                     Topic = "Legacy generate path",
@@ -217,12 +218,12 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
     public async Task Create_library_validation_stage_returns_local_validation()
     {
         using var scope = _factory.Services.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
+        var service = scope.ServiceProvider.GetRequiredService<GccV2CreateLibraryWriter>();
         const string draft = "# Draft\n\n## Introduction\n\nA source-grounded short form.";
         var partnerRunId = Guid.NewGuid();
         var result = await service.GenerateAsync(
             GeekApiTestFactory.OwnerUserId.ToString(),
-            new RagGenerateRequest
+            new CreateLibraryDraftRequest
             {
                 WritingIntent = RagWritingIntents.TechnicalArticle,
                 Topic = "Library validation",
@@ -246,11 +247,11 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
     public async Task Create_library_repair_requires_create_library_draft_flag()
     {
         using var scope = _factory.Services.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<RagGenerateService>();
+        var service = scope.ServiceProvider.GetRequiredService<GccV2CreateLibraryWriter>();
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.GenerateAsync(
                 GeekApiTestFactory.OwnerUserId.ToString(),
-                new RagGenerateRequest
+                new CreateLibraryDraftRequest
                 {
                     WritingIntent = RagWritingIntents.SocialAd,
                     Topic = "Repair grounded ad copy",

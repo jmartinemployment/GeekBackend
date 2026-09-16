@@ -1,10 +1,11 @@
+using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Rag;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
 
 namespace GeekBackend.Tests.Rag;
 
-public sealed class RagGenerateServiceTests
+public sealed class GccV2CreateLibraryWriterTests
 {
     [Theory]
     [InlineData("Technical Article", true, RagRetrievalFamily.LongForm)]
@@ -26,7 +27,7 @@ public sealed class RagGenerateServiceTests
     [Fact]
     public void BuildNeed_includes_intent_topic_and_role()
     {
-        var need = RagGenerateService.BuildNeed(
+        var need = GccV2CreateLibraryWriter.BuildNeed(
             RagWritingIntents.TechnicalArticle,
             "CRM integration playbook",
             ["HubSpot", "Salesforce"],
@@ -45,7 +46,7 @@ public sealed class RagGenerateServiceTests
             Here you go:
             {"variations":["Punchy one","Punchy two","Punchy three"]}
             """;
-        var variations = RagGenerateService.ParseVariations(raw);
+        var variations = GccV2CreateLibraryWriter.ParseVariations(raw);
         Assert.Equal(3, variations.Count);
         Assert.Equal("Punchy one", variations[0]);
     }
@@ -61,7 +62,7 @@ public sealed class RagGenerateServiceTests
               "risks": ["Feature lag on mobile"]
             }
             """;
-        var card = RagGenerateService.ParseBattlecard(raw);
+        var card = GccV2CreateLibraryWriter.ParseBattlecard(raw);
         Assert.NotNull(card);
         Assert.Equal("Strong automation.", card!.PartnerSummary);
         Assert.Single(card.Differentiators);
@@ -106,7 +107,7 @@ public sealed class RagGenerateServiceTests
     [Fact]
     public void BuildThemeSources_includes_entities_and_pages()
     {
-        var themes = RagGenerateService.BuildThemeSources(
+        var themes = GccV2CreateLibraryWriter.BuildThemeSources(
             [new GccQuoteablePage("https://partner.example/a", "Partner A", [], ["p"])],
             [new GccQuoteablePage("https://rival.example/b", "Rival B", [], ["c"])],
             ["HubSpot"]);
@@ -137,6 +138,6 @@ public sealed class RagGenerateServiceTests
         string? raw,
         string expected)
     {
-        Assert.Equal(expected, RagGenerateService.NormalizeGenerationStage(raw));
+        Assert.Equal(expected, GccV2CreateLibraryWriter.NormalizeGenerationStage(raw));
     }
 }
