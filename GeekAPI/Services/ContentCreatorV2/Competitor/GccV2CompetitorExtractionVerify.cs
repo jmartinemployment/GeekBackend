@@ -94,10 +94,6 @@ public static class GccV2CompetitorExtractionVerify
         foreach (var d in extraction.DeficitRouter)
             deficits.Add(d with { Provenance = await Stamp(d.Provenance, d.TriggerDeficit).ConfigureAwait(false) });
 
-        var pricing = new List<GccCompetitorPublishedPriceAsset>();
-        foreach (var p in extraction.PublishedPricing)
-            pricing.Add(p with { Provenance = await Stamp(p.Provenance, p.PriceText).ConfigureAwait(false) });
-
         var faqs = new List<GccCompetitorFaqAsset>();
         foreach (var f in extraction.FaqBank)
             faqs.Add(f with { Provenance = await Stamp(f.Provenance, f.VerifiedAnswer).ConfigureAwait(false) });
@@ -130,6 +126,10 @@ public static class GccV2CompetitorExtractionVerify
         foreach (var c in extraction.TeamCredentials)
             credentials.Add(c with { Provenance = await Stamp(c.Provenance, c.CredentialName).ConfigureAwait(false) });
 
+        var boundaries = new List<GccCompetitorBoundaryAsset>();
+        foreach (var b in extraction.Disqualifiers)
+            boundaries.Add(b with { Provenance = await Stamp(b.Provenance, b.BoundaryDetail).ConfigureAwait(false) });
+
         var positioning = new List<GccCompetitorPositioningAsset>();
         foreach (var p in extraction.PositioningStatements)
             positioning.Add(p with { Provenance = await Stamp(p.Provenance, p.PositioningStatement).ConfigureAwait(false) });
@@ -140,7 +140,6 @@ public static class GccV2CompetitorExtractionVerify
             GapMap = gaps,
             ComparisonAxes = axes,
             DeficitRouter = deficits,
-            PublishedPricing = pricing,
             FaqBank = faqs,
             ProofPack = proofs,
             FramingBank = framing,
@@ -150,6 +149,7 @@ public static class GccV2CompetitorExtractionVerify
             GeographicPresence = presence,
             TeamCredentials = credentials,
             PositioningStatements = positioning,
+            Disqualifiers = boundaries,
         };
     }
 

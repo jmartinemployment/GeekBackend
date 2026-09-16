@@ -37,14 +37,23 @@ public sealed class GccV2CompetitorExtractionService(
     private const string SystemPrompt = """
         You extract structured intelligence about a COMPETITOR from one crawled web page.
 
-        A competitor is a rival PROFESSIONAL SERVICE business — an agency or consultancy competing for
-        the same clients. It is schema.org Organization / ProfessionalService. It is NOT a SaaS product.
+        A competitor competes for the operator's clients or for the same search attention. It is NEVER a
+        product: software is a PARTNER to recommend and implement, never a rival. There are two kinds.
 
-        Never apply software metrics to a competitor: no seat tiers, no per-seat pricing, no billing
-        cycles, no overage terms, no feature matrices, no API rate limits, no version numbers. If the
-        page shows published rates, retainers or package prices, record them as published pricing with
-        the basis stated on the page (for example "per day", "per project", "monthly retainer") — never
-        as a subscription tier.
+          CONSULTANCY  - a rival professional services firm competing for the same engagements
+                         (schema.org Organization / ProfessionalService).
+          CONTENT      - a publisher, review site or directory competing for the same search results.
+                         Media, not a service business.
+
+        Never apply software metrics to either: no seat tiers, no per-seat pricing, no billing cycles,
+        no overage terms, no feature matrices, no API rate limits, no version numbers. Those describe
+        partner products, not competitors.
+
+        A CONSULTANCY fills serviceOfferings, clients, presence, credentials and positioning.
+        A CONTENT competitor fills mediaProfile and coverage. Do not force a publisher through the
+        consultancy fields or a consultancy through mediaProfile — leave what does not apply empty.
+
+        Consultancies rarely publish rates. Do not record, estimate or infer pricing for a competitor.
 
         Extract only what this page states. Omit any field the page does not support. Never infer,
         never generalise from industry knowledge, never fill a gap with a plausible value. Returning an
@@ -52,6 +61,12 @@ public sealed class GccV2CompetitorExtractionService(
 
         Every item must carry "quote": the exact verbatim span from the page that supports it, copied
         character-for-character. An item whose quote is not literally present on the page is invalid.
+
+        Deficits and boundaries — the highest-risk output, because these get published next to a named
+        company. A deficit is admissible ONLY when the page states a boundary in its own words, for
+        example "we work exclusively with enterprise clients" or "serving the UK only". The ABSENCE of a
+        mention is NOT a deficit: a firm that does not list a service may still offer it. If you cannot
+        quote the stated boundary, return no deficit. Never write "they do not offer X" from silence.
 
         competitorType must be exactly one of:
           "direct"  - sells the same services to the same buyers
@@ -62,7 +77,7 @@ public sealed class GccV2CompetitorExtractionService(
 
     public static GccCompetitorExtractionDocument EmptyDocument() =>
         new(GccCompetitorExtractionDocument.CurrentExtractorVersion,
-            [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+            [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []);
 
     /// <summary>
     /// Extract competitor payloads from crawled rival pages. Returns an empty document when nothing
@@ -90,7 +105,6 @@ public sealed class GccV2CompetitorExtractionService(
         var gaps = new List<GccCompetitorGapMapAsset>();
         var axes = new List<GccCompetitorComparisonAxisAsset>();
         var deficits = new List<GccCompetitorDeficitRouterAsset>();
-        var pricing = new List<GccCompetitorPublishedPriceAsset>();
         var faqs = new List<GccCompetitorFaqAsset>();
         var proof = new List<GccCompetitorProofAsset>();
         var framing = new List<GccCompetitorFramingAsset>();
@@ -102,6 +116,8 @@ public sealed class GccV2CompetitorExtractionService(
         var presence = new List<GccCompetitorPresenceAsset>();
         var credentials = new List<GccCompetitorCredentialAsset>();
         var positioning = new List<GccCompetitorPositioningAsset>();
+        var boundaries = new List<GccCompetitorBoundaryAsset>();
+        var mediaProfiles = new List<GccCompetitorMediaProfileAsset>();
 
         var schema = GccV2AdHocJsonSchema.For<CompetitorPageExtraction>(JsonOpts);
 
@@ -163,15 +179,6 @@ public sealed class GccV2CompetitorExtractionService(
                     d.AxisId, d.TriggerDeficit, page.Url, [], null,
                     CompetitorDeficitChunkId: page.PageId, PartnerStrengthChunkId: null,
                     Provenance: Prov(d.Quote)));
-            }
-
-            foreach (var p in extraction.PublishedPricing ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(p.PackageName) || string.IsNullOrWhiteSpace(p.PriceText))
-                    continue;
-                pricing.Add(new GccCompetitorPublishedPriceAsset(
-                    p.PackageName, p.PriceText, p.PublishedAmount, p.PriceCurrency, p.PricingBasis,
-                    page.Url, Prov(p.Quote)));
             }
 
             foreach (var f in extraction.Faqs ?? [])
@@ -243,6 +250,24 @@ public sealed class GccV2CompetitorExtractionService(
                 positioning.Add(new GccCompetitorPositioningAsset(
                     p.PositioningStatement, p.AudienceFocus, page.Url, Prov(p.Quote)));
             }
+
+            foreach (var b in extraction.Boundaries ?? [])
+            {
+                // Admissible only when the page states the boundary; silence is never a boundary.
+                if (string.IsNullOrWhiteSpace(b.BoundaryDetail) || string.IsNullOrWhiteSpace(b.Quote))
+                    continue;
+                boundaries.Add(new GccCompetitorBoundaryAsset(
+                    b.BoundaryKind ?? "stated", b.BoundaryDetail, page.Url, Prov(b.Quote)));
+            }
+
+            if (extraction.MediaProfile is { } media
+                && (media.PublicationCadence is not null || media.MonetisationModel is not null
+                    || (media.FormatMix?.Count ?? 0) > 0))
+            {
+                mediaProfiles.Add(new GccCompetitorMediaProfileAsset(
+                    media.PublicationCadence, media.FormatMix ?? [], media.MonetisationModel,
+                    media.TopicalAuthorityNote, page.Url, Prov(media.Quote)));
+            }
         }
 
         return new GccCompetitorExtractionDocument(
@@ -251,7 +276,6 @@ public sealed class GccV2CompetitorExtractionService(
             Dedupe(gaps, a => a.GapTopic),
             Dedupe(axes, a => a.AxisId + "|" + a.RivalCapabilityPayload),
             Dedupe(deficits, a => a.AxisId + "|" + a.TriggerDeficit),
-            Dedupe(pricing, a => a.PackageName + "|" + a.PriceText),
             Dedupe(faqs, a => a.Question),
             Dedupe(proof, a => a.ProofKind + "|" + a.ProofClaim),
             Dedupe(framing, a => a.FrameType + "|" + a.FrameExcerpt),
@@ -262,7 +286,9 @@ public sealed class GccV2CompetitorExtractionService(
             Dedupe(clients, a => a.ClientName),
             Dedupe(presence, a => a.Location),
             Dedupe(credentials, a => a.CredentialName),
-            Dedupe(positioning, a => a.PositioningStatement));
+            Dedupe(positioning, a => a.PositioningStatement),
+            Dedupe(boundaries, a => a.BoundaryKind + "|" + a.BoundaryDetail),
+            Dedupe(mediaProfiles, a => (a.PublicationCadence ?? "") + "|" + (a.MonetisationModel ?? "")));
     }
 
     private async Task<CompetitorPageExtraction?> ExtractOnePageAsync(
@@ -359,7 +385,6 @@ internal sealed record CompetitorPageExtraction(
     List<GapItem>? Gaps,
     List<AxisItem>? ComparisonAxes,
     List<DeficitItem>? Deficits,
-    List<PriceItem>? PublishedPricing,
     List<FaqItem>? Faqs,
     List<ProofItem>? Proof,
     List<FramingItem>? Framing,
@@ -369,13 +394,14 @@ internal sealed record CompetitorPageExtraction(
     List<ClientItem>? Clients,
     List<PresenceItem>? Presence,
     List<CredentialItem>? Credentials,
-    List<PositioningItem>? Positioning);
+    List<PositioningItem>? Positioning,
+    List<BoundaryItem>? Boundaries,
+    MediaProfileItem? MediaProfile);
 
 internal sealed record CoverageItem(string TopicPath, string DepthAssessment, List<string>? EvidenceHeadings, string? Quote);
 internal sealed record GapItem(string GapTopic, string? DepthAssessment, string OpportunityForUs, string? Quote);
 internal sealed record AxisItem(string AxisId, string? AxisLabel, string RivalCapabilityPayload, string? Quote);
 internal sealed record DeficitItem(string AxisId, string TriggerDeficit, string? Quote);
-internal sealed record PriceItem(string PackageName, string PriceText, decimal? PublishedAmount, string? PriceCurrency, string? PricingBasis, string? Quote);
 internal sealed record FaqItem(string Question, string Answer, string? Quote);
 internal sealed record ProofItem(string ProofKind, string ProofClaim, string? Quote);
 internal sealed record FramingItem(string FrameType, string FrameExcerpt, string? Sentiment, string? Quote);
@@ -386,3 +412,5 @@ internal sealed record ClientItem(string ClientName, string? Sector, string? Out
 internal sealed record PresenceItem(string Location, string? PresenceKind, string? Quote);
 internal sealed record CredentialItem(string CredentialName, string? CredentialKind, string? Quote);
 internal sealed record PositioningItem(string PositioningStatement, string? AudienceFocus, string? Quote);
+internal sealed record BoundaryItem(string BoundaryKind, string BoundaryDetail, string? Quote);
+internal sealed record MediaProfileItem(string? PublicationCadence, List<string>? FormatMix, string? MonetisationModel, string? TopicalAuthorityNote, string? Quote);

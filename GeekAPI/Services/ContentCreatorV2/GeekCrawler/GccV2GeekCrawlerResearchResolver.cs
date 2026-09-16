@@ -554,9 +554,9 @@ public sealed class GccV2GeekCrawlerResearchResolver
             briefWithResearch, extraction);
 
         _logger.LogInformation(
-            "Competitor extraction v{Version}: publishedPricing={Pricing}, deficits={Deficits}, framing={Framing}, claimRisk={ClaimRisk}, typeLabels={Types}.",
+            "Competitor extraction v{Version}: boundaries={Boundaries}, deficits={Deficits}, framing={Framing}, claimRisk={ClaimRisk}, typeLabels={Types}.",
             extraction.ExtractorVersion,
-            extraction.PublishedPricing.Count,
+            extraction.Disqualifiers.Count,
             extraction.DeficitRouter.Count,
             extraction.FramingBank.Count,
             extraction.ClaimRiskFlags.Count,

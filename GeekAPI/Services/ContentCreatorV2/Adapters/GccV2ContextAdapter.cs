@@ -245,7 +245,8 @@ public sealed class GccV2ContextAdapter
             || extraction.GapMap.Count > 0
             || extraction.ComparisonAxes.Count > 0
             || extraction.DeficitRouter.Count > 0
-            || extraction.PublishedPricing.Count > 0
+            || extraction.Disqualifiers.Count > 0
+            || extraction.MediaProfile.Count > 0
             || extraction.FaqBank.Count > 0
             || extraction.ProofPack.Count > 0
             || extraction.FramingBank.Count > 0
@@ -283,11 +284,11 @@ public sealed class GccV2ContextAdapter
             parts.Add($"- Deficit→partner [{d.AxisId}]: {d.TriggerDeficit} → swap=[{swap}] ({d.OriginProofUrl})");
         }
 
-        foreach (var p in extraction.PublishedPricing.Take(6))
-        {
-            var basis = string.IsNullOrWhiteSpace(p.PricingBasis) ? "basis unstated" : p.PricingBasis;
-            parts.Add($"- Rival published price: {p.PackageName} — {p.PriceText} ({basis}) ({p.OriginProofUrl})");
-        }
+        foreach (var b in extraction.Disqualifiers.Take(6))
+            parts.Add($"- Rival stated boundary [{b.BoundaryKind}]: {b.BoundaryDetail} ({b.OriginProofUrl})");
+        foreach (var m in extraction.MediaProfile.Take(3))
+            parts.Add($"- Content rival profile: cadence={m.PublicationCadence ?? "unstated"} "
+                + $"formats=[{string.Join(", ", m.FormatMix)}] monetisation={m.MonetisationModel ?? "unstated"}");
 
         // Job 3 — trust through honesty
         foreach (var f in extraction.FaqBank.Take(6))

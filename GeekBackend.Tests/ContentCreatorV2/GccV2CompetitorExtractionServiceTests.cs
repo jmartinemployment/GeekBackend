@@ -21,7 +21,8 @@ public sealed class GccV2CompetitorExtractionServiceTests
         Assert.Empty(doc.GapMap);
         Assert.Empty(doc.ComparisonAxes);
         Assert.Empty(doc.DeficitRouter);
-        Assert.Empty(doc.PublishedPricing);
+        Assert.Empty(doc.Disqualifiers);
+        Assert.Empty(doc.MediaProfile);
         Assert.Empty(doc.ClaimRiskFlags);
         Assert.Empty(doc.TypeLabels);
         Assert.Empty(doc.ServiceOfferings);
@@ -42,21 +43,32 @@ public sealed class GccV2CompetitorExtractionServiceTests
             .ToList();
 
         Assert.DoesNotContain("PricingCatalog", properties);
-        Assert.DoesNotContain("Disqualifiers", properties);
         Assert.DoesNotContain("Integrations", properties);
 
-        var priceFields = typeof(GccCompetitorPublishedPriceAsset)
-            .GetProperties()
-            .Select(p => p.Name)
-            .ToList();
+        // Disqualifiers is retained deliberately, reframed for services: a boundary the rival STATES
+        // about who it does not serve (sector, size, region). It was previously removed as seat-cap
+        // SaaS noise, which was wrong - it is qualifying intelligence and the only admissible source
+        // of a deficit.
+        Assert.Contains("Disqualifiers", properties);
 
-        // Published day rates and retainers are legitimate; subscription mechanics are not.
-        Assert.Contains("PriceText", priceFields);
-        Assert.Contains("PricingBasis", priceFields);
-        Assert.DoesNotContain("BillingPeriod", priceFields);
-        Assert.DoesNotContain("OverageTerms", priceFields);
-        Assert.DoesNotContain("TierName", priceFields);
-        Assert.DoesNotContain("SeatCap", priceFields);
+        // Software is a partner to recommend and implement, never a rival, so a competitor carries no
+        // pricing at all: consultancies rarely publish rates, and a pricing field only invites the
+        // model to infer one.
+        Assert.DoesNotContain("PublishedPricing", properties);
+
+        // Content competitors are publishers, not service businesses, and get their own shape rather
+        // than being forced through the consultancy fields.
+        Assert.Contains("MediaProfile", properties);
+        var mediaFields = typeof(GccCompetitorMediaProfileAsset)
+            .GetProperties().Select(p => p.Name).ToList();
+        Assert.Contains("PublicationCadence", mediaFields);
+        Assert.Contains("MonetisationModel", mediaFields);
+
+        // A deficit must come from a stated boundary, never from silence.
+        var boundaryFields = typeof(GccCompetitorBoundaryAsset)
+            .GetProperties().Select(p => p.Name).ToList();
+        Assert.Contains("BoundaryKind", boundaryFields);
+        Assert.Contains("BoundaryDetail", boundaryFields);
     }
 
     /// <summary>

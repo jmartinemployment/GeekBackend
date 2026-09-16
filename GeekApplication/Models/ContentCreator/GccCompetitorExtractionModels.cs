@@ -3,8 +3,11 @@ namespace GeekApplication.Models.ContentCreator;
 /// <summary>
 /// Structured competitor library payloads. Always <c>crawlType:"competitors"</c>; never label as partner.
 ///
-/// A competitor is a rival <b>service business</b> (agency/consultancy) competing for the same clients —
-/// modelled as schema.org <c>Organization</c>/<c>ProfessionalService</c>, NOT <c>SoftwareApplication</c>.
+/// A competitor is whoever competes for the operator's clients or search traffic. It is never a product:
+/// software is a <b>partner</b> to recommend and implement, never a rival. Two kinds:
+///   <c>ProfessionalService</c> - a rival consultancy competing for the same engagements.
+///   content competitor        - a publisher, review site or directory competing for the same search
+///                               attention; media, not a service business.
 /// This shape is therefore agency-native and deliberately shares no record type with
 /// <see cref="GccPartnerExtractionDocument"/>, including provenance: a competitor must never be able to
 /// hydrate into a partner shape.
@@ -22,7 +25,6 @@ public sealed record GccCompetitorExtractionDocument(
     // Job 2 — capture bottom-of-funnel intent
     IReadOnlyList<GccCompetitorComparisonAxisAsset> ComparisonAxes,
     IReadOnlyList<GccCompetitorDeficitRouterAsset> DeficitRouter,
-    IReadOnlyList<GccCompetitorPublishedPriceAsset> PublishedPricing,
 
     // Job 3 — build trust through honesty
     IReadOnlyList<GccCompetitorFaqAsset> FaqBank,
@@ -41,7 +43,9 @@ public sealed record GccCompetitorExtractionDocument(
     IReadOnlyList<GccCompetitorClientProofAsset> NamedClients,
     IReadOnlyList<GccCompetitorPresenceAsset> GeographicPresence,
     IReadOnlyList<GccCompetitorCredentialAsset> TeamCredentials,
-    IReadOnlyList<GccCompetitorPositioningAsset> PositioningStatements)
+    IReadOnlyList<GccCompetitorPositioningAsset> PositioningStatements,
+    IReadOnlyList<GccCompetitorBoundaryAsset> Disqualifiers,
+    IReadOnlyList<GccCompetitorMediaProfileAsset> MediaProfile)
 {
     public const string CurrentExtractorVersion = "gcc-competitor-extraction.v4";
     public const string CrawlTypeCompetitor = "competitors";
@@ -118,20 +122,6 @@ public sealed record GccCompetitorDeficitRouterAsset(
     string? PivotCopy,
     string? CompetitorDeficitChunkId,
     string? PartnerStrengthChunkId,
-    GccCompetitorExtractionProvenance Provenance);
-
-/// <summary>
-/// Published rates/packages only. Agencies do publish day rates and retainers, and that is genuine
-/// comparison material — but there is no seat tier, billing period or overage here; those were SaaS
-/// concepts inherited from the partner extractor.
-/// </summary>
-public sealed record GccCompetitorPublishedPriceAsset(
-    string PackageName,
-    string PriceText,
-    decimal? PublishedAmount,
-    string? PriceCurrency,
-    string? PricingBasis,
-    string OriginProofUrl,
     GccCompetitorExtractionProvenance Provenance);
 
 /* ---------------------------------------------------------------- *
@@ -224,5 +214,29 @@ public sealed record GccCompetitorCredentialAsset(
 public sealed record GccCompetitorPositioningAsset(
     string PositioningStatement,
     string? AudienceFocus,
+    string OriginProofUrl,
+    GccCompetitorExtractionProvenance Provenance);
+
+/// <summary>
+/// A boundary the rival <b>states</b> about who it does not serve — sector, company size, or region.
+/// Qualifying intelligence, and the only admissible source of a deficit: an absence of mention is not
+/// a boundary (plans/rag-foundation-rewrite.md §1).
+/// </summary>
+public sealed record GccCompetitorBoundaryAsset(
+    string BoundaryKind,
+    string BoundaryDetail,
+    string OriginProofUrl,
+    GccCompetitorExtractionProvenance Provenance);
+
+/// <summary>
+/// Signals for a <b>content competitor</b> — a publisher, review site or directory. These entities have
+/// no service offerings, clients or credentials, so forcing them through the consultancy fields yields
+/// nothing. They compete for search attention, which is what this records.
+/// </summary>
+public sealed record GccCompetitorMediaProfileAsset(
+    string? PublicationCadence,
+    IReadOnlyList<string> FormatMix,
+    string? MonetisationModel,
+    string? TopicalAuthorityNote,
     string OriginProofUrl,
     GccCompetitorExtractionProvenance Provenance);
