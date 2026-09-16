@@ -153,6 +153,44 @@ public class GeekCrawlerIngestController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Delete a run's crawl data. Vectors are purged from Geek-Crawler-Rag first, then pages and
+    /// links from Mongo: a retained vector whose Markdown source is gone would return chunks that
+    /// can never be verified, so an unproven purge aborts the whole operation.
+    /// </summary>
+    [HttpDelete("runs/{runId:guid}")]
+    public async Task<IActionResult> DeleteRun(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
+
+        if (!_rag.IsEnabled)
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                "Geek-Crawler-Rag is disabled — vectors cannot be purged, so nothing was deleted.");
+        }
+
+        var purged = await _rag.DeleteRunIndexAsync(runId, ct).ConfigureAwait(false);
+        if (!purged)
+        {
+            return StatusCode(
+                StatusCodes.Status502BadGateway,
+                "Vector purge failed — nothing was deleted.");
+        }
+
+        try
+        {
+            await _repo.ClearRunCrawlDataAsync(runId, ct).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+        }
+
+        return Ok(new { runId, vectorsPurged = true, crawlDataDeleted = true });
+    }
+
     [HttpPost("runs/{runId:guid}/pages/batch")]
     [RequestSizeLimit(MaxPageBatchBytes)]
     public async Task<IActionResult> CreatePagesBatch(
