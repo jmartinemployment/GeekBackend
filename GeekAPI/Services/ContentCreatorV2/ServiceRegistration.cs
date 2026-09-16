@@ -74,6 +74,10 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2ProjectSiteKnowledgeService>();
+        // Both extractors depend on this. It had zero callers before they were wired to it, so it
+        // had never been registered - and an unregistered dependency takes down every controller that
+        // touches the graph, not just the one that uses it.
+        services.AddScoped<Generation.IGccV2SchemaConstrainedGenerator, Generation.GccV2SchemaConstrainedGenerator>();
         services.AddScoped<Competitor.GccV2CompetitorExtractionService>();
         services.AddScoped<Partner.GccV2PartnerExtractionService>();
         services.AddHostedService<GccV2DiagnosticTaskAgentSeeder>();
