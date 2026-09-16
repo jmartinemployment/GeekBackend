@@ -95,15 +95,32 @@ public sealed class GccV2AgentTeamResolver(HttpGccV2Repository repo, GccV2AgentT
         var catalog = await repo.ListAgentsAsync("published", contentType, ct);
         var allPublished = catalog.SelectMany(agent => agent.Versions
             .Where(v => v.State == "published").Select(version => (Agent: agent, Version: version))).ToList();
-        var selected = selectedVersionIds is { Count: > 0 }
-            ? allPublished.Where(x => selectedVersionIds.Contains(x.Version.Id)).ToList()
-            : allPublished.GroupBy(x => x.Agent.Id).Select(group => group
-                .OrderByDescending(x => Semver(x.Version.SemanticVersion))
-                .ThenByDescending(x => x.Version.CreatedAtUtc).ThenBy(x => x.Version.Id).First()).ToList();
-        if (requireAllSelected
-            && selectedVersionIds is { Count: > 0 }
-            && selected.Select(x => x.Version.Id).Distinct().Count() != selectedVersionIds.Distinct().Count())
-            throw new InvalidOperationException("Every selected specialist version must be published and applicable.");
+        // Selection identifies AGENTS, not agent versions. A pinned version id used to mean retiring or
+        // republishing an agent broke every create that had selected it, because resolution only ever
+        // looks at published versions (plans/agent-specialists.md §4.5). Ids are matched against the
+        // agent and its versions alike, so historical pins keep resolving; the current published
+        // version is what runs.
+        var current = allPublished.GroupBy(x => x.Agent.Id).Select(group => group
+            .OrderByDescending(x => Semver(x.Version.SemanticVersion))
+            .ThenByDescending(x => x.Version.CreatedAtUtc).ThenBy(x => x.Version.Id).First()).ToList();
+
+        List<(GccV2AgentDto Agent, GccV2AgentVersionDto Version)> selected;
+        if (selectedVersionIds is { Count: > 0 })
+        {
+            var wanted = selectedVersionIds.Distinct().ToHashSet();
+            selected = current
+                .Where(x => wanted.Contains(x.Agent.Id)
+                            || allPublished.Any(v => v.Agent.Id == x.Agent.Id && wanted.Contains(v.Version.Id)))
+                .ToList();
+
+            if (requireAllSelected && selected.Count == 0)
+                throw new InvalidOperationException(
+                    "No selected specialist is published and applicable to this content type.");
+        }
+        else
+        {
+            selected = current;
+        }
         var members = selected.Select(ToMember).OrderBy(x => x.Participation.Min(p => p.Order))
             .ThenBy(x => x.Slug, StringComparer.Ordinal).ToList();
         Validate(members, contentType);
