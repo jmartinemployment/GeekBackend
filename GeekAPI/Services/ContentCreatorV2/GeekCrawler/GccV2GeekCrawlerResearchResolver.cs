@@ -899,6 +899,76 @@ public sealed class GccV2GeekCrawlerResearchResolver
         return false;
     }
 
+    /// <summary>
+    /// Preflight for the Create wizard: does each partner seed already have an indexed crawl run?
+    ///
+    /// Partner evidence is mandatory and nothing in Create crawls partners - the resolver looks up a
+    /// run that already exists. Typing a URL is therefore not the requirement, so the wizard must be
+    /// able to tell the operator which partners have evidence BEFORE they fill in the rest.
+    ///
+    /// Deliberately reuses the same steps as <c>TryResolveExternalSeedAsync</c> - normalize, find run,
+    /// authorize, check index state - so the answer here cannot drift from what PLAN will decide.
+    /// Never throws: an unknown seed reports as not ready with a reason.
+    /// </summary>
+    public async Task<IReadOnlyList<GccV2SeedReadiness>> CheckSeedReadinessAsync(
+        string ownerUserId,
+        string crawlType,
+        IReadOnlyList<string> seeds,
+        CancellationToken ct)
+    {
+        var results = new List<GccV2SeedReadiness>();
+        foreach (var seed in seeds.Select(x => (x ?? "").Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds([seed]);
+                if (normalized.Count == 0)
+                {
+                    results.Add(new(seed, false, null, null, "Not a usable URL."));
+                    continue;
+                }
+
+                var run = await FindRunForSeedsAsync(ownerUserId, crawlType, normalized, ct);
+                if (run is null)
+                {
+                    results.Add(new(seed, false, null, null,
+                        "No crawl run for this URL yet — crawl it before creating."));
+                    continue;
+                }
+
+                if (!string.Equals(run.OwnerUserId, ownerUserId, StringComparison.OrdinalIgnoreCase))
+                {
+                    results.Add(new(seed, false, null, null, "A crawl run exists but belongs to another owner."));
+                    continue;
+                }
+
+                if (!_rag.IsEnabled)
+                {
+                    results.Add(new(seed, false, run.Id, null, "Research library is unavailable."));
+                    continue;
+                }
+
+                var indexStatus = await _rag.GetIndexStatusAsync(run.Id, ct).ConfigureAwait(false);
+                var indexState = indexStatus?.State;
+                if (indexState is not null && IndexBuildingStates.Contains(indexState))
+                {
+                    results.Add(new(seed, false, run.Id, indexState,
+                        "Crawl is still being indexed — try again shortly."));
+                    continue;
+                }
+
+                results.Add(new(seed, true, run.Id, indexState, null));
+            }
+            catch (Exception cause)
+            {
+                _logger.LogWarning(cause, "Seed readiness check failed for {Seed}.", seed);
+                results.Add(new(seed, false, null, null, "Could not check this URL."));
+            }
+        }
+
+        return results;
+    }
+
     private async Task<GeekCrawlerRunDto?> FindRunForSeedsAsync(
         string ownerUserId,
         string crawlType,
