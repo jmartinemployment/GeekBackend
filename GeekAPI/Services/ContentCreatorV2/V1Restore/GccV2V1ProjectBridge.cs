@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Infrastructure.InMemory;
@@ -67,6 +68,17 @@ public sealed class GccV2V1ProjectBridge(
         project.TargetKeyword = keyword;
         project.UseExactKeywordAsTitle = true;
 
+        // Site-hierarchy grounding. v1 refuses to generate when there is no hierarchy match and
+        // AllowOutsideSiteScope is not set (ContentGenerationOrchestrator:880) - the guard that stops
+        // it writing filler. V2 already prefetches the match onto the brief as hierarchyPlan, so the
+        // real site data is carried across rather than the guard being disarmed. When the brief has
+        // no hierarchyPlan, these stay empty and v1 refuses, which is the correct outcome: it means
+        // the create genuinely has no site grounding.
+        var (hierarchyPath, childHeadings, sourcePageUrl) = ReadHierarchyPlan(brief.RawBriefJson);
+        project.HierarchyPath = hierarchyPath;
+        project.HierarchyChildHeadings = childHeadings;
+        project.HierarchySourcePageUrl = sourcePageUrl;
+
         project.ProjectUrl = (create.SiteUrl ?? "").Trim();
         project.SiteAnalysisId = create.ProjectSiteCrawlRunId;
         project.LinkedCreateId = createId;
@@ -88,5 +100,50 @@ public sealed class GccV2V1ProjectBridge(
         }
 
         return project;
+    }
+
+    /// <summary>
+    /// Reads the hierarchy match V2 already persisted onto the brief. Returns empties when absent -
+    /// never a guess. A wrong hierarchy would point v1 at the wrong part of the site, which is worse
+    /// than no hierarchy at all, because v1 would then generate confidently against it.
+    /// </summary>
+    private static (string? Path, List<string> ChildHeadings, string? SourcePageUrl) ReadHierarchyPlan(
+        string? rawBriefJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawBriefJson)) return (null, [], null);
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBriefJson);
+            if (!doc.RootElement.TryGetProperty("hierarchyPlan", out var plan)
+                || plan.ValueKind != JsonValueKind.Object)
+                return (null, [], null);
+
+            var path = plan.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String
+                ? p.GetString()?.Trim()
+                : null;
+
+            var sourcePageUrl =
+                plan.TryGetProperty("sourcePageUrl", out var u) && u.ValueKind == JsonValueKind.String
+                    ? u.GetString()?.Trim()
+                    : null;
+
+            var children = new List<string>();
+            if (plan.TryGetProperty("childHeadings", out var c) && c.ValueKind == JsonValueKind.Array)
+            {
+                children = c.EnumerateArray()
+                    .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() : null)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            return (string.IsNullOrWhiteSpace(path) ? null : path, children,
+                string.IsNullOrWhiteSpace(sourcePageUrl) ? null : sourcePageUrl);
+        }
+        catch (JsonException)
+        {
+            return (null, [], null);
+        }
     }
 }
