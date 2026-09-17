@@ -11,6 +11,7 @@ namespace GeekAPI.Controllers.GeekCrawler;
 public class GeekCrawlerController : ControllerBase
 {
     private readonly ICurrentUserContext _user;
+    private readonly GeekCrawlerSeedReachability _reachability;
     private readonly HttpGeekCrawlerRepository _repo;
     private readonly GeekCrawlerService _crawler;
     private readonly IGeekCrawlerRagClient _rag;
@@ -19,12 +20,14 @@ public class GeekCrawlerController : ControllerBase
         ICurrentUserContext user,
         HttpGeekCrawlerRepository repo,
         GeekCrawlerService crawler,
-        IGeekCrawlerRagClient rag)
+        IGeekCrawlerRagClient rag,
+        GeekCrawlerSeedReachability reachability)
     {
         _user = user;
         _repo = repo;
         _crawler = crawler;
         _rag = rag;
+        _reachability = reachability;
     }
 
     [HttpGet("health")]
@@ -35,6 +38,33 @@ public class GeekCrawlerController : ControllerBase
             product = "geek-crawler",
             userId = _user.IsAuthenticated ? _user.UserId.ToString("D") : null,
         });
+
+    /// <summary>
+    /// Check seed URLs before committing to a crawl: syntax and SSRF admission, then DNS, then a
+    /// HEAD request per admitted URL.
+    ///
+    /// Syntax alone cannot tell a real partner site from https://notarealdomain-xyz123.com -- both
+    /// parse and both pass the SSRF rules. Without this the bad one is admitted, crawled, and fails,
+    /// and the shortfall shows up as a page count rather than an error.
+    /// </summary>
+    [HttpPost("seeds/check")]
+    public async Task<IActionResult> CheckSeeds(
+        [FromBody] StartGeekCrawlerRequest request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(request?.Seeds);
+        var reachability = admission.Accepted.Count == 0
+            ? []
+            : await _reachability.CheckAsync(admission.Accepted, ct).ConfigureAwait(false);
+
+        return Ok(new
+        {
+            rejected = admission.Rejected,
+            reachability,
+        });
+    }
 
     [HttpPost("crawls")]
     public async Task<IActionResult> StartCrawl(
