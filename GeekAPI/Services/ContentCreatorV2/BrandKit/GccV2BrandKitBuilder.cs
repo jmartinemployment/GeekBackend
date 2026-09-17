@@ -21,9 +21,13 @@ public sealed class GccV2BrandKitBuilder
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly HttpGccV2Repository _repo;
+    private readonly ProjectSite.IGccV2ProjectSitePageSource _sitePages;
     private readonly ILogger<GccV2BrandKitBuilder> _logger;
 
-    public GccV2BrandKitBuilder(HttpGccV2Repository repo, ILogger<GccV2BrandKitBuilder> logger)
+    public GccV2BrandKitBuilder(
+        HttpGccV2Repository repo,
+        ProjectSite.IGccV2ProjectSitePageSource sitePages,
+        ILogger<GccV2BrandKitBuilder> logger)
     {
         _repo = repo;
         _logger = logger;
@@ -122,7 +126,7 @@ public sealed class GccV2BrandKitBuilder
         const int batch = 100;
         while (true)
         {
-            var chunk = await _repo.ListProjectSiteCrawlPagesAsync(runId, batch, offset, ct);
+            var chunk = await _sitePages.ListPagesAsync(runId, batch, offset, ct);
             if (chunk.Count == 0) break;
             all.AddRange(chunk);
             if (chunk.Count < batch) break;

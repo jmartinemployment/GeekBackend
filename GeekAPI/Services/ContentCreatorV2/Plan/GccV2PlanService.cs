@@ -57,6 +57,7 @@ public sealed class GccV2PlanService
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private readonly HttpGccV2Repository _repo;
+    private readonly ProjectSite.IGccV2ProjectSitePageSource _sitePages;
     private readonly GccV2CreateLibraryWriter _rag;
     private readonly ContentModelPolicy _modelPolicy;
     private readonly GccV2JobModelPolicyOverrideStore _jobModelPolicies;
@@ -67,6 +68,7 @@ public sealed class GccV2PlanService
 
     public GccV2PlanService(
         HttpGccV2Repository repo,
+        ProjectSite.IGccV2ProjectSitePageSource sitePages,
         GccV2CreateLibraryWriter rag,
         ContentModelPolicy modelPolicy,
         GccV2JobModelPolicyOverrideStore jobModelPolicies,
@@ -76,6 +78,7 @@ public sealed class GccV2PlanService
         ILogger<GccV2PlanService> logger)
     {
         _repo = repo;
+        _sitePages = sitePages;
         _rag = rag;
         _modelPolicy = modelPolicy;
         _jobModelPolicies = jobModelPolicies;
@@ -129,7 +132,7 @@ public sealed class GccV2PlanService
         if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is { } groundingRunId
             && groundingRunId != Guid.Empty)
         {
-            var sitePages = await _repo.ListProjectSiteCrawlPagesAsync(groundingRunId, limit: 50, offset: 0, ct);
+            var sitePages = await _sitePages.ListPagesAsync(groundingRunId, limit: 50, offset: 0, ct);
             GccV2ProjectSiteGrounding.EnsureUsableSeedHtml(groundingRunId, sitePages);
         }
 

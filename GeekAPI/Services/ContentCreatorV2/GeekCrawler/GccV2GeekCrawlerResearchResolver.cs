@@ -23,20 +23,25 @@ public interface IGccV2ProjectSitePageReader
         CancellationToken ct = default);
 }
 
-internal sealed class GccV2ProjectSitePageReader(HttpGccV2Repository repo) : IGccV2ProjectSitePageReader
+/// <summary>
+/// Reads through <see cref="ProjectSite.IGccV2ProjectSitePageSource"/> so the store can move from
+/// Postgres to the shared geek_crawler Mongo collection without touching this call path.
+/// </summary>
+internal sealed class GccV2ProjectSitePageReader(ProjectSite.IGccV2ProjectSitePageSource source)
+    : IGccV2ProjectSitePageReader
 {
     public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesAsync(
         Guid runId,
         int limit,
         int offset,
         CancellationToken ct = default) =>
-        repo.ListProjectSiteCrawlPagesAsync(runId, limit, offset, ct);
+        source.ListPagesAsync(runId, limit, offset, ct);
 
     public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListProjectSiteCrawlPagesBySeedsAsync(
         Guid runId,
         IReadOnlyList<string> seedUrls,
         CancellationToken ct = default) =>
-        repo.ListProjectSiteCrawlPagesBySeedsAsync(runId, seedUrls, ct);
+        source.ListPagesBySeedsAsync(runId, seedUrls, ct);
 }
 
 public interface IGccV2GeekCrawlerReadRepository

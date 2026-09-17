@@ -14,17 +14,20 @@ public class GccV2ProjectSiteController : ControllerBase
 {
     private readonly ICurrentUserContext _user;
     private readonly HttpGccV2Repository _repo;
+    private readonly Services.ContentCreatorV2.ProjectSite.IGccV2ProjectSitePageSource _sitePages;
     private readonly GccV2ProjectSiteCrawlService _crawlService;
     private readonly GccV2ProjectSiteKnowledgeService _knowledgeService;
 
     public GccV2ProjectSiteController(
         ICurrentUserContext user,
         HttpGccV2Repository repo,
+        Services.ContentCreatorV2.ProjectSite.IGccV2ProjectSitePageSource sitePages,
         GccV2ProjectSiteCrawlService crawlService,
         GccV2ProjectSiteKnowledgeService knowledgeService)
     {
         _user = user;
         _repo = repo;
+        _sitePages = sitePages;
         _crawlService = crawlService;
         _knowledgeService = knowledgeService;
     }
@@ -67,7 +70,7 @@ public class GccV2ProjectSiteController : ControllerBase
         var run = await _repo.GetProjectSiteCrawlRunAsync(runId, ct);
         if (run is null || !IsOwner(run.OwnerUserId)) return NotFound();
 
-        var activity = await _repo.GetProjectSiteCrawlPageActivityAsync(runId, ct);
+        var activity = await _sitePages.GetPageActivityAsync(runId, ct);
         return Ok(new
         {
             runId = run.Id,
@@ -95,7 +98,7 @@ public class GccV2ProjectSiteController : ControllerBase
         var run = await _repo.GetLatestProjectSiteCrawlRunAsync(_user.UserId.ToString("D"), normalized, ct);
         if (run is null) return NotFound();
 
-        var activity = await _repo.GetProjectSiteCrawlPageActivityAsync(run.Id, ct);
+        var activity = await _sitePages.GetPageActivityAsync(run.Id, ct);
         return Ok(new
         {
             runId = run.Id,
@@ -201,7 +204,7 @@ public class GccV2ProjectSiteController : ControllerBase
         const int batch = 100;
         while (true)
         {
-            var chunk = await _repo.ListProjectSiteCrawlPagesAsync(runId, batch, offset, ct);
+            var chunk = await _sitePages.ListPagesAsync(runId, batch, offset, ct);
             if (chunk.Count == 0) break;
             all.AddRange(chunk);
             if (chunk.Count < batch) break;

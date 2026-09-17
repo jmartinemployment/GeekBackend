@@ -12,6 +12,7 @@ public sealed record GccV2ProjectSiteKnowledgeResult(
 
 public sealed class GccV2ProjectSiteKnowledgeService(
     HttpGccV2Repository repository,
+    ProjectSite.IGccV2ProjectSitePageSource sitePages,
     IGccV2ContextObjectStore objectStore,
     GccV2ContextIngestionWake ingestionWake,
     IConfiguration configuration)
@@ -26,7 +27,7 @@ public sealed class GccV2ProjectSiteKnowledgeService(
         bool approve,
         CancellationToken ct)
     {
-        var run = await repository.GetProjectSiteCrawlRunAsync(runId, ct);
+        var run = await sitePages.GetRunAsync(runId, ct);
         if (run is null
             || !string.Equals(run.OwnerUserId, ownerUserId, StringComparison.OrdinalIgnoreCase))
             throw new KeyNotFoundException("Project-site crawl was not found.");
@@ -169,7 +170,7 @@ public sealed class GccV2ProjectSiteKnowledgeService(
         var pages = new List<GccV2ProjectSiteCrawlPageDto>();
         for (var offset = 0; ; offset += 100)
         {
-            var chunk = await repository.ListProjectSiteCrawlPagesAsync(runId, 100, offset, ct);
+            var chunk = await sitePages.ListPagesAsync(runId, 100, offset, ct);
             if (chunk.Count == 0) break;
             pages.AddRange(chunk);
             if (chunk.Count < 100) break;
