@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using GeekAPI.HttpClients;
 using GeekAPI.Services;
@@ -55,6 +56,42 @@ public class GeekCrawlerStartRulesTests
     {
         Assert.False(CrawlTypes.IsValid("vendor"));
         Assert.True(CrawlTypes.IsValid(CrawlTypes.Partner));
+    }
+
+    /// <summary>
+    /// Pins the accepted set. Adding a crawl type widens every IsValid call site at once, so a new
+    /// member must fail here first and force a review of the evidence gates: a crawl type that is
+    /// merely valid must never thereby count as partner or competitor evidence.
+    /// </summary>
+    [Fact]
+    public void CrawlTypes_accepts_exactly_the_reviewed_set()
+    {
+        string[] accepted =
+        [
+            CrawlTypes.Partner,
+            CrawlTypes.Competitors,
+            CrawlTypes.Local,
+            CrawlTypes.ProjectSite,
+        ];
+
+        Assert.All(accepted, t => Assert.True(CrawlTypes.IsValid(t)));
+        Assert.Equal(4, accepted.Distinct(StringComparer.Ordinal).Count());
+
+        foreach (var unknown in new[] { "project_site", "ProjectSite", "site", "own", "geo", "" })
+            Assert.False(CrawlTypes.IsValid(unknown));
+    }
+
+    /// <summary>
+    /// project-site is the operator's own site. It is never partner or competitor evidence, and the
+    /// evidence path resolves runs by a specific crawl type - so these three must stay distinct
+    /// values. Collapsing any two would silently let own-site pages satisfy a partner gate.
+    /// </summary>
+    [Fact]
+    public void ProjectSite_is_distinct_from_partner_and_competitor_evidence()
+    {
+        Assert.NotEqual(CrawlTypes.Partner, CrawlTypes.ProjectSite);
+        Assert.NotEqual(CrawlTypes.Competitors, CrawlTypes.ProjectSite);
+        Assert.NotEqual(CrawlTypes.Local, CrawlTypes.ProjectSite);
     }
 
     [Fact]
