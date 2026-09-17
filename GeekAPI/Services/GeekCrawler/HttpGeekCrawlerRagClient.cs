@@ -33,6 +33,23 @@ public interface IGeekCrawlerRagClient
         Task.FromResult(false);
 
     /// <summary>
+    /// Whether an index exists for each URL's host — the only question that decides whether a create
+    /// can use an entered URL.
+    ///
+    /// Asked of the index, not of crawl_runs. A crawl can complete with pages in Mongo and nothing
+    /// indexed, and pages that were never indexed cannot be cited. A URL that will not parse has no
+    /// host, was never crawled, and is therefore reported as having no index — which is why no
+    /// separate syntax check is needed.
+    ///
+    /// Default is empty so an implementation that does not override it can never report a URL as
+    /// usable by omission.
+    /// </summary>
+    Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
+        IReadOnlyList<string> urls,
+        CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<GeekCrawlerRagHostIndex>>([]);
+
+    /// <summary>
     /// Retrieve English chunks for a need. Returns null when the client is disabled.
     /// HTTP/transport failures set <see cref="GeekCrawlerRagQueryResult.Failed"/> — empty Pages must not be treated as success.
     /// Optional preferParent/preferChild and entityNames are forward-compatible with
@@ -148,6 +165,10 @@ public sealed class GeekCrawlerRagTemplateQueryResult
     public IReadOnlyList<GeekCrawlerRagTemplateDto> Templates { get; init; } = [];
     public string? Warning { get; init; }
 }
+
+/// <summary>Whether an index exists for a URL's host. Whether, not how much — a count would invite
+/// a threshold, which is a different question.</summary>
+public sealed record GeekCrawlerRagHostIndex(string Url, string? Host, bool Indexed);
 
 public sealed class GeekCrawlerRagIndexStatus
 {
@@ -308,6 +329,48 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         {
             _logger.LogError(ex, "Geek-Crawler-Rag vector purge threw for {RunId}", runId);
             return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
+        IReadOnlyList<string> urls,
+        CancellationToken ct = default)
+    {
+        if (urls.Count == 0) return [];
+
+        // Disabled means unknown, not "no index". Reporting every URL unindexed would block creates
+        // on an answer we never obtained; reporting them indexed would be worse. The caller
+        // distinguishes an empty result from a populated one.
+        if (!_enabled) return [];
+
+        try
+        {
+            using var response = await _http
+                .PostAsJsonAsync("v1/index/hosts", new { urls }, JsonOpts, ct)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag host index check failed: {Status} {Body}",
+                    (int)response.StatusCode,
+                    Truncate(body));
+                return [];
+            }
+
+            var dto = await response.Content
+                .ReadFromJsonAsync<HostIndexResponseDto>(JsonOpts, ct)
+                .ConfigureAwait(false);
+
+            return dto?.Results?
+                .Select(r => new GeekCrawlerRagHostIndex(r.Url ?? "", r.Host, r.Indexed))
+                .ToList() ?? [];
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Geek-Crawler-Rag host index check threw");
+            return [];
         }
     }
 
@@ -742,6 +805,18 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         if (string.IsNullOrEmpty(value) || value.Length <= max)
             return value;
         return value[..max];
+    }
+
+    private sealed class HostIndexResponseDto
+    {
+        public List<HostIndexResultDto>? Results { get; set; }
+    }
+
+    private sealed class HostIndexResultDto
+    {
+        public string? Url { get; set; }
+        public string? Host { get; set; }
+        public bool Indexed { get; set; }
     }
 
     private sealed class IndexStatusDto
