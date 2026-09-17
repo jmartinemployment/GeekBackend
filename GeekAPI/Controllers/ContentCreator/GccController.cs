@@ -30,6 +30,9 @@ public class GccController : ControllerBase
     };
 
     private readonly HttpGccRepository _repo;
+    private readonly IProjectStore _projects;
+    private readonly IContentGenerationOrchestrator _orchestrator;
+    private readonly CompanyProfileOptions _company;
     private readonly GccGenerateService _gen;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
@@ -38,6 +41,9 @@ public class GccController : ControllerBase
 
     public GccController(
         HttpGccRepository repo,
+        IProjectStore projects,
+        IContentGenerationOrchestrator orchestrator,
+        IOptions<CompanyProfileOptions> company,
         GccGenerateService gen,
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
@@ -45,6 +51,9 @@ public class GccController : ControllerBase
         ILogger<GccController> logger)
     {
         _repo = repo;
+        _projects = projects;
+        _orchestrator = orchestrator;
+        _company = company.Value;
         _gen = gen;
         _seo = seo;
         _jobs = jobs;
@@ -1127,6 +1136,547 @@ public class GccController : ControllerBase
         return false;
     }
 
+
+    /// <summary>
+    /// Content Creator addition on CWV2 projects: generate tool pages from human-supplied names + brief
+    /// using CWV2 tool prompts — does <b>not</b> require a pillar Tools section.
+    /// </summary>
+    [HttpPost("projects/{projectId:guid}/tools-from-names")]
+    public async Task<IActionResult> GenerateToolsFromNames(
+        Guid projectId,
+        [FromBody] ToolsFromNamesRequest? request,
+        CancellationToken ct)
+    {
+        if (request is null)
+            return BadRequest("Body required");
+
+        var names = (request.ToolNames ?? Array.Empty<string>())
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+        if (names.Count == 0)
+            return BadRequest("toolNames required");
+        if (string.IsNullOrWhiteSpace(request.Brief))
+            return BadRequest("brief required");
+
+        if (!TryParseProvider(request.Provider, out var provider, out var err))
+            return BadRequest(err);
+
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        var usedSlugs = new HashSet<string>(
+            project.GeneratedContents
+                .Where(c => c.ContentType == GeneratedContentType.ToolPost)
+                .Select(c => c.Slug),
+            StringComparer.OrdinalIgnoreCase);
+
+        var order = project.GeneratedContents.Count(c => c.ContentType == GeneratedContentType.ToolPost);
+        try
+        {
+            foreach (var name in names)
+            {
+                var relatedPillar = project.GeneratedContents.FirstOrDefault(c =>
+                    c.ContentType == GeneratedContentType.TechnicalArticle
+                    && !string.IsNullOrWhiteSpace(c.Slug));
+                var relatedArticleUrl = relatedPillar is null
+                    ? null
+                    : $"{_company.ArticleBaseUrl.TrimEnd('/')}/{project.Department}/{relatedPillar.Slug}";
+
+                var slug = SlugHelper.EnsureUniqueSlug(SlugHelper.Slugify(name), usedSlugs);
+                order += 1;
+
+                var tool = await _gen.GenerateToolPageAsync(
+                    name,
+                    request.Brief,
+                    sourceContext: null,
+                    department: project.Department,
+                    relatedArticleUrl: relatedArticleUrl,
+                    provider: provider,
+                    ct: ct,
+                    preferredSlug: slug);
+
+                var meta = tool.Metadata;
+
+                // Replace existing tool with same slug if regenerating.
+                var existing = project.GeneratedContents
+                    .FirstOrDefault(c =>
+                        c.ContentType == GeneratedContentType.ToolPost
+                        && string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase));
+                if (existing is not null)
+                    project.GeneratedContents.Remove(existing);
+
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.ToolPost,
+                    Title = tool.Name,
+                    DisplayTitle = tool.Name,
+                    Slug = slug,
+                    Summary = meta.Summary,
+                    MainSummary = meta.MainSummary,
+                    HeroSummary = meta.HeroSummary,
+                    HomeSummary = meta.HomeSummary,
+                    BlogSummary = meta.BlogSummary,
+                    DepartmentListExcerpt = meta.DepartmentListExcerpt,
+                    ToolPageExcerpt = meta.ToolPageExcerpt,
+                    AdvertisingSummary = meta.AdvertisingSummary,
+                    MetaDescription = meta.MetaDescription,
+                    Body = tool.Document,
+                    LedeType = LedeType.Summary,
+                    JsonLdSchema = tool.JsonLdSchema,
+                    RelatedArticleUrl = tool.RelatedArticleUrl,
+                    SourceAppName = tool.Name,
+                    SourceAppOrder = order,
+                    WordCount = tool.WordCount,
+                    GeneratedByProvider = provider == ContentGeneratorProvider.Anthropic
+                        ? LlmProviderType.Anthropic
+                        : LlmProviderType.OpenAi,
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+
+            project.UpdatedAtUtc = DateTime.UtcNow;
+            await _projects.SaveAsync(project, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Tools-from-names validation failed for {ProjectId}", projectId);
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Tools-from-names LLM failed for {ProjectId}", projectId);
+            return StatusCode(502, "LLM provider request failed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Tools-from-names failed for {ProjectId}", projectId);
+            return StatusCode(502, ex.Message);
+        }
+
+        var set = GeneratedContentSetAssembler.Assemble(
+            project,
+            project.Department,
+            _company.ArticleBaseUrl,
+            _company.BlogBaseUrl,
+            _company.ToolBaseUrl);
+        return Ok(set);
+    }
+
+    /// <summary>
+    /// Plan §7 social/ads pack: one LLM call for chosen channel slots (counts), not one call per post.
+    /// Maps Facebook/LinkedIn variants onto CWV2 social rows; full pack JSON returned for other channels.
+    /// </summary>
+    [HttpPost("projects/{projectId:guid}/social-pack")]
+    public async Task<IActionResult> GenerateSocialPack(
+        Guid projectId,
+        [FromBody] SocialPackRequest? request,
+        CancellationToken ct)
+    {
+        request ??= new SocialPackRequest(1, 1, 0, 0, 0, 0, null);
+        if (!TryParseProvider(request.Provider, out var provider, out var err))
+            return BadRequest(err);
+
+        var channels = BuildPackChannels(request);
+        if (channels.Count == 0)
+            return BadRequest("Select at least one social/ads channel count.");
+
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null) return NotFound();
+
+        GeneratedContent? pillar = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.TechnicalArticle
+            && c.Body is not null
+            && c.WordCount >= 200);
+        GeneratedContent? blog = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.BlogPost
+            && c.Body is not null
+            && c.WordCount >= 100);
+        var sourceRow = pillar ?? blog;
+        if (sourceRow?.Body is null)
+            return BadRequest("Generate a pillar body or a blog before social/ads pack.");
+
+        var sourceJson = JsonSerializer.Serialize(new
+        {
+            title = sourceRow.DisplayTitle ?? sourceRow.Title,
+            body = ContentDocumentText.Flatten(sourceRow.Body),
+        }, JsonOpts);
+
+        var slugBase = sourceRow.Slug;
+        var sourceUrl = pillar is not null
+            ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{project.Department}/{slugBase}"
+            : $"{_company.BlogBaseUrl.TrimEnd('/')}/{project.Department}/{slugBase}";
+
+        try
+        {
+            var packJson = await _gen.GenerateRepurposePackAsync(sourceJson, channels, provider, ct);
+            var variants = GccGenerateService.ParsePackVariants(packJson);
+
+            // Replace prior CWV2 social rows (pack is authoritative for this run).
+            foreach (var existing in project.GeneratedContents
+                         .Where(c => c.ContentType is GeneratedContentType.SocialFacebook
+                             or GeneratedContentType.SocialLinkedIn)
+                         .ToList())
+            {
+                project.GeneratedContents.Remove(existing);
+            }
+
+            var fb = variants.FirstOrDefault(v =>
+                v.Channel.Contains("facebook", StringComparison.OrdinalIgnoreCase)
+                || v.Channel.Equals("Meta", StringComparison.OrdinalIgnoreCase));
+            var li = variants.FirstOrDefault(v =>
+                v.Channel.Contains("linkedin", StringComparison.OrdinalIgnoreCase));
+
+            if (fb is not null)
+            {
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.SocialFacebook,
+                    Title = string.IsNullOrWhiteSpace(fb.Title)
+                        ? $"{sourceRow.Title} (Facebook)"
+                        : fb.Title,
+                    Slug = $"{slugBase}-facebook",
+                    Body = ContentDocumentText.FromPlainText(FormatPackBody(fb)),
+                    RelatedArticleUrl = sourceUrl,
+                    MetaDescription = TruncateMeta(fb.Cta),
+                    GeneratedByProvider = ToLlm(provider),
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+
+            if (li is not null)
+            {
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.SocialLinkedIn,
+                    Title = string.IsNullOrWhiteSpace(li.Title)
+                        ? $"{sourceRow.Title} (LinkedIn)"
+                        : li.Title,
+                    Slug = $"{slugBase}-linkedin",
+                    Body = ContentDocumentText.FromPlainText(FormatPackBody(li)),
+                    RelatedArticleUrl = sourceUrl,
+                    // Full pack retained for Mix channels beyond FB/LI (inspectable, not invented later).
+                    MetaDescription = TruncateMeta(packJson),
+                    GeneratedByProvider = ToLlm(provider),
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+            else
+            {
+                // Pack had no LinkedIn slot — still persist pack JSON on a LinkedIn-typed row for retrieval.
+                var summary = string.Join(
+                    "\n\n---\n\n",
+                    variants.Select(v => $"[{v.Channel}]\n{FormatPackBody(v)}"));
+                project.GeneratedContents.Add(new GeneratedContent
+                {
+                    ProjectId = project.Id,
+                    ContentType = GeneratedContentType.SocialLinkedIn,
+                    Title = $"{sourceRow.Title} (Social pack)",
+                    Slug = $"{slugBase}-social-pack",
+                    Body = ContentDocumentText.FromPlainText(summary),
+                    RelatedArticleUrl = sourceUrl,
+                    MetaDescription = TruncateMeta(packJson),
+                    GeneratedByProvider = ToLlm(provider),
+                    GeneratedByModel = provider.ToString(),
+                });
+            }
+
+            project.UpdatedAtUtc = DateTime.UtcNow;
+            await _projects.SaveAsync(project, ct);
+
+            var set = GeneratedContentSetAssembler.Assemble(
+                project,
+                project.Department,
+                _company.ArticleBaseUrl,
+                _company.BlogBaseUrl,
+                _company.ToolBaseUrl);
+            return Ok(new
+            {
+                set,
+                packJson,
+                channels,
+                variantCount = variants.Count,
+                llmCalls = 1,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Social pack LLM failed for {ProjectId}", projectId);
+            return StatusCode(502, "LLM provider request failed");
+        }
+    }
+
+    /// <summary>
+    /// Names operators can pick for AI Tools — from pillar Tools section and existing tool drafts.
+    /// </summary>
+    [HttpGet("projects/{projectId:guid}/tool-name-candidates")]
+    public async Task<IActionResult> ToolNameCandidates(Guid projectId, CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var trimmed = name.Trim();
+            if (seen.Add(trimmed)) names.Add(trimmed);
+        }
+
+        var pillar = project.GeneratedContents.FirstOrDefault(c =>
+            c.ContentType == GeneratedContentType.TechnicalArticle
+            && c.Body is not null
+            && c.WordCount >= 200);
+        if (pillar is not null)
+        {
+            foreach (var app in ToolSectionExtractor.ExtractApplications(pillar.Body, pillar.SectionOutline))
+                Add(app.Name);
+        }
+
+        foreach (var tool in project.GeneratedContents
+                     .Where(c => c.ContentType == GeneratedContentType.ToolPost)
+                     .OrderBy(c => c.SourceAppOrder ?? int.MaxValue))
+        {
+            Add(string.IsNullOrWhiteSpace(tool.DisplayTitle) ? tool.Title : tool.DisplayTitle);
+            Add(tool.SourceAppName);
+        }
+
+        // Desired headings often list tool names before a pillar exists.
+        if (!string.IsNullOrWhiteSpace(project.Notes))
+        {
+            foreach (var part in project.Notes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                Add(part);
+        }
+
+        return Ok(new { names = names.Take(12).ToList() });
+    }
+
+    /// <summary>Image-prompt rows on a CWV2 project (for Revise picker).</summary>
+    [HttpGet("projects/{projectId:guid}/image-prompt-rows")]
+    public async Task<IActionResult> ImagePromptRows(Guid projectId, CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        var rows = project.GeneratedContents
+            .Where(c => c.ContentType is GeneratedContentType.ImagePromptSection
+                or GeneratedContentType.ImagePromptPillarFigure
+                or GeneratedContentType.ImagePromptBlogFigure)
+            .OrderBy(c => c.Title)
+            .Select(c => new
+            {
+                slug = c.Slug,
+                title = c.Title,
+                contentType = c.ContentType.ToString(),
+                promptPreview = ContentDocumentText.Flatten(c.Body),
+            })
+            .ToList();
+
+        return Ok(new { rows });
+    }
+
+    /// <summary>
+    /// Content Creator addition: operator Revise (Full/Section) on a CWV2 project draft.
+    /// New body replaces the selected GeneratedContent row (not a multi-turn chat).
+    /// </summary>
+    [HttpPost("projects/{projectId:guid}/revise")]
+    public async Task<IActionResult> ReviseProjectContent(
+        Guid projectId,
+        [FromBody] ProjectReviseRequest? request,
+        CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Feedback))
+            return BadRequest("feedback required");
+        if (string.IsNullOrWhiteSpace(request.ContentType) && string.IsNullOrWhiteSpace(request.Slug))
+            return BadRequest("contentType or slug required");
+        if (!TryParseProvider(request.Provider, out var provider, out var err))
+            return BadRequest(err);
+
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null)
+            return NotFound();
+
+        GeneratedContent? row = null;
+        if (!string.IsNullOrWhiteSpace(request.Slug))
+        {
+            row = project.GeneratedContents.FirstOrDefault(c =>
+                string.Equals(c.Slug, request.Slug, StringComparison.OrdinalIgnoreCase));
+        }
+        else if (Enum.TryParse<GeneratedContentType>(request.ContentType, ignoreCase: true, out var contentType))
+        {
+            row = contentType switch
+            {
+                GeneratedContentType.ToolPost when !string.IsNullOrWhiteSpace(request.ToolSlug) =>
+                    project.GeneratedContents.FirstOrDefault(c =>
+                        c.ContentType == GeneratedContentType.ToolPost
+                        && string.Equals(c.Slug, request.ToolSlug, StringComparison.OrdinalIgnoreCase)),
+                GeneratedContentType.ToolPost =>
+                    project.GeneratedContents.FirstOrDefault(c => c.ContentType == GeneratedContentType.ToolPost),
+                _ => project.GeneratedContents.FirstOrDefault(c => c.ContentType == contentType),
+            };
+        }
+        else
+        {
+            return BadRequest($"Unknown contentType '{request.ContentType}'.");
+        }
+
+        if (row is null)
+            return NotFound("No matching draft on this project.");
+
+        // Image-prompt rows store prompt JSON, not a body document.
+        var isImagePrompt = row.ContentType is GeneratedContentType.ImagePromptSection
+            or GeneratedContentType.ImagePromptPillarFigure
+            or GeneratedContentType.ImagePromptBlogFigure;
+
+        if (!isImagePrompt && row.Body is null)
+            return BadRequest("Selected draft has no body document to revise.");
+
+        try
+        {
+            var notes = request.Feedback.Trim();
+            if (string.Equals(request.Scope, "section", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(request.SectionPath))
+                    return BadRequest("sectionPath is required when scope is section.");
+                notes =
+                    $"Revise ONLY the section at path “{request.SectionPath}”. Leave all other sections unchanged.\n\n{notes}";
+            }
+
+            // CWV2 orchestrator with revisionNotes — same path as review rewrite. Not CWV3.
+            _ = provider; // provider selection remains on the project PreferredProvider / CWV2 stack
+            GeneratedContentSet set;
+            if (isImagePrompt)
+            {
+                set = await _orchestrator.GenerateImagePromptsAsync(
+                    projectId,
+                    sectionHeadingsToTest: string.IsNullOrWhiteSpace(row.Title)
+                        ? null
+                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Title },
+                    cancellationToken: ct);
+            }
+            else
+            {
+                set = row.ContentType switch
+                {
+                    GeneratedContentType.TechnicalArticle =>
+                        await _orchestrator.GeneratePillarBodyAsync(projectId, notes, ct),
+                    GeneratedContentType.BlogPost =>
+                        await _orchestrator.GenerateBlogAsync(projectId, notes, ct),
+                    GeneratedContentType.ToolPost =>
+                        // reportProgress was added to this signature after these endpoints were
+                        // retired, so ct is named rather than positional.
+                        await _orchestrator.GenerateToolPagesAsync(
+                            projectId,
+                            notes,
+                            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { row.Slug },
+                            cancellationToken: ct),
+                    _ => throw new InvalidOperationException(
+                        $"Revise is not supported for content type '{row.ContentType}'."),
+                };
+            }
+
+            return Ok(set);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Project revise LLM failed for {ProjectId}", projectId);
+            return StatusCode(502, "LLM provider request failed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Project revise failed for {ProjectId}", projectId);
+            return StatusCode(502, ex.Message);
+        }
+    }
+
+    [HttpPost("projects/{projectId:guid}/content-approval")]
+    public async Task<IActionResult> SetContentApproval(
+        Guid projectId,
+        [FromBody] ContentApprovalRequest? request,
+        CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null) return NotFound();
+
+        var approve = request?.Approved ?? true;
+        project.ContentApprovedAtUtc = approve ? DateTime.UtcNow : null;
+        project.UpdatedAtUtc = DateTime.UtcNow;
+        await _projects.SaveAsync(project, ct);
+        return Ok(new { projectId, contentApprovedAtUtc = project.ContentApprovedAtUtc });
+    }
+
+    [HttpGet("projects/{projectId:guid}/content-approval")]
+    public async Task<IActionResult> GetContentApproval(Guid projectId, CancellationToken ct)
+    {
+        var project = await _projects.GetAsync(projectId, ct);
+        if (project is null) return NotFound();
+        return Ok(new
+        {
+            projectId,
+            approved = project.ContentApprovedAtUtc is not null,
+            contentApprovedAtUtc = project.ContentApprovedAtUtc,
+        });
+    }
+
+    private static List<string> BuildPackChannels(SocialPackRequest request)
+    {
+        var channels = new List<string>();
+        void Add(string name, int count)
+        {
+            for (var i = 0; i < Math.Max(0, count); i++)
+                channels.Add(name);
+        }
+
+        Add("Facebook", request.FacebookCount);
+        Add("LinkedIn", request.LinkedInCount);
+        Add("X", request.XCount);
+        Add("Instagram", request.InstagramCount);
+        Add("MetaAds", request.MetaAdsCount);
+        Add("GoogleAds", request.GoogleAdsCount);
+        return channels;
+    }
+
+
+    private static string FormatPackBody(GccGenerateService.PackVariant v)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(v.Headline))
+            sb.AppendLine(v.Headline);
+        sb.AppendLine(v.Body);
+        if (!string.IsNullOrWhiteSpace(v.Cta))
+            sb.AppendLine(v.Cta);
+        return sb.ToString().Trim();
+    }
+
+    private static string? TruncateMeta(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return value.Length <= 4000 ? value : value[..4000];
+    }
+
+    private static LlmProviderType ToLlm(ContentGeneratorProvider provider) =>
+        provider == ContentGeneratorProvider.Anthropic
+            ? LlmProviderType.Anthropic
+            : LlmProviderType.OpenAi;
+
     public sealed record CreateCreateRequest(
         Guid ClientId,
         string StartingContentType,
@@ -1172,4 +1722,26 @@ public class GccController : ControllerBase
     public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null, bool Force = false);
     public sealed record UpdateBriefResearchRequest(string? BriefJson, string? ResearchJson);
     public sealed record ParseSavedSerpRequest(string Content, string? TargetKeyword = null);
+
+    public sealed record ToolsFromNamesRequest(
+        IReadOnlyList<string>? ToolNames,
+        string Brief,
+        string? Provider);
+    public sealed record SocialPackRequest(
+        int FacebookCount = 0,
+        int LinkedInCount = 0,
+        int XCount = 0,
+        int InstagramCount = 0,
+        int MetaAdsCount = 0,
+        int GoogleAdsCount = 0,
+        string? Provider = null);
+    public sealed record ProjectReviseRequest(
+        string? ContentType,
+        string Feedback,
+        string? Scope,
+        string? SectionPath,
+        string? ToolSlug,
+        string? Slug,
+        string? Provider);
+    public sealed record ContentApprovalRequest(bool Approved = true);
 }
