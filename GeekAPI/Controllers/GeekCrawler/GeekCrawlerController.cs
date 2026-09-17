@@ -73,7 +73,7 @@ public class GeekCrawlerController : ControllerBase
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
-            return BadRequest("crawlType must be one of: competitors, partner, local.");
+            return BadRequest(CrawlTypes.ValidListMessage);
 
         // One bad URL does not spoil the list. Admit what is usable, carry the rest back with their
         // reasons, and only refuse when nothing at all can be crawled.
@@ -123,7 +123,7 @@ public class GeekCrawlerController : ControllerBase
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         if (!CrawlTypes.IsValid(crawlType))
-            return BadRequest("crawlType must be one of: competitors, partner, local.");
+            return BadRequest(CrawlTypes.ValidListMessage);
 
         var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds(seeds);
         if (normalized.Count == 0)
@@ -316,7 +316,7 @@ public class GeekCrawlerController : ControllerBase
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
-            return BadRequest("crawlType must be one of: competitors, partner, local.");
+            return BadRequest(CrawlTypes.ValidListMessage);
 
         var scheduleAdmission = GeekCrawlerSeedNormalizer.AdmitSeeds(request.Seeds);
         var validationError = scheduleAdmission.Accepted.Count == 0

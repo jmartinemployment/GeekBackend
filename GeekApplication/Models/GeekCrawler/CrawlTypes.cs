@@ -18,6 +18,13 @@ public static class CrawlTypes
         ProjectSite,
     };
 
+    /// <summary>
+    /// The accepted values, for error text. Derived from the set so adding a type cannot leave a
+    /// message listing three of four — which it did until 2026-09-17.
+    /// </summary>
+    public static string ValidListMessage =>
+        "crawlType must be one of: " + string.Join(", ", Valid) + ".";
+
     public static bool IsValid(string? crawlType) =>
         !string.IsNullOrWhiteSpace(crawlType) && Valid.Contains(crawlType.Trim());
 }

@@ -80,7 +80,7 @@ public class GeekCrawlerIngestController : ControllerBase
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
-            return BadRequest("crawlType must be one of: competitors, partner, local, project-site.");
+            return BadRequest(CrawlTypes.ValidListMessage);
 
         // One unusable URL does not spoil the list; refuse only when none can be crawled.
         var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(request.Seeds);
