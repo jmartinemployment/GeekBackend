@@ -27,17 +27,20 @@ public class GeekCrawlerIngestController : ControllerBase
     private readonly HttpGeekCrawlerRepository _repo;
     private readonly GeekCrawlerProgressNotifier _notifier;
     private readonly IGeekCrawlerRagClient _rag;
+    private readonly ILogger<GeekCrawlerIngestController> _logger;
 
     public GeekCrawlerIngestController(
         ICurrentUserContext user,
         HttpGeekCrawlerRepository repo,
         GeekCrawlerProgressNotifier notifier,
-        IGeekCrawlerRagClient rag)
+        IGeekCrawlerRagClient rag,
+        ILogger<GeekCrawlerIngestController> logger)
     {
         _user = user;
         _repo = repo;
         _notifier = notifier;
         _rag = rag;
+        _logger = logger;
     }
 
     /// <summary>Create a crawl run owned by the authenticated user; mark status <c>external</c>.</summary>
@@ -66,69 +69,64 @@ public class GeekCrawlerIngestController : ControllerBase
 
         try
         {
-            // Replace on re-crawl: one run per unique seed URL, for every crawl type.
+            // Atomic publish. A crawl writes into its own staging run; the run currently published
+            // for this slot is never touched while that crawl is in flight.
             //
-            // The in-process path already does this (GeekCrawlerService.StartCrawlAsync). This
-            // controller computed seedKey and then never looked it up, so every external crawl created
-            // a new run and a second full copy of the site — 1,050 project-site pages accumulated
-            // across 19 runs of one site, and it is what grew the corpus past 200k pages.
+            // The previous shape purged vectors and called ClearRunCrawlDataAsync up front and
+            // re-used the same run id, so a crawl that died at page 3 of 2,500 had already destroyed
+            // the good corpus — the operator was left with neither the old data nor the new. There
+            // was no rollback because there was nothing left to roll back to.
             //
-            // The crawler needs no change: it sends seeds and takes back a run id, and now receives
-            // the same id for the same site.
-            var existing = await _repo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct)
+            // Retiring the old run moves to the commit point (PatchRun -> complete), where flipping
+            // one run document's status is a single-document write and therefore atomic. That one
+            // write is the transaction: before it readers see the old corpus whole, after it they
+            // see the new corpus whole, and no reader ever observes a partial crawl.
+            //
+            // Reclaim abandoned staging from earlier crawls that died in this slot. They never
+            // published, so nothing ever read them and nothing is lost.
+            var abandoned = await _repo
+                .ListUncommittedRunsForSlotAsync(ownerUserId, crawlType, seedKey, ct)
                 .ConfigureAwait(false);
 
-            GeekCrawlerRunDto run;
-            if (existing is not null)
+            foreach (var stale in abandoned)
             {
-                // Vectors first, and abort the whole operation if that fails. Deleting pages while
-                // their vectors survive leaves the index pointing at rows that no longer exist —
-                // same order as DeleteRun below.
                 if (!_rag.IsEnabled)
                 {
                     return StatusCode(
                         StatusCodes.Status503ServiceUnavailable,
-                        "Geek-Crawler-Rag is disabled — prior vectors cannot be purged, so the "
-                        + "existing run was not replaced.");
+                        "Geek-Crawler-Rag is disabled — abandoned staging vectors cannot be purged, "
+                        + "so no new crawl was started.");
                 }
 
-                if (!await _rag.DeleteRunIndexAsync(existing.Id, ct).ConfigureAwait(false))
+                if (!await _rag.DeleteRunIndexAsync(stale.Id, ct).ConfigureAwait(false))
                 {
                     return StatusCode(
                         StatusCodes.Status502BadGateway,
-                        "Vector purge failed for the existing run — nothing was replaced.");
+                        $"Vector purge failed for abandoned staging run {stale.Id:D} — no new crawl "
+                        + "was started.");
                 }
 
-                await _repo.ClearRunCrawlDataAsync(existing.Id, ct).ConfigureAwait(false);
-
-                run = await _repo.PatchRunAsync(
-                    existing.Id,
-                    new PatchGeekCrawlerRunCommand(
-                        Status: ExternalStatus,
-                        StartedAtUtc: DateTimeOffset.UtcNow,
-                        CompletedAtUtc: null,
-                        ErrorSummary: null,
-                        ClearMarkdownReadyAt: true),
-                    ct).ConfigureAwait(false);
+                await _repo.ClearRunCrawlDataAsync(stale.Id, ct).ConfigureAwait(false);
+                await _repo.DeleteRunAsync(stale.Id, ct).ConfigureAwait(false);
             }
-            else
-            {
-                run = await _repo.CreateRunAsync(
-                    new CreateGeekCrawlerRunCommand(
-                        ownerUserId,
-                        crawlType,
-                        seedsJson,
-                        seedKey),
-                    ct).ConfigureAwait(false);
 
-                // Repo create always starts as pending — flip immediately so workers never claim it.
-                run = await _repo.PatchRunAsync(
-                    run.Id,
-                    new PatchGeekCrawlerRunCommand(
-                        Status: ExternalStatus,
-                        StartedAtUtc: DateTimeOffset.UtcNow),
-                    ct).ConfigureAwait(false);
-            }
+            // Always a fresh run. The published run for this slot, if any, stays readable until the
+            // new one commits.
+            var run = await _repo.CreateRunAsync(
+                new CreateGeekCrawlerRunCommand(
+                    ownerUserId,
+                    crawlType,
+                    seedsJson,
+                    seedKey),
+                ct).ConfigureAwait(false);
+
+            // Repo create always starts as pending — flip immediately so workers never claim it.
+            run = await _repo.PatchRunAsync(
+                run.Id,
+                new PatchGeekCrawlerRunCommand(
+                    Status: ExternalStatus,
+                    StartedAtUtc: DateTimeOffset.UtcNow),
+                ct).ConfigureAwait(false);
 
             var snapshot = GeekCrawlerService.ToSnapshot(run);
             await _notifier.PushAsync(snapshot, run.Id, ownerUserId, ct).ConfigureAwait(false);
@@ -163,8 +161,30 @@ public class GeekCrawlerIngestController : ControllerBase
                 "status must be one of: external, complete, failed, cancelled.");
         }
 
+        var committing = string.Equals(request.Status, "complete", StringComparison.OrdinalIgnoreCase);
+
         try
         {
+            // Identify what this slot publishes today BEFORE committing, so the outgoing run is known
+            // even though the commit itself is what makes the new one visible.
+            GeekCrawlerRunDto? outgoing = null;
+            if (committing)
+            {
+                var staging = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+                if (staging?.SeedKey is { Length: > 0 } seedKey)
+                {
+                    outgoing = await _repo.GetRunForSlotAsync(
+                        staging.OwnerUserId, staging.CrawlType, seedKey, publishedOnly: true, ct)
+                        .ConfigureAwait(false);
+
+                    if (outgoing is not null && outgoing.Id == runId)
+                        outgoing = null;
+                }
+            }
+
+            // The commit. Flipping one run document's status is a single-document write, so it is
+            // atomic without any distributed protocol: readers resolving this slot see the old run
+            // whole before it and the new run whole after it, and never a crawl in progress.
             var run = await _repo.PatchRunAsync(
                 runId,
                 new PatchGeekCrawlerRunCommand(
@@ -176,6 +196,28 @@ public class GeekCrawlerIngestController : ControllerBase
                     MarkdownReadyAt: request.MarkdownReadyAt,
                     ClearMarkdownReadyAt: request.ClearMarkdownReadyAt),
                 ct).ConfigureAwait(false);
+
+            // Retire the superseded run only after the new one is published, and only if it still
+            // is not the published one. Failing here costs disk, never correctness: two complete runs
+            // in a slot resolve to the newer by CreatedAtUtc, which is the one just committed.
+            if (outgoing is not null)
+            {
+                if (_rag.IsEnabled
+                    && await _rag.DeleteRunIndexAsync(outgoing.Id, ct).ConfigureAwait(false))
+                {
+                    await _repo.DeleteRunAsync(outgoing.Id, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Deleting pages whose vectors survive would leave the index pointing at rows
+                    // that no longer exist. Keep both rather than create that inconsistency.
+                    _logger.LogWarning(
+                        "Superseded crawl run {OutgoingRunId} was left in place: vectors could not be "
+                        + "purged. The slot publishes {RunId}; the old run is now dead storage.",
+                        outgoing.Id,
+                        runId);
+                }
+            }
 
             var snapshot = GeekCrawlerService.ToSnapshot(run);
             await _notifier.PushAsync(snapshot, run.Id, run.OwnerUserId, ct).ConfigureAwait(false);

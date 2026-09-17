@@ -42,6 +42,7 @@ public class GeekCrawlerRunsController : ControllerBase
         [FromQuery] string ownerUserId,
         [FromQuery] string crawlType,
         [FromQuery] string seedKey,
+        [FromQuery] bool publishedOnly = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(ownerUserId))
@@ -51,8 +52,26 @@ public class GeekCrawlerRunsController : ControllerBase
         if (string.IsNullOrWhiteSpace(seedKey))
             return BadRequest("seedKey is required");
 
-        var row = await _mongo.GetRunForSlotAsync(ownerUserId, crawlType.Trim(), seedKey, ct);
+        var row = await _mongo.GetRunForSlotAsync(ownerUserId, crawlType.Trim(), seedKey, publishedOnly, ct);
         return row is null ? NotFound() : Ok(row);
+    }
+
+    /// <summary>Runs in a slot that never committed — abandoned staging from a crawl that died.</summary>
+    [HttpGet("uncommitted-for-slot")]
+    public async Task<ActionResult<List<GeekCrawlerRun>>> ListUncommittedForSlot(
+        [FromQuery] string ownerUserId,
+        [FromQuery] string crawlType,
+        [FromQuery] string seedKey,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            return BadRequest("ownerUserId is required");
+        if (string.IsNullOrWhiteSpace(crawlType))
+            return BadRequest("crawlType is required");
+        if (string.IsNullOrWhiteSpace(seedKey))
+            return BadRequest("seedKey is required");
+
+        return Ok(await _mongo.ListUncommittedRunsForSlotAsync(ownerUserId, crawlType.Trim(), seedKey, ct));
     }
 
     [HttpGet("latest")]
@@ -184,6 +203,14 @@ public class GeekCrawlerRunsController : ControllerBase
         return NoContent();
     }
 
+
+    /// <summary>Delete a run outright: its links, its pages, then the run document.</summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> DeleteRun(Guid id, CancellationToken ct = default)
+    {
+        await _mongo.DeleteRunAsync(id, ct);
+        return NoContent();
+    }
     public record CreateGeekCrawlerRunCommand(
         string OwnerUserId,
         string CrawlType,

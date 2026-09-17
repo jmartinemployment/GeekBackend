@@ -104,9 +104,22 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         string ownerUserId,
         string crawlType,
         string seedKey,
+        bool publishedOnly = false,
         CancellationToken ct = default) =>
         GetAsync<GeekCrawlerRunDto>(
             $"repo/geek-crawler/runs/for-slot?ownerUserId={Uri.EscapeDataString(ownerUserId)}" +
+            $"&crawlType={Uri.EscapeDataString(crawlType)}" +
+            $"&seedKey={Uri.EscapeDataString(seedKey)}" +
+            $"&publishedOnly={(publishedOnly ? "true" : "false")}",
+            ct);
+
+    public Task<IReadOnlyList<GeekCrawlerRunDto>> ListUncommittedRunsForSlotAsync(
+        string ownerUserId,
+        string crawlType,
+        string seedKey,
+        CancellationToken ct = default) =>
+        GetListAsync<GeekCrawlerRunDto>(
+            $"repo/geek-crawler/runs/uncommitted-for-slot?ownerUserId={Uri.EscapeDataString(ownerUserId)}" +
             $"&crawlType={Uri.EscapeDataString(crawlType)}" +
             $"&seedKey={Uri.EscapeDataString(seedKey)}",
             ct);
@@ -171,6 +184,14 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         CreateGeekCrawlerLinkBatchCommand command,
         CancellationToken ct = default) =>
         PostAsync<object>("repo/geek-crawler/links/batch", command, ct);
+
+    public async Task DeleteRunAsync(Guid runId, CancellationToken ct = default)
+    {
+        var res = await _http.DeleteAsync($"repo/geek-crawler/runs/{runId}", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return;
+        res.EnsureSuccessStatusCode();
+    }
 
     public async Task ClearRunCrawlDataAsync(Guid runId, CancellationToken ct = default)
     {

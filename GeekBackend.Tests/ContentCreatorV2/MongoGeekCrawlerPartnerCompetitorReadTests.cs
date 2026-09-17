@@ -328,9 +328,10 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             string ownerUserId,
             string crawlType,
             string seedKey,
+            bool publishedOnly = false,
             CancellationToken ct = default)
         {
-            var run = await mongo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
+            var run = await mongo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, publishedOnly, ct);
             return run is null ? null : ToDto(run);
         }
 

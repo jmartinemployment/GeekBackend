@@ -790,6 +790,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             string ownerUserId,
             string crawlType,
             string seedKey,
+            bool publishedOnly = false,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRunDto?>(null);
 

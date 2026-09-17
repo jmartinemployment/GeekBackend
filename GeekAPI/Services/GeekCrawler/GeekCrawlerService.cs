@@ -117,7 +117,7 @@ public sealed class GeekCrawlerService
         var type = crawlType.Trim();
         var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(seeds);
 
-        var existing = await _repo.GetRunForSlotAsync(ownerUserId, type, seedKey, ct).ConfigureAwait(false)
+        var existing = await _repo.GetRunForSlotAsync(ownerUserId, type, seedKey, publishedOnly: false, ct).ConfigureAwait(false)
             ?? await FindLatestMatchingRunAsync(ownerUserId, type, seeds, ct).ConfigureAwait(false);
         if (existing is not null)
             return await RequeueExistingRunAsync(existing, ct).ConfigureAwait(false);

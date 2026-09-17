@@ -31,7 +31,18 @@ public interface IMongoGeekCrawlerService
     Task<GeekCrawlerRun?> GetRunByIdAsync(Guid id, CancellationToken ct = default);
     Task<List<GeekCrawlerRun>> ListRunsByUserAsync(string ownerUserId, string? crawlType = null, int limit = 50, CancellationToken ct = default);
     Task<GeekCrawlerRun?> GetLatestRunAsync(string ownerUserId, string crawlType, string seedsJson, CancellationToken ct = default);
-    Task<GeekCrawlerRun?> GetRunForSlotAsync(string ownerUserId, string crawlType, string seedKey, CancellationToken ct = default);
+    /// <summary>
+    /// The run a slot currently publishes. With <paramref name="publishedOnly"/> this returns the
+    /// newest <c>complete</c> run and ignores anything still in flight — a crawl in progress holds an
+    /// arbitrary prefix of its pages and must stay invisible to readers until it commits.
+    /// </summary>
+    Task<GeekCrawlerRun?> GetRunForSlotAsync(string ownerUserId, string crawlType, string seedKey, bool publishedOnly = false, CancellationToken ct = default);
+
+    /// <summary>
+    /// Runs occupying a slot that never committed — abandoned staging from a crawl that died. They
+    /// were never visible to readers, so they carry no value and are safe to reclaim.
+    /// </summary>
+    Task<List<GeekCrawlerRun>> ListUncommittedRunsForSlotAsync(string ownerUserId, string crawlType, string seedKey, CancellationToken ct = default);
     /// <summary>
     /// Finds the latest run for owner+crawlType whose seed set CONTAINS the given single normalized
     /// seed — unlike <see cref="GetLatestRunAsync"/>/<see cref="GetRunForSlotAsync"/>, which require an
@@ -56,6 +67,12 @@ public interface IMongoGeekCrawlerService
     Task<GeekCrawlerRun> CreateRunAsync(GeekCrawlerRun run, CancellationToken ct = default);
     Task UpdateRunAsync(Guid id, Action<GeekCrawlerRun> updateAction, CancellationToken ct = default);
     Task DeleteRunCrawlDataAsync(Guid runId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes the run document itself. Call only after its crawl data and vectors are gone —
+    /// deleting the run first would orphan pages whose owner can no longer be resolved.
+    /// </summary>
+    Task DeleteRunAsync(Guid runId, CancellationToken ct = default);
 
     // WRITE: Links
     Task<int> InsertLinksIgnoringDuplicatesAsync(Guid runId, IReadOnlyList<(Guid PageId, string FromUrl, string LinkUrl, bool IsSameOrigin)> links, CancellationToken ct = default);
@@ -471,7 +488,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         }
     }
 
-    public async Task<GeekCrawlerRun?> GetRunForSlotAsync(string ownerUserId, string crawlType, string seedKey, CancellationToken ct = default)
+    public async Task<GeekCrawlerRun?> GetRunForSlotAsync(string ownerUserId, string crawlType, string seedKey, bool publishedOnly = false, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(ownerUserId) || string.IsNullOrWhiteSpace(crawlType) || string.IsNullOrWhiteSpace(seedKey))
             throw new ArgumentException("All parameters required");
@@ -480,7 +497,10 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         {
             var collection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
             var run = await collection
-                .Find(r => r.OwnerUserId == ownerUserId && r.CrawlType == crawlType && r.SeedKey == seedKey)
+                .Find(r => r.OwnerUserId == ownerUserId
+                           && r.CrawlType == crawlType
+                           && r.SeedKey == seedKey
+                           && (!publishedOnly || r.Status == "complete"))
                 .Sort(Builders<GeekCrawlerRun>.Sort.Descending(r => r.CreatedAtUtc))
                 .FirstOrDefaultAsync(ct);
             return run;
@@ -488,6 +508,29 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get run for slot for user {UserId}", ownerUserId);
+            throw;
+        }
+    }
+
+    public async Task<List<GeekCrawlerRun>> ListUncommittedRunsForSlotAsync(string ownerUserId, string crawlType, string seedKey, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId) || string.IsNullOrWhiteSpace(crawlType) || string.IsNullOrWhiteSpace(seedKey))
+            throw new ArgumentException("All parameters required");
+
+        try
+        {
+            var collection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
+            return await collection
+                .Find(r => r.OwnerUserId == ownerUserId
+                           && r.CrawlType == crawlType
+                           && r.SeedKey == seedKey
+                           && r.Status != "complete")
+                .Sort(Builders<GeekCrawlerRun>.Sort.Descending(r => r.CreatedAtUtc))
+                .ToListAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list uncommitted runs for slot for user {UserId}", ownerUserId);
             throw;
         }
     }
@@ -767,6 +810,29 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete crawl data for run {RunId}", runId);
+            throw;
+        }
+    }
+
+    public async Task DeleteRunAsync(Guid runId, CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty) throw new ArgumentException("runId is required", nameof(runId));
+
+        try
+        {
+            var linksCollection = _db.GetCollection<GeekCrawlerLink>("crawl_links");
+            var pagesCollection = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
+            var runsCollection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
+
+            // Pages and links first. A run document removed while its pages survive leaves rows no
+            // slot lookup can ever reach again — the accumulation this whole change exists to stop.
+            await linksCollection.DeleteManyAsync(l => l.RunId == runId, cancellationToken: ct);
+            await pagesCollection.DeleteManyAsync(p => p.RunId == runId, cancellationToken: ct);
+            await runsCollection.DeleteOneAsync(r => r.Id == runId, cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete run {RunId}", runId);
             throw;
         }
     }

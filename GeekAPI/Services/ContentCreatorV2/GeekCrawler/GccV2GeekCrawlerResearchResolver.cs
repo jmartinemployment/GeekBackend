@@ -67,6 +67,7 @@ public interface IGccV2GeekCrawlerReadRepository
         string ownerUserId,
         string crawlType,
         string seedKey,
+        bool publishedOnly = false,
         CancellationToken ct = default);
 
     /// <summary>
@@ -107,8 +108,9 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
         string ownerUserId,
         string crawlType,
         string seedKey,
+        bool publishedOnly = false,
         CancellationToken ct = default) =>
-        inner.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
+        inner.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, publishedOnly, ct);
 
     public Task<GeekCrawlerRunDto?> GetLatestRunContainingSeedAsync(
         string ownerUserId,
@@ -974,7 +976,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
         if (run is null && normalized.Count == 1)
         {
             var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(normalized);
-            run = await _crawlerRepo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct);
+            // Evidence must come from a committed crawl. Resolving a partner or competitor run that
+            // is still in flight would cite whatever prefix of that site had landed, which is the
+            // same defect as grounding a create on a partial project-site crawl.
+            run = await _crawlerRepo.GetRunForSlotAsync(
+                ownerUserId, crawlType, seedKey, publishedOnly: true, ct);
         }
 
         // Exact-set lookups above only match a run crawled for exactly this seed (or this exact seed
