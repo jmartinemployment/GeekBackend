@@ -127,6 +127,20 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2AgentTeamResolver>();
         services.AddScoped<GccV2AgentExecutionFactory>();
         services.AddScoped<V1Restore.GccV2V1ProjectBridge>();
+
+        // Where project-site pages are read from. Postgres is the path being retired; Mongo is the
+        // shared geek_crawler store every other crawl type already uses. Flag-gated so the read path
+        // can move and be proven before GeekAPI stops writing Postgres at all.
+        services.AddScoped<ProjectSite.GccV2PostgresProjectSitePageSource>();
+        services.AddScoped<ProjectSite.GccV2MongoProjectSitePageSource>();
+        services.AddScoped<ProjectSite.IGccV2ProjectSitePageSource>(sp =>
+        {
+            var source = sp.GetRequiredService<IConfiguration>()
+                .GetValue("ContentCreatorV2:ProjectSitePageSource", "postgres");
+            return string.Equals(source, "mongo", StringComparison.OrdinalIgnoreCase)
+                ? sp.GetRequiredService<ProjectSite.GccV2MongoProjectSitePageSource>()
+                : sp.GetRequiredService<ProjectSite.GccV2PostgresProjectSitePageSource>();
+        });
         services.AddScoped<V1Restore.GccV2V1PlanAdapter>();
         services.AddScoped<V1Restore.GccV2V1WriteAdapter>();
         services.AddScoped<GccV2SpecialistCoordinator>();
