@@ -182,6 +182,8 @@ public class GeekCrawlerRunsController : ControllerBase
                     r.MarkdownReadyAt = null;
                 else if (command.MarkdownReadyAt is not null)
                     r.MarkdownReadyAt = command.MarkdownReadyAt;
+                if (command.CrawlReportJson is not null)
+                    r.CrawlReportJson = command.CrawlReportJson;
                 row = r;
             }, ct);
             return Ok(row);
@@ -232,5 +234,6 @@ public class GeekCrawlerRunsController : ControllerBase
         DateTimeOffset? StartedAtUtc = null,
         DateTimeOffset? CompletedAtUtc = null,
         DateTimeOffset? MarkdownReadyAt = null,
-        bool ClearMarkdownReadyAt = false);
+        bool ClearMarkdownReadyAt = false,
+        string? CrawlReportJson = null);
 }

@@ -12,7 +12,8 @@ public record GeekCrawlerRunDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    DateTimeOffset? MarkdownReadyAt = null);
+    DateTimeOffset? MarkdownReadyAt = null,
+    string? CrawlReportJson = null);
 
 public record CreateGeekCrawlerRunCommand(
     string OwnerUserId,
@@ -27,7 +28,8 @@ public record PatchGeekCrawlerRunCommand(
     DateTimeOffset? StartedAtUtc = null,
     DateTimeOffset? CompletedAtUtc = null,
     DateTimeOffset? MarkdownReadyAt = null,
-    bool ClearMarkdownReadyAt = false);
+    bool ClearMarkdownReadyAt = false,
+    string? CrawlReportJson = null);
 
 public record GeekCrawlerPageDto(
     Guid Id,

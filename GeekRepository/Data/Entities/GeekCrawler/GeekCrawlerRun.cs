@@ -15,4 +15,10 @@ public class GeekCrawlerRun
     public DateTimeOffset? CompletedAtUtc { get; set; }
     /** Set only when every persisted usable page has non-empty Markdown. */
     public DateTimeOffset? MarkdownReadyAt { get; set; }
+
+    /**
+     * The crawl's completion report: what was stored, what was excluded by policy, what failed and
+     * why. Written once at commit or abort. Null on a run that never reached either.
+     */
+    public string? CrawlReportJson { get; set; }
 }

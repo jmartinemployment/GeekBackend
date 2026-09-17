@@ -234,7 +234,9 @@ public class GeekCrawlerIngestController : ControllerBase
                             ErrorSummary: string.IsNullOrWhiteSpace(request.ErrorSummary)
                                 ? reason
                                 : reason + " Crawler reported: " + request.ErrorSummary,
-                            CompletedAtUtc: DateTimeOffset.UtcNow),
+                            CompletedAtUtc: DateTimeOffset.UtcNow,
+                            CrawlReportJson: await BuildReportJsonAsync(runId, request.Report, ct)
+                                .ConfigureAwait(false)),
                         ct).ConfigureAwait(false);
 
                     return Conflict(reason);
@@ -261,6 +263,13 @@ public class GeekCrawlerIngestController : ControllerBase
             // The commit. Flipping one run document's status is a single-document write, so it is
             // atomic without any distributed protocol: readers resolving this slot see the old run
             // whole before it and the new run whole after it, and never a crawl in progress.
+            // Reporting phase. A crawl that reaches a terminal state writes its report once, at that
+            // moment — what it stored, what policy excluded, what failed and why. Runs that are
+            // merely progressing do not, so a report's presence means the crawl finished.
+            var reportJson = committing || aborting
+                ? await BuildReportJsonAsync(runId, request.Report, ct).ConfigureAwait(false)
+                : null;
+
             var run = await _repo.PatchRunAsync(
                 runId,
                 new PatchGeekCrawlerRunCommand(
@@ -270,7 +279,8 @@ public class GeekCrawlerIngestController : ControllerBase
                     StartedAtUtc: request.StartedAtUtc,
                     CompletedAtUtc: request.CompletedAtUtc,
                     MarkdownReadyAt: request.MarkdownReadyAt,
-                    ClearMarkdownReadyAt: request.ClearMarkdownReadyAt),
+                    ClearMarkdownReadyAt: request.ClearMarkdownReadyAt,
+                    CrawlReportJson: reportJson),
                 ct).ConfigureAwait(false);
 
             // Retire the superseded run only after the new one is published, and only if it still
@@ -546,6 +556,78 @@ public class GeekCrawlerIngestController : ControllerBase
         || status.Equals("cancelled", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Assembles the run's completion report.
+    ///
+    /// The per-page taxonomy is the CRAWLER's — it is the only component that saw each fetch, and it
+    /// already classifies every rejection (robots, locale, challenge, request failed, extract empty)
+    /// with sanitized sample URLs. Until now it wrote that to local disk and never sent it, so
+    /// GeekAPI re-derived a cruder three-bucket count from whatever arrived in a batch and threw
+    /// that away too.
+    ///
+    /// Stored counts come from the store, because they are the ones that must be true: a crawler
+    /// claiming 2,000 pages does not make 2,000 pages exist.
+    /// </summary>
+    private async Task<string> BuildReportJsonAsync(
+        Guid runId,
+        GeekCrawlerRunReport? crawlerReport,
+        CancellationToken ct)
+    {
+        var activity = await _repo.GetPageActivityAsync(runId, ct).ConfigureAwait(false);
+
+        var report = (crawlerReport ?? new GeekCrawlerRunReport()) with
+        {
+            PagesStored = activity?.PageCount ?? 0,
+        };
+
+        return report.ToJson();
+    }
+
+    /// <summary>
+    /// A finished crawl's report: stored, excluded by policy, failed by cause, with sample URLs.
+    /// Absent until the crawl reaches a terminal state.
+    /// </summary>
+    [HttpGet("runs/{runId:guid}/report")]
+    public async Task<IActionResult> GetRunReport(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
+
+        try
+        {
+            var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+            if (run is null) return NotFound();
+
+            var report = GeekCrawlerRunReport.FromJson(run.CrawlReportJson);
+            if (report is null)
+            {
+                return NotFound(
+                    $"Crawl {runId:D} has no report — status is '{run.Status}'. A report is written "
+                    + "when a crawl completes or aborts.");
+            }
+
+            return Ok(new
+            {
+                runId,
+                status = run.Status,
+                errorSummary = run.ErrorSummary,
+                report.PagesStored,
+                report.LinksStored,
+                report.ExcludedByPolicy,
+                report.Failed,
+                report.StatusCounts,
+                report.Samples,
+                totalFailed = report.TotalFailed,
+                totalExcluded = report.TotalExcluded,
+                failureRate = Math.Round(report.FailureRate, 4),
+            });
+        }
+        catch (HttpRequestException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Crawls that did not publish, newest first, with the reason each one gave.
     ///
     /// A failed crawl records its ErrorSummary, but until now nothing read it back: the detail was
@@ -579,6 +661,18 @@ public class GeekCrawlerIngestController : ControllerBase
                     // The reason, verbatim. Null means the crawl died without reporting one —
                     // killed process, closed laptop — which is itself the diagnosis.
                     errorSummary = r.ErrorSummary,
+                    // Present once the crawl reached a terminal state. Null on a run that was
+                    // killed outright, which is why errorSummary is not the only field here.
+                    report = GeekCrawlerRunReport.FromJson(r.CrawlReportJson) is { } rep
+                        ? new
+                        {
+                            rep.PagesStored,
+                            rep.ExcludedByPolicy,
+                            rep.Failed,
+                            totalFailed = rep.TotalFailed,
+                            failureRate = Math.Round(rep.FailureRate, 4),
+                        }
+                        : null,
                     createdAtUtc = r.CreatedAtUtc,
                     startedAtUtc = r.StartedAtUtc,
                     completedAtUtc = r.CompletedAtUtc,
@@ -657,7 +751,8 @@ public class GeekCrawlerIngestController : ControllerBase
         DateTimeOffset? StartedAtUtc = null,
         DateTimeOffset? CompletedAtUtc = null,
         DateTimeOffset? MarkdownReadyAt = null,
-        bool ClearMarkdownReadyAt = false);
+        bool ClearMarkdownReadyAt = false,
+        GeekCrawlerRunReport? Report = null);
 
     public record IngestPagesBatchRequest(IReadOnlyList<IngestPageItem>? Pages);
 
