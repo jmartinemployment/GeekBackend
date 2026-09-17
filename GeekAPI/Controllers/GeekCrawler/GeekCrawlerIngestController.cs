@@ -211,6 +211,36 @@ public class GeekCrawlerIngestController : ControllerBase
 
         try
         {
+            // A crawl that collected nothing may not publish. The in-process path has always
+            // enforced this (GeekCrawlerService + DescribeZeroHtmlFailure); the external path never
+            // did, and atomic publish made that gap dangerous: an empty run reaching "complete"
+            // would retire the previously published corpus and replace it with nothing.
+            //
+            // Ingest already rejects pages carrying neither Html nor Markdown, so a page count above
+            // zero means at least one usable page was stored.
+            if (committing)
+            {
+                var activity = await _repo.GetPageActivityAsync(runId, ct).ConfigureAwait(false);
+                if (activity is null or { PageCount: 0 })
+                {
+                    const string reason =
+                        "Crawl reported complete with no usable pages — every fetch failed, was "
+                        + "disallowed by robots, or returned empty content. Nothing was published.";
+
+                    await _repo.PatchRunAsync(
+                        runId,
+                        new PatchGeekCrawlerRunCommand(
+                            Status: "failed",
+                            ErrorSummary: string.IsNullOrWhiteSpace(request.ErrorSummary)
+                                ? reason
+                                : reason + " Crawler reported: " + request.ErrorSummary,
+                            CompletedAtUtc: DateTimeOffset.UtcNow),
+                        ct).ConfigureAwait(false);
+
+                    return Conflict(reason);
+                }
+            }
+
             // Identify what this slot publishes today BEFORE committing, so the outgoing run is known
             // even though the commit itself is what makes the new one visible.
             GeekCrawlerRunDto? outgoing = null;
@@ -405,6 +435,25 @@ public class GeekCrawlerIngestController : ControllerBase
                     new CreateGeekCrawlerPageBatchCommand(runId, items),
                     ct).ConfigureAwait(false);
 
+            // Rejections are reported, not just counted. They used to exist only in the HTTP
+            // response to the crawler, so unless the crawler surfaced them they vanished — pages
+            // silently dropped while the run went on to complete with a smaller corpus and no
+            // record of why. That is the "page skipped" middle state that hid a total extraction
+            // outage behind thirteen drafts of filler.
+            if (rejectedCount > 0)
+            {
+                _logger.LogWarning(
+                    "Crawl run {RunId} rejected {RejectedCount} of {BatchCount} pages "
+                    + "(robotsDisallowed={RobotsDisallowed}, failureReason={FailureReason}, "
+                    + "blankContent={BlankContent}).",
+                    runId,
+                    rejectedCount,
+                    request.Pages.Count,
+                    robotsDisallowedCount,
+                    failureReasonCount,
+                    blankContentCount);
+            }
+
             // Lightweight progress ping (no HTML) so operator UI can refresh URL counts.
             var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
             if (run is not null)
@@ -417,6 +466,15 @@ public class GeekCrawlerIngestController : ControllerBase
                         crawlType = run.CrawlType,
                         eventType = "pages_batch",
                         pagesInBatch = result.Count,
+                        // Carried live so a crawl shedding most of its pages is visible while it
+                        // runs, not discovered afterwards from a page count that looks low.
+                        rejectedInBatch = rejectedCount,
+                        rejectedReasonCounts = new
+                        {
+                            robotsDisallowed = robotsDisallowedCount,
+                            failureReason = failureReasonCount,
+                            blankContent = blankContentCount,
+                        },
                     },
                     run.Id,
                     run.OwnerUserId,
