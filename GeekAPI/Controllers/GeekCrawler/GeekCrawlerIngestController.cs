@@ -454,9 +454,9 @@ public class GeekCrawlerIngestController : ControllerBase
     }
 
     /// <summary>
-    /// Delete a run's crawl data. Vectors are purged from Geek-Crawler-Rag first, then pages and
-    /// links from Mongo: a retained vector whose Markdown source is gone would return chunks that
-    /// can never be verified, so an unproven purge aborts the whole operation.
+    /// Delete a run outright. Vectors are purged from Geek-Crawler-Rag first, then links, pages and
+    /// the run document from Mongo: a retained vector whose Markdown source is gone would return
+    /// chunks that can never be verified, so an unproven purge aborts the whole operation.
     /// </summary>
     [HttpDelete("runs/{runId:guid}")]
     public async Task<IActionResult> DeleteRun(Guid runId, CancellationToken ct)
@@ -481,14 +481,19 @@ public class GeekCrawlerIngestController : ControllerBase
 
         try
         {
-            await _repo.ClearRunCrawlDataAsync(runId, ct).ConfigureAwait(false);
+            // Delete the run outright — links, pages, then the run document. ClearRunCrawlDataAsync
+            // emptied the run but left its document standing, so a deleted run kept appearing in
+            // /crawls and kept answering /crawls/{runId}/rag-index with the page and chunk counts
+            // of a corpus that no longer existed. The indexed-runs report read those numbers and
+            // advertised runs with nothing behind them.
+            await _repo.DeleteRunAsync(runId, ct).ConfigureAwait(false);
         }
         catch (HttpRequestException ex)
         {
             return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
         }
 
-        return Ok(new { runId, vectorsPurged = true, crawlDataDeleted = true });
+        return Ok(new { runId, vectorsPurged = true, crawlDataDeleted = true, runDeleted = true });
     }
 
     [HttpPost("runs/{runId:guid}/pages/batch")]
