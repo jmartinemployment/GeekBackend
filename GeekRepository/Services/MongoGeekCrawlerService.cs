@@ -53,6 +53,16 @@ public interface IMongoGeekCrawlerService
     /// were never visible to readers, so they carry no value and are safe to reclaim.
     /// </summary>
     Task<List<GeekCrawlerRun>> ListUncommittedRunsForSlotAsync(string ownerUserId, string crawlType, string seedKey, CancellationToken ct = default);
+
+    /// <summary>
+    /// Runs that ended in failure and still hold pages — a discard that did not complete.
+    ///
+    /// These are unreadable (they never published) but their vectors may still be in the index, so
+    /// the index and the corpus disagree. That is an unresolved inconsistency, not a tidy-up task,
+    /// and no further crawling should happen until it is cleared. A run still in flight is excluded:
+    /// holding pages is what an in-flight crawl is supposed to do.
+    /// </summary>
+    Task<List<GeekCrawlerRun>> ListFailedRunsHoldingDataAsync(string ownerUserId, CancellationToken ct = default);
     /// <summary>
     /// Finds the latest run for owner+crawlType whose seed set CONTAINS the given single normalized
     /// seed — unlike <see cref="GetLatestRunAsync"/>/<see cref="GetRunForSlotAsync"/>, which require an
@@ -828,6 +838,41 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete crawl data for run {RunId}", runId);
+            throw;
+        }
+    }
+
+    public async Task<List<GeekCrawlerRun>> ListFailedRunsHoldingDataAsync(string ownerUserId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            throw new ArgumentException("ownerUserId is required", nameof(ownerUserId));
+
+        try
+        {
+            var runs = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
+            var pages = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
+
+            var terminal = await runs
+                .Find(r => r.OwnerUserId == ownerUserId
+                           && (r.Status == "failed" || r.Status == "cancelled"))
+                .Sort(Builders<GeekCrawlerRun>.Sort.Descending(r => r.CreatedAtUtc))
+                .ToListAsync(ct);
+
+            var stuck = new List<GeekCrawlerRun>();
+            foreach (var run in terminal)
+            {
+                var count = await pages.CountDocumentsAsync(
+                    p => p.RunId == run.Id,
+                    new CountOptions { Limit = 1 },
+                    ct);
+                if (count > 0) stuck.Add(run);
+            }
+
+            return stuck;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list failed runs holding data for user {UserId}", ownerUserId);
             throw;
         }
     }

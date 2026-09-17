@@ -13,7 +13,7 @@ public sealed class GeekCrawlerRunReportTests
     {
         var report = new GeekCrawlerRunReport
         {
-            PagesStored = 100,
+            PagesCollected = 100,
             ExcludedByPolicy = new GeekCrawlerExcludedByPolicy
             {
                 RobotsDisallowed = 40,
@@ -33,7 +33,7 @@ public sealed class GeekCrawlerRunReportTests
     {
         var report = new GeekCrawlerRunReport
         {
-            PagesStored = 25,
+            PagesCollected = 25,
             ExcludedByPolicy = new GeekCrawlerExcludedByPolicy { RobotsDisallowed = 500 },
             Failed = new GeekCrawlerFailureBreakdown { RequestFailed = 75 },
         };
@@ -50,13 +50,51 @@ public sealed class GeekCrawlerRunReportTests
         // which is why it must not be averaged into generic request failures.
         var report = new GeekCrawlerRunReport
         {
-            PagesStored = 0,
+            PagesCollected = 0,
             Failed = new GeekCrawlerFailureBreakdown { ChallengePage = 500, RequestFailed = 2 },
         };
 
         Assert.Equal(502, report.TotalFailed);
         Assert.Equal(500, report.Failed.ChallengePage);
         Assert.Equal(1d, report.FailureRate);
+    }
+
+    [Fact]
+    public void An_aborted_crawl_reports_how_far_it_got()
+    {
+        // The count describes what the crawl achieved before dying -- 1,847 of an expected 2,500
+        // says something very different from 3 -- and stays true after the pages are gone. What
+        // happened to them is a state, not a second count that would read as a corpus figure.
+        var report = new GeekCrawlerRunReport
+        {
+            PagesCollected = 1_847,
+            Outcome = GeekCrawlerRunOutcome.Discarded,
+            Failed = new GeekCrawlerFailureBreakdown { RequestFailed = 1 },
+        };
+
+        Assert.Equal(1_847, report.PagesCollected);
+        Assert.Equal(GeekCrawlerRunOutcome.Discarded, report.Outcome);
+    }
+
+    [Fact]
+    public void There_is_no_outcome_for_a_discard_that_did_not_happen()
+    {
+        // A Qdrant delete that does not succeed is a full stop, so there is no state to name. If an
+        // outcome ever appears here meaning "discard failed", the halt has been turned back into a
+        // fallback and this test is the tripwire.
+        Assert.Equal(
+            new[] { GeekCrawlerRunOutcome.Published, GeekCrawlerRunOutcome.Discarded },
+            Enum.GetValues<GeekCrawlerRunOutcome>());
+    }
+
+    [Fact]
+    public void Outcome_survives_a_roundtrip_as_a_name_not_an_ordinal()
+    {
+        // Serialized as a name so a future reordering of the enum cannot silently turn a discarded
+        // run into a published one.
+        var json = new GeekCrawlerRunReport { Outcome = GeekCrawlerRunOutcome.Discarded }.ToJson();
+        Assert.Contains("Discarded", json);
+        Assert.Equal(GeekCrawlerRunOutcome.Discarded, GeekCrawlerRunReport.FromJson(json)!.Outcome);
     }
 
     [Fact]
@@ -73,7 +111,8 @@ public sealed class GeekCrawlerRunReportTests
     {
         var original = new GeekCrawlerRunReport
         {
-            PagesStored = 1200,
+            PagesCollected = 1200,
+            Outcome = GeekCrawlerRunOutcome.Published,
             LinksStored = 98_000,
             ExcludedByPolicy = new GeekCrawlerExcludedByPolicy { RobotsDisallowed = 3, LocaleExcluded = 17 },
             Failed = new GeekCrawlerFailureBreakdown { RequestFailed = 9, ChallengePage = 4, ExtractEmpty = 2 },
@@ -84,7 +123,8 @@ public sealed class GeekCrawlerRunReportTests
         var parsed = GeekCrawlerRunReport.FromJson(original.ToJson());
 
         Assert.NotNull(parsed);
-        Assert.Equal(1200, parsed!.PagesStored);
+        Assert.Equal(1200, parsed!.PagesCollected);
+        Assert.Equal(GeekCrawlerRunOutcome.Published, parsed.Outcome);
         Assert.Equal(3, parsed.ExcludedByPolicy.RobotsDisallowed);
         Assert.Equal(4, parsed.Failed.ChallengePage);
         Assert.Equal(4, parsed.StatusCounts["403"]);

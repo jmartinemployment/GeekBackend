@@ -185,6 +185,13 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         CancellationToken ct = default) =>
         PostAsync<object>("repo/geek-crawler/links/batch", command, ct);
 
+    public Task<IReadOnlyList<GeekCrawlerRunDto>> ListFailedRunsHoldingDataAsync(
+        string ownerUserId,
+        CancellationToken ct = default) =>
+        GetListAsync<GeekCrawlerRunDto>(
+            $"repo/geek-crawler/runs/failed-holding-data?ownerUserId={Uri.EscapeDataString(ownerUserId)}",
+            ct);
+
     public Task<GeekCrawlerStorageHeadroomDto?> GetStorageHeadroomAsync(CancellationToken ct = default) =>
         GetAsync<GeekCrawlerStorageHeadroomDto>("repo/geek-crawler/runs/storage-headroom", ct);
 

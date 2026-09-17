@@ -206,6 +206,18 @@ public class GeekCrawlerRunsController : ControllerBase
     }
 
 
+    /// <summary>Failed runs still holding pages — discards that did not complete.</summary>
+    [HttpGet("failed-holding-data")]
+    public async Task<ActionResult<List<GeekCrawlerRun>>> ListFailedHoldingData(
+        [FromQuery] string ownerUserId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+            return BadRequest("ownerUserId is required");
+
+        return Ok(await _mongo.ListFailedRunsHoldingDataAsync(ownerUserId, ct));
+    }
+
     /// <summary>Filesystem headroom on the Mongo host, for crawl capacity preflight.</summary>
     [HttpGet("storage-headroom")]
     public async Task<ActionResult<GeekCrawlerStorageHeadroom>> GetStorageHeadroom(CancellationToken ct = default)

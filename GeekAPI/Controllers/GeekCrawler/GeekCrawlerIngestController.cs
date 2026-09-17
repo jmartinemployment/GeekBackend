@@ -111,6 +111,51 @@ public class GeekCrawlerIngestController : ControllerBase
             // write is the transaction: before it readers see the old corpus whole, after it they
             // see the new corpus whole, and no reader ever observes a partial crawl.
             //
+            // FULL STOP gate, before any crawl starts anywhere.
+            //
+            // A run that ended in failure while still holding pages is a discard that did not
+            // complete, which means Qdrant and the corpus may disagree. That is an unresolved
+            // integrity break, not a tidy-up task, and it is not confined to one site: an index the
+            // system cannot delete from is unhealthy for every crawl, so this gate is global to the
+            // owner rather than per slot.
+            //
+            // The discard is RETRIED here rather than merely detected, so the moment Qdrant is
+            // healthy again the next crawl clears the block by itself. It only halts if the delete
+            // still will not succeed.
+            if (!_rag.IsEnabled)
+            {
+                return StatusCode(
+                    StatusCodes.Status503ServiceUnavailable,
+                    "Geek-Crawler-Rag is disabled, so vectors cannot be deleted. No crawl was "
+                    + "started.");
+            }
+
+            var unresolved = await _repo.ListFailedRunsHoldingDataAsync(ownerUserId, ct)
+                .ConfigureAwait(false);
+
+            foreach (var stuck in unresolved)
+            {
+                if (!await _rag.DeleteRunIndexAsync(stuck.Id, ct).ConfigureAwait(false))
+                {
+                    _logger.LogError(
+                        "Crawling is stopped: vectors for failed run {StuckRunId} still cannot be "
+                        + "deleted, so its pages cannot be discarded.",
+                        stuck.Id);
+
+                    return StatusCode(
+                        StatusCodes.Status502BadGateway,
+                        $"Crawling is stopped. Failed run {stuck.Id:D} is still holding pages "
+                        + "because its vectors cannot be deleted from Qdrant. Resolve the Qdrant "
+                        + "deletion before starting any crawl — retrying this request will clear "
+                        + "the block once it succeeds.");
+                }
+
+                await _repo.ClearRunCrawlDataAsync(stuck.Id, ct).ConfigureAwait(false);
+                _logger.LogInformation(
+                    "Cleared previously stuck discard for failed run {StuckRunId}.",
+                    stuck.Id);
+            }
+
             // Reclaim abandoned staging from earlier crawls that died in this slot. They never
             // published, so nothing ever read them and nothing is lost.
             var abandoned = await _repo
@@ -123,14 +168,6 @@ public class GeekCrawlerIngestController : ControllerBase
 
             foreach (var stale in abandoned)
             {
-                if (!_rag.IsEnabled)
-                {
-                    return StatusCode(
-                        StatusCodes.Status503ServiceUnavailable,
-                        "Geek-Crawler-Rag is disabled — abandoned staging vectors cannot be purged, "
-                        + "so no new crawl was started.");
-                }
-
                 if (!await _rag.DeleteRunIndexAsync(stale.Id, ct).ConfigureAwait(false))
                 {
                     return StatusCode(
@@ -235,8 +272,7 @@ public class GeekCrawlerIngestController : ControllerBase
                                 ? reason
                                 : reason + " Crawler reported: " + request.ErrorSummary,
                             CompletedAtUtc: DateTimeOffset.UtcNow,
-                            CrawlReportJson: await BuildReportJsonAsync(runId, request.Report, ct)
-                                .ConfigureAwait(false)),
+                            CrawlReportJson: BuildReportJson(request.Report, 0, GeekCrawlerRunOutcome.Discarded)),
                         ct).ConfigureAwait(false);
 
                     return Conflict(reason);
@@ -263,11 +299,19 @@ public class GeekCrawlerIngestController : ControllerBase
             // The commit. Flipping one run document's status is a single-document write, so it is
             // atomic without any distributed protocol: readers resolving this slot see the old run
             // whole before it and the new run whole after it, and never a crawl in progress.
-            // Reporting phase. A crawl that reaches a terminal state writes its report once, at that
-            // moment — what it stored, what policy excluded, what failed and why. Runs that are
-            // merely progressing do not, so a report's presence means the crawl finished.
-            var reportJson = committing || aborting
-                ? await BuildReportJsonAsync(runId, request.Report, ct).ConfigureAwait(false)
+            // Reporting phase. What the crawl COLLECTED is measured here, before any discard, and
+            // stays true regardless of what happens to the data afterwards.
+            //
+            // What is RETAINED cannot be known yet on an abort: the discard has not run, and it can
+            // fail (vectors unpurgeable, so pages are kept). So a committing run reports now — it
+            // retains everything it collected — and an aborting run reports after the discard, when
+            // the answer exists.
+            var pagesCollected = committing || aborting
+                ? (await _repo.GetPageActivityAsync(runId, ct).ConfigureAwait(false))?.PageCount ?? 0
+                : 0;
+
+            var reportJson = committing
+                ? BuildReportJson(request.Report, pagesCollected, GeekCrawlerRunOutcome.Published)
                 : null;
 
             var run = await _repo.PatchRunAsync(
@@ -288,21 +332,35 @@ public class GeekCrawlerIngestController : ControllerBase
             // in a slot resolve to the newer by CreatedAtUtc, which is the one just committed.
             if (outgoing is not null)
             {
-                if (_rag.IsEnabled
-                    && await _rag.DeleteRunIndexAsync(outgoing.Id, ct).ConfigureAwait(false))
+                if (!_rag.IsEnabled)
                 {
-                    await _repo.DeleteRunAsync(outgoing.Id, ct).ConfigureAwait(false);
+                    return StatusCode(
+                        StatusCodes.Status503ServiceUnavailable,
+                        $"Run {runId:D} is published, but Geek-Crawler-Rag is disabled so the "
+                        + $"superseded run {outgoing.Id:D} could not have its vectors purged. "
+                        + "Crawling is stopped until that is resolved.");
                 }
-                else
+
+                if (!await _rag.DeleteRunIndexAsync(outgoing.Id, ct).ConfigureAwait(false))
                 {
-                    // Deleting pages whose vectors survive would leave the index pointing at rows
-                    // that no longer exist. Keep both rather than create that inconsistency.
-                    _logger.LogWarning(
-                        "Superseded crawl run {OutgoingRunId} was left in place: vectors could not be "
-                        + "purged. The slot publishes {RunId}; the old run is now dead storage.",
+                    // Full stop. The previous shape logged a warning and returned 200, which made
+                    // the guard advisory: the one moment index/corpus consistency actually needed
+                    // enforcing was the moment the code declined to enforce it. "Costs disk, never
+                    // correctness" was a rationalisation, and it was a fallback.
+                    _logger.LogError(
+                        "Vector purge failed for superseded run {OutgoingRunId} after {RunId} "
+                        + "published. Crawling is stopped until Qdrant deletion succeeds.",
                         outgoing.Id,
                         runId);
+
+                    return StatusCode(
+                        StatusCodes.Status502BadGateway,
+                        $"Run {runId:D} is published, but vectors for the superseded run "
+                        + $"{outgoing.Id:D} could not be purged. Crawling is stopped until Qdrant "
+                        + "deletion succeeds for that run.");
                 }
+
+                await _repo.DeleteRunAsync(outgoing.Id, ct).ConfigureAwait(false);
             }
 
             // Abort. A crawl that failed or was cancelled never published, so the pages it managed to
@@ -315,21 +373,46 @@ public class GeekCrawlerIngestController : ControllerBase
             // against the hundreds of MB its pages would have.
             if (aborting)
             {
-                if (_rag.IsEnabled
-                    && await _rag.DeleteRunIndexAsync(run.Id, ct).ConfigureAwait(false))
+                if (!_rag.IsEnabled)
                 {
-                    await _repo.ClearRunCrawlDataAsync(run.Id, ct).ConfigureAwait(false);
+                    return StatusCode(
+                        StatusCodes.Status503ServiceUnavailable,
+                        $"Run {runId:D} is marked {run.Status}, but Geek-Crawler-Rag is disabled so "
+                        + "its pages could not be discarded. Crawling is stopped until that is "
+                        + "resolved.");
                 }
-                else
+
+                if (!await _rag.DeleteRunIndexAsync(run.Id, ct).ConfigureAwait(false))
                 {
-                    // Pages whose vectors survive would leave the index citing rows that are gone.
-                    // Keep both; the next crawl of this slot reclaims the pair together.
-                    _logger.LogWarning(
-                        "Abandoned crawl run {RunId} kept its pages: vectors could not be purged. "
-                        + "It stays uncommitted and unreadable, and is reclaimed on the next crawl "
-                        + "of this slot.",
+                    // Full stop. The previous shape logged a warning and returned 200, which made
+                    // the guard advisory: the one moment index/corpus consistency actually needed
+                    // enforcing was the moment the code declined to enforce it. Clearing pages whose
+                    // vectors survive orphans the index; leaving them reports an abort that did not
+                    // happen. Neither is something to return success for.
+                    _logger.LogError(
+                        "Vector purge failed for aborted run {RunId}; its pages were not discarded. "
+                        + "Crawling is stopped until Qdrant deletion succeeds.",
                         run.Id);
+
+                    return StatusCode(
+                        StatusCodes.Status502BadGateway,
+                        $"Run {runId:D} is marked {run.Status}, but its vectors could not be purged "
+                        + "so its pages were not discarded. Crawling is stopped until Qdrant "
+                        + "deletion succeeds for that run.");
                 }
+
+                await _repo.ClearRunCrawlDataAsync(run.Id, ct).ConfigureAwait(false);
+
+                // Written only once the discard has happened, so Discarded is a fact rather than an
+                // intention.
+                run = await _repo.PatchRunAsync(
+                    run.Id,
+                    new PatchGeekCrawlerRunCommand(
+                        CrawlReportJson: BuildReportJson(
+                            request.Report,
+                            pagesCollected,
+                            GeekCrawlerRunOutcome.Discarded)),
+                    ct).ConfigureAwait(false);
             }
 
             var snapshot = GeekCrawlerService.ToSnapshot(run);
@@ -567,16 +650,15 @@ public class GeekCrawlerIngestController : ControllerBase
     /// Stored counts come from the store, because they are the ones that must be true: a crawler
     /// claiming 2,000 pages does not make 2,000 pages exist.
     /// </summary>
-    private async Task<string> BuildReportJsonAsync(
-        Guid runId,
+    private static string BuildReportJson(
         GeekCrawlerRunReport? crawlerReport,
-        CancellationToken ct)
+        int pagesCollected,
+        GeekCrawlerRunOutcome outcome)
     {
-        var activity = await _repo.GetPageActivityAsync(runId, ct).ConfigureAwait(false);
-
         var report = (crawlerReport ?? new GeekCrawlerRunReport()) with
         {
-            PagesStored = activity?.PageCount ?? 0,
+            PagesCollected = pagesCollected,
+            Outcome = outcome,
         };
 
         return report.ToJson();
@@ -610,7 +692,8 @@ public class GeekCrawlerIngestController : ControllerBase
                 runId,
                 status = run.Status,
                 errorSummary = run.ErrorSummary,
-                report.PagesStored,
+                report.PagesCollected,
+                report.Outcome,
                 report.LinksStored,
                 report.ExcludedByPolicy,
                 report.Failed,
@@ -666,7 +749,8 @@ public class GeekCrawlerIngestController : ControllerBase
                     report = GeekCrawlerRunReport.FromJson(r.CrawlReportJson) is { } rep
                         ? new
                         {
-                            rep.PagesStored,
+                            rep.PagesCollected,
+                            rep.Outcome,
                             rep.ExcludedByPolicy,
                             rep.Failed,
                             totalFailed = rep.TotalFailed,

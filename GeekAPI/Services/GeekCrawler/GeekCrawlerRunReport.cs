@@ -16,9 +16,21 @@ namespace GeekAPI.Services.GeekCrawler;
 /// </summary>
 public sealed record GeekCrawlerRunReport
 {
-    /// <summary>Pages stored as corpus. The only number that becomes evidence.</summary>
-    public int PagesStored { get; init; }
+    /// <summary>
+    /// Pages the crawl fetched and persisted while it ran. The diagnostic number — "it reached 1,847
+    /// of an expected 2,500 before dying" — and it stays true whatever happens to the data after.
+    /// </summary>
+    public int PagesCollected { get; init; }
 
+    /// <summary>
+    /// What became of what the crawl collected. A count is the wrong shape for this: on an aborted
+    /// run a "pages retained" figure is zero by design, and a zero sitting next to PagesCollected
+    /// reads like a corpus measurement when there is no corpus. The outcome is a state, so it is
+    /// reported as one.
+    /// </summary>
+    public GeekCrawlerRunOutcome Outcome { get; init; } = GeekCrawlerRunOutcome.Discarded;
+
+    /// <summary>Links stored alongside the pages. Shares the run's outcome.</summary>
     public int LinksStored { get; init; }
 
     /// <summary>Deliberate omissions. Policy working, not error.</summary>
@@ -55,7 +67,7 @@ public sealed record GeekCrawlerRunReport
     {
         get
         {
-            var attempted = PagesStored + TotalFailed;
+            var attempted = PagesCollected + TotalFailed;
             return attempted == 0 ? 0d : (double)TotalFailed / attempted;
         }
     }
@@ -117,3 +129,18 @@ public sealed record GeekCrawlerFailureBreakdown
 }
 
 public sealed record GeekCrawlerFailureSample(string Reason, string Url, string? Detail);
+
+/// <summary>What happened to a finished crawl's pages.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum GeekCrawlerRunOutcome
+{
+    /// <summary>Committed. Its pages are the corpus this slot now serves.</summary>
+    Published,
+
+    /// <summary>
+    /// Aborted and its pages discarded — the only other end a crawl has. There is deliberately no
+    /// "discard failed" outcome: a Qdrant delete that does not succeed is a full stop, not a state
+    /// the system records and continues past.
+    /// </summary>
+    Discarded,
+}
