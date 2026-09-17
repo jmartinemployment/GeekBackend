@@ -68,13 +68,22 @@ public sealed class GccV2UnifiedRagTests
     {
         var policy = new ContentModelPolicy();
         var best = Brief("""{"modelPolicyPreset":"best-quality"}""");
-        // Every stage defaults to gpt-4o-mini - the cheapest approved model - while the v1 restore
-        // is in progress. o1-pro used to be the Outline/FinalSynthesis default and this app cannot
-        // call it at all: the provider posts to /v1/chat/completions and OpenAI serves o1-pro only
-        // at /v1/responses, so those stages 404'd before reaching a model.
-        Assert.Equal(ContentModelPolicy.Gpt4oMini, policy.Select(ContentGenerationStage.Outline, best).EffectiveModel);
-        Assert.Equal(ContentModelPolicy.Gpt4oMini, policy.Select(ContentGenerationStage.Section, best).EffectiveModel);
-        Assert.Equal(ContentModelPolicy.Gpt4oMini, policy.Select(ContentGenerationStage.FinalSynthesis, best).EffectiveModel);
+        // Every stage defaults to o3-mini: the o3 family suits the factual RAG extraction this
+        // pipeline does. It replaced a temporary gpt-4o-mini cost posture that was justified only
+        // while v1's prompt layer was missing and output was not worth judging.
+        //
+        // o1-pro used to be the Outline/FinalSynthesis default and this app cannot call it at all:
+        // the provider posts to /v1/chat/completions and OpenAI serves o1-pro only at /v1/responses,
+        // so those stages 404'd before reaching a model.
+        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.Outline, best).EffectiveModel);
+        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.Section, best).EffectiveModel);
+        Assert.Equal(ContentModelPolicy.O3Mini, policy.Select(ContentGenerationStage.FinalSynthesis, best).EffectiveModel);
+
+        // The default must be a reasoning model by the provider's own test, or OpenAiProvider sends
+        // temperature and max_tokens and the API rejects the call. A wrong string here -- "03-mini"
+        // with a zero rather than the letter o -- fails this and would otherwise surface as a 400.
+        Assert.True(GeekAPI.Services.Workflow.Providers.OpenAiProvider.IsReasoningModel(
+            ContentModelPolicy.O3Mini));
 
         // o1-pro is no longer approved anywhere, so it cannot be selected back in by override.
         var o1Override = Brief("""

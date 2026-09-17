@@ -332,7 +332,7 @@ public sealed class ContentModelPolicy
     /// Step up to <see cref="O3"/> per stage when a piece needs more depth.
     /// </summary>
     public const string O3Mini = "o3-mini";
-    /// <summary>Cheapest approved model. Default while the v1 restore is in progress.</summary>
+    /// <summary>Cheapest approved model. Remains approved for every stage; no longer the default.</summary>
     public const string Gpt4oMini = "gpt-4o-mini";
     public const string StandardMultimodal = "gpt-4o";
 
@@ -427,12 +427,19 @@ public sealed class ContentModelPolicy
         // The O3Only preset still pins full o3, so an operator who wants the heavier reasoning model
         // for a given create can ask for it explicitly.
         _ = stage;
-        // TEMPORARY COST POSTURE - revert when the v1 restore lands and output is worth judging.
-        // Every create currently produces unusable content (missing v1's prompt layer), so there is
-        // no reason to pay reasoning-model rates to exercise plumbing. gpt-4o-mini is ~7x cheaper
-        // than o3-mini on both input and output and still honors response_format json_schema, which
-        // is all the extractors and the outline stage require.
-        return preset == ContentModelPreset.O3Only ? O3 : Gpt4oMini;
+        // o3-mini is the default: the o3 family is what suits factual RAG extraction -- search, pull
+        // a direct answer, cite a source -- which is what every stage here does against verified
+        // Markdown.
+        //
+        // The gpt-4o-mini cost posture that preceded this was justified by output being unusable
+        // while v1's prompt layer was missing. The v1 restore has landed, so output is worth judging
+        // and the cheaper model is no longer the right trade.
+        //
+        // Spending is gated separately: LlmProviders:Enabled=false stops the v1/Workflow path and
+        // ContentCreatorV2:DraftingEnabled=false stops this one, both before the first paid call.
+        // Note o3-mini bills reasoning tokens that do not appear in the output, so it is not a
+        // like-for-like swap on cost even at comparable per-token rates.
+        return preset == ContentModelPreset.O3Only ? O3 : O3Mini;
     }
 
     private static ContentModelPreset ParsePreset(JsonElement root) =>
