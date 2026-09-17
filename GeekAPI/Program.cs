@@ -28,6 +28,19 @@ Env.TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Structured logs so the host can read a severity.
+//
+// The default console logger writes human-readable text to stdout, and Railway classifies by
+// stream: stdout is info, stderr is error. So LogError(ex, ...) landed as an info line and never
+// appeared under an error filter -- unhandled exceptions were being reported by the app and made
+// invisible by the transport. JSON console emits the level as a field, which Railway parses.
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options =>
+{
+    options.IncludeScopes = false;
+    options.JsonWriterOptions = new System.Text.Json.JsonWriterOptions { Indented = false };
+});
+
 builder.Services.Configure<HostOptions>(options =>
 {
     options.BackgroundServiceExceptionBehavior =
