@@ -3,7 +3,6 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.GeekCrawler.Polite;
 using Microsoft.Extensions.Hosting;
-using GeekApplication.Models.GeekCrawler;
 
 namespace GeekAPI.Services.GeekCrawler;
 
@@ -23,17 +22,6 @@ public static class GeekCrawlerServiceRegistration
             var httpClient = httpClientFactory.CreateClient("GeekRepository");
             var logger = sp.GetRequiredService<ILogger<HttpGeekCrawlerRepository>>();
             return new HttpGeekCrawlerRepository(httpClient, logger);
-        });
-
-        // Reachability probes are HEAD requests to third-party hosts. Short timeout: this runs while
-        // the operator waits, and a slow host is itself a useful answer.
-        services.AddHttpClient<GeekCrawlerSeedReachability>(client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(8);
-        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-        {
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = GeekCrawlerCaps.MaxRedirectsPerNavigation,
         });
 
         services.AddHttpClient<GeekCrawlerPoliteGate>(client =>
