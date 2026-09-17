@@ -84,10 +84,15 @@ public sealed class GccV2MongoProjectSitePageSource(HttpGeekCrawlerRepository cr
         if (!string.Equals(run.CrawlType, CrawlTypes.ProjectSite, StringComparison.Ordinal))
             return null;
 
+        // A run with no readable seed cannot be grounded against a site. Refuse it here rather than
+        // letting an empty SeedUrl travel into the hierarchy build.
+        var seedUrl = FirstSeedUrl(run.SeedUrlsJson);
+        if (seedUrl is null) return null;
+
         return new GccV2ProjectSiteCrawlRunDto(
             run.Id,
             run.OwnerUserId,
-            FirstSeedUrl(run.SeedUrlsJson),
+            seedUrl,
             run.Status,
             run.SeedUrlsJson,
             run.HostProgressJson,
@@ -100,43 +105,51 @@ public sealed class GccV2MongoProjectSitePageSource(HttpGeekCrawlerRepository cr
     public async Task<GccV2ProjectSiteCrawlPageActivityDto?> GetPageActivityAsync(
         Guid runId, CancellationToken ct)
     {
-        // Mongo has no activity endpoint; derive it from the pages themselves. Paged rather than
-        // loaded whole — a project-site run can reach the 2500-page cap.
-        var count = 0;
-        DateTimeOffset? last = null;
-        const int batch = 100;
-        for (var offset = 0; ; offset += batch)
-        {
-            var page = await crawler.ListPagesAsync(runId, batch, offset, ct).ConfigureAwait(false);
-            if (page.Count == 0) break;
-            count += page.Count;
-            foreach (var p in page)
-                if (last is null || p.CrawledAtUtc > last) last = p.CrawledAtUtc;
-            if (page.Count < batch) break;
-        }
+        // Mongo serves activity as an indexed count plus a single Html-excluded projection for the
+        // latest timestamp (MongoGeekCrawlerService.GetLastCrawledTimeAsync). Counting by paging the
+        // pages themselves would pull every page's Html across the wire to produce one integer.
+        var activity = await crawler.GetPageActivityAsync(runId, ct).ConfigureAwait(false);
+        if (activity is null) return null;
 
-        return count == 0 ? null : new GccV2ProjectSiteCrawlPageActivityDto(count, last);
+        // null means "no such run"; PageCount 0 means "run exists, nothing crawled yet". Collapsing
+        // the second into the first hides orphaned runs from stall recovery, whose orphan branch
+        // tests PageCount == 0.
+        return new GccV2ProjectSiteCrawlPageActivityDto(activity.PageCount, activity.LastCrawledAtUtc);
     }
 
     private static GccV2ProjectSiteCrawlPageDto ToProjectSitePage(GeekCrawlerPageDto p) =>
         new(p.Id, p.RunId, p.Origin, p.Url, p.FinalUrl, p.StatusCode, p.RobotsAllowed, p.Html, p.CrawledAtUtc);
 
-    /// <summary>Project-site runs are single-seed; the seed is the site URL.</summary>
-    private static string FirstSeedUrl(string? seedUrlsJson)
+    /// <summary>
+    /// Project-site runs are single-seed; the seed is the site URL. Returns null when no seed can be
+    /// read — a run whose site URL is unknown is not a usable project-site run, and substituting an
+    /// empty string would hand consumers a success-shaped run pointing at nothing.
+    /// </summary>
+    private static string? FirstSeedUrl(string? seedUrlsJson)
     {
-        if (string.IsNullOrWhiteSpace(seedUrlsJson)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(seedUrlsJson)) return null;
+
+        JsonDocument doc;
         try
         {
-            using var doc = JsonDocument.Parse(seedUrlsJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return string.Empty;
-            foreach (var e in doc.RootElement.EnumerateArray())
-                if (e.ValueKind == JsonValueKind.String)
-                    return e.GetString() ?? string.Empty;
+            doc = JsonDocument.Parse(seedUrlsJson);
         }
         catch (JsonException)
         {
-            return string.Empty;
+            return null;
         }
-        return string.Empty;
+
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+            foreach (var e in doc.RootElement.EnumerateArray())
+            {
+                if (e.ValueKind != JsonValueKind.String) continue;
+                var seed = e.GetString();
+                if (!string.IsNullOrWhiteSpace(seed)) return seed;
+            }
+        }
+
+        return null;
     }
 }

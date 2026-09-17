@@ -30,6 +30,7 @@ public sealed class GccV2BrandKitBuilder
         ILogger<GccV2BrandKitBuilder> logger)
     {
         _repo = repo;
+        _sitePages = sitePages;
         _logger = logger;
     }
 

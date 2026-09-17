@@ -62,9 +62,24 @@ public sealed class GccV2ProjectSitePageSourceTests
 
     [Theory]
     [InlineData("[\"https://geekatyourspot.com/\"]", "https://geekatyourspot.com/")]
-    [InlineData("[]", "")]
-    [InlineData("not json", "")]
-    [InlineData(null, "")]
-    public void Site_url_comes_from_the_first_seed(string? seedsJson, string expected) =>
-        Assert.Equal(expected, (string)SeedReader().Invoke(null, [seedsJson])!);
+    [InlineData("[\"\", \"https://geekatyourspot.com/\"]", "https://geekatyourspot.com/")]
+    public void Site_url_comes_from_the_first_usable_seed(string seedsJson, string expected) =>
+        Assert.Equal(expected, (string?)SeedReader().Invoke(null, [seedsJson]));
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("[\"\"]")]
+    [InlineData("[\"   \"]")]
+    [InlineData("[1, 2]")]
+    [InlineData("{}")]
+    [InlineData("not json")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void No_readable_seed_yields_null_not_an_empty_string(string? seedsJson)
+    {
+        // An empty string here would be a success-shaped run: GetRunAsync would hand back a run whose
+        // SeedUrl points at nothing, and the hierarchy build would derive an empty tree from it
+        // instead of the caller learning the run is unusable.
+        Assert.Null((string?)SeedReader().Invoke(null, [seedsJson]));
+    }
 }
