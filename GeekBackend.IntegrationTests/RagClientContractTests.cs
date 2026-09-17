@@ -30,8 +30,18 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         var root = json.RootElement;
 
         Assert.Equal("content-model-policy.v1", root.GetProperty("modelPolicyVersion").GetString());
-        Assert.Equal("o1-pro", root.GetProperty("approvedStageModels").GetProperty("outline")[0].GetString());
-        Assert.Equal("o3", root.GetProperty("approvedStageModels").GetProperty("section")[0].GetString());
+        // The approved set, in policy order. o1-pro is deliberately absent and must stay absent:
+        // the provider speaks /v1/chat/completions and OpenAI serves o1-pro only at /v1/responses,
+        // so it was dropped as unreachable in 3c716a5.
+        var approved = root.GetProperty("approvedStageModels");
+        string[] expected = ["gpt-4o-mini", "o3-mini", "o3"];
+        foreach (var stage in new[] { "outline", "section" })
+        {
+            var models = approved.GetProperty(stage);
+            Assert.Equal(expected.Length, models.GetArrayLength());
+            for (var i = 0; i < expected.Length; i++)
+                Assert.Equal(expected[i], models[i].GetString());
+        }
     }
 
     [Fact]
@@ -45,7 +55,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             new
             {
                 stage = "section",
-                model = "o1-pro",
+                model = "o3",
                 reason = "availability",
                 confirmed = true,
                 replacedAttemptId = "attempt-1",
@@ -70,10 +80,11 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         var brief = GccV2GenerationBriefAssembler.Assemble(job, persistedBrief, create, null);
         var policy = new ContentModelPolicy();
         Assert.Equal(
-            "o1-pro",
-            policy.Select(ContentGenerationStage.Section, brief, jobOverride).EffectiveModel);
-        Assert.Equal(
             "o3",
+            policy.Select(ContentGenerationStage.Section, brief, jobOverride).EffectiveModel);
+        // The sibling has no override, so it falls to the stage default rather than inheriting.
+        Assert.Equal(
+            "o3-mini",
             policy.Select(ContentGenerationStage.Section, brief, siblingOverride).EffectiveModel);
     }
 
@@ -84,7 +95,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         using var response = await client.PostAsJsonAsync(
             $"/api/geek-content-creator-v2/jobs/{job.Id:D}/retry-model",
-            new { stage = "section", model = "o1-pro", reason = "availability", confirmed = true });
+            new { stage = "section", model = "o3", reason = "availability", confirmed = true });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(_factory.Repository.GccStageResults(job.Id));
@@ -170,7 +181,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             new
             {
                 stage = "validation",
-                model = "o1-pro",
+                model = "o3",
                 reason = "availability",
                 confirmed = true,
             });
@@ -189,8 +200,8 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             brief,
             jobOverride);
 
-        Assert.Equal("o1-pro", selection.EffectiveModel);
-        Assert.Equal("o1-pro", jobOverride!.StageModels["validation"]);
+        Assert.Equal("o3", selection.EffectiveModel);
+        Assert.Equal("o3", jobOverride!.StageModels["validation"]);
     }
 
     [Fact]
