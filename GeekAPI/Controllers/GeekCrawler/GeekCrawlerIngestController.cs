@@ -62,23 +62,73 @@ public class GeekCrawlerIngestController : ControllerBase
         var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(seeds);
         var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(seeds);
 
+        var crawlType = request.CrawlType.Trim();
+
         try
         {
-            var run = await _repo.CreateRunAsync(
-                new CreateGeekCrawlerRunCommand(
-                    ownerUserId,
-                    request.CrawlType.Trim(),
-                    seedsJson,
-                    seedKey),
-                ct).ConfigureAwait(false);
+            // Replace on re-crawl: one run per unique seed URL, for every crawl type.
+            //
+            // The in-process path already does this (GeekCrawlerService.StartCrawlAsync). This
+            // controller computed seedKey and then never looked it up, so every external crawl created
+            // a new run and a second full copy of the site — 1,050 project-site pages accumulated
+            // across 19 runs of one site, and it is what grew the corpus past 200k pages.
+            //
+            // The crawler needs no change: it sends seeds and takes back a run id, and now receives
+            // the same id for the same site.
+            var existing = await _repo.GetRunForSlotAsync(ownerUserId, crawlType, seedKey, ct)
+                .ConfigureAwait(false);
 
-            // Repo create always starts as pending — flip immediately so workers never claim it.
-            run = await _repo.PatchRunAsync(
-                run.Id,
-                new PatchGeekCrawlerRunCommand(
-                    Status: ExternalStatus,
-                    StartedAtUtc: DateTimeOffset.UtcNow),
-                ct).ConfigureAwait(false);
+            GeekCrawlerRunDto run;
+            if (existing is not null)
+            {
+                // Vectors first, and abort the whole operation if that fails. Deleting pages while
+                // their vectors survive leaves the index pointing at rows that no longer exist —
+                // same order as DeleteRun below.
+                if (!_rag.IsEnabled)
+                {
+                    return StatusCode(
+                        StatusCodes.Status503ServiceUnavailable,
+                        "Geek-Crawler-Rag is disabled — prior vectors cannot be purged, so the "
+                        + "existing run was not replaced.");
+                }
+
+                if (!await _rag.DeleteRunIndexAsync(existing.Id, ct).ConfigureAwait(false))
+                {
+                    return StatusCode(
+                        StatusCodes.Status502BadGateway,
+                        "Vector purge failed for the existing run — nothing was replaced.");
+                }
+
+                await _repo.ClearRunCrawlDataAsync(existing.Id, ct).ConfigureAwait(false);
+
+                run = await _repo.PatchRunAsync(
+                    existing.Id,
+                    new PatchGeekCrawlerRunCommand(
+                        Status: ExternalStatus,
+                        StartedAtUtc: DateTimeOffset.UtcNow,
+                        CompletedAtUtc: null,
+                        ErrorSummary: null,
+                        ClearMarkdownReadyAt: true),
+                    ct).ConfigureAwait(false);
+            }
+            else
+            {
+                run = await _repo.CreateRunAsync(
+                    new CreateGeekCrawlerRunCommand(
+                        ownerUserId,
+                        crawlType,
+                        seedsJson,
+                        seedKey),
+                    ct).ConfigureAwait(false);
+
+                // Repo create always starts as pending — flip immediately so workers never claim it.
+                run = await _repo.PatchRunAsync(
+                    run.Id,
+                    new PatchGeekCrawlerRunCommand(
+                        Status: ExternalStatus,
+                        StartedAtUtc: DateTimeOffset.UtcNow),
+                    ct).ConfigureAwait(false);
+            }
 
             var snapshot = GeekCrawlerService.ToSnapshot(run);
             await _notifier.PushAsync(snapshot, run.Id, ownerUserId, ct).ConfigureAwait(false);
