@@ -15,6 +15,16 @@ using MongoDB.Driver;
 
 namespace GeekRepository.Services;
 
+/// <summary>
+/// Filesystem totals for the Mongo host plus the measured average crawl page size.
+/// <paramref name="AvgPageBytes"/> is null when no pages have been stored yet.
+/// </summary>
+public record GeekCrawlerStorageHeadroom(
+    long TotalBytes,
+    long FreeBytes,
+    long? AvgPageBytes,
+    long? AvgLinkBytes);
+
 public interface IMongoGeekCrawlerService
 {
     // READ: Pages
@@ -73,6 +83,14 @@ public interface IMongoGeekCrawlerService
     /// deleting the run first would orphan pages whose owner can no longer be resolved.
     /// </summary>
     Task DeleteRunAsync(Guid runId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Filesystem headroom on the Mongo host and the measured average size of a crawl page, so a
+    /// crawl that cannot fit is refused before it starts rather than filling the disk mid-run.
+    /// Returns null when the server will not report storage — headroom that cannot be measured
+    /// cannot be promised.
+    /// </summary>
+    Task<GeekCrawlerStorageHeadroom?> GetStorageHeadroomAsync(CancellationToken ct = default);
 
     // WRITE: Links
     Task<int> InsertLinksIgnoringDuplicatesAsync(Guid runId, IReadOnlyList<(Guid PageId, string FromUrl, string LinkUrl, bool IsSameOrigin)> links, CancellationToken ct = default);
@@ -811,6 +829,60 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         {
             _logger.LogError(ex, "Failed to delete crawl data for run {RunId}", runId);
             throw;
+        }
+    }
+
+    public async Task<GeekCrawlerStorageHeadroom?> GetStorageHeadroomAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var dbStats = await _db.RunCommandAsync<BsonDocument>(
+                new BsonDocument { { "dbStats", 1 }, { "scale", 1 } }, cancellationToken: ct);
+
+            // fsTotalSize/fsUsedSize are WiredTiger-only. Without them there is no headroom figure,
+            // and guessing one is how a disk fills at 2am.
+            if (!dbStats.TryGetValue("fsTotalSize", out var totalVal)
+                || !dbStats.TryGetValue("fsUsedSize", out var usedVal))
+                return null;
+
+            var total = totalVal.ToInt64();
+            var used = usedVal.ToInt64();
+            if (total <= 0 || used < 0 || used > total) return null;
+
+            // avgObjSize is absent on an empty collection — a first crawl into an empty corpus has
+            // no measured page size, which the caller handles rather than this method inventing one.
+            // Links are a separate collection and were ~114 per page in the measured corpus
+            // (9,850,985 links against 86,165 pages). Small each, but ignoring them understates a
+            // large crawl by several percent — and the check exists precisely for the large ones.
+            var avgPageBytes = await AvgObjSizeAsync("crawl_pages", ct).ConfigureAwait(false);
+            var avgLinkBytes = await AvgObjSizeAsync("crawl_links", ct).ConfigureAwait(false);
+
+            return new GeekCrawlerStorageHeadroom(total, total - used, avgPageBytes, avgLinkBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read storage headroom");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Average stored document size for a collection, straight from collection metadata — no scan.
+    /// Null when the collection does not exist or holds nothing yet.
+    /// </summary>
+    private async Task<long?> AvgObjSizeAsync(string collectionName, CancellationToken ct)
+    {
+        try
+        {
+            var stats = await _db.RunCommandAsync<BsonDocument>(
+                new BsonDocument { { "collStats", collectionName } }, cancellationToken: ct);
+            if (!stats.TryGetValue("avgObjSize", out var avgVal)) return null;
+            var avg = avgVal.ToInt64();
+            return avg > 0 ? avg : null;
+        }
+        catch (MongoCommandException)
+        {
+            return null;
         }
     }
 

@@ -65,6 +65,12 @@ public record GeekCrawlerPageBatchResult(
     int Count,
     IReadOnlyList<GeekCrawlerCreatedPageDto> Pages);
 
+public record GeekCrawlerStorageHeadroomDto(
+    long TotalBytes,
+    long FreeBytes,
+    long? AvgPageBytes,
+    long? AvgLinkBytes);
+
 public record GeekCrawlerPageActivityDto(
     int PageCount,
     DateTimeOffset? LastCrawledAtUtc);

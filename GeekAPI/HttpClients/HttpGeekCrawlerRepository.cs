@@ -185,6 +185,9 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         CancellationToken ct = default) =>
         PostAsync<object>("repo/geek-crawler/links/batch", command, ct);
 
+    public Task<GeekCrawlerStorageHeadroomDto?> GetStorageHeadroomAsync(CancellationToken ct = default) =>
+        GetAsync<GeekCrawlerStorageHeadroomDto>("repo/geek-crawler/runs/storage-headroom", ct);
+
     public async Task DeleteRunAsync(Guid runId, CancellationToken ct = default)
     {
         var res = await _http.DeleteAsync($"repo/geek-crawler/runs/{runId}", ct);

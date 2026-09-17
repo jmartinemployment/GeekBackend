@@ -1,3 +1,4 @@
+using System.Globalization;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
@@ -22,6 +23,34 @@ public class GeekCrawlerIngestController : ControllerBase
     public const string ExternalStatus = GeekCrawlerRunStatuses.External;
 
     private const long MaxPageBatchBytes = 50L * 1024 * 1024;
+
+    /// <summary>
+    /// Pages assumed for a slot that has never been crawled, per crawl type — these mirror the page
+    /// budgets in Geek-Crawler-v2's crawl-profile.ts. A first crawl has nothing to measure, so the
+    /// type's own ceiling is the only honest estimate. Using one number for every type would refuse
+    /// small competitor crawls on the strength of a project-site budget.
+    /// </summary>
+    private static long FirstCrawlPageEstimate(string crawlType) => crawlType switch
+    {
+        CrawlTypes.Partner => 2_500,
+        CrawlTypes.ProjectSite => 2_500,
+        CrawlTypes.Competitors => 150,
+        CrawlTypes.Local => 100,
+        _ => 2_500,
+    };
+
+    /// <summary>
+    /// Links per page in the measured corpus: 9,850,985 links against 86,165 pages. Used only for a
+    /// first crawl; a re-crawl counts the previous crawl's actual links.
+    /// </summary>
+    private const long DefaultLinksPerPage = 114;
+
+    /// <summary>
+    /// Fraction of free disk a single staging crawl may consume. Atomic publish holds the outgoing
+    /// and incoming copies of a site at once, so the headroom check is what keeps "never purge before
+    /// the replacement exists" from becoming "fill the disk and lose both".
+    /// </summary>
+    private const double MaxFreeSpaceFraction = 0.5;
 
     private readonly ICurrentUserContext _user;
     private readonly HttpGeekCrawlerRepository _repo;
@@ -88,6 +117,10 @@ public class GeekCrawlerIngestController : ControllerBase
                 .ListUncommittedRunsForSlotAsync(ownerUserId, crawlType, seedKey, ct)
                 .ConfigureAwait(false);
 
+            var published = await _repo
+                .GetRunForSlotAsync(ownerUserId, crawlType, seedKey, publishedOnly: true, ct)
+                .ConfigureAwait(false);
+
             foreach (var stale in abandoned)
             {
                 if (!_rag.IsEnabled)
@@ -109,6 +142,17 @@ public class GeekCrawlerIngestController : ControllerBase
                 await _repo.ClearRunCrawlDataAsync(stale.Id, ct).ConfigureAwait(false);
                 await _repo.DeleteRunAsync(stale.Id, ct).ConfigureAwait(false);
             }
+
+            // Capacity preflight. Staging a second copy is what makes the publish atomic, and it is
+            // also what can fill the disk: a 50,000-page site held twice is not a rounding error.
+            // Refusing here costs the operator a message; discovering it at page 40,000 costs the
+            // crawl AND leaves the host wedged for everything else sharing the volume.
+            //
+            // Measured against what the previous crawl of THIS site produced, because that is the
+            // only honest predictor of what the next one will.
+            var capacityError = await CheckCapacityAsync(published?.Id, crawlType, ct).ConfigureAwait(false);
+            if (capacityError is not null)
+                return StatusCode(StatusCodes.Status507InsufficientStorage, capacityError);
 
             // Always a fresh run. The published run for this slot, if any, stays readable until the
             // new one commits.
@@ -442,6 +486,109 @@ public class GeekCrawlerIngestController : ControllerBase
         || status.Equals("complete", StringComparison.OrdinalIgnoreCase)
         || status.Equals("failed", StringComparison.OrdinalIgnoreCase)
         || status.Equals("cancelled", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Crawls that did not publish, newest first, with the reason each one gave.
+    ///
+    /// A failed crawl records its ErrorSummary, but until now nothing read it back: the detail was
+    /// captured and unreachable, which is the same as not capturing it. A failure you cannot read is
+    /// a failure you cannot fix.
+    /// </summary>
+    [HttpGet("failures")]
+    public async Task<IActionResult> ListFailures(
+        [FromQuery] int limit,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var ownerUserId = _user.UserId.ToString("D");
+        var capped = limit <= 0 ? 50 : Math.Clamp(limit, 1, 200);
+
+        try
+        {
+            var runs = await _repo.ListRunsForUserAsync(ownerUserId, crawlType: null, capped, ct)
+                .ConfigureAwait(false);
+
+            var failures = runs
+                .Where(r => !string.Equals(r.Status, "complete", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(r => r.CreatedAtUtc)
+                .Select(r => new
+                {
+                    runId = r.Id,
+                    crawlType = r.CrawlType,
+                    status = r.Status,
+                    seedUrls = GeekCrawlerService.ToSnapshot(r).SeedUrls,
+                    // The reason, verbatim. Null means the crawl died without reporting one —
+                    // killed process, closed laptop — which is itself the diagnosis.
+                    errorSummary = r.ErrorSummary,
+                    createdAtUtc = r.CreatedAtUtc,
+                    startedAtUtc = r.StartedAtUtc,
+                    completedAtUtc = r.CompletedAtUtc,
+                })
+                .ToList();
+
+            return Ok(failures);
+        }
+        catch (HttpRequestException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Returns a refusal message when the incoming crawl cannot be held alongside what is already
+    /// published, or null when it fits. Headroom that cannot be measured is refused rather than
+    /// assumed — an unmeasured disk is exactly the one that fills.
+    /// </summary>
+    private async Task<string?> CheckCapacityAsync(
+        Guid? publishedRunId,
+        string crawlType,
+        CancellationToken ct)
+    {
+        var headroom = await _repo.GetStorageHeadroomAsync(ct).ConfigureAwait(false);
+        if (headroom is null)
+        {
+            return "Storage headroom could not be read from the crawl store, so it cannot be "
+                + "confirmed that this crawl fits alongside the copy already published. No crawl "
+                + "was started.";
+        }
+
+        // No pages stored anywhere yet: nothing has a measured size, so there is nothing to check
+        // against. The first crawl into an empty corpus is also the one least able to fill a disk.
+        if (headroom.AvgPageBytes is not { } avgPageBytes)
+            return null;
+
+        // A re-crawl is measured against what the previous crawl of THIS site produced — the only
+        // honest predictor available. It assumes the site has not grown since, which is the known
+        // weakness of this estimate and the reason the ceiling is 50% of free space, not 90%.
+        var estimatedPages = FirstCrawlPageEstimate(crawlType);
+        if (publishedRunId is { } runId)
+        {
+            var activity = await _repo.GetPageActivityAsync(runId, ct).ConfigureAwait(false);
+            if (activity is { PageCount: > 0 })
+                estimatedPages = activity.PageCount;
+        }
+
+        var estimatedBytes = estimatedPages * avgPageBytes;
+        if (headroom.AvgLinkBytes is { } avgLinkBytes)
+            estimatedBytes += estimatedPages * DefaultLinksPerPage * avgLinkBytes;
+
+        var budget = (long)(headroom.FreeBytes * MaxFreeSpaceFraction);
+        if (estimatedBytes <= budget)
+            return null;
+
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "Insufficient storage: this crawl is estimated at {0:N1} GB ({1:N0} pages x {2:N0} KB, "
+            + "plus links), but only {3:N1} GB is free and a single crawl may use at most {4:P0} of "
+            + "it. The copy already published is kept and no crawl was started. Free space on the "
+            + "crawl store, or narrow this crawl's scope.",
+            estimatedBytes / 1024d / 1024d / 1024d,
+            estimatedPages,
+            avgPageBytes / 1024d,
+            headroom.FreeBytes / 1024d / 1024d / 1024d,
+            MaxFreeSpaceFraction);
+    }
 
     public record IngestCreateRunRequest(string CrawlType, string[]? Seeds);
 

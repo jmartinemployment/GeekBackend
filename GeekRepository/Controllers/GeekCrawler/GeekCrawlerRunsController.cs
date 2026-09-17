@@ -204,6 +204,14 @@ public class GeekCrawlerRunsController : ControllerBase
     }
 
 
+    /// <summary>Filesystem headroom on the Mongo host, for crawl capacity preflight.</summary>
+    [HttpGet("storage-headroom")]
+    public async Task<ActionResult<GeekCrawlerStorageHeadroom>> GetStorageHeadroom(CancellationToken ct = default)
+    {
+        var headroom = await _mongo.GetStorageHeadroomAsync(ct);
+        return headroom is null ? NotFound() : Ok(headroom);
+    }
+
     /// <summary>Delete a run outright: its links, its pages, then the run document.</summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteRun(Guid id, CancellationToken ct = default)
