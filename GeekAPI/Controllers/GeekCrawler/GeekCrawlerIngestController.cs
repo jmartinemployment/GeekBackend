@@ -48,7 +48,7 @@ public class GeekCrawlerIngestController : ControllerBase
     {
         if (!_user.IsAuthenticated) return Unauthorized();
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
-            return BadRequest("crawlType must be one of: competitors, partner, local.");
+            return BadRequest("crawlType must be one of: competitors, partner, local, project-site.");
 
         var validationError = GeekCrawlerSeedNormalizer.ValidateRawSeeds(request.Seeds);
         if (validationError is not null)
