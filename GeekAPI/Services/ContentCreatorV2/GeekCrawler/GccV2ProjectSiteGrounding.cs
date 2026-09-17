@@ -9,6 +9,32 @@ namespace GeekAPI.Services.ContentCreatorV2.GeekCrawler;
 /// </summary>
 public static class GccV2ProjectSiteGrounding
 {
+    /// <summary>
+    /// A crawl is only grounding once it has committed. Until then the page set is whatever happened
+    /// to have landed so far, and grounding a piece against 3 pages of a 2,500-page site is not a
+    /// smaller success — it is a wrong answer delivered confidently.
+    ///
+    /// EnsureUsableSeedHtml cannot catch this: one page with good HTML satisfies it. The run status
+    /// is the only thing that distinguishes "this site has 3 pages" from "this crawl is 3 pages in".
+    /// </summary>
+    public static void EnsureRunCommitted(Guid runId, string? runStatus)
+    {
+        if (runId == Guid.Empty)
+            throw new InvalidOperationException(
+                "Missing required project-site crawl run id — start from a project-site crawl.");
+
+        if (runStatus is null)
+            throw new InvalidOperationException(
+                $"Project-site crawl {runId:D} was not found — it cannot ground a create.");
+
+        if (!string.Equals(runStatus, "complete", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Project-site crawl {runId:D} is '{runStatus}', not 'complete' — a crawl grounds "
+                + "nothing until it has finished. Wait for the crawl or re-run it.");
+        }
+    }
+
     public static void EnsureUsableSeedHtml(
         Guid runId,
         IReadOnlyList<GccV2ProjectSiteCrawlPageDto> pages)

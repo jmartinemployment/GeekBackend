@@ -132,6 +132,15 @@ public sealed class GccV2PlanService
         if ((job.ProjectSiteCrawlRunId ?? job.SiteAnalysisProfileId) is { } groundingRunId
             && groundingRunId != Guid.Empty)
         {
+            // A crawl run must have committed before its pages mean anything. Only the crawl-run path
+            // is gated: SiteAnalysisProfileId is a Geek-SEO profile id, not a crawl run, and resolves
+            // through a different store.
+            if (job.ProjectSiteCrawlRunId is { } crawlRunId && crawlRunId != Guid.Empty)
+            {
+                var run = await _sitePages.GetRunAsync(crawlRunId, ct);
+                GccV2ProjectSiteGrounding.EnsureRunCommitted(crawlRunId, run?.Status);
+            }
+
             var sitePages = await _sitePages.ListPagesAsync(groundingRunId, limit: 50, offset: 0, ct);
             GccV2ProjectSiteGrounding.EnsureUsableSeedHtml(groundingRunId, sitePages);
         }
