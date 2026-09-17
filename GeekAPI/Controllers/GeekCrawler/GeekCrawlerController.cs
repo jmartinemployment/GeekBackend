@@ -45,13 +45,18 @@ public class GeekCrawlerController : ControllerBase
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
             return BadRequest("crawlType must be one of: competitors, partner, local.");
 
-        var validationError = GeekCrawlerSeedNormalizer.ValidateRawSeeds(request.Seeds);
-        if (validationError is not null)
-            return BadRequest(validationError);
-
-        var seeds = GeekCrawlerSeedNormalizer.NormalizeSeeds(request.Seeds);
+        // One bad URL does not spoil the list. Admit what is usable, carry the rest back with their
+        // reasons, and only refuse when nothing at all can be crawled.
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(request.Seeds);
+        var seeds = admission.Accepted;
         if (seeds.Count == 0)
-            return BadRequest("At least one valid seed URL is required.");
+        {
+            return BadRequest(new
+            {
+                error = "No usable seed URLs.",
+                rejected = admission.Rejected,
+            });
+        }
 
         try
         {
@@ -60,7 +65,15 @@ public class GeekCrawlerController : ControllerBase
                 request.CrawlType.Trim(),
                 seeds,
                 ct).ConfigureAwait(false);
-            return Ok(GeekCrawlerService.ToSnapshot(run));
+
+            // The dropped URLs travel with the success. A run that quietly crawled 9 of 12 seeds and
+            // said nothing is how a corpus ends up smaller than the operator believes it is.
+            return Ok(new
+            {
+                run = GeekCrawlerService.ToSnapshot(run),
+                seedsAccepted = seeds.Count,
+                rejected = admission.Rejected,
+            });
         }
         catch (InvalidOperationException ex)
         {
@@ -275,7 +288,10 @@ public class GeekCrawlerController : ControllerBase
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
             return BadRequest("crawlType must be one of: competitors, partner, local.");
 
-        var validationError = GeekCrawlerSeedNormalizer.ValidateRawSeeds(request.Seeds);
+        var scheduleAdmission = GeekCrawlerSeedNormalizer.AdmitSeeds(request.Seeds);
+        var validationError = scheduleAdmission.Accepted.Count == 0
+            ? "No usable seed URLs."
+            : null;
         if (validationError is not null)
             return BadRequest(validationError);
 

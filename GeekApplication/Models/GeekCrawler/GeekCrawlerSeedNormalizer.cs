@@ -6,11 +6,19 @@ using System.Text.Json;
 
 namespace GeekApplication.Models.GeekCrawler;
 
+/// <summary>Seeds admitted for crawling, and the ones that were not, each with its reason.</summary>
+public sealed record GeekCrawlerSeedAdmission(
+    IReadOnlyList<string> Accepted,
+    IReadOnlyList<GeekCrawlerRejectedSeed> Rejected);
+
+/// <summary>A seed that could not be admitted, and why.</summary>
+public sealed record GeekCrawlerRejectedSeed(string Raw, string Reason);
+
 /// <summary>
 /// SSRF-safe crawl URL admission: schemes/ports, private IP rejection, DNS checks,
 /// and redirect re-validation helpers for Geek-Crawler fetches.
 /// </summary>
-public static class GeekCrawlerSeedNormalizer
+public static partial class GeekCrawlerSeedNormalizer
 {
     public static readonly HashSet<int> AllowedPorts = new() { 80, 443 };
 
@@ -100,28 +108,79 @@ public static class GeekCrawlerSeedNormalizer
     }
 
     /// <summary>Returns an error message when any raw seed is invalid; otherwise null.</summary>
-    public static string? ValidateRawSeeds(IEnumerable<string>? rawSeeds)
+    /// <summary>
+    /// Admit the seeds that are usable and report the ones that are not. One bad URL in a list does
+    /// not spoil the rest.
+    ///
+    /// This previously returned on the FIRST unusable seed and rejected the whole request, so a list
+    /// of twelve with three problems cost three round trips to discover, and a cap breach masked any
+    /// invalid URLs behind it entirely. Nothing was crawled in the meantime.
+    ///
+    /// The cap is applied to NORMALIZED, de-duplicated seeds rather than raw lines, so the same URL
+    /// typed with and without a scheme counts once — the limit governs what will actually be
+    /// crawled, not how much was typed.
+    /// </summary>
+    public static GeekCrawlerSeedAdmission AdmitSeeds(IEnumerable<string>? rawSeeds)
     {
-        if (rawSeeds is null)
-            return "At least one seed URL is required.";
+        var accepted = new List<string>();
+        var rejected = new List<GeekCrawlerRejectedSeed>();
 
-        var count = 0;
-        foreach (var raw in rawSeeds)
+        foreach (var raw in rawSeeds ?? [])
         {
             if (string.IsNullOrWhiteSpace(raw))
                 continue;
-            count++;
-            if (count > GeekCrawlerCaps.MaxSeedsPerRequest)
-                return $"At most {GeekCrawlerCaps.MaxSeedsPerRequest} seed URLs are allowed per request.";
-            if (!TryNormalizeSeedUrl(raw, out _))
-                return $"Invalid seed URL: {raw.Trim()}";
+
+            var trimmed = raw.Trim();
+            if (!TryNormalizeSeedUrl(raw, out var normalized))
+            {
+                rejected.Add(new GeekCrawlerRejectedSeed(trimmed, DescribeSeedRejection(raw)));
+                continue;
+            }
+
+            if (accepted.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            if (accepted.Count >= GeekCrawlerCaps.MaxSeedsPerRequest)
+            {
+                rejected.Add(new GeekCrawlerRejectedSeed(
+                    trimmed,
+                    $"Over the limit of {GeekCrawlerCaps.MaxSeedsPerRequest} seed URLs per request."));
+                continue;
+            }
+
+            accepted.Add(normalized);
         }
 
-        if (count == 0)
-            return "At least one seed URL is required.";
-
-        return null;
+        return new GeekCrawlerSeedAdmission(accepted, rejected);
     }
+
+    /// <summary>The reason a seed could not be admitted, for reporting rather than guessing.</summary>
+    private static string DescribeSeedRejection(string raw)
+    {
+        var trimmed = StripListPrefix(raw.Trim());
+
+        var scheme = SchemePattern().Match(trimmed);
+        if (scheme.Success
+            && !string.Equals(scheme.Groups[1].Value, "http", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(scheme.Groups[1].Value, "https", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Only http and https schemes are allowed.";
+        }
+
+        if (!trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            && !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed.StartsWith("//") ? "https:" + trimmed : "https://" + trimmed.TrimStart('/');
+        }
+
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+            return "Not a URL.";
+
+        return IsAllowedCrawlUri(uri, out var reason) ? "Not a usable seed URL." : reason ?? "Not a usable seed URL.";
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^([a-zA-Z][a-zA-Z0-9+.-]*)://")]
+    private static partial System.Text.RegularExpressions.Regex SchemePattern();
 
     public static bool TryNormalizeSeedUrl(string? raw, out string url)
     {

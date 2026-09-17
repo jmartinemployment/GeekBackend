@@ -82,13 +82,17 @@ public class GeekCrawlerIngestController : ControllerBase
         if (request is null || !CrawlTypes.IsValid(request.CrawlType))
             return BadRequest("crawlType must be one of: competitors, partner, local, project-site.");
 
-        var validationError = GeekCrawlerSeedNormalizer.ValidateRawSeeds(request.Seeds);
-        if (validationError is not null)
-            return BadRequest(validationError);
-
-        var seeds = GeekCrawlerSeedNormalizer.NormalizeSeeds(request.Seeds);
+        // One unusable URL does not spoil the list; refuse only when none can be crawled.
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(request.Seeds);
+        var seeds = admission.Accepted;
         if (seeds.Count == 0)
-            return BadRequest("At least one valid seed URL is required.");
+        {
+            return BadRequest(new
+            {
+                error = "No usable seed URLs.",
+                rejected = admission.Rejected,
+            });
+        }
 
         var ownerUserId = _user.UserId.ToString("D");
         var seedKey = GeekCrawlerSeedNormalizer.ComputeSeedKey(seeds);
@@ -211,7 +215,15 @@ public class GeekCrawlerIngestController : ControllerBase
 
             var snapshot = GeekCrawlerService.ToSnapshot(run);
             await _notifier.PushAsync(snapshot, run.Id, ownerUserId, ct).ConfigureAwait(false);
-            return Ok(snapshot);
+
+            // Rejected seeds travel with the run so the crawler can report what it will not fetch,
+            // rather than the operator inferring it from a page count that came up short.
+            return Ok(new
+            {
+                run = snapshot,
+                seedsAccepted = seeds.Count,
+                rejected = admission.Rejected,
+            });
         }
         catch (HttpRequestException ex)
         {

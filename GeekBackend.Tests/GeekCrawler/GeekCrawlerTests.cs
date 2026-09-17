@@ -417,13 +417,64 @@ public class GeekCrawlerSeedUrlDebugTests
     }
 
     [Fact]
-    public void ValidateRawSeeds_enforces_max_seed_count()
+    public void AdmitSeeds_takes_the_first_of_too_many_and_reports_the_overflow()
     {
-        var seeds = Enumerable.Range(0, GeekCrawlerCaps.MaxSeedsPerRequest + 1)
+        var seeds = Enumerable.Range(0, GeekCrawlerCaps.MaxSeedsPerRequest + 2)
             .Select(i => $"https://example{i}.com")
             .ToArray();
-        var error = GeekCrawlerSeedNormalizer.ValidateRawSeeds(seeds);
-        Assert.Contains("At most", error);
+
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(seeds);
+
+        // Over the cap is not a reason to crawl nothing. The allowed seeds go, the overflow is named.
+        Assert.Equal(GeekCrawlerCaps.MaxSeedsPerRequest, admission.Accepted.Count);
+        Assert.Equal(2, admission.Rejected.Count);
+        Assert.All(admission.Rejected, r => Assert.Contains("Over the limit", r.Reason));
+    }
+
+    [Fact]
+    public void AdmitSeeds_keeps_the_good_urls_and_names_each_bad_one()
+    {
+        // One bad apple does not spoil the batch: the previous validator returned on the FIRST
+        // unusable seed and rejected the whole request, so nothing was crawled and only one problem
+        // was reported per round trip.
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds([
+            "https://good-one.example/a",
+            "http://localhost/x",
+            "good-two.example/b",
+            "ftp://nope.example",
+            "http://192.168.1.10/",
+        ]);
+
+        Assert.Equal(
+            new[] { "https://good-one.example/a", "https://good-two.example/b" },
+            admission.Accepted);
+        Assert.Equal(3, admission.Rejected.Count);
+
+        // Each rejection names its own cause rather than a generic failure.
+        Assert.Contains(admission.Rejected, r => r.Reason.Contains("Loopback"));
+        Assert.Contains(admission.Rejected, r => r.Reason.Contains("Only http and https"));
+        Assert.Contains(admission.Rejected, r => r.Reason.Contains("Private, loopback"));
+    }
+
+    [Fact]
+    public void AdmitSeeds_counts_normalized_seeds_not_raw_lines()
+    {
+        // The same URL typed with and without a scheme is one seed, not two, so a list of duplicates
+        // no longer trips the cap on lines that would never have been crawled.
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds([
+            "example.com/a", "https://example.com/a", "  ", "example.com/a",
+        ]);
+
+        Assert.Single(admission.Accepted);
+        Assert.Empty(admission.Rejected);
+    }
+
+    [Fact]
+    public void AdmitSeeds_refuses_only_when_nothing_is_usable()
+    {
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(["http://localhost/", "ftp://x.example"]);
+        Assert.Empty(admission.Accepted);
+        Assert.Equal(2, admission.Rejected.Count);
     }
 
     [Fact]
