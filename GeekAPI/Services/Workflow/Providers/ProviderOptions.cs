@@ -10,6 +10,19 @@ public class LlmProvidersOptions
 
     /// <summary>Which provider services requests when a caller doesn't specify one explicitly.</summary>
     public string DefaultProvider { get; set; } = "OpenAi";
+
+    /// <summary>
+    /// Cost kill switch for every LLM call on the v1/Workflow path. Set false while testing to stop
+    /// spending before the first paid request.
+    ///
+    /// Defaults to <c>true</c> so production is unaffected by the setting's absence — a kill switch
+    /// that defaults to "off" silently stops a working system the moment config is missing.
+    ///
+    /// Disabled means REFUSE, never substitute. Returning canned text here would be indistinguishable
+    /// from a real draft downstream, and content nobody generated reaching a page as though it were
+    /// written is the exact failure this project exists to avoid.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
 }
 
 public class OpenAiOptions

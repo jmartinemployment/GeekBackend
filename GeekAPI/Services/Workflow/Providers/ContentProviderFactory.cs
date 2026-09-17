@@ -26,14 +26,35 @@ public class ContentProviderFactory : IContentProviderFactory
         _options = options.Value;
     }
 
-    public IContentGenerationProvider Get(LlmProviderType providerType) =>
-        _serviceProvider.GetRequiredKeyedService<IContentGenerationProvider>(providerType);
+    public IContentGenerationProvider Get(LlmProviderType providerType)
+    {
+        RefuseIfDisabled();
+        return _serviceProvider.GetRequiredKeyedService<IContentGenerationProvider>(providerType);
+    }
+
+    /// <summary>
+    /// Stops every LLM call on this path when LlmProviders:Enabled is false.
+    ///
+    /// Placed on the factory because it is the one choke point both Get and GetDefault pass through —
+    /// gating individual call sites leaves whichever one is added next un-gated, which is how
+    /// GccV2JobWorker's kill switch nearly stopped covering PLAN.
+    /// </summary>
+    private void RefuseIfDisabled()
+    {
+        if (_options.Enabled) return;
+
+        throw new InvalidOperationException(
+            "LLM calls are disabled (LlmProviders:Enabled=false). Set it to true to generate. "
+            + "Nothing was generated and no request was billed.");
+    }
 
     public IContentGenerationProvider GetDefault()
     {
         // No fallback: a misconfigured DefaultProvider must not be quietly swapped for some other
         // provider. Silently substituting one is how every create ends up billed against a model
         // nobody chose. Bad configuration stops here instead.
+        RefuseIfDisabled();
+
         if (!Enum.TryParse<LlmProviderType>(_options.DefaultProvider, ignoreCase: true, out var parsed))
         {
             throw new InvalidOperationException(
