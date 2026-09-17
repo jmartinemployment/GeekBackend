@@ -162,6 +162,8 @@ public class GeekCrawlerIngestController : ControllerBase
         }
 
         var committing = string.Equals(request.Status, "complete", StringComparison.OrdinalIgnoreCase);
+        var aborting = string.Equals(request.Status, "failed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.Status, "cancelled", StringComparison.OrdinalIgnoreCase);
 
         try
         {
@@ -216,6 +218,33 @@ public class GeekCrawlerIngestController : ControllerBase
                         + "purged. The slot publishes {RunId}; the old run is now dead storage.",
                         outgoing.Id,
                         runId);
+                }
+            }
+
+            // Abort. A crawl that failed or was cancelled never published, so the pages it managed to
+            // collect are a prefix nothing has read and nothing may read. Discarding them now is what
+            // makes the result binary: the operator ends with the previously published corpus intact
+            // and no partial second copy, rather than dead pages waiting for the next crawl to sweep.
+            //
+            // The run document survives on purpose, carrying its status and ErrorSummary. It stays
+            // uncommitted, so it is invisible to every reader, and it costs a few hundred bytes
+            // against the hundreds of MB its pages would have.
+            if (aborting)
+            {
+                if (_rag.IsEnabled
+                    && await _rag.DeleteRunIndexAsync(run.Id, ct).ConfigureAwait(false))
+                {
+                    await _repo.ClearRunCrawlDataAsync(run.Id, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Pages whose vectors survive would leave the index citing rows that are gone.
+                    // Keep both; the next crawl of this slot reclaims the pair together.
+                    _logger.LogWarning(
+                        "Abandoned crawl run {RunId} kept its pages: vectors could not be purged. "
+                        + "It stays uncommitted and unreadable, and is reclaimed on the next crawl "
+                        + "of this slot.",
+                        run.Id);
                 }
             }
 
