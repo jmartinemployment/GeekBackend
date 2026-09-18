@@ -342,7 +342,7 @@ public class GccGenerateService
         string SourcePageUrl,
         string MatchedHeading,
         string Kind,
-        string AssignmentMarkdown);
+        IReadOnlyList<ToolsByHeading> ToolsByHeading);
 
     /// <summary>
     /// From SQL-filtered tree rows (already scoped to site_analysis_profiles.Id + keyword),
@@ -389,25 +389,26 @@ public class GccGenerateService
                     .Select(c => c.HeadingText)
                     .Where(t => !string.IsNullOrWhiteSpace(t))
                     .ToArray();
-                var assignment = FormatSectionAssignment(node);
                 matches.Add(new HierarchyMatchDto(
                     path.ToArray(),
                     children,
                     page.PageUrl,
                     node.HeadingText,
                     kind,
-                    assignment));
+                    ToolGroupsUnderNode(node, node.HeadingText ?? keyword)));
             }
         }
 
         return matches
             .Select(m =>
             {
-                // Rank by v1 toolsInSlice count on the assignment markdown for this node.
+                // Rank by the largest tool group under this node — the same metric as before,
+                // read from the tree's own links rather than recovered from generated text.
                 var toolCount = 0;
-                if (!string.IsNullOrWhiteSpace(m.AssignmentMarkdown))
-                    toolCount = ExtractToolsFromAssignmentMarkdown(
-                        m.AssignmentMarkdown, m.MatchedHeading ?? "").Count;
+                foreach (var group in m.ToolsByHeading)
+                {
+                    if (group.Tools.Count > toolCount) toolCount = group.Tools.Count;
+                }
                 return (Match: m, Tools: toolCount);
             })
             .OrderByDescending(x => x.Tools)
@@ -499,19 +500,13 @@ public class GccGenerateService
         var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
         if (matched is null) return [];
 
-        // Exact v1 path: assignment markdown → toolsInSlice → largest tool group (≥2).
-        var markdown = FormatSectionAssignment(matched);
-        return ExtractToolsFromAssignmentMarkdown(markdown, matched.HeadingText ?? keyword);
+        return LargestToolGroup(ToolGroupsUnderNode(matched, matched.HeadingText ?? keyword));
     }
 
-    /// <summary>
-    /// v1 <c>toolsInSlice</c> + flatten: parse tools from hierarchy assignment markdown.
-    /// </summary>
-    internal static IReadOnlyList<CrawlTool> ExtractToolsFromAssignmentMarkdown(
-        string assignmentMarkdown,
-        string fallbackHeading)
+    /// <summary>Flatten grouped tools to the largest single group (≥2), as callers expect today.</summary>
+    internal static IReadOnlyList<CrawlTool> LargestToolGroup(
+        IReadOnlyList<ToolsByHeading> groups)
     {
-        var groups = ToolsInSlice(assignmentMarkdown, fallbackHeading);
         IReadOnlyList<CrawlTool> best = [];
         foreach (var g in groups)
         {
@@ -521,67 +516,45 @@ public class GccGenerateService
         return best;
     }
 
-    internal sealed record ToolsByHeading(string Heading, IReadOnlyList<CrawlTool> Tools);
+    public sealed record ToolsByHeading(string Heading, IReadOnlyList<CrawlTool> Tools);
 
-    /// <summary>Port of v1 <c>toolsInSlice</c> (GeekContentCreator hierarchy-match.ts).</summary>
-    internal static IReadOnlyList<ToolsByHeading> ToolsInSlice(string slice, string fallbackHeading)
+    /// <summary>
+    /// Tool groups under one section node, one group per heading that carries a tool row.
+    /// </summary>
+    /// <remarks>
+    /// Replaces the round trip this used to make: <c>FormatSectionAssignment</c> flattened the node
+    /// into <c>#</c> headings and <c>[Text](Href)</c> bullets, and <c>ToolsInSlice</c> parsed the links
+    /// back out with regexes. The tree already holds <see cref="HttpGeekSeoSiteAnalyzerClient.PageSectionDto.Links"/>
+    /// as typed <see cref="HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto"/>, so the text step only
+    /// created a place for the two representations to disagree.
+    ///
+    /// The scoring is unchanged and is the part worth keeping: a tool row is ≥2 anchors that dominate
+    /// the node's own paragraph text, per <see cref="ParseHierarchyTools"/>.
+    /// </remarks>
+    internal static IReadOnlyList<ToolsByHeading> ToolGroupsUnderNode(
+        HttpGeekSeoSiteAnalyzerClient.PageSectionDto node,
+        string fallbackHeading)
     {
-        var lines = slice.Split(['\r', '\n'], StringSplitOptions.None);
         var result = new List<ToolsByHeading>();
-        var currentHeading = fallbackHeading ?? "";
-        var paraBuf = new List<string>();
-        var links = new List<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto>();
+        Walk(node, fallbackHeading ?? "");
+        return result;
 
-        void Flush()
+        void Walk(HttpGeekSeoSiteAnalyzerClient.PageSectionDto n, string inheritedHeading)
         {
-            if (links.Count >= 2 && !string.IsNullOrWhiteSpace(currentHeading))
+            var heading = string.IsNullOrWhiteSpace(n.HeadingText)
+                ? inheritedHeading
+                : n.HeadingText.Trim();
+            var links = n.Links ?? [];
+            if (links.Count >= 2 && !string.IsNullOrWhiteSpace(heading))
             {
-                var tools = ParseHierarchyTools(paraBuf, links);
+                var tools = ParseHierarchyTools(n.Paragraphs, links);
                 var list = tools.Count > 0 ? tools : UniqueToolLinksLenient(links);
                 if (list.Count >= 2)
-                    result.Add(new ToolsByHeading(currentHeading, list));
+                    result.Add(new ToolsByHeading(heading, list));
             }
-            paraBuf.Clear();
-            links.Clear();
+            foreach (var child in n.Children ?? [])
+                Walk(child, heading);
         }
-
-        foreach (var line in lines)
-        {
-            var hm = Regex.Match(line, @"^(#{1,6})\s+(.+?)\s*$");
-            if (hm.Success)
-            {
-                Flush();
-                currentHeading = hm.Groups[2].Value.Trim();
-                continue;
-            }
-
-            foreach (var link in ParseMarkdownLinks(line))
-                links.Add(link);
-
-            var trimmed = Regex.Replace(line, @"^[-*]\s+", "").Trim();
-            if (trimmed.Length > 0)
-            {
-                var asText = Regex.Replace(trimmed, @"\[([^\]]+)\]\([^)]+\)", "$1");
-                asText = asText.Replace("[", "").Replace("]", "");
-                paraBuf.Add(asText);
-            }
-        }
-
-        Flush();
-        return result;
-    }
-
-    private static IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto> ParseMarkdownLinks(string line)
-    {
-        var list = new List<HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto>();
-        foreach (Match m in Regex.Matches(line, @"\[([^\]]+)\]\(([^)]+)\)"))
-        {
-            var name = m.Groups[1].Value.Trim();
-            var href = m.Groups[2].Value.Trim();
-            if (name.Length > 0 && href.Length > 0)
-                list.Add(new HttpGeekSeoSiteAnalyzerClient.PageSectionLinkDto(name, href));
-        }
-        return list;
     }
 
     /// <summary>v1 <c>uniqueToolLinks</c> — name length gate only (fallback when ratio test fails).</summary>
@@ -910,10 +883,8 @@ public class GccGenerateService
         var matchLevel = node.Level > 0 ? node.Level : 4;
         var deeper = FlattenSections([node]).Count(n => n.Level > matchLevel);
 
-        // Same metric as BuildHierarchyMatchesFromTrees: largest toolsInSlice group.
-        var tools = ExtractToolsFromAssignmentMarkdown(
-            FormatSectionAssignment(node),
-            node.HeadingText ?? "");
+        // Same metric as BuildHierarchyMatchesFromTrees: largest tool group under the node.
+        var tools = LargestToolGroup(ToolGroupsUnderNode(node, node.HeadingText ?? ""));
         return (deeper, tools.Count);
     }
 
@@ -1027,33 +998,6 @@ public class GccGenerateService
             foreach (var child in WalkSectionsWithPath(node.Children, path))
                 yield return child;
         }
-    }
-
-    private static string FormatSectionAssignment(HttpGeekSeoSiteAnalyzerClient.PageSectionDto node)
-    {
-        var sb = new StringBuilder();
-        void Write(HttpGeekSeoSiteAnalyzerClient.PageSectionDto n, int depth)
-        {
-            var hashes = new string('#', Math.Clamp(n.Level > 0 ? n.Level : depth + 1, 1, 6));
-            sb.Append(hashes).Append(' ').AppendLine(n.HeadingText ?? "");
-            sb.AppendLine();
-            foreach (var p in n.Paragraphs ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(p)) continue;
-                sb.AppendLine(p.Trim());
-                sb.AppendLine();
-            }
-            foreach (var link in n.Links ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(link.Text) || string.IsNullOrWhiteSpace(link.Href)) continue;
-                sb.Append("- [").Append(link.Text.Trim()).Append("](").Append(link.Href.Trim()).AppendLine(")");
-            }
-            if ((n.Links?.Count ?? 0) > 0) sb.AppendLine();
-            foreach (var c in n.Children ?? [])
-                Write(c, depth + 1);
-        }
-        Write(node, 0);
-        return sb.ToString().TrimEnd();
     }
 
     internal static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(

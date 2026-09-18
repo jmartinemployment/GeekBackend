@@ -150,10 +150,14 @@ public class PartnerToolLinkFilterTests
             trees, "Smart Chatbots for Marketing");
         Assert.NotEmpty(matches);
         var top = matches[0];
-        var tools = GccGenerateService.ExtractToolsFromAssignmentMarkdown(
-            top.AssignmentMarkdown, top.MatchedHeading);
+        var tools = GccGenerateService.LargestToolGroup(top.ToolsByHeading);
         Assert.Equal(5, tools.Count);
         Assert.DoesNotContain(tools, t => t.Name == "Intercom");
+
+        // Groups now survive to the caller instead of being flattened away: the fresh row is
+        // attributed to the heading it sits under, and the stale copy is a separate group.
+        Assert.All(top.ToolsByHeading, g => Assert.False(string.IsNullOrWhiteSpace(g.Heading)));
+        Assert.Contains(top.ToolsByHeading, g => g.Tools.Count == 5);
     }
 
     [Fact]
