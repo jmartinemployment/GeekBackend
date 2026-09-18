@@ -11,6 +11,8 @@ using GeekAPI.Services.ContentCreator;
 // Types this controller reads moved during the v2 namespace migration (582a171); the controller was
 // deleted in the same commit, so it never saw the move.
 using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
+using GeekApplication.Models.GeekCrawler;
 using GeekAPI.Services.GeekSeo;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
@@ -37,6 +39,7 @@ public class GccController : ControllerBase
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
+    private readonly GccV2GeekCrawlerResearchResolver _research;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -48,6 +51,7 @@ public class GccController : ControllerBase
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
+        GccV2GeekCrawlerResearchResolver research,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -58,6 +62,7 @@ public class GccController : ControllerBase
         _seo = seo;
         _jobs = jobs;
         _user = user;
+        _research = research;
         _logger = logger;
     }
 
@@ -1061,6 +1066,52 @@ public class GccController : ControllerBase
         return Ok(parsed);
     }
 
+    /// <summary>
+    /// Whether a project site has crawl evidence a create can use — and, when it does, the Run ID
+    /// that holds it.
+    ///
+    /// Create is handed a Run ID, never a URL: the URL names a site, only a resolved run names the
+    /// crawl that was committed and indexed for it. This is the gate into the workflow.
+    ///
+    /// Deliberately not the host index check on /api/rag/hosts-indexed. That asks the vector store
+    /// whether a host has anything at all, which a crawl that fetched nothing can still satisfy.
+    /// This runs the same retrieval PLAN runs, so presence is not mistaken for fitness.
+    ///
+    /// The resolver lives under ContentCreatorV2/ and is called in-process. That is a shared engine,
+    /// not a v2 dependency — the surface this is served on is v1, and forking the resolver to make
+    /// it "v1" would duplicate the retrieval probe and guarantee the two drift apart.
+    /// </summary>
+    [HttpPost("project-site/readiness")]
+    public async Task<IActionResult> ProjectSiteReadiness(
+        [FromBody] ProjectSiteReadinessRequest? request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var projectUrl = request?.ProjectUrl?.Trim();
+        if (string.IsNullOrWhiteSpace(projectUrl))
+            return BadRequest(new { error = "projectUrl required" });
+
+        var rows = await _research
+            .CheckSeedReadinessAsync(_user.UserId.ToString("D"), CrawlTypes.ProjectSite, [projectUrl], ct)
+            .ConfigureAwait(false);
+
+        // The resolver never throws and returns one row per accepted seed. No row means the seed was
+        // not evaluated at all, which is not the same answer as "not ready" and must not read as one.
+        if (rows.Count == 0)
+            return BadRequest(new { error = "The project URL could not be evaluated." });
+
+        var row = rows[0];
+        return Ok(new
+        {
+            seed = row.Seed,
+            ready = row.Ready,
+            runId = row.RunId,
+            indexState = row.IndexState,
+            reason = row.Reason,
+        });
+    }
+
     private async Task<GccSiteAnalysisDto> MarkAnalysisFailedAsync(
         GccSiteAnalysisDto analysis,
         string error,
@@ -1722,6 +1773,7 @@ public class GccController : ControllerBase
     public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null, bool Force = false);
     public sealed record UpdateBriefResearchRequest(string? BriefJson, string? ResearchJson);
     public sealed record ParseSavedSerpRequest(string Content, string? TargetKeyword = null);
+    public sealed record ProjectSiteReadinessRequest(string? ProjectUrl);
 
     public sealed record ToolsFromNamesRequest(
         IReadOnlyList<string>? ToolNames,
