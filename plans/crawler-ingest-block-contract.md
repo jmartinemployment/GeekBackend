@@ -1,5 +1,19 @@
 # GeekBackend: carry contentHtml, blocks and contentReadyAt through ingest
 
+> **Status: implemented in `5561209`.** All four hops carry the fields, the
+> external ingest route fails closed, and the internal `SameOriginBfsCrawler`
+> path is unchanged. Two deviations from this plan, both found while tracing:
+> `ContentReadyAt` needed the existing `PgTextDateTimeOffsetSerializer` (the
+> collection came from a Postgres CSV export and stores timestamps as text), and
+> the new members are `Ignore()`d in the EF model because Postgres is deprecated
+> for `geek_crawler` and EF cannot map `BsonArray`.
+>
+> The BSON-shape unit test could not be added: the test project resolves
+> MongoDB.Bson 2.28.0 via `EphemeralMongo.v2` while GeekRepository compiles
+> against 2.24.0, and closing that split means bumping a driver whose
+> `SharpCompress` / `Snappier` pins are deliberate security overrides. The
+> runtime `Blocks.kind` query below covers it and is the stronger check.
+
 ## Context
 
 The crawler retired Markdown and emits clean `contentHtml` plus typed `blocks`
