@@ -314,6 +314,23 @@ them as a raw `JsonDocument` — field presence plus four literals (`artifactTyp
 no C# assertion reads. Copy the fixtures across for tidiness; block nothing on it. No script or CI has ever
 synced them — the last matching commits landed by hand at the same timestamp (`705a26d` / `3f210b0`).
 
+## Consequence of the Library migration that is NOT yet addressed
+
+Deleting the inert `#`-heading split in `Geek-Crawler-Rag/chunk.py` removed code that *looked* like it
+grouped a page into sections but could never fire — the block projection emits no `#` markers, so every
+page always took the whole-document branch. Behaviour did not change. What changed is that it is now
+visible: `ParentChildUnit.section_title` is explicitly `None`, and chunk metadata carries no section title.
+
+**Section-level chunking has therefore never worked on the block corpus, and still does not.** The fix is
+already specified — `Geek-Crawler-Rag/plans/retire-markdown-from-rag.md` §3: chunk from `blocks` so heading
+blocks give real parent boundaries for `parent_child_units` instead of token-count guesses, with each
+block's `anchors` carried onto node metadata. It needs `parent_child_units` to take `blocks` rather than a
+string, which changes its signature and its callers, so it is a design change rather than a rename — which
+is why it was not folded into the Markdown removal.
+
+Tracked there, not here. Recorded in this roadmap because a reader asking "what is left?" would otherwise
+not learn that chunk `sectionTitle` is empty for every chunk in the corpus.
+
 ## Not in scope
 
 `GccV2WriteService.{ToStableMarkdown, ParseSynthesizedMarkdown, ParseMarkdownParagraphs, MarkdownToSection}`
