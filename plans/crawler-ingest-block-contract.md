@@ -296,14 +296,38 @@ Also drop write-only `GeekCrawlerPage.Markdown:18` (written every page batch, re
 `MarkdownBackfilledAt:32` (never written). The §Tests to update section above already names
 `GeekCrawlerE2ETests.cs:107,118` and `E2EProtocolStubs.cs:324,326`.
 
-## Step 4 — The hierarchy-match endpoint
+## Step 4 — The hierarchy-match endpoint (NOT optional — it is the refusal gate)
 
 The frontend calls `/api/site-analyzer/profiles/{id}/hierarchy-match`, proxying to a GeekAPI route that no
 longer exists — it died with `GccController.cs` in `582a171`. The panel already 404s and surfaces a
-redeploy message, so this is visible, not silent. If restored under the restore-v1 goal, return the DTO
-**with** `IReadOnlyList<ToolsByHeading> ToolsByHeading` and **without** `AssignmentMarkdown` — the shape
+redeploy message, so this is visible, not silent. Restore it returning the DTO **with**
+`IReadOnlyList<ToolsByHeading> ToolsByHeading` and **without** `AssignmentMarkdown` — the shape
 `normalizeHierarchyMatchFromApi` already parses. Then render the groups in `HierarchyContextPanel.tsx`,
 which today only forwards them into the PUT (`:95`) and never displays them.
+
+**Its purpose is to confirm the system knows where the keyword sits in the project, and that confirmation
+is enforced rather than cosmetic.** `ContentGenerationOrchestrator.LoadProjectForGenerationAsync:878-883`
+throws *"No Site Analyzer hierarchy match for this keyword. Match a hierarchy node, or acknowledge that the
+keyword is outside site scope before generating."* unless `HierarchyPath` or `HierarchyChildHeadings` is
+set, or `AllowOutsideSiteScope` is true. The panel is the only producer of any of the three.
+`GccV2V1ProjectBridge:16-21` states why it leaves them empty: that refusal is "the guard that stops it
+writing 'Introduction to ...' filler."
+
+Consequences of leaving it dead:
+
+- Every in-scope create is refused — loudly and correctly, but nothing generates.
+- The only way through is setting `AllowOutsideSiteScope` on everything, which is exactly the bypass that
+  produces the filler the gate exists to prevent.
+- `findDuplicateMatches` goes dark. It runs only from that panel and reports a specific crawl defect: one
+  section arriving twice, from a page stored under both `www.` and bare host, or as twin responsive copies.
+
+Grounding itself does **not** silently degrade: `FindMatchedSectionHit:807,813` guards the path branch on
+`pathWant.Length > 0`, so a null `HierarchyPath` falls through to keyword-only matching and tool extraction
+still works. What is lost is the confirmation and the gate, not the data.
+
+Steps 0-3 stand on their own, but this is the item blocking generation and it is now the cheapest one left:
+the DTO already carries `ToolsByHeading`, so it is an endpoint returning `BuildHierarchyMatchesFromTrees`
+with no contract work.
 
 ## Step 5 — Shared goldens: optional, unsequenced
 
