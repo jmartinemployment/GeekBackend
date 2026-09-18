@@ -160,6 +160,11 @@ public class GeekCrawlerRunsController : ControllerBase
         if (command.MarkdownReadyAt is not null
             && !string.Equals(command.Status, "complete", StringComparison.OrdinalIgnoreCase))
             return BadRequest("markdownReadyAt requires status=complete");
+        if (command.ClearContentReadyAt && command.ContentReadyAt is not null)
+            return BadRequest("contentReadyAt and clearContentReadyAt cannot both be set");
+        if (command.ContentReadyAt is not null
+            && !string.Equals(command.Status, "complete", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("contentReadyAt requires status=complete");
 
         try
         {
@@ -182,6 +187,12 @@ public class GeekCrawlerRunsController : ControllerBase
                     r.MarkdownReadyAt = null;
                 else if (command.MarkdownReadyAt is not null)
                     r.MarkdownReadyAt = command.MarkdownReadyAt;
+                if (command.ClearContentReadyAt
+                    || (!string.IsNullOrWhiteSpace(command.Status)
+                        && !command.Status.Equals("complete", StringComparison.OrdinalIgnoreCase)))
+                    r.ContentReadyAt = null;
+                else if (command.ContentReadyAt is not null)
+                    r.ContentReadyAt = command.ContentReadyAt;
                 if (command.CrawlReportJson is not null)
                     r.CrawlReportJson = command.CrawlReportJson;
                 row = r;
@@ -247,5 +258,7 @@ public class GeekCrawlerRunsController : ControllerBase
         DateTimeOffset? CompletedAtUtc = null,
         DateTimeOffset? MarkdownReadyAt = null,
         bool ClearMarkdownReadyAt = false,
+        DateTimeOffset? ContentReadyAt = null,
+        bool ClearContentReadyAt = false,
         string? CrawlReportJson = null);
 }

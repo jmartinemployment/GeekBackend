@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using GeekAPI.Auth;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
@@ -246,6 +247,11 @@ public class GeekCrawlerIngestController : ControllerBase
         if (request.MarkdownReadyAt is not null
             && !string.Equals(request.Status, "complete", StringComparison.OrdinalIgnoreCase))
             return BadRequest("markdownReadyAt requires status=complete");
+        if (request.ClearContentReadyAt && request.ContentReadyAt is not null)
+            return BadRequest("contentReadyAt and clearContentReadyAt cannot both be set");
+        if (request.ContentReadyAt is not null
+            && !string.Equals(request.Status, "complete", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("contentReadyAt requires status=complete");
 
         if (!string.IsNullOrWhiteSpace(request.Status)
             && !IsAllowedIngestStatus(request.Status))
@@ -336,6 +342,8 @@ public class GeekCrawlerIngestController : ControllerBase
                     CompletedAtUtc: request.CompletedAtUtc,
                     MarkdownReadyAt: request.MarkdownReadyAt,
                     ClearMarkdownReadyAt: request.ClearMarkdownReadyAt,
+                    ContentReadyAt: request.ContentReadyAt,
+                    ClearContentReadyAt: request.ClearContentReadyAt,
                     CrawlReportJson: reportJson),
                 ct).ConfigureAwait(false);
 
@@ -516,12 +524,35 @@ public class GeekCrawlerIngestController : ControllerBase
         var blankContentCount = request.Pages.Count(p =>
             p.RobotsAllowed
             && string.IsNullOrWhiteSpace(p.FailureReason)
-            && string.IsNullOrWhiteSpace(p.Html)
-            && string.IsNullOrWhiteSpace(p.Markdown));
+            && !HasExtractedContent(p));
+
+        // Fail closed on the external route. This previously accepted `Html || Markdown`, and
+        // because the crawler still sends raw html, a page whose extract produced nothing
+        // validated, persisted, and was reported saved — then the RAG Library deleted it for
+        // having no body. 5,274 pages were lost that way on 2026-09-18 without one error.
+        // A page that claims content must carry it; anything else is a fault at this boundary,
+        // not a silent success. Pages that failed to fetch or are robots-excluded are exempt:
+        // they legitimately have no body and are counted, not persisted.
+        var missingContent = request.Pages
+            .Where(p => p.RobotsAllowed
+                && string.IsNullOrWhiteSpace(p.FailureReason)
+                && !HasExtractedContent(p))
+            .Select(p => p.Url ?? "(no url)")
+            .ToList();
+        if (missingContent.Count > 0)
+        {
+            _logger.LogError(
+                "Ingest rejected {Count} page(s) for run {RunId} with no extracted content: {Urls}",
+                missingContent.Count,
+                runId,
+                string.Join(", ", missingContent.Take(5)));
+            return BadRequest(
+                $"pages carry no extracted content (contentHtml + blocks required): "
+                + string.Join(", ", missingContent.Take(5)));
+        }
+
         var acceptedPages = request.Pages.Where(p =>
-            p.RobotsAllowed
-            && string.IsNullOrWhiteSpace(p.FailureReason)
-            && (!string.IsNullOrWhiteSpace(p.Html) || !string.IsNullOrWhiteSpace(p.Markdown)))
+            p.RobotsAllowed && string.IsNullOrWhiteSpace(p.FailureReason))
             .ToList();
         var rejectedCount = request.Pages.Count - acceptedPages.Count;
 
@@ -535,7 +566,9 @@ public class GeekCrawlerIngestController : ControllerBase
             p.FailureReason,
             p.Title,
             p.Markdown,
-            p.Excerpt)).ToList();
+            p.Excerpt,
+            p.ContentHtml,
+            p.Blocks)).ToList();
 
         try
         {
@@ -853,7 +886,19 @@ public class GeekCrawlerIngestController : ControllerBase
         DateTimeOffset? CompletedAtUtc = null,
         DateTimeOffset? MarkdownReadyAt = null,
         bool ClearMarkdownReadyAt = false,
+        DateTimeOffset? ContentReadyAt = null,
+        bool ClearContentReadyAt = false,
         GeekCrawlerRunReport? Report = null);
+
+    /// <summary>
+    /// A usable page carries the extractor's fragment and its typed blocks. Raw `Html` does not
+    /// count: it is present on every fetch, including ones whose extraction yielded nothing, which
+    /// is exactly how empty pages used to pass this boundary.
+    /// </summary>
+    private static bool HasExtractedContent(IngestPageItem p) =>
+        !string.IsNullOrWhiteSpace(p.ContentHtml)
+        && p.Blocks is { ValueKind: JsonValueKind.Array } blocks
+        && blocks.GetArrayLength() > 0;
 
     public record IngestPagesBatchRequest(IReadOnlyList<IngestPageItem>? Pages);
 
@@ -867,7 +912,9 @@ public class GeekCrawlerIngestController : ControllerBase
         string? FailureReason = null,
         string? Title = null,
         string? Markdown = null,
-        string? Excerpt = null);
+        string? Excerpt = null,
+        string? ContentHtml = null,
+        JsonElement? Blocks = null);
 
     public record IngestLinksBatchRequest(IReadOnlyList<IngestLinkItem>? Links);
 

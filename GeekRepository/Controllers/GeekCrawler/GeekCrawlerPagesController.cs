@@ -1,4 +1,7 @@
 using GeekRepository.Auth;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using System.Text.Json;
 using GeekRepository.Data.Entities.GeekCrawler;
 using GeekRepository.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -111,6 +114,11 @@ public class GeekCrawlerPagesController : ControllerBase
                 Html = p.Html,
                 Title = TruncateTitle(p.Title),
                 Markdown = p.Markdown,
+                ContentHtml = p.ContentHtml,
+                // Native BSON array, never a string. The RAG Library reads each element as a
+                // document; a serialized blob fails there at runtime. No truncation helper applies
+                // — those exist for strings and would corrupt the structure.
+                Blocks = ToBsonArray(p.Blocks),
                 Excerpt = TruncateExcerpt(p.Excerpt),
                 FailureReason = TruncateFailureReason(p.FailureReason),
                 CrawledAtUtc = now,
@@ -136,7 +144,18 @@ public class GeekCrawlerPagesController : ControllerBase
         string? FailureReason = null,
         string? Title = null,
         string? Markdown = null,
-        string? Excerpt = null);
+        string? Excerpt = null,
+        string? ContentHtml = null,
+        JsonElement? Blocks = null);
+
+    /// <summary>Raw JSON passthrough to a native BSON array. Null or non-array yields null.</summary>
+    private static BsonArray? ToBsonArray(JsonElement? blocks)
+    {
+        if (blocks is not { ValueKind: JsonValueKind.Array } element)
+            return null;
+        var raw = element.GetRawText();
+        return string.IsNullOrWhiteSpace(raw) ? null : BsonSerializer.Deserialize<BsonArray>(raw);
+    }
 
     private static string? TruncateFailureReason(string? reason) =>
         string.IsNullOrWhiteSpace(reason) ? null : reason.Length <= 512 ? reason : reason[..512];

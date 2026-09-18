@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace GeekAPI.HttpClients;
 
 public record GeekCrawlerRunDto(
@@ -13,6 +15,7 @@ public record GeekCrawlerRunDto(
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
     DateTimeOffset? MarkdownReadyAt = null,
+    DateTimeOffset? ContentReadyAt = null,
     string? CrawlReportJson = null);
 
 public record CreateGeekCrawlerRunCommand(
@@ -29,6 +32,8 @@ public record PatchGeekCrawlerRunCommand(
     DateTimeOffset? CompletedAtUtc = null,
     DateTimeOffset? MarkdownReadyAt = null,
     bool ClearMarkdownReadyAt = false,
+    DateTimeOffset? ContentReadyAt = null,
+    bool ClearContentReadyAt = false,
     string? CrawlReportJson = null);
 
 public record GeekCrawlerPageDto(
@@ -45,7 +50,9 @@ public record GeekCrawlerPageDto(
     string? Title = null,
     string? Markdown = null,
     string? Excerpt = null,
-    DateTimeOffset? MarkdownBackfilledAt = null);
+    DateTimeOffset? MarkdownBackfilledAt = null,
+    string? ContentHtml = null,
+    JsonElement? Blocks = null);
 
 public record CreateGeekCrawlerPageBatchCommand(
     Guid RunId,
@@ -61,7 +68,13 @@ public record CreateGeekCrawlerPageItemCommand(
     string? FailureReason = null,
     string? Title = null,
     string? Markdown = null,
-    string? Excerpt = null);
+    string? Excerpt = null,
+    string? ContentHtml = null,
+    // Passthrough. GeekAPI is transport for blocks, not a consumer — the schema is defined by the
+    // crawler and consumed by the RAG Library, so a typed mirror here would be a third definition
+    // to keep in sync. Optional so the internal SameOriginBfsCrawler path, which runs no
+    // extractor, keeps compiling and behaving unchanged.
+    JsonElement? Blocks = null);
 
 public record GeekCrawlerPageBatchResult(
     int Count,

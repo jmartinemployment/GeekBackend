@@ -24,6 +24,8 @@ public class GeekCrawlerDbContext : DbContext
         {
             entity.ToTable("crawl_runs");
             entity.HasKey(r => r.Id);
+            // See the crawl_pages note below: Postgres is deprecated here, Mongo is the store.
+            entity.Ignore(r => r.ContentReadyAt);
             entity.Property(r => r.OwnerUserId).IsRequired().HasMaxLength(128);
             entity.Property(r => r.CrawlType).IsRequired().HasMaxLength(32);
             entity.Property(r => r.Status).IsRequired().HasMaxLength(32);
@@ -49,6 +51,13 @@ public class GeekCrawlerDbContext : DbContext
             entity.Property(p => p.Html).HasColumnType("text");
             entity.Property(p => p.Title).HasMaxLength(1024);
             entity.Property(p => p.Markdown).HasColumnType("text");
+            // Postgres is deprecated for geek_crawler — Mongo is the live store and nothing reads
+            // or writes crawl_pages through EF. These two are ignored rather than migrated: EF has
+            // no mapping for BsonArray, and adding columns to a table nothing populates would be
+            // schema for a dead path. Startup catches migration failure and continues, so a model
+            // EF cannot build would degrade silently instead of failing loudly.
+            entity.Ignore(p => p.ContentHtml);
+            entity.Ignore(p => p.Blocks);
             entity.Property(p => p.Excerpt).HasMaxLength(4096);
             entity.Property(p => p.FailureReason).HasMaxLength(512);
             entity.Property(p => p.CrawledAtUtc).IsRequired();
