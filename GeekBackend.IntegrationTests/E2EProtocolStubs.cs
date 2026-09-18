@@ -489,9 +489,14 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
 
     public const string ArticlePageId = "aaaaaaaaaaaaaaaaaaaaaaaa";
     public const string ArticleUrl = "https://fixture.test/article";
-    public const string CitationQuote = "Deterministic citations must exactly match stored Markdown.";
-    public const string ArticleMarkdown =
-        "# Fixture article\n\nDeterministic citations must exactly match stored Markdown.\n\nMore text.";
+    public const string CitationQuote = "Deterministic citations must exactly match the stored page text.";
+    /// <summary>
+    /// Mirrors Geek-Crawler-Rag's block->text projection: block text joined on blank lines, with no
+    /// structural markers. A stub carrying heading syntax would let the contract test pass against a
+    /// shape the Library never sends.
+    /// </summary>
+    public const string ArticleText =
+        "Fixture article\n\nDeterministic citations must exactly match the stored page text.\n\nMore text.";
 
     public bool FailRequests { get; set; }
     public IReadOnlyList<CapturedRequest> Requests => _requests.ToArray();
@@ -572,7 +577,7 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
                 runId = Guid.Empty.ToString("D"),
                 url = ArticleUrl,
                 title = "Fixture article",
-                markdown = ArticleMarkdown,
+                text = ArticleText,
             });
         }
 

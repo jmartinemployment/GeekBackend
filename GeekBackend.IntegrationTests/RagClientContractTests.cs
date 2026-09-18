@@ -143,14 +143,14 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
             preferParent: true,
             entityNames: ["Fixture Co"],
             retrievalMode: "hybrid");
-        var page = await client.GetPageMarkdownAsync(RagProtocolStubHandler.ArticlePageId);
+        var page = await client.GetPageTextAsync(RagProtocolStubHandler.ArticlePageId);
 
         Assert.Equal("queued", index?.State);
         Assert.Equal("hybrid", query?.Retrieval);
         var quoteable = Assert.Single(query!.Pages);
         Assert.Equal(RagProtocolStubHandler.ArticlePageId, quoteable.PageId);
-        Assert.Equal(RagProtocolStubHandler.ArticleMarkdown, page?.Markdown);
-        Assert.Contains(RagProtocolStubHandler.CitationQuote, page!.Markdown, StringComparison.Ordinal);
+        Assert.Equal(RagProtocolStubHandler.ArticleText, page?.Text);
+        Assert.Contains(RagProtocolStubHandler.CitationQuote, page!.Text, StringComparison.Ordinal);
 
         Assert.All(
             _factory.Rag.Requests.Where(r => r.Path.StartsWith("/v1/", StringComparison.Ordinal)),
@@ -442,7 +442,7 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
         {
             var runId = Guid.NewGuid();
             Assert.Null(await client.EnqueueIndexAsync(runId));
-            Assert.Null(await client.GetPageMarkdownAsync(RagProtocolStubHandler.ArticlePageId));
+            Assert.Null(await client.GetPageTextAsync(RagProtocolStubHandler.ArticlePageId));
             var query = await client.QueryAsync("unavailable", runId);
             Assert.NotNull(query);
             Assert.Empty(query.Pages);

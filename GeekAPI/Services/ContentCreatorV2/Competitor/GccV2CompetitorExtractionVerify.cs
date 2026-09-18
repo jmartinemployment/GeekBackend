@@ -7,12 +7,12 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekAPI.Services.ContentCreatorV2.Competitor;
 
 /// <summary>
-/// Markdown verify for competitor claim-bearing assets.
+/// Block-text verify for competitor claim-bearing assets.
 ///
 /// The extractor records the verbatim source span on <see cref="GccCompetitorExtractionProvenance.Quote"/>;
-/// this stamps each asset with whether that span is literally present in the source Markdown, along with
+/// this stamps each asset with whether that span is literally present in the source page text, along with
 /// its offsets, digest and source rights. Assets that fail verification are kept but stamped
-/// <c>MarkdownVerified = false</c> — the downstream citation and claim-risk gates decide what may ship.
+/// <c>QuoteVerified = false</c> — the downstream citation and claim-risk gates decide what may ship.
 /// Nothing is repaired or substituted here.
 /// </summary>
 public static class GccV2CompetitorExtractionVerify
@@ -35,9 +35,9 @@ public static class GccV2CompetitorExtractionVerify
             if (string.IsNullOrWhiteSpace(pageId)) return null;
             var key = $"{runId}|{pageId}";
             if (cache.TryGetValue(key, out var cached)) return cached;
-            var page = await rag.GetPageMarkdownAsync(pageId, ct, runId).ConfigureAwait(false);
-            cache[key] = page?.Markdown;
-            return page?.Markdown;
+            var page = await rag.GetPageTextAsync(pageId, ct, runId).ConfigureAwait(false);
+            cache[key] = page?.Text;
+            return page?.Text;
         }
 
         // Prefer the verbatim span the extractor captured; fall back to the asset's own claim text.
@@ -46,25 +46,25 @@ public static class GccV2CompetitorExtractionVerify
             string fallbackQuote)
         {
             var quote = string.IsNullOrWhiteSpace(provenance.Quote) ? fallbackQuote : provenance.Quote!;
-            var md = await Load(provenance.PageId, provenance.RunId).ConfigureAwait(false);
+            var pageText = await Load(provenance.PageId, provenance.RunId).ConfigureAwait(false);
             var rights = ResolveRights(provenance, overrides);
 
-            if (string.IsNullOrWhiteSpace(md)
+            if (string.IsNullOrWhiteSpace(pageText)
                 || string.IsNullOrWhiteSpace(quote)
-                || !GccV2ToolResearchExtractor.IsVerbatimFromPage(quote, md))
+                || !GccV2ToolResearchExtractor.IsVerbatimFromPage(quote, pageText))
             {
                 return provenance with
                 {
                     CrawlType = GccCompetitorExtractionDocument.CrawlTypeCompetitor,
                     Quote = quote,
                     SourceRights = rights,
-                    MarkdownVerified = false,
+                    QuoteVerified = false,
                 };
             }
 
-            var (start, end) = GccV2PartnerExtractionVerify.FindQuoteOffsets(md, quote);
+            var (start, end) = GccV2PartnerExtractionVerify.FindQuoteOffsets(pageText, quote);
             var digest = string.IsNullOrWhiteSpace(provenance.SourceDigest)
-                ? GccV2PartnerExtractionVerify.ComputeSourceDigest(md)
+                ? GccV2PartnerExtractionVerify.ComputeSourceDigest(pageText)
                 : provenance.SourceDigest;
             return provenance with
             {
@@ -73,7 +73,7 @@ public static class GccV2CompetitorExtractionVerify
                 StartChar = start,
                 EndChar = end,
                 SourceRights = rights,
-                MarkdownVerified = true,
+                QuoteVerified = true,
                 SourceDigest = digest,
             };
         }

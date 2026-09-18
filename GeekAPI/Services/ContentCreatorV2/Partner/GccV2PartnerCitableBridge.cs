@@ -24,7 +24,7 @@ public static class GccV2PartnerCitableBridge
             return output;
 
         var shipCitables = extraction.Citables
-            .Where(c => c.Provenance.MarkdownVerified
+            .Where(c => c.Provenance.QuoteVerified
                         && string.Equals(
                             c.Provenance.CrawlType,
                             GccPartnerExtractionDocument.CrawlTypePartner,
@@ -82,7 +82,7 @@ public static class GccV2PartnerCitableBridge
             Quote = citable.Provenance.Quote ?? citable.IsolatedClaim,
             CrawlType = GccPartnerExtractionDocument.CrawlTypePartner,
             SourceDigest = citable.Provenance.SourceDigest,
-            Verified = citable.Provenance.MarkdownVerified ? true : null,
+            Verified = citable.Provenance.QuoteVerified ? true : null,
             SourceRights = citable.Provenance.SourceRights,
         };
 

@@ -71,16 +71,16 @@ public sealed record GccCompetitorExtractionProvenance(
     DateTimeOffset? TemporalAnchorUtc,
     /// <summary>Exact quote span used for verify.</summary>
     string? Quote = null,
-    /// <summary>0-based start offset of <see cref="Quote"/> in source Markdown when verified.</summary>
+    /// <summary>0-based start offset of <see cref="Quote"/> in the source page text when verified.</summary>
     int? StartChar = null,
-    /// <summary>0-based end offset (exclusive) of <see cref="Quote"/> in source Markdown when verified.</summary>
+    /// <summary>0-based end offset (exclusive) of <see cref="Quote"/> in the source page text when verified.</summary>
     int? EndChar = null,
     /// <summary>Create section key this asset supports when attached as a citation.</summary>
     string? SectionKey = null,
     /// <summary>consented | licensed | unknown | prohibited. Missing means unknown until VALIDATE stamps.</summary>
     string? SourceRights = null,
-    /// <summary>True only after quote-to-Markdown verify against GET /v1/pages.</summary>
-    bool MarkdownVerified = false);
+    /// <summary>True only after quote-to-page-text verify against GET /v1/pages.</summary>
+    bool QuoteVerified = false);
 
 /* ---------------------------------------------------------------- *
  * Job 1 — content gaps                                             *

@@ -102,5 +102,5 @@ public static class GccV2DeficitStrengthJoin
             EndChar: provenance.EndChar,
             SectionKey: provenance.SectionKey,
             SourceRights: provenance.SourceRights,
-            MarkdownVerified: provenance.MarkdownVerified);
+            QuoteVerified: provenance.QuoteVerified);
 }

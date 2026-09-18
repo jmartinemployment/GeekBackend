@@ -682,11 +682,11 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
 
-        public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
             string pageId,
             CancellationToken ct = default,
             string? runId = null) =>
-            Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
+            Task.FromResult<GeekCrawlerRagPageText?>(null);
 
         public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
             throw new CapabilitiesUnavailableException("Geek-Crawler-Rag is disabled in this test double.");
@@ -742,11 +742,11 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
 
-        public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
             string pageId,
             CancellationToken ct = default,
             string? runId = null) =>
-            Task.FromResult<GeekCrawlerRagPageMarkdown?>(null);
+            Task.FromResult<GeekCrawlerRagPageText?>(null);
 
         public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
             throw new CapabilitiesUnavailableException("Fake RAG client has no capabilities endpoint.");

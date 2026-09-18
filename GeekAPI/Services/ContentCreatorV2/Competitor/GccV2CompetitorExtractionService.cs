@@ -19,7 +19,7 @@ namespace GeekAPI.Services.ContentCreatorV2.Competitor;
 /// the signals that matter here — coverage depth, positioning, specialisms, claim risk — are semantic,
 /// and a pattern matcher cannot identify them. Every asset carries the exact source quote so
 /// <c>GccV2CompetitorExtractionVerify</c> can check it against source Markdown and stamp
-/// <c>MarkdownVerified</c>; the downstream citation and claim-risk gates decide what may ship.
+/// <c>QuoteVerified</c>; the downstream citation and claim-risk gates decide what may ship.
 ///
 /// Fail-closed and silent per repo rules: a page that yields nothing usable contributes nothing. No
 /// fallback path, no partner-shaped substitute, no fabricated fields.

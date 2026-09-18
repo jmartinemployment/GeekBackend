@@ -68,7 +68,7 @@ public sealed class GccV2PartnerExtractionCompletionTests
                 StartChar: 0,
                 EndChar: 26,
                 SourceRights: GccV2SourceRightsGate.Consented,
-                MarkdownVerified: true));
+                QuoteVerified: true));
 
         var extraction = GccV2PartnerExtractionService.EmptyDocument() with
         {

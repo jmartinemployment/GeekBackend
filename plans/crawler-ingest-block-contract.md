@@ -189,3 +189,174 @@ pages being verified.
 - Removing `Markdown` / `MarkdownReadyAt` / `MarkdownBackfilledAt`. They stay
   until the Library migrates; dropping them now breaks a Library that still
   reads them.
+
+---
+
+# Lockstep: retire the last of Markdown across the three services
+
+Appended 2026-09-18. **Supersedes the §Out of scope bullet above** that keeps `Markdown`,
+`MarkdownReadyAt` and `MarkdownBackfilledAt` alive "until the Library migrates; dropping them now breaks a
+Library that still reads them." The Library migrated on 2026-09-18: `extract.py`, `block_text.py`,
+`citation_verify.quote_in_text`, `unusable.py` (`no_content`, never `no_markdown`) and
+`indexer._skip_unusable` (counts, never deletes) are all block-based, the page API returns
+`PageTextResponse`, and the scheduler gates on `ContentReadyAt` via `ix_crawl_runs_content_ready`. 160
+tests pass. Nothing in the Library reads a Markdown field any more, so the hold is released. Every other
+line of this document stands unchanged.
+
+## Why
+
+Markdown is forbidden as a corpus, verification and interchange format. The crawler emits `contentHtml` +
+typed `blocks`; nothing converts to Markdown at any hop. On 2026-09-18 the cost of the two halves
+disagreeing was measured: every page classified `no_markdown` and 5,274 were deleted from Mongo with their
+Qdrant points.
+
+Three facts from tracing this repo drive the sequence:
+
+1. **GeekAPI and RAG are already severed.** `HttpGeekCrawlerRagClient.GetPageMarkdownAsync:625-668`
+   deserializes a `Markdown` field (`GeekCrawlerRagPageMarkdown.Markdown:898-905`) from `GET /v1/pages`.
+   RAG serves `PageTextResponse` whose body field is **`text`**. So
+   `GccV2PartnerExtractionVerify.cs:39-40`, `GccV2CompetitorExtractionVerify.cs:38-40` and
+   `GccV2CitationEvidenceGuard.cs:44-46` all read null and **fail closed: no verified quotes, no
+   citations.** Live break, fixed first.
+2. **`HierarchyAssignmentMarkdown` is load-bearing, not dead.** Read at
+   `ResearchBriefBuilder.cs:115,122,124-125` into the `"SITE ANALYZER ASSIGNMENT"` prompt block; also
+   `ProjectSnapshotSerializer.cs:43,84,120` and `ContentGenerationOrchestrator.cs:1192`. It carries heading
+   structure *and* paragraph prose. `HierarchyToolsByHeading` does not replace it. It has zero test
+   coverage, as does the `PUT .../hierarchy-context` endpoint.
+3. **The structured engine already exists.** `GeekAPI/Services/ContentCreatorV2/Hierarchy/` carries
+   `GccV2HeadingNode.Links` as typed `GccV2HeadingLink(Name, Href)`, is wired to `GccV2Controller.cs:629,1066`,
+   and `GccV2HierarchyToolMatchTests.cs` asserts `RecommendedTools` with no text parsing. Meanwhile
+   `BuildHierarchyMatchesFromTrees:351-419` and `HierarchyMatchDto:339-345` have **no production caller** —
+   only `PartnerToolLinkFilterTests.cs:149`. The live round trip is
+   `ToolPageGenerator.ListCrawlToolsAsync:211-224` → `ExtractToolsFromTrees` → `ExtractToolsUnderMatch:503`
+   → `FormatSectionAssignment` → `ExtractToolsFromAssignmentMarkdown`.
+
+Not production, so no compatibility window: legacy fields are deleted, not deprecated, and no data
+migration is written. Persistence needs none regardless — `Project` is one `jsonb` blob
+(`ContentWriterV2DbContext.cs:24`), so hierarchy fields have no SQL columns. Corpus data is not deleted or
+re-crawled by this work.
+
+## Step 0 — Reconnect GeekAPI to RAG's page read
+
+- `GeekCrawlerRagPageMarkdown` → `GeekCrawlerRagPageText`, `.Markdown` → `.Text` bound to RAG's `text`.
+- `GetPageMarkdownAsync` → `GetPageTextAsync`; update the three call sites above.
+- Provenance flag `MarkdownVerified` → `QuoteVerified`: `GccPartnerExtractionModels.cs:60`,
+  `GccCompetitorExtractionModels.cs:83`; writers `GccV2PartnerExtractionVerify.cs:194,210`,
+  `GccV2CompetitorExtractionVerify.cs:61,76`; readers `GccV2DeficitStrengthJoin.cs:105`,
+  `GccV2GeekCrawlerResearchResolver.cs:481`, `GccV2ContextAdapter.cs:363`,
+  `GccV2PartnerCitableBridge.cs:27,85`.
+- Tests: `GccV2ExtractionQuoteVerifyTests.cs` stubs `GetPageMarkdownAsync` and asserts found/absent/offset/
+  digest — the logic holds over plaintext, so this is stub + field renaming.
+  `GccV2CompetitorExtractionServiceTests.cs:101` asserts the literal `"MarkdownVerified"` by reflection.
+
+**Verify by observation, not by rename:** an extraction must return `QuoteVerified: true` against a real
+indexed run. It is `false` everywhere today.
+
+## Step 1 — Delete the V1 round trip
+
+Delete, do not rewrite: `FormatSectionAssignment:1032-1057` (emits `#`×Level headings and
+`- [Text](Href)` bullets straight from `node.Links`), `ExtractToolsFromAssignmentMarkdown:510`,
+`ToolsInSlice:527`, `ParseMarkdownLinks:574`, `UniqueToolLinksLenient:588`, plus the unreachable
+`BuildHierarchyMatchesFromTrees:351-419` and `HierarchyMatchDto:339-345`.
+
+Repoint the live path at direct link reads — `UniqueToolLinks(node.Links):923-938` and
+`IsLikelyPartnerToolLink:944-970` already do this with no text step; `ScoreSubtree:914-916` goes to
+`CountAllToolLinks`. Keep the scoring judgement from `ParseHierarchyTools:611` ("2+ anchors accounting for
+most of the node's paragraph text"), fed `node.Paragraphs` and `node.Links`.
+
+Return real groups: `ToolsInSlice` computes `Heading` and `ExtractToolsFromAssignmentMarkdown:515-521`
+throws it away, keeping only the largest group's `.Tools`. Grouping by heading already exists, unused.
+
+`PartnerToolLinkFilterTests.cs` (~280 lines) is deleted, not renamed — every test in it verifies heuristics
+that infer tools from prose. Its V2 equivalents already cover the structured path.
+
+## Step 2 — Replace the assignment slice with structure
+
+Do not simply delete `HierarchyAssignmentMarkdown`. Replace it with a typed
+`HierarchyAssignment { Heading, Level, Paragraphs[], Children[] }` projected from `PageSectionDto`, and
+render the prompt block from that. Touch points: `Project.cs:59-60`, `ProjectContracts.cs:23,56`,
+`ProjectsController.cs:151-153,255`, `ProjectSnapshotSerializer.cs:43,84,120`, `GenerationRequest.cs:55`,
+`ContentGenerationOrchestrator.cs:1192`, `GccV2V1ProjectBridge.cs:17`. The frontend already stopped sending
+the old field.
+
+## Step 3 — Delete `MarkdownReadyAt` (deletion, not rename)
+
+`ContentReadyAt` already exists beside it everywhere: `MongoGeekCrawlerService.cs:147` maps the legacy
+member, `:149` the new one, and `GeekCrawlerRunsController.cs:163-168` already performs the
+`contentReadyAt`/`clearContentReadyAt` mutual exclusion. Renaming would collide; re-adding the check would
+double it.
+
+Remove the field, `ClearMarkdownReadyAt`, and the SignalR key together — it is actively written, cleared,
+read and pushed: `GeekCrawlerRun.cs:17`, `MongoGeekCrawlerService.cs:147,837`, `GeekCrawlerDtos.cs:17,33`,
+`GeekCrawlerRunsController.cs:158-189,259`, `GeekCrawlerIngestController.cs:245-254,343,887`,
+`GeekCrawlerService.cs:465,566`, `GeekCrawlerEventMapper.cs:21` (`markdownReadyAt`). Leave the historical EF
+migration file alone. Keep `return BadRequest("…")` — the repo forbids throwing.
+
+Also drop write-only `GeekCrawlerPage.Markdown:18` (written every page batch, read by nothing) and
+`MarkdownBackfilledAt:32` (never written). The §Tests to update section above already names
+`GeekCrawlerE2ETests.cs:107,118` and `E2EProtocolStubs.cs:324,326`.
+
+## Step 4 — The hierarchy-match endpoint
+
+The frontend calls `/api/site-analyzer/profiles/{id}/hierarchy-match`, proxying to a GeekAPI route that no
+longer exists — it died with `GccController.cs` in `582a171`. The panel already 404s and surfaces a
+redeploy message, so this is visible, not silent. If restored under the restore-v1 goal, return the DTO
+**with** `IReadOnlyList<ToolsByHeading> ToolsByHeading` and **without** `AssignmentMarkdown` — the shape
+`normalizeHierarchyMatchFromApi` already parses. Then render the groups in `HierarchyContextPanel.tsx`,
+which today only forwards them into the PUT (`:95`) and never displays them.
+
+## Step 5 — Shared goldens: optional, unsequenced
+
+`GccV2IntelligenceArtifactContractTests.cs` is the only consumer of the five shared fixtures and parses
+them as a raw `JsonDocument` — field presence plus four literals (`artifactType`, `"coverageUnknown"`,
+`"alt-co"`, one warning substring). It never deep-equals, never reads `evidenceIds` contents;
+`sourceDigest` is null throughout. The Python-side regeneration changed content-derived evidence IDs, which
+no C# assertion reads. Copy the fixtures across for tidiness; block nothing on it. No script or CI has ever
+synced them — the last matching commits landed by hand at the same timestamp (`705a26d` / `3f210b0`).
+
+## Not in scope
+
+`GccV2WriteService.{ToStableMarkdown, ParseSynthesizedMarkdown, ParseMarkdownParagraphs, MarkdownToSection}`
+and `LlmResponseJsonParser.{MarkdownFence, MarkdownLink}` handle **LLM output prose**, not corpus. Markdown
+as a model output format is legitimate; the prohibition covers corpus, verification and interchange.
+
+## Sequence and verification
+
+```
+Step 0 → Step 1 → Step 2 → Step 3 → Step 4 (if in scope) → Step 5 (anytime)
+```
+
+Step 0 first because nothing downstream verifies while quote verification returns nothing. Deletions follow
+so a mid-sequence stop leaves a working system.
+
+**No CI gate protects any of this.** GeekBackend's only workflow is a cron-filtered Playwright run; the
+cross-repo workflow filters to `RagGenerateServiceTests|HttpGeekCrawlerRagClientTests|GccV2GeekCrawlerResearchResolverTests`
+and `RagClientContractTests|GeekCrawlerE2ETests` — and it stubs the RAG response, so it asserts against a
+fake that still spells `markdown` and cannot catch the Step 0 break. Presence of a contract test is not
+fitness of the contract. Run all three suites locally at each step:
+
+```
+cd GeekBackend        && dotnet test GEEKBACKEND.slnx
+cd Geek-Crawler-Rag   && uv run pytest -q          # 160 passed
+cd content-creator-v2 && npx tsc --noEmit && npm test
+```
+
+Final sweep, expected empty apart from the *Not in scope* helpers:
+
+```
+grep -rniI markdown GeekBackend/{GeekAPI,GeekApplication,GeekRepository} \
+  content-creator-v2/src Geek-Crawler-Rag/{src,scripts,tests}
+```
+
+## `ContentReadyAt` key casing — open
+
+Read from code, **not observed on the wire**: Mongo document key is **`ContentReadyAt`**
+(`MongoGeekCrawlerService.cs:149` uses `MapMember` with no `SetElementName`, so the member name is the
+element name — contrast `Id` at `:143`); HTTP JSON is **`contentReadyAt`**
+(`GeekCrawlerRunsController.cs:164` error text); Postgres has no column (`GeekCrawlerDbContext.cs:28`
+ignores it). RAG's run filter uses Pascal `ContentReadyAt`, matching the class map. Close it by running
+`Geek-Crawler-Rag/scripts/verify_ingest_fields.py` where Mongo lives — it reports presence *and* casing.
+It matters because page projections hedge both casings while the run filter and index cannot.
+
+Dropping the legacy index is safe only **after** the new RAG image is running, since Mongo errors on a hint
+naming a missing index: `db.crawl_runs.dropIndex("ix_crawl_runs_markdown_ready")`.

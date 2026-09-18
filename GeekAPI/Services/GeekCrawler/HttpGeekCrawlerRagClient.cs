@@ -24,7 +24,7 @@ public interface IGeekCrawlerRagClient
 
     /// <summary>
     /// Delete every crawler-owned vector for a run. Returns false when the purge could not be
-    /// proven — the caller must then abort the delete rather than orphan vectors whose Markdown
+    /// proven — the caller must then abort the delete rather than orphan vectors whose source text
     /// source is about to disappear.
     /// </summary>
     /// Default is <c>false</c> (purge unproven) so an implementation that does not override it
@@ -80,8 +80,8 @@ public interface IGeekCrawlerRagClient
         IReadOnlyList<string>? entityTags = null,
         CancellationToken ct = default);
 
-    /// <summary>Fetch Mongo Markdown by pageId. Null when disabled or 404. Optional runId scopes the library page.</summary>
-    Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+    /// <summary>Fetch a page's block-text projection by pageId. Null when disabled or 404. Optional runId scopes the library page.</summary>
+    Task<GeekCrawlerRagPageText?> GetPageTextAsync(
         string pageId,
         CancellationToken ct = default,
         string? runId = null);
@@ -109,14 +109,20 @@ public sealed class GeekCrawlerRagCapabilities
     public IReadOnlyList<string> AgentToolVersions { get; init; } = [];
 }
 
-public sealed class GeekCrawlerRagPageMarkdown
+public sealed class GeekCrawlerRagPageText
 {
     public required string PageId { get; init; }
     public required string RunId { get; init; }
     public required string Url { get; init; }
     public string? FinalUrl { get; init; }
     public string? Title { get; init; }
-    public required string Markdown { get; init; }
+
+    /// <summary>
+    /// The page's plaintext projection, derived from the crawler's typed blocks by
+    /// Geek-Crawler-Rag's single shared projection. This is the exact string the chunker
+    /// embedded, so a quote taken from a retrieved chunk matches here.
+    /// </summary>
+    public required string Text { get; init; }
 }
 
 public sealed class GeekCrawlerRagThemeDto
@@ -622,7 +628,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         }
     }
 
-    public async Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+    public async Task<GeekCrawlerRagPageText?> GetPageTextAsync(
         string pageId,
         CancellationToken ct = default,
         string? runId = null)
@@ -642,29 +648,29 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "Geek-Crawler-Rag page markdown failed for {PageId}: {Status}",
+                    "Geek-Crawler-Rag page text failed for {PageId}: {Status}",
                     pageId,
                     (int)response.StatusCode);
                 return null;
             }
 
-            var dto = await response.Content.ReadFromJsonAsync<PageMarkdownDto>(JsonOpts, ct)
+            var dto = await response.Content.ReadFromJsonAsync<PageTextDto>(JsonOpts, ct)
                 .ConfigureAwait(false);
-            if (dto is null || string.IsNullOrWhiteSpace(dto.Markdown))
+            if (dto is null || string.IsNullOrWhiteSpace(dto.Text))
                 return null;
-            return new GeekCrawlerRagPageMarkdown
+            return new GeekCrawlerRagPageText
             {
                 PageId = dto.PageId ?? pageId,
                 RunId = dto.RunId ?? runId ?? "",
                 Url = dto.Url ?? "",
                 FinalUrl = dto.FinalUrl,
                 Title = dto.Title,
-                Markdown = dto.Markdown,
+                Text = dto.Text,
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Geek-Crawler-Rag page markdown threw for {PageId}", pageId);
+            _logger.LogWarning(ex, "Geek-Crawler-Rag page text threw for {PageId}", pageId);
             return null;
         }
     }
@@ -895,14 +901,16 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? SectionTitle { get; set; }
     }
 
-    private sealed class PageMarkdownDto
+    /// <summary>Mirrors Geek-Crawler-Rag's <c>PageTextResponse</c> (models.py).</summary>
+    private sealed class PageTextDto
     {
         public string? PageId { get; set; }
         public string? RunId { get; set; }
         public string? Url { get; set; }
         public string? FinalUrl { get; set; }
         public string? Title { get; set; }
-        public string? Markdown { get; set; }
+        public string? Text { get; set; }
+        public string? Excerpt { get; set; }
     }
 
     private sealed class CapabilitiesDto

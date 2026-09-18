@@ -360,7 +360,7 @@ public sealed class GccV2ContextAdapter
 
         foreach (var c in extraction.Citables.Take(10))
         {
-            var verified = c.Provenance.MarkdownVerified ? "md-verified" : "excerpt-grounded";
+            var verified = c.Provenance.QuoteVerified ? "md-verified" : "excerpt-grounded";
             parts.Add($"- Citable [{verified}]: \"{c.IsolatedClaim}\" ({c.OriginProofUrl})");
         }
 

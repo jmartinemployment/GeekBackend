@@ -9,7 +9,7 @@ namespace GeekBackend.Tests.ContentCreatorV2;
 /// plans/rag-foundation-rewrite.md Verification: "every extracted asset still carries a verified quote
 /// with offsets".
 ///
-/// Extraction records the verbatim span it used; verify checks that span against source Markdown and
+/// Extraction records the verbatim span it used; verify checks that span against the source page text and
 /// stamps offsets, digest and rights. This is the whole basis for naming a third party in published
 /// output, so it is covered end to end rather than by asserting the provenance fields merely exist.
 /// </summary>
@@ -17,21 +17,21 @@ public sealed class GccV2ExtractionQuoteVerifyTests
 {
     private const string PageId = "page-1";
     private const string RunId = "run-1";
-    private const string Markdown =
+    private const string PageText =
         "# Rival Consulting\n\nWe work exclusively with enterprise clients.\n\nOur team is based in Leeds.\n";
 
-    private sealed class MarkdownRagClient : IGeekCrawlerRagClient
+    private sealed class PageTextRagClient : IGeekCrawlerRagClient
     {
         public bool IsEnabled => true;
 
-        public Task<GeekCrawlerRagPageMarkdown?> GetPageMarkdownAsync(
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
             string pageId, CancellationToken ct = default, string? runId = null) =>
-            Task.FromResult<GeekCrawlerRagPageMarkdown?>(new()
+            Task.FromResult<GeekCrawlerRagPageText?>(new()
             {
                 PageId = pageId,
                 RunId = runId ?? RunId,
                 Url = "https://rival.example",
-                Markdown = Markdown,
+                Text = PageText,
             });
 
         public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
@@ -75,15 +75,15 @@ public sealed class GccV2ExtractionQuoteVerifyTests
         const string quote = "We work exclusively with enterprise clients.";
 
         var verified = await GccV2CompetitorExtractionVerify.VerifyAgainstLibraryAsync(
-            WithBoundary(quote), new MarkdownRagClient(), rawBriefJson: null, CancellationToken.None);
+            WithBoundary(quote), new PageTextRagClient(), rawBriefJson: null, CancellationToken.None);
 
         var provenance = Assert.Single(verified.Disqualifiers).Provenance;
 
-        Assert.True(provenance.MarkdownVerified);
+        Assert.True(provenance.QuoteVerified);
         Assert.Equal(quote, provenance.Quote);
         Assert.NotNull(provenance.StartChar);
         Assert.NotNull(provenance.EndChar);
-        Assert.Equal(Markdown.IndexOf(quote, StringComparison.Ordinal), provenance.StartChar);
+        Assert.Equal(PageText.IndexOf(quote, StringComparison.Ordinal), provenance.StartChar);
         Assert.Equal(provenance.StartChar + quote.Length, provenance.EndChar);
         Assert.False(string.IsNullOrWhiteSpace(provenance.SourceDigest));
     }
@@ -94,11 +94,11 @@ public sealed class GccV2ExtractionQuoteVerifyTests
         // The failure this guards: asserting a boundary the rival never stated.
         var verified = await GccV2CompetitorExtractionVerify.VerifyAgainstLibraryAsync(
             WithBoundary("They do not serve small business."),
-            new MarkdownRagClient(), rawBriefJson: null, CancellationToken.None);
+            new PageTextRagClient(), rawBriefJson: null, CancellationToken.None);
 
         var provenance = Assert.Single(verified.Disqualifiers).Provenance;
 
-        Assert.False(provenance.MarkdownVerified);
+        Assert.False(provenance.QuoteVerified);
         Assert.Null(provenance.StartChar);
         Assert.Null(provenance.EndChar);
     }
@@ -108,7 +108,7 @@ public sealed class GccV2ExtractionQuoteVerifyTests
     {
         var verified = await GccV2CompetitorExtractionVerify.VerifyAgainstLibraryAsync(
             WithBoundary("Our team is based in Leeds."),
-            new MarkdownRagClient(), rawBriefJson: null, CancellationToken.None);
+            new PageTextRagClient(), rawBriefJson: null, CancellationToken.None);
 
         Assert.Equal(
             GccCompetitorExtractionDocument.CrawlTypeCompetitor,

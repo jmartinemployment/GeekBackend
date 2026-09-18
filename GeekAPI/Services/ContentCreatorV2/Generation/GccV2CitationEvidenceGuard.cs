@@ -28,25 +28,25 @@ public static class GccV2CitationEvidenceGuard
     {
         var gaps = new List<string>();
         var audited = new List<RagCitationDto>();
-        var markdownCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var pageTextCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
-        async Task<string?> LoadMarkdownForCitation(RagCitationDto citation)
+        async Task<string?> LoadPageTextForCitation(RagCitationDto citation)
         {
             if (string.IsNullOrWhiteSpace(citation.PageId)) return null;
             var cacheKey = $"{citation.RunId}|{citation.PageId}";
-            if (markdownCache.TryGetValue(cacheKey, out var cached)) return cached;
+            if (pageTextCache.TryGetValue(cacheKey, out var cached)) return cached;
             if (ragClient is null)
             {
-                markdownCache[cacheKey] = null;
+                pageTextCache[cacheKey] = null;
                 return null;
             }
 
-            var page = await ragClient.GetPageMarkdownAsync(citation.PageId!, ct, citation.RunId)
+            var page = await ragClient.GetPageTextAsync(citation.PageId!, ct, citation.RunId)
                 .ConfigureAwait(false);
-            var md = page?.Markdown;
-            markdownCache[cacheKey] = md;
-            markdownCache[citation.PageId!] = md;
-            return md;
+            var pageText = page?.Text;
+            pageTextCache[cacheKey] = pageText;
+            pageTextCache[citation.PageId!] = pageText;
+            return pageText;
         }
 
         foreach (var section in output.AllSections)
@@ -59,7 +59,7 @@ public static class GccV2CitationEvidenceGuard
                     section.SectionKey,
                     partnerRunIds,
                     competitorRunIds,
-                    () => LoadMarkdownForCitation(citation),
+                    () => LoadPageTextForCitation(citation),
                     gaps,
                     ct).ConfigureAwait(false);
                 stamped.Add(next);
@@ -84,12 +84,12 @@ public static class GccV2CitationEvidenceGuard
         return new AuditResult(audited, gaps.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
-    /// <summary>Deterministic unit-test entry: no network; markdown supplied per pageId.</summary>
+    /// <summary>Deterministic unit-test entry: no network; page text supplied per pageId.</summary>
     public static AuditResult AuditWriteOutputForTests(
         GccV2WriteOutput output,
         IReadOnlyList<Guid> partnerRunIds,
         IReadOnlyList<Guid> competitorRunIds,
-        IReadOnlyDictionary<string, string>? markdownByPageId,
+        IReadOnlyDictionary<string, string>? pageTextByPageId,
         IReadOnlyList<GccV2PartnerMentionGate.PartnerToken>? partnerTokens = null)
     {
         var gaps = new List<string>();
@@ -100,18 +100,18 @@ public static class GccV2CitationEvidenceGuard
             var stamped = new List<RagCitationDto>();
             foreach (var citation in section.Citations ?? [])
             {
-                string? markdown = null;
+                string? pageText = null;
                 if (!string.IsNullOrWhiteSpace(citation.PageId)
-                    && markdownByPageId is not null
-                    && markdownByPageId.TryGetValue(citation.PageId!, out var md))
-                    markdown = md;
+                    && pageTextByPageId is not null
+                    && pageTextByPageId.TryGetValue(citation.PageId!, out var supplied))
+                    pageText = supplied;
 
                 var next = AuditOneSync(
                     citation,
                     section.SectionKey,
                     partnerRunIds,
                     competitorRunIds,
-                    markdown,
+                    pageText,
                     gaps);
                 stamped.Add(next);
                 audited.Add(next);
@@ -228,13 +228,13 @@ public static class GccV2CitationEvidenceGuard
         string sectionKey,
         IReadOnlyList<Guid> partnerRunIds,
         IReadOnlyList<Guid> competitorRunIds,
-        Func<Task<string?>> loadMarkdown,
+        Func<Task<string?>> loadPageText,
         List<string> gaps,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var markdown = await loadMarkdown().ConfigureAwait(false);
-        return AuditOneSync(citation, sectionKey, partnerRunIds, competitorRunIds, markdown, gaps);
+        var pageText = await loadPageText().ConfigureAwait(false);
+        return AuditOneSync(citation, sectionKey, partnerRunIds, competitorRunIds, pageText, gaps);
     }
 
     private static RagCitationDto AuditOneSync(
@@ -242,7 +242,7 @@ public static class GccV2CitationEvidenceGuard
         string sectionKey,
         IReadOnlyList<Guid> partnerRunIds,
         IReadOnlyList<Guid> competitorRunIds,
-        string? markdown,
+        string? pageText,
         List<string> gaps)
     {
         var sectionKeyBound = string.IsNullOrWhiteSpace(citation.SectionKey)
@@ -269,14 +269,14 @@ public static class GccV2CitationEvidenceGuard
             return Clone(citation, sectionKeyBound, verified: false);
         }
 
-        if (markdown is null)
+        if (pageText is null)
         {
             // Cannot confirm span without source text — fail closed for ship-ready.
-            gaps.Add($"Citation on '{sectionKeyBound}' could not load source Markdown for quote verify.");
+            gaps.Add($"Citation on '{sectionKeyBound}' could not load source text for quote verify.");
             return Clone(citation, sectionKeyBound, verified: false);
         }
 
-        var ok = GccV2ToolResearchExtractor.IsVerbatimFromPage(citation.Quote, markdown);
+        var ok = GccV2ToolResearchExtractor.IsVerbatimFromPage(citation.Quote, pageText);
         if (!ok)
             gaps.Add($"Citation on '{sectionKeyBound}' quote is not an exact span of the source page.");
 

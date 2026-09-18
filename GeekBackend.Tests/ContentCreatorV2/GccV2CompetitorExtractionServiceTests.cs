@@ -98,7 +98,7 @@ public sealed class GccV2CompetitorExtractionServiceTests
         Assert.Contains("Quote", fields);
         Assert.Contains("StartChar", fields);
         Assert.Contains("EndChar", fields);
-        Assert.Contains("MarkdownVerified", fields);
+        Assert.Contains("QuoteVerified", fields);
         Assert.Contains("SourceRights", fields);
     }
 }

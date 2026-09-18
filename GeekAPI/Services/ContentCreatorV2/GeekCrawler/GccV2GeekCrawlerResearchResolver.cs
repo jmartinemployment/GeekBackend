@@ -478,7 +478,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             "Partner extraction v{Version}: citables={Citables} (mdVerified={MdVerified}), ads={Ads}, pricing={Pricing}, faq={Faq}, offers={Offers}.",
             extraction.ExtractorVersion,
             extraction.Citables.Count,
-            extraction.Citables.Count(c => c.Provenance.MarkdownVerified),
+            extraction.Citables.Count(c => c.Provenance.QuoteVerified),
             extraction.Advertisements.Count,
             extraction.PricingCatalog.Count,
             extraction.FaqBank.Count,
