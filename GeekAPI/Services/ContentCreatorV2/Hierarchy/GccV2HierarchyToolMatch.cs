@@ -103,6 +103,8 @@ public static class GccV2HierarchyToolMatch
     /// Each result carries the page it was actually found on. <see cref="Match"/> reports
     /// <c>Pages[0]</c> for every hit regardless of where the heading lives, which is wrong as soon as
     /// more than one page has headings.
+    ///
+    /// Nothing is deduplicated. Duplicates are a crawl defect, not noise to tidy away.
     /// </summary>
     public static IReadOnlyList<MatchResult> MatchAll(GccV2SiteHierarchy? hierarchy, IEnumerable<string> seeds)
     {
@@ -112,21 +114,19 @@ public static class GccV2HierarchyToolMatch
         if (topics.Count == 0) return [];
 
         var found = new List<(MatchCandidate Candidate, string Topic, string? PageUrl)>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var page in hierarchy.Pages)
         {
             foreach (var (node, path) in Walk(page.Roots, []))
             {
+                // Every match is emitted. Nothing is deduplicated here, deliberately: duplicates are
+                // a crawl defect the caller reports — the same page under two hostnames, or two
+                // responsive copies of one section both indexed. Collapsing them server-side would
+                // hide the defect and hand the operator a clean list that is quietly wrong.
                 foreach (var topic in topics)
                 {
                     var kind = Score(node.HeadingText, topic);
                     if (kind is null) continue;
-
-                    // One row per (page, heading path). A heading that matches both the full phrase
-                    // and its expanded prefix is one section, not two findings.
-                    var key = (page.PageUrl ?? "") + "\u241F" + string.Join("\u241F", path);
-                    if (!seen.Add(key)) continue;
 
                     found.Add((
                         new MatchCandidate(
@@ -139,12 +139,11 @@ public static class GccV2HierarchyToolMatch
                             TokenCount(Slugify(node.HeadingText))),
                         topic,
                         page.PageUrl));
-                    break;
                 }
             }
         }
 
-        // Same ordering IsBetter applies pairwise, expressed as a sort so the whole set is ranked.
+        // Ordered, not reduced — the caller re-ranks and reports duplicates itself.
         return found
             .OrderBy(f => KindRank(f.Candidate.Kind))
             .ThenByDescending(f => f.Candidate.Depth)
