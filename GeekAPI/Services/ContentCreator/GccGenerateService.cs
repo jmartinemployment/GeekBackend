@@ -455,6 +455,39 @@ public class GccGenerateService
     public sealed record CrawlTool(string Name, string? Href);
 
     /// <summary>
+    /// Project the matched section node into the typed assignment the prompt builder renders.
+    /// </summary>
+    /// <remarks>
+    /// The predecessor generated a Markdown slice for this and the browser round-tripped it back.
+    /// The tree already carries the heading depth, the paragraphs and the anchors, so nothing here
+    /// needs generating or re-parsing — it is a projection, and `Href` survives it.
+    /// </remarks>
+    public static HierarchyAssignment? BuildAssignmentFromTrees(
+        IReadOnlyList<HttpGeekSeoSiteAnalyzerClient.PageSectionTreeDto> pageTrees,
+        string keyword,
+        string? sourcePageUrl,
+        string? hierarchyPath)
+    {
+        var matched = FindMatchedSection(pageTrees, keyword, sourcePageUrl, hierarchyPath);
+        return matched is null ? null : ProjectNode(matched);
+
+        static HierarchyAssignment ProjectNode(HttpGeekSeoSiteAnalyzerClient.PageSectionDto node) =>
+            new()
+            {
+                Heading = (node.HeadingText ?? "").Trim(),
+                Level = node.Level > 0 ? node.Level : 0,
+                Paragraphs = (node.Paragraphs ?? [])
+                    .Select(p => (p ?? "").Trim())
+                    .Where(p => p.Length > 0)
+                    .ToList(),
+                Links = UniqueToolLinks(node.Links)
+                    .Select(t => new ToolInfo { Name = t.Name, Href = t.Href })
+                    .ToList(),
+                Children = (node.Children ?? []).Select(ProjectNode).ToList(),
+            };
+    }
+
+    /// <summary>
     /// Tools from the crawl under the matched use-case heading.
     /// v1-style: each heading node keeps its own links; a tool list is ≥2 anchors that dominate
     /// that node's paragraph text. No /tools/ path preference and no merging every link in the subtree.

@@ -52,7 +52,7 @@ public record ProjectGenerationContext(
     string? CtaLabel = null,
     string? LengthBand = null,
     string? WritingNotes = null,
-    string? HierarchyAssignmentMarkdown = null);
+    HierarchyAssignment? HierarchyAssignment = null);
 
 /// <summary>Crawl tool name + optional source href. Generate-time only — not copied onto the project.</summary>
 public sealed record KnownCrawlTool(string Name, string? Href);

@@ -15,6 +15,30 @@ public class ToolInfo
     public string? Href { get; set; }
 }
 
+/// <summary>
+/// The matched Site Analyzer node and its descendants, as structure.
+/// </summary>
+/// <remarks>
+/// Replaces a Markdown slice that the browser used to compute and PUT back. Two problems with
+/// that: the grounding content for a prompt arrived from the client, and it was a flattened
+/// string that had to be re-parsed to recover the headings and links the tree already held.
+/// GeekAPI fetches the tree itself, so it projects this directly.
+/// </remarks>
+public class HierarchyAssignment
+{
+    public string Heading { get; set; } = string.Empty;
+
+    /// <summary>Heading depth from the analyzed page (h1-h6). 0 when the node did not report one.</summary>
+    public int Level { get; set; }
+
+    public List<string> Paragraphs { get; set; } = new();
+
+    /// <summary>Anchors on this node. A tool name without its href cites nothing.</summary>
+    public List<ToolInfo> Links { get; set; } = new();
+
+    public List<HierarchyAssignment> Children { get; set; } = new();
+}
+
 public class Project
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -56,8 +80,8 @@ public class Project
     /// </summary>
     public List<ToolsByHeading> HierarchyToolsByHeading { get; set; } = new();
 
-    /// <summary>Markdown for the matched heading and its descendants — what to write about.</summary>
-    public string? HierarchyAssignmentMarkdown { get; set; }
+    /// <summary>The matched heading and its descendants — what to write about.</summary>
+    public HierarchyAssignment? HierarchyAssignment { get; set; }
 
     /// <summary>Source page URL for the matched hierarchy node.</summary>
     public string? HierarchySourcePageUrl { get; set; }

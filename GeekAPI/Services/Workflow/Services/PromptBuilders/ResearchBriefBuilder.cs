@@ -104,6 +104,42 @@ internal static class ResearchBriefBuilder
         return sb;
     }
 
+    /// <summary>
+    /// Render the assignment as an indented outline.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not Markdown. The predecessor pasted a generated Markdown slice into the prompt,
+    /// which meant the heading depth and the anchors had been flattened into syntax and had to be
+    /// re-parsed to be used anywhere else. Indentation carries the same structure, and each link keeps
+    /// its href so the model can name a tool and cite where it came from.
+    /// </remarks>
+    private static void AppendAssignment(StringBuilder sb, HierarchyAssignment node, int depth)
+    {
+        var pad = new string(' ', depth * 2);
+        if (!string.IsNullOrWhiteSpace(node.Heading))
+        {
+            var level = node.Level > 0 ? $" (h{node.Level})" : "";
+            sb.AppendLine($"{pad}- {node.Heading}{level}");
+        }
+
+        foreach (var paragraph in node.Paragraphs)
+        {
+            if (string.IsNullOrWhiteSpace(paragraph)) continue;
+            sb.AppendLine($"{pad}  {paragraph.Trim()}");
+        }
+
+        foreach (var link in node.Links)
+        {
+            if (string.IsNullOrWhiteSpace(link.Name)) continue;
+            sb.AppendLine(string.IsNullOrWhiteSpace(link.Href)
+                ? $"{pad}  * {link.Name}"
+                : $"{pad}  * {link.Name} -> {link.Href}");
+        }
+
+        foreach (var child in node.Children)
+            AppendAssignment(sb, child, depth + 1);
+    }
+
     private static void AppendCompactSiteContext(StringBuilder sb, ProjectGenerationContext context, bool includeJsonLd)
     {
         sb.AppendLine($"=== PROJECT SITE: {context.SiteName} ({context.ProjectUrl}) ===");
@@ -112,17 +148,17 @@ internal static class ResearchBriefBuilder
 
         var children = context.HierarchyChildHeadings ?? Array.Empty<string>();
         if (!string.IsNullOrWhiteSpace(context.HierarchyPath) || children.Count > 0
-            || !string.IsNullOrWhiteSpace(context.HierarchyAssignmentMarkdown))
+            || context.HierarchyAssignment is not null)
         {
             sb.AppendLine("=== SITE ANALYZER ASSIGNMENT ===");
             if (!string.IsNullOrWhiteSpace(context.HierarchyPath))
                 sb.AppendLine($"Matched heading path: {context.HierarchyPath}");
             if (!string.IsNullOrWhiteSpace(context.HierarchySourcePageUrl))
                 sb.AppendLine($"Source page: {context.HierarchySourcePageUrl}");
-            if (!string.IsNullOrWhiteSpace(context.HierarchyAssignmentMarkdown))
+            if (context.HierarchyAssignment is not null)
             {
-                sb.AppendLine("Write about this matched heading and the markdown below (child headings and lists are the assignment, not optional flavor):");
-                sb.AppendLine(context.HierarchyAssignmentMarkdown);
+                sb.AppendLine("Write about this matched heading and the outline below (child headings and their links are the assignment, not optional flavor):");
+                AppendAssignment(sb, context.HierarchyAssignment, depth: 0);
             }
             if (children.Count > 0)
             {

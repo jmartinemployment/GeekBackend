@@ -14,7 +14,7 @@ namespace GeekAPI.Services.ContentCreatorV2.V1Restore;
 /// (Project.LinkedCreateId plus a cached BriefJson); nothing in ContentCreatorV2 ever used it.
 ///
 /// This class only maps what the Create genuinely provides. It does not invent hierarchy grounding:
-/// HierarchyPath, HierarchyChildHeadings, HierarchyToolsByHeading and HierarchyAssignmentMarkdown are
+/// HierarchyPath, HierarchyChildHeadings, HierarchyToolsByHeading and HierarchyAssignment are
 /// left for the RAG grounding step to fill from verified retrieval. That matters, because v1 refuses
 /// to generate when HierarchyPath is empty unless AllowOutsideSiteScope is set - which is the guard
 /// that stops it writing "Introduction to ..." filler. Pre-filling those fields with anything other

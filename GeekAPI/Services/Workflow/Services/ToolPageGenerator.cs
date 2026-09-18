@@ -18,6 +18,11 @@ public interface IToolPageGenerator
         Project project,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Tools and the writing assignment from a single tree fetch.</summary>
+    Task<ToolPageGenerator.CrawlHierarchy> ListCrawlHierarchyAsync(
+        Project project,
+        CancellationToken cancellationToken = default);
+
     Task<ToolGenerationResult> GenerateToolPagesAsync(
         Project project,
         ArticleMetadataDraft metadata,
@@ -189,16 +194,26 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
     private sealed record ToolSlot(string Name, string? Description, string? ResearchJson, string? Href);
 
+    /// <summary>Tools and the writing assignment, from a single tree fetch.</summary>
+    public sealed record CrawlHierarchy(
+        IReadOnlyList<GccGenerateService.CrawlTool> Tools,
+        HierarchyAssignment? Assignment);
+
     public async Task<IReadOnlyList<GccGenerateService.CrawlTool>> ListCrawlToolsAsync(
+        Project project,
+        CancellationToken cancellationToken = default) =>
+        (await ListCrawlHierarchyAsync(project, cancellationToken)).Tools;
+
+    public async Task<CrawlHierarchy> ListCrawlHierarchyAsync(
         Project project,
         CancellationToken cancellationToken = default)
     {
         if (project.SiteAnalysisProfileId is not Guid profileId || profileId == Guid.Empty)
-            return [];
+            return new CrawlHierarchy([], null);
 
         var keyword = project.TargetKeyword?.Trim() ?? "";
         if (keyword.Length == 0)
-            return [];
+            return new CrawlHierarchy([], null);
 
         var bearer = BearerToken();
         // #region agent log
@@ -245,7 +260,13 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             string.Join(" || ", linkyHeadings.Select(h => $"{h.Heading}:{h.LinkCount}")));
         // #endregion
 
-        return tools;
+        var assignment = GccGenerateService.BuildAssignmentFromTrees(
+            trees,
+            keyword,
+            project.HierarchySourcePageUrl,
+            project.HierarchyPath);
+
+        return new CrawlHierarchy(tools, assignment);
     }
 
     private async Task<List<ToolSlot>> ResolveToolSlotsAsync(Project project, CancellationToken cancellationToken)

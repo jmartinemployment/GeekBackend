@@ -148,9 +148,6 @@ public class ProjectsController : ControllerBase
         project.HierarchyPath = path;
         project.HierarchyChildHeadings = children;
         project.HierarchyToolsByHeading = toolsByHeading;
-        project.HierarchyAssignmentMarkdown = string.IsNullOrWhiteSpace(request.HierarchyAssignmentMarkdown)
-            ? null
-            : request.HierarchyAssignmentMarkdown.Trim();
         project.HierarchySourcePageUrl = string.IsNullOrWhiteSpace(request.HierarchySourcePageUrl)
             ? null
             : request.HierarchySourcePageUrl.Trim();
@@ -252,7 +249,7 @@ public class ProjectsController : ControllerBase
             project.SerpRelatedSearches,
             project.HierarchyToolsByHeading.Select(g => new ToolsByHeading { Heading = g.Heading, Tools = g.Tools.Select(t => new ToolInfo { Name = t.Name, Href = t.Href }).ToList() }).ToList(),
             project.LinkedCreateId,
-            project.HierarchyAssignmentMarkdown);
+            project.HierarchyAssignment);
     }
 
     private static ProjectSummaryResponse ToSummary(Project project) => new(

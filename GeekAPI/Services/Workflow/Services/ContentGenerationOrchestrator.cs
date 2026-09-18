@@ -103,8 +103,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             "Generate the pillar plan (Step 1) before writing the article body.");
 
         var context = BuildContext(project);
-        var crawlTools = await _toolPageGenerator.ListCrawlToolsAsync(project, cancellationToken);
-        context = WithKnownCrawlTools(context, crawlTools);
+        var crawlHierarchy = await _toolPageGenerator.ListCrawlHierarchyAsync(project, cancellationToken);
+        context = WithKnownCrawlTools(context, crawlHierarchy);
         var provider = _providerFactory.Get(project.PreferredProvider);
 
         articleRow.NoResearchWarning = HasNoResearchInput(context) ? BuildNoResearchWarning(context.TargetKeyword) : null;
@@ -1070,16 +1070,21 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         Project project, CancellationToken cancellationToken)
     {
         var context = BuildContext(project);
-        var tools = await _toolPageGenerator.ListCrawlToolsAsync(project, cancellationToken);
-        return WithKnownCrawlTools(context, tools);
+        var hierarchy = await _toolPageGenerator.ListCrawlHierarchyAsync(project, cancellationToken);
+        return WithKnownCrawlTools(context, hierarchy);
     }
 
     private static ProjectGenerationContext WithKnownCrawlTools(
         ProjectGenerationContext context,
-        IReadOnlyList<GccGenerateService.CrawlTool> tools) =>
+        ToolPageGenerator.CrawlHierarchy hierarchy) =>
         context with
         {
-            KnownCrawlTools = tools.Select(t => new KnownCrawlTool(t.Name, t.Href)).ToList(),
+            KnownCrawlTools = hierarchy.Tools
+                .Select(t => new KnownCrawlTool(t.Name, t.Href))
+                .ToList(),
+            // Server-side from the tree GeekAPI already fetched, rather than a slice the browser
+            // computed and sent back. A prompt's grounding must not originate at the client.
+            HierarchyAssignment = hierarchy.Assignment ?? context.HierarchyAssignment,
         };
 
     private static string? TruncatePillarExcerpt(GeneratedContent articleRow, int maxChars = 1200)
@@ -1189,7 +1194,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             CtaLabel: brief.CtaLabel,
             LengthBand: brief.LengthBand,
             WritingNotes: brief.WritingNotes,
-            HierarchyAssignmentMarkdown: project.HierarchyAssignmentMarkdown);
+            HierarchyAssignment: project.HierarchyAssignment);
     }
 
     /// <summary>Matches a project's TargetKeyword against a Home page use-case item by name — forgiving
