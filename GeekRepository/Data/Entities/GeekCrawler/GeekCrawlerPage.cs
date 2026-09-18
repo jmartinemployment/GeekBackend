@@ -15,7 +15,6 @@ public class GeekCrawlerPage
     /** Clean article title (Readability). */
     public string? Title { get; set; }
     /** Clean article markdown (Readability → markdown). Legacy: the crawler no longer produces it. */
-    public string? Markdown { get; set; }
     /** Clean semantic HTML fragment from the crawler's extractor. The corpus body. */
     public string? ContentHtml { get; set; }
     /**
@@ -28,8 +27,6 @@ public class GeekCrawlerPage
     public BsonArray? Blocks { get; set; }
     /** Short plain excerpt from Readability when available. */
     public string? Excerpt { get; set; }
-    /** Set by one-time Rag backfill when Markdown was derived from stored Html. */
-    public DateTimeOffset? MarkdownBackfilledAt { get; set; }
     public string? FailureReason { get; set; }
     public DateTimeOffset CrawledAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -13,10 +13,7 @@ public class GeekCrawlerRun
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? StartedAtUtc { get; set; }
     public DateTimeOffset? CompletedAtUtc { get; set; }
-    /** Set only when every persisted usable page has non-empty Markdown. Legacy. */
-    public DateTimeOffset? MarkdownReadyAt { get; set; }
-
-    /** Set only when every persisted usable page has extracted content. Replaces MarkdownReadyAt. */
+    /** Set only when every persisted usable page has extracted content. */
     public DateTimeOffset? ContentReadyAt { get; set; }
 
     /**

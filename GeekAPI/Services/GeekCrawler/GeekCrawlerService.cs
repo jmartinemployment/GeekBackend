@@ -462,7 +462,7 @@ public sealed class GeekCrawlerService
             run.CreatedAtUtc,
             run.StartedAtUtc,
             run.CompletedAtUtc,
-            run.MarkdownReadyAt);
+            run.ContentReadyAt);
     }
 
     private async Task FailRunAsync(
@@ -563,4 +563,4 @@ public record GeekCrawlerRunSnapshot(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    DateTimeOffset? MarkdownReadyAt);
+    DateTimeOffset? ContentReadyAt);

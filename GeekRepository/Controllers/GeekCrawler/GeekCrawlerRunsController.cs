@@ -155,11 +155,6 @@ public class GeekCrawlerRunsController : ControllerBase
         [FromBody] PatchGeekCrawlerRunCommand command,
         CancellationToken ct)
     {
-        if (command.ClearMarkdownReadyAt && command.MarkdownReadyAt is not null)
-            return BadRequest("markdownReadyAt and clearMarkdownReadyAt cannot both be set");
-        if (command.MarkdownReadyAt is not null
-            && !string.Equals(command.Status, "complete", StringComparison.OrdinalIgnoreCase))
-            return BadRequest("markdownReadyAt requires status=complete");
         if (command.ClearContentReadyAt && command.ContentReadyAt is not null)
             return BadRequest("contentReadyAt and clearContentReadyAt cannot both be set");
         if (command.ContentReadyAt is not null
@@ -181,12 +176,6 @@ public class GeekCrawlerRunsController : ControllerBase
                     r.StartedAtUtc = command.StartedAtUtc;
                 if (command.CompletedAtUtc is not null)
                     r.CompletedAtUtc = command.CompletedAtUtc;
-                if (command.ClearMarkdownReadyAt
-                    || (!string.IsNullOrWhiteSpace(command.Status)
-                        && !command.Status.Equals("complete", StringComparison.OrdinalIgnoreCase)))
-                    r.MarkdownReadyAt = null;
-                else if (command.MarkdownReadyAt is not null)
-                    r.MarkdownReadyAt = command.MarkdownReadyAt;
                 if (command.ClearContentReadyAt
                     || (!string.IsNullOrWhiteSpace(command.Status)
                         && !command.Status.Equals("complete", StringComparison.OrdinalIgnoreCase)))
@@ -256,8 +245,6 @@ public class GeekCrawlerRunsController : ControllerBase
         string? ErrorSummary = null,
         DateTimeOffset? StartedAtUtc = null,
         DateTimeOffset? CompletedAtUtc = null,
-        DateTimeOffset? MarkdownReadyAt = null,
-        bool ClearMarkdownReadyAt = false,
         DateTimeOffset? ContentReadyAt = null,
         bool ClearContentReadyAt = false,
         string? CrawlReportJson = null);

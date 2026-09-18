@@ -22,7 +22,7 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
         var runId = (await JsonDocument.ParseAsync(await create.Content.ReadAsStreamAsync()))
             .RootElement.GetProperty("runId").GetGuid();
 
-        const string markdown = "# Exact article\n\nA citation-safe paragraph.";
+        const string contentHtml = "<h1>Exact article</h1><p>A citation-safe paragraph.</p>";
         using var pages = await owner.PostAsJsonAsync(
             $"/api/geek-crawler/ingest/runs/{runId:D}/pages/batch",
             new
@@ -38,7 +38,7 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
                         robotsAllowed = true,
                         html = "<h1>Exact article</h1>",
                         title = "Exact article",
-                        markdown,
+                        contentHtml,
                         excerpt = "A citation-safe paragraph.",
                     },
                 },
@@ -82,40 +82,40 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
             });
         Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
 
-        var markdownReadyAt = DateTimeOffset.UtcNow;
+        var contentReadyAt = DateTimeOffset.UtcNow;
         using var complete = await owner.PatchAsJsonAsync(
             $"/api/geek-crawler/ingest/runs/{runId:D}",
             new
             {
                 status = "complete",
-                completedAtUtc = markdownReadyAt,
-                markdownReadyAt,
+                completedAtUtc = contentReadyAt,
+                contentReadyAt,
             });
         complete.EnsureSuccessStatusCode();
         var completeSnapshot = await complete.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(
-            markdownReadyAt,
-            completeSnapshot.GetProperty("markdownReadyAt").GetDateTimeOffset());
+            contentReadyAt,
+            completeSnapshot.GetProperty("contentReadyAt").GetDateTimeOffset());
 
-        Assert.Equal(markdown, Assert.Single(_factory.Repository.Pages(runId)).Markdown);
+        Assert.Equal(contentHtml, Assert.Single(_factory.Repository.Pages(runId)).ContentHtml);
         Assert.Equal("https://fixture.test/contact", Assert.Single(_factory.Repository.Links(runId)).LinkUrl);
         await EventuallyAsync(() =>
             _factory.Rag.Requests.Any(r => r.Method == HttpMethod.Post && r.Path == "/v1/index"));
 
         using var resumed = await owner.PatchAsJsonAsync(
             $"/api/geek-crawler/ingest/runs/{runId:D}",
-            new { status = "external", clearMarkdownReadyAt = true });
+            new { status = "external", clearContentReadyAt = true });
         resumed.EnsureSuccessStatusCode();
         var resumedSnapshot = await resumed.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(JsonValueKind.Null, resumedSnapshot.GetProperty("markdownReadyAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, resumedSnapshot.GetProperty("contentReadyAt").ValueKind);
 
         using var invalidReadiness = await owner.PatchAsJsonAsync(
             $"/api/geek-crawler/ingest/runs/{runId:D}",
             new
             {
                 status = "complete",
-                markdownReadyAt = DateTimeOffset.UtcNow,
-                clearMarkdownReadyAt = true,
+                contentReadyAt = DateTimeOffset.UtcNow,
+                clearContentReadyAt = true,
             });
         Assert.Equal(HttpStatusCode.BadRequest, invalidReadiness.StatusCode);
     }
@@ -139,16 +139,15 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
                         statusCode = 200,
                         robotsAllowed = true,
                         html = "<main>HTML only</main>",
-                        markdown = (string?)null,
                     },
                     new
                     {
                         origin = "https://fixture.test",
-                        url = "https://fixture.test/markdown-only",
+                        url = "https://fixture.test/content-html-only",
                         statusCode = 200,
                         robotsAllowed = true,
                         html = (string?)null,
-                        markdown = "# Markdown only",
+                        contentHtml = "<p>Extracted only</p>",
                     },
                     new
                     {
@@ -174,7 +173,7 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
                         statusCode = 200,
                         robotsAllowed = true,
                         html = " ",
-                        markdown = "\n",
+                        contentHtml = "\n",
                     },
                 },
             });
@@ -195,7 +194,9 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
         var stored = _factory.Repository.Pages(runId);
         Assert.Equal(2, stored.Count);
         Assert.Contains(stored, page => page.Url == "https://fixture.test/html-only" && page.Html is not null);
-        Assert.Contains(stored, page => page.Url == "https://fixture.test/markdown-only" && page.Markdown is not null);
+        Assert.Contains(
+            stored,
+            page => page.Url == "https://fixture.test/content-html-only" && page.ContentHtml is not null);
     }
 
     [Fact]

@@ -18,7 +18,6 @@ internal static class GeekCrawlerEventMapper
             createdAtUtc = snapshot.CreatedAtUtc,
             startedAtUtc = snapshot.StartedAtUtc,
             completedAtUtc = snapshot.CompletedAtUtc,
-            markdownReadyAt = snapshot.MarkdownReadyAt,
             currentOrigin,
         };
     }

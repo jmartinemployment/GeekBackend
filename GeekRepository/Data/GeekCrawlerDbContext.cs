@@ -34,7 +34,6 @@ public class GeekCrawlerDbContext : DbContext
             entity.Property(r => r.HostProgressJson).HasColumnType("text");
             entity.Property(r => r.ErrorSummary).HasMaxLength(2048);
             entity.Property(r => r.CreatedAtUtc).IsRequired();
-            entity.Property(r => r.MarkdownReadyAt);
             entity.HasIndex(r => new { r.OwnerUserId, r.CrawlType, r.CreatedAtUtc })
                 .HasDatabaseName("ix_crawl_runs_owner_type_created");
             entity.HasIndex(r => new { r.CrawlType, r.Status })
@@ -50,7 +49,6 @@ public class GeekCrawlerDbContext : DbContext
             entity.Property(p => p.FinalUrl).IsRequired().HasMaxLength(2048);
             entity.Property(p => p.Html).HasColumnType("text");
             entity.Property(p => p.Title).HasMaxLength(1024);
-            entity.Property(p => p.Markdown).HasColumnType("text");
             // Postgres is deprecated for geek_crawler — Mongo is the live store and nothing reads
             // or writes crawl_pages through EF. These two are ignored rather than migrated: EF has
             // no mapping for BsonArray, and adding columns to a table nothing populates would be

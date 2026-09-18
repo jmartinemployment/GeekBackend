@@ -144,8 +144,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             cm.MapMember(x => x.CreatedAtUtc).SetSerializer(date);
             cm.MapMember(x => x.StartedAtUtc).SetSerializer(nullableDate);
             cm.MapMember(x => x.CompletedAtUtc).SetSerializer(nullableDate);
-            cm.MapMember(x => x.MarkdownReadyAt).SetSerializer(nullableDate);
-            // Same pg-text shape as MarkdownReadyAt, so range filters and sorts keep ordering.
+            // pg-text shape, so range filters and sorts keep ordering.
             cm.MapMember(x => x.ContentReadyAt).SetSerializer(nullableDate);
         });
 
@@ -832,9 +831,13 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
 
             await linksCollection.DeleteManyAsync(l => l.RunId == runId, cancellationToken: ct);
             await pagesCollection.DeleteManyAsync(p => p.RunId == runId, cancellationToken: ct);
+            // Readiness means "every persisted page carries extracted content". With every page
+            // deleted that is vacuously true, so the marker has to go with the data — otherwise the
+            // run still resolves as indexable and the Library schedules a scan over zero pages.
+            // The legacy readiness field was cleared here; ContentReadyAt was left set.
             await runsCollection.UpdateOneAsync(
                 r => r.Id == runId,
-                Builders<GeekCrawlerRun>.Update.Set(r => r.MarkdownReadyAt, null),
+                Builders<GeekCrawlerRun>.Update.Set(r => r.ContentReadyAt, null),
                 cancellationToken: ct);
         }
         catch (Exception ex)

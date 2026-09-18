@@ -321,9 +321,9 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
                     ErrorSummary = patch.ErrorSummary ?? existing.ErrorSummary,
                     StartedAtUtc = patch.StartedAtUtc ?? existing.StartedAtUtc,
                     CompletedAtUtc = patch.CompletedAtUtc ?? existing.CompletedAtUtc,
-                    MarkdownReadyAt = patch.ClearMarkdownReadyAt
+                    ContentReadyAt = patch.ClearContentReadyAt
                         ? null
-                        : patch.MarkdownReadyAt ?? existing.MarkdownReadyAt,
+                        : patch.ContentReadyAt ?? existing.ContentReadyAt,
                 };
                 _runs[runId] = updated;
                 return Json(HttpStatusCode.OK, updated);
@@ -350,7 +350,6 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
                     item.FailureReason,
                     DateTimeOffset.UtcNow,
                     item.Title,
-                    item.Markdown,
                     item.Excerpt);
                 lock (pages) pages.Add(page);
                 return new GeekCrawlerCreatedPageDto(item.Url, page.Id);

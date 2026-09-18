@@ -14,7 +14,6 @@ public record GeekCrawlerRunDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    DateTimeOffset? MarkdownReadyAt = null,
     DateTimeOffset? ContentReadyAt = null,
     string? CrawlReportJson = null);
 
@@ -30,8 +29,6 @@ public record PatchGeekCrawlerRunCommand(
     string? ErrorSummary = null,
     DateTimeOffset? StartedAtUtc = null,
     DateTimeOffset? CompletedAtUtc = null,
-    DateTimeOffset? MarkdownReadyAt = null,
-    bool ClearMarkdownReadyAt = false,
     DateTimeOffset? ContentReadyAt = null,
     bool ClearContentReadyAt = false,
     string? CrawlReportJson = null);
@@ -48,9 +45,7 @@ public record GeekCrawlerPageDto(
     string? FailureReason,
     DateTimeOffset CrawledAtUtc,
     string? Title = null,
-    string? Markdown = null,
     string? Excerpt = null,
-    DateTimeOffset? MarkdownBackfilledAt = null,
     string? ContentHtml = null,
     JsonElement? Blocks = null);
 
@@ -67,7 +62,6 @@ public record CreateGeekCrawlerPageItemCommand(
     string? Html,
     string? FailureReason = null,
     string? Title = null,
-    string? Markdown = null,
     string? Excerpt = null,
     string? ContentHtml = null,
     // Passthrough. GeekAPI is transport for blocks, not a consumer — the schema is defined by the

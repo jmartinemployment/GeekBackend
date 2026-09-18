@@ -242,11 +242,6 @@ public class GeekCrawlerIngestController : ControllerBase
         if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
         if (request is null)
             return BadRequest("patch body is required");
-        if (request.ClearMarkdownReadyAt && request.MarkdownReadyAt is not null)
-            return BadRequest("markdownReadyAt and clearMarkdownReadyAt cannot both be set");
-        if (request.MarkdownReadyAt is not null
-            && !string.Equals(request.Status, "complete", StringComparison.OrdinalIgnoreCase))
-            return BadRequest("markdownReadyAt requires status=complete");
         if (request.ClearContentReadyAt && request.ContentReadyAt is not null)
             return BadRequest("contentReadyAt and clearContentReadyAt cannot both be set");
         if (request.ContentReadyAt is not null
@@ -271,7 +266,7 @@ public class GeekCrawlerIngestController : ControllerBase
             // did, and atomic publish made that gap dangerous: an empty run reaching "complete"
             // would retire the previously published corpus and replace it with nothing.
             //
-            // Ingest already rejects pages carrying neither Html nor Markdown, so a page count above
+            // Ingest already rejects pages carrying no extracted content, so a page count above
             // zero means at least one usable page was stored.
             if (committing)
             {
@@ -340,8 +335,6 @@ public class GeekCrawlerIngestController : ControllerBase
                     HostProgressJson: request.HostProgressJson,
                     StartedAtUtc: request.StartedAtUtc,
                     CompletedAtUtc: request.CompletedAtUtc,
-                    MarkdownReadyAt: request.MarkdownReadyAt,
-                    ClearMarkdownReadyAt: request.ClearMarkdownReadyAt,
                     ContentReadyAt: request.ContentReadyAt,
                     ClearContentReadyAt: request.ClearContentReadyAt,
                     CrawlReportJson: reportJson),
@@ -463,7 +456,7 @@ public class GeekCrawlerIngestController : ControllerBase
 
     /// <summary>
     /// Delete a run outright. Vectors are purged from Geek-Crawler-Rag first, then links, pages and
-    /// the run document from Mongo: a retained vector whose Markdown source is gone would return
+    /// the run document from Mongo: a retained vector whose source page is gone would return
     /// chunks that can never be verified, so an unproven purge aborts the whole operation.
     /// </summary>
     [HttpDelete("runs/{runId:guid}")]
@@ -526,7 +519,7 @@ public class GeekCrawlerIngestController : ControllerBase
             && string.IsNullOrWhiteSpace(p.FailureReason)
             && !HasExtractedContent(p));
 
-        // Fail closed on the external route. This previously accepted `Html || Markdown`, and
+        // Fail closed on the external route. This previously accepted `Html` or a Markdown body, and
         // because the crawler still sends raw html, a page whose extract produced nothing
         // validated, persisted, and was reported saved — then the RAG Library deleted it for
         // having no body. 5,274 pages were lost that way on 2026-09-18 without one error.
@@ -565,7 +558,6 @@ public class GeekCrawlerIngestController : ControllerBase
             p.Html,
             p.FailureReason,
             p.Title,
-            p.Markdown,
             p.Excerpt,
             p.ContentHtml,
             p.Blocks)).ToList();
@@ -884,8 +876,6 @@ public class GeekCrawlerIngestController : ControllerBase
         string? HostProgressJson = null,
         DateTimeOffset? StartedAtUtc = null,
         DateTimeOffset? CompletedAtUtc = null,
-        DateTimeOffset? MarkdownReadyAt = null,
-        bool ClearMarkdownReadyAt = false,
         DateTimeOffset? ContentReadyAt = null,
         bool ClearContentReadyAt = false,
         GeekCrawlerRunReport? Report = null);
@@ -911,7 +901,6 @@ public class GeekCrawlerIngestController : ControllerBase
         string? Html,
         string? FailureReason = null,
         string? Title = null,
-        string? Markdown = null,
         string? Excerpt = null,
         string? ContentHtml = null,
         JsonElement? Blocks = null);

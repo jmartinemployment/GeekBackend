@@ -113,7 +113,6 @@ public class GeekCrawlerPagesController : ControllerBase
                 RobotsAllowed = p.RobotsAllowed,
                 Html = p.Html,
                 Title = TruncateTitle(p.Title),
-                Markdown = p.Markdown,
                 ContentHtml = p.ContentHtml,
                 // Native BSON array, never a string. The RAG Library reads each element as a
                 // document; a serialized blob fails there at runtime. No truncation helper applies
@@ -143,7 +142,6 @@ public class GeekCrawlerPagesController : ControllerBase
         string? Html,
         string? FailureReason = null,
         string? Title = null,
-        string? Markdown = null,
         string? Excerpt = null,
         string? ContentHtml = null,
         JsonElement? Blocks = null);
