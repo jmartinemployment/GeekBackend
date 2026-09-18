@@ -93,6 +93,74 @@ public static class GccV2HierarchyToolMatch
             hierarchy.Pages.FirstOrDefault()?.PageUrl ?? hierarchy.HomepageUrl);
     }
 
+    /// <summary>
+    /// Every matching section, ranked — not just the best one.
+    ///
+    /// <see cref="Match"/> collapses to a single winner, which hides the case the operator most needs
+    /// to see: the same heading appearing on several pages. The UI reports those as a crawl finding
+    /// rather than silently keeping one, so the picker needs the whole set.
+    ///
+    /// Each result carries the page it was actually found on. <see cref="Match"/> reports
+    /// <c>Pages[0]</c> for every hit regardless of where the heading lives, which is wrong as soon as
+    /// more than one page has headings.
+    /// </summary>
+    public static IReadOnlyList<MatchResult> MatchAll(GccV2SiteHierarchy? hierarchy, IEnumerable<string> seeds)
+    {
+        if (hierarchy is null || hierarchy.Pages.Count == 0) return [];
+
+        var topics = ExpandSeeds(seeds).ToList();
+        if (topics.Count == 0) return [];
+
+        var found = new List<(MatchCandidate Candidate, string Topic, string? PageUrl)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var page in hierarchy.Pages)
+        {
+            foreach (var (node, path) in Walk(page.Roots, []))
+            {
+                foreach (var topic in topics)
+                {
+                    var kind = Score(node.HeadingText, topic);
+                    if (kind is null) continue;
+
+                    // One row per (page, heading path). A heading that matches both the full phrase
+                    // and its expanded prefix is one section, not two findings.
+                    var key = (page.PageUrl ?? "") + "\u241F" + string.Join("\u241F", path);
+                    if (!seen.Add(key)) continue;
+
+                    found.Add((
+                        new MatchCandidate(
+                            node.HeadingText,
+                            path.ToArray(),
+                            kind,
+                            ChildHeadings(node),
+                            HarvestTools(node),
+                            path.Count,
+                            TokenCount(Slugify(node.HeadingText))),
+                        topic,
+                        page.PageUrl));
+                    break;
+                }
+            }
+        }
+
+        // Same ordering IsBetter applies pairwise, expressed as a sort so the whole set is ranked.
+        return found
+            .OrderBy(f => KindRank(f.Candidate.Kind))
+            .ThenByDescending(f => f.Candidate.Depth)
+            .ThenByDescending(f => f.Candidate.HeadingTokens)
+            .ThenByDescending(f => f.Candidate.Tools.Count)
+            .Select(f => new MatchResult(
+                f.Candidate.Heading,
+                f.Candidate.Path,
+                f.Candidate.Kind,
+                f.Candidate.ChildHeadings,
+                f.Candidate.Tools,
+                f.Topic,
+                f.PageUrl ?? hierarchy.HomepageUrl))
+            .ToList();
+    }
+
     /// <summary>Full phrase + one strip of " for …" / dash. Never peels to a lone vertical word.</summary>
     public static IEnumerable<string> ExpandSeeds(IEnumerable<string> seeds)
     {

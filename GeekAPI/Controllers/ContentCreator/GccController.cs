@@ -12,6 +12,8 @@ using GeekAPI.Services.ContentCreator;
 // deleted in the same commit, so it never saw the move.
 using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
+using GeekAPI.Services.ContentCreatorV2.Hierarchy;
+using GeekAPI.Services.ContentCreatorV2.ProjectSite;
 using GeekApplication.Models.GeekCrawler;
 using GeekAPI.Services.GeekSeo;
 using GeekApplication.Interfaces.ContentWriterV3;
@@ -40,6 +42,8 @@ public class GccController : ControllerBase
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
     private readonly GccV2GeekCrawlerResearchResolver _research;
+    private readonly HttpGccV2Repository _v2Repo;
+    private readonly IGccV2ProjectSitePageSource _sitePages;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -52,6 +56,8 @@ public class GccController : ControllerBase
         GccJobStore jobs,
         ICurrentUserContext user,
         GccV2GeekCrawlerResearchResolver research,
+        HttpGccV2Repository v2Repo,
+        IGccV2ProjectSitePageSource sitePages,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -63,6 +69,8 @@ public class GccController : ControllerBase
         _jobs = jobs;
         _user = user;
         _research = research;
+        _v2Repo = v2Repo;
+        _sitePages = sitePages;
         _logger = logger;
     }
 
@@ -1110,6 +1118,64 @@ public class GccController : ControllerBase
             indexState = row.IndexState,
             reason = row.Reason,
         });
+    }
+
+    /// <summary>
+    /// Sections of the crawled project site whose heading matches the target keyword, ranked.
+    ///
+    /// Replaces the retired site-analyzer/profiles/{id}/hierarchy-match, which 404s: Site Analyzer is
+    /// Geek-SEO's and was removed from this path. The hierarchy is derived from the crawl
+    /// Geek-Crawler already performed — nothing here crawls.
+    ///
+    /// Returns a bare array, ranked best-first, because the caller shows every match rather than
+    /// auto-selecting one: the same heading on several pages is a crawl finding the operator needs
+    /// to see, not a tie to break silently.
+    /// </summary>
+    [HttpGet("project-site/runs/{runId:guid}/hierarchy-match")]
+    public async Task<IActionResult> ProjectSiteHierarchyMatch(
+        Guid runId,
+        [FromQuery] string? keyword,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var target = keyword?.Trim();
+        if (string.IsNullOrWhiteSpace(target))
+            return BadRequest(new { error = "keyword required" });
+
+        var run = await _v2Repo.GetProjectSiteCrawlRunAsync(runId, ct).ConfigureAwait(false);
+        if (run is null) return NotFound();
+        if (!string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase))
+            return NotFound();
+
+        var pages = new List<GccV2ProjectSiteCrawlPageDto>();
+        var offset = 0;
+        const int batch = 100;
+        while (true)
+        {
+            var chunk = await _sitePages.ListPagesAsync(runId, batch, offset, ct).ConfigureAwait(false);
+            if (chunk.Count == 0) break;
+            pages.AddRange(chunk);
+            if (chunk.Count < batch) break;
+            offset += chunk.Count;
+        }
+
+        var hierarchy = GccV2SiteHierarchyFromCrawl.Build(run.SiteUrl, pages);
+        var matches = GccV2HierarchyToolMatch.MatchAll(hierarchy, [target]);
+
+        return Ok(matches.Select(m => new
+        {
+            matchedHeading = m.MatchedHeading,
+            path = m.Path,
+            // The caller's kind union has no near-exact; it falls back to contains-heading, so map it
+            // here rather than leaving the wire value to be silently reinterpreted.
+            kind = m.Kind == "exact-heading" ? "exact-heading" : "contains-heading",
+            childHeadings = m.ChildHeadings,
+            sourcePageUrl = m.SourcePageUrl,
+            toolsByHeading = m.RecommendedTools.Count == 0
+                ? Array.Empty<object>()
+                : [new { heading = m.MatchedHeading, tools = m.RecommendedTools.Select(t => new { name = t.Name, href = t.Href }) }],
+        }));
     }
 
     private async Task<GccSiteAnalysisDto> MarkAnalysisFailedAsync(
