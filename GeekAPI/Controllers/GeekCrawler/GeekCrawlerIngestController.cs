@@ -519,7 +519,7 @@ public class GeekCrawlerIngestController : ControllerBase
             && string.IsNullOrWhiteSpace(p.FailureReason)
             && !HasExtractedContent(p));
 
-        // Fail closed on the external route. This previously accepted `Html` or a Markdown body, and
+        // Fail closed on the external route. This previously accepted `Html` or a legacy body, and
         // because the crawler still sends raw html, a page whose extract produced nothing
         // validated, persisted, and was reported saved — then the RAG Library deleted it for
         // having no body. 5,274 pages were lost that way on 2026-09-18 without one error.

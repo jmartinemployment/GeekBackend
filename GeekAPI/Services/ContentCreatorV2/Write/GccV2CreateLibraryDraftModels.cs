@@ -322,7 +322,7 @@ public sealed class RagCitationDto
     public string? SectionKey { get; init; }
     public string Quote { get; init; } = "";
     public string? CrawlType { get; init; }
-    /// <summary>SHA-256 of source Markdown span when RAG provides it.</summary>
+    /// <summary>SHA-256 of the source page-text span when RAG provides it.</summary>
     public string? SourceDigest { get; init; }
     /// <summary>True only after quote↔source verify (and role checks) succeed.</summary>
     public bool? Verified { get; init; }

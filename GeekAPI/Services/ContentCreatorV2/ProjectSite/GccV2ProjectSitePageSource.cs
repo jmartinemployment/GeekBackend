@@ -55,7 +55,7 @@ public sealed class GccV2PostgresProjectSitePageSource(HttpGccV2Repository repo)
 /// already lives.
 ///
 /// <see cref="GeekCrawlerPageDto"/> is a strict superset of <see cref="GccV2ProjectSiteCrawlPageDto"/>
-/// — it additionally carries Title, Markdown, Excerpt and FailureReason — so the projection is
+/// — it additionally carries Title, ContentHtml, Excerpt and FailureReason — so the projection is
 /// lossless in the direction consumers read.
 /// </summary>
 public sealed class GccV2MongoProjectSitePageSource(HttpGeekCrawlerRepository crawler)

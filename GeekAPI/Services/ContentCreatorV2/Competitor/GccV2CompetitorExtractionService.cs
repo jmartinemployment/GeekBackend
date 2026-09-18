@@ -18,7 +18,7 @@ namespace GeekAPI.Services.ContentCreatorV2.Competitor;
 /// Extraction is schema-constrained (<see cref="IGccV2SchemaConstrainedGenerator"/>) rather than regex:
 /// the signals that matter here — coverage depth, positioning, specialisms, claim risk — are semantic,
 /// and a pattern matcher cannot identify them. Every asset carries the exact source quote so
-/// <c>GccV2CompetitorExtractionVerify</c> can check it against source Markdown and stamp
+/// <c>GccV2CompetitorExtractionVerify</c> can check it against the source page text and stamp
 /// <c>QuoteVerified</c>; the downstream citation and claim-risk gates decide what may ship.
 ///
 /// Fail-closed and silent per repo rules: a page that yields nothing usable contributes nothing. No
@@ -385,7 +385,7 @@ public sealed class GccV2CompetitorExtractionService(
 
 /* ------------------------------------------------------------------ *
  * Schema-constrained response shape. Every item carries the verbatim  *
- * source quote so verify can check it against source Markdown.        *
+ * source quote so verify can check it against the source page text.  *
  * ------------------------------------------------------------------ */
 
 internal sealed record CompetitorPageExtraction(

@@ -7,13 +7,13 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekAPI.Services.ContentCreatorV2.Partner;
 
 /// <summary>
-/// Bridges Markdown-verified partner citables into WRITE citations for §P1 partner-mention VALIDATE.
+/// Bridges quote-verified partner citables into WRITE citations for §P1 partner-mention VALIDATE.
 /// </summary>
 public static class GccV2PartnerCitableBridge
 {
     /// <summary>
     /// For sections that mention a partner token without a verified partner citation, attach the
-    /// preferred evidence shape: a Markdown-verified <see cref="GccPartnerCitableAsset"/> as <see cref="RagCitationDto"/>.
+    /// preferred evidence shape: a quote-verified <see cref="GccPartnerCitableAsset"/> as <see cref="RagCitationDto"/>.
     /// </summary>
     public static GccV2WriteOutput AttachVerifiedCitables(
         GccV2WriteOutput output,

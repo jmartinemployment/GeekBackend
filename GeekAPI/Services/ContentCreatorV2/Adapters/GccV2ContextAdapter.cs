@@ -356,7 +356,7 @@ public sealed class GccV2ContextAdapter
             "PARTNER EXTRACTION (library-grounded structured payloads — prefer these over inventing "
             + "pricing, CTAs, FAQs, feature vectors, or swaps; crawlType=partner for partner assets; "
             + "competitor-sourced deficits keep crawlType=competitors; do not fabricate missing fields; "
-            + "prefer Markdown-verified citables for claims):");
+            + "prefer quote-verified citables for claims):");
 
         foreach (var c in extraction.Citables.Take(10))
         {

@@ -14,7 +14,6 @@ public class GeekCrawlerPage
     public string? Html { get; set; }
     /** Clean article title (Readability). */
     public string? Title { get; set; }
-    /** Clean article markdown (Readability → markdown). Legacy: the crawler no longer produces it. */
     /** Clean semantic HTML fragment from the crawler's extractor. The corpus body. */
     public string? ContentHtml { get; set; }
     /**

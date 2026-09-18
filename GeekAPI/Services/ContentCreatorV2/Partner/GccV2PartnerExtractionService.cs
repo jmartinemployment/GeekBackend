@@ -18,7 +18,7 @@ namespace GeekAPI.Services.ContentCreatorV2.Partner;
 ///
 /// Extraction is schema-constrained via <see cref="IGccV2SchemaConstrainedGenerator"/> and every asset
 /// carries the exact source quote, so <c>GccV2PartnerExtractionVerify</c> can check it against source
-/// Markdown and stamp offsets, digest and rights. This is GeekAPI-side generation over Markdown that
+/// page text and stamp offsets, digest and rights. This is GeekAPI-side generation over page text that
 /// RAG retrieved — RAG itself still only retrieves and verifies.
 ///
 /// Fail-closed and silent: a page that yields nothing usable contributes nothing. No fallback path,
@@ -340,7 +340,7 @@ public sealed class GccV2PartnerExtractionService(
     /// <summary>
     /// True when <paramref name="claim"/> appears verbatim in <paramref name="source"/>, ignoring
     /// whitespace shape. Retained for callers that ground a claim before use; the authoritative check
-    /// remains the Markdown verify pass.
+    /// remains the quote verify pass.
     /// </summary>
     public static bool IsGrounded(string? claim, string? source)
     {
@@ -450,7 +450,7 @@ public sealed class GccV2PartnerExtractionService(
 
 /* ------------------------------------------------------------------ *
  * Schema-constrained response shape. Every item carries the verbatim  *
- * source quote so verify can check it against source Markdown.        *
+ * source quote so verify can check it against the source page text.  *
  * ------------------------------------------------------------------ */
 
 internal sealed record PartnerPageExtraction(
