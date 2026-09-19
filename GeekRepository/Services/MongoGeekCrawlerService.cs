@@ -86,6 +86,20 @@ public interface IMongoGeekCrawlerService
     // WRITE: Runs
     Task<GeekCrawlerRun> CreateRunAsync(GeekCrawlerRun run, CancellationToken ct = default);
     Task UpdateRunAsync(Guid id, Action<GeekCrawlerRun> updateAction, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomic $set of the four Rag* fields only -- never routes through UpdateRunAsync's
+    /// find-then-ReplaceOneAsync, which would clobber a concurrent crawl-progress write on the
+    /// same document with a stale in-memory copy.
+    /// </summary>
+    Task UpdateRagIndexStatusAsync(
+        Guid runId,
+        string? ragState,
+        int? ragChunksUpserted,
+        int? ragPagesEnglish,
+        DateTimeOffset? ragIndexedAtUtc,
+        CancellationToken ct = default);
+
     Task DeleteRunCrawlDataAsync(Guid runId, CancellationToken ct = default);
 
     /// <summary>
@@ -258,6 +272,21 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                         .Ascending(p => p.RunId)
                         .Ascending(p => p.Url),
                     new CreateIndexOptions { Name = "ix_crawl_pages_run_url", Background = true }),
+            ],
+            cancellationToken: ct).ConfigureAwait(false);
+
+        // crawl_runs had no explicit index at all before this -- "current run for this seed" was a
+        // full collection scan. FindRunForSeedsAsync already filters on SeedKey; RagState/
+        // RagIndexedAtUtc join it once "current run" needs to mean "current *indexed* run".
+        var runs = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
+        await runs.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<GeekCrawlerRun>(
+                    Builders<GeekCrawlerRun>.IndexKeys
+                        .Ascending(r => r.SeedKey)
+                        .Ascending(r => r.RagState)
+                        .Descending(r => r.RagIndexedAtUtc),
+                    new CreateIndexOptions { Name = "ix_crawl_runs_seed_rag_status", Background = true }),
             ],
             cancellationToken: ct).ConfigureAwait(false);
 
@@ -815,6 +844,33 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update run {RunId}", id);
+            throw;
+        }
+    }
+
+    public async Task UpdateRagIndexStatusAsync(
+        Guid runId,
+        string? ragState,
+        int? ragChunksUpserted,
+        int? ragPagesEnglish,
+        DateTimeOffset? ragIndexedAtUtc,
+        CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty) throw new ArgumentException("runId is required", nameof(runId));
+
+        try
+        {
+            var collection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
+            var update = Builders<GeekCrawlerRun>.Update
+                .Set(r => r.RagState, ragState)
+                .Set(r => r.RagChunksUpserted, ragChunksUpserted)
+                .Set(r => r.RagPagesEnglish, ragPagesEnglish)
+                .Set(r => r.RagIndexedAtUtc, ragIndexedAtUtc);
+            await collection.UpdateOneAsync(r => r.Id == runId, update, cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update RAG index status for run {RunId}", runId);
             throw;
         }
     }

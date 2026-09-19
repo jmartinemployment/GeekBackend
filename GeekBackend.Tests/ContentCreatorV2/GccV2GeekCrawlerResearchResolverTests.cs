@@ -528,6 +528,60 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     }
 
     [Fact]
+    public async Task CheckSeedReadiness_reports_indexState_from_GeekRepository_not_a_second_live_RAG_call()
+    {
+        var runId = Guid.NewGuid();
+        var runDto = new GeekCrawlerRunDto(
+            runId,
+            "user-1",
+            "partner",
+            "complete",
+            "[\"https://partner.example/tools\"]",
+            null,
+            null,
+            null,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow);
+        var repo = new FakeReadRepo
+        {
+            LatestRun = runDto,
+            // Distinct from rag.IndexStatus.State below -- if the result ever reflects "complete"
+            // instead of this sentinel, the source regressed back to the live RAG call.
+            RunById = runDto with { RagState = "indexed-per-georepository" },
+        };
+        var rag = new FakeGeekCrawlerRagClient
+        {
+            Enabled = true,
+            // Must be a non-building state so TryResolveExternalSeedAsync's own fail-closed gate
+            // (the one legitimate GetIndexStatusAsync call) lets the query through.
+            IndexStatus = new GeekCrawlerRagIndexStatus { RunId = runId, State = "complete" },
+            QueryResult = new GeekCrawlerRagQueryResult
+            {
+                RunId = runId,
+                Pages =
+                [
+                    new GeekApplication.Models.ContentCreator.GccQuoteablePage(
+                        "https://partner.example/tools",
+                        "Tools",
+                        [],
+                        ["A paragraph about the partner's tools."]),
+                ],
+            },
+        };
+        var resolver = CreateResolver(repo, rag: rag);
+
+        var results = await resolver.CheckSeedReadinessAsync(
+            "user-1", "partner", ["https://partner.example/tools"], CancellationToken.None);
+
+        var result = Assert.Single(results);
+        Assert.True(result.Ready);
+        Assert.Equal(runId, result.RunId);
+        Assert.Equal("indexed-per-georepository", result.IndexState);
+        Assert.Equal(1, rag.GetIndexStatusCallCount);
+    }
+
+    [Fact]
     public async Task MergePartnerResearch_index_building_fails_closed_without_seed_html()
     {
         var runId = Guid.NewGuid();
@@ -699,6 +753,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
         public GeekCrawlerRagQueryResult? QueryResult { get; init; }
         public string? LastNeed { get; private set; }
         public bool? LastPreferParent { get; private set; }
+        public int GetIndexStatusCallCount { get; private set; }
 
         public bool IsEnabled => Enabled;
 
@@ -709,8 +764,11 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
 
         public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(
             Guid runId,
-            CancellationToken ct = default) =>
-            Task.FromResult(IndexStatus);
+            CancellationToken ct = default)
+        {
+            GetIndexStatusCallCount++;
+            return Task.FromResult(IndexStatus);
+        }
 
         public Task<GeekCrawlerRagQueryResult?> QueryAsync(
             string need,
@@ -756,6 +814,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
     {
         public GeekCrawlerRunDto? LatestRun { get; init; }
         public GeekCrawlerRunDto? ContainingSeedRun { get; init; }
+        public GeekCrawlerRunDto? RunById { get; init; }
         public IReadOnlyList<GeekCrawlerPageDto> Pages { get; init; } = [];
         public int ListPagesAsyncCallCount { get; private set; }
         public int ListPagesBySeedsAsyncCallCount { get; private set; }
@@ -800,6 +859,9 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             string seed,
             CancellationToken ct = default) =>
             Task.FromResult(ContainingSeedRun);
+
+        public Task<GeekCrawlerRunDto?> GetRunByIdAsync(Guid runId, CancellationToken ct = default) =>
+            Task.FromResult(RunById);
     }
 
     private sealed class FakeProjectSitePageReader : IGccV2ProjectSitePageReader

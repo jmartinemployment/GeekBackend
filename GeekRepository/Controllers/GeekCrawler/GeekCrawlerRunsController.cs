@@ -194,6 +194,27 @@ public class GeekCrawlerRunsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Atomic $set of Geek-Crawler-Rag's index status onto the run -- separate from
+    /// <see cref="Patch"/> deliberately, since that endpoint's find-then-replace would race a
+    /// concurrent crawl-progress write on the same document instead of merging with it.
+    /// </summary>
+    [HttpPatch("{id:guid}/rag-index-status")]
+    public async Task<IActionResult> PatchRagIndexStatus(
+        Guid id,
+        [FromBody] PatchRagIndexStatusCommand command,
+        CancellationToken ct)
+    {
+        await _mongo.UpdateRagIndexStatusAsync(
+            id,
+            command.RagState,
+            command.RagChunksUpserted,
+            command.RagPagesEnglish,
+            command.RagIndexedAtUtc,
+            ct);
+        return NoContent();
+    }
+
     [HttpDelete("{id:guid}/crawl-data")]
     public async Task<IActionResult> ClearCrawlData(Guid id, CancellationToken ct)
     {
@@ -248,4 +269,10 @@ public class GeekCrawlerRunsController : ControllerBase
         DateTimeOffset? ContentReadyAt = null,
         bool ClearContentReadyAt = false,
         string? CrawlReportJson = null);
+
+    public record PatchRagIndexStatusCommand(
+        string? RagState,
+        int? RagChunksUpserted,
+        int? RagPagesEnglish,
+        DateTimeOffset? RagIndexedAtUtc);
 }

@@ -77,6 +77,22 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         CancellationToken ct = default) =>
         PatchAsync<GeekCrawlerRunDto>($"repo/geek-crawler/runs/{runId}", command, ct);
 
+    /// <summary>
+    /// Atomic $set of Geek-Crawler-Rag's index status -- deliberately not routed through
+    /// PatchRunAsync, whose GeekRepository-side handler does find-then-replace and would race a
+    /// concurrent crawl-progress write on the same run document.
+    /// </summary>
+    public async Task UpdateRagIndexStatusAsync(
+        Guid runId,
+        PatchRagIndexStatusCommand command,
+        CancellationToken ct = default)
+    {
+        var json = JsonSerializer.Serialize(command, JsonOpts);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var res = await _http.PatchAsync($"repo/geek-crawler/runs/{runId}/rag-index-status", content, ct);
+        res.EnsureSuccessStatusCode();
+    }
+
     public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesAsync(
         Guid runId,
         int limit = 100,

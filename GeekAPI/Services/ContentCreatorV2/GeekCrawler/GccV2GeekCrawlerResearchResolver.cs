@@ -80,6 +80,14 @@ public interface IGccV2GeekCrawlerReadRepository
         string crawlType,
         string seed,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Looks up a run by id to read its persisted Rag* fields -- the GeekRepository-side record of
+    /// Geek-Crawler-Rag's index status, kept current by the index-status webhook. Cheaper and more
+    /// available than asking RAG itself (<see cref="IGeekCrawlerRagClient.GetIndexStatusAsync"/>)
+    /// for the same fact once a run has been resolved.
+    /// </summary>
+    Task<GeekCrawlerRunDto?> GetRunByIdAsync(Guid runId, CancellationToken ct = default);
 }
 
 public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inner) : IGccV2GeekCrawlerReadRepository
@@ -118,6 +126,9 @@ public sealed class GccV2GeekCrawlerReadRepository(HttpGeekCrawlerRepository inn
         string seed,
         CancellationToken ct = default) =>
         inner.GetLatestRunContainingSeedAsync(ownerUserId, crawlType, seed, ct);
+
+    public Task<GeekCrawlerRunDto?> GetRunByIdAsync(Guid runId, CancellationToken ct = default) =>
+        inner.GetRunAsync(runId, ct);
 }
 
 /// <summary>
@@ -942,9 +953,12 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 var (pages, warning, runId) = await TryResolveExternalSeedAsync(
                     ownerUserId, crawlType, seed, RagTopicContext.Empty, ct);
 
+                // GeekRepository's own record of RAG's index status (kept current by the
+                // index-status webhook), not a live RAG call -- cheaper, and available even if
+                // RAG itself is unreachable while GeekRepository still has the last-known state.
                 string? indexState = null;
-                if (runId is { } id && _rag.IsEnabled)
-                    indexState = (await _rag.GetIndexStatusAsync(id, ct).ConfigureAwait(false))?.State;
+                if (runId is { } id)
+                    indexState = (await _crawlerRepo.GetRunByIdAsync(id, ct).ConfigureAwait(false))?.RagState;
 
                 if (pages.Count > 0)
                 {

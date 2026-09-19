@@ -40,6 +40,28 @@ public sealed class GeekCrawlerRagWebhookController : ControllerBase
         var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
         var ownerUserId = run?.OwnerUserId ?? "";
 
+        // Out-of-order/duplicate guard: the indexer retries at the job level (status.attempt), so
+        // more than one webhook call for the same runId is possible even without network retries.
+        // A stale delivery must never overwrite a newer, more-authoritative state.
+        if (run is null || run.RagIndexedAtUtc is null || body.FinishedAtUtc > run.RagIndexedAtUtc)
+        {
+            try
+            {
+                await _repo.UpdateRagIndexStatusAsync(
+                    runId,
+                    new PatchRagIndexStatusCommand(
+                        RagState: body.State,
+                        RagChunksUpserted: body.ChunksUpserted,
+                        RagPagesEnglish: body.PagesEnglish,
+                        RagIndexedAtUtc: body.FinishedAtUtc),
+                    ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist RAG index status for {RunId}", runId);
+            }
+        }
+
         var payload = new
         {
             eventType = "rag_index",

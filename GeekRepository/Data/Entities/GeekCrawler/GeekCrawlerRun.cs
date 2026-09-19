@@ -21,4 +21,15 @@ public class GeekCrawlerRun
      * why. Written once at commit or abort. Null on a run that never reached either.
      */
     public string? CrawlReportJson { get; set; }
+
+    /**
+     * Geek-Crawler-Rag index status, mirrored from its index-status webhook. Null on a run that
+     * was never (yet) indexed. Written only via UpdateRagIndexStatusAsync's atomic $set -- never
+     * through UpdateRunAsync's read-modify-replace, which would race a concurrent crawl-progress
+     * write on this same document.
+     */
+    public string? RagState { get; set; }
+    public int? RagChunksUpserted { get; set; }
+    public int? RagPagesEnglish { get; set; }
+    public DateTimeOffset? RagIndexedAtUtc { get; set; }
 }

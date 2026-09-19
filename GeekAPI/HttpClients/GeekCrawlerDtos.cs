@@ -15,7 +15,11 @@ public record GeekCrawlerRunDto(
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
     DateTimeOffset? ContentReadyAt = null,
-    string? CrawlReportJson = null);
+    string? CrawlReportJson = null,
+    string? RagState = null,
+    int? RagChunksUpserted = null,
+    int? RagPagesEnglish = null,
+    DateTimeOffset? RagIndexedAtUtc = null);
 
 public record CreateGeekCrawlerRunCommand(
     string OwnerUserId,
@@ -32,6 +36,12 @@ public record PatchGeekCrawlerRunCommand(
     DateTimeOffset? ContentReadyAt = null,
     bool ClearContentReadyAt = false,
     string? CrawlReportJson = null);
+
+public record PatchRagIndexStatusCommand(
+    string? RagState,
+    int? RagChunksUpserted,
+    int? RagPagesEnglish,
+    DateTimeOffset? RagIndexedAtUtc);
 
 public record GeekCrawlerPageDto(
     Guid Id,

@@ -345,6 +345,12 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             return run is null ? null : ToDto(run);
         }
 
+        public async Task<GeekCrawlerRunDto?> GetRunByIdAsync(Guid runId, CancellationToken ct = default)
+        {
+            var run = await mongo.GetRunByIdAsync(runId, ct);
+            return run is null ? null : ToDto(run);
+        }
+
         public async Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesAsync(
             Guid runId,
             int limit = 100,
@@ -376,7 +382,13 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
                 r.ErrorSummary,
                 r.CreatedAtUtc,
                 r.StartedAtUtc,
-                r.CompletedAtUtc);
+                r.CompletedAtUtc,
+                r.ContentReadyAt,
+                r.CrawlReportJson,
+                r.RagState,
+                r.RagChunksUpserted,
+                r.RagPagesEnglish,
+                r.RagIndexedAtUtc);
 
         private static GeekCrawlerPageDto ToDto(GeekCrawlerPage p) =>
             new(
