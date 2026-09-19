@@ -172,9 +172,9 @@ public sealed class GeekCrawlerRagTemplateQueryResult
     public string? Warning { get; init; }
 }
 
-/// <summary>Whether an index exists for a URL's host. Whether, not how much — a count would invite
-/// a threshold, which is a different question.</summary>
-public sealed record GeekCrawlerRagHostIndex(string Url, string? Host, bool Indexed);
+/// <summary>Whether an index exists for a URL's host, and which run indexed it. Whether, not how
+/// much — a count would invite a threshold, which is a different question.</summary>
+public sealed record GeekCrawlerRagHostIndex(string Url, string? Host, bool Indexed, string? RunId);
 
 public sealed class GeekCrawlerRagIndexStatus
 {
@@ -370,7 +370,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 .ConfigureAwait(false);
 
             return dto?.Results?
-                .Select(r => new GeekCrawlerRagHostIndex(r.Url ?? "", r.Host, r.Indexed))
+                .Select(r => new GeekCrawlerRagHostIndex(r.Url ?? "", r.Host, r.Indexed, r.RunId))
                 .ToList() ?? [];
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -823,6 +823,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Url { get; set; }
         public string? Host { get; set; }
         public bool Indexed { get; set; }
+        public string? RunId { get; set; }
     }
 
     private sealed class IndexStatusDto
