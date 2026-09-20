@@ -16,7 +16,11 @@ namespace GeekAPI.Services.ContentCreator;
 /// </summary>
 public static class GccSiteStructureMatch
 {
-    public sealed record ToolRow(string Name, string? Href);
+    /// <param name="Context">
+    /// The text of the block the anchor appeared in. Not part of the anchor — the crawler records
+    /// only <c>{ label, href }</c> — but it is the only thing that says what the link is about.
+    /// </param>
+    public sealed record ToolRow(string Name, string? Href, string Context);
 
     public sealed record MatchResult(
         string MatchedHeading,
@@ -179,12 +183,14 @@ public static class GccSiteStructureMatch
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var link in links)
         {
-            var name = (link.Text ?? "").Replace('\n', ' ').Trim();
+            var name = (link.Label ?? "").Replace('\n', ' ').Trim();
             if (name.Length == 0 || name.Length >= 80) continue;
             if (LooksLikeSiteChrome(name)) continue;
             if (!seen.Add(name)) continue;
             var href = string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim();
-            rows.Add(new ToolRow(name, href));
+            // The prose the link sits in. "Learn more" says nothing on its own; the sentence
+            // around it is what tells a writer what the tool actually is.
+            rows.Add(new ToolRow(name, href, link.Context));
         }
         return rows;
     }

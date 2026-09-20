@@ -16,7 +16,8 @@ public class GccSiteStructureMatchTests
         IReadOnlyList<SiteStructureNode>? children = null) =>
         new(level, heading, [], links ?? [], children ?? []);
 
-    private static SiteStructureLink Link(string text, string href) => new(text, href, "");
+    private static SiteStructureLink Link(string label, string href, string context = "") =>
+        new(label, href, context, "paragraph");
 
     private static SiteStructure Structure(params SiteStructurePage[] pages) =>
         new("run", DateTimeOffset.UtcNow, pages.Length, 0, pages);
@@ -63,6 +64,28 @@ public class GccSiteStructureMatchTests
         // so the slugs differ and this does NOT match. If that is wrong for the product, the fix is
         // in Slugify, and this test is where it gets decided.
         Assert.Empty(matches);
+    }
+
+    [Fact]
+    public void A_link_carries_the_prose_it_sits_in()
+    {
+        // The crawler records an anchor as { label, href } and nothing more. A label like
+        // "Learn more" is useless to a writer on its own; the block it sits in is what says
+        // what the link is about, so it travels with the link.
+        var page = new SiteStructurePage("https://example.com/services", [
+            Node(2, "Automated Data Entry & Processing", [
+                Link("Learn more", "/tools/invoice-capture",
+                    "Invoice capture reads totals and line items straight off a supplier PDF."),
+                Link("Document OCR", "/tools/document-ocr",
+                    "Document OCR turns scanned paperwork into searchable text."),
+            ]),
+        ]);
+
+        var match = Assert.Single(
+            GccSiteStructureMatch.MatchAll(Structure(page), ["Automated Data Entry & Processing"]));
+
+        var vague = Assert.Single(match.RecommendedTools, t => t.Name == "Learn more");
+        Assert.Contains("supplier PDF", vague.Context);
     }
 
     [Fact]

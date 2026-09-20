@@ -3,8 +3,15 @@ using GeekAPI.HttpClients;
 
 namespace GeekAPI.Services.GeekCrawler;
 
-/// <summary>One anchor carried on a block. <c>Rel</c> is empty when the page recorded none.</summary>
-public sealed record SiteStructureLink(string Text, string Href, string Rel);
+/// <summary>
+/// One anchor, with the prose it sits inside.
+///
+/// The crawler records an anchor as <c>{ label, href }</c> and nothing else — there is no rel, no
+/// title, no target. <see cref="Context"/> is not part of the anchor: it is the text of the block
+/// the anchor appeared in, which is the only thing that says what the link is about. A bare
+/// "Learn more" is useless without the sentence around it.
+/// </summary>
+public sealed record SiteStructureLink(string Label, string Href, string Context, string ContextKind);
 
 public sealed record SiteStructureNode(
     int Level,
@@ -101,7 +108,7 @@ public static class GeekCrawlerSiteStructure
                     Level = level.Value,
                     HeadingText = ReadString(block, "text")?.Trim() ?? string.Empty,
                 };
-                node.Links.AddRange(ReadAnchors(block));
+                node.Links.AddRange(ReadAnchors(block, ReadText(block), "heading"));
 
                 while (stack.Count > 0 && stack[^1].Level >= node.Level)
                     stack.RemoveAt(stack.Count - 1);
@@ -118,7 +125,7 @@ public static class GeekCrawlerSiteStructure
             var open = stack[^1];
             var text = ReadText(block);
             if (!string.IsNullOrWhiteSpace(text)) open.Paragraphs.Add(text);
-            open.Links.AddRange(ReadAnchors(block));
+            open.Links.AddRange(ReadAnchors(block, text, ReadString(block, "kind")?.Trim() ?? ""));
         }
 
         return roots.ConvertAll(r => r.Seal());
@@ -163,7 +170,9 @@ public static class GeekCrawlerSiteStructure
         return list;
     }
 
-    private static List<SiteStructureLink> ReadAnchors(JsonElement block)
+    /// <param name="context">The containing block's text — what the link is about.</param>
+    /// <param name="contextKind">That block's kind: paragraph, listItem, heading, row, and so on.</param>
+    private static List<SiteStructureLink> ReadAnchors(JsonElement block, string context, string contextKind)
     {
         var links = new List<SiteStructureLink>();
         if (block.ValueKind != JsonValueKind.Object) return links;
@@ -177,10 +186,15 @@ public static class GeekCrawlerSiteStructure
             var href = ReadString(anchor, "href");
             if (string.IsNullOrWhiteSpace(href)) continue;
 
+            // The crawler writes "label". "text" is accepted too so a page stored by an older
+            // extractor still yields a name rather than a blank row.
+            var label = ReadString(anchor, "label") ?? ReadString(anchor, "text");
+
             links.Add(new SiteStructureLink(
-                ReadString(anchor, "text")?.Trim() ?? string.Empty,
+                label?.Trim() ?? string.Empty,
                 href.Trim(),
-                ReadString(anchor, "rel")?.Trim() ?? string.Empty));
+                context,
+                contextKind));
         }
 
         return links;
