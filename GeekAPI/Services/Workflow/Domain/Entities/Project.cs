@@ -56,6 +56,18 @@ public class Project
     public bool UseExactKeywordAsTitle { get; set; }
 
     /// <summary>Optional comma-separated desired headings that must appear in the pillar article outline.</summary>
+    /// <summary>
+    /// Sites this client sells or recommends, as the operator declared them.
+    ///
+    /// The declaration, not the corpus. Partner content is retrieved from the crawl index by topic;
+    /// this records which partners the client actually has, so that claim can be checked against
+    /// what the site references and a partner declared but never mentioned can be spotted.
+    /// </summary>
+    public List<string> PartnerUrls { get; set; } = [];
+
+    /// <summary>Rivals writing on the same topics, as the operator declared them.</summary>
+    public List<string> CompetitorUrls { get; set; } = [];
+
     public string? Notes { get; set; }
 
     /// <summary>Unused wrapper id (content_creator.gcc_site_analyses). Crawl key is SiteAnalysisProfileId.</summary>

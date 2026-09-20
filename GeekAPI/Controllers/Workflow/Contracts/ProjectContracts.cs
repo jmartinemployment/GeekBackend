@@ -8,7 +8,9 @@ public record CreateProjectRequest(
     Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,
     LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle = false,
     Guid? SiteAnalysisId = null,
-    Guid? SiteAnalysisProfileId = null);
+    Guid? SiteAnalysisProfileId = null,
+    IReadOnlyList<string>? PartnerUrls = null,
+    IReadOnlyList<string>? CompetitorUrls = null);
 
 public record UpdateProjectNotesRequest(string? Notes);
 

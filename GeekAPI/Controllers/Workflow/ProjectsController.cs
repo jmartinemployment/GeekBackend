@@ -53,6 +53,11 @@ public class ProjectsController : ControllerBase
             ClientId = request.ClientId,
             Name = request.Name,
             ProjectUrl = request.ProjectUrl,
+            // Declared, not verified. Blank entries are dropped; whether a host has been crawled is
+            // a separate question the caller already asked, and re-deciding it here would put two
+            // answers in play.
+            PartnerUrls = Clean(request.PartnerUrls),
+            CompetitorUrls = Clean(request.CompetitorUrls),
             TargetKeyword = request.TargetKeyword,
             Department = request.Department,
             PreferredProvider = request.PreferredProvider,
@@ -267,5 +272,27 @@ public class ProjectsController : ControllerBase
         }
 
         public int GetHashCode(ToolInfo obj) => obj.Name.ToLowerInvariant().GetHashCode();
+    }
+
+    /// <summary>
+    /// Trim, drop blanks, drop repeats. Nothing else — the same URL typed twice is one partner, but
+    /// a URL that will not parse is stored as entered rather than dropped: the operator declared it,
+    /// and silently discarding a line they typed hides the mistake instead of showing it.
+    /// </summary>
+    private static List<string> Clean(IReadOnlyList<string>? urls)
+    {
+        if (urls is null) return [];
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cleaned = new List<string>();
+        foreach (var url in urls)
+        {
+            var trimmed = url?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+            if (!seen.Add(trimmed)) continue;
+            cleaned.Add(trimmed);
+        }
+
+        return cleaned;
     }
 }
