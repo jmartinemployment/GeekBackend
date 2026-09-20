@@ -45,6 +45,23 @@ public sealed class PersistentClientStore : IClientStore
     public Task<bool> AnyAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(!_clients.IsEmpty);
 
+    /// <summary>
+    /// Remove the client from storage, then from the cache.
+    ///
+    /// Storage first on purpose: if the delete fails the client is still cached and still listed,
+    /// which is the truth. Dropping the cache entry first would show it gone while the document
+    /// survived, and it would reappear on the next load with no explanation.
+    /// </summary>
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        if (!_clients.ContainsKey(id)) return false;
+
+        await _persistence.DeleteDocumentAsync(Collection, id, cancellationToken);
+        _clients.TryRemove(id, out _);
+        _logger.LogInformation("Deleted client {ClientId}", id);
+        return true;
+    }
+
     /// <summary>Load all clients from persistent storage into the cache.</summary>
     public async Task HydrateAsync(CancellationToken cancellationToken = default)
     {

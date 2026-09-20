@@ -11,6 +11,9 @@ public interface IClientStore
     Task AddAsync(Client client, CancellationToken cancellationToken = default);
     Task SaveAsync(Client client, CancellationToken cancellationToken = default);
     Task<bool> AnyAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Remove a client. Returns false when no such client exists.</summary>
+    Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
 public sealed class ClientStore : IClientStore
@@ -34,6 +37,9 @@ public sealed class ClientStore : IClientStore
         // Base implementation: keep client in cache. Persistent stores override.
         return Task.CompletedTask;
     }
+
+    public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_clients.TryRemove(id, out _));
 
     public Task<bool> AnyAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(!_clients.IsEmpty);

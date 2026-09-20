@@ -10,10 +10,12 @@ namespace GeekAPI.Controllers.Workflow;
 public class ClientsController : ControllerBase
 {
     private readonly IClientStore _clientStore;
+    private readonly IProjectStore _projectStore;
 
-    public ClientsController(IClientStore clientStore)
+    public ClientsController(IClientStore clientStore, IProjectStore projectStore)
     {
         _clientStore = clientStore;
+        _projectStore = projectStore;
     }
 
     [HttpGet]
@@ -35,6 +37,34 @@ public class ClientsController : ControllerBase
         await _clientStore.AddAsync(client, cancellationToken);
 
         return CreatedAtAction(nameof(GetAll), new { }, ToResponse(client));
+    }
+
+    /// <summary>
+    /// Remove a client that has no projects.
+    ///
+    /// Refused while projects exist, rather than cascading or orphaning them. A cascade would take
+    /// real work with it on the strength of one click, and orphaning leaves projects pointing at a
+    /// client that is gone — neither is a trade worth making to tidy up a name. The count is in the
+    /// message so the caller knows what is in the way.
+    /// </summary>
+    [HttpDelete("{clientId:guid}")]
+    public async Task<IActionResult> Delete(Guid clientId, CancellationToken cancellationToken)
+    {
+        var client = await _clientStore.GetAsync(clientId, cancellationToken);
+        if (client is null) return NotFound();
+
+        var projects = await _projectStore.ListAsync(p => p.ClientId == clientId, cancellationToken);
+        if (projects.Count > 0)
+        {
+            return Conflict(new
+            {
+                error = $"“{client.Name}” has {projects.Count} project(s). Delete or move them first.",
+                projectCount = projects.Count,
+            });
+        }
+
+        var deleted = await _clientStore.DeleteAsync(clientId, cancellationToken);
+        return deleted ? NoContent() : NotFound();
     }
 
     [HttpPut("{clientId:guid}/publish-target")]
