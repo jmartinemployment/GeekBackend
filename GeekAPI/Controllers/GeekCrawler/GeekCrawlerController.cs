@@ -240,6 +240,43 @@ public class GeekCrawlerController : ControllerBase
     }
 
     /// <summary>
+    /// A run's site structure: heading levels, their nesting, and the anchors under each section.
+    ///
+    /// Assembled from the crawler's typed <c>blocks</c>, which already carry <c>heading.level</c> and
+    /// per-block <c>anchors</c>. Nothing here re-parses Html — deriving the same structure a second
+    /// time from a different representation is how the two halves drift apart.
+    ///
+    /// Pages whose extraction produced no blocks are excluded and counted on the response. A run
+    /// whose pages carry Html and no blocks reads as exactly that, never as an empty tree, and there
+    /// is no fallback to parsing <c>contentHtml</c>: missing blocks is terminal for that page.
+    ///
+    /// This lives on the geek-crawler surface because it is crawl data. ContentCreator is one
+    /// consumer of it, not its owner.
+    /// </summary>
+    [HttpGet("crawls/{runId:guid}/site-structure")]
+    public async Task<IActionResult> GetSiteStructure(
+        Guid runId,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        var pages = new List<GeekCrawlerPageDto>();
+        var offset = 0;
+        const int batch = 100;
+        while (true)
+        {
+            var chunk = await _repo.ListPagesAsync(runId, batch, offset, ct).ConfigureAwait(false);
+            if (chunk.Count == 0) break;
+            pages.AddRange(chunk);
+            if (chunk.Count < batch) break;
+            offset += chunk.Count;
+        }
+
+        return Ok(GeekCrawlerSiteStructure.Build(runId, pages));
+    }
+
+    /// <summary>
     /// Lightweight page list for operator UI / reports — no HTML bodies.
     /// Backed by the resume projection (Origin, Url, HasHtml only).
     /// </summary>

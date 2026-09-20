@@ -10,10 +10,11 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
 // Types this controller reads moved during the v2 namespace migration (582a171); the controller was
 // deleted in the same commit, so it never saw the move.
+// RelatedPageDto / SiteSectionContextDto / ContentGapDto only. v1 no longer calls any V2 service —
+// these are shared data shapes that happen to sit in a V2 file. Moving them to a neutral namespace
+// would touch V2, which is deliberately left alone.
 using GeekAPI.Services.ContentCreatorV2;
-using GeekAPI.Services.ContentCreatorV2.GeekCrawler;
-using GeekAPI.Services.ContentCreatorV2.Hierarchy;
-using GeekAPI.Services.ContentCreatorV2.ProjectSite;
+using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
 using GeekAPI.Services.GeekSeo;
 using GeekApplication.Interfaces.ContentWriterV3;
@@ -41,9 +42,8 @@ public class GccController : ControllerBase
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
-    private readonly GccV2GeekCrawlerResearchResolver _research;
-    private readonly HttpGccV2Repository _v2Repo;
-    private readonly IGccV2ProjectSitePageSource _sitePages;
+    private readonly HttpGeekCrawlerRepository _crawlerRepo;
+    private readonly IGeekCrawlerRagClient _rag;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -55,9 +55,8 @@ public class GccController : ControllerBase
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
-        GccV2GeekCrawlerResearchResolver research,
-        HttpGccV2Repository v2Repo,
-        IGccV2ProjectSitePageSource sitePages,
+        HttpGeekCrawlerRepository crawlerRepo,
+        IGeekCrawlerRagClient rag,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -68,9 +67,8 @@ public class GccController : ControllerBase
         _seo = seo;
         _jobs = jobs;
         _user = user;
-        _research = research;
-        _v2Repo = v2Repo;
-        _sitePages = sitePages;
+        _crawlerRepo = crawlerRepo;
+        _rag = rag;
         _logger = logger;
     }
 
@@ -1100,23 +1098,64 @@ public class GccController : ControllerBase
         if (string.IsNullOrWhiteSpace(projectUrl))
             return BadRequest(new { error = "projectUrl required" });
 
-        var rows = await _research
-            .CheckSeedReadinessAsync(_user.UserId.ToString("D"), CrawlTypes.ProjectSite, [projectUrl], ct)
-            .ConfigureAwait(false);
-
-        // The resolver never throws and returns one row per accepted seed. No row means the seed was
-        // not evaluated at all, which is not the same answer as "not ready" and must not read as one.
-        if (rows.Count == 0)
+        // Two questions, answered in order, because they fail differently.
+        //
+        // First: does the index hold this host, and under which run? An empty result means the index
+        // could not be reached at all — not the same answer as "not indexed", and it must not read
+        // as one.
+        var indexed = await _rag.HostsIndexedAsync([projectUrl], ct).ConfigureAwait(false);
+        if (indexed.Count == 0)
             return BadRequest(new { error = "The project URL could not be evaluated." });
 
-        var row = rows[0];
+        var row = indexed[0];
+        if (!row.Indexed || string.IsNullOrWhiteSpace(row.RunId))
+        {
+            return Ok(new
+            {
+                seed = projectUrl,
+                ready = false,
+                runId = (string?)null,
+                indexState = "missing",
+                reason = "No crawl evidence is indexed for this host.",
+            });
+        }
+
+        // Second: is that run actually finished and owned by this user? An indexed host whose run is
+        // still crawling is not evidence a create can ground on.
+        if (!Guid.TryParse(row.RunId, out var runId))
+        {
+            return Ok(new
+            {
+                seed = projectUrl,
+                ready = false,
+                runId = (string?)null,
+                indexState = "unusable",
+                reason = "The index named a run id that cannot be read.",
+            });
+        }
+
+        var run = await _crawlerRepo.GetRunAsync(runId, ct).ConfigureAwait(false);
+        if (run is null
+            || !string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase))
+        {
+            return Ok(new
+            {
+                seed = projectUrl,
+                ready = false,
+                runId = (string?)null,
+                indexState = "missing",
+                reason = "The indexed run is not available to this user.",
+            });
+        }
+
+        var complete = string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase);
         return Ok(new
         {
-            seed = row.Seed,
-            ready = row.Ready,
-            runId = row.RunId,
-            indexState = row.IndexState,
-            reason = row.Reason,
+            seed = projectUrl,
+            ready = complete,
+            runId = complete ? run.Id.ToString("D") : null,
+            indexState = run.RagState ?? run.Status,
+            reason = complete ? null : $"The crawl for this host is {run.Status}, not complete.",
         });
     }
 
@@ -1143,25 +1182,25 @@ public class GccController : ControllerBase
         if (string.IsNullOrWhiteSpace(target))
             return BadRequest(new { error = "keyword required" });
 
-        var run = await _v2Repo.GetProjectSiteCrawlRunAsync(runId, ct).ConfigureAwait(false);
+        var run = await _crawlerRepo.GetRunAsync(runId, ct).ConfigureAwait(false);
         if (run is null) return NotFound();
         if (!string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase))
             return NotFound();
 
-        var pages = new List<GccV2ProjectSiteCrawlPageDto>();
+        var pages = new List<GeekCrawlerPageDto>();
         var offset = 0;
         const int batch = 100;
         while (true)
         {
-            var chunk = await _sitePages.ListPagesAsync(runId, batch, offset, ct).ConfigureAwait(false);
+            var chunk = await _crawlerRepo.ListPagesAsync(runId, batch, offset, ct).ConfigureAwait(false);
             if (chunk.Count == 0) break;
             pages.AddRange(chunk);
             if (chunk.Count < batch) break;
             offset += chunk.Count;
         }
 
-        var hierarchy = GccV2SiteHierarchyFromCrawl.Build(run.SiteUrl, pages);
-        var matches = GccV2HierarchyToolMatch.MatchAll(hierarchy, [target]);
+        var structure = GeekCrawlerSiteStructure.Build(runId, pages);
+        var matches = GccSiteStructureMatch.MatchAll(structure, [target]);
 
         return Ok(matches.Select(m => new
         {
@@ -1174,7 +1213,7 @@ public class GccController : ControllerBase
             sourcePageUrl = m.SourcePageUrl,
             toolsByHeading = m.RecommendedTools.Count == 0
                 ? Array.Empty<object>()
-                : [new { heading = m.MatchedHeading, tools = m.RecommendedTools.Select(t => new { name = t.Name, href = t.Href }) }],
+                : [new { heading = m.MatchedHeading, tools = m.RecommendedTools.Select(tool => new { name = tool.Name, href = tool.Href }) }],
         }));
     }
 
