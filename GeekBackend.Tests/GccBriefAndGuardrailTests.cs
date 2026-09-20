@@ -15,7 +15,7 @@ public class GccBriefAndGuardrailTests
         StartingContentType: "blog",
         Topic: "ai marketing",
         Notes: null,
-        SiteAnalysisId: null,
+        ProjectSiteRunId: null,
         SiteSectionJson: null,
         BriefJson: briefJson,
         ResearchJson: null,

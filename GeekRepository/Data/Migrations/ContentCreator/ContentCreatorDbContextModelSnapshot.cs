@@ -164,8 +164,9 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasColumnType("text")
                         .HasColumnName("research_json");
 
-                    b.Property<Guid?>("SiteAnalysisId")
-                        .HasColumnType("uuid");
+                    b.Property<Guid?>("ProjectSiteRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("SiteAnalysisId");
 
                     b.Property<string>("SiteSectionJson")
                         .HasColumnType("text");

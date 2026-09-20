@@ -76,7 +76,7 @@ public class GccV2LegacyController : ControllerBase
         contentType = create.StartingContentType,
         status = create.Status,
         department = create.Department,
-        siteAnalysisProfileId = create.SiteAnalysisId,
+        projectSiteRunId = create.ProjectSiteRunId,
         createdAtUtc = create.CreatedAtUtc,
         updatedAtUtc = create.UpdatedAtUtc,
     };
@@ -90,7 +90,7 @@ public class GccV2LegacyController : ControllerBase
         create.Topic,
         create.Notes,
         create.Department,
-        siteAnalysisProfileId = create.SiteAnalysisId,
+        projectSiteRunId = create.ProjectSiteRunId,
         create.SiteSectionJson,
         create.BriefJson,
         create.ResearchJson,

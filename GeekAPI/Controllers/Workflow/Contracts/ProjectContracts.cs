@@ -24,6 +24,9 @@ public record UpdateHierarchyContextRequest(
     IReadOnlyList<string>? HierarchyChildHeadings,
     string? HierarchySourcePageUrl,
     bool AllowOutsideSiteScope,
+    // The crawl this hierarchy choice was made against. The two old names are accepted for one
+    // release, for callers written before the rename; all three carry the same run id.
+    Guid? ProjectSiteRunId = null,
     Guid? SiteAnalysisId = null,
     Guid? SiteAnalysisProfileId = null,
     IReadOnlyList<ToolsByHeading>? HierarchyToolsByHeading = null);

@@ -135,9 +135,10 @@ public class ProjectsController : ControllerBase
             return NotFound();
         }
 
-        if (request.SiteAnalysisProfileId is Guid spid && spid != Guid.Empty)
+        if ((request.ProjectSiteRunId ?? request.SiteAnalysisProfileId ?? request.SiteAnalysisId)
+            is Guid runId && runId != Guid.Empty)
         {
-            project.ProjectSiteRunId = spid;
+            project.ProjectSiteRunId = runId;
         }
 
         var children = (request.HierarchyChildHeadings ?? [])

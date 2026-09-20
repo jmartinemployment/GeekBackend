@@ -79,8 +79,8 @@ public class GccGenerateService
     /// non-empty relatedPages. Applies to all types including imagePrompt/aiTool (no exemption);
     /// per-H2 image prompts must include siteSection+tree with at least one top-level section.
     /// </summary>
-    public static void ValidateSiteSectionGate(Guid? siteAnalysisProfileId, SiteSectionContextDto? section) =>
-        GccV2SiteSection.ValidateSiteSectionGate(siteAnalysisProfileId, section);
+    public static void ValidateSiteSectionGate(Guid? projectSiteRunId, SiteSectionContextDto? section) =>
+        GccV2SiteSection.ValidateSiteSectionGate(projectSiteRunId, section);
 
     /// <summary>
     /// Per-H2 image-prompt gate: requires a primary long-form with at least one top-level section.
@@ -1044,7 +1044,7 @@ public class GccGenerateService
         CancellationToken ct,
         string? mustMentionBlock = null)
     {
-        ValidateSiteSectionGate(create.SiteAnalysisId, section);
+        ValidateSiteSectionGate(create.ProjectSiteRunId, section);
         ValidateBriefRequired(create);
         var briefBlock = BuildBriefAndResearchBlock(create);
         if (!string.IsNullOrWhiteSpace(mustMentionBlock))

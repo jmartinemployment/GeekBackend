@@ -33,6 +33,9 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(c => c.Notes).HasColumnType("text");
             entity.Property(c => c.Department).IsRequired().HasMaxLength(64).HasDefaultValue("marketing");
             entity.Property(c => c.SiteSectionJson).HasColumnType("text");
+            // The property was renamed; the column was not. "SiteAnalysisId" is what the live rows
+            // are stored under, and a rename there is a migration over real data for no gain.
+            entity.Property(c => c.ProjectSiteRunId).HasColumnName("SiteAnalysisId");
             entity.Property(c => c.BriefJson).HasColumnName("brief_json").HasColumnType("text");
             entity.Property(c => c.ResearchJson).HasColumnName("research_json").HasColumnType("text");
             entity.Property(c => c.Status).IsRequired().HasMaxLength(32);

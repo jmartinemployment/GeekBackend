@@ -46,7 +46,7 @@ public interface IGccSiteAnalysisRepository
     Task<GccSiteAnalysisDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     /// <summary>Most recent (by CreatedAtUtc) site analysis for a normalized domain, or null if
     /// this domain has never been analyzed — the anchor for "has this domain been analyzed" /
-    /// re-analyze checks, so a create's SiteAnalysisId can point at one continuously-refreshed
+    /// re-analyze checks, so a create's ProjectSiteRunId can point at one continuously-refreshed
     /// row per domain instead of accumulating orphaned duplicates.</summary>
     Task<GccSiteAnalysisDto?> GetLatestByDomainAsync(string domain, CancellationToken ct = default);
     /// <summary>True when any site analysis row is status <c>ready</c> (Workflow unlock gate).</summary>

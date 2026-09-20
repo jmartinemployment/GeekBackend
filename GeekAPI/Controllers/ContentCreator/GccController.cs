@@ -97,7 +97,7 @@ public class GccController : ControllerBase
         DateTime? lastAnalyzedAtUtc = null;
         int? analysisAgeDays = null;
         bool analysisStale = false;
-        if (create.SiteAnalysisId is Guid crawlId && crawlId != Guid.Empty)
+        if (create.ProjectSiteRunId is Guid crawlId && crawlId != Guid.Empty)
         {
             var bearer = GetBearerToken();
             if (!string.IsNullOrWhiteSpace(bearer))
@@ -125,7 +125,7 @@ public class GccController : ControllerBase
             create.Topic,
             create.Notes,
             create.Department,
-            siteAnalysisProfileId = create.SiteAnalysisId,
+            projectSiteRunId = create.ProjectSiteRunId,
             create.SiteSectionJson,
             create.BriefJson,
             create.ResearchJson,
@@ -327,7 +327,7 @@ public class GccController : ControllerBase
         string? sectionJson = null;
         if (request.SiteSection is not null)
         {
-            if (request.SiteAnalysisProfileId is Guid aid && aid != Guid.Empty
+            if (request.ProjectSiteRunId is Guid aid && aid != Guid.Empty
                 && (request.SiteSection.RelatedPages is null || request.SiteSection.RelatedPages.Count == 0))
             {
                 return BadRequest("Site Analyzer create requires non-empty relatedPages");
@@ -341,7 +341,7 @@ public class GccController : ControllerBase
             request.StartingContentType.Trim(),
             request.Topic.Trim(),
             string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
-            request.SiteAnalysisProfileId,
+            request.ProjectSiteRunId,
             sectionJson,
             Department: string.IsNullOrWhiteSpace(request.Department) ? "marketing" : request.Department.Trim()), ct);
 
@@ -389,7 +389,7 @@ public class GccController : ControllerBase
         var section = GccGenerateService.ParseSiteSection(create.SiteSectionJson);
         try
         {
-            GccGenerateService.ValidateSiteSectionGate(create.SiteAnalysisId, section);
+            GccGenerateService.ValidateSiteSectionGate(create.ProjectSiteRunId, section);
             GccGenerateService.ValidateBriefRequired(create);
         }
         catch (InvalidOperationException ex)
@@ -468,7 +468,7 @@ public class GccController : ControllerBase
     /// </summary>
     private async Task<string?> TryBuildMustMentionBlockAsync(GccCreateDto create, CancellationToken ct)
     {
-        if (create.SiteAnalysisId is not Guid profileId || profileId == Guid.Empty)
+        if (create.ProjectSiteRunId is not Guid profileId || profileId == Guid.Empty)
             return null;
 
         var bearer = GetBearerToken();
@@ -494,7 +494,7 @@ public class GccController : ControllerBase
         CancellationToken ct)
     {
         if (acknowledged) return null;
-        if (create.SiteAnalysisId is not Guid profileId || profileId == Guid.Empty)
+        if (create.ProjectSiteRunId is not Guid profileId || profileId == Guid.Empty)
             return null;
 
         var bearer = GetBearerToken();
@@ -520,7 +520,7 @@ public class GccController : ControllerBase
             lastAnalyzedAtUtc = at,
             analysisAgeDays = ageDays,
             staleAfterDays = SiteAnalysisStaleAfterDays,
-            siteAnalysisProfileId = profileId,
+            projectSiteRunId = profileId,
         };
     }
 
@@ -1839,7 +1839,7 @@ public class GccController : ControllerBase
         string StartingContentType,
         string Topic,
         string? Notes,
-        Guid? SiteAnalysisProfileId,
+        Guid? ProjectSiteRunId,
         SiteSectionContextDto? SiteSection,
         string? Department = null);
 

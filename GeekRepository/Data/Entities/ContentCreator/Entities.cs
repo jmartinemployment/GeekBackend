@@ -13,7 +13,12 @@ public class GccCreate
     /// Describes what's being written, not which domain was analyzed.
     /// </summary>
     public string Department { get; set; } = "marketing";
-    public Guid? SiteAnalysisId { get; set; }
+    /// <summary>
+    /// The Geek-Crawler-v2 crawl this create is grounded on. The database column is still
+    /// "SiteAnalysisId" — renaming the property costs nothing, renaming the column would be a
+    /// migration over live rows for no gain.
+    /// </summary>
+    public Guid? ProjectSiteRunId { get; set; }
     public string? SiteSectionJson { get; set; }
     /// <summary>Content Brief JSON (intent, audience, angle, CTA, ToV, length, SERP index fields).</summary>
     public string? BriefJson { get; set; }
