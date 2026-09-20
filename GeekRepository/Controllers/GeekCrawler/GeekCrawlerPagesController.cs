@@ -35,6 +35,24 @@ public class GeekCrawlerPagesController : ControllerBase
         return Ok(pages);
     }
 
+    /// <summary>Pages of a run without their Html — for consumers that read the typed blocks.</summary>
+    [HttpGet("blocks")]
+    public async Task<ActionResult<IReadOnlyList<GeekCrawlerPage>>> ListBlocksByRun(
+        [FromQuery] Guid runId,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty)
+            return BadRequest("runId is required");
+
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+
+        var pages = await _mongo.ListPageBlocksByRunAsync(runId, limit, offset, ct);
+        return Ok(pages);
+    }
+
     [HttpGet("by-seeds")]
     public async Task<ActionResult<IReadOnlyList<GeekCrawlerPage>>> ListBySeeds(
         [FromQuery] Guid runId,

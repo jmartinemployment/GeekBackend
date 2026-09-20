@@ -261,12 +261,14 @@ public class GeekCrawlerController : ControllerBase
         if (!_user.IsAuthenticated) return Unauthorized();
         if (!await OwnsRunAsync(runId, ct)) return NotFound();
 
+        // Blocks only — never Html. Structure comes from the typed blocks, and a payload carrying
+        // page markup is large enough to be truncated in transit and arrive as malformed JSON.
         var pages = new List<GeekCrawlerPageDto>();
         var offset = 0;
-        const int batch = 100;
+        const int batch = 50;
         while (true)
         {
-            var chunk = await _repo.ListPagesAsync(runId, batch, offset, ct).ConfigureAwait(false);
+            var chunk = await _repo.ListPageBlocksAsync(runId, batch, offset, ct).ConfigureAwait(false);
             if (chunk.Count == 0) break;
             pages.AddRange(chunk);
             if (chunk.Count < batch) break;

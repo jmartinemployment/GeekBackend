@@ -1187,12 +1187,13 @@ public class GccController : ControllerBase
         if (!string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase))
             return NotFound();
 
+        // Blocks only — never Html, for the same reason the site-structure read takes this path.
         var pages = new List<GeekCrawlerPageDto>();
         var offset = 0;
-        const int batch = 100;
+        const int batch = 50;
         while (true)
         {
-            var chunk = await _crawlerRepo.ListPagesAsync(runId, batch, offset, ct).ConfigureAwait(false);
+            var chunk = await _crawlerRepo.ListPageBlocksAsync(runId, batch, offset, ct).ConfigureAwait(false);
             if (chunk.Count == 0) break;
             pages.AddRange(chunk);
             if (chunk.Count < batch) break;

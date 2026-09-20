@@ -29,6 +29,15 @@ public interface IMongoGeekCrawlerService
 {
     // READ: Pages
     Task<List<GeekCrawlerPage>> ListPagesByRunAsync(Guid runId, int limit, int offset, CancellationToken ct = default);
+
+    /// <summary>
+    /// Pages of a run with <c>Html</c> projected out.
+    ///
+    /// Page HTML is the bulk of a crawl document, and a consumer that only needs the typed blocks
+    /// pays for it twice — once serialising it here, once parsing it there. Worse, a payload of full
+    /// documents is large enough to be truncated in transit and arrive as malformed JSON.
+    /// </summary>
+    Task<List<GeekCrawlerPage>> ListPageBlocksByRunAsync(Guid runId, int limit, int offset, CancellationToken ct = default);
     Task<List<GeekCrawlerPage>> ListPagesBySeedsAsync(Guid runId, IReadOnlyList<string> seeds, CancellationToken ct = default);
     Task<List<GeekCrawlerPageResumeRow>> ListPagesByRunForResumeAsync(Guid runId, int limit, int offset, CancellationToken ct = default);
     Task<int> CountPagesByRunAsync(Guid runId, CancellationToken ct = default);
@@ -331,6 +340,31 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to list pages by run {RunId}", runId);
+            throw;
+        }
+    }
+
+    public async Task<List<GeekCrawlerPage>> ListPageBlocksByRunAsync(Guid runId, int limit, int offset, CancellationToken ct = default)
+    {
+        if (runId == Guid.Empty) throw new ArgumentException("runId is required", nameof(runId));
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+
+        try
+        {
+            var collection = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
+            var pages = await collection
+                .Find(p => p.RunId == runId)
+                .Project<GeekCrawlerPage>(Builders<GeekCrawlerPage>.Projection.Exclude(p => p.Html))
+                .Sort(Builders<GeekCrawlerPage>.Sort.Ascending(p => p.CrawledAtUtc))
+                .Skip(offset)
+                .Limit(limit)
+                .ToListAsync(ct);
+            return pages;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list page blocks by run {RunId}", runId);
             throw;
         }
     }

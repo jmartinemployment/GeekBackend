@@ -93,6 +93,22 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
         res.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// Pages of a run without their Html.
+    ///
+    /// Structure is read from the typed blocks, never from markup, so Html is dead weight on this
+    /// path — and heavy enough that a full-document payload gets truncated in transit and arrives as
+    /// malformed JSON.
+    /// </summary>
+    public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
+        Guid runId,
+        int limit = 100,
+        int offset = 0,
+        CancellationToken ct = default) =>
+        GetListAsync<GeekCrawlerPageDto>(
+            $"repo/geek-crawler/pages/blocks?runId={runId}&limit={limit}&offset={offset}",
+            ct);
+
     public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesAsync(
         Guid runId,
         int limit = 100,
