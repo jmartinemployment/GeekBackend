@@ -20,6 +20,9 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        // BsonValue must be written as plain JSON. Reflecting over it hits typed accessors that
+        // throw, which kills serialisation after a 200 and a partial body are already on the wire.
+        options.JsonSerializerOptions.Converters.Add(new GeekRepository.Serialization.BsonValueJsonConverter());
     });
 
 var rawDatabaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
