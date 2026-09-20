@@ -5,7 +5,9 @@ using GeekAPI.Services.Workflow.Domain.Entities;
 namespace GeekAPI.Controllers.Workflow.Contracts;
 
 public record CreateProjectRequest(
-    Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,
+    // Name is optional: omit it and the target keyword is used. It is a label for finding the row
+    // again; nothing derives from it.
+    Guid ClientId, string? Name, string ProjectUrl, string TargetKeyword, string Department,
     LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle = false,
     Guid? SiteAnalysisId = null,
     Guid? SiteAnalysisProfileId = null,

@@ -40,8 +40,19 @@ public class ProjectsController : ControllerBase
             return BadRequest($"Department must be one of: {string.Join(", ", Departments.Slugs)}.");
         }
 
+        // Name is a label. Nothing derives from it, nothing puts it in front of a model, and the
+        // keyword already says what the project is about — so the caller may omit it and the
+        // keyword stands in. Kept on the entity because existing projects carry one and a caller
+        // that wants its own name should be able to set it.
+        var name = string.IsNullOrWhiteSpace(request.Name)
+            ? request.TargetKeyword?.Trim() ?? string.Empty
+            : request.Name.Trim();
+
+        // Deduplication keys on keyword and URL, not on the name. Two projects for the same
+        // keyword on the same site are the same project whatever either is called; keying on a
+        // free-text label let a typo create a duplicate.
         var existing = (await _projectStore.ListAsync(
-            p => p.Name == request.Name && p.TargetKeyword == request.TargetKeyword && p.ProjectUrl == request.ProjectUrl,
+            p => p.TargetKeyword == request.TargetKeyword && p.ProjectUrl == request.ProjectUrl,
             cancellationToken)).FirstOrDefault();
         if (existing is not null)
         {
@@ -51,7 +62,7 @@ public class ProjectsController : ControllerBase
         var project = new Project
         {
             ClientId = request.ClientId,
-            Name = request.Name,
+            Name = name,
             ProjectUrl = request.ProjectUrl,
             // Declared, not verified. Blank entries are dropped; whether a host has been crawled is
             // a separate question the caller already asked, and re-deciding it here would put two
