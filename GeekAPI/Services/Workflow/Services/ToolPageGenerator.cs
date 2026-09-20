@@ -208,7 +208,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         Project project,
         CancellationToken cancellationToken = default)
     {
-        if (project.SiteAnalysisProfileId is not Guid profileId || profileId == Guid.Empty)
+        if (project.ProjectSiteRunId is not Guid profileId || profileId == Guid.Empty)
             return new CrawlHierarchy([], null);
 
         var keyword = project.TargetKeyword?.Trim() ?? "";

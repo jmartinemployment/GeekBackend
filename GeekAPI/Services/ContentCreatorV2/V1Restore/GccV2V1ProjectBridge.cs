@@ -80,7 +80,7 @@ public sealed class GccV2V1ProjectBridge(
         project.HierarchySourcePageUrl = sourcePageUrl;
 
         project.ProjectUrl = (create.SiteUrl ?? "").Trim();
-        project.SiteAnalysisId = create.ProjectSiteCrawlRunId;
+        project.ProjectSiteRunId = create.ProjectSiteCrawlRunId;
         project.LinkedCreateId = createId;
         project.BriefJson = brief.RawBriefJson;
         project.UpdatedAtUtc = DateTime.UtcNow;

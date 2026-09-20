@@ -73,7 +73,13 @@ public class ProjectsController : ControllerBase
             Department = request.Department,
             PreferredProvider = request.PreferredProvider,
             UseExactKeywordAsTitle = request.UseExactKeywordAsTitle,
-            SiteAnalysisProfileId = request.SiteAnalysisProfileId is Guid spid && spid != Guid.Empty ? spid : null,
+            // Either spelling on the wire, one field behind it. Callers written against the old
+            // contract keep working; new ones send ProjectSiteRunId.
+            ProjectSiteRunId =
+                (request.ProjectSiteRunId ?? request.SiteAnalysisProfileId ?? request.SiteAnalysisId)
+                    is Guid runId && runId != Guid.Empty
+                    ? runId
+                    : null,
         };
 
         await _projectStore.AddAsync(project, cancellationToken);
@@ -131,7 +137,7 @@ public class ProjectsController : ControllerBase
 
         if (request.SiteAnalysisProfileId is Guid spid && spid != Guid.Empty)
         {
-            project.SiteAnalysisProfileId = spid;
+            project.ProjectSiteRunId = spid;
         }
 
         var children = (request.HierarchyChildHeadings ?? [])
@@ -253,8 +259,9 @@ public class ProjectsController : ControllerBase
             project.Id, project.ClientId, project.Name, project.ProjectUrl, project.TargetKeyword, project.Department, project.Status,
             project.PreferredProvider, project.UseExactKeywordAsTitle, crawl, keywordSources, generatedContent, contentSet, project.Notes,
             project.ContentApprovedAtUtc,
-            project.SiteAnalysisId,
-            project.SiteAnalysisProfileId,
+            project.ProjectSiteRunId,
+            project.ProjectSiteRunId,
+            project.ProjectSiteRunId,
             project.HierarchyPath,
             project.HierarchyChildHeadings,
             project.HierarchySourcePageUrl,
@@ -271,8 +278,9 @@ public class ProjectsController : ControllerBase
     private static ProjectSummaryResponse ToSummary(Project project) => new(
         project.Id, project.ClientId, project.Name, project.ProjectUrl, project.TargetKeyword, project.Department,
         project.Status, project.PreferredProvider, project.UseExactKeywordAsTitle, project.CreatedAtUtc,
-        project.SiteAnalysisId,
-        project.SiteAnalysisProfileId);
+        project.ProjectSiteRunId,
+        project.ProjectSiteRunId,
+        project.ProjectSiteRunId);
 
     private sealed class ToolInfoComparer : IEqualityComparer<ToolInfo>
     {

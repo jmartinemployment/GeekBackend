@@ -35,8 +35,9 @@ public static class ProjectSnapshotSerializer
             PreferredProvider: project.PreferredProvider,
             UseExactKeywordAsTitle: project.UseExactKeywordAsTitle,
             Notes: project.Notes,
-            SiteAnalysisId: project.SiteAnalysisId,
-            SiteAnalysisProfileId: project.SiteAnalysisProfileId,
+            ProjectSiteRunId: project.ProjectSiteRunId,
+            SiteAnalysisId: null,
+            SiteAnalysisProfileId: null,
             HierarchyPath: project.HierarchyPath,
             HierarchyChildHeadings: project.HierarchyChildHeadings,
             HierarchyToolsByHeading: project.HierarchyToolsByHeading,
@@ -76,8 +77,12 @@ public static class ProjectSnapshotSerializer
             PreferredProvider = snapshot.PreferredProvider,
             UseExactKeywordAsTitle = snapshot.UseExactKeywordAsTitle,
             Notes = snapshot.Notes,
-            SiteAnalysisId = snapshot.SiteAnalysisId,
-            SiteAnalysisProfileId = snapshot.SiteAnalysisProfileId,
+            // Documents written before the rename carry one of the old names. Read all three and
+            // write only the new one, or every stored project loses its run id on first load and
+            // silently stops grounding. Drop the fallbacks once no document carries them.
+            ProjectSiteRunId = snapshot.ProjectSiteRunId
+                ?? snapshot.SiteAnalysisProfileId
+                ?? snapshot.SiteAnalysisId,
             HierarchyPath = snapshot.HierarchyPath,
             HierarchyChildHeadings = snapshot.HierarchyChildHeadings ?? new(),
             HierarchyToolsByHeading = snapshot.HierarchyToolsByHeading ?? new(),
@@ -112,6 +117,8 @@ public static class ProjectSnapshotSerializer
         LlmProviderType PreferredProvider,
         bool UseExactKeywordAsTitle,
         string? Notes,
+        Guid? ProjectSiteRunId,
+        // Read-only compatibility. Never written; see the deserialiser.
         Guid? SiteAnalysisId,
         Guid? SiteAnalysisProfileId,
         string? HierarchyPath,

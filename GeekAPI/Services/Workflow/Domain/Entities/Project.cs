@@ -70,14 +70,19 @@ public class Project
 
     public string? Notes { get; set; }
 
-    /// <summary>Unused wrapper id (content_creator.gcc_site_analyses). Crawl key is SiteAnalysisProfileId.</summary>
-    public Guid? SiteAnalysisId { get; set; }
-
     /// <summary>
-    /// Required for hierarchy grounding: geek_seo.site_analysis_profiles.Id
-    /// (FK on site_analysis_page_section_trees."SiteAnalysisProfileId"). Not a generic "Profile Id".
+    /// The Geek-Crawler-v2 crawl this project is grounded on.
+    ///
+    /// Required for hierarchy grounding — it is what
+    /// <c>project-site/runs/{runId}/hierarchy-match</c> is keyed on, so a project without it cannot
+    /// resolve a section and cannot generate.
+    ///
+    /// Replaces SiteAnalysisProfileId and SiteAnalysisId, which held the same value under two names
+    /// on one entity: the create path wrote one, GccV2V1ProjectBridge wrote the other, and only the
+    /// first was ever read. A project made through the bridge therefore looked like it had no crawl
+    /// evidence. Site Analyzer, which both names referred to, is retired.
     /// </summary>
-    public Guid? SiteAnalysisProfileId { get; set; }
+    public Guid? ProjectSiteRunId { get; set; }
 
     /// <summary>Matched SA heading breadcrumb (e.g. "Services › HVAC › Installation").</summary>
     public string? HierarchyPath { get; set; }

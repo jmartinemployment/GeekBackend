@@ -9,6 +9,9 @@ public record CreateProjectRequest(
     // again; nothing derives from it.
     Guid ClientId, string? Name, string ProjectUrl, string TargetKeyword, string Department,
     LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle = false,
+    Guid? ProjectSiteRunId = null,
+    // Accepted for one release so callers written against the old contract keep working. Both name
+    // the same Geek-Crawler-v2 run; Site Analyzer, which they were named for, is retired.
     Guid? SiteAnalysisId = null,
     Guid? SiteAnalysisProfileId = null,
     IReadOnlyList<string>? PartnerUrls = null,
@@ -36,6 +39,10 @@ public record UpdateProjectBriefRequest(Guid CreateId, string? BriefJson);
 public record ProjectSummaryResponse(
     Guid Id, Guid ClientId, string Name, string ProjectUrl, string TargetKeyword, string Department,
     ProjectStatus Status, LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle, DateTime CreatedAtUtc,
+    // The crawl this project is grounded on. SiteAnalysisId and SiteAnalysisProfileId carry the same
+    // value for one release, for clients written against the old names; both are retired with Site
+    // Analyzer and neither survives past that.
+    Guid? ProjectSiteRunId = null,
     Guid? SiteAnalysisId = null,
     Guid? SiteAnalysisProfileId = null);
 
@@ -44,6 +51,10 @@ public record ProjectDetailResponse(
     LlmProviderType PreferredProvider, bool UseExactKeywordAsTitle, CrawlSummaryResponse? Crawl,
     List<KeywordSourceResponse> KeywordSources, List<GeneratedContentResponse> GeneratedContent,
     GeneratedContentSet? ContentSet, string? Notes, DateTime? ContentApprovedAtUtc = null,
+    // The crawl this project is grounded on. SiteAnalysisId and SiteAnalysisProfileId carry the same
+    // value for one release, for clients written against the old names; both are retired with Site
+    // Analyzer and neither survives past that.
+    Guid? ProjectSiteRunId = null,
     Guid? SiteAnalysisId = null,
     Guid? SiteAnalysisProfileId = null,
     string? HierarchyPath = null,
