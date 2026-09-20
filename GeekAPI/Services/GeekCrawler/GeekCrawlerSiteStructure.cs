@@ -29,12 +29,38 @@ public sealed record SiteStructurePage(string PageUrl, IReadOnlyList<SiteStructu
 /// Pages excluded because extraction produced no blocks. Reported rather than hidden: a run whose
 /// pages carry Html and no blocks must read as exactly that, never as an empty tree.
 /// </param>
+/// <param name="ViaPageUrl">
+/// The on-site page this reference passes through, or null when the section links the host itself.
+/// A value is the hop that makes a tool page's partner visible: the section links an internal page,
+/// and that page is what names the outside party.
+/// </param>
+public sealed record SiteHostReference(
+    IReadOnlyList<string> SectionPath,
+    string PageUrl,
+    string Label,
+    string? ViaPageUrl);
+
+public sealed record SiteCrossReferencedHost(string Host, IReadOnlyList<SiteHostReference> References);
+
+/// <param name="UnresolvedAnchors">
+/// Anchors whose href would not parse even against the page they appeared on. Counted rather than
+/// dropped, so a site full of malformed links reads as that and not as a site with few links.
+/// </param>
+public sealed record SiteCrossReference(
+    IReadOnlyList<SiteCrossReferencedHost> Hosts,
+    int UnresolvedAnchors);
+
+/// <param name="CrossReference">
+/// Which outside hosts this site reaches, and from which sections. Derived from the same pass, not
+/// stored: it is a projection of the crawl, and a stored copy could only drift from it.
+/// </param>
 public sealed record SiteStructure(
     string RunId,
     DateTimeOffset BuiltAtUtc,
     int PagesConsidered,
     int PagesWithoutBlocks,
-    IReadOnlyList<SiteStructurePage> Pages);
+    IReadOnlyList<SiteStructurePage> Pages,
+    SiteCrossReference CrossReference);
 
 /// <summary>
 /// Builds a page's heading tree from the crawler's typed <c>blocks</c>.
@@ -78,7 +104,8 @@ public static class GeekCrawlerSiteStructure
             DateTimeOffset.UtcNow,
             pages.Count,
             withoutBlocks,
-            built);
+            built,
+            BuildCrossReference(built));
     }
 
     /// <summary>
@@ -215,6 +242,127 @@ public static class GeekCrawlerSiteStructure
         if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out var parsed))
             return parsed;
         return null;
+    }
+
+    /// <summary>
+    /// Which outside hosts the site reaches, and from which sections.
+    ///
+    /// Every anchor is internal — it lands on a page this run holds — or external. Classifying them
+    /// answers what the tree alone cannot: for a given outside party, where on the site is it
+    /// referenced.
+    ///
+    /// The hop is the point. A tool page is an internal anchor, so the section linking it looks
+    /// self-contained; the partner it names is one step further on, in that page's own anchors.
+    /// One hop only: past that, the association stops being something the section can be said to
+    /// reference.
+    /// </summary>
+    internal static SiteCrossReference BuildCrossReference(IReadOnlyList<SiteStructurePage> pages)
+    {
+        var byKey = new Dictionary<string, SiteStructurePage>(StringComparer.Ordinal);
+        var siteHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in pages)
+        {
+            byKey[PageKey(page.PageUrl)] = page;
+            var host = HostOf(page.PageUrl);
+            if (host is not null) siteHosts.Add(host);
+        }
+
+        var byHost = new Dictionary<string, List<SiteHostReference>>(StringComparer.OrdinalIgnoreCase);
+        var unresolved = 0;
+
+        void Record(string host, SiteHostReference reference)
+        {
+            if (byHost.TryGetValue(host, out var list)) list.Add(reference);
+            else byHost[host] = [reference];
+        }
+
+        foreach (var page in pages)
+        {
+            foreach (var (node, path) in WalkWithPath(page.Roots, []))
+            {
+                foreach (var link in node.Links)
+                {
+                    var resolved = Absolute(link.Href, page.PageUrl);
+                    var host = resolved is null ? null : HostOf(resolved);
+                    if (resolved is null || host is null)
+                    {
+                        unresolved++;
+                        continue;
+                    }
+
+                    if (!siteHosts.Contains(host))
+                    {
+                        Record(host, new SiteHostReference(path, page.PageUrl, link.Label, null));
+                        continue;
+                    }
+
+                    if (!byKey.TryGetValue(PageKey(resolved), out var target)) continue;
+
+                    foreach (var (hop, _) in WalkWithPath(target.Roots, []))
+                    {
+                        foreach (var onward in hop.Links)
+                        {
+                            var onwardResolved = Absolute(onward.Href, target.PageUrl);
+                            var onwardHost = onwardResolved is null ? null : HostOf(onwardResolved);
+                            if (onwardResolved is null || onwardHost is null)
+                            {
+                                unresolved++;
+                                continue;
+                            }
+
+                            if (siteHosts.Contains(onwardHost)) continue;
+
+                            Record(onwardHost, new SiteHostReference(
+                                path, page.PageUrl, link.Label, target.PageUrl));
+                        }
+                    }
+                }
+            }
+        }
+
+        var hosts = byHost
+            .Select(kv => new SiteCrossReferencedHost(kv.Key, kv.Value))
+            .OrderByDescending(h => h.References.Count)
+            .ThenBy(h => h.Host, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new SiteCrossReference(hosts, unresolved);
+    }
+
+    private static IEnumerable<(SiteStructureNode Node, IReadOnlyList<string> Path)> WalkWithPath(
+        IEnumerable<SiteStructureNode> nodes,
+        IReadOnlyList<string> path)
+    {
+        foreach (var node in nodes)
+        {
+            var next = new List<string>(path) { node.HeadingText };
+            yield return (node, next);
+            foreach (var child in WalkWithPath(node.Children, next))
+                yield return child;
+        }
+    }
+
+    /// <summary>Same page under www. and a trailing slash is the same page.</summary>
+    private static string PageKey(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return url.Trim().ToLowerInvariant();
+        var host = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? uri.Host[4..] : uri.Host;
+        return $"{host.ToLowerInvariant()}{uri.AbsolutePath.TrimEnd('/')}";
+    }
+
+    private static string? HostOf(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        var host = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? uri.Host[4..] : uri.Host;
+        return host.ToLowerInvariant();
+    }
+
+    /// <summary>An href is only meaningful against the page it appeared on.</summary>
+    private static string? Absolute(string href, string pageUrl)
+    {
+        if (string.IsNullOrWhiteSpace(href)) return null;
+        if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var basis)) return null;
+        return Uri.TryCreate(basis, href, out var resolved) ? resolved.ToString() : null;
     }
 
     private sealed class MutableNode

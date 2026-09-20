@@ -20,7 +20,8 @@ public class GccSiteStructureMatchTests
         new(label, href, context, "paragraph");
 
     private static SiteStructure Structure(params SiteStructurePage[] pages) =>
-        new("run", DateTimeOffset.UtcNow, pages.Length, 0, pages);
+        new("run", DateTimeOffset.UtcNow, pages.Length, 0, pages,
+            GeekCrawlerSiteStructure.BuildCrossReference(pages));
 
     [Fact]
     public void Ampersand_in_a_keyword_still_matches_its_heading()
