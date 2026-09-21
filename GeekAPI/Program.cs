@@ -126,6 +126,7 @@ builder.Services.AddScoped(sp =>
     return new HttpGccRepository(httpClient, logger);
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGroundingResolver>();
 // In-process job tracking for GccController's generate endpoints — a ConcurrentDictionary with no
 // constructor dependencies, and never actually registered. GccController has therefore been
 // unconstructable since GccJobStore was added to its constructor: every action on it, not only the

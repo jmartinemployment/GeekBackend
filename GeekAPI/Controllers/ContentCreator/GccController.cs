@@ -40,6 +40,7 @@ public class GccController : ControllerBase
     private readonly IContentGenerationOrchestrator _orchestrator;
     private readonly CompanyProfileOptions _company;
     private readonly GccGenerateService _gen;
+    private readonly GccGroundingResolver _grounding;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
@@ -53,6 +54,7 @@ public class GccController : ControllerBase
         IContentGenerationOrchestrator orchestrator,
         IOptions<CompanyProfileOptions> company,
         GccGenerateService gen,
+        GccGroundingResolver grounding,
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
@@ -65,6 +67,7 @@ public class GccController : ControllerBase
         _orchestrator = orchestrator;
         _company = company.Value;
         _gen = gen;
+        _grounding = grounding;
         _seo = seo;
         _jobs = jobs;
         _user = user;
@@ -520,7 +523,10 @@ public class GccController : ControllerBase
         }
         catch (InvalidOperationException ex) when (
             ex.Message.Contains("brief required", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("Site Analyzer", StringComparison.OrdinalIgnoreCase))
+            || ex.Message.Contains("Site Analyzer", StringComparison.OrdinalIgnoreCase)
+            // A grounding refusal is the operator's answer, not a server fault: the content type
+            // declared evidence it must cite and that evidence is not available.
+            || ex.Message.StartsWith("Refused:", StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest(ex.Message);
         }
@@ -637,6 +643,37 @@ public class GccController : ControllerBase
             : null;
     }
 
+    /// <summary>
+    /// Folds retrieved, citable passages into the create's research so the existing quoteable
+    /// prompt block (<c>GccGenerateService.cs:169</c>) carries them. Operator-uploaded quoteables
+    /// are kept and retrieved ones appended; neither silently replaces the other.
+    /// </summary>
+    private static GccCreateDto MergeRetrievedEvidence(GccCreateDto create, GccGroundingOutcome grounding)
+    {
+        if (grounding.Pages.Count == 0)
+        {
+            return create;
+        }
+
+        var existing = GccResearchFetchService.Deserialize(create.ResearchJson);
+        var quoteables = existing?.Quoteables.ToList() ?? [];
+        var seen = new HashSet<string>(quoteables.Select(q => q.Url), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var page in grounding.Pages)
+        {
+            if (seen.Add(page.Url))
+            {
+                quoteables.Add(page);
+            }
+        }
+
+        var merged = existing is null
+            ? new GccResearchDocument(null, quoteables)
+            : existing with { Quoteables = quoteables };
+
+        return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };
+    }
+
     private async Task<object> RunGenerateAsync(
         HttpGccRepository repo,
         GccGenerateService gen,
@@ -659,6 +696,14 @@ public class GccController : ControllerBase
 
         var id = create.Id;
         var contentType = (requested.Count == 1 ? requested[0] : create.StartingContentType).ToLowerInvariant();
+
+        // Grounding gate. Every grounding block downstream is conditional, so absent evidence used
+        // to drop out silently and generation continued — a draft that reads identically whether
+        // it was grounded or not. Required evidence is resolved here and its absence refuses.
+        var grounding = await _grounding.ResolveAsync(create, contentType, ct);
+        if (grounding.Refused)
+            throw new InvalidOperationException($"Refused: {grounding.Refusal}");
+        create = MergeRetrievedEvidence(create, grounding);
 
         // Route to appropriate generator based on content type
         string bodyJson;
