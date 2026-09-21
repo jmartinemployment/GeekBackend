@@ -426,7 +426,7 @@ public sealed class GccV2UnifiedRagTests
     {
         var partnerRun = Guid.NewGuid();
         var competitorRun = Guid.NewGuid();
-        var markdown = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var pageTextByPageId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["page-partner"] = "ApprovalMax automates invoice approval workflows for finance teams.",
         };
@@ -474,7 +474,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, [partnerRun], [competitorRun], markdown);
+            output, [partnerRun], [competitorRun], pageTextByPageId);
 
         Assert.Contains(audit.EvidenceGaps, g => g.Contains("inconsistent", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(audit.Citations, c => c.SectionKey == "lede" && c.Verified == true);
@@ -537,7 +537,7 @@ public sealed class GccV2UnifiedRagTests
     public void Apply_audited_citations_stamps_verified_onto_write_sections()
     {
         var partnerRun = Guid.NewGuid();
-        var markdown = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var pageTextByPageId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["page-1"] = "Exact partner quote for verify.",
         };
@@ -567,7 +567,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, [partnerRun], Array.Empty<Guid>(), markdown);
+            output, [partnerRun], Array.Empty<Guid>(), pageTextByPageId);
         var stamped = GccV2CitationEvidenceGuard.ApplyAuditedCitations(output, audit.Citations);
 
         Assert.True(stamped.Lede.Citations![0].Verified);
@@ -624,7 +624,7 @@ public sealed class GccV2UnifiedRagTests
     public void Citation_evidence_guard_rejects_non_verbatim_quote()
     {
         var partnerRun = Guid.NewGuid();
-        var markdown = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var pageTextByPageId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["page-1"] = "Only this exact sentence is on the page.",
         };
@@ -654,14 +654,14 @@ public sealed class GccV2UnifiedRagTests
         };
 
         var audit = GccV2CitationEvidenceGuard.AuditWriteOutputForTests(
-            output, [partnerRun], Array.Empty<Guid>(), markdown);
+            output, [partnerRun], Array.Empty<Guid>(), pageTextByPageId);
 
         Assert.Contains(audit.EvidenceGaps, g => g.Contains("exact span", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(audit.Citations, c => c.Verified == false);
     }
 
     [Fact]
-    public void Citation_evidence_guard_fails_closed_when_markdown_missing()
+    public void Citation_evidence_guard_fails_closed_when_page_text_missing()
     {
         var lede = new GccV2WriteSection(
             "lede", "Introduction", "problem",

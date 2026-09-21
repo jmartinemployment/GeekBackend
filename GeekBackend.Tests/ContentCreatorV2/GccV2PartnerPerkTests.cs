@@ -47,7 +47,7 @@ public sealed class GccV2PartnerPerkTests
     [Fact]
     public void Perk_is_not_part_of_the_library_grounded_partner_extraction_document()
     {
-        // Perks cannot be verified against source Markdown, so they must not appear on the
+        // Perks cannot be verified against source corpus text, so they must not appear on the
         // extraction document alongside payloads that can.
         var properties = typeof(GeekApplication.Models.ContentCreator.GccPartnerExtractionDocument)
             .GetProperties()

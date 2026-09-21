@@ -50,7 +50,7 @@ public sealed class GccV2PartnerExtractionCompletionTests
     }
 
     [Fact]
-    public void CitableBridge_attaches_markdown_verified_citable_for_partner_mention()
+    public void CitableBridge_attaches_text_verified_citable_for_partner_mention()
     {
         var runId = Guid.NewGuid().ToString("D");
         var citable = new GccPartnerCitableAsset(

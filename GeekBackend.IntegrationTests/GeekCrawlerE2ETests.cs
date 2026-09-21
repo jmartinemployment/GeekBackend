@@ -12,7 +12,7 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
     public GeekCrawlerE2ETests(GeekApiTestFactory factory) => _factory = factory;
 
     [Fact]
-    public async Task Ingest_preserves_markdown_links_ownership_and_triggers_index()
+    public async Task Ingest_preserves_links_ownership_and_triggers_index()
     {
         using var owner = _factory.CreateAuthenticatedClient();
         using var create = await owner.PostAsJsonAsync(
@@ -218,7 +218,6 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
                         statusCode = 403,
                         robotsAllowed = false,
                         html = (string?)null,
-                        markdown = (string?)null,
                     },
                 },
             });
