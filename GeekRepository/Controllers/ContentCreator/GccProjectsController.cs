@@ -143,4 +143,22 @@ public class GccProjectsController : ControllerBase
         var deleted = await _repository.DeleteAsync(id, actorUserId, ct);
         return deleted ? NoContent() : NotFound();
     }
+
+    /// <summary>
+    /// Delete one log entry, for real. See IGccProjectRepository.DeleteLogEntryAsync — this is not
+    /// the soft delete above.
+    /// </summary>
+    [HttpDelete("{id:guid}/log/{logEntryId:long}")]
+    public async Task<IActionResult> DeleteLogEntry(
+        Guid id,
+        long logEntryId,
+        [FromQuery] string actorUserId,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(actorUserId))
+            return BadRequest("actorUserId is required — every change is attributed.");
+
+        var deleted = await _repository.DeleteLogEntryAsync(id, logEntryId, actorUserId, ct);
+        return deleted ? NoContent() : NotFound();
+    }
 }

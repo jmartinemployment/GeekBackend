@@ -178,6 +178,21 @@ public class GccProjectsController : ControllerBase
         return deleted ? NoContent() : NotFound();
     }
 
+    /// <summary>
+    /// Delete one History entry, for real — not the project's soft delete above. Permanent: the
+    /// deleted entry's content is gone, though its deletion is itself recorded as a new entry, so
+    /// the log still shows that something was removed and by whom.
+    /// </summary>
+    [HttpDelete("{id:guid}/log/{logEntryId:long}")]
+    public async Task<IActionResult> DeleteLogEntry(Guid id, long logEntryId, CancellationToken ct)
+    {
+        var actor = CurrentSubject();
+        if (actor is null) return Unauthorized();
+
+        var deleted = await _repo.DeleteProjectLogEntryAsync(id, logEntryId, actor, ct);
+        return deleted ? NoContent() : NotFound();
+    }
+
     [HttpGet("{id:guid}/tasks")]
     public async Task<ActionResult<IReadOnlyList<GccTaskDto>>> ListTasks(Guid id, CancellationToken ct) =>
         Ok(await _repo.ListTasksAsync(id, ct));

@@ -65,12 +65,17 @@ public class GccProject
 }
 
 /// <summary>
-/// One recorded change to a project. Append-only.
+/// One recorded change to a project. Append-only, and — since 2026-09-21 — deletable one row at a
+/// time.
 /// </summary>
 /// <remarks>
-/// A trigger refuses UPDATE and DELETE on this table, so the log cannot be edited into agreement
-/// with the row it describes. Every write that carries an event type inserts its entry in the same
-/// transaction as the change: never a change without its entry, never an entry without its change.
+/// A trigger refuses UPDATE on this table, so a row can never be edited into agreeing with a story
+/// told after the fact. DELETE is no longer refused by that same trigger — Jeff chose a true,
+/// permanent delete for a single entry over a hide-only alternative — but every deletion is itself
+/// logged (log_entry_deleted), so the log still shows that something was removed and by whom, even
+/// though the removed entry's own content is genuinely gone. Every write that carries an event type
+/// inserts its entry in the same transaction as the change: never a change without its entry, never
+/// an entry without its change.
 ///
 /// The key is a bigint identity rather than a Guid. Entries are read in the order they happened and
 /// never addressed from elsewhere, so a monotonic key is both cheaper and the natural sort.

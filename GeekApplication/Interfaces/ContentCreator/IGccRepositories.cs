@@ -119,6 +119,18 @@ public interface IGccProjectRepository
     /// not exist or is already deleted. Never a real DELETE — see DeletedAtUtc on GccProject.
     /// </summary>
     Task<bool> DeleteAsync(Guid id, string actorUserId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Remove one log entry, for real — a genuine DELETE, not a soft one. False when the project or
+    /// the entry does not exist, or the entry belongs to a different project. Records a
+    /// log_entry_deleted entry for the deletion itself, in the same transaction, so the log still
+    /// shows that a removal happened even though the removed row's content does not survive it.
+    /// </summary>
+    Task<bool> DeleteLogEntryAsync(
+        Guid projectId,
+        long logEntryId,
+        string actorUserId,
+        CancellationToken ct = default);
 }
 
 /// <summary>

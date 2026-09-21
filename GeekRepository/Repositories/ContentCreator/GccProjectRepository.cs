@@ -235,6 +235,41 @@ public class GccProjectRepository : IGccProjectRepository
         return true;
     }
 
+    /// <summary>
+    /// Delete one log entry, for real. The entry's own content does not survive this — what is left
+    /// is the log_entry_deleted row written in its place, in the same transaction, naming who
+    /// removed it and when. Idempotent in effect: a second call on a gone entry returns false, the
+    /// same as one that never existed.
+    /// </summary>
+    public async Task<bool> DeleteLogEntryAsync(
+        Guid projectId,
+        long logEntryId,
+        string actorUserId,
+        CancellationToken ct = default)
+    {
+        var entry = await _db.GccProjectLog
+            .FirstOrDefaultAsync(e => e.Id == logEntryId && e.ProjectId == projectId, ct);
+        if (entry is null) return false;
+
+        var deletedEventType = entry.EventType;
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+
+        _db.GccProjectLog.Remove(entry);
+        _db.GccProjectLog.Add(new GccProjectLogEntry
+        {
+            ProjectId = projectId,
+            OccurredAtUtc = DateTime.UtcNow,
+            ActorUserId = actorUserId,
+            EventType = GccProjectLogEventTypes.LogEntryDeleted,
+            Payload = JsonSerializer.Serialize(new { deletedLogEntryId = logEntryId, deletedEventType }),
+        });
+
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return true;
+    }
+
     public async Task<IReadOnlyList<GccProjectLogEntryDto>> ListLogAsync(
         Guid projectId,
         CancellationToken ct = default)

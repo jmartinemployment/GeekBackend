@@ -173,6 +173,59 @@ public sealed class GccProjectRepositoryLogicTests
             default));
     }
 
+    [Fact]
+    public async Task Deleting_a_log_entry_removes_it_for_real_but_records_the_deletion()
+    {
+        await using var db = Db();
+        var client = await SeedClient(db, rate: 100m, currency: "USD");
+        var project = await SeedProject(db, client.Id);
+        var projects = new GccProjectRepository(db);
+
+        // SeedProject writes the row directly, not through CreateAsync, so it carries no log entry
+        // of its own yet. One is added here to have something real to delete.
+        var toDelete = new GccProjectLogEntry
+        {
+            ProjectId = project.Id,
+            OccurredAtUtc = DateTime.UtcNow,
+            ActorUserId = Actor.ToString("D"),
+            EventType = GccProjectLogEventTypes.ProjectUpdated,
+            Payload = "{}",
+        };
+        db.GccProjectLog.Add(toDelete);
+        await db.SaveChangesAsync();
+
+        var deleted = await projects.DeleteLogEntryAsync(project.Id, toDelete.Id, Actor.ToString("D"), default);
+        Assert.True(deleted);
+
+        // Gone for real, unlike a project's soft delete: no row at that id survives.
+        Assert.False(await db.GccProjectLog.AnyAsync(e => e.Id == toDelete.Id));
+
+        // What is left is a record that a deletion happened, naming which entry and who removed it.
+        var remaining = await db.GccProjectLog.Where(e => e.ProjectId == project.Id).ToListAsync();
+        var deletionRecord = Assert.Single(remaining, e => e.EventType == GccProjectLogEventTypes.LogEntryDeleted);
+        Assert.Equal(Actor.ToString("D"), deletionRecord.ActorUserId);
+        Assert.Contains(toDelete.Id.ToString(), deletionRecord.Payload);
+
+        // A second delete of the same, now-gone id finds nothing to act on.
+        Assert.False(await projects.DeleteLogEntryAsync(project.Id, toDelete.Id, Actor.ToString("D"), default));
+
+        // An entry that exists but belongs to a different project cannot be reached through this one.
+        var otherProject = await SeedProject(db, client.Id);
+        var otherEntry = new GccProjectLogEntry
+        {
+            ProjectId = otherProject.Id,
+            OccurredAtUtc = DateTime.UtcNow,
+            ActorUserId = Actor.ToString("D"),
+            EventType = GccProjectLogEventTypes.ProjectUpdated,
+            Payload = "{}",
+        };
+        db.GccProjectLog.Add(otherEntry);
+        await db.SaveChangesAsync();
+
+        Assert.False(await projects.DeleteLogEntryAsync(project.Id, otherEntry.Id, Actor.ToString("D"), default));
+        Assert.True(await db.GccProjectLog.AnyAsync(e => e.Id == otherEntry.Id));
+    }
+
     private static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow);
 
     private static async Task<GccClient> SeedClient(

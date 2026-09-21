@@ -273,6 +273,19 @@ public class HttpGccRepository
     public Task<bool> DeleteProjectAsync(Guid id, string actorUserId, CancellationToken ct = default) =>
         DeleteAsync($"repo/content-creator/projects/{id}?actorUserId={Uri.EscapeDataString(actorUserId)}", ct);
 
+    /// <summary>
+    /// Delete one log entry, for real — not the project's soft delete above. False when it does not
+    /// exist, which includes "already deleted".
+    /// </summary>
+    public Task<bool> DeleteProjectLogEntryAsync(
+        Guid projectId,
+        long logEntryId,
+        string actorUserId,
+        CancellationToken ct = default) =>
+        DeleteAsync(
+            $"repo/content-creator/projects/{projectId}/log/{logEntryId}?actorUserId={Uri.EscapeDataString(actorUserId)}",
+            ct);
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try

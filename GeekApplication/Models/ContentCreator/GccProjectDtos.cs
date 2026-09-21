@@ -164,6 +164,9 @@ public static class GccProjectLogEventTypes
     public const string DeliverableUpdated = "deliverable_updated";
     public const string DeliverableDelivered = "deliverable_delivered";
 
+    /// <summary>Written when a log entry is deleted. What is left once the entry itself is gone.</summary>
+    public const string LogEntryDeleted = "log_entry_deleted";
+
     public static readonly IReadOnlyList<string> All =
     [
         ProjectCreated,
@@ -177,6 +180,7 @@ public static class GccProjectLogEventTypes
         DeliverableCreated,
         DeliverableUpdated,
         DeliverableDelivered,
+        LogEntryDeleted,
     ];
 }
 
