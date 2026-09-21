@@ -162,6 +162,22 @@ public class GccProjectsController : ControllerBase
         return Ok(project);
     }
 
+    /// <summary>
+    /// Delete a project. This is a soft delete — the row and its whole log survive underneath — but
+    /// it disappears from every list and can no longer be fetched, exactly as a delete should look
+    /// from here. A real, permanent DELETE is not reachable: every project carries a project_created
+    /// log row that the append-only log can never lose.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        var actor = CurrentSubject();
+        if (actor is null) return Unauthorized();
+
+        var deleted = await _repo.DeleteProjectAsync(id, actor, ct);
+        return deleted ? NoContent() : NotFound();
+    }
+
     [HttpGet("{id:guid}/tasks")]
     public async Task<ActionResult<IReadOnlyList<GccTaskDto>>> ListTasks(Guid id, CancellationToken ct) =>
         Ok(await _repo.ListTasksAsync(id, ct));

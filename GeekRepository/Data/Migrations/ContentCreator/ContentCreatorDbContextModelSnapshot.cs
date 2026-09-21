@@ -529,6 +529,10 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at_utc");
+
                     b.Property<string>("Department")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")

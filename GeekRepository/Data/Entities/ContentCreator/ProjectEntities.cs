@@ -55,6 +55,13 @@ public class GccProject
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Soft-delete marker. Null means live. A project always has a project_created log row, and
+    /// that row can never be removed (the log is append-only, and its FK back to this table is
+    /// RESTRICT) — so this column, not a real DELETE, is what "delete a project" means here.
+    /// </summary>
+    public DateTime? DeletedAtUtc { get; set; }
 }
 
 /// <summary>

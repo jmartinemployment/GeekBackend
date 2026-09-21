@@ -153,6 +153,7 @@ public static class GccProjectLogEventTypes
     public const string ProjectCreated = "project_created";
     public const string ProjectUpdated = "project_updated";
     public const string ProjectStatusChanged = "project_status_changed";
+    public const string ProjectDeleted = "project_deleted";
 
     public const string TaskCreated = "task_created";
     public const string TaskUpdated = "task_updated";
@@ -168,6 +169,7 @@ public static class GccProjectLogEventTypes
         ProjectCreated,
         ProjectUpdated,
         ProjectStatusChanged,
+        ProjectDeleted,
         TaskCreated,
         TaskUpdated,
         TaskCompleted,

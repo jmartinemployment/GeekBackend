@@ -266,6 +266,13 @@ public class HttpGccRepository
         CancellationToken ct = default) =>
         PutAsync<GccProjectDto>($"repo/content-creator/projects/{command.Id}/status", command, ct);
 
+    /// <summary>
+    /// Soft-delete a project. False when it does not exist or was already deleted — not an error to
+    /// the caller, since either way the goal state ("gone from every view") already holds.
+    /// </summary>
+    public Task<bool> DeleteProjectAsync(Guid id, string actorUserId, CancellationToken ct = default) =>
+        DeleteAsync($"repo/content-creator/projects/{id}?actorUserId={Uri.EscapeDataString(actorUserId)}", ct);
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try

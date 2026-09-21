@@ -113,6 +113,12 @@ public interface IGccProjectRepository
 
     /// <summary>The project's log, oldest first. Empty only when the project does not exist.</summary>
     Task<IReadOnlyList<GccProjectLogEntryDto>> ListLogAsync(Guid projectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Soft-delete: sets DeletedAtUtc and logs it, in one transaction. False when the project does
+    /// not exist or is already deleted. Never a real DELETE — see DeletedAtUtc on GccProject.
+    /// </summary>
+    Task<bool> DeleteAsync(Guid id, string actorUserId, CancellationToken ct = default);
 }
 
 /// <summary>

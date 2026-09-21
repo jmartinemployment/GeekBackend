@@ -126,4 +126,21 @@ public class GccProjectsController : ControllerBase
         if (project is null) return NotFound();
         return Ok(project);
     }
+
+    /// <summary>
+    /// Soft-delete. Never a real DELETE — see DeletedAtUtc on GccProject. False (404) covers both
+    /// "never existed" and "already deleted"; a caller cannot tell those apart, and does not need to.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(
+        Guid id,
+        [FromQuery] string actorUserId,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(actorUserId))
+            return BadRequest("actorUserId is required — every change is attributed.");
+
+        var deleted = await _repository.DeleteAsync(id, actorUserId, ct);
+        return deleted ? NoContent() : NotFound();
+    }
 }

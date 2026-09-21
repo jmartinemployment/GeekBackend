@@ -232,10 +232,11 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(p => p.BudgetCurrency).HasColumnName("budget_currency").HasColumnType("char(3)");
             entity.Property(p => p.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
             entity.Property(p => p.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.Property(p => p.DeletedAtUtc).HasColumnName("deleted_at_utc");
 
             // RESTRICT, not Cascade: a client with projects is not deleted out from under them, and
             // a project that has accrued a log — every project, from its first insert — is not
-            // deleted at all. Projects close through status.
+            // deleted at all. Projects close through status, and "delete" is DeletedAtUtc.
             entity.HasOne<GccClient>()
                 .WithMany()
                 .HasForeignKey(p => p.ClientId)

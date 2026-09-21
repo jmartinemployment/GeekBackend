@@ -144,6 +144,35 @@ public sealed class GccProjectRepositoryLogicTests
         Assert.Single(db.GccDeliverables);
     }
 
+    [Fact]
+    public async Task Deleting_a_project_hides_it_but_keeps_its_row_and_log()
+    {
+        await using var db = Db();
+        var client = await SeedClient(db, rate: 100m, currency: "USD");
+        var project = await SeedProject(db, client.Id);
+        var projects = new GccProjectRepository(db);
+
+        var deleted = await projects.DeleteAsync(project.Id, Actor.ToString("D"), default);
+        Assert.True(deleted);
+
+        // Gone from every read this repository offers...
+        Assert.Null(await projects.GetByIdAsync(project.Id, default));
+        Assert.Empty(await projects.ListByClientIdAsync(client.Id, default));
+
+        // ...but the row itself, and the log underneath it, are untouched — a real DELETE was
+        // never on the table (the log's append-only trigger and its RESTRICT FK forbid it).
+        var row = await db.GccProjects.SingleAsync(p => p.Id == project.Id);
+        Assert.NotNull(row.DeletedAtUtc);
+        var log = await db.GccProjectLog.Where(l => l.ProjectId == project.Id).ToListAsync();
+        Assert.Contains(log, l => l.EventType == GccProjectLogEventTypes.ProjectDeleted);
+
+        // Deleted is deleted: a second delete, or a further write, finds nothing to act on.
+        Assert.False(await projects.DeleteAsync(project.Id, Actor.ToString("D"), default));
+        Assert.Null(await projects.ChangeStatusAsync(
+            new ChangeGccProjectStatusCommand(project.Id, Actor.ToString("D"), GccProjectStatuses.Active),
+            default));
+    }
+
     private static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow);
 
     private static async Task<GccClient> SeedClient(

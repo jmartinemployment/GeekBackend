@@ -25,7 +25,8 @@ public class GccProjectRepository : IGccProjectRepository
 
     public async Task<GccProjectDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var entity = await _db.GccProjects.FirstOrDefaultAsync(p => p.Id == id, ct);
+        var entity = await _db.GccProjects
+            .FirstOrDefaultAsync(p => p.Id == id && p.DeletedAtUtc == null, ct);
         return entity is null ? null : MapToDto(entity);
     }
 
@@ -34,7 +35,7 @@ public class GccProjectRepository : IGccProjectRepository
         CancellationToken ct = default)
     {
         var entities = await _db.GccProjects
-            .Where(p => p.ClientId == clientId)
+            .Where(p => p.ClientId == clientId && p.DeletedAtUtc == null)
             .OrderByDescending(p => p.StartDate)
             .ThenByDescending(p => p.CreatedAtUtc)
             .ToListAsync(ct);
@@ -130,7 +131,8 @@ public class GccProjectRepository : IGccProjectRepository
         UpdateGccProjectCommand command,
         CancellationToken ct = default)
     {
-        var entity = await _db.GccProjects.FirstOrDefaultAsync(p => p.Id == command.Id, ct);
+        var entity = await _db.GccProjects
+            .FirstOrDefaultAsync(p => p.Id == command.Id && p.DeletedAtUtc == null, ct);
         if (entity is null) return null;
 
         var before = Snapshot(entity);
@@ -171,7 +173,8 @@ public class GccProjectRepository : IGccProjectRepository
         ChangeGccProjectStatusCommand command,
         CancellationToken ct = default)
     {
-        var entity = await _db.GccProjects.FirstOrDefaultAsync(p => p.Id == command.Id, ct);
+        var entity = await _db.GccProjects
+            .FirstOrDefaultAsync(p => p.Id == command.Id && p.DeletedAtUtc == null, ct);
         if (entity is null) return null;
 
         var from = entity.Status;
@@ -199,6 +202,37 @@ public class GccProjectRepository : IGccProjectRepository
         await _db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return MapToDto(entity);
+    }
+
+    /// <summary>
+    /// Soft-delete: DeletedAtUtc is set and a project_deleted entry is logged, in one transaction.
+    /// The row and its whole log stay exactly as they were — nothing here is a real DELETE.
+    /// </summary>
+    public async Task<bool> DeleteAsync(Guid id, string actorUserId, CancellationToken ct = default)
+    {
+        var entity = await _db.GccProjects
+            .FirstOrDefaultAsync(p => p.Id == id && p.DeletedAtUtc == null, ct);
+        if (entity is null) return false;
+
+        var now = DateTime.UtcNow;
+        entity.DeletedAtUtc = now;
+        entity.UpdatedAtUtc = now;
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+
+        _db.GccProjects.Update(entity);
+        _db.GccProjectLog.Add(new GccProjectLogEntry
+        {
+            ProjectId = entity.Id,
+            OccurredAtUtc = now,
+            ActorUserId = actorUserId,
+            EventType = GccProjectLogEventTypes.ProjectDeleted,
+            Payload = JsonSerializer.Serialize(new { name = entity.Name }),
+        });
+
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return true;
     }
 
     public async Task<IReadOnlyList<GccProjectLogEntryDto>> ListLogAsync(
