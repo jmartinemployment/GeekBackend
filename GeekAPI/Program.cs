@@ -143,6 +143,13 @@ if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
         {
             options.Authority = gccV2HubAuthority;
             options.RequireHttpsMetadata = !gccV2HubAuthority.Contains("localhost", StringComparison.OrdinalIgnoreCase);
+            // Inbound claims keep the names the token uses. Mapped, "sub" arrives renamed to the
+            // long WS-Federation nameidentifier URI — which made NameClaimType = "sub" above find
+            // nothing — and "scope" is not reliably carried through either. Every reader in this
+            // service already looks for both spellings (ClaimsExtensions, CurrentUserContext, the
+            // hub user-id providers), so turning mapping off costs nothing and makes the scope
+            // claim readable by the policy below.
+            options.MapInboundClaims = false;
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
@@ -153,7 +160,24 @@ if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
             };
             GccV2JwtHubQueryToken.AcceptAccessTokenFromQuery(options);
         });
-    builder.Services.AddAuthorization();
+
+    builder.Services.AddAuthorizationBuilder()
+        // Content Creator's project, client and billing rows. GeekOAuth is shared across Geek
+        // apps, so holding a valid token is not evidence of anything in particular — the scope is
+        // what says this caller was granted this data.
+        //
+        // The claim arrives as one space-delimited string ("openid profile content-creator.manage"),
+        // so an exact-match RequireClaim would never match it. Split, then look for the member.
+        .AddPolicy(GeekAPI.Auth.ContentCreatorAuthConstants.ManagePolicy, policy =>
+        {
+            policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
+            policy.RequireAuthenticatedUser();
+            policy.RequireAssertion(context =>
+                context.User.Claims.Any(static claim =>
+                    (claim.Type is "scope" or "scp")
+                    && claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                        .Contains(GeekAPI.Auth.ContentCreatorAuthConstants.ManageScope, StringComparer.Ordinal)));
+        });
 }
 else
 {

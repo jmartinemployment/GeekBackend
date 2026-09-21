@@ -117,6 +117,59 @@ public class HttpGccRepository
     public Task<GccClientDto> CreateClientAsync(CreateGccClientCommand command, CancellationToken ct = default) =>
         PostAsync<GccClientDto>("repo/content-creator/clients", command, ct);
 
+    public Task<GccProjectDto?> GetProjectAsync(Guid id, CancellationToken ct = default) =>
+        GetAsync<GccProjectDto>($"repo/content-creator/projects/{id}", ct);
+
+    public Task<IReadOnlyList<GccProjectDto>> ListProjectsByClientAsync(Guid clientId, CancellationToken ct = default) =>
+        GetListAsync<GccProjectDto>($"repo/content-creator/projects?clientId={clientId}", ct);
+
+    public Task<IReadOnlyList<GccProjectLogEntryDto>> GetProjectLogAsync(Guid projectId, CancellationToken ct = default) =>
+        GetListAsync<GccProjectLogEntryDto>($"repo/content-creator/projects/{projectId}/log", ct);
+
+    /// <summary>
+    /// Create a project, carrying a 409 back as a result rather than an exception.
+    /// </summary>
+    /// <remarks>
+    /// The shared <c>PostAsync</c> calls <c>EnsureSuccessStatusCode</c>, which turns the one
+    /// status this call has a considered answer for into a thrown exception. A conflicting
+    /// idempotency key is a thing the caller must be told about precisely, so it is read from the
+    /// response here instead.
+    /// </remarks>
+    public async Task<GccProjectCreateResult> CreateProjectAsync(
+        CreateGccProjectCommand command,
+        CancellationToken ct = default)
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(command, JsonOpts),
+            Encoding.UTF8,
+            "application/json");
+
+        var res = await _http.PostAsync("repo/content-creator/projects", content, ct);
+
+        if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            _logger.LogWarning(
+                "GeekRepository refused project create for client {ClientId}: idempotency key in use by another client.",
+                command.ClientId);
+            return GccProjectCreateResult.ConflictingClient();
+        }
+
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        var project = JsonSerializer.Deserialize<GccProjectDto>(json, JsonOpts)
+            ?? throw new InvalidOperationException("Empty response from repo/content-creator/projects");
+
+        return GccProjectCreateResult.Created(project);
+    }
+
+    public Task<GccProjectDto> UpdateProjectAsync(UpdateGccProjectCommand command, CancellationToken ct = default) =>
+        PutAsync<GccProjectDto>($"repo/content-creator/projects/{command.Id}", command, ct);
+
+    public Task<GccProjectDto> ChangeProjectStatusAsync(
+        ChangeGccProjectStatusCommand command,
+        CancellationToken ct = default) =>
+        PutAsync<GccProjectDto>($"repo/content-creator/projects/{command.Id}/status", command, ct);
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try
