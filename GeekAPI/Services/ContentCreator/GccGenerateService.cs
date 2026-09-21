@@ -257,7 +257,8 @@ public class GccGenerateService
             "2. Data Quality Assessment — integrity, schema, storage (pooling, JSONB, validation).",
             "3. Tech Selection & Architecture — specific tools over generics (decoupled services, routing, benchmarks).",
             "4. Pilot Implementation Strategy — execution, smoke tests, validation (local integration, TDD, sandboxed rollout).",
-            "Constraints: ban AI filler / clichés; Markdown ##/### outline; close with an FAQ drawn from the",
+            "Constraints: ban AI filler / clichés; structure with semantic HTML <h2>/<h3> headings and never",
+            "Markdown; close with an FAQ drawn from the",
             "People Also Ask / related searches in the brief. Keep temperature low.",
         });
     }
@@ -1992,8 +1993,9 @@ public class GccGenerateService
 
         var system = new StringBuilder()
             .AppendLine("You write comprehensive B2B pillar articles for an IT consulting firm specializing in AI implementation.")
-            .AppendLine("Generate a well-structured markdown body with multiple H2 sections (each 400-600 words).")
-            .AppendLine("Start directly with the first ## section — no preamble or introduction.")
+            .AppendLine("Generate a well-structured HTML body with multiple <h2> sections (each 400-600 words).")
+            .AppendLine("Emit semantic HTML only — <h2>, <h3>, <p>, <ul>/<li>. Never Markdown: no ##, no **, no - bullets.")
+            .AppendLine("Start directly with the first <h2> section — no preamble or introduction.")
             .AppendLine("Each section should be self-contained and detailed, with real examples and insights.")
             .AppendLine("Use clear language suitable for technical and business audiences.")
             .ToString();
@@ -2027,8 +2029,9 @@ public class GccGenerateService
 
         var system = new StringBuilder()
             .AppendLine("You write accessible B2B blog posts for an IT consulting firm specializing in AI implementation.")
-            .AppendLine("Generate a well-structured markdown body with 3-4 H2 sections (each 300-400 words).")
-            .AppendLine("Start directly with the first ## section — no preamble or introduction.")
+            .AppendLine("Generate a well-structured HTML body with 3-4 <h2> sections (each 300-400 words).")
+            .AppendLine("Emit semantic HTML only — <h2>, <h3>, <p>, <ul>/<li>. Never Markdown: no ##, no **, no - bullets.")
+            .AppendLine("Start directly with the first <h2> section — no preamble or introduction.")
             .AppendLine("Each section should be clear and approachable, with practical examples.")
             .AppendLine("Use conversational language that engages both technical and business readers.")
             .ToString();
@@ -2113,15 +2116,28 @@ public class GccGenerateService
         return raw;
     }
 
+    private static readonly Regex H2HeadingPattern = new(
+        @"<h2\b[^>]*>(?<text>.*?)</h2>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex InlineTagPattern = new(
+        @"<[^>]+>",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Reads the H2 headings out of a generated body. The body is semantic HTML; Markdown is not a
+    /// format this pipeline produces, accepts or re-parses at any hop, prompt assembly included.
+    /// </summary>
     private static List<string> ExtractSectionHeadings(string body)
     {
         var headings = new List<string>();
-        var lines = body.Split('\n');
-        foreach (var line in lines)
+        foreach (Match match in H2HeadingPattern.Matches(body))
         {
-            if (line.StartsWith("## "))
+            var text = InlineTagPattern.Replace(match.Groups["text"].Value, string.Empty);
+            text = System.Net.WebUtility.HtmlDecode(text).Trim();
+            if (text.Length > 0)
             {
-                headings.Add(line[3..].Trim());
+                headings.Add(text);
             }
         }
         return headings;
