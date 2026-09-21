@@ -8,10 +8,14 @@ using Microsoft.EntityFrameworkCore;
 namespace GeekRepository.Controllers.ContentCreatorV2;
 
 /// <summary>
-/// Canonical partner/competitor entities shared by the RAG writer and every task agent —
+/// Canonical partner/competitor entities shared by the Create library writer and every task agent —
 /// see plans/make-content-creator-workable.md Milestone 1. Replaces free-text entity
 /// names and the hardcoded GeekAPI RagEntitySeedList.
 /// </summary>
+/// <remarks>
+/// Not "the RAG writer": RAG is Library-only — retrieval and verification. It supplies the excerpts
+/// these entities are matched against; the model writes, through GccV2CreateLibraryWriter.
+/// </remarks>
 [ApiController]
 [Route("repo/content-creator-v2/research-entities")]
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]

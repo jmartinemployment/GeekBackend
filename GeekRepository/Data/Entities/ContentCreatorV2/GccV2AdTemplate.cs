@@ -1,11 +1,15 @@
 namespace GeekRepository.Data.Entities.ContentCreatorV2;
 
 /// <summary>
-/// Ad-copy few-shot template shared by the RAG writer (<c>/rag</c>) and any task agent that
-/// wants ad-template grounding — see plans/make-content-creator-workable.md Milestone 1.
+/// Ad-copy few-shot template shared by the Create library writer and any task agent that wants
+/// ad-template grounding — see plans/make-content-creator-workable.md Milestone 1.
 /// Replaces <c>localStorage</c>-only templates (previously seeded with three generic B2B
 /// samples), which vanished per-browser and could not be shared across sessions.
 /// </summary>
+/// <remarks>
+/// Not "the RAG writer": RAG is Library-only — retrieval and verification, never generation. These
+/// templates are grounding handed to the model; the model writes.
+/// </remarks>
 public class GccV2AdTemplate
 {
     public Guid Id { get; set; } = Guid.NewGuid();

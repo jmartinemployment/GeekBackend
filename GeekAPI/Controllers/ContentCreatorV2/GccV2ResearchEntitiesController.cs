@@ -5,10 +5,16 @@ using Microsoft.AspNetCore.Mvc;
 namespace GeekAPI.Controllers.ContentCreatorV2;
 
 /// <summary>
-/// Canonical partner/competitor entities shared by the RAG writer (<c>/rag</c>) and every
-/// task agent — see plans/make-content-creator-workable.md Milestone 1. Replaces free-text
-/// entity names and the hardcoded Phase-0 <c>RagEntitySeedList</c>.
+/// Canonical partner/competitor entities shared by the Create library writer
+/// (<see cref="GeekAPI.Services.ContentCreatorV2.Write.GccV2CreateLibraryWriter"/>) and every task
+/// agent — see plans/make-content-creator-workable.md Milestone 1. Replaces free-text entity names
+/// and the hardcoded Phase-0 <c>RagEntitySeedList</c>.
 /// </summary>
+/// <remarks>
+/// "RAG writer" was the wrong name for this and is not used here: RAG is Library-only — retrieval
+/// and verification. It supplies the excerpts these entities are matched against; the model does
+/// the writing, through the Create library writer. See architecture.md §7.
+/// </remarks>
 [ApiController]
 [Route("api/geek-content-creator-v2/research-entities")]
 public sealed class GccV2ResearchEntitiesController(

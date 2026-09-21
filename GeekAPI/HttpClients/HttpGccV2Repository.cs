@@ -268,7 +268,9 @@ public class HttpGccV2Repository
         CancellationToken ct = default) =>
         PostAsync<object>("repo/content-creator-v2/project-site/links/batch", command, ct);
 
-    // Canonical partner/competitor entities — shared by the RAG writer and every task agent.
+    // Canonical partner/competitor entities — shared by the Create library writer
+    // (GccV2CreateLibraryWriter) and every task agent. Not "the RAG writer": RAG is Library-only,
+    // retrieval and verification; it supplies the excerpts, the model writes. See architecture.md §7.
     // See plans/make-content-creator-workable.md Milestone 1.
 
     public Task<IReadOnlyList<GccV2ResearchEntityDto>> ListResearchEntitiesAsync(

@@ -1,11 +1,15 @@
 namespace GeekRepository.Data.Entities.ContentCreatorV2;
 
 /// <summary>
-/// Canonical partner/competitor entity shared by the RAG writer (<c>/rag</c>) and every
-/// task agent. Replaces free-text entity names and the hardcoded Phase-0 seed list
-/// (<c>RagEntitySeedList</c> in GeekAPI) with an identity every RAG-grounded surface can share.
+/// Canonical partner/competitor entity shared by the Create library writer and every task agent.
+/// Replaces free-text entity names and the hardcoded Phase-0 seed list
+/// (<c>RagEntitySeedList</c> in GeekAPI) with an identity every grounded surface can share.
 /// One company may have several indexed crawl pages — they all resolve to one entity here.
 /// </summary>
+/// <remarks>
+/// Not "the RAG writer": RAG is Library-only — retrieval and verification, never generation. It is
+/// what these entities are resolved against when retrieving excerpts; the model writes.
+/// </remarks>
 public class GccV2ResearchEntity
 {
     public Guid Id { get; set; } = Guid.NewGuid();
