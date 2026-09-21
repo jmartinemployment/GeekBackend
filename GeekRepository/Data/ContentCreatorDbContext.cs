@@ -17,6 +17,8 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccSiteAnalysis> GccSiteAnalyses => Set<GccSiteAnalysis>();
     public virtual DbSet<GccSiteFinding> GccSiteFindings => Set<GccSiteFinding>();
     public virtual DbSet<GccClient> GccClients => Set<GccClient>();
+    public virtual DbSet<GccProject> GccProjects => Set<GccProject>();
+    public virtual DbSet<GccProjectLogEntry> GccProjectLog => Set<GccProjectLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -130,6 +132,74 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(c => c.CreatedAtUtc).IsRequired();
             entity.Property(c => c.UpdatedAtUtc).IsRequired();
             entity.HasIndex(c => c.Name).IsUnique().HasDatabaseName("ix_gcc_clients_name_unique");
+        });
+
+        // Columns here are snake_case throughout. gcc_creates above is mixed — "SiteAnalysisId"
+        // beside "brief_json" — because a column rename over live rows buys nothing; that is a
+        // reason to leave it alone, not a pattern to copy into a new table.
+        modelBuilder.Entity<GccProject>(entity =>
+        {
+            entity.ToTable("gcc_projects");
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.Id).HasColumnName("id");
+            entity.Property(p => p.ClientId).HasColumnName("client_id").IsRequired();
+            entity.Property(p => p.IdempotencyKey).HasColumnName("idempotency_key").IsRequired();
+            entity.Property(p => p.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
+            entity.Property(p => p.Code).HasColumnName("code").HasMaxLength(64);
+            entity.Property(p => p.Description).HasColumnName("description").HasColumnType("text");
+            entity.Property(p => p.Status).HasColumnName("status").IsRequired().HasMaxLength(32);
+            entity.Property(p => p.SiteUrl).HasColumnName("site_url").HasMaxLength(2048);
+            entity.Property(p => p.ProjectSiteRunId).HasColumnName("project_site_run_id");
+            entity.Property(p => p.Department).HasColumnName("department").HasMaxLength(64);
+            // text[], not a joined table: these are declarations the operator typed, read and
+            // written whole with the project and never queried across projects.
+            entity.Property(p => p.PartnerUrls).HasColumnName("partner_urls").HasColumnType("text[]").IsRequired();
+            entity.Property(p => p.CompetitorUrls).HasColumnName("competitor_urls").HasColumnType("text[]").IsRequired();
+            entity.Property(p => p.StartDate).HasColumnName("start_date").HasColumnType("date").IsRequired();
+            entity.Property(p => p.DueDate).HasColumnName("due_date").HasColumnType("date");
+            entity.Property(p => p.FinishedDate).HasColumnName("finished_date").HasColumnType("date");
+            entity.Property(p => p.EstimatedHours).HasColumnName("estimated_hours").HasColumnType("numeric(8,2)");
+            entity.Property(p => p.Budget).HasColumnName("budget").HasColumnType("numeric(12,2)");
+            entity.Property(p => p.BudgetCurrency).HasColumnName("budget_currency").HasColumnType("char(3)");
+            entity.Property(p => p.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(p => p.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            // RESTRICT, not Cascade: a client with projects is not deleted out from under them, and
+            // a project that has accrued a log — every project, from its first insert — is not
+            // deleted at all. Projects close through status.
+            entity.HasOne<GccClient>()
+                .WithMany()
+                .HasForeignKey(p => p.ClientId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(p => p.IdempotencyKey)
+                .IsUnique()
+                .HasDatabaseName("ix_gcc_projects_idempotency_key_unique");
+            entity.HasIndex(p => p.ClientId).HasDatabaseName("ix_gcc_projects_client_id");
+            entity.HasIndex(p => new { p.ClientId, p.Code })
+                .IsUnique()
+                .HasFilter("code IS NOT NULL")
+                .HasDatabaseName("ix_gcc_projects_client_id_code_unique");
+        });
+
+        modelBuilder.Entity<GccProjectLogEntry>(entity =>
+        {
+            entity.ToTable("gcc_project_log");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
+            entity.Property(e => e.OccurredAtUtc).HasColumnName("occurred_at_utc").IsRequired();
+            entity.Property(e => e.ActorUserId).HasColumnName("actor_user_id").IsRequired().HasMaxLength(256);
+            entity.Property(e => e.EventType).HasColumnName("event_type").IsRequired().HasMaxLength(64);
+            entity.Property(e => e.Payload).HasColumnName("payload").HasColumnType("jsonb").IsRequired();
+
+            entity.HasOne<GccProject>()
+                .WithMany()
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new { e.ProjectId, e.OccurredAtUtc })
+                .HasDatabaseName("ix_gcc_project_log_project_id_occurred_at_utc");
         });
 
         base.OnModelCreating(modelBuilder);

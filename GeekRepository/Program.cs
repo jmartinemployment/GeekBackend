@@ -219,6 +219,22 @@ static async Task ApplyContentWriterV2MigrationsAsync(WebApplication app, ILogge
     }
 }
 
+/// <summary>
+/// Applies the content_creator migrations, and stops the service if they do not apply.
+/// </summary>
+/// <remarks>
+/// The other Apply* methods here log and continue. That is not a neutral choice: on 2026-09-21 the
+/// Geek-Crawler seed-key backfill was throwing 42703 on every boot, the failure was swallowed, and
+/// the deployment reported SUCCESS — a schema silently not migrating behind a green deploy.
+///
+/// content_creator holds the project, client and billing rows, so it does not get that treatment.
+/// A failure here means the tables the API is about to serve are not the tables it was built
+/// against; serving anyway turns one loud startup error into an unbounded number of confusing
+/// runtime ones. It rethrows, which fails the deploy and keeps the previous release running.
+///
+/// The other contexts are deliberately left alone: Geek-Crawler is failing today, so making them
+/// all fatal would crash-loop this service rather than protect anything.
+/// </remarks>
 static async Task ApplyContentCreatorMigrationsAsync(WebApplication app, ILogger logger)
 {
     using var scope = app.Services.CreateScope();
@@ -230,7 +246,8 @@ static async Task ApplyContentCreatorMigrationsAsync(WebApplication app, ILogger
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed applying Content Creator EF migrations. Continuing startup.");
+        logger.LogCritical(ex, "Failed applying Content Creator EF migrations — refusing to start.");
+        throw;
     }
 }
 

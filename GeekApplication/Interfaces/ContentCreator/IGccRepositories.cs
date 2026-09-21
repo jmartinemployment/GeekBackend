@@ -65,3 +65,39 @@ public interface IGccSiteAnalysisRepository
         CancellationToken ct = default);
     Task<IReadOnlyList<GccSiteFindingDto>> ListByAnalysisIdAsync(Guid analysisId, CancellationToken ct = default);
 }
+
+/// <summary>
+/// Projects and their log.
+/// </summary>
+/// <remarks>
+/// Every write here also writes the log entry for what it did, in the same transaction. There is no
+/// method that changes a project without recording the change, and none that records a change
+/// without making it.
+///
+/// Not-found is null, never an exception: the caller turns that into a 404, which is the only
+/// thing it could mean.
+/// </remarks>
+public interface IGccProjectRepository
+{
+    Task<GccProjectDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Projects for one client, newest start date first.</summary>
+    Task<IReadOnlyList<GccProjectDto>> ListByClientIdAsync(Guid clientId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Create, or return what this idempotency key already created.
+    /// </summary>
+    Task<GccProjectCreateResult> CreateAsync(CreateGccProjectCommand command, CancellationToken ct = default);
+
+    /// <summary>Update the profile and schedule. Null when the project does not exist.</summary>
+    Task<GccProjectDto?> UpdateAsync(UpdateGccProjectCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// Move to a new status. Null when the project does not exist; the database refuses a finished
+    /// status without its date, and a date on any other status.
+    /// </summary>
+    Task<GccProjectDto?> ChangeStatusAsync(ChangeGccProjectStatusCommand command, CancellationToken ct = default);
+
+    /// <summary>The project's log, oldest first. Empty only when the project does not exist.</summary>
+    Task<IReadOnlyList<GccProjectLogEntryDto>> ListLogAsync(Guid projectId, CancellationToken ct = default);
+}
