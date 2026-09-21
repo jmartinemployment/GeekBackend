@@ -70,7 +70,7 @@ public class ClaudeContentGenerator : IContentGenerator
             - Apply the feedback thoroughly.
             - Preserve structure unless the feedback requires adding/removing sections.
             - Keep existing factual claims; do not invent new ones.
-            - Respond with ONLY a single valid JSON object — no markdown fences, no commentary — matching exactly:
+            - Respond with ONLY a single valid JSON object — no code fences, no commentary — matching exactly:
             {ContentDocumentJsonContract}
             """;
 
@@ -97,7 +97,7 @@ public class ClaudeContentGenerator : IContentGenerator
             Stay faithful to the pillar's facts — do not invent claims. Vary angles across variants.
             Match platform norms in the channel brief exactly (counts and lengths).
 
-            Respond with ONLY a single valid JSON object — no markdown fences, no commentary —
+            Respond with ONLY a single valid JSON object — no code fences, no commentary —
             with a top-level "variants" array. Each variant object must include:
             channel (linkedin|x|instagram|meta_ad|google_ad|email), title, optional headline,
             body, optional cta, optional hashtags string array.
@@ -137,7 +137,7 @@ public class ClaudeContentGenerator : IContentGenerator
 
             Stay faithful to the pillar — do not invent product claims. Follow the pack brief exactly.
 
-            Respond with ONLY a single valid JSON object — no markdown fences — with a top-level
+            Respond with ONLY a single valid JSON object — no code fences — with a top-level
             "sections" array. Each section object needs: kind (titles|description|tags|chapters|
             thumbnails|shorts), title, optional body, optional items string array.
             """;
@@ -277,13 +277,13 @@ public class ClaudeContentGenerator : IContentGenerator
             - Include the call-to-action naturally in the final section.
             - Aim for 1500-2000 words across all sections combined.
 
-            Respond with ONLY a single valid JSON object — no markdown fences, no commentary, matching exactly:
+            Respond with ONLY a single valid JSON object — no code fences, no commentary, matching exactly:
             {ContentDocumentJsonContract}
             """;
     }
 
     /// <summary>Extracts the first balanced JSON object from a possibly-noisy LLM response (strips
-    /// markdown code fences if present) and validates it has the shape ContentDocumentJsonContract
+    /// code fences if present) and validates it has the shape ContentDocumentJsonContract
     /// describes before trusting it — Anthropic's plain-prompt JSON output isn't schema-enforced the
     /// way OpenAI's json_schema mode is, so a malformed/truncated response must fail loudly here
     /// rather than get stored as a broken ContentAssetVersion.</summary>

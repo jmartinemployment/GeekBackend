@@ -51,7 +51,7 @@ public sealed class EditorialReviewService : IEditorialReviewService
            "Further Reading" H2, no duplicate heading text, meta description between 140-160
            characters (check the Meta description field supplied below).
 
-        Respond with ONLY a JSON object, no markdown fences:
+        Respond with ONLY a JSON object, no code fences:
         {"verdict": "approved" | "revise", "notes": "<string|null>"}
 
         Verdict rules:

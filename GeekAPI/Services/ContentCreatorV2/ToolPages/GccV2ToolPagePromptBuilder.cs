@@ -65,7 +65,7 @@ public sealed class GccV2ToolPagePromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
             .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
-            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary:")
             .AppendLine(SectionJsonContract)
             .AppendLine("This section's tag is \"h2\". Include 2-3 h3 subsections in \"children\" with substantive paragraphs and at least one list where appropriate.")
             .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent features.")
@@ -118,7 +118,7 @@ public sealed class GccV2ToolPagePromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write ONE section of a keyword use-case overview page — NOT a single-product tool page.")
             .AppendLine("Third person, expert, consultative — frame the use case for teams adopting AI in this space.")
-            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary:")
             .AppendLine(SectionJsonContract)
             .AppendLine("This section's tag is \"h2\". Include 2-3 h3 children with multiple paragraphs; at least one list paragraph where appropriate.")
             .AppendLine("PROBLEM-FIRST when this section establishes the core practitioner problem: open on cost, delay, risk, or wasted effort before naming solutions.")
@@ -167,7 +167,7 @@ public sealed class GccV2ToolPagePromptBuilder
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write ONE platform subsection for the Tools index of a keyword overview page — third person, expert, consultative.")
-            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary:")
             .AppendLine(SectionJsonContract)
             .AppendLine("This section's tag is \"h3\". Heading must be plain tool name only (no HTML, no links in heading).")
             .AppendLine("Include: overview paragraph of what the platform does for this use case, then a list with 2-4 factual capability bullets from the research.")
@@ -207,7 +207,7 @@ public sealed class GccV2ToolPagePromptBuilder
     {
         var system = new StringBuilder()
             .AppendLine("You write presentation metadata for a B2B tool overview page (schema.org SoftwareApplication).")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine(ToolMetadataJsonContract)
             .AppendLine("Each summary field must use different wording.")
             .ToString();
@@ -239,7 +239,7 @@ public sealed class GccV2ToolPagePromptBuilder
 
         var system = new StringBuilder()
             .AppendLine("You write presentation metadata for a keyword tool-overview hub page.")
-            .AppendLine("Respond with ONLY JSON — no markdown fences:")
+            .AppendLine("Respond with ONLY JSON — no code fences:")
             .AppendLine(contract)
             .ToString();
 
@@ -265,7 +265,7 @@ public sealed class GccV2ToolPagePromptBuilder
         var system =
             "Select ONE verbatim sentence or short passage from the source page text below for a blockquote. " +
             "Copy exact wording from the page — do NOT paraphrase, summarize, or rewrite. " +
-            "Respond with ONLY the quoted words — no markdown, no HTML, no surrounding quote marks (they are added by the pipeline).";
+            "Respond with ONLY the quoted words — no markup of any kind, no surrounding quote marks (they are added by the pipeline).";
         var user = new StringBuilder()
             .AppendLine($"Tool: {toolName}")
             .AppendLine($"Source URL: {sourceUrl}")

@@ -435,7 +435,7 @@ public sealed class GccV2CreateLibraryWriter
               {"type":"list","ordered":bool,"items":[[<run>,...],...]}
               {"type":"quote","runs":[<run>,...],"cite":string?}
               {"type":"code","code":string}
-            Plain text inside "text" — never markup and never Markdown syntax. A paragraph break is
+            Plain text inside "text" — never markup syntax of any kind. A paragraph break is
             a new paragraph object, not a blank line.
             """;
         var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor)
@@ -461,7 +461,7 @@ public sealed class GccV2CreateLibraryWriter
               {"type":"list","ordered":bool,"items":[[<run>,...],...]}
               {"type":"quote","runs":[<run>,...],"cite":string?}
               {"type":"code","code":string}
-            Plain text inside "text" — never markup and never Markdown syntax. A paragraph break is
+            Plain text inside "text" — never markup syntax of any kind. A paragraph break is
             a new paragraph object, not a blank line.
             """;
         var outlineText = outline is { Count: > 0 }
@@ -705,7 +705,7 @@ public sealed class GccV2CreateLibraryWriter
               {"type":"list","ordered":bool,"items":[[<run>,...],...]}
               {"type":"quote","runs":[<run>,...],"cite":string?}
               {"type":"code","code":string}
-            Plain text inside "text" — never markup and never Markdown syntax. A paragraph break is
+            Plain text inside "text" — never markup syntax of any kind. A paragraph break is
             a new paragraph object, not a blank line.
             """;
         var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor)

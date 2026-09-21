@@ -205,7 +205,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// markup syntax available for the model to get wrong.
     /// </summary>
     private const string RunJsonShape =
-        "{\"text\": string (plain text only — never markup or Markdown syntax), \"bold\": boolean?, \"italic\": boolean?, \"href\": string?}";
+        "{\"text\": string (plain text only — never markup syntax of any kind), \"bold\": boolean?, \"italic\": boolean?, \"href\": string?}";
 
     private const string ParagraphJsonShape =
         "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...]} " +
@@ -326,7 +326,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
         var system = new StringBuilder()
             .AppendLine("You extract the real topical focus of a business website from its crawled headings and body text.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary.")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(TopicFocusJsonContract)
             .AppendLine("Each phrase must name a real service, product, industry, or subject the site actually covers (e.g. \"managed IT services\", ")
             .AppendLine("\"AI implementation\", \"Salesforce consulting\") — never a generic word like \"business\", \"solutions\", \"help\", \"choose\", or \"build\" on its own.")
@@ -356,7 +356,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
         var system = new StringBuilder()
             .AppendLine("You extract named use-case / service listing items from a business's Home page (crawled headings and body text only — no HTML markup or links are visible to you).")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary.")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(UseCaseExtractionJsonContract)
             .AppendLine("Only extract items from a genuine listing/showcase section (e.g. \"Our Use Cases\", \"Services\", \"What We Do\") where each item has its own distinct name — ")
             .AppendLine("never invent items, and never extract generic nav/footer links or one-off mentions in prose.")
@@ -405,7 +405,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine(HierarchyPromptGuidance(context, strictChildHeadings: true))
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary.")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(ArticleMetadataJsonContract)
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("GOOD sectionOutline example: [\"Overview of Enterprise AI\", \"Implementation Framework\", \"Measuring ROI\", \"People Also Ask\"]")
@@ -470,7 +470,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation. 2-3 paragraphs total.")
             .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
 
@@ -533,7 +533,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for the Introduction section.")
             .AppendLine(BuildIntroductionSectionGuidance(context))
             .AppendLine()
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine("Always include both \"lede\" and \"introduction\" keys; when they share one H2, use the same heading string in both.")
             .AppendLine(LedeAndIntroductionJsonContract)
             .ToString();
@@ -591,7 +591,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Apply ONLY the reviewer's meta/title notes below. Keep the plan/outline unchanged.")
             .AppendLine("Meta description must be 140-160 characters, factual, no hype words like \"cutting-edge\".")
             .AppendLine("Change the title only when a note explicitly targets Title; otherwise return the current title unchanged.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine("{\"title\": string, \"metaDescription\": string}")
             .AppendLine()
             .AppendLine("REVISION REQUIRED — address each of the following:")
@@ -628,7 +628,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(briefBody)
             .AppendLine($"Write {headings.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
-            .AppendLine("Respond with ONLY the sections array, one entry per heading listed below, in the same order — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY the sections array, one entry per heading listed below, in the same order — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine("Each section's own tag is \"h2\". Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
             .AppendLine("Each h3 is a keyword-level topic and MUST itself nest 1-3 h4 children covering concrete subtopics of that h3.")
@@ -730,7 +730,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(briefBody)
             .AppendLine("Write ONE section of a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
-            .AppendLine("Respond with ONLY a single valid JSON Section object for this section — no markdown fences, no commentary, no other sections.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object for this section — no code fences, no commentary, no other sections.")
             .AppendLine(SectionJsonContract)
             .AppendLine("This section's own tag is \"h2\". Do NOT write introductory paragraphs before it — the opening lede is generated separately.")
             .AppendLine("Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
@@ -829,7 +829,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Choose 4-5 major platforms or tools for the Tools H2 of a TechnicalArticle pillar.")
             .AppendLine("Only real, verifiable, well-known products relevant to the target keyword. Never invent a tool name or vendor.")
             .AppendLine("Prefer depth on 4 platforms over shallow coverage of 6.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine("{\"platforms\": string[] (4-5 product names, display order)}")
             .ToString();
 
@@ -883,7 +883,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(briefBody)
             .AppendLine("Write ONE platform subsection for the Tools H2 of a TechnicalArticle pillar — third person, expert, consultative.")
-            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary, no other platforms.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary, no other platforms.")
             .AppendLine(SectionJsonContract)
             .AppendLine("This section's own tag is \"h3\". Heading must be exactly \"<a href=\"/tools/{department}/{slug}\">PlatformName</a>\" — enclose the platform name in an anchor tag linking to /tools/{department}/{slugified-platform-name} (e.g. <a href=\"/tools/marketing/tipalti\">Tipalti</a>), using the department from the project context and the slugified tool name.")
             .AppendLine("Include: a brief overview paragraph of what the platform does for this use case, then a list paragraph with 2-4 factual capability bullets.")
@@ -946,7 +946,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(briefBody)
             .AppendLine("Write ONLY the \"People Also Ask\" FAQ section of a TechnicalArticle pillar.")
-            .AppendLine("Respond with ONLY a single valid JSON Section object — no markdown fences, no commentary.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
             .AppendLine(SectionJsonContract)
             .AppendLine("This section's tag is \"h2\" and heading is exactly \"People Also Ask\". Each question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
             .AppendLine("Direct, factual answers. Third person.")
@@ -989,7 +989,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary.")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("The blog title MUST be different from the pillar title — use a conversational hook, question, or numbered angle (e.g. \"3 Ways...\", \"Why...\"). Never copy the pillar title verbatim.")
             .ToString();
@@ -1021,7 +1021,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
             .AppendLine("2-3 paragraphs: hook, stakes, and who this is for.")
             .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
 
@@ -1052,7 +1052,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Substantive paragraphs with examples, drawn from what the pillar actually says; first/second person allowed.")
             .AppendLine("Weave the pillar's takeaways into this blog's own paragraphs. Name listed platforms in prose where they help the angle — a closing CTA is not weaving.")
             .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
-            .AppendLine("Respond with ONLY the sections array — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .ToString();
 
@@ -1089,7 +1089,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary.")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("This is a standalone deep-dive blog — there is no companion pillar article. Title should be a conversational hook, question, or numbered angle.")
             .ToString();
@@ -1119,7 +1119,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
             .AppendLine("2-3 paragraphs: hook, stakes, and who this is for.")
             .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
 
@@ -1145,7 +1145,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Substantive paragraphs with examples and implementation context; first/second person allowed.")
             .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
             .AppendLine(briefBody)
-            .AppendLine("Respond with ONLY the sections array — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .ToString();
 
@@ -1197,9 +1197,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(briefBody)
             .AppendLine(styleGuidance)
             .AppendLine(lengthGuidance)
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine(SocialJsonContract)
-            .AppendLine("JSON rules: one string value for text. Use \\n for line breaks. Plain URL only — no [text](url) markdown.")
+            .AppendLine("JSON rules: one string value for text. Use \\n for line breaks. Plain URL only — no [text](url) link syntax.")
             .ToString();
 
         var user = new StringBuilder()
@@ -1227,9 +1227,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(briefBody)
             .AppendLine(ContentLengthTargets.EmailColdOutreachEditorialDefinition)
             .AppendLine($"Body must be {ContentLengthTargets.EmailColdOutreachMinWords}-{ContentLengthTargets.EmailColdOutreachMaxWords} words.")
-            .AppendLine("Pitch ONE clear idea. No HTML. No markdown links. Do not invent URLs.")
+            .AppendLine("Pitch ONE clear idea. No HTML. No inline link syntax. Do not invent URLs.")
             .AppendLine("ctaLabel is short button/link text (e.g. \"Read the full guide\"). The destination URL is injected by the app.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine(ColdOutreachJsonContract)
             .ToString();
 
@@ -1276,7 +1276,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("- alchemy: true, photoReal: false")
             .AppendLine("- notes: one short image-gen tip (negative prompt, no text, etc.)")
             .AppendLine()
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences, no preamble, no trailing text:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no preamble, no trailing text:")
             .AppendLine(ImagePromptSectionsJsonContract)
             .ToString();
 
@@ -1319,7 +1319,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("- NO readable text, logos, or watermarks in the image.")
             .AppendLine("- Prefer a wider establishing-shot hero composition that evokes the topic's theme and stakes.")
             .AppendLine()
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine(
                 "{\"prompt\": string, \"style\": string, \"negativePrompt\": string, \"aspectRatio\": string, \"imageModel\": string, \"stylePreset\": string, \"notes\": string}")
             .AppendLine($"Use imageModel \"{ImagePromptDefaults.DefaultImageModel}\" and stylePreset \"Illustration\" unless the brief clearly requires otherwise.")
@@ -1359,7 +1359,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
-            .AppendLine("Respond with ONLY the sections array for this tool overview page — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY the sections array for this tool overview page — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
             .AppendLine("No introductory paragraphs before the first section.")
@@ -1425,7 +1425,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine("Respond with ONLY a sections array — no markdown fences, no commentary:")
+            .AppendLine("Respond with ONLY a sections array — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine($"Write a hub page titled \"{roundupTitle}\" that lists each tool and links to its dedicated page URL.")
             .AppendLine("This page belongs to Generate Tools — it is not a pillar Write Body section.")
@@ -1496,7 +1496,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     {
         var system = new StringBuilder()
             .AppendLine("You write presentation metadata for a B2B tool overview page (schema.org SoftwareApplication).")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine(ToolMetadataJsonContract)
             .AppendLine("departmentListExcerpt, summary, mainSummary, heroSummary, homeSummary, blogSummary, toolPageExcerpt, advertisingSummary, and metaDescription must each use different wording — no field may restate another's sentence structure or lede.")
             .ToString();
@@ -1528,7 +1528,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     {
         var system = new StringBuilder()
             .AppendLine($"You write presentation summary copy for a {contentTypeLabel} page.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine(SummaryVariantsJsonContract)
             .AppendLine("summary, mainSummary, heroSummary, homeSummary, blogSummary, and advertisingSummary must each use different wording from each other and from the meta description provided below — no field may restate another's sentence structure or lede.")
             .ToString();

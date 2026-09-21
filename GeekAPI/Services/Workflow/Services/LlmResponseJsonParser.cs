@@ -14,8 +14,8 @@ public static class LlmResponseJsonParser
     /// provider-facing schema from these exact options — the single source of truth for the real
     /// deserialization contract, so the schema can never silently drift from it.</summary>
     internal static readonly JsonSerializerOptions SectionJsonOptions = CreateSectionJsonOptions();
-    private static readonly Regex MarkdownFence = new(@"^```(?:json|html)?\s*|\s*```$", RegexOptions.Multiline | RegexOptions.Compiled);
-    private static readonly Regex MarkdownLink = new(@"\[([^\]]*)\]\(([^)]+)\)", RegexOptions.Compiled);
+    private static readonly Regex CodeFence = new(@"^```(?:json|html)?\s*|\s*```$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex InlineLinkSyntax = new(@"\[([^\]]*)\]\(([^)]+)\)", RegexOptions.Compiled);
 
     /// <summary>Leaked Markdown/HTML syntax that should never appear in a plain-text field — see the
     /// content-hygiene validation pass in the design plan: cheap to check because there's no markup
@@ -576,7 +576,7 @@ public static class LlmResponseJsonParser
         }
     }
 
-    private static string Clean(string rawContent) => MarkdownFence.Replace(rawContent, string.Empty).Trim();
+    private static string Clean(string rawContent) => CodeFence.Replace(rawContent, string.Empty).Trim();
 
     /// <summary>
     /// Finds the first "{" or "[" and scans for its actual matching close (tracking nesting depth
@@ -710,7 +710,7 @@ public static class LlmResponseJsonParser
 
     private static string NormalizeSocialText(string text, string articleUrl)
     {
-        text = MarkdownLink.Replace(text, "$2").Trim();
+        text = InlineLinkSyntax.Replace(text, "$2").Trim();
         if (!text.Contains(articleUrl, StringComparison.OrdinalIgnoreCase))
         {
             text = $"{text.TrimEnd()} {articleUrl}".Trim();

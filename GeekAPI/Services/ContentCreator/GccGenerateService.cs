@@ -1240,7 +1240,7 @@ public class GccGenerateService
         if (string.IsNullOrWhiteSpace(raw))
             throw new InvalidOperationException("Social/ads pack LLM returned empty content.");
 
-        // Strip markdown fences if the model wraps JSON.
+        // Strip code fences if the model wraps JSON.
         if (raw.StartsWith("```", StringComparison.Ordinal))
         {
             var start = raw.IndexOf('{');
@@ -1866,9 +1866,9 @@ public class GccGenerateService
         var system = new StringBuilder()
             .AppendLine("You write cold outreach / sales emails for an IT consulting firm that specializes in AI implementation.")
             .AppendLine("Body must be 150-200 words.")
-            .AppendLine("Pitch ONE clear idea. No HTML. No markdown links. Do not invent URLs.")
+            .AppendLine("Pitch ONE clear idea. No HTML. No inline link syntax. Do not invent URLs.")
             .AppendLine("ctaLabel is short button/link text (e.g. \"Read the full guide\"). The destination URL is injected by the app.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine("{\"subject\": string, \"body\": string, \"ctaLabel\": string}")
             .ToString();
 
@@ -1931,7 +1931,7 @@ public class GccGenerateService
             .AppendLine($"You write {platform} posts for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(styleGuidance)
             .AppendLine(lengthGuidance)
-            .AppendLine("Respond with ONLY a single valid JSON object — no markdown fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine("{\"text\": string}")
             .AppendLine("JSON rules: one string value for text. Use \\n for line breaks.")
             .ToString();
@@ -1966,6 +1966,16 @@ public class GccGenerateService
         return raw;
     }
 
+    /// <summary>
+    /// A pillar body as a <see cref="ContentDocument"/>, serialized. Never markup: the model
+    /// returns typed sections, the document holds the structure, and tag characters are produced
+    /// only by <c>SectionHtmlRenderer</c> at export.
+    /// </summary>
+    /// <remarks>
+    /// This replaced a prompt that asked for a prose body and a caller that read structure back out
+    /// of the string. The lede goes through <c>BuildPillarLedePrompt</c> so lede-type guidance
+    /// applies here as it does on the orchestrator path.
+    /// </remarks>
     public async Task<string> GeneratePillarBodyAsync(
         GccCreateDto create,
         SiteSectionContextDto? section,
@@ -1974,34 +1984,94 @@ public class GccGenerateService
         CancellationToken ct)
     {
         var llm = GetLlm(provider);
-        var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var groundingBlock = BuildAudience(create, section);
+        var context = BuildPillarContext(create, section, mustMentionBlock, provider);
+        var metadata = new ArticleMetadataDraft(
+            Title: create.Topic.Trim(),
+            MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
+            Keywords: [create.Topic.Trim()],
+            SectionOutline: [.. PillarOutline]);
 
-        var system = new StringBuilder()
-            .AppendLine("You write comprehensive B2B pillar articles for an IT consulting firm specializing in AI implementation.")
-            .AppendLine("Generate a well-structured HTML body with multiple <h2> sections (each 400-600 words).")
-            .AppendLine("Emit semantic HTML only — <h2>, <h3>, <p>, <ul>/<li>. Never Markdown: no ##, no **, no - bullets.")
-            .AppendLine("Start directly with the first <h2> section — no preamble or introduction.")
-            .AppendLine("Each section should be self-contained and detailed, with real examples and insights.")
-            .AppendLine("Use clear language suitable for technical and business audiences.")
-            .ToString();
+        var ledeResult = await llm.CompleteAsync(
+            _prompts.BuildPillarLedePrompt(
+                context,
+                metadata,
+                ledeHeading: PillarOutline[0],
+                ledeIndex: 0,
+                totalSections: PillarOutline.Count,
+                fullOutline: PillarOutline,
+                isRegeneration: false),
+            ct);
+        var ledeSections = LlmResponseJsonParser.ParseSections(ledeResult.Content, "pillar lede");
+        if (ledeSections.Count == 0)
+            throw new InvalidOperationException("Pillar lede returned no sections.");
 
-        var user = new StringBuilder()
-            .AppendLine(briefBlock)
-            .AppendLine()
-            .AppendLine(groundingBlock);
-        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
-            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+        var bodyResult = await llm.CompleteAsync(
+            _prompts.BuildArticleSectionBatchPrompt(
+                context,
+                metadata,
+                headings: [.. PillarOutline.Skip(1)],
+                fullOutline: PillarOutline,
+                isRegeneration: false),
+            ct);
+        var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body");
+        if (bodySections.Count == 0)
+            throw new InvalidOperationException("Pillar body returned no sections.");
 
-        var request = new ChatCompletionRequest(
-            Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
-            Temperature: 0.7,
-            MaxOutputTokens: 4096);
-
-        var result = await llm.CompleteAsync(request, ct);
-        return result.Content?.Trim() ?? "";
+        var document = new ContentDocument(ledeSections[0] with { Tag = "h2" }, bodySections);
+        document = ContentGuardrail.Apply(document).Document;
+        return JsonSerializer.Serialize(document, CwDocumentJson);
     }
 
+    /// <summary>The pillar's standing section plan. Headings the writer must fill, not invent.</summary>
+    private static readonly IReadOnlyList<string> PillarOutline =
+    [
+        "Overview",
+        "Why it matters now",
+        "How it works",
+        "What to evaluate",
+        "Implementation path",
+        "Next steps",
+    ];
+
+    private ProjectGenerationContext BuildPillarContext(
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        string? mustMentionBlock,
+        ContentGeneratorProvider provider)
+    {
+        var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
+        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
+        var consultantAppendix = BuildConsultantAppendix(create);
+        if (consultantAppendix.Length > 0)
+            sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
+        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+            sourceContext = $"{sourceContext}\n\nMust mention:\n{mustMentionBlock}";
+
+        var brief = ExtractBriefFields(create.BriefJson);
+        return BuildMinimalContext(
+            create.Topic,
+            sourceContext,
+            ToLlm(provider),
+            create.Department,
+            brief.Segment,
+            brief.Details,
+            brief.Notes,
+            brief.Angle,
+            brief.PrimaryIntent,
+            brief.SecondaryIntent,
+            brief.BuyingStage,
+            brief.ToneOfVoice,
+            brief.EeatSignals,
+            brief.CtaType,
+            brief.CtaLabel,
+            brief.LengthBand,
+            brief.WritingNotes);
+    }
+
+    /// <summary>
+    /// A blog body as a <see cref="ContentDocument"/>, serialized — the same contract as the pillar
+    /// and as the standalone blog path this service already used.
+    /// </summary>
     public async Task<string> GenerateBlogBodyAsync(
         GccCreateDto create,
         SiteSectionContextDto? section,
@@ -2010,32 +2080,28 @@ public class GccGenerateService
         CancellationToken ct)
     {
         var llm = GetLlm(provider);
-        var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var groundingBlock = BuildAudience(create, section);
+        var context = BuildPillarContext(create, section, mustMentionBlock, provider);
+        var metadata = new BlogMetadataDraft(
+            Title: create.Topic.Trim(),
+            MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
+            Keywords: [create.Topic.Trim()],
+            SectionOutline: ["Overview", "Key considerations", "Next steps"]);
 
-        var system = new StringBuilder()
-            .AppendLine("You write accessible B2B blog posts for an IT consulting firm specializing in AI implementation.")
-            .AppendLine("Generate a well-structured HTML body with 3-4 <h2> sections (each 300-400 words).")
-            .AppendLine("Emit semantic HTML only — <h2>, <h3>, <p>, <ul>/<li>. Never Markdown: no ##, no **, no - bullets.")
-            .AppendLine("Start directly with the first <h2> section — no preamble or introduction.")
-            .AppendLine("Each section should be clear and approachable, with practical examples.")
-            .AppendLine("Use conversational language that engages both technical and business readers.")
-            .ToString();
+        var ledeResult = await llm.CompleteAsync(
+            _prompts.BuildStandaloneBlogLedePrompt(context, metadata), ct);
+        var ledeSections = LlmResponseJsonParser.ParseSections(ledeResult.Content, "blog lede");
+        if (ledeSections.Count == 0)
+            throw new InvalidOperationException("Blog lede returned no sections.");
 
-        var user = new StringBuilder()
-            .AppendLine(briefBlock)
-            .AppendLine()
-            .AppendLine(groundingBlock);
-        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
-            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+        var bodyResult = await llm.CompleteAsync(
+            _prompts.BuildStandaloneBlogBodyPrompt(context, metadata, revisionNotes: null), ct);
+        var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "blog body");
+        if (bodySections.Count == 0)
+            throw new InvalidOperationException("Blog body returned no sections.");
 
-        var request = new ChatCompletionRequest(
-            Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
-            Temperature: 0.7,
-            MaxOutputTokens: 2048);
-
-        var result = await llm.CompleteAsync(request, ct);
-        return result.Content?.Trim() ?? "";
+        var document = new ContentDocument(ledeSections[0] with { Tag = "h2" }, bodySections);
+        document = ContentGuardrail.Apply(document).Document;
+        return JsonSerializer.Serialize(document, CwDocumentJson);
     }
 
     public async Task<string> GenerateSectionImagePromptsAsync(
@@ -2113,26 +2179,14 @@ public class GccGenerateService
     /// <c>ContentDocumentText.AllHeadings</c>, which reads headings off the document with no parse
     /// at all. Tracked as Stage 4 in content-creator-v2/plans/grounded-generation-and-serp.md.
     /// </remarks>
-    private static List<string> ExtractSectionHeadings(string body)
+        /// <summary>
+    /// The H2 headings of a generated body. The body is a <see cref="ContentDocument"/>, so the
+    /// headings are read off the tree — no parse, no regex, nothing to guess. This replaced a
+    /// string scan that only ever worked while the body happened to be a string.
+    /// </summary>
+    private static List<string> ExtractSectionHeadings(string bodyJson)
     {
-        var headings = new List<string>();
-        var document = new HtmlAgilityPack.HtmlDocument();
-        document.LoadHtml(body);
-
-        var nodes = document.DocumentNode.SelectNodes("//h2");
-        if (nodes is null)
-        {
-            return headings;
-        }
-
-        foreach (var node in nodes)
-        {
-            var text = HtmlAgilityPack.HtmlEntity.DeEntitize(node.InnerText ?? string.Empty).Trim();
-            if (text.Length > 0)
-            {
-                headings.Add(text);
-            }
-        }
-        return headings;
+        var document = JsonSerializer.Deserialize<ContentDocument>(bodyJson, CwDocumentJson);
+        return document is null ? [] : [.. ContentDocumentText.TopLevelHeadings(document)];
     }
 }

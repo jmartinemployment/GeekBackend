@@ -35,7 +35,7 @@ public sealed class GccV2RestructurePassService
             Preserve the section's heading, factual claims, and assigned editorial job — change wording only.
             Respond with ONLY a single JSON section object matching this shape:
             {"tag":"h2","heading":string,"paragraphs":[{"type":"text","runs":[{"text":string}]}],"children":[]}
-            No markdown fences, no commentary.
+            No code fences, no commentary.
             """;
 
         var user = $"""

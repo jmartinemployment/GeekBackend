@@ -56,7 +56,7 @@ public class OpenAiContentGenerator : IContentGenerator
 
         var system = $"""
             You are a professional content strategist and writer. Create a compelling article based on the brief given.
-            Respond with ONLY a single valid JSON object — no markdown fences, no commentary — matching exactly:
+            Respond with ONLY a single valid JSON object — no code fences, no commentary — matching exactly:
             {ContentDocumentJsonContract}
             """;
 
@@ -90,7 +90,7 @@ public class OpenAiContentGenerator : IContentGenerator
     {
         var system = $"""
             You are a professional content editor. Revise the given ContentDocument JSON according to the feedback.
-            Respond with ONLY a single valid JSON object — no markdown fences, no commentary — matching exactly:
+            Respond with ONLY a single valid JSON object — no code fences, no commentary — matching exactly:
             {ContentDocumentJsonContract}
             Preserve structure unless the feedback requires adding/removing sections. Keep approved facts intact;
             do not invent claims. Apply the feedback thoroughly.
