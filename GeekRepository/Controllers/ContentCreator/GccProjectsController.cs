@@ -4,6 +4,8 @@ using GeekRepository.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using GeekApplication.Validation;
+
 namespace GeekRepository.Controllers.ContentCreator;
 
 /// <summary>
@@ -69,6 +71,12 @@ public class GccProjectsController : ControllerBase
             return BadRequest("name is required.");
         if (string.IsNullOrWhiteSpace(command.ActorUserId))
             return BadRequest("actorUserId is required — every change is attributed.");
+        if (!string.IsNullOrWhiteSpace(command.SiteUrl) && !GccUrlValidation.IsValid(command.SiteUrl))
+            return BadRequest("siteUrl must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(command.PartnerUrls) is { } badPartner)
+            return BadRequest($"partnerUrls contains an invalid URL: '{badPartner}'. Each must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(command.CompetitorUrls) is { } badCompetitor)
+            return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
         var result = await _repository.CreateAsync(command, ct);
         if (result.Conflict)
@@ -95,6 +103,12 @@ public class GccProjectsController : ControllerBase
             return BadRequest("name is required.");
         if (string.IsNullOrWhiteSpace(command.ActorUserId))
             return BadRequest("actorUserId is required — every change is attributed.");
+        if (!string.IsNullOrWhiteSpace(command.SiteUrl) && !GccUrlValidation.IsValid(command.SiteUrl))
+            return BadRequest("siteUrl must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(command.PartnerUrls) is { } badPartner)
+            return BadRequest($"partnerUrls contains an invalid URL: '{badPartner}'. Each must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(command.CompetitorUrls) is { } badCompetitor)
+            return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
         var project = await _repository.UpdateAsync(command, ct);
         if (project is null) return NotFound();

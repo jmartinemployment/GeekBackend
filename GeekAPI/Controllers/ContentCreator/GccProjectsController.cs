@@ -5,6 +5,8 @@ using GeekApplication.Models.ContentCreator;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using GeekApplication.Validation;
+
 namespace GeekAPI.Controllers.ContentCreator;
 
 /// <summary>
@@ -76,6 +78,12 @@ public class GccProjectsController : ControllerBase
             return BadRequest("idempotencyKey is required — it is what makes a repeat submit safe.");
         if (string.IsNullOrWhiteSpace(request.Name))
             return BadRequest("name is required.");
+        if (!string.IsNullOrWhiteSpace(request.SiteUrl) && !GccUrlValidation.IsValid(request.SiteUrl))
+            return BadRequest("siteUrl must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(request.PartnerUrls) is { } badPartner)
+            return BadRequest($"partnerUrls contains an invalid URL: '{badPartner}'. Each must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
+            return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
         var result = await _repo.CreateProjectAsync(
             new CreateGccProjectCommand(
@@ -114,6 +122,12 @@ public class GccProjectsController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(request.Name))
             return BadRequest("name is required.");
+        if (!string.IsNullOrWhiteSpace(request.SiteUrl) && !GccUrlValidation.IsValid(request.SiteUrl))
+            return BadRequest("siteUrl must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(request.PartnerUrls) is { } badPartner)
+            return BadRequest($"partnerUrls contains an invalid URL: '{badPartner}'. Each must be an absolute http or https URL.");
+        if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
+            return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
         var project = await _repo.UpdateProjectAsync(
             new UpdateGccProjectCommand(
