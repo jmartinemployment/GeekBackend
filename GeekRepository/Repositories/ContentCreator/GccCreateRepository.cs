@@ -27,6 +27,53 @@ public class GccCreateRepository : IGccCreateRepository
         return entities.Select(MapToDto).ToList().AsReadOnly();
     }
 
+    /// <summary>
+    /// Delete a create and everything beneath it, in foreign-key order.
+    ///
+    /// The cascade is written out because nothing else performs it: GccArtifact.CreateId,
+    /// GccArtifactVersion.ArtifactId and GccApprovalEvent.ArtifactVersionId are bare Guid columns
+    /// with no navigation property and no OnDelete configured, so EF deletes exactly what it is
+    /// told and no more. Deleting the create row alone would leave its artifacts and versions
+    /// behind, reachable by nothing.
+    ///
+    /// One SaveChangesAsync, so the whole graph goes or none of it does.
+    /// </summary>
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    {
+        var create = await _db.GccCreates.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (create is null) return false;
+
+        var artifactIds = await _db.GccArtifacts
+            .Where(a => a.CreateId == id)
+            .Select(a => a.Id)
+            .ToListAsync(ct);
+
+        var versionIds = await _db.GccArtifactVersions
+            .Where(v => artifactIds.Contains(v.ArtifactId))
+            .Select(v => v.Id)
+            .ToListAsync(ct);
+
+        var approvalEvents = await _db.GccApprovalEvents
+            .Where(e => versionIds.Contains(e.ArtifactVersionId))
+            .ToListAsync(ct);
+        _db.GccApprovalEvents.RemoveRange(approvalEvents);
+
+        var versions = await _db.GccArtifactVersions
+            .Where(v => versionIds.Contains(v.Id))
+            .ToListAsync(ct);
+        _db.GccArtifactVersions.RemoveRange(versions);
+
+        var artifacts = await _db.GccArtifacts
+            .Where(a => artifactIds.Contains(a.Id))
+            .ToListAsync(ct);
+        _db.GccArtifacts.RemoveRange(artifacts);
+
+        _db.GccCreates.Remove(create);
+
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<IReadOnlyList<GccCreateDto>> ListAsync(Guid? clientId, string? ownerUserId, CancellationToken ct = default)
     {
         var q = _db.GccCreates.AsQueryable();

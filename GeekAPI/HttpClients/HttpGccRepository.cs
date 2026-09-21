@@ -42,6 +42,13 @@ public class HttpGccRepository
         CancellationToken ct = default) =>
         PatchAsync<GccCreateDto>($"repo/content-creator/creates/{id}/brief-research", command, ct);
 
+    /// <summary>
+    /// Delete a create and everything beneath it. False when the repository had no such create,
+    /// which is not an error to the caller: the goal state is "gone".
+    /// </summary>
+    public Task<bool> DeleteCreateAsync(Guid id, CancellationToken ct = default) =>
+        DeleteAsync($"repo/content-creator/creates/{id}", ct);
+
     public Task<GccArtifactDto?> GetArtifactAsync(Guid id, CancellationToken ct = default) =>
         GetAsync<GccArtifactDto>($"repo/content-creator/artifacts/{id}", ct);
 
@@ -174,6 +181,14 @@ public class HttpGccRepository
         var json = await res.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<T>(json, JsonOpts)
             ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    private async Task<bool> DeleteAsync(string path, CancellationToken ct)
+    {
+        var res = await _http.DeleteAsync(path, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return false;
+        res.EnsureSuccessStatusCode();
+        return true;
     }
 
     private async Task<T> PutAsync<T>(string path, object body, CancellationToken ct)

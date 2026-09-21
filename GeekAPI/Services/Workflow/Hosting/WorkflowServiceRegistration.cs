@@ -63,6 +63,7 @@ public static class WorkflowServiceRegistration
             (sp, _) => new ConcurrencyLimitingContentGenerationProvider(
                 sp.GetRequiredService<GroqProvider>(), sp.GetRequiredService<LlmConcurrencyGate>()));
 
+        services.AddScoped<ProjectDeletionService>();
         services.AddScoped<IContentProviderFactory, ContentProviderFactory>();
         services.AddHttpClient<ISiteCrawlerService, SiteCrawlerService>();
         services.AddScoped<IKeywordHtmlParserService, KeywordHtmlParserService>();

@@ -42,6 +42,16 @@ public class GccCreatesController : ControllerBase
         return Ok(await _repository.ListAsync(clientId, ownerUserId, ct));
     }
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        var deleted = await _repository.DeleteAsync(id, ct);
+        if (!deleted) return NotFound();
+
+        _logger.LogInformation("Deleted create {CreateId} and its artifacts, versions and approval events", id);
+        return NoContent();
+    }
+
     [HttpPost]
     public async Task<ActionResult<GccCreateDto>> Create([FromBody] CreateGccCreateCommand command, CancellationToken ct)
     {

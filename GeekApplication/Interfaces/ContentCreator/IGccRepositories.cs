@@ -10,6 +10,12 @@ public interface IGccCreateRepository
     Task<GccCreateDto> CreateAsync(CreateGccCreateCommand command, CancellationToken ct = default);
     Task<GccCreateDto> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default);
     Task<GccCreateDto> UpdateBriefResearchAsync(Guid id, UpdateGccCreateBriefResearchCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// Delete a create and everything beneath it: artifacts, their versions, and the approval
+    /// events on those versions. Returns false when no such create exists.
+    /// </summary>
+    Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 }
 
 public interface IGccArtifactRepository

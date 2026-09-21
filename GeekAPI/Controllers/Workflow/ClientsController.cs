@@ -1,6 +1,7 @@
 using GeekAPI.Controllers.Workflow.Contracts;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Infrastructure.InMemory;
+using GeekAPI.Services.Workflow.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.Workflow;
@@ -11,11 +12,16 @@ public class ClientsController : ControllerBase
 {
     private readonly IClientStore _clientStore;
     private readonly IProjectStore _projectStore;
+    private readonly ProjectDeletionService _projectDeletion;
 
-    public ClientsController(IClientStore clientStore, IProjectStore projectStore)
+    public ClientsController(
+        IClientStore clientStore,
+        IProjectStore projectStore,
+        ProjectDeletionService projectDeletion)
     {
         _clientStore = clientStore;
         _projectStore = projectStore;
+        _projectDeletion = projectDeletion;
     }
 
     [HttpGet]
@@ -40,12 +46,14 @@ public class ClientsController : ControllerBase
     }
 
     /// <summary>
-    /// Remove a client that has no projects.
+    /// Remove a client and everything under it: every project, and for each project the Content
+    /// Creator create it links to, with that create's artifacts, versions and approval events.
     ///
-    /// Refused while projects exist, rather than cascading or orphaning them. A cascade would take
-    /// real work with it on the strength of one click, and orphaning leaves projects pointing at a
-    /// client that is gone — neither is a trade worth making to tidy up a name. The count is in the
-    /// message so the caller knows what is in the way.
+    /// This used to refuse with 409 while projects existed, on the reasoning that a cascade would
+    /// take real work with it on the strength of one click. That reasoning shipped a precondition
+    /// nothing could satisfy — no endpoint could delete a project — so a client created by a typo
+    /// was permanent, which is the exact bug the delete was added to fix. Jeff asked for the
+    /// cascade on 2026-09-21; the guard now lives in the UI, which confirms before calling.
     /// </summary>
     [HttpDelete("{clientId:guid}")]
     public async Task<IActionResult> Delete(Guid clientId, CancellationToken cancellationToken)
@@ -53,15 +61,7 @@ public class ClientsController : ControllerBase
         var client = await _clientStore.GetAsync(clientId, cancellationToken);
         if (client is null) return NotFound();
 
-        var projects = await _projectStore.ListAsync(p => p.ClientId == clientId, cancellationToken);
-        if (projects.Count > 0)
-        {
-            return Conflict(new
-            {
-                error = $"“{client.Name}” has {projects.Count} project(s). Delete or move them first.",
-                projectCount = projects.Count,
-            });
-        }
+        await _projectDeletion.DeleteForClientAsync(clientId, cancellationToken);
 
         var deleted = await _clientStore.DeleteAsync(clientId, cancellationToken);
         return deleted ? NoContent() : NotFound();

@@ -14,11 +14,16 @@ namespace GeekAPI.Controllers.Workflow;
 public class ProjectsController : ControllerBase
 {
     private readonly IProjectStore _projectStore;
+    private readonly ProjectDeletionService _projectDeletion;
     private readonly CompanyProfileOptions _companyProfile;
 
-    public ProjectsController(IProjectStore projectStore, IOptions<CompanyProfileOptions> companyProfile)
+    public ProjectsController(
+        IProjectStore projectStore,
+        ProjectDeletionService projectDeletion,
+        IOptions<CompanyProfileOptions> companyProfile)
     {
         _projectStore = projectStore;
+        _projectDeletion = projectDeletion;
         _companyProfile = companyProfile.Value;
     }
 
@@ -110,19 +115,17 @@ public class ProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Remove a project and everything it owns.
+    /// Remove a project, everything it owns, and the Content Creator create it links to.
     ///
-    /// Not refused the way client delete is. A client refuses while it has projects because a
-    /// cascade there would take separate work with it; a project's crawl, keyword sources,
-    /// generated content and review verdicts are not separate work — they are the project, and
-    /// they live in its own snapshot. Refusing here would leave the same hole client delete had
-    /// before DELETE api/clients/{id} existed: a project created by a typo would be permanent, and
-    /// its client undeletable with it.
+    /// Cascading, not refusing. The project's crawl, keyword sources, generated content and
+    /// verdicts live inside its own snapshot document; its linked create, with the artifacts and
+    /// versions the draft actually lives on, is relational data in another store that nothing
+    /// else points at. See ProjectDeletionService for the ordering and why.
     /// </summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var deleted = await _projectStore.DeleteAsync(id, cancellationToken);
+        var deleted = await _projectDeletion.DeleteAsync(id, cancellationToken);
         return deleted ? NoContent() : NotFound();
     }
 
