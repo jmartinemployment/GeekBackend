@@ -291,20 +291,26 @@ public sealed class GccV2TaskAgentPageHydrator(
             Engine: engine);
     }
 
+    /// <summary>
+    /// Projects an extracted page to one plain-text string: title, then heading text, then
+    /// paragraphs, each on its own line with a blank line between. Heading depth is carried by the
+    /// extracted structure, not re-encoded as markup — this string is the quote-verification target
+    /// (<see cref="GccV2ToolResearchExtractor.IsVerbatimFromPage"/>), and a marker the model never
+    /// quotes only makes verbatim matching fail.
+    /// </summary>
     public static string FormatVisibleContent(GccQuoteablePage page)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(page.Title)
             && !string.Equals(page.Title, page.Url, StringComparison.Ordinal))
         {
-            sb.Append("# ").AppendLine(page.Title.Trim());
+            sb.AppendLine(page.Title.Trim());
             sb.AppendLine();
         }
 
         foreach (var heading in page.Headings)
         {
-            var level = Math.Clamp(heading.Level, 1, 6);
-            sb.Append(new string('#', level)).Append(' ').AppendLine(heading.Text.Trim());
+            sb.AppendLine(heading.Text.Trim());
             sb.AppendLine();
         }
 

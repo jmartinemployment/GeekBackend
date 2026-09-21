@@ -422,14 +422,14 @@ public sealed class ContentModelPolicy
         // which this app cannot call at all: the provider posts to /v1/chat/completions and OpenAI
         // serves o1-pro only at /v1/responses, so those stages 404'd before reaching a model. o3-mini
         // is also ~75x cheaper on input than o1-pro ($2 vs $150 per 1M), supports prompt caching, and
-        // suits the factual extraction this pipeline does against verified RAG Markdown.
+        // suits the factual extraction this pipeline does against verified RAG corpus text.
         //
         // The O3Only preset still pins full o3, so an operator who wants the heavier reasoning model
         // for a given create can ask for it explicitly.
         _ = stage;
         // o3-mini is the default: the o3 family is what suits factual RAG extraction -- search, pull
         // a direct answer, cite a source -- which is what every stage here does against verified
-        // Markdown.
+        // corpus text derived from the crawler's typed blocks.
         //
         // The gpt-4o-mini cost posture that preceded this was justified by output being unusable
         // while v1's prompt layer was missing. The v1 restore has landed, so output is worth judging

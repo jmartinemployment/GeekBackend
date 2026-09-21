@@ -1,4 +1,6 @@
+using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.ContentCreator;
@@ -102,8 +104,34 @@ public class GccGroundingResolverTests
             Task.FromResult(new GeekCrawlerRagCapabilities());
     }
 
-    private static GccGroundingResolver Build(IGccProjectReader projects, IGeekCrawlerRagClient rag) =>
-        new(projects, rag, NullLogger<GccGroundingResolver>.Instance);
+    private sealed class FakePages(IReadOnlyList<GeekCrawlerPageDto>? pages = null) : IGccCrawlPageReader
+    {
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+            Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
+            Task.FromResult(pages ?? []);
+    }
+
+    private static GccGroundingResolver Build(
+        IGccProjectReader projects,
+        IGeekCrawlerRagClient rag,
+        IGccCrawlPageReader? pages = null) =>
+        new(projects, rag, pages ?? new FakePages(), NullLogger<GccGroundingResolver>.Instance);
+
+    private static GeekCrawlerPageDto CrawledPage(string url, string blocksJson) => new(
+        Id: Guid.NewGuid(),
+        RunId: Guid.NewGuid(),
+        Origin: "https://p.test",
+        Url: url,
+        FinalUrl: url,
+        StatusCode: 200,
+        RobotsAllowed: true,
+        Html: null,
+        FailureReason: null,
+        CrawledAtUtc: DateTimeOffset.UtcNow,
+        Title: "A",
+        Excerpt: null,
+        ContentHtml: null,
+        Blocks: JsonDocument.Parse(blocksJson).RootElement);
 
     [Fact]
     public async Task ATypeThatDeclaresNoEvidenceIsNeverRefused()
@@ -197,6 +225,44 @@ public class GccGroundingResolverTests
 
         Assert.True(outcome.Refused);
         Assert.Contains("citable passage", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RetrievedBlocksArriveAsTypedParagraphsCarryingTheirSource()
+    {
+        var page = new GccQuoteablePage("https://p.test/a", "A", [], ["body"]);
+        var rag = new FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, Guid.NewGuid().ToString())],
+            result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [page], Failed = false });
+        var crawled = new FakePages([CrawledPage(
+            "https://p.test/a",
+            """[{"kind":"quote","text":"Latency fell by half."},{"kind":"code","text":"SELECT 1;"}]""")]);
+        var resolver = Build(new FakeProjects(Project("https://p.test")), rag, crawled);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+
+        var passage = Assert.Single(outcome.Passages);
+        var quote = Assert.IsType<QuoteParagraph>(passage.Content[0]);
+        Assert.Equal("https://p.test/a", quote.Cite);
+        Assert.IsType<CodeParagraph>(passage.Content[1]);
+    }
+
+    [Fact]
+    public async Task MissingBlocksDoNotTurnAGroundedDraftIntoARefusal()
+    {
+        // Typed shape is an enrichment of evidence already proven present. Refusals are for
+        // missing evidence, never for missing shape.
+        var page = new GccQuoteablePage("https://p.test/a", "A", [], ["body"]);
+        var rag = new FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, Guid.NewGuid().ToString())],
+            result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [page], Failed = false });
+        var resolver = Build(new FakeProjects(Project("https://p.test")), rag, new FakePages());
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+
+        Assert.False(outcome.Refused);
+        Assert.Single(outcome.Pages);
+        Assert.Empty(outcome.Passages);
     }
 
     [Fact]

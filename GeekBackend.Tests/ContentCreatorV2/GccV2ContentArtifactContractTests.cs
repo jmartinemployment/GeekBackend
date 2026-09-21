@@ -199,13 +199,17 @@ public sealed class GccV2ContentArtifactContractTests
         using var document = LoadGolden("pillarArticle.v1");
         var root = document.RootElement;
         Assert.Equal("pillarArticle.v1", root.GetProperty("artifactType").GetString());
-        Assert.True(root.TryGetProperty("markdown", out var markdown)
-            && markdown.GetString()!.StartsWith("# ", StringComparison.Ordinal));
+        Assert.False(root.TryGetProperty("markdown", out _));
         Assert.True(root.TryGetProperty("sections", out var sections)
             && sections.ValueKind == JsonValueKind.Array
             && sections.GetArrayLength() > 0);
         Assert.Contains(sections.EnumerateArray(), section =>
             section.TryGetProperty("grounded", out var grounded) && grounded.GetBoolean());
+        Assert.All(sections.EnumerateArray(), section =>
+        {
+            Assert.True(section.TryGetProperty("body", out _));
+            Assert.False(section.TryGetProperty("bodyMarkdown", out _));
+        });
         Assert.True(root.TryGetProperty("supportingContentPlan", out var plan)
             && plan.ValueKind == JsonValueKind.Array
             && plan.GetArrayLength() > 0);

@@ -107,9 +107,13 @@ internal static class Sa2ContentWriterExportBuilder
                 {
                     Position = position++,
                     Type = AiOverview,
-                    Snippet = item.AiOverviewMarkdown
-                        ?? item.AiOverviewStatusMessage
-                        ?? item.Description,
+                    // sa2.serp_items."AiOverviewMarkdown" is deliberately not read. The provider
+                    // returns the AI Overview body as Markdown, and this snippet lands in prompt
+                    // assembly for the content writer — Markdown is not an interchange format at
+                    // any hop, prompt assembly included, and converting it back out would be the
+                    // re-parse that rule exists to prevent. The status message and description are
+                    // already plain text.
+                    Snippet = item.AiOverviewStatusMessage ?? item.Description,
                 });
                 continue;
             }
@@ -407,7 +411,6 @@ internal static class Sa2ContentWriterExportBuilder
         public string? ExtendedSnippet { get; init; }
         public string? PreSnippet { get; init; }
         public string? WebsiteName { get; init; }
-        public string? AiOverviewMarkdown { get; init; }
         public string? AiOverviewStatusMessage { get; init; }
     }
 

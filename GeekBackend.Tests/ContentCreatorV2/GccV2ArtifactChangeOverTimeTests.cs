@@ -8,7 +8,7 @@ public sealed class GccV2ArtifactChangeOverTimeTests
     public void SubjectKeyFromInput_prefers_page_url()
     {
         var key = GccV2ArtifactChangeOverTime.SubjectKeyFromInput(
-            """{"pageUrl":"https://Example.com/Docs/","document":{"bodyMarkdown":"x"}}""");
+            """{"pageUrl":"https://Example.com/Docs/","document":{"visibleContent":"x"}}""");
         Assert.Equal("https://example.com/docs", key);
     }
 
@@ -16,11 +16,11 @@ public sealed class GccV2ArtifactChangeOverTimeTests
     public void SubjectKeyFromInput_hashes_body_when_no_url()
     {
         var a = GccV2ArtifactChangeOverTime.SubjectKeyFromInput(
-            """{"document":{"bodyMarkdown":"# Same page\n\nEvidence."}}""");
+            """{"document":{"visibleContent":"Same page\n\nEvidence."}}""");
         var b = GccV2ArtifactChangeOverTime.SubjectKeyFromInput(
-            """{"document":{"bodyMarkdown":"# Same page\n\nEvidence."}}""");
+            """{"document":{"visibleContent":"Same page\n\nEvidence."}}""");
         var c = GccV2ArtifactChangeOverTime.SubjectKeyFromInput(
-            """{"document":{"bodyMarkdown":"# Different"}}""");
+            """{"document":{"visibleContent":"Different"}}""");
         Assert.StartsWith("body:", a);
         Assert.Equal(a, b);
         Assert.NotEqual(a, c);

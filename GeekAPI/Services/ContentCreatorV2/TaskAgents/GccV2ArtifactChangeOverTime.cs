@@ -87,16 +87,6 @@ internal static class GccV2ArtifactChangeOverTime
             }
 
             // Same exact input → same subject when no URL is present (re-audit of pasted body).
-            if (root.TryGetProperty("document", out var bodyDoc)
-                && bodyDoc.ValueKind == JsonValueKind.Object
-                // Legacy field name on already-persisted rows; the content is not Markdown and
-                // nothing produces this key any more. Read for back-compat, never written.
-                && TryReadString(bodyDoc, "bodyMarkdown", out var body)
-                && !string.IsNullOrWhiteSpace(body))
-            {
-                return BodySubjectKey(body!);
-            }
-
             if (root.TryGetProperty("document", out var contentDoc)
                 && contentDoc.ValueKind == JsonValueKind.Object
                 && TryReadString(contentDoc, "visibleContent", out var content)

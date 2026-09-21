@@ -1,5 +1,7 @@
+using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekApplication.Models.ContentCreator;
 using GeekApplication.Models.GeekCrawler;
 
@@ -18,16 +20,31 @@ namespace GeekAPI.Services.ContentCreator;
 public sealed record GccGroundingOutcome(
     IReadOnlyList<GccQuoteablePage> Pages,
     IReadOnlyList<string> Warnings,
-    string? Refusal)
+    string? Refusal,
+    IReadOnlyList<GccGroundedPassage> Passages)
 {
     public bool Refused => !string.IsNullOrWhiteSpace(Refusal);
 
     /// <summary>Evidence was required and is unavailable. The caller must not generate.</summary>
-    public static GccGroundingOutcome Refuse(string reason) => new([], [], reason);
+    public static GccGroundingOutcome Refuse(string reason) => new([], [], reason, []);
 
     /// <summary>This content type declares no evidence requirement — nothing to resolve.</summary>
-    public static GccGroundingOutcome NotRequired() => new([], [], null);
+    public static GccGroundingOutcome NotRequired() => new([], [], null, []);
 }
+
+/// <summary>
+/// One retrieved page as typed structure rather than flat prose.
+/// </summary>
+/// <remarks>
+/// Retrieval returns the plaintext projection, which is correct for matching a quote to its page
+/// but carries no block types. The blocks were never lost — they are on the crawl page — so this
+/// reads them back and maps them kind for kind, which is what lets a retrieved quote arrive as a
+/// <c>QuoteParagraph</c> carrying its source rather than as an anonymous paragraph.
+/// </remarks>
+public sealed record GccGroundedPassage(
+    string Url,
+    string Title,
+    IReadOnlyList<Paragraph> Content);
 
 /// <summary>
 /// Resolves the retrieved, citable evidence a content type requires, or refuses with a named
@@ -44,6 +61,7 @@ public sealed record GccGroundingOutcome(
 public sealed class GccGroundingResolver(
     IGccProjectReader repo,
     IGeekCrawlerRagClient rag,
+    IGccCrawlPageReader pages,
     ILogger<GccGroundingResolver> logger)
 {
     /// <summary>
@@ -62,6 +80,9 @@ public sealed class GccGroundingResolver(
 
     /// <summary>How many passages to retrieve per run. Matches the library writer's default.</summary>
     private const int TopK = 8;
+
+    /// <summary>The repository's by-seeds route accepts at most 32 URLs.</summary>
+    private const int MaxSeedsPerRead = 32;
 
     /// <summary>
     /// The evidence <paramref name="contentType"/> must be able to cite, or empty when it declares
@@ -95,7 +116,8 @@ public sealed class GccGroundingResolver(
                 $"'{contentType}' requires evidence from project {projectId}, which was not found.");
         }
 
-        var pages = new List<GccQuoteablePage>();
+        var retrieved = new List<GccQuoteablePage>();
+        var passages = new List<GccGroundedPassage>();
         var warnings = new List<string>();
         var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -157,17 +179,21 @@ public sealed class GccGroundingResolver(
                     warnings.Add(result.Warning);
                 }
 
+                var fresh = new List<GccQuoteablePage>();
                 foreach (var page in result.Pages)
                 {
                     if (seenUrls.Add(page.Url))
                     {
-                        pages.Add(page);
+                        retrieved.Add(page);
+                        fresh.Add(page);
                     }
                 }
+
+                passages.AddRange(await ReadTypedPassagesAsync(runId, fresh, ct));
             }
         }
 
-        if (pages.Count == 0)
+        if (retrieved.Count == 0)
         {
             return GccGroundingOutcome.Refuse(
                 $"'{contentType}' must cite {string.Join(" and ", required)} evidence. Every "
@@ -175,10 +201,62 @@ public sealed class GccGroundingResolver(
         }
 
         logger.LogInformation(
-            "Grounding resolved for create {CreateId} ({ContentType}): {PageCount} pages, {WarningCount} warnings.",
-            create.Id, contentType, pages.Count, warnings.Count);
+            "Grounding resolved for create {CreateId} ({ContentType}): {PageCount} pages, "
+            + "{PassageCount} typed passages, {WarningCount} warnings.",
+            create.Id, contentType, retrieved.Count, passages.Count, warnings.Count);
 
-        return new GccGroundingOutcome(pages, warnings, null);
+        return new GccGroundingOutcome(retrieved, warnings, null, passages);
+    }
+
+    /// <summary>
+    /// Reads the crawl pages behind the retrieved URLs and maps their blocks to typed paragraphs.
+    /// </summary>
+    /// <remarks>
+    /// Best-effort by design, and the one place in this resolver that is: the typed form is an
+    /// enrichment of evidence already proven present by the query above. Its absence must not turn
+    /// a grounded draft into a refusal — the refusals are for missing *evidence*, not missing
+    /// *shape*. A failure here is recorded as a warning and the flat passages still stand.
+    /// </remarks>
+    private async Task<IReadOnlyList<GccGroundedPassage>> ReadTypedPassagesAsync(
+        Guid runId,
+        IReadOnlyList<GccQuoteablePage> retrieved,
+        CancellationToken ct)
+    {
+        if (retrieved.Count == 0)
+        {
+            return [];
+        }
+
+        // The repository route caps seeds at 32.
+        var urls = retrieved.Select(page => page.Url).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaxSeedsPerRead).ToList();
+        var crawled = await pages.ListPagesBySeedsAsync(runId, urls, ct);
+
+        var byUrl = new Dictionary<string, GeekCrawlerPageDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in crawled)
+        {
+            byUrl.TryAdd(page.Url, page);
+            if (!string.IsNullOrWhiteSpace(page.FinalUrl))
+            {
+                byUrl.TryAdd(page.FinalUrl, page);
+            }
+        }
+
+        var typed = new List<GccGroundedPassage>();
+        foreach (var page in retrieved)
+        {
+            if (!byUrl.TryGetValue(page.Url, out var crawledPage))
+            {
+                continue;
+            }
+
+            var content = GccCorpusBlockMapper.MapBlocks(crawledPage.Blocks, page.Url);
+            if (content.Count > 0)
+            {
+                typed.Add(new GccGroundedPassage(page.Url, page.Title, content));
+            }
+        }
+        return typed;
     }
 
     /// <summary>

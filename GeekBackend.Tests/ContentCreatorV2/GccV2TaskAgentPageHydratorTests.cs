@@ -44,7 +44,7 @@ public sealed class GccV2TaskAgentPageHydratorTests
     }
 
     [Fact]
-    public async Task Happy_path_extracts_visible_markdown_and_technical_fields()
+    public async Task Happy_path_extracts_visible_text_and_technical_fields()
     {
         const string html = """
             <html><head><title>AI Readiness Guide</title></head>
@@ -123,7 +123,7 @@ public sealed class GccV2TaskAgentPageHydratorTests
     }
 
     [Fact]
-    public void FormatVisibleContent_builds_heading_markdown()
+    public void FormatVisibleContent_builds_plain_text_with_no_markup()
     {
         var page = new GccQuoteablePage(
             "https://example.com/a",
@@ -133,9 +133,10 @@ public sealed class GccV2TaskAgentPageHydratorTests
 
         var text = GccV2TaskAgentPageHydrator.FormatVisibleContent(page);
 
-        Assert.Contains("# Title", text);
-        Assert.Contains("## Section", text);
+        Assert.Contains("Title", text);
+        Assert.Contains("Section", text);
         Assert.Contains("enough characters", text);
+        Assert.DoesNotContain("#", text);
     }
 
     private sealed class StubRenderedHtmlSource(GccV2RenderedHtml html) : IGccV2RenderedHtmlSource

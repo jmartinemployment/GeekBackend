@@ -1,15 +1,14 @@
 {
   "artifactType": "pillarArticle.v1",
   "generatorVersion": "pillar-article-heuristic.v1",
-  "methodology": "Compose a full pillar Markdown draft from the deterministic topic-cluster outline. Section bodies prefer multi-paragraph spans under matching source headings; otherwise they stay explicitly scaffolded without inventing statistics. Supporting content plans remain generatedHypothesis.",
+  "methodology": "Compose a full pillar draft from the deterministic topic-cluster outline. Section bodies prefer multi-paragraph spans under matching source headings; otherwise they stay explicitly scaffolded without inventing statistics. Supporting content plans remain generatedHypothesis.",
   "topic": "AI content readiness",
   "title": "AI content readiness",
-  "markdown": "# AI content readiness\n\n## What is AI content readiness?\n\nAI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.\n\nTeams use readiness to decide which pages need stronger claims before publishing.\n\n## AI Content Readiness Guide\n\nAI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.\n\n## What is AI content readiness?\n\nAI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.\n\nTeams use readiness to decide which pages need stronger claims before publishing.\n\n## Measuring readiness\n\nUse a seven-dimension rubric with explicit evidence.\n\nScore only what the supplied page actually shows.\n\n## How AI content readiness works\n\nLead with the key takeaway for 'How AI content readiness works', then expand. [Scaffold — no supplied source span grounded this section.]\n\n## AI content readiness best practices\n\nLead with the key takeaway for 'AI content readiness best practices', then expand. [Scaffold — no supplied source span grounded this section.]\n\n## AI content readiness compared to alternatives\n\nLead with the key takeaway for 'AI content readiness compared to alternatives', then expand. [Scaffold — no supplied source span grounded this section.]\n",
   "sections": [
     {
       "sectionId": "c22944c7ec67d3185a8a845a",
       "heading": "What is AI content readiness?",
-      "bodyMarkdown": "AI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.\n\nTeams use readiness to decide which pages need stronger claims before publishing.",
+      "body": "AI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.\n\nTeams use readiness to decide which pages need stronger claims before publishing.",
       "evidenceIds": [
         "f0345be6ae266f14113ca4f1",
         "15fb085c0cced168044d953a"
@@ -19,7 +18,7 @@
     {
       "sectionId": "fe6c54c16a8df3f3fa9244a4",
       "heading": "AI Content Readiness Guide",
-      "bodyMarkdown": "AI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.",
+      "body": "AI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.",
       "evidenceIds": [
         "f0345be6ae266f14113ca4f1"
       ],
@@ -28,7 +27,7 @@
     {
       "sectionId": "a6e62910f971356f52189f72",
       "heading": "What is AI content readiness?",
-      "bodyMarkdown": "AI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.\n\nTeams use readiness to decide which pages need stronger claims before publishing.",
+      "body": "AI content readiness means pages provide answer-first structure, evidence, and schema that systems can cite.\n\nTeams use readiness to decide which pages need stronger claims before publishing.",
       "evidenceIds": [
         "f0345be6ae266f14113ca4f1",
         "15fb085c0cced168044d953a"
@@ -38,7 +37,7 @@
     {
       "sectionId": "999769ca4f24b93fe03e2ca6",
       "heading": "Measuring readiness",
-      "bodyMarkdown": "Use a seven-dimension rubric with explicit evidence.\n\nScore only what the supplied page actually shows.",
+      "body": "Use a seven-dimension rubric with explicit evidence.\n\nScore only what the supplied page actually shows.",
       "evidenceIds": [
         "41130c174326556a2dd3073f",
         "6861685ff9696ddf39108c36"
@@ -48,21 +47,21 @@
     {
       "sectionId": "1ca4a81e61653cda2b7b5afd",
       "heading": "How AI content readiness works",
-      "bodyMarkdown": "Lead with the key takeaway for 'How AI content readiness works', then expand. [Scaffold — no supplied source span grounded this section.]",
+      "body": "Lead with the key takeaway for 'How AI content readiness works', then expand. [Scaffold — no supplied source span grounded this section.]",
       "evidenceIds": [],
       "grounded": false
     },
     {
       "sectionId": "42170c2ec775ba3c0574daad",
       "heading": "AI content readiness best practices",
-      "bodyMarkdown": "Lead with the key takeaway for 'AI content readiness best practices', then expand. [Scaffold — no supplied source span grounded this section.]",
+      "body": "Lead with the key takeaway for 'AI content readiness best practices', then expand. [Scaffold — no supplied source span grounded this section.]",
       "evidenceIds": [],
       "grounded": false
     },
     {
       "sectionId": "eb3c82ae3992485701cb9514",
       "heading": "AI content readiness compared to alternatives",
-      "bodyMarkdown": "Lead with the key takeaway for 'AI content readiness compared to alternatives', then expand. [Scaffold — no supplied source span grounded this section.]",
+      "body": "Lead with the key takeaway for 'AI content readiness compared to alternatives', then expand. [Scaffold — no supplied source span grounded this section.]",
       "evidenceIds": [],
       "grounded": false
     }

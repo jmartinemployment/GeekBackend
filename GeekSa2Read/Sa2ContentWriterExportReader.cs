@@ -51,7 +51,7 @@ public sealed class Sa2ContentWriterExportReader(ILogger<Sa2ContentWriterExportR
                 SELECT
                     "Id", "Type", "Ads", "RankAbsolute", "RankGroup",
                     "Title", "Url", "Domain", "Description", "ExtendedSnippet",
-                    "PreSnippet", "WebsiteName", "AiOverviewMarkdown", "AiOverviewStatusMessage"
+                    "PreSnippet", "WebsiteName", "AiOverviewStatusMessage"
                 FROM sa2.serp_items
                 WHERE "RunId" = @RunId
                 ORDER BY "RankAbsolute"
