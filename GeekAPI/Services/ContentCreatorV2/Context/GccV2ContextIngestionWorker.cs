@@ -337,8 +337,12 @@ public sealed class GccV2ContextIngestionListenService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var value = Environment.GetEnvironmentVariable("GCC_V2_LISTEN_DATABASE_URL")
-            ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+        // GCC_V2_LISTEN_DATABASE_URL only — this connection issues nothing but LISTEN and is
+        // pointed at a role with CONNECT and no grants on content_creator. Falling back to
+        // DATABASE_URL meant that with the dedicated variable unset the worker connected with the
+        // privileged credentials instead, silently undoing the restriction. Unset means no
+        // cross-instance wake, not a connection as someone else.
+        var value = Environment.GetEnvironmentVariable("GCC_V2_LISTEN_DATABASE_URL");
         if (string.IsNullOrWhiteSpace(value)) return;
         var connectionString = Normalize(value);
         while (!stoppingToken.IsCancellationRequested)

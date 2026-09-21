@@ -80,8 +80,15 @@ public sealed class GccV2JobListenService : BackgroundService
 
     private static string? ResolveConnectionString()
     {
-        var raw = Environment.GetEnvironmentVariable("GCC_V2_LISTEN_DATABASE_URL")
-            ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+        // GCC_V2_LISTEN_DATABASE_URL only. This connection issues nothing but LISTEN, so it is
+        // pointed at a role that may connect and listen and holds no grants on content_creator.
+        // Falling back to DATABASE_URL undid exactly that: with the dedicated variable unset, the
+        // listener picked up the privileged credentials and the restriction was silently gone,
+        // while a check of the restricted role's own grants still passed.
+        //
+        // Unset means no cross-instance wake, which is how this has always degraded — see the
+        // class comment. It does not mean "connect as someone else".
+        var raw = Environment.GetEnvironmentVariable("GCC_V2_LISTEN_DATABASE_URL");
         return string.IsNullOrWhiteSpace(raw) ? null : NormalizeConnectionString(raw);
     }
 

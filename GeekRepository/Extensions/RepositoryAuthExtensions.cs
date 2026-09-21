@@ -8,6 +8,17 @@ public static class RepositoryAuthExtensions
 {
     public static IServiceCollection AddGeekRepositoryAuth(this IServiceCollection services)
     {
+        // REPO_API_KEY is the only credential in front of these tables, so an unset one is a
+        // misconfiguration this service must not run with. Resolving it here — once, at startup —
+        // also means the request path has no branch for a missing key and nothing to fall back to.
+        var expectedKey = Environment.GetEnvironmentVariable("REPO_API_KEY");
+        if (string.IsNullOrWhiteSpace(expectedKey))
+        {
+            throw new InvalidOperationException(
+                "REPO_API_KEY is not set. GeekRepository holds the credentials for these tables "
+                + "and will not start without the key that guards them.");
+        }
+
         services.AddAuthentication(options =>
         {
             options.DefaultAuthenticateScheme = RepoApiKeyAuthenticationHandler.SchemeName;
@@ -15,7 +26,7 @@ public static class RepositoryAuthExtensions
         })
         .AddScheme<RepoApiKeyAuthenticationOptions, RepoApiKeyAuthenticationHandler>(
             RepoApiKeyAuthenticationHandler.SchemeName,
-            _ => { });
+            options => options.ExpectedKey = expectedKey);
 
         services.AddAuthorizationBuilder()
             .AddPolicy(RepositoryAuthConstants.InternalServicePolicy, policy =>

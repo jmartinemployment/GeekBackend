@@ -81,17 +81,25 @@ builder.Services.AddCors(options =>
             .AllowCredentials()));
 
 var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhost:5050";
-var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY") ?? string.Empty;
+// X-Repo-Key is the only credential GeekRepository accepts, so an unset REPO_API_KEY is a
+// misconfiguration rather than a mode. This used to attach the header only when the key was
+// non-empty, which meant an empty key produced a client that called GeekRepository with no
+// credential at all — failing open on the tier that holds the data, and only at the first request.
+var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY");
+if (string.IsNullOrWhiteSpace(repoApiKey))
+{
+    throw new InvalidOperationException(
+        "REPO_API_KEY is not set. It is the only credential GeekRepository accepts, and a client "
+        + "built without it would call GeekRepository unauthenticated.");
+}
+
 var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", client =>
 {
     client.BaseAddress = new Uri(repoUrl);
     client.Timeout = TimeSpan.FromMinutes(5);
 });
-if (!string.IsNullOrWhiteSpace(repoApiKey))
-{
-    repositoryClientBuilder.ConfigureHttpClient(client =>
-        client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
-}
+repositoryClientBuilder.ConfigureHttpClient(client =>
+    client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
 
 builder.Services.AddScoped<ICaseStudyRepository, HttpCaseStudyRepository>();
 builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();
