@@ -426,8 +426,17 @@ public sealed class GccV2CreateLibraryWriter
         string heading, string? brief, string model, CancellationToken ct)
     {
         var system = """
-            You write one grounded Markdown section for a partner ecosystem article.
-            Use only claims supported by the research excerpts. Return Markdown only for this section.
+            You write one grounded section for a partner ecosystem article.
+            Use only claims supported by the research excerpts.
+            Return ONE JSON object, nothing else:
+            {"heading": string, "paragraphs": [ <paragraph>, ... ]}
+            A <paragraph> is exactly one of:
+              {"type":"text","runs":[{"text":string,"bold":bool?,"italic":bool?,"href":string?}]}
+              {"type":"list","ordered":bool,"items":[[<run>,...],...]}
+              {"type":"quote","runs":[<run>,...],"cite":string?}
+              {"type":"code","code":string}
+            Plain text inside "text" — never markup and never Markdown syntax. A paragraph break is
+            a new paragraph object, not a blank line.
             """;
         var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor)
                    + $"\n\nWrite ONLY the section titled: {heading}\n"
@@ -441,8 +450,19 @@ public sealed class GccV2CreateLibraryWriter
         IReadOnlyList<RagOutlineSectionDto>? outline, string model, CancellationToken ct)
     {
         var system = """
-            You synthesize a complete Markdown article from section drafts.
-            Preserve factual claims; do not invent sources. Return Markdown only.
+            You synthesize a complete article from section drafts.
+            Preserve factual claims; do not invent sources.
+            Preserve the section order and every heading EXACTLY as given — a changed or dropped
+            heading is rejected.
+            Return ONE JSON object, nothing else:
+            {"title": string, "sections":[{"heading":string,"paragraphs":[<paragraph>,...],"children":[<section>,...]}]}
+            A <paragraph> is exactly one of:
+              {"type":"text","runs":[{"text":string,"bold":bool?,"italic":bool?,"href":string?}]}
+              {"type":"list","ordered":bool,"items":[[<run>,...],...]}
+              {"type":"quote","runs":[<run>,...],"cite":string?}
+              {"type":"code","code":string}
+            Plain text inside "text" — never markup and never Markdown syntax. A paragraph break is
+            a new paragraph object, not a blank line.
             """;
         var outlineText = outline is { Count: > 0 }
             ? string.Join("\n", outline.Select(s => $"- {s.Heading}: {s.Brief}"))
@@ -678,7 +698,15 @@ public sealed class GccV2CreateLibraryWriter
             Use PARTNER research to describe capabilities accurately. Use COMPETITOR research only to
             differentiate — never recommend rival products as CTAs or invent features absent from excerpts.
             Cite sources inline lightly by product/site name when helpful; do not dump URLs in the body.
-            Return Markdown only (no JSON wrapper).
+            Return ONE JSON object, nothing else:
+            {"title": string, "sections":[{"heading":string,"paragraphs":[<paragraph>,...],"children":[<section>,...]}]}
+            A <paragraph> is exactly one of:
+              {"type":"text","runs":[{"text":string,"bold":bool?,"italic":bool?,"href":string?}]}
+              {"type":"list","ordered":bool,"items":[[<run>,...],...]}
+              {"type":"quote","runs":[<run>,...],"cite":string?}
+              {"type":"code","code":string}
+            Plain text inside "text" — never markup and never Markdown syntax. A paragraph break is
+            a new paragraph object, not a blank line.
             """;
         var user = BuildResearchUserPrompt(intent, topic, entities, partner, competitor)
                    + "\n\nWrite a complete draft for this intent.";
