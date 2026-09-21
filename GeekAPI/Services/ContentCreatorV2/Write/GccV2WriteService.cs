@@ -438,7 +438,7 @@ public sealed class GccV2WriteService
             ContentGenerationStage.FinalSynthesis,
             wc.GenerationBrief,
             wc.JobModelPolicyOverride);
-        var draft = ToStableMarkdown(current);
+        var draft = ToStableJson(current);
         var attemptId = Guid.NewGuid().ToString("D");
         await _events.AppendAsync(wc.Job.Id, ParseOwner(wc.Job.OwnerUserId), "AgentStageStarted",
             new { stage = "finalSynthesis", attemptId,
@@ -479,7 +479,7 @@ public sealed class GccV2WriteService
         if (response.Provenance is null)
             throw new InvalidOperationException("Final synthesis returned no provenance.");
 
-        var parsed = ParseSynthesizedMarkdown(response.Content, current.AllSections);
+        var parsed = ParseSynthesizedJson(response.Content, current.AllSections);
         var evidenceIds = response.Citations.Select(c => c.PageId)
             .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>()
             .Concat(response.Sources.Select(s => s.PageId).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>())
@@ -583,49 +583,83 @@ public sealed class GccV2WriteService
             ct);
     }
 
-    internal static string ToStableMarkdown(GccV2WriteOutput output)
-    {
-        var builder = new StringBuilder().Append("# ").AppendLine(output.Title).AppendLine();
-        foreach (var write in output.AllSections)
-        {
-            builder.Append("## ").AppendLine(write.Heading).AppendLine();
-            AppendParagraphs(builder, write.Section.Paragraphs);
-            foreach (var child in write.Section.Children)
-            {
-                builder.Append("### ").AppendLine(child.Heading).AppendLine();
-                AppendParagraphs(builder, child.Paragraphs);
-            }
-        }
-        return builder.ToString().TrimEnd() + "\n";
-    }
+    /// <summary>
+    /// Serializes the in-progress document for the writer. JSON, never Markdown: Markdown has no
+    /// paragraph token — a paragraph is a blank line — so a Markdown hop turns an explicit block
+    /// boundary into whitespace every reader has to re-infer, and nesting flattens outright.
+    /// </summary>
+    internal static string ToStableJson(GccV2WriteOutput output) =>
+        JsonSerializer.Serialize(
+            new SynthesisDocument(
+                output.Title,
+                output.AllSections.Select(write => new SynthesisSection(
+                    write.Heading,
+                    ToWireParagraphs(write.Section.Paragraphs),
+                    write.Section.Children
+                        .Select(child => new SynthesisSection(
+                            child.Heading,
+                            ToWireParagraphs(child.Paragraphs),
+                            []))
+                        .ToList()))
+                    .ToList()),
+            ContentDocJson);
 
-    internal static IReadOnlyList<Section> ParseSynthesizedMarkdown(
-        string markdown,
+    /// <summary>
+    /// Reads the writer's synthesized document back. The structural guards are unchanged — heading
+    /// count and heading text must match the outline exactly — but they now assert against parsed
+    /// structure rather than against "## " prefixes in a string.
+    /// </summary>
+    internal static IReadOnlyList<Section> ParseSynthesizedJson(
+        string content,
         IReadOnlyList<GccV2WriteSection> expected)
     {
-        var lines = markdown.Replace("\r\n", "\n").Split('\n');
-        var found = lines.Select((line, index) => (line, index))
-            .Where(item => item.line.StartsWith("## ", StringComparison.Ordinal)
-                           && !item.line.StartsWith("### ", StringComparison.Ordinal))
-            .ToList();
+        SynthesisDocument? document;
+        try
+        {
+            document = JsonSerializer.Deserialize<SynthesisDocument>(content, ContentDocJson);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Final synthesis did not return a document: {ex.Message}");
+        }
+
+        var found = document?.Sections ?? [];
         if (found.Count != expected.Count)
             throw new InvalidOperationException(
-                $"Final synthesis changed document structure: expected {expected.Count} H2 headings, received {found.Count}.");
+                $"Final synthesis changed document structure: expected {expected.Count} sections, received {found.Count}.");
 
         var sections = new List<Section>(expected.Count);
         for (var i = 0; i < expected.Count; i++)
         {
-            var heading = found[i].line[3..].Trim();
+            var heading = (found[i].Heading ?? string.Empty).Trim();
             if (!string.Equals(heading, expected[i].Heading.Trim(), StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     $"Final synthesis changed heading {i + 1}: expected '{expected[i].Heading}', received '{heading}'.");
-            var end = i + 1 < found.Count ? found[i + 1].index : lines.Length;
-            var body = lines[(found[i].index + 1)..end];
-            var (paragraphs, children) = ParseSectionBody(body, expected[i].Section.Children);
+
+            var expectedChildren = expected[i].Section.Children;
+            var foundChildren = found[i].Children ?? [];
+            if (foundChildren.Count != expectedChildren.Count)
+                throw new InvalidOperationException(
+                    $"Final synthesis changed nested structure: expected {expectedChildren.Count} child sections, received {foundChildren.Count}.");
+
+            var children = new List<Section>(expectedChildren.Count);
+            for (var c = 0; c < expectedChildren.Count; c++)
+            {
+                var childHeading = (foundChildren[c].Heading ?? string.Empty).Trim();
+                if (!string.Equals(childHeading, expectedChildren[c].Heading.Trim(), StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        $"Final synthesis changed nested heading {c + 1}: expected '{expectedChildren[c].Heading}', received '{childHeading}'.");
+                children.Add(expectedChildren[c] with
+                {
+                    Paragraphs = FromWireParagraphs(foundChildren[c].Paragraphs),
+                });
+            }
+
             sections.Add(new Section(
                 expected[i].Section.Tag,
                 expected[i].Heading,
-                paragraphs,
+                FromWireParagraphs(found[i].Paragraphs),
                 expected[i].Section.Href,
                 children,
                 expected[i].Section.ImagePrompt,
@@ -634,172 +668,130 @@ public sealed class GccV2WriteService
         return sections;
     }
 
-    private static (IReadOnlyList<Paragraph> Paragraphs, IReadOnlyList<Section> Children) ParseSectionBody(
-        IReadOnlyList<string> lines,
-        IReadOnlyList<Section> expectedChildren)
+    /// <summary>One section's content from the writer, as typed structure rather than prose.</summary>
+    internal static Section JsonToSection(string content, string heading)
     {
-        var headings = lines.Select((line, index) => (line, index))
-            .Where(item => item.line.StartsWith("### ", StringComparison.Ordinal))
-            .ToList();
-        if (headings.Count != expectedChildren.Count)
-            throw new InvalidOperationException(
-                $"Final synthesis changed nested structure: expected {expectedChildren.Count} H3 headings, received {headings.Count}.");
-
-        var topEnd = headings.Count > 0 ? headings[0].index : lines.Count;
-        var topLines = lines.Take(topEnd).ToList();
-        var paragraphs = topLines.Any(line => !string.IsNullOrWhiteSpace(line))
-            ? ParseMarkdownParagraphs(topLines)
-            : [];
-        var children = new List<Section>(headings.Count);
-        for (var i = 0; i < headings.Count; i++)
+        SynthesisSection? section;
+        try
         {
-            var heading = headings[i].line[4..].Trim();
-            if (!string.Equals(heading, expectedChildren[i].Heading.Trim(), StringComparison.Ordinal))
-                throw new InvalidOperationException(
-                    $"Final synthesis changed nested heading {i + 1}: expected '{expectedChildren[i].Heading}', received '{heading}'.");
-            var end = i + 1 < headings.Count ? headings[i + 1].index : lines.Count;
-            children.Add(expectedChildren[i] with
-            {
-                Paragraphs = ParseMarkdownParagraphs(
-                    lines.Skip(headings[i].index + 1).Take(end - headings[i].index - 1).ToList()),
-            });
+            section = JsonSerializer.Deserialize<SynthesisSection>(content, ContentDocJson);
         }
-        return (paragraphs, children);
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Section '{heading}' did not return a document: {ex.Message}");
+        }
+
+        var paragraphs = FromWireParagraphs(section?.Paragraphs);
+        if (paragraphs.Count == 0)
+            throw new InvalidOperationException($"Section '{heading}' returned no paragraphs.");
+
+        return new Section("h2", heading, paragraphs, null, []);
     }
 
-    private static void AppendParagraphs(StringBuilder builder, IReadOnlyList<Paragraph> paragraphs)
+    private static IReadOnlyList<SynthesisParagraph> ToWireParagraphs(IReadOnlyList<Paragraph> paragraphs)
     {
+        var wire = new List<SynthesisParagraph>(paragraphs.Count);
         foreach (var paragraph in paragraphs)
         {
-            if (paragraph is TextParagraph text)
-                builder.AppendLine(SerializeRuns(text.Runs)).AppendLine();
-            else if (paragraph is ListParagraph list)
+            switch (paragraph)
             {
-                for (var i = 0; i < list.Items.Count; i++)
-                    builder.Append(list.Ordered ? $"{i + 1}. " : "- ")
-                        .AppendLine(SerializeRuns(list.Items[i]));
-                builder.AppendLine();
+                case TextParagraph text:
+                    wire.Add(new SynthesisParagraph("text", ToWireRuns(text.Runs), false, null, null, null));
+                    break;
+                case ListParagraph list:
+                    wire.Add(new SynthesisParagraph(
+                        "list", null, list.Ordered,
+                        list.Items.Select(ToWireRuns).ToList(), null, null));
+                    break;
+                case QuoteParagraph quote:
+                    wire.Add(new SynthesisParagraph("quote", ToWireRuns(quote.Runs), false, null, quote.Cite, null));
+                    break;
+                case CodeParagraph code:
+                    wire.Add(new SynthesisParagraph("code", null, false, null, null, code.Code));
+                    break;
+                case DefinitionParagraph definitions:
+                    // Flattened to "term: definition" lines on the wire; the shape is preserved by
+                    // the document model on both sides of the call.
+                    wire.Add(new SynthesisParagraph(
+                        "list", null, false,
+                        definitions.Items
+                            .Select(item => ToWireRuns([
+                                new Run($"{RunsText(item.Term)}: {RunsText(item.Definition)}")]))
+                            .ToList(),
+                        null, null));
+                    break;
             }
         }
+        return wire;
     }
 
-    private static string SerializeRuns(IReadOnlyList<Run> runs) =>
-        string.Concat(runs.Select(run =>
-        {
-            var text = run.Href is null ? run.Text : $"[{run.Text}]({run.Href})";
-            if (run.Bold) text = $"**{text}**";
-            if (run.Italic) text = $"*{text}*";
-            return text;
-        }));
-
-    private static IReadOnlyList<Paragraph> ParseMarkdownParagraphs(IReadOnlyList<string> lines)
+    private static IReadOnlyList<Paragraph> FromWireParagraphs(IReadOnlyList<SynthesisParagraph>? wire)
     {
-        var result = new List<Paragraph>();
-        var text = new List<string>();
-        void FlushText()
+        if (wire is null) return [];
+        var paragraphs = new List<Paragraph>(wire.Count);
+        foreach (var item in wire)
         {
-            if (text.Count == 0) return;
-            result.Add(new TextParagraph(ParseRuns(string.Join(" ", text))));
-            text.Clear();
-        }
-
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i].Trim();
-            if (line.Length == 0) { FlushText(); continue; }
-            var unordered = line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal);
-            var orderedMatched = TryMatchOrderedListMarker(line, out var orderedMarkerLength);
-            if (unordered || orderedMatched)
+            switch (item.Type)
             {
-                FlushText();
-                var isOrdered = orderedMatched;
-                var items = new List<IReadOnlyList<Run>>();
-                while (i < lines.Count)
-                {
-                    line = lines[i].Trim();
-                    var innerOrderedMatched = TryMatchOrderedListMarker(line, out var innerMarkerLength);
-                    var matches = isOrdered ? innerOrderedMatched : line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal);
-                    if (!matches) { i--; break; }
-                    items.Add(ParseRuns(isOrdered ? line[innerMarkerLength..] : line[2..]));
-                    i++;
-                }
-                result.Add(new ListParagraph(isOrdered, items));
-                continue;
+                case "list":
+                    var items = (item.Items ?? []).Select(FromWireRuns).Where(r => r.Count > 0).ToList();
+                    if (items.Count > 0) paragraphs.Add(new ListParagraph(item.Ordered, items));
+                    break;
+                case "quote":
+                    var quoteRuns = FromWireRuns(item.Runs);
+                    if (quoteRuns.Count > 0) paragraphs.Add(new QuoteParagraph(quoteRuns, item.Cite));
+                    break;
+                case "code":
+                    if (!string.IsNullOrWhiteSpace(item.Code)) paragraphs.Add(new CodeParagraph(item.Code));
+                    break;
+                default:
+                    var runs = FromWireRuns(item.Runs);
+                    if (runs.Count > 0) paragraphs.Add(new TextParagraph(runs));
+                    break;
             }
-            text.Add(line);
         }
-        FlushText();
-        if (result.Count == 0) throw new InvalidOperationException("Final synthesis produced an empty section.");
-        return result;
+        return paragraphs;
     }
+
+    private static IReadOnlyList<SynthesisRun> ToWireRuns(IReadOnlyList<Run> runs) =>
+        runs.Select(run => new SynthesisRun(run.Text, run.Bold, run.Italic, run.Href)).ToList();
+
+    private static IReadOnlyList<Run> FromWireRuns(IReadOnlyList<SynthesisRun>? runs) =>
+        (runs ?? [])
+            .Where(run => !string.IsNullOrWhiteSpace(run.Text))
+            .Select(run => new Run(run.Text!, run.Bold, run.Italic, run.Href))
+            .ToList();
+
+    private static string RunsText(IReadOnlyList<Run> runs) => string.Concat(runs.Select(r => r.Text));
 
     /// <summary>
-    /// Non-regex equivalent of <c>^\d+\.\s+</c> — matches a leading ordered-list marker such as
-    /// "1. " or "12.\t" at the start of an already-trimmed line. Returns the marker's length
-    /// (digits + '.' + one-or-more whitespace) so the caller can slice past it.
+    /// The wire shape exchanged with the writer. Explicit block types, so a paragraph boundary is
+    /// data rather than whitespace and nesting survives the round trip.
     /// </summary>
-    private static bool TryMatchOrderedListMarker(string line, out int markerLength)
-    {
-        var digitEnd = 0;
-        while (digitEnd < line.Length && char.IsDigit(line[digitEnd])) digitEnd++;
-        if (digitEnd == 0 || digitEnd >= line.Length || line[digitEnd] != '.')
-        {
-            markerLength = 0;
-            return false;
-        }
+    internal sealed record SynthesisDocument(string? Title, IReadOnlyList<SynthesisSection>? Sections);
 
-        var whitespaceEnd = digitEnd + 1;
-        while (whitespaceEnd < line.Length && char.IsWhiteSpace(line[whitespaceEnd])) whitespaceEnd++;
-        if (whitespaceEnd == digitEnd + 1)
-        {
-            markerLength = 0;
-            return false;
-        }
+    internal sealed record SynthesisSection(
+        string? Heading,
+        IReadOnlyList<SynthesisParagraph>? Paragraphs,
+        IReadOnlyList<SynthesisSection>? Children);
 
-        markerLength = whitespaceEnd;
-        return true;
-    }
+    internal sealed record SynthesisParagraph(
+        string? Type,
+        IReadOnlyList<SynthesisRun>? Runs,
+        bool Ordered,
+        IReadOnlyList<IReadOnlyList<SynthesisRun>>? Items,
+        string? Cite,
+        string? Code);
 
-    /// <summary>
-    /// Non-regex equivalent of <c>\[([^\]]+)\]\(([^)\s]+)\)</c> — scans for Markdown link syntax
-    /// <c>[text](url)</c> where the link text is non-empty and the url runs until the first
-    /// whitespace or closing paren, mirroring the removed regex's character classes exactly.
-    /// </summary>
-    private static IReadOnlyList<Run> ParseRuns(string text)
-    {
-        var runs = new List<Run>();
-        var cursor = 0;
-        var i = 0;
-        while (i < text.Length)
-        {
-            if (text[i] != '[') { i++; continue; }
+    internal sealed record SynthesisRun(string? Text, bool Bold, bool Italic, string? Href);
 
-            var closeBracket = text.IndexOf(']', i + 1);
-            if (closeBracket <= i + 1 || closeBracket + 1 >= text.Length || text[closeBracket + 1] != '(')
-            {
-                i++;
-                continue;
-            }
 
-            var linkText = text[(i + 1)..closeBracket];
-            var urlStart = closeBracket + 2;
-            var urlEnd = urlStart;
-            while (urlEnd < text.Length && text[urlEnd] != ')' && !char.IsWhiteSpace(text[urlEnd])) urlEnd++;
-            if (urlEnd >= text.Length || text[urlEnd] != ')' || urlEnd == urlStart)
-            {
-                i++;
-                continue;
-            }
 
-            if (i > cursor) runs.Add(new Run(text[cursor..i]));
-            runs.Add(new Run(linkText, Href: text[urlStart..urlEnd]));
-            cursor = urlEnd + 1;
-            i = cursor;
-        }
 
-        if (cursor < text.Length) runs.Add(new Run(text[cursor..]));
-        return runs.Count == 0 ? [new Run(text)] : runs;
-    }
+
+
+
 
     /// <summary>Persists a REPAIR-stage section and emits <c>SectionRepaired</c> — shared by editorial
     /// overlap/polish repair and guardrail pass-2 restructure.</summary>
@@ -1187,7 +1179,7 @@ public sealed class GccV2WriteService
             response.Provenance?.ExecutionVersion,
             response.AgentExecution ?? response.Provenance?.AgentExecution,
             "gcc_create_library");
-        var section = MarkdownToSection(content, heading);
+        var section = JsonToSection(content, heading);
         var citations = StampSectionKey(response.Citations, sectionKey);
         var write = new GccV2WriteSection(
             sectionKey, heading, "problem", section, false, citations, provenance, response.Sources);
@@ -1369,7 +1361,7 @@ public sealed class GccV2WriteService
             throw new InvalidOperationException($"Create library writer returned no content for section '{entry.Heading}'.");
         request.DraftContent = response.Content;
 
-        var section = MarkdownToSection(response.Content, entry.Heading);
+        var section = JsonToSection(response.Content, entry.Heading);
         var evidenceIds = (response.Citations ?? []).Select(c => c.PageId)
             .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>()
             .Concat(response.Sources.Select(s => s.PageId).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>())
@@ -1441,20 +1433,6 @@ public sealed class GccV2WriteService
         return $"{entry.Brief ?? $"Section purpose: {entry.Job ?? "advance"}."}{mustMention}";
     }
 
-    internal static Section MarkdownToSection(string markdown, string heading)
-    {
-        var paragraphs = markdown.Replace("\r\n", "\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
-            .Select(block => string.Join(" ", block.Split('\n')
-                .Select(line => line.Trim())
-                .Where(line => !line.StartsWith('#'))
-                .Select(line => line.TrimStart('-', '*', ' '))))
-            .Where(text => !string.IsNullOrWhiteSpace(text))
-            .Select(text => (Paragraph)new TextParagraph([new Run(text)]))
-            .ToList();
-        if (paragraphs.Count == 0)
-            paragraphs.Add(new TextParagraph([new Run(markdown.Trim())]));
-        return new Section("h2", heading, paragraphs, null, []);
-    }
 
     private async Task<ArticleMetadataDraft> GeneratePillarMetadataAsync(GccV2WriteContext wc, List<string> headings, CancellationToken ct)
     {

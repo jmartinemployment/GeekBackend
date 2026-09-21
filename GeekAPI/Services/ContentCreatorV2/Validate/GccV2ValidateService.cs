@@ -204,7 +204,7 @@ public sealed class GccV2ValidateService
                     wc.SkillSnapshot
                     ?? throw new InvalidOperationException("VALIDATE requires the persisted pre-PLAN skill snapshot."),
                     "validation"),
-                DraftContent = GccV2WriteService.ToStableMarkdown(output),
+                DraftContent = GccV2WriteService.ToStableJson(output),
                 Sources = sources,
                 CanonicalBrief = wc.GenerationBrief.ToCanonicalBrief(),
                 ModelPolicyPreset = ContentModelPolicy.PresetValue(selection.Preset),

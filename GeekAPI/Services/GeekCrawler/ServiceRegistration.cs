@@ -25,6 +25,10 @@ public static class GeekCrawlerServiceRegistration
             return new HttpGeekCrawlerRepository(httpClient, logger);
         });
 
+        // The same scoped instance, seen through the narrow interface grounding depends on.
+        services.AddScoped<GeekAPI.HttpClients.IGccCrawlPageReader>(sp =>
+            sp.GetRequiredService<HttpGeekCrawlerRepository>());
+
         // Reachability probes are HEAD requests to third-party hosts. Short timeout: this runs while
         // the operator waits, and a slow host is itself a useful answer.
         services.AddHttpClient<GeekCrawlerSeedReachability>(client =>

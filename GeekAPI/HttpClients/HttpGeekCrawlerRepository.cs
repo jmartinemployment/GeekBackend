@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace GeekAPI.HttpClients;
 
-public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository
+public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository, IGccCrawlPageReader
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {

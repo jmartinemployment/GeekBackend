@@ -121,19 +121,36 @@ public sealed class GccV2UnifiedRagTests
     }
 
     [Fact]
-    public void Markdown_section_parser_keeps_heading_and_body()
+    public void Section_parser_keeps_canonical_heading_and_typed_body()
     {
-        var section = GccV2WriteService.MarkdownToSection(
-            "## Ignored upstream heading\n\nGrounded paragraph.\n\n- Evidence one\n- Evidence two",
+        // The upstream heading is ignored: the outline owns headings, the writer owns prose.
+        var section = GccV2WriteService.JsonToSection(
+            """
+            {"heading":"Ignored upstream heading",
+             "paragraphs":[
+               {"type":"text","runs":[{"text":"Grounded paragraph."}]},
+               {"type":"list","ordered":false,
+                "items":[[{"text":"Evidence one"}],[{"text":"Evidence two"}]]}]}
+            """,
             "Canonical heading");
 
         Assert.Equal("Canonical heading", section.Heading);
         Assert.Equal("h2", section.Tag);
         Assert.Equal(2, section.Paragraphs.Count);
+        Assert.Equal(2, Assert.IsType<ListParagraph>(section.Paragraphs[1]).Items.Count);
     }
 
     [Fact]
-    public void Final_synthesis_markdown_round_trip_preserves_order_keys_lists_and_links()
+    public void Section_parser_refuses_content_that_is_not_a_document()
+    {
+        // Prose is not a contract. Markdown was accepted here once and cost six of seven block
+        // kinds on every section write.
+        Assert.Throws<InvalidOperationException>(() =>
+            GccV2WriteService.JsonToSection("## Heading\n\nJust prose.", "Canonical heading"));
+    }
+
+    [Fact]
+    public void Final_synthesis_round_trip_preserves_order_keys_lists_and_links()
     {
         var lede = new GccV2WriteSection(
             "lede", "Introduction", "problem",
@@ -157,8 +174,9 @@ public sealed class GccV2UnifiedRagTests
             Sections = [body],
         };
 
-        var markdown = GccV2WriteService.ToStableMarkdown(output);
-        var parsed = GccV2WriteService.ParseSynthesizedMarkdown(markdown, output.AllSections);
+        var wire = GccV2WriteService.ToStableJson(output);
+        Assert.DoesNotContain("## ", wire);
+        var parsed = GccV2WriteService.ParseSynthesizedJson(wire, output.AllSections);
 
         Assert.Equal(["Introduction", "Verified Proof"], parsed.Select(s => s.Heading));
         var link = Assert.IsType<TextParagraph>(parsed[0].Paragraphs[0]).Runs[1];
@@ -168,9 +186,13 @@ public sealed class GccV2UnifiedRagTests
     }
 
     [Theory]
+    // A section dropped.
+    [InlineData("""{"title":"Draft","sections":[{"heading":"Introduction","paragraphs":[]}]}""")]
+    // A heading rewritten by the writer.
+    [InlineData("""{"title":"Draft","sections":[{"heading":"Changed Introduction","paragraphs":[]},{"heading":"Verified Proof","paragraphs":[]}]}""")]
+    // Not a document at all.
     [InlineData("# Draft\n\n## Introduction\n\nBody.")]
-    [InlineData("# Draft\n\n## Changed Introduction\n\nBody.\n\n## Verified Proof\n\nBody.")]
-    public void Final_synthesis_rejects_missing_or_mutated_headings(string markdown)
+    public void Final_synthesis_rejects_missing_or_mutated_headings(string content)
     {
         var expected = new[]
         {
@@ -181,7 +203,7 @@ public sealed class GccV2UnifiedRagTests
         };
 
         Assert.Throws<InvalidOperationException>(() =>
-            GccV2WriteService.ParseSynthesizedMarkdown(markdown, expected));
+            GccV2WriteService.ParseSynthesizedJson(content, expected));
     }
 
     [Fact]
