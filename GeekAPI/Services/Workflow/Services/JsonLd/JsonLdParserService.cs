@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Linq;
 
 namespace GeekAPI.Services.Workflow.Services.JsonLd;
 
@@ -81,12 +82,15 @@ public class JsonLdParserService : IJsonLdParserService
             return;
         }
 
-        if (types.Any(t => OrganizationTypes.Contains(NormalizeType(t))))
+        if (types.FirstOrDefault(t => OrganizationTypes.Contains(NormalizeType(t))) is { } matchedType)
         {
             AddUnique(summary.Organizations, FormatOrganization(node), seen);
             ExtractOfferCatalog(node, summary, seen);
             ExtractKnowsAbout(node, summary, seen);
             ExtractAreaServed(node, summary, seen);
+            // First match wins: the client has one declared business type, not several competing
+            // ones, and later pages should not overwrite what an earlier page already declared.
+            summary.BusinessType ??= NormalizeType(matchedType);
         }
 
         if (types.Any(t => string.Equals(NormalizeType(t), "Person", StringComparison.OrdinalIgnoreCase)))

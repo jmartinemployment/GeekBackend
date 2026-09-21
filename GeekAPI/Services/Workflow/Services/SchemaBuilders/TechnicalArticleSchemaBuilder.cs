@@ -68,16 +68,7 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
                 ["@type"] = "Person",
                 ["name"] = metadata.AuthorName
             },
-            ["publisher"] = new Dictionary<string, object?>
-            {
-                ["@type"] = "Organization",
-                ["name"] = metadata.PublisherName,
-                ["logo"] = new Dictionary<string, object?>
-                {
-                    ["@type"] = "ImageObject",
-                    ["url"] = metadata.PublisherLogoUrl
-                }
-            },
+            ["publisher"] = BuildPublisher(metadata),
             ["datePublished"] = metadata.DatePublishedUtc.ToString("O"),
             ["dateModified"] = metadata.DateModifiedUtc.ToString("O"),
             ["mainEntityOfPage"] = new Dictionary<string, object?>
@@ -98,4 +89,74 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
             }
         };
     }
+
+    /// <summary>
+    /// The publisher node. Its <c>@type</c> mirrors what the client's own markup declares — never
+    /// inferred — and <c>areaServed</c> appears only when the site actually declares service areas.
+    /// An empty array would assert "serves nowhere", so absent means absent.
+    /// </summary>
+    private static Dictionary<string, object?> BuildPublisher(ContentMetadata metadata)
+    {
+        var publisher = new Dictionary<string, object?>
+        {
+            ["@type"] = string.IsNullOrWhiteSpace(metadata.PublisherType)
+                ? "Organization"
+                : metadata.PublisherType,
+            ["name"] = metadata.PublisherName,
+            ["logo"] = new Dictionary<string, object?>
+            {
+                ["@type"] = "ImageObject",
+                ["url"] = metadata.PublisherLogoUrl
+            }
+        };
+
+        var areas = metadata.AreaServed?
+            .Where(area => !string.IsNullOrWhiteSpace(area))
+            .Select(area => area.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (areas is { Count: > 0 })
+        {
+            publisher["areaServed"] = areas;
+        }
+
+        return publisher;
+    }
+
+    /// <summary>
+    /// The <c>FAQPage</c> node for questions the page actually contains.
+    /// </summary>
+    /// <remarks>
+    /// Google restricted FAQ <i>rich results</i> to authoritative government and health sites in
+    /// August 2023, so this does not render as a SERP feature for most sites. The markup is emitted
+    /// for machine consumption — answer engines and entity understanding — where
+    /// question-to-answer adjacency is the point. Never emit an entry the page does not answer.
+    /// </remarks>
+    private static Dictionary<string, object?>? BuildFaqPage(ContentMetadata metadata)
+    {
+        var entries = metadata.Faq?
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Question)
+                            && !string.IsNullOrWhiteSpace(entry.Answer))
+            .ToList();
+        if (entries is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["@type"] = "FAQPage",
+            ["mainEntity"] = entries.Select(entry => new Dictionary<string, object?>
+            {
+                ["@type"] = "Question",
+                ["name"] = entry.Question.Trim(),
+                ["acceptedAnswer"] = new Dictionary<string, object?>
+                {
+                    ["@type"] = "Answer",
+                    ["text"] = entry.Answer.Trim()
+                }
+            }).ToList()
+        };
+    }
+
 }

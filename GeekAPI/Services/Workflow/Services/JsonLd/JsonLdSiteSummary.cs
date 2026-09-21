@@ -4,6 +4,14 @@ namespace GeekAPI.Services.Workflow.Services.JsonLd;
 public sealed class JsonLdSiteSummary
 {
     public List<string> Organizations { get; } = new();
+
+    /// <summary>
+    /// The declared schema.org business type of the first organization matched — e.g.
+    /// "LocalBusiness", "ProfessionalService", "Organization". Emitted verbatim on the publisher
+    /// node, never inferred: promoting a site to LocalBusiness because it has an address would be
+    /// fabrication in schema form.
+    /// </summary>
+    public string? BusinessType { get; set; }
     public List<string> People { get; } = new();
     public List<string> Services { get; } = new();
     public List<string> Topics { get; } = new();

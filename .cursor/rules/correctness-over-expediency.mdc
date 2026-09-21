@@ -29,7 +29,6 @@ When schema or API shape conflicts with a quick fix, implement the correct model
 
 ## Body
 
-Published markdown bodies have **no preamble** — content starts at the first `##`.
 
 ## Long-running jobs (no polling)
 

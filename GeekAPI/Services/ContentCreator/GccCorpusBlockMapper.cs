@@ -13,7 +13,6 @@ namespace GeekAPI.Services.ContentCreator;
 /// retrieved glossary arrived as prose and a retrieved code sample as a paragraph. Reading the
 /// blocks directly keeps the boundary in the data, which is the same fix the crawler applied when
 /// it dropped Readability.</para>
-/// <para>No Markdown at any point: blocks in, typed nodes out. Markup is produced later and only by
 /// <c>SectionHtmlRenderer</c>.</para>
 /// </remarks>
 public static class GccCorpusBlockMapper

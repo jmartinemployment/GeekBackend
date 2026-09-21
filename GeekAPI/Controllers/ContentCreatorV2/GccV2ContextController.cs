@@ -31,7 +31,6 @@ public sealed class GccV2ContextController(
     private const long DefaultMaxFileBytes = 10 * 1024 * 1024;
     private static readonly HashSet<string> BaseSupportedMediaTypes =
     [
-        "text/plain", "text/markdown", "text/html", "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -297,7 +296,6 @@ public sealed class GccV2ContextController(
     }
 
     /// <summary>
-    /// Create Knowledge from an owner-owned Google Search Console connection (observed queries markdown).
     /// </summary>
     [HttpPost("knowledge/from-gsc")]
     public async Task<ActionResult<object>> CreateKnowledgeFromGsc(

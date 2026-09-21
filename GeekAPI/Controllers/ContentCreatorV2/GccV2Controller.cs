@@ -601,7 +601,6 @@ public class GccV2Controller : ControllerBase
 
     /// <summary>
     /// Prefetch hierarchy match + recommended tools from CC mobile <c>siteHierarchy</c> only.
-    /// Tight heading match + structured Links — no SA TreeJson / most-tools / markdown harvest.
     /// </summary>
     private Task<string?> TryMergeHierarchyPlanAsync(
         string? rawBriefJson,
