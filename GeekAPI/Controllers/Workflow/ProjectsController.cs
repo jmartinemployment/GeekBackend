@@ -109,6 +109,23 @@ public class ProjectsController : ControllerBase
         return Ok(ToDetail(project));
     }
 
+    /// <summary>
+    /// Remove a project and everything it owns.
+    ///
+    /// Not refused the way client delete is. A client refuses while it has projects because a
+    /// cascade there would take separate work with it; a project's crawl, keyword sources,
+    /// generated content and review verdicts are not separate work — they are the project, and
+    /// they live in its own snapshot. Refusing here would leave the same hole client delete had
+    /// before DELETE api/clients/{id} existed: a project created by a typo would be permanent, and
+    /// its client undeletable with it.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        var deleted = await _projectStore.DeleteAsync(id, cancellationToken);
+        return deleted ? NoContent() : NotFound();
+    }
+
     [HttpPut("{id:guid}/notes")]
     public async Task<ActionResult<ProjectDetailResponse>> UpdateNotes(
         Guid id, [FromBody] UpdateProjectNotesRequest request, CancellationToken cancellationToken)

@@ -55,6 +55,28 @@ public sealed class PersistentProjectStore : IProjectStore
     public Task<List<Project>> GetRecentAsync(int take = 25, CancellationToken cancellationToken = default) =>
         Task.FromResult(_projects.Values.OrderByDescending(p => p.CreatedAtUtc).Take(take).ToList());
 
+    /// <summary>
+    /// Remove the project from storage, then from the cache.
+    ///
+    /// Storage first, for the same reason PersistentClientStore deletes that way: if the delete
+    /// fails the project is still cached and still listed, which is the truth. Dropping the cache
+    /// entry first would show it gone while the document survived, and it would come back on the
+    /// next hydrate with no explanation.
+    ///
+    /// The project's crawl, keyword sources, generated content and review verdicts go with it.
+    /// That is not a cascade across aggregates — they are the project's own object graph and live
+    /// inside its single snapshot document.
+    /// </summary>
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        if (!_projects.ContainsKey(id)) return false;
+
+        await _persistence.DeleteDocumentAsync(Collection, id, cancellationToken);
+        _projects.TryRemove(id, out _);
+        _logger.LogInformation("Deleted project {ProjectId}", id);
+        return true;
+    }
+
     public async Task<int> PurgeStaleAsync(TimeSpan maxAge, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow - maxAge;
