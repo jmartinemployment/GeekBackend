@@ -168,12 +168,27 @@ public class GccGenerateService
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
         if (research?.Quoteables is { Count: > 0 })
         {
-            sb.AppendLine("=== QUOTEABLE RESEARCH (destination pages — quote/paraphrase; do not invent) ===");
+            sb.AppendLine("=== QUOTEABLE RESEARCH (partner/tool evidence) ===");
+            // Attribution is the requirement, not a nicety: drafts previously named partners and
+            // tools with capabilities nobody could source. Every claim about a partner or tool must
+            // trace to one of the passages below, and carry that passage's URL.
+            sb.AppendLine("Rules for this block, and they are not optional:");
+            sb.AppendLine("1. Any claim about a partner, tool or product must come from a passage below.");
+            sb.AppendLine("2. Attribute it: name the source and include its URL where the claim appears.");
+            sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
+            sb.AppendLine("   price, integration or limitation that no passage states.");
+            sb.AppendLine("4. If the evidence does not cover something, omit it. Do not fill the gap.");
+            sb.AppendLine();
             // Uploaded research is unlimited — read every quoteable (per-page heading/paragraph
             // trimming below still bounds prompt size).
             foreach (var q in research.Quoteables)
             {
-                sb.AppendLine($"[{q.Title}] ({q.Url})");
+                // Provenance is stated so the model — and anyone reading the rendered prompt —
+                // can tell retrieved evidence from an operator upload.
+                var origin = string.Equals(q.RetrievalMode, GccQuoteablePage.RetrievalModeRagChunk, StringComparison.Ordinal)
+                    ? "retrieved from the crawl index"
+                    : "operator-supplied";
+                sb.AppendLine($"[{q.Title}] ({q.Url}) — {origin}");
                 foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
                     sb.AppendLine($"- H{h.Level}: {h.Text}");
                 foreach (var p in q.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
