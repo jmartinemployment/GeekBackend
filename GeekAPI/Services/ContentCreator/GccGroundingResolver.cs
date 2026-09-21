@@ -42,7 +42,7 @@ public sealed record GccGroundingOutcome(
 /// want of a partner crawl because it never declared one.</para>
 /// </remarks>
 public sealed class GccGroundingResolver(
-    HttpGccRepository repo,
+    IGccProjectReader repo,
     IGeekCrawlerRagClient rag,
     ILogger<GccGroundingResolver> logger)
 {

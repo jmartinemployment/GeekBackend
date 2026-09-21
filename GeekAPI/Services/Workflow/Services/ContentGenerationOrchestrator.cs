@@ -54,7 +54,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
     public async Task<GeneratedContentSet> GeneratePillarPlanAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
-        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
+        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken, requiresPartnerEvidence: true);
         var context = BuildContext(project);
         var provider = _providerFactory.Get(project.PreferredProvider);
 
@@ -98,7 +98,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
     public async Task<GeneratedContentSet> GeneratePillarBodyAsync(Guid projectId, string? revisionNotes = null, CancellationToken cancellationToken = default)
     {
-        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
+        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken, requiresPartnerEvidence: true);
         var articleRow = RequireGeneratedContent(project, GeneratedContentType.TechnicalArticle,
             "Generate the pillar plan (Step 1) before writing the article body.");
 
@@ -205,7 +205,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         Action<int, int>? reportProgress = null,
         CancellationToken cancellationToken = default)
     {
-        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
+        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken, requiresPartnerEvidence: true);
         var pillar = TryGetCompletePillar(project);
         var context = await BuildContextWithCrawlToolsAsync(project, cancellationToken);
         if (pillar is not null)
@@ -498,7 +498,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
     public async Task<GeneratedContentSet> GenerateBlogAsync(Guid projectId, string? revisionNotes = null, CancellationToken cancellationToken = default)
     {
-        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken);
+        var project = await LoadProjectForGenerationAsync(projectId, cancellationToken, requiresPartnerEvidence: true);
         var pillar = TryGetCompletePillar(project);
         if (pillar is null)
         {
@@ -861,12 +861,27 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         return await GenerateImagePromptsAsync(projectId, sectionHeadingsToTest: null, cancellationToken);
     }
 
-    private async Task<Project> LoadProjectForGenerationAsync(Guid projectId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Loads the project and refuses generation that cannot be grounded.
+    /// </summary>
+    /// <param name="requiresPartnerEvidence">
+    /// True for content types that cite partners and tools — pillar plan, pillar body, tool pages
+    /// and blog. Social, cold outreach and image prompts declare no such requirement and are never
+    /// refused for want of it. Mirrors <c>GccGroundingResolver.RequiredFor</c> on the Create path.
+    /// </param>
+    private async Task<Project> LoadProjectForGenerationAsync(
+        Guid projectId,
+        CancellationToken cancellationToken,
+        bool requiresPartnerEvidence = false)
     {
         var project = await _projectStore.GetAsync(projectId, cancellationToken)
             ?? throw new ContentGenerationException($"Project {projectId} was not found.");
 
-        // Brief is sole research input — Upload Research Inputs removed (293da90); research (KeywordSources/SerpIndex) is optional enrichment, not a generation gate. Brief + Hierarchy alone grounds generation.
+        // Research was made optional by 293da90 — "optional enrichment, not a generation gate" —
+        // so that generation would never block. The cost was that absent evidence dropped out
+        // silently and the draft read exactly as if it had been grounded, which is how content
+        // shipped claiming SERP and partner grounding it never had. Evidence a content type must
+        // cite is now a gate; a refusal is information, a confident ungrounded draft is not.
 
         if (project.ProjectSiteRunId is not Guid crawlId || crawlId == Guid.Empty)
         {
@@ -881,6 +896,17 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         {
             throw new ContentGenerationException(
                 "No Site Analyzer hierarchy match for this keyword. Match a hierarchy node, or acknowledge that the keyword is outside site scope before generating.");
+        }
+
+        // PartnerUrls is the declaration, not the corpus (Project.cs:62) — the retrieval itself is
+        // gated by GccGroundingResolver on the Create path. Undeclared partners cannot be
+        // retrieved, cited or checked, so a type that must cite them stops here.
+        if (requiresPartnerEvidence && project.PartnerUrls.Count == 0 && !project.AllowOutsideSiteScope)
+        {
+            throw new ContentGenerationException(
+                "Partner evidence required — this content type cites partners and tools, and no "
+                + "partner URLs are declared on the project. Declare them, or acknowledge that the "
+                + "keyword is outside site scope before generating.");
         }
 
         return project;

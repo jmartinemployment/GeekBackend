@@ -4,7 +4,7 @@ using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.HttpClients;
 
-public class HttpGccRepository
+public class HttpGccRepository : IGccProjectReader
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
