@@ -68,7 +68,7 @@ public sealed class GccV2UrlContextConnector(IServiceScopeFactory scopeFactory) 
 
         return new GccV2ConnectorRevision(
             stream,
-            "text/markdown; charset=utf-8",
+            "text/plain; charset=utf-8",
             label,
             outcome.FinalUrl ?? url,
             DateTimeOffset.UtcNow,

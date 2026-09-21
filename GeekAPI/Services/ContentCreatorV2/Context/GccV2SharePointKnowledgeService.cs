@@ -61,15 +61,15 @@ public sealed class GccV2SharePointKnowledgeService(
 
         if (connection.Status == "stub" || connection.EncryptedRefreshToken.Length == 0)
         {
-            var markdown = GccV2SharePointGraphClient.StubMarkdown(itemRef, connection.AccountLabel);
-            bytes = Encoding.UTF8.GetBytes(markdown);
-            mediaType = "text/markdown";
+            var text = GccV2SharePointGraphClient.StubText(itemRef, connection.AccountLabel);
+            bytes = Encoding.UTF8.GetBytes(text);
+            mediaType = "text/plain";
             fileName = $"{Sanitize(itemRef)}.md";
             title = string.IsNullOrWhiteSpace(name) ? $"SharePoint stub · {Sanitize(itemRef)}" : name.Trim();
             sourceUrl = itemRef.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                 ? itemRef
                 : $"sharepoint://item/{itemRef}";
-            sourceMime = "text/markdown";
+            sourceMime = "text/plain";
             sourceTimestamp = DateTimeOffset.UtcNow;
             sourceId = $"sharepoint-stub:{connection.Id:D}:{Sanitize(itemRef)}";
             itemId = Sanitize(itemRef);

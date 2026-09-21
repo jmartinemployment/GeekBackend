@@ -73,9 +73,9 @@ public sealed class GccV2SharePointContextConnector(IServiceScopeFactory scopeFa
 
         if (connection.Status == "stub" || connection.EncryptedRefreshToken.Length == 0)
         {
-            var markdown = GccV2SharePointGraphClient.StubMarkdown(itemRef, connection.AccountLabel);
-            bytes = Encoding.UTF8.GetBytes(markdown);
-            mediaType = "text/markdown; charset=utf-8";
+            var text = GccV2SharePointGraphClient.StubText(itemRef, connection.AccountLabel);
+            bytes = Encoding.UTF8.GetBytes(text);
+            mediaType = "text/plain; charset=utf-8";
             title = $"SharePoint stub · {itemRef}";
             sourceUrl = itemRef;
             sourceTimestamp = DateTimeOffset.UtcNow;

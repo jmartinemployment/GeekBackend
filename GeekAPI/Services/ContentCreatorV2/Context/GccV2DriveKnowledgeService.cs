@@ -61,13 +61,13 @@ public sealed class GccV2DriveKnowledgeService(
 
         if (connection.Status == "stub" || connection.EncryptedRefreshToken.Length == 0)
         {
-            var markdown = GccV2DriveFilesClient.StubMarkdown(fileId, connection.AccountLabel);
-            bytes = Encoding.UTF8.GetBytes(markdown);
-            mediaType = "text/markdown";
+            var text = GccV2DriveFilesClient.StubText(fileId, connection.AccountLabel);
+            bytes = Encoding.UTF8.GetBytes(text);
+            mediaType = "text/plain";
             fileName = $"{Sanitize(fileId)}.md";
             title = string.IsNullOrWhiteSpace(name) ? $"Drive stub · {fileId}" : name.Trim();
             sourceUrl = $"https://drive.google.com/file/d/{fileId}/view";
-            sourceMime = "text/markdown";
+            sourceMime = "text/plain";
             sourceTimestamp = DateTimeOffset.UtcNow;
             sourceId = $"drive-stub:{connection.Id:D}:{fileId}";
         }

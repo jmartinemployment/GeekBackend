@@ -410,7 +410,7 @@ public sealed class GccV2ContentTaskAgentSeeder(
             ["diagnosticDocument.v1", "queryProvenance.v1"],
             ["pillarArticle.v1", "faqSet.v1", "comparisonBrief.v1"]),
         new("pillar-article", "Pillar Article",
-            "Produce a grounded topic-cluster pillar Markdown draft with supporting-content plan.",
+            "Produce a grounded topic-cluster pillar draft with supporting-content plan.",
             "originate", "originate", "pillar-article", "pillarArticle.v1", "pillar-article",
             PillarArticleInputSchema,
             ["diagnosticDocument.v1", "queryProvenance.v1", "pillarOutline.v1"],

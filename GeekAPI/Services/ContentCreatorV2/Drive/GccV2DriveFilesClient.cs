@@ -192,15 +192,15 @@ public sealed class GccV2DriveFilesClient(IHttpClientFactory httpClientFactory)
         return new GccV2DriveFileContent(id, name, mimeType, mediaType, fileName, bytes, modified, webView);
     }
 
-    public static string StubMarkdown(string fileIdOrUrl, string accountLabel)
+    public static string StubText(string fileIdOrUrl, string accountLabel)
     {
         var id = TryParseFileId(fileIdOrUrl, out var parsed) ? parsed : "stub-file";
         var sb = new StringBuilder();
-        sb.AppendLine($"# Drive stub · {id}");
+        sb.AppendLine($"Drive stub for {id}");
         sb.AppendLine();
-        sb.AppendLine($"- Connection: {accountLabel}");
-        sb.AppendLine($"- File id: `{id}`");
-        sb.AppendLine($"- Fetched: {DateTimeOffset.UtcNow:O}");
+        sb.AppendLine($"Connection: {accountLabel}");
+        sb.AppendLine($"File id: {id}");
+        sb.AppendLine($"Fetched: {DateTimeOffset.UtcNow:O}");
         sb.AppendLine();
         sb.AppendLine(
             "Stub Drive connections do not call Google. Connect with OAuth to import live file bytes.");

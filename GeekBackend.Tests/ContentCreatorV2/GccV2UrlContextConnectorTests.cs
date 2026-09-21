@@ -54,7 +54,7 @@ public sealed class GccV2UrlContextConnectorTests
     }
 
     [Fact]
-    public async Task FetchAsync_happy_path_returns_markdown_revision()
+    public async Task FetchAsync_happy_path_returns_plain_text_revision()
     {
         const string html = """
             <html><head><title>Knowledge Page</title></head>
@@ -83,7 +83,10 @@ public sealed class GccV2UrlContextConnectorTests
 
         Assert.Contains("Knowledge Page", text);
         Assert.Equal("https://example.com/kb", revision.SourceUrl);
-        Assert.Contains("markdown", revision.MediaType, StringComparison.OrdinalIgnoreCase);
+        // Generated knowledge is plain text, never Markdown — this is content this codebase
+        // produces, so the operator-supplied-asset carve-out does not cover it.
+        Assert.Contains("text/plain", revision.MediaType, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("markdown", revision.MediaType, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class StubScopeFactory : IServiceScopeFactory

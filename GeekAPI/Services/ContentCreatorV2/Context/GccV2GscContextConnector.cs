@@ -7,7 +7,7 @@ using GeekAPI.Services.ContentCreatorV2.Gsc;
 namespace GeekAPI.Services.ContentCreatorV2.Context;
 
 /// <summary>
-/// Knowledge connector: owner-owned GSC connection → observed query markdown revision.
+/// Knowledge connector: owner-owned GSC connection → observed query text revision.
 /// Reuses Content Creator GSC OAuth; does not introduce a second Google client.
 /// </summary>
 public sealed class GccV2GscContextConnector(IServiceScopeFactory scopeFactory) : IGccV2ContextConnector
@@ -65,8 +65,8 @@ public sealed class GccV2GscContextConnector(IServiceScopeFactory scopeFactory) 
         if (!fetched.Ok)
             throw new InvalidOperationException(fetched.Error ?? "GSC connector fetch failed.");
 
-        var markdown = GccV2GscKnowledgeFormatter.ToMarkdown(fetched);
-        var bytes = Encoding.UTF8.GetBytes(markdown);
+        var text = GccV2GscKnowledgeFormatter.ToPlainText(fetched);
+        var bytes = Encoding.UTF8.GetBytes(text);
         var stream = new MemoryStream(bytes, writable: false);
         var provenance = JsonSerializer.SerializeToElement(new
         {
@@ -86,7 +86,7 @@ public sealed class GccV2GscContextConnector(IServiceScopeFactory scopeFactory) 
 
         return new GccV2ConnectorRevision(
             stream,
-            "text/markdown; charset=utf-8",
+            "text/plain; charset=utf-8",
             $"GSC queries · {fetched.SiteUrl}",
             fetched.SiteUrl,
             fetched.FetchedAtUtc,
@@ -205,18 +205,22 @@ internal static class GccV2GscKnowledgeFormatter
             connection.Id, connection.SiteUrl, start, end, fetchedAt, sourceId, rows);
     }
 
-    public static string ToMarkdown(GccV2GscFetchOutcome fetched)
+    /// <summary>
+    /// Renders observed queries as plain text. Markdown is not produced anywhere in this codebase —
+    /// this is generated content, not an operator-supplied asset, so the carve-out does not cover it.
+    /// </summary>
+    public static string ToPlainText(GccV2GscFetchOutcome fetched)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"# Observed Search Console queries · {fetched.SiteUrl}");
+        sb.AppendLine($"Observed Search Console queries for {fetched.SiteUrl}");
         sb.AppendLine();
-        sb.AppendLine($"- Site: {fetched.SiteUrl}");
-        sb.AppendLine($"- Window: {fetched.StartDate:yyyy-MM-dd} → {fetched.EndDate:yyyy-MM-dd}");
-        sb.AppendLine($"- Fetched: {fetched.FetchedAtUtc:O}");
-        sb.AppendLine($"- Source id: `{fetched.SourceId}`");
+        sb.AppendLine($"Site: {fetched.SiteUrl}");
+        sb.AppendLine($"Window: {fetched.StartDate:yyyy-MM-dd} to {fetched.EndDate:yyyy-MM-dd}");
+        sb.AppendLine($"Fetched: {fetched.FetchedAtUtc:O}");
+        sb.AppendLine($"Source id: {fetched.SourceId}");
         sb.AppendLine();
         sb.AppendLine(
-            "> Observed GSC queries are first-party search analytics, not traffic, volume, ranking, or demand scores.");
+            "Note: observed GSC queries are first-party search analytics, not traffic, volume, ranking, or demand scores.");
         sb.AppendLine();
         if (fetched.Rows.Count == 0)
         {
@@ -224,24 +228,18 @@ internal static class GccV2GscKnowledgeFormatter
             return sb.ToString();
         }
 
-        sb.AppendLine("| Query | Impressions | Clicks |");
-        sb.AppendLine("| --- | ---: | ---: |");
+        sb.AppendLine("Queries, most impressions first. Each line is: query, impressions, clicks.");
+        sb.AppendLine();
         foreach (var row in fetched.Rows
             .OrderByDescending(x => x.Impressions)
             .ThenBy(x => x.Query, StringComparer.OrdinalIgnoreCase))
         {
-            sb.Append("| ")
-                .Append(EscapeCell(row.Query))
-                .Append(" | ")
-                .Append(row.Impressions)
-                .Append(" | ")
-                .Append(row.Clicks)
-                .AppendLine(" |");
+            sb.AppendLine($"{Clean(row.Query)} \u2014 impressions {row.Impressions}, clicks {row.Clicks}");
         }
 
         return sb.ToString();
     }
 
-    private static string EscapeCell(string value) =>
-        value.Replace("|", "\\|", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
+    private static string Clean(string value) =>
+        value.Replace("\n", " ", StringComparison.Ordinal).Trim();
 }

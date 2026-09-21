@@ -119,7 +119,7 @@ public sealed class GccV2UrlKnowledgeService(
             assetId = asset.Id,
             schemaVersion = 1,
             contentSha256 = sha256,
-            mediaType = "text/markdown",
+            mediaType = "text/plain",
             sourceDescriptor,
         });
         var version = await repository.CreateKnowledgeVersionAsync(asset.Id, new(
@@ -127,7 +127,7 @@ public sealed class GccV2UrlKnowledgeService(
             1,
             GccV2CanonicalJson.Sha256(canonical),
             sha256,
-            "text/markdown",
+            "text/plain",
             "en",
             JsonSerializer.Serialize(sourceDescriptor),
             JsonSerializer.Serialize(provenance),
@@ -138,7 +138,7 @@ public sealed class GccV2UrlKnowledgeService(
             $"content-creator-v2/{ownerUserId}/knowledge/{asset.Id}/{version.Id:N}/original.md";
         await using (var stream = new MemoryStream(bytes, writable: false))
         {
-            await objectStore.PutAsync(objectKey, stream, "text/markdown; charset=utf-8", ct)
+            await objectStore.PutAsync(objectKey, stream, "text/plain; charset=utf-8", ct)
                 .ConfigureAwait(false);
         }
 
@@ -149,7 +149,7 @@ public sealed class GccV2UrlKnowledgeService(
             objectKey,
             bytes.LongLength,
             sha256,
-            "text/markdown; charset=utf-8",
+            "text/plain; charset=utf-8",
             safeName,
             "quarantined",
             CoordinatesJson: JsonSerializer.Serialize(new { finalUrl, title })), ct)

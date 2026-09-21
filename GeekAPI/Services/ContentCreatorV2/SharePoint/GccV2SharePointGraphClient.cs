@@ -226,17 +226,17 @@ public sealed class GccV2SharePointGraphClient(IHttpClientFactory httpClientFact
         return new GccV2SharePointFileContent(id, name, mimeType, mediaType, fileName, bytes, modified, webUrl);
     }
 
-    public static string StubMarkdown(string itemIdOrUrl, string accountLabel)
+    public static string StubText(string itemIdOrUrl, string accountLabel)
     {
         TryNormalizeItemRef(itemIdOrUrl, out var itemRef, out var isShare);
         var label = isShare ? "share-url" : itemRef;
         if (string.IsNullOrWhiteSpace(label)) label = "stub-item";
         var sb = new StringBuilder();
-        sb.AppendLine($"# SharePoint stub · {label}");
+        sb.AppendLine($"SharePoint stub for {label}");
         sb.AppendLine();
-        sb.AppendLine($"- Connection: {accountLabel}");
-        sb.AppendLine($"- Item: `{label}`");
-        sb.AppendLine($"- Fetched: {DateTimeOffset.UtcNow:O}");
+        sb.AppendLine($"Connection: {accountLabel}");
+        sb.AppendLine($"Item: {label}");
+        sb.AppendLine($"Fetched: {DateTimeOffset.UtcNow:O}");
         sb.AppendLine();
         sb.AppendLine(
             "Stub SharePoint connections do not call Microsoft Graph. Connect with OAuth to import live file bytes.");

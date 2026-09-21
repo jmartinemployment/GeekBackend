@@ -397,7 +397,8 @@ public class ClaudeContentGenerator : IContentGenerator
             - Include the CTA naturally at the end
             - Use the evidence to support claims
             - Aim for 1500-2000 words
-            - Use markdown formatting (## for sections, etc.)
+            - Use semantic HTML for structure: <h2>/<h3> headings, <p>, <ul>/<li>
+            - Never Markdown: no ##, no **, no - bullets, no [text](url)
 
             Write ONLY the article content. Do not include metadata, frontmatter, or explanations.
             """;

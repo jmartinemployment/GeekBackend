@@ -74,9 +74,9 @@ public sealed class GccV2DriveContextConnector(IServiceScopeFactory scopeFactory
 
         if (connection.Status == "stub" || connection.EncryptedRefreshToken.Length == 0)
         {
-            var markdown = GccV2DriveFilesClient.StubMarkdown(fileId, connection.AccountLabel);
-            bytes = Encoding.UTF8.GetBytes(markdown);
-            mediaType = "text/markdown; charset=utf-8";
+            var text = GccV2DriveFilesClient.StubText(fileId, connection.AccountLabel);
+            bytes = Encoding.UTF8.GetBytes(text);
+            mediaType = "text/plain; charset=utf-8";
             title = $"Drive stub · {fileId}";
             sourceUrl = $"https://drive.google.com/file/d/{fileId}/view";
             sourceTimestamp = DateTimeOffset.UtcNow;

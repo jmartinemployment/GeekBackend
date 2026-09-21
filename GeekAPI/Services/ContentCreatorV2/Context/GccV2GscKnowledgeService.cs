@@ -59,8 +59,8 @@ public sealed class GccV2GscKnowledgeService(
                 fetched.ErrorCode ?? "gsc_fetch");
         }
 
-        var markdown = GccV2GscKnowledgeFormatter.ToMarkdown(fetched);
-        var bytes = Encoding.UTF8.GetBytes(markdown);
+        var text = GccV2GscKnowledgeFormatter.ToPlainText(fetched);
+        var bytes = Encoding.UTF8.GetBytes(text);
         var usage = await repository.GetContextQuotaUsageAsync(ownerUserId, ct: ct).ConfigureAwait(false);
         if (usage is null)
             return (null, HttpStatusCode.ServiceUnavailable, "Source-library quota is unavailable.", "quota");
@@ -135,7 +135,7 @@ public sealed class GccV2GscKnowledgeService(
             assetId = asset.Id,
             schemaVersion = 1,
             contentSha256 = sha256,
-            mediaType = "text/markdown",
+            mediaType = "text/plain",
             sourceDescriptor,
         });
         var version = await repository.CreateKnowledgeVersionAsync(asset.Id, new(
@@ -143,7 +143,7 @@ public sealed class GccV2GscKnowledgeService(
             1,
             GccV2CanonicalJson.Sha256(canonical),
             sha256,
-            "text/markdown",
+            "text/plain",
             "en",
             JsonSerializer.Serialize(sourceDescriptor),
             JsonSerializer.Serialize(provenance),
@@ -154,7 +154,7 @@ public sealed class GccV2GscKnowledgeService(
             $"content-creator-v2/{ownerUserId}/knowledge/{asset.Id}/{version.Id:N}/original.md";
         await using (var stream = new MemoryStream(bytes, writable: false))
         {
-            await objectStore.PutAsync(objectKey, stream, "text/markdown; charset=utf-8", ct)
+            await objectStore.PutAsync(objectKey, stream, "text/plain; charset=utf-8", ct)
                 .ConfigureAwait(false);
         }
 
@@ -165,7 +165,7 @@ public sealed class GccV2GscKnowledgeService(
             objectKey,
             bytes.LongLength,
             sha256,
-            "text/markdown; charset=utf-8",
+            "text/plain; charset=utf-8",
             safeName,
             "quarantined",
             CoordinatesJson: JsonSerializer.Serialize(new

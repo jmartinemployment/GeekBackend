@@ -82,7 +82,7 @@ public sealed class GccV2UrlAttachmentService(
 
         await using (var stream = new MemoryStream(bytes, writable: false))
         {
-            await objectStore.PutAsync(objectKey, stream, "text/markdown; charset=utf-8", ct)
+            await objectStore.PutAsync(objectKey, stream, "text/plain; charset=utf-8", ct)
                 .ConfigureAwait(false);
         }
 
@@ -100,7 +100,7 @@ public sealed class GccV2UrlAttachmentService(
             createId,
             objectKey,
             safeName,
-            "text/markdown",
+            "text/plain",
             verified.ByteSize,
             verified.Sha256,
             now.AddMinutes(10),
