@@ -272,8 +272,8 @@ public class GccGenerateService
             "2. Data Quality Assessment — integrity, schema, storage (pooling, JSONB, validation).",
             "3. Tech Selection & Architecture — specific tools over generics (decoupled services, routing, benchmarks).",
             "4. Pilot Implementation Strategy — execution, smoke tests, validation (local integration, TDD, sandboxed rollout).",
-            "Constraints: ban AI filler / clichés; structure with semantic HTML <h2>/<h3> headings and never",
-            "Markdown; close with an FAQ drawn from the",
+            "Constraints: ban AI filler / clichés. Emit no markup of any kind — structure is carried",
+            "by the section contract, not by characters in the text. Close with an FAQ drawn from the",
             "People Also Ask / related searches in the brief. Keep temperature low.",
         });
     }
@@ -2169,17 +2169,6 @@ public class GccGenerateService
     }
 
     /// <summary>
-    /// Reads the H2 headings out of a generated body with a DOM parser, never a regex
-    /// (`AGENTS.md` — "No regex for HTML"). Markdown is not a format this pipeline produces,
-    /// accepts or re-parses at any hop, prompt assembly included.
-    /// </summary>
-    /// <remarks>
-    /// Interim. The Create path still returns a string body (`GccController.cs:667`, `:674`); once
-    /// it returns a <c>ContentDocument</c> this disappears in favour of
-    /// <c>ContentDocumentText.AllHeadings</c>, which reads headings off the document with no parse
-    /// at all. Tracked as Stage 4 in content-creator-v2/plans/grounded-generation-and-serp.md.
-    /// </remarks>
-        /// <summary>
     /// The H2 headings of a generated body. The body is a <see cref="ContentDocument"/>, so the
     /// headings are read off the tree — no parse, no regex, nothing to guess. This replaced a
     /// string scan that only ever worked while the body happened to be a string.
