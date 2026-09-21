@@ -258,6 +258,71 @@ public class GccProjectsController : ControllerBase
         return Ok(result.Entry);
     }
 
+    [HttpGet("{id:guid}/deliverables")]
+    public async Task<ActionResult<IReadOnlyList<GccDeliverableDto>>> ListDeliverables(
+        Guid id,
+        CancellationToken ct) =>
+        Ok(await _repo.ListDeliverablesAsync(id, ct));
+
+    /// <summary>
+    /// Record a deliverable on this project.
+    /// </summary>
+    /// <remarks>
+    /// A 409 carries the reason — the create belongs to another client, or it is already a
+    /// deliverable somewhere else. Both are the operator's to resolve.
+    /// </remarks>
+    [HttpPost("{id:guid}/deliverables")]
+    public async Task<ActionResult<GccDeliverableDto>> CreateDeliverable(
+        Guid id,
+        [FromBody] CreateDeliverableRequest request,
+        CancellationToken ct)
+    {
+        var actor = CurrentSubject();
+        if (actor is null) return Unauthorized();
+        if (request.CreateId == Guid.Empty)
+            return BadRequest("createId is required — a deliverable is a create.");
+        if (string.IsNullOrWhiteSpace(request.Name)) return BadRequest("name is required.");
+
+        var result = await _repo.CreateDeliverableAsync(
+            new CreateGccDeliverableCommand(
+                id,
+                request.CreateId,
+                request.Name,
+                actor,
+                request.Type ?? "long-form",
+                request.DueDate),
+            ct);
+
+        if (result.Reason is not null) return Conflict(result.Reason);
+        return Ok(result.Deliverable);
+    }
+
+    [HttpPut("{id:guid}/deliverables/{deliverableId:guid}/status")]
+    public async Task<ActionResult<GccDeliverableDto>> ChangeDeliverableStatus(
+        Guid id,
+        Guid deliverableId,
+        [FromBody] ChangeDeliverableStatusRequest request,
+        CancellationToken ct)
+    {
+        var actor = CurrentSubject();
+        if (actor is null) return Unauthorized();
+        if (!GccDeliverableStatuses.IsValid(request.Status))
+            return BadRequest($"status must be one of: {string.Join(", ", GccDeliverableStatuses.All)}.");
+
+        return Ok(await _repo.ChangeDeliverableStatusAsync(
+            id,
+            new ChangeGccDeliverableStatusCommand(deliverableId, actor, request.Status),
+            ct));
+    }
+
+    public sealed record CreateDeliverableRequest(
+        Guid CreateId,
+        string Name,
+        string? Type = null,
+        DateOnly? DueDate = null);
+
+    public sealed record ChangeDeliverableStatusRequest(string Status);
+
     public sealed record CreateTaskRequest(
         string Name,
         string? Description = null,

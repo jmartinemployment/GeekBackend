@@ -21,6 +21,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccProjectLogEntry> GccProjectLog => Set<GccProjectLogEntry>();
     public virtual DbSet<GccTask> GccTasks => Set<GccTask>();
     public virtual DbSet<GccTimeEntry> GccTimeEntries => Set<GccTimeEntry>();
+    public virtual DbSet<GccDeliverable> GccDeliverables => Set<GccDeliverable>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -359,6 +360,50 @@ public class ContentCreatorDbContext : DbContext
 
             entity.HasIndex(e => new { e.ProjectId, e.WorkDate })
                 .HasDatabaseName("ix_gcc_time_entries_project_id_work_date");
+        });
+
+        modelBuilder.Entity<GccDeliverable>(entity =>
+        {
+            entity.ToTable("gcc_deliverables", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_gcc_deliverables_status",
+                    "status IN ('planned', 'in_progress', 'delivered')");
+                // Delivered and its timestamp are one fact, the same pairing projects use for
+                // finished/finished_date.
+                t.HasCheckConstraint(
+                    "ck_gcc_deliverables_delivered_at_matches_status",
+                    "(status = 'delivered') = (delivered_at_utc IS NOT NULL)");
+            });
+            entity.HasKey(d => d.Id);
+            entity.Property(d => d.Id).HasColumnName("id");
+            entity.Property(d => d.ProjectId).HasColumnName("project_id").IsRequired();
+            entity.Property(d => d.CreateId).HasColumnName("create_id").IsRequired();
+            entity.Property(d => d.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
+            entity.Property(d => d.Type).HasColumnName("type").IsRequired().HasMaxLength(64);
+            entity.Property(d => d.Status).HasColumnName("status").IsRequired().HasMaxLength(32);
+            entity.Property(d => d.DueDate).HasColumnName("due_date").HasColumnType("date");
+            entity.Property(d => d.DeliveredAtUtc).HasColumnName("delivered_at_utc");
+            entity.Property(d => d.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(d => d.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<GccProject>()
+                .WithMany()
+                .HasForeignKey(d => d.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<GccCreate>()
+                .WithMany()
+                .HasForeignKey(d => d.CreateId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // One create, one deliverable. The same piece of content listed under two projects
+            // would make both schedules wrong with no way to tell which.
+            entity.HasIndex(d => d.CreateId)
+                .IsUnique()
+                .HasDatabaseName("ix_gcc_deliverables_create_id_unique");
+
+            entity.HasIndex(d => d.ProjectId).HasDatabaseName("ix_gcc_deliverables_project_id");
         });
 
         base.OnModelCreating(modelBuilder);

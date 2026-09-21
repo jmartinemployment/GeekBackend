@@ -72,6 +72,7 @@ public static class ServiceRegistration
         services.AddScoped<IGccClientRepository, GccClientRepository>();
         services.AddScoped<IGccProjectRepository, GccProjectRepository>();
         services.AddScoped<IGccTaskRepository, GccTaskRepository>();
+        services.AddScoped<IGccDeliverableRepository, GccDeliverableRepository>();
 
         services.AddGeekSeoData();
 

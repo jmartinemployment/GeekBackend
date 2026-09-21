@@ -159,6 +159,10 @@ public static class GccProjectLogEventTypes
     public const string TaskCompleted = "task_completed";
     public const string TimeLogged = "time_logged";
 
+    public const string DeliverableCreated = "deliverable_created";
+    public const string DeliverableUpdated = "deliverable_updated";
+    public const string DeliverableDelivered = "deliverable_delivered";
+
     public static readonly IReadOnlyList<string> All =
     [
         ProjectCreated,
@@ -168,6 +172,9 @@ public static class GccProjectLogEventTypes
         TaskUpdated,
         TaskCompleted,
         TimeLogged,
+        DeliverableCreated,
+        DeliverableUpdated,
+        DeliverableDelivered,
     ];
 }
 
@@ -300,4 +307,61 @@ public sealed record GccTimeEntryResult(GccTimeEntryDto? Entry, string? Reason)
 {
     public static GccTimeEntryResult Logged(GccTimeEntryDto entry) => new(entry, null);
     public static GccTimeEntryResult Refused(string reason) => new(null, reason);
+}
+
+/// <summary>Something the client receives, backed by the create that produces it.</summary>
+/// <param name="CreateId">The GccCreate this deliverable is. One create, one deliverable.</param>
+/// <param name="Status">planned | in_progress | delivered.</param>
+/// <param name="DeliveredAtUtc">Set exactly when delivered; the database enforces the pair.</param>
+public sealed record GccDeliverableDto(
+    Guid Id,
+    Guid ProjectId,
+    Guid CreateId,
+    string Name,
+    string Type,
+    string Status,
+    DateOnly? DueDate,
+    DateTime? DeliveredAtUtc,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
+
+public sealed record CreateGccDeliverableCommand(
+    Guid ProjectId,
+    Guid CreateId,
+    string Name,
+    string ActorUserId,
+    string Type = "long-form",
+    DateOnly? DueDate = null);
+
+/// <summary>
+/// Move a deliverable to a new status.
+/// </summary>
+/// <remarks>
+/// Delivering it stamps the moment. Like a project's finish date, the pair is enforced by the
+/// database: delivered without a timestamp cannot be reported on, and a timestamp on something
+/// still in progress is a claim nothing backs.
+/// </remarks>
+public sealed record ChangeGccDeliverableStatusCommand(
+    Guid Id,
+    string ActorUserId,
+    string Status);
+
+/// <summary>The statuses a deliverable may hold. The database carries the same list as a CHECK.</summary>
+public static class GccDeliverableStatuses
+{
+    public const string Planned = "planned";
+    public const string InProgress = "in_progress";
+    public const string Delivered = "delivered";
+
+    public static readonly IReadOnlyList<string> All = [Planned, InProgress, Delivered];
+
+    public static bool IsValid(string? status) =>
+        status is not null && All.Contains(status, StringComparer.Ordinal);
+}
+
+/// <summary>Why a deliverable could not be recorded. Null Reason means it was.</summary>
+public sealed record GccDeliverableResult(GccDeliverableDto? Deliverable, string? Reason)
+{
+    public static GccDeliverableResult Created(GccDeliverableDto deliverable) => new(deliverable, null);
+    public static GccDeliverableResult Refused(string reason) => new(null, reason);
 }

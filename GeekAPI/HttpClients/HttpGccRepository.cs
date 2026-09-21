@@ -219,6 +219,48 @@ public class HttpGccRepository
         return GccTimeEntryResult.Logged(entry);
     }
 
+    public Task<IReadOnlyList<GccDeliverableDto>> ListDeliverablesAsync(Guid projectId, CancellationToken ct = default) =>
+        GetListAsync<GccDeliverableDto>($"repo/content-creator/projects/{projectId}/deliverables", ct);
+
+    /// <summary>
+    /// Record a deliverable, carrying a refusal back as a reason rather than an exception.
+    /// </summary>
+    /// <remarks>
+    /// "That create belongs to a different client" is a sentence the operator must read, and
+    /// EnsureSuccessStatusCode would turn it into a 500 with the reason buried in a body nobody
+    /// looks at.
+    /// </remarks>
+    public async Task<GccDeliverableResult> CreateDeliverableAsync(
+        CreateGccDeliverableCommand command,
+        CancellationToken ct = default)
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(command, JsonOpts),
+            Encoding.UTF8,
+            "application/json");
+
+        var res = await _http.PostAsync(
+            $"repo/content-creator/projects/{command.ProjectId}/deliverables", content, ct);
+
+        if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
+            return GccDeliverableResult.Refused(await res.Content.ReadAsStringAsync(ct));
+
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        var deliverable = JsonSerializer.Deserialize<GccDeliverableDto>(json, JsonOpts)
+            ?? throw new InvalidOperationException("Empty response recording a deliverable.");
+        return GccDeliverableResult.Created(deliverable);
+    }
+
+    public Task<GccDeliverableDto> ChangeDeliverableStatusAsync(
+        Guid projectId,
+        ChangeGccDeliverableStatusCommand command,
+        CancellationToken ct = default) =>
+        PutAsync<GccDeliverableDto>(
+            $"repo/content-creator/projects/{projectId}/deliverables/{command.Id}/status",
+            command,
+            ct);
+
     public Task<GccProjectDto> ChangeProjectStatusAsync(
         ChangeGccProjectStatusCommand command,
         CancellationToken ct = default) =>

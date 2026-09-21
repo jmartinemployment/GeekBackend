@@ -430,6 +430,72 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.ToTable("gcc_site_findings", "content_creator");
                 });
 
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccDeliverable", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CreateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("create_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTime?>("DeliveredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivered_at_utc");
+
+                    b.Property<DateOnly?>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("type");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreateId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_gcc_deliverables_create_id_unique");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_gcc_deliverables_project_id");
+
+                    b.ToTable("gcc_deliverables", "content_creator", t =>
+                        {
+                            t.HasCheckConstraint("ck_gcc_deliverables_delivered_at_matches_status", "(status = 'delivered') = (delivered_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_gcc_deliverables_status", "status IN ('planned', 'in_progress', 'delivered')");
+                        });
+                });
+
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccProject", b =>
                 {
                     b.Property<Guid>("Id")
@@ -808,6 +874,21 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasForeignKey("TaskId", "ProjectId")
                         .HasPrincipalKey("Id", "ProjectId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccDeliverable", b =>
+                {
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccCreate", null)
+                        .WithMany()
+                        .HasForeignKey("CreateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccProject", b =>

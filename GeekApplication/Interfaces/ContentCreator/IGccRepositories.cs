@@ -143,3 +143,20 @@ public interface IGccTaskRepository
     /// <summary>Totals for a project, with billable money grouped per currency.</summary>
     Task<GccProjectTimeTotals> TotalsForProjectAsync(Guid projectId, CancellationToken ct = default);
 }
+
+/// <summary>
+/// What each project has promised to hand over.
+/// </summary>
+/// <remarks>
+/// A deliverable is the project-side record of a create. Creating one is refused rather than
+/// thrown when the create belongs to another client or is already listed elsewhere — both are
+/// sentences the operator has to read.
+/// </remarks>
+public interface IGccDeliverableRepository
+{
+    Task<IReadOnlyList<GccDeliverableDto>> ListByProjectAsync(Guid projectId, CancellationToken ct = default);
+    Task<GccDeliverableResult> CreateAsync(CreateGccDeliverableCommand command, CancellationToken ct = default);
+
+    /// <summary>Null when the deliverable does not exist.</summary>
+    Task<GccDeliverableDto?> ChangeStatusAsync(ChangeGccDeliverableStatusCommand command, CancellationToken ct = default);
+}

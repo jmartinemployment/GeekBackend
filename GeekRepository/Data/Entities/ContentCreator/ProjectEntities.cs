@@ -158,3 +158,40 @@ public class GccTimeEntry
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
+
+/// <summary>
+/// Something the client receives, backed by the create that produces it.
+/// </summary>
+/// <remarks>
+/// The project-side record of a piece of content, not a second copy of it. The content pipeline is
+/// untouched: the create, its artifacts, its versions and its approvals stay exactly where they
+/// are, and this row says which project promised the thing and when it was delivered.
+///
+/// <see cref="CreateId"/> is unique across the table. One create is one deliverable — listing the
+/// same piece of content under two projects would make both schedules and both invoices wrong, and
+/// there would be no way to tell which.
+/// </remarks>
+public class GccDeliverable
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ProjectId { get; set; }
+
+    /// <summary>The GccCreate this deliverable is. Unique: one create, one deliverable.</summary>
+    public Guid CreateId { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>What kind of thing it is — long-form, social, and so on. Free text by design.</summary>
+    public string Type { get; set; } = string.Empty;
+
+    /// <summary>planned | in_progress | delivered. The database carries the same list.</summary>
+    public string Status { get; set; } = "planned";
+
+    public DateOnly? DueDate { get; set; }
+
+    /// <summary>Set exactly when <see cref="Status"/> is "delivered". A CHECK enforces the pair.</summary>
+    public DateTime? DeliveredAtUtc { get; set; }
+
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+}
