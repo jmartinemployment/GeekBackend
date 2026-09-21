@@ -131,6 +131,35 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.ToTable("gcc_artifact_versions", "content_creator");
                 });
 
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccClient", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_gcc_clients_name_unique");
+
+                    b.ToTable("gcc_clients", "content_creator");
+                });
+
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccCreate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -254,6 +283,173 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.ToTable("gcc_site_findings", "content_creator");
                 });
 
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccProject", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal?>("Budget")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("budget");
+
+                    b.Property<string>("BudgetCurrency")
+                        .HasColumnType("char(3)")
+                        .HasColumnName("budget_currency");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("Code")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("code");
+
+                    b.Property<List<string>>("CompetitorUrls")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("competitor_urls");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Department")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("department");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<DateOnly?>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
+                    b.Property<decimal?>("EstimatedHours")
+                        .HasColumnType("numeric(8,2)")
+                        .HasColumnName("estimated_hours");
+
+                    b.Property<DateOnly?>("FinishedDate")
+                        .HasColumnType("date")
+                        .HasColumnName("finished_date");
+
+                    b.Property<Guid>("IdempotencyKey")
+                        .HasColumnType("uuid")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<List<string>>("PartnerUrls")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("partner_urls");
+
+                    b.Property<Guid?>("ProjectSiteRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_site_run_id");
+
+                    b.Property<string>("SiteUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("site_url");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("ix_gcc_projects_client_id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_gcc_projects_idempotency_key_unique");
+
+                    b.HasIndex("ClientId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_gcc_projects_client_id_code_unique")
+                        .HasFilter("code IS NOT NULL");
+
+                    b.ToTable("gcc_projects", "content_creator", t =>
+                        {
+                            t.HasCheckConstraint("ck_gcc_projects_budget_currency_pair", "(budget IS NULL) = (budget_currency IS NULL)");
+
+                            t.HasCheckConstraint("ck_gcc_projects_due_date_after_start", "due_date IS NULL OR due_date >= start_date");
+
+                            t.HasCheckConstraint("ck_gcc_projects_finished_date_after_start", "finished_date IS NULL OR finished_date >= start_date");
+
+                            t.HasCheckConstraint("ck_gcc_projects_finished_date_matches_status", "(status = 'finished') = (finished_date IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_gcc_projects_status", "status IN ('planned', 'active', 'on_hold', 'finished', 'cancelled')");
+                        });
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccProjectLogEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActorUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_gcc_project_log_project_id_occurred_at_utc");
+
+                    b.ToTable("gcc_project_log", "content_creator", t =>
+                        {
+                            t.HasCheckConstraint("ck_gcc_project_log_event_type", "event_type IN ('project_created', 'project_updated', 'project_status_changed')");
+                        });
+                });
+
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccSiteAnalysis", b =>
                 {
                     b.Property<Guid>("Id")
@@ -303,6 +499,24 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasDatabaseName("ix_gcc_site_analyses_domain");
 
                     b.ToTable("gcc_site_analyses", "content_creator");
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccProject", b =>
+                {
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccClient", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccProjectLogEntry", b =>
+                {
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccSiteFinding", b =>

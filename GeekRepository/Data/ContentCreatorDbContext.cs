@@ -139,7 +139,27 @@ public class ContentCreatorDbContext : DbContext
         // reason to leave it alone, not a pattern to copy into a new table.
         modelBuilder.Entity<GccProject>(entity =>
         {
-            entity.ToTable("gcc_projects");
+            // The CHECKs are declared on the model as well as written in the migration. Declared
+            // only in the migration, the model would not know they exist and the snapshot could
+            // not record them — the drift that makes a later scaffolded migration wrong.
+            entity.ToTable("gcc_projects", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_gcc_projects_status",
+                    "status IN ('planned', 'active', 'on_hold', 'finished', 'cancelled')");
+                t.HasCheckConstraint(
+                    "ck_gcc_projects_finished_date_matches_status",
+                    "(status = 'finished') = (finished_date IS NOT NULL)");
+                t.HasCheckConstraint(
+                    "ck_gcc_projects_due_date_after_start",
+                    "due_date IS NULL OR due_date >= start_date");
+                t.HasCheckConstraint(
+                    "ck_gcc_projects_finished_date_after_start",
+                    "finished_date IS NULL OR finished_date >= start_date");
+                t.HasCheckConstraint(
+                    "ck_gcc_projects_budget_currency_pair",
+                    "(budget IS NULL) = (budget_currency IS NULL)");
+            });
             entity.HasKey(p => p.Id);
             entity.Property(p => p.Id).HasColumnName("id");
             entity.Property(p => p.ClientId).HasColumnName("client_id").IsRequired();
@@ -184,11 +204,21 @@ public class ContentCreatorDbContext : DbContext
 
         modelBuilder.Entity<GccProjectLogEntry>(entity =>
         {
-            entity.ToTable("gcc_project_log");
+            entity.ToTable("gcc_project_log", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_gcc_project_log_event_type",
+                    "event_type IN ('project_created', 'project_updated', 'project_status_changed')");
+            });
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entity.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
-            entity.Property(e => e.OccurredAtUtc).HasColumnName("occurred_at_utc").IsRequired();
+            // now() matches the migration's default. Declared here too, or the model believes the
+            // column has no default and a later migration would try to remove one it never saw.
+            entity.Property(e => e.OccurredAtUtc)
+                .HasColumnName("occurred_at_utc")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
             entity.Property(e => e.ActorUserId).HasColumnName("actor_user_id").IsRequired().HasMaxLength(256);
             entity.Property(e => e.EventType).HasColumnName("event_type").IsRequired().HasMaxLength(64);
             entity.Property(e => e.Payload).HasColumnName("payload").HasColumnType("jsonb").IsRequired();
