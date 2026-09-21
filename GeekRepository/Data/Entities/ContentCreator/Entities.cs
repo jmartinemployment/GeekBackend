@@ -97,11 +97,72 @@ public class GccSiteFinding
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
+/// <summary>
+/// A client: who they are, how to reach them, and how they are billed.
+/// </summary>
+/// <remarks>
+/// The one client table. There used to be a second, a blob store behind api/clients, and the two
+/// assigned unrelated ids to the same client — which is why gcc_projects.client_id, the first
+/// foreign key to actually enforce the relationship, could not be satisfied by anything the UI had
+/// in hand.
+///
+/// Contact and billing are required (see the migration's NOT NULL set) because a client that
+/// cannot be invoiced is not a client. Rate is the deliberate exception: it stays nullable, and a
+/// client without one simply cannot have billable time logged against it.
+///
+/// The publish target is flattened onto this row rather than kept as its own entity. It holds the
+/// names of environment variables, never the secrets themselves — that property is the whole
+/// reason it is safe to store at all, and it survives the flattening.
+/// </remarks>
 public class GccClient
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
     public string? Notes { get; set; }
+
+    public string ContactName { get; set; } = string.Empty;
+    public string ContactEmail { get; set; } = string.Empty;
+    public string? ContactPhone { get; set; }
+
+    public string? BillingContactName { get; set; }
+
+    /// <summary>Required even when it equals the contact email: stored, never derived at read time.</summary>
+    public string BillingEmail { get; set; } = string.Empty;
+
+    public string? ContactAddressLine1 { get; set; }
+    public string? ContactAddressLine2 { get; set; }
+    public string? ContactCity { get; set; }
+    public string? ContactRegion { get; set; }
+    public string? ContactPostalCode { get; set; }
+    public string? ContactCountry { get; set; }
+
+    public string? BillingAddressLine1 { get; set; }
+    public string? BillingAddressLine2 { get; set; }
+    public string? BillingCity { get; set; }
+    public string? BillingRegion { get; set; }
+    public string? BillingPostalCode { get; set; }
+    public string? BillingCountry { get; set; }
+
+    /// <summary>Whole days; 0 is due on receipt. An integer so a due date can be computed from it.</summary>
+    public int PaymentTermsDays { get; set; }
+
+    /// <summary>Hourly rate. Null on purpose — see the class remarks.</summary>
+    public decimal? Rate { get; set; }
+
+    /// <summary>ISO-4217, three uppercase letters. No database default.</summary>
+    public string Currency { get; set; } = string.Empty;
+
+    public string? TaxId { get; set; }
+    public string? PoReference { get; set; }
+
+    /// <summary>GeekBackend publish configuration, flattened. Env-var names only, never secrets.</summary>
+    public string? PublishApiBaseUrl { get; set; }
+    public string? PublishOAuthTokenEndpoint { get; set; }
+    public string? PublishClientIdEnvVar { get; set; }
+    public string? PublishClientSecretEnvVar { get; set; }
+    public int? PublishDefaultAuthorId { get; set; }
+    public string? PublishCategoryStrategy { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

@@ -117,6 +117,15 @@ public class HttpGccRepository
     public Task<GccClientDto> CreateClientAsync(CreateGccClientCommand command, CancellationToken ct = default) =>
         PostAsync<GccClientDto>("repo/content-creator/clients", command, ct);
 
+    public Task<IReadOnlyList<GccClientDto>> ListClientsAsync(CancellationToken ct = default) =>
+        GetListAsync<GccClientDto>("repo/content-creator/clients/all", ct);
+
+    public Task<GccClientDto> UpdateClientAsync(UpdateGccClientCommand command, CancellationToken ct = default) =>
+        PutAsync<GccClientDto>($"repo/content-creator/clients/{command.Id}", command, ct);
+
+    public Task<bool> DeleteClientAsync(Guid id, CancellationToken ct = default) =>
+        DeleteAsync($"repo/content-creator/clients/{id}", ct);
+
     public Task<GccProjectDto?> GetProjectAsync(Guid id, CancellationToken ct = default) =>
         GetAsync<GccProjectDto>($"repo/content-creator/projects/{id}", ct);
 

@@ -1,59 +1,59 @@
-using GeekApplication.Interfaces.ContentCreator;
+using GeekAPI.Auth;
+using GeekAPI.HttpClients;
 using GeekApplication.Models.ContentCreator;
-using GeekRepository.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace GeekRepository.Controllers.ContentCreator;
+namespace GeekAPI.Controllers.ContentCreator;
 
+/// <summary>
+/// Clients, on the v1 surface. The only HTTP surface for them.
+/// </summary>
+/// <remarks>
+/// There were two client stores: this one, and a blob store behind api/clients. They assigned
+/// unrelated ids to the same client, which is how gcc_projects.client_id — the first foreign key
+/// to actually enforce the relationship — became unsatisfiable by anything the UI had in hand.
+/// gcc_clients is the one client table now.
+///
+/// A client holds contact and billing details, so every route requires the
+/// content-creator.manage scope. The authority is shared across Geek apps; a valid token alone
+/// says nothing about being granted this.
+/// </remarks>
 [ApiController]
-[Route("repo/content-creator/clients")]
-[Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
+[Route("api/geek-content-creator/clients")]
+[Authorize(Policy = ContentCreatorAuthConstants.ManagePolicy)]
 public class GccClientsController : ControllerBase
 {
-    private readonly IGccClientRepository _repository;
+    private readonly HttpGccRepository _repo;
     private readonly ILogger<GccClientsController> _logger;
 
-    public GccClientsController(IGccClientRepository repository, ILogger<GccClientsController> logger)
+    public GccClientsController(HttpGccRepository repo, ILogger<GccClientsController> logger)
     {
-        _repository = repository;
+        _repo = repo;
         _logger = logger;
     }
+
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<GccClientDto>>> List(CancellationToken ct) =>
+        Ok(await _repo.ListClientsAsync(ct));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<GccClientDto>> GetById(Guid id, CancellationToken ct)
     {
-        var client = await _repository.GetByIdAsync(id, ct);
-        if (client is null)
-            return NotFound();
-
+        var client = await _repo.GetClientByIdAsync(id, ct);
+        if (client is null) return NotFound();
         return Ok(client);
     }
-
-    [HttpGet]
-    public async Task<ActionResult<GccClientDto>> GetByName([FromQuery] string? name, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return BadRequest("name query parameter is required");
-
-        var client = await _repository.GetByNameAsync(name, ct);
-        if (client is null)
-            return NotFound();
-
-        return Ok(client);
-    }
-
-    /// <summary>Every client. The "name" variant above is a lookup; this is the list.</summary>
-    [HttpGet("all")]
-    public async Task<ActionResult<IReadOnlyList<GccClientDto>>> List(CancellationToken ct) =>
-        Ok(await _repository.ListAsync(ct));
 
     [HttpPost]
-    public async Task<ActionResult<GccClientDto>> Create([FromBody] CreateGccClientCommand command, CancellationToken ct)
+    public async Task<ActionResult<GccClientDto>> Create(
+        [FromBody] CreateGccClientCommand command,
+        CancellationToken ct)
     {
-        if (command is null)
-            return BadRequest("Command is required");
+        if (command is null) return BadRequest("A body is required.");
 
+        // GeekRepository validates the same rules, and the database enforces them underneath both.
+        // This is here so the operator gets a sentence rather than a round trip.
         var invalid = Validate(
             command.Name,
             command.ContactName,
@@ -64,8 +64,7 @@ public class GccClientsController : ControllerBase
             command.Rate);
         if (invalid is not null) return BadRequest(invalid);
 
-        var client = await _repository.CreateAsync(command, ct);
-        return CreatedAtAction(nameof(GetById), new { id = client.Id }, client);
+        return Ok(await _repo.CreateClientAsync(command, ct));
     }
 
     [HttpPut("{id:guid}")]
@@ -74,10 +73,8 @@ public class GccClientsController : ControllerBase
         [FromBody] UpdateGccClientCommand command,
         CancellationToken ct)
     {
-        if (command is null)
-            return BadRequest("Command is required");
-        if (id != command.Id)
-            return BadRequest("The id in the route and the body must match.");
+        if (command is null) return BadRequest("A body is required.");
+        if (id != command.Id) return BadRequest("The id in the route and the body must match.");
 
         var invalid = Validate(
             command.Name,
@@ -89,35 +86,25 @@ public class GccClientsController : ControllerBase
             command.Rate);
         if (invalid is not null) return BadRequest(invalid);
 
-        var client = await _repository.UpdateAsync(command, ct);
-        if (client is null) return NotFound();
-        return Ok(client);
+        return Ok(await _repo.UpdateClientAsync(command, ct));
     }
 
     /// <summary>
     /// Delete a client.
     /// </summary>
     /// <remarks>
-    /// A client with projects is refused by gcc_projects.client_id, which is RESTRICT. That comes
-    /// back as a database error rather than a tidy message, and deliberately so: the alternative
-    /// is deleting a client's projects — their time, deliverables and log — to make a delete
-    /// button work.
+    /// A client with projects is refused by the database, and nothing here tries to talk it round.
+    /// The only way to make the delete succeed would be to delete the client's projects too —
+    /// their schedule, their log, and in time their tracked hours — which is a worse outcome than
+    /// a refused button.
     /// </remarks>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        var deleted = await _repository.DeleteAsync(id, ct);
+        var deleted = await _repo.DeleteClientAsync(id, ct);
         return deleted ? NoContent() : NotFound();
     }
 
-    /// <summary>
-    /// The rules the database also enforces, said in a sentence.
-    /// </summary>
-    /// <remarks>
-    /// Duplicated on purpose, and only in this direction: the CHECK constraints are the authority,
-    /// and this exists so a caller gets "currency must be three uppercase letters" instead of a
-    /// constraint-violation stack trace. Nothing passes here that the database would refuse.
-    /// </remarks>
     private static string? Validate(
         string? name,
         string? contactName,

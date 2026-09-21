@@ -137,8 +137,101 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BillingAddressLine1")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("billing_address_line1");
+
+                    b.Property<string>("BillingAddressLine2")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("billing_address_line2");
+
+                    b.Property<string>("BillingCity")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("billing_city");
+
+                    b.Property<string>("BillingContactName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("billing_contact_name");
+
+                    b.Property<string>("BillingCountry")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("billing_country");
+
+                    b.Property<string>("BillingEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("billing_email");
+
+                    b.Property<string>("BillingPostalCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("billing_postal_code");
+
+                    b.Property<string>("BillingRegion")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("billing_region");
+
+                    b.Property<string>("ContactAddressLine1")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("contact_address_line1");
+
+                    b.Property<string>("ContactAddressLine2")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("contact_address_line2");
+
+                    b.Property<string>("ContactCity")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("contact_city");
+
+                    b.Property<string>("ContactCountry")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("contact_country");
+
+                    b.Property<string>("ContactEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("contact_email");
+
+                    b.Property<string>("ContactName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("contact_name");
+
+                    b.Property<string>("ContactPhone")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("contact_phone");
+
+                    b.Property<string>("ContactPostalCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("contact_postal_code");
+
+                    b.Property<string>("ContactRegion")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("contact_region");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasColumnType("char(3)")
+                        .HasColumnName("currency");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -147,6 +240,53 @@ namespace GeekRepository.Data.Migrations.ContentCreator
 
                     b.Property<string>("Notes")
                         .HasColumnType("text");
+
+                    b.Property<int>("PaymentTermsDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("payment_terms_days");
+
+                    b.Property<string>("PoReference")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("po_reference");
+
+                    b.Property<string>("PublishApiBaseUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("publish_api_base_url");
+
+                    b.Property<string>("PublishCategoryStrategy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("publish_category_strategy");
+
+                    b.Property<string>("PublishClientIdEnvVar")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("publish_client_id_env_var");
+
+                    b.Property<string>("PublishClientSecretEnvVar")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("publish_client_secret_env_var");
+
+                    b.Property<int?>("PublishDefaultAuthorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("publish_default_author_id");
+
+                    b.Property<string>("PublishOAuthTokenEndpoint")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("publish_oauth_token_endpoint");
+
+                    b.Property<decimal?>("Rate")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("rate");
+
+                    b.Property<string>("TaxId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("tax_id");
 
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -157,7 +297,14 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .IsUnique()
                         .HasDatabaseName("ix_gcc_clients_name_unique");
 
-                    b.ToTable("gcc_clients", "content_creator");
+                    b.ToTable("gcc_clients", "content_creator", t =>
+                        {
+                            t.HasCheckConstraint("ck_gcc_clients_currency_iso4217", "currency ~ '^[A-Z]{3}$'");
+
+                            t.HasCheckConstraint("ck_gcc_clients_payment_terms_days", "payment_terms_days >= 0");
+
+                            t.HasCheckConstraint("ck_gcc_clients_rate_positive", "rate IS NULL OR rate > 0");
+                        });
                 });
 
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccCreate", b =>

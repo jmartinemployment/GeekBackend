@@ -126,13 +126,109 @@ public sealed record GccSiteFindingDto(
 public sealed record CreateGccSiteFindingsCommand(
     IReadOnlyList<GccSiteFindingDto> Findings);
 
+/// <summary>
+/// A client: who they are, how to reach them, and how they are billed.
+/// </summary>
+/// <remarks>
+/// Contact and billing fields are not optional on the way in — see <see cref="CreateGccClientCommand"/>
+/// — but they are ordinary properties here, because this shape is also what a read returns.
+/// Rate is nullable on purpose: a client without one cannot have billable time logged against it,
+/// which is the correct refusal rather than a gap to fill in with a guess.
+/// </remarks>
 public sealed record GccClientDto(
     Guid Id,
     string Name,
     string? Notes,
+    string ContactName,
+    string ContactEmail,
+    string? ContactPhone,
+    string? BillingContactName,
+    string BillingEmail,
+    GccClientAddress ContactAddress,
+    GccClientAddress BillingAddress,
+    int PaymentTermsDays,
+    decimal? Rate,
+    string Currency,
+    string? TaxId,
+    string? PoReference,
+    GccClientPublishTarget? PublishTarget,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
+/// <summary>A postal address. Every part optional — plenty of real clients have only a country.</summary>
+public sealed record GccClientAddress(
+    string? Line1 = null,
+    string? Line2 = null,
+    string? City = null,
+    string? Region = null,
+    string? PostalCode = null,
+    string? Country = null)
+{
+    public static readonly GccClientAddress Empty = new();
+
+    /// <summary>True when nothing was given. Used to store an absent address as null, not as blanks.</summary>
+    public bool IsEmpty =>
+        string.IsNullOrWhiteSpace(Line1)
+        && string.IsNullOrWhiteSpace(Line2)
+        && string.IsNullOrWhiteSpace(City)
+        && string.IsNullOrWhiteSpace(Region)
+        && string.IsNullOrWhiteSpace(PostalCode)
+        && string.IsNullOrWhiteSpace(Country);
+}
+
+/// <summary>
+/// Per-client GeekBackend publish configuration.
+/// </summary>
+/// <remarks>
+/// <see cref="ClientIdEnvVar"/> and <see cref="ClientSecretEnvVar"/> name environment variables the
+/// publish service reads at call time. The secrets themselves are never stored here, and that is
+/// what makes this safe to keep on the client row at all.
+/// </remarks>
+public sealed record GccClientPublishTarget(
+    string ApiBaseUrl,
+    string OAuthTokenEndpoint,
+    string ClientIdEnvVar,
+    string ClientSecretEnvVar,
+    int? DefaultAuthorId,
+    string? CategoryStrategy);
+
+/// <summary>
+/// Create a client. Contact and billing are required because a client that cannot be invoiced is
+/// not a client; rate is not, because a missing rate should stop billable time rather than be
+/// invented.
+/// </summary>
 public sealed record CreateGccClientCommand(
     string Name,
-    string? Notes = null);
+    string ContactName,
+    string ContactEmail,
+    string BillingEmail,
+    int PaymentTermsDays,
+    string Currency,
+    string? Notes = null,
+    string? ContactPhone = null,
+    string? BillingContactName = null,
+    GccClientAddress? ContactAddress = null,
+    GccClientAddress? BillingAddress = null,
+    decimal? Rate = null,
+    string? TaxId = null,
+    string? PoReference = null,
+    GccClientPublishTarget? PublishTarget = null);
+
+/// <summary>Update everything about a client except its identity.</summary>
+public sealed record UpdateGccClientCommand(
+    Guid Id,
+    string Name,
+    string ContactName,
+    string ContactEmail,
+    string BillingEmail,
+    int PaymentTermsDays,
+    string Currency,
+    string? Notes = null,
+    string? ContactPhone = null,
+    string? BillingContactName = null,
+    GccClientAddress? ContactAddress = null,
+    GccClientAddress? BillingAddress = null,
+    decimal? Rate = null,
+    string? TaxId = null,
+    string? PoReference = null,
+    GccClientPublishTarget? PublishTarget = null);

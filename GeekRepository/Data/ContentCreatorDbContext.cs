@@ -125,10 +125,56 @@ public class ContentCreatorDbContext : DbContext
 
         modelBuilder.Entity<GccClient>(entity =>
         {
-            entity.ToTable("gcc_clients");
+            entity.ToTable("gcc_clients", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_gcc_clients_payment_terms_days",
+                    "payment_terms_days >= 0");
+                // A rate of zero is not a free client, it is an unfilled field. Absent is null.
+                t.HasCheckConstraint(
+                    "ck_gcc_clients_rate_positive",
+                    "rate IS NULL OR rate > 0");
+                t.HasCheckConstraint(
+                    "ck_gcc_clients_currency_iso4217",
+                    "currency ~ '^[A-Z]{3}$'");
+            });
             entity.HasKey(c => c.Id);
             entity.Property(c => c.Name).IsRequired().HasMaxLength(256);
             entity.Property(c => c.Notes).HasColumnType("text");
+
+            entity.Property(c => c.ContactName).IsRequired().HasMaxLength(256).HasColumnName("contact_name");
+            entity.Property(c => c.ContactEmail).IsRequired().HasMaxLength(320).HasColumnName("contact_email");
+            entity.Property(c => c.ContactPhone).HasMaxLength(64).HasColumnName("contact_phone");
+            entity.Property(c => c.BillingContactName).HasMaxLength(256).HasColumnName("billing_contact_name");
+            entity.Property(c => c.BillingEmail).IsRequired().HasMaxLength(320).HasColumnName("billing_email");
+
+            entity.Property(c => c.ContactAddressLine1).HasMaxLength(256).HasColumnName("contact_address_line1");
+            entity.Property(c => c.ContactAddressLine2).HasMaxLength(256).HasColumnName("contact_address_line2");
+            entity.Property(c => c.ContactCity).HasMaxLength(128).HasColumnName("contact_city");
+            entity.Property(c => c.ContactRegion).HasMaxLength(128).HasColumnName("contact_region");
+            entity.Property(c => c.ContactPostalCode).HasMaxLength(32).HasColumnName("contact_postal_code");
+            entity.Property(c => c.ContactCountry).HasMaxLength(128).HasColumnName("contact_country");
+
+            entity.Property(c => c.BillingAddressLine1).HasMaxLength(256).HasColumnName("billing_address_line1");
+            entity.Property(c => c.BillingAddressLine2).HasMaxLength(256).HasColumnName("billing_address_line2");
+            entity.Property(c => c.BillingCity).HasMaxLength(128).HasColumnName("billing_city");
+            entity.Property(c => c.BillingRegion).HasMaxLength(128).HasColumnName("billing_region");
+            entity.Property(c => c.BillingPostalCode).HasMaxLength(32).HasColumnName("billing_postal_code");
+            entity.Property(c => c.BillingCountry).HasMaxLength(128).HasColumnName("billing_country");
+
+            entity.Property(c => c.PaymentTermsDays).IsRequired().HasColumnName("payment_terms_days");
+            entity.Property(c => c.Rate).HasColumnType("numeric(12,2)").HasColumnName("rate");
+            entity.Property(c => c.Currency).IsRequired().HasColumnType("char(3)").HasColumnName("currency");
+            entity.Property(c => c.TaxId).HasMaxLength(64).HasColumnName("tax_id");
+            entity.Property(c => c.PoReference).HasMaxLength(64).HasColumnName("po_reference");
+
+            entity.Property(c => c.PublishApiBaseUrl).HasMaxLength(2048).HasColumnName("publish_api_base_url");
+            entity.Property(c => c.PublishOAuthTokenEndpoint).HasMaxLength(512).HasColumnName("publish_oauth_token_endpoint");
+            entity.Property(c => c.PublishClientIdEnvVar).HasMaxLength(128).HasColumnName("publish_client_id_env_var");
+            entity.Property(c => c.PublishClientSecretEnvVar).HasMaxLength(128).HasColumnName("publish_client_secret_env_var");
+            entity.Property(c => c.PublishDefaultAuthorId).HasColumnName("publish_default_author_id");
+            entity.Property(c => c.PublishCategoryStrategy).HasMaxLength(64).HasColumnName("publish_category_strategy");
+
             entity.Property(c => c.CreatedAtUtc).IsRequired();
             entity.Property(c => c.UpdatedAtUtc).IsRequired();
             entity.HasIndex(c => c.Name).IsUnique().HasDatabaseName("ix_gcc_clients_name_unique");

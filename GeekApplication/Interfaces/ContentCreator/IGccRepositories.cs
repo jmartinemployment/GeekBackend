@@ -44,7 +44,20 @@ public interface IGccClientRepository
 {
     Task<GccClientDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<GccClientDto?> GetByNameAsync(string name, CancellationToken ct = default);
+
+    /// <summary>Every client, by name. This is the list the operator picks from.</summary>
+    Task<IReadOnlyList<GccClientDto>> ListAsync(CancellationToken ct = default);
+
     Task<GccClientDto> CreateAsync(CreateGccClientCommand command, CancellationToken ct = default);
+
+    /// <summary>Null when the client does not exist.</summary>
+    Task<GccClientDto?> UpdateAsync(UpdateGccClientCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// False when the client does not exist. A client with projects is refused by the database
+    /// rather than deleted along with its record of work.
+    /// </summary>
+    Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 }
 
 public interface IGccSiteAnalysisRepository
