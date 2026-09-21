@@ -39,16 +39,19 @@ public sealed class ContentCreatorAuthorizationPipelineTests(GeekApiTestFactory 
     private static readonly Guid SomeProjectId = Guid.Parse("44444444-4444-4444-4444-444444444444");
 
     /// <summary>
-    /// Every route reachable purely on GccProjectsController — deliberately excludes
-    /// api/geek-content-creator/clients. That route now lives on GccController, whose constructor
-    /// pulls in the full generate-pipeline dependency graph (GccJobStore among others), which this
-    /// test factory does not register. Reaching it 401/403 (before controller construction) is
-    /// fine and is exercised by the three refusal tests below; reaching it far enough to construct
-    /// the controller is a pre-existing gap in this test factory unrelated to authorization, so it
-    /// is left out of the one test that gets that far.
+    /// Every route this session added or moved onto a new authorization requirement.
+    /// api/geek-content-creator/clients lives on GccController, whose constructor pulls in the full
+    /// generate-pipeline dependency graph — GccJobStore among others. It was excluded from this list
+    /// until GccJobStore turned out to have never been registered in Program.cs at all: GccController
+    /// could not construct for any action, a live production 500 this session found and fixed by
+    /// adding the missing registration. Included here now specifically because this suite, backed by
+    /// the same real WebApplicationFactory<Program> Program.cs that production runs, is the most
+    /// rigorous check available for "does GccController actually construct now" short of a real
+    /// signed-in session.
     /// </summary>
     public static IEnumerable<object[]> ProtectedRequests()
     {
+        yield return [HttpMethod.Get, "/api/geek-content-creator/clients"];
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects?clientId={SomeClientId:D}"];
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}"];
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/tasks"];
