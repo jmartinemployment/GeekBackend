@@ -139,18 +139,35 @@ public sealed record GccProjectLogEntryDto(
     string EventType,
     string Payload);
 
-/// <summary>The event types a project log entry may carry at this stage.</summary>
+/// <summary>
+/// The event types a project log entry may carry.
+/// </summary>
+/// <remarks>
+/// The database carries the same list as a CHECK, and it grows one migration at a time: a new type
+/// added here without altering that constraint is a write that fails at insert. That is the
+/// intended direction — the log refuses an event it does not recognise rather than recording one
+/// nothing can interpret later.
+/// </remarks>
 public static class GccProjectLogEventTypes
 {
     public const string ProjectCreated = "project_created";
     public const string ProjectUpdated = "project_updated";
     public const string ProjectStatusChanged = "project_status_changed";
 
+    public const string TaskCreated = "task_created";
+    public const string TaskUpdated = "task_updated";
+    public const string TaskCompleted = "task_completed";
+    public const string TimeLogged = "time_logged";
+
     public static readonly IReadOnlyList<string> All =
     [
         ProjectCreated,
         ProjectUpdated,
         ProjectStatusChanged,
+        TaskCreated,
+        TaskUpdated,
+        TaskCompleted,
+        TimeLogged,
     ];
 }
 
@@ -174,4 +191,113 @@ public static class GccProjectStatuses
 
     public static bool IsValid(string? status) =>
         status is not null && All.Contains(status, StringComparer.Ordinal);
+}
+
+/// <summary>A unit of work under a project.</summary>
+/// <param name="Status">todo | in_progress | done.</param>
+/// <param name="AssigneeUserId">The token subject it is assigned to, or null.</param>
+/// <param name="SortOrder">The operator's ordering within the project — an order, not a priority.</param>
+public sealed record GccTaskDto(
+    Guid Id,
+    Guid ProjectId,
+    string Name,
+    string? Description,
+    string Status,
+    string? AssigneeUserId,
+    DateOnly? DueDate,
+    decimal? EstimatedHours,
+    int SortOrder,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
+
+public sealed record CreateGccTaskCommand(
+    Guid ProjectId,
+    string Name,
+    string ActorUserId,
+    string? Description = null,
+    string? AssigneeUserId = null,
+    DateOnly? DueDate = null,
+    decimal? EstimatedHours = null,
+    int SortOrder = 0);
+
+public sealed record UpdateGccTaskCommand(
+    Guid Id,
+    string ActorUserId,
+    string Name,
+    string Status,
+    string? Description = null,
+    string? AssigneeUserId = null,
+    DateOnly? DueDate = null,
+    decimal? EstimatedHours = null,
+    int SortOrder = 0);
+
+/// <summary>The statuses a task may hold. The database carries the same list as a CHECK.</summary>
+public static class GccTaskStatuses
+{
+    public const string Todo = "todo";
+    public const string InProgress = "in_progress";
+    public const string Done = "done";
+
+    public static readonly IReadOnlyList<string> All = [Todo, InProgress, Done];
+
+    public static bool IsValid(string? status) =>
+        status is not null && All.Contains(status, StringComparer.Ordinal);
+}
+
+/// <summary>
+/// Effort logged against a project, and optionally one of its tasks.
+/// </summary>
+/// <param name="Minutes">Minutes, not fractional hours — 0.1h is a rounding argument.</param>
+/// <param name="RateSnapshot">The client's rate when this was logged. A later change cannot move it.</param>
+/// <param name="InvoicedAtUtc">Once set, the row is frozen: the database refuses updates and deletes.</param>
+public sealed record GccTimeEntryDto(
+    Guid Id,
+    Guid ProjectId,
+    Guid? TaskId,
+    string UserId,
+    DateOnly WorkDate,
+    int Minutes,
+    string? Description,
+    bool Billable,
+    decimal? RateSnapshot,
+    string? Currency,
+    DateTime? InvoicedAtUtc,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
+
+/// <summary>
+/// Log time.
+/// </summary>
+/// <remarks>
+/// Neither the rate nor the currency is here. Both are read from the client row inside the insert
+/// transaction, because a caller that could name its own rate could bill anything.
+/// </remarks>
+public sealed record CreateGccTimeEntryCommand(
+    Guid ProjectId,
+    string UserId,
+    DateOnly WorkDate,
+    int Minutes,
+    bool Billable,
+    Guid? TaskId = null,
+    string? Description = null);
+
+/// <summary>
+/// What a project's logged time adds up to.
+/// </summary>
+/// <remarks>
+/// Billable money is summed per currency, never across them. One number spanning two currencies is
+/// not a total, it is a mistake with a decimal point.
+/// </remarks>
+public sealed record GccProjectTimeTotals(
+    int TotalMinutes,
+    int BillableMinutes,
+    IReadOnlyList<GccBillableTotal> Billable);
+
+public sealed record GccBillableTotal(string Currency, int Minutes, decimal Amount);
+
+/// <summary>Why time could not be logged. Null Reason means it was.</summary>
+public sealed record GccTimeEntryResult(GccTimeEntryDto? Entry, string? Reason)
+{
+    public static GccTimeEntryResult Logged(GccTimeEntryDto entry) => new(entry, null);
+    public static GccTimeEntryResult Refused(string reason) => new(null, reason);
 }

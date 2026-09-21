@@ -19,6 +19,8 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccClient> GccClients => Set<GccClient>();
     public virtual DbSet<GccProject> GccProjects => Set<GccProject>();
     public virtual DbSet<GccProjectLogEntry> GccProjectLog => Set<GccProjectLogEntry>();
+    public virtual DbSet<GccTask> GccTasks => Set<GccTask>();
+    public virtual DbSet<GccTimeEntry> GccTimeEntries => Set<GccTimeEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -276,6 +278,87 @@ public class ContentCreatorDbContext : DbContext
 
             entity.HasIndex(e => new { e.ProjectId, e.OccurredAtUtc })
                 .HasDatabaseName("ix_gcc_project_log_project_id_occurred_at_utc");
+        });
+
+        modelBuilder.Entity<GccTask>(entity =>
+        {
+            entity.ToTable("gcc_tasks", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_gcc_tasks_status",
+                    "status IN ('todo', 'in_progress', 'done')");
+            });
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.Id).HasColumnName("id");
+            entity.Property(t => t.ProjectId).HasColumnName("project_id").IsRequired();
+            entity.Property(t => t.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
+            entity.Property(t => t.Description).HasColumnName("description").HasColumnType("text");
+            entity.Property(t => t.Status).HasColumnName("status").IsRequired().HasMaxLength(32);
+            entity.Property(t => t.AssigneeUserId).HasColumnName("assignee_user_id").HasMaxLength(256);
+            entity.Property(t => t.DueDate).HasColumnName("due_date").HasColumnType("date");
+            entity.Property(t => t.EstimatedHours).HasColumnName("estimated_hours").HasColumnType("numeric(8,2)");
+            entity.Property(t => t.SortOrder).HasColumnName("sort_order").IsRequired();
+            entity.Property(t => t.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(t => t.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<GccProject>()
+                .WithMany()
+                .HasForeignKey(t => t.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Not redundant with the primary key: it is the target of gcc_time_entries' composite
+            // foreign key, which is how the database refuses an entry whose task belongs to another
+            // project.
+            entity.HasAlternateKey(t => new { t.Id, t.ProjectId })
+                .HasName("ak_gcc_tasks_id_project_id");
+
+            entity.HasIndex(t => new { t.ProjectId, t.SortOrder })
+                .HasDatabaseName("ix_gcc_tasks_project_id_sort_order");
+        });
+
+        modelBuilder.Entity<GccTimeEntry>(entity =>
+        {
+            entity.ToTable("gcc_time_entries", t =>
+            {
+                // Zero minutes is not a short day, it is an unsaved form.
+                t.HasCheckConstraint("ck_gcc_time_entries_minutes_positive", "minutes > 0");
+                // Billable without a rate and a currency cannot be invoiced, so it is refused at
+                // the point of writing rather than discovered when someone tries to bill it.
+                t.HasCheckConstraint(
+                    "ck_gcc_time_entries_billable_has_rate",
+                    "billable = false OR (rate_snapshot IS NOT NULL AND currency IS NOT NULL)");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
+            entity.Property(e => e.TaskId).HasColumnName("task_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id").IsRequired().HasMaxLength(256);
+            entity.Property(e => e.WorkDate).HasColumnName("work_date").HasColumnType("date").IsRequired();
+            entity.Property(e => e.Minutes).HasColumnName("minutes").IsRequired();
+            entity.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
+            entity.Property(e => e.Billable).HasColumnName("billable").IsRequired();
+            entity.Property(e => e.RateSnapshot).HasColumnName("rate_snapshot").HasColumnType("numeric(12,2)");
+            entity.Property(e => e.Currency).HasColumnName("currency").HasColumnType("char(3)");
+            entity.Property(e => e.InvoicedAtUtc).HasColumnName("invoiced_at_utc");
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+            entity.HasOne<GccProject>()
+                .WithMany()
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // The composite key, not a plain FK to gcc_tasks.Id: an entry's task must belong to the
+            // entry's project. A plain key would happily accept a task from another engagement, and
+            // the hours would be billed to the wrong client with nothing to notice it.
+            entity.HasOne<GccTask>()
+                .WithMany()
+                .HasForeignKey(e => new { e.TaskId, e.ProjectId })
+                .HasPrincipalKey(t => new { t.Id, t.ProjectId })
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new { e.ProjectId, e.WorkDate })
+                .HasDatabaseName("ix_gcc_time_entries_project_id_work_date");
         });
 
         base.OnModelCreating(modelBuilder);

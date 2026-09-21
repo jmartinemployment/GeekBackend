@@ -83,3 +83,78 @@ public class GccProjectLogEntry
     /// <summary>What changed, as jsonb.</summary>
     public string Payload { get; set; } = "{}";
 }
+
+/// <summary>
+/// A unit of work under a project.
+/// </summary>
+/// <remarks>
+/// The unique (Id, ProjectId) pair exists for the composite foreign key on
+/// <see cref="GccTimeEntry"/>: it is what lets the database refuse an entry whose task belongs to a
+/// different project. Without it that check would have to live in application code, where a missed
+/// call means hours quietly billed against the wrong engagement.
+/// </remarks>
+public class GccTask
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ProjectId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+
+    /// <summary>todo | in_progress | done. The database carries the same list.</summary>
+    public string Status { get; set; } = "todo";
+
+    /// <summary>The token subject of whoever it is assigned to. Text, no FK — another database.</summary>
+    public string? AssigneeUserId { get; set; }
+
+    public DateOnly? DueDate { get; set; }
+    public decimal? EstimatedHours { get; set; }
+
+    /// <summary>Operator's ordering within the project. Not a priority, just an order.</summary>
+    public int SortOrder { get; set; }
+
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Effort logged against a project, and optionally against one of its tasks.
+/// </summary>
+/// <remarks>
+/// <see cref="RateSnapshot"/> and <see cref="Currency"/> are copied from the client row when the
+/// entry is written, never accepted from the caller and never resolved at read time. A rate change
+/// next month must not silently restate what last month cost; an invoice sent against these hours
+/// has to keep meaning what it meant.
+///
+/// Once <see cref="InvoicedAtUtc"/> is set the row is frozen — a trigger refuses any update or
+/// delete. Money that has left the building is not editable.
+/// </remarks>
+public class GccTimeEntry
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ProjectId { get; set; }
+
+    /// <summary>Optional, but when set the database requires it to belong to the same project.</summary>
+    public Guid? TaskId { get; set; }
+
+    /// <summary>Who logged it: the JWT subject, set by GeekAPI and never from a request body.</summary>
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>The day worked, not the instant recorded — a calendar date, as a timesheet has.</summary>
+    public DateOnly WorkDate { get; set; }
+
+    /// <summary>Minutes, not fractional hours: 0.1h is a rounding argument waiting to happen.</summary>
+    public int Minutes { get; set; }
+
+    public string? Description { get; set; }
+    public bool Billable { get; set; }
+
+    /// <summary>The client's rate at the moment of logging. Required when billable.</summary>
+    public decimal? RateSnapshot { get; set; }
+
+    /// <summary>The client's currency at the moment of logging. Required when billable.</summary>
+    public string? Currency { get; set; }
+
+    public DateTime? InvoicedAtUtc { get; set; }
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+}

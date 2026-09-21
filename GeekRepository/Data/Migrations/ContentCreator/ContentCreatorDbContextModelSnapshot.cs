@@ -648,6 +648,168 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.ToTable("gcc_site_analyses", "content_creator");
                 });
 
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AssigneeUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("assignee_user_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<DateOnly?>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
+                    b.Property<decimal?>("EstimatedHours")
+                        .HasColumnType("numeric(8,2)")
+                        .HasColumnName("estimated_hours");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "ProjectId")
+                        .HasName("ak_gcc_tasks_id_project_id");
+
+                    b.HasIndex("ProjectId", "SortOrder")
+                        .HasDatabaseName("ix_gcc_tasks_project_id_sort_order");
+
+                    b.ToTable("gcc_tasks", "content_creator", t =>
+                        {
+                            t.HasCheckConstraint("ck_gcc_tasks_status", "status IN ('todo', 'in_progress', 'done')");
+                        });
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccTimeEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Billable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("billable");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Currency")
+                        .HasColumnType("char(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<DateTime?>("InvoicedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("invoiced_at_utc");
+
+                    b.Property<int>("Minutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("minutes");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<decimal?>("RateSnapshot")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("rate_snapshot");
+
+                    b.Property<Guid?>("TaskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_id");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateOnly>("WorkDate")
+                        .HasColumnType("date")
+                        .HasColumnName("work_date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "WorkDate")
+                        .HasDatabaseName("ix_gcc_time_entries_project_id_work_date");
+
+                    b.HasIndex("TaskId", "ProjectId");
+
+                    b.ToTable("gcc_time_entries", "content_creator", t =>
+                        {
+                            t.HasCheckConstraint("ck_gcc_time_entries_billable_has_rate", "billable = false OR (rate_snapshot IS NOT NULL AND currency IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_gcc_time_entries_minutes_positive", "minutes > 0");
+                        });
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccTask", b =>
+                {
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccTimeEntry", b =>
+                {
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccTask", null)
+                        .WithMany()
+                        .HasForeignKey("TaskId", "ProjectId")
+                        .HasPrincipalKey("Id", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccProject", b =>
                 {
                     b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccClient", null)

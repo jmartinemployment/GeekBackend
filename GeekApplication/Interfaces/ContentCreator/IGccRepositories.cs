@@ -114,3 +114,32 @@ public interface IGccProjectRepository
     /// <summary>The project's log, oldest first. Empty only when the project does not exist.</summary>
     Task<IReadOnlyList<GccProjectLogEntryDto>> ListLogAsync(Guid projectId, CancellationToken ct = default);
 }
+
+/// <summary>
+/// Tasks and logged time under a project.
+/// </summary>
+/// <remarks>
+/// Every write records a project log entry in the same transaction. Rate and currency on a time
+/// entry come from the client row inside that transaction and are never accepted from a caller.
+/// </remarks>
+public interface IGccTaskRepository
+{
+    Task<IReadOnlyList<GccTaskDto>> ListByProjectAsync(Guid projectId, CancellationToken ct = default);
+
+    /// <summary>Null when the project does not exist.</summary>
+    Task<GccTaskDto?> CreateTaskAsync(CreateGccTaskCommand command, CancellationToken ct = default);
+
+    /// <summary>Null when the task does not exist.</summary>
+    Task<GccTaskDto?> UpdateTaskAsync(UpdateGccTaskCommand command, CancellationToken ct = default);
+
+    Task<IReadOnlyList<GccTimeEntryDto>> ListTimeByProjectAsync(Guid projectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Log time. Carries its refusal as a reason rather than an exception — "that client has no
+    /// rate" is something the operator has to read.
+    /// </summary>
+    Task<GccTimeEntryResult> LogTimeAsync(CreateGccTimeEntryCommand command, CancellationToken ct = default);
+
+    /// <summary>Totals for a project, with billable money grouped per currency.</summary>
+    Task<GccProjectTimeTotals> TotalsForProjectAsync(Guid projectId, CancellationToken ct = default);
+}

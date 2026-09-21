@@ -174,6 +174,51 @@ public class HttpGccRepository
     public Task<GccProjectDto> UpdateProjectAsync(UpdateGccProjectCommand command, CancellationToken ct = default) =>
         PutAsync<GccProjectDto>($"repo/content-creator/projects/{command.Id}", command, ct);
 
+    public Task<IReadOnlyList<GccTaskDto>> ListTasksAsync(Guid projectId, CancellationToken ct = default) =>
+        GetListAsync<GccTaskDto>($"repo/content-creator/projects/{projectId}/tasks", ct);
+
+    public Task<GccTaskDto> CreateTaskAsync(CreateGccTaskCommand command, CancellationToken ct = default) =>
+        PostAsync<GccTaskDto>($"repo/content-creator/projects/{command.ProjectId}/tasks", command, ct);
+
+    public Task<GccTaskDto> UpdateTaskAsync(Guid projectId, UpdateGccTaskCommand command, CancellationToken ct = default) =>
+        PutAsync<GccTaskDto>($"repo/content-creator/projects/{projectId}/tasks/{command.Id}", command, ct);
+
+    public Task<IReadOnlyList<GccTimeEntryDto>> ListTimeAsync(Guid projectId, CancellationToken ct = default) =>
+        GetListAsync<GccTimeEntryDto>($"repo/content-creator/projects/{projectId}/time", ct);
+
+    public async Task<GccProjectTimeTotals> TimeTotalsAsync(Guid projectId, CancellationToken ct = default) =>
+        await GetAsync<GccProjectTimeTotals>($"repo/content-creator/projects/{projectId}/time/totals", ct)
+        ?? new GccProjectTimeTotals(0, 0, []);
+
+    /// <summary>
+    /// Log time, carrying a refusal back as a reason rather than an exception.
+    /// </summary>
+    /// <remarks>
+    /// "That client has no rate" is the whole point of leaving rate nullable, and the operator has
+    /// to read it. EnsureSuccessStatusCode would turn it into a 500 with the reason buried.
+    /// </remarks>
+    public async Task<GccTimeEntryResult> LogTimeAsync(
+        CreateGccTimeEntryCommand command,
+        CancellationToken ct = default)
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(command, JsonOpts),
+            Encoding.UTF8,
+            "application/json");
+
+        var res = await _http.PostAsync(
+            $"repo/content-creator/projects/{command.ProjectId}/time", content, ct);
+
+        if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
+            return GccTimeEntryResult.Refused(await res.Content.ReadAsStringAsync(ct));
+
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        var entry = JsonSerializer.Deserialize<GccTimeEntryDto>(json, JsonOpts)
+            ?? throw new InvalidOperationException("Empty response logging time.");
+        return GccTimeEntryResult.Logged(entry);
+    }
+
     public Task<GccProjectDto> ChangeProjectStatusAsync(
         ChangeGccProjectStatusCommand command,
         CancellationToken ct = default) =>
