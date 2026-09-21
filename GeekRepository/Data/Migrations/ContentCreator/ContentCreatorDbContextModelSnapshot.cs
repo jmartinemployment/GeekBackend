@@ -340,6 +340,10 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasColumnType("text")
                         .HasColumnName("research_json");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
                     b.Property<Guid?>("ProjectSiteRunId")
                         .HasColumnType("uuid")
                         .HasColumnName("SiteAnalysisId");
@@ -372,6 +376,9 @@ namespace GeekRepository.Data.Migrations.ContentCreator
 
                     b.HasIndex("OwnerUserId")
                         .HasDatabaseName("ix_gcc_creates_owner_user_id");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_gcc_creates_project_id");
 
                     b.ToTable("gcc_creates", "content_creator");
                 });
@@ -882,6 +889,14 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .WithMany()
                         .HasForeignKey("TaskId", "ProjectId")
                         .HasPrincipalKey("Id", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccCreate", b =>
+                {
+                    b.HasOne("GeekRepository.Data.Entities.ContentCreator.GccProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

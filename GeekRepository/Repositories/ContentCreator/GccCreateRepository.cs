@@ -90,6 +90,7 @@ public class GccCreateRepository : IGccCreateRepository
         var entity = new GccCreate
         {
             ClientId = command.ClientId,
+            ProjectId = command.ProjectId,
             OwnerUserId = command.OwnerUserId,
             StartingContentType = command.StartingContentType,
             Topic = command.Topic,
@@ -156,5 +157,6 @@ public class GccCreateRepository : IGccCreateRepository
             entity.Status,
             entity.CreatedAtUtc,
             entity.UpdatedAtUtc,
-            string.IsNullOrWhiteSpace(entity.Department) ? "marketing" : entity.Department);
+            string.IsNullOrWhiteSpace(entity.Department) ? "marketing" : entity.Department,
+            entity.ProjectId);
 }

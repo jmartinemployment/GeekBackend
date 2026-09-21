@@ -344,7 +344,8 @@ public class GccController : ControllerBase
             string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             request.ProjectSiteRunId,
             sectionJson,
-            Department: string.IsNullOrWhiteSpace(request.Department) ? "marketing" : request.Department.Trim()), ct);
+            Department: string.IsNullOrWhiteSpace(request.Department) ? "marketing" : request.Department.Trim(),
+            ProjectId: request.ProjectId is Guid pid && pid != Guid.Empty ? pid : null), ct);
 
         return CreatedAtAction(nameof(GetCreate), new { id = created.Id }, created);
     }
@@ -1945,7 +1946,11 @@ public class GccController : ControllerBase
         string? Notes,
         Guid? ProjectSiteRunId,
         SiteSectionContextDto? SiteSection,
-        string? Department = null);
+        string? Department = null,
+        /// <summary>The project this create belongs to. The project owns the partner and
+        /// competitor URLs that grounding is resolved from; without it, content types requiring
+        /// partner or competitor evidence are refused rather than generated ungrounded.</summary>
+        Guid? ProjectId = null);
 
     public sealed record ProviderRequest(
         string? Provider,

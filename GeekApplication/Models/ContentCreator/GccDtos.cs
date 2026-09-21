@@ -14,7 +14,10 @@ public sealed record GccCreateDto(
     string Status,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    string Department = "marketing");
+    string Department = "marketing",
+    /// <summary>The project this create belongs to — the owner of the partner and competitor URLs
+    /// grounding is resolved from. Null means partner/competitor evidence cannot be resolved.</summary>
+    Guid? ProjectId = null);
 
 public sealed record CreateGccCreateCommand(
     Guid ClientId,
@@ -26,7 +29,8 @@ public sealed record CreateGccCreateCommand(
     string? SiteSectionJson = null,
     string? BriefJson = null,
     string? ResearchJson = null,
-    string Department = "marketing");
+    string Department = "marketing",
+    Guid? ProjectId = null);
 
 public sealed record UpdateGccCreateBriefResearchCommand(
     string? BriefJson,

@@ -4,6 +4,17 @@ public class GccCreate
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ClientId { get; set; }
+    /// <summary>
+    /// The project this create belongs to. A project is the engagement with one site, and it owns
+    /// the partner and competitor URLs generation must be grounded on — without this link a create
+    /// cannot reach them, which is why drafts never cited partners or tools.
+    /// </summary>
+    /// <remarks>
+    /// Nullable because creates predate the link. A create with no project cannot resolve
+    /// partner/competitor evidence and must be refused for content types that require it, never
+    /// silently generated ungrounded.
+    /// </remarks>
+    public Guid? ProjectId { get; set; }
     public Guid OwnerUserId { get; set; }
     public string StartingContentType { get; set; } = "long-form";
     public string Topic { get; set; } = string.Empty;

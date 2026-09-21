@@ -32,6 +32,12 @@ public class ContentCreatorDbContext : DbContext
             entity.ToTable("gcc_creates");
             entity.HasKey(c => c.Id);
             entity.Property(c => c.ClientId).IsRequired();
+            entity.Property(c => c.ProjectId).HasColumnName("project_id");
+            entity.HasOne<GccProject>()
+                .WithMany()
+                .HasForeignKey(c => c.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(c => c.ProjectId).HasDatabaseName("ix_gcc_creates_project_id");
             entity.Property(c => c.OwnerUserId).IsRequired();
             entity.Property(c => c.StartingContentType).IsRequired().HasMaxLength(64);
             entity.Property(c => c.Topic).IsRequired().HasMaxLength(1024);
