@@ -20,7 +20,6 @@ public interface IProjectStore
     Task SaveAsync(Project project, CancellationToken cancellationToken = default);
 
     /// <summary>Removes projects older than <paramref name="maxAge"/> that never reached Completed status.</summary>
-    Task<int> PurgeStaleAsync(TimeSpan maxAge, CancellationToken cancellationToken = default);
 
     /// <summary>Remove a project and everything it owns. Returns false when no such project exists.</summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
@@ -59,16 +58,4 @@ public sealed class ProjectStore : IProjectStore
     public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
         Task.FromResult(_projects.TryRemove(id, out _));
 
-    public Task<int> PurgeStaleAsync(TimeSpan maxAge, CancellationToken cancellationToken = default)
-    {
-        var cutoff = DateTime.UtcNow - maxAge;
-        var stale = _projects.Values
-            .Where(p => p.Status != ProjectStatus.Completed && p.CreatedAtUtc < cutoff)
-            .ToList();
-
-        foreach (var project in stale)
-            _projects.TryRemove(project.Id, out _);
-
-        return Task.FromResult(stale.Count);
-    }
 }

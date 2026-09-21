@@ -77,21 +77,6 @@ public sealed class PersistentProjectStore : IProjectStore
         return true;
     }
 
-    public async Task<int> PurgeStaleAsync(TimeSpan maxAge, CancellationToken cancellationToken = default)
-    {
-        var cutoff = DateTime.UtcNow - maxAge;
-        var stale = _projects.Values
-            .Where(p => p.Status != ProjectStatus.Completed && p.CreatedAtUtc < cutoff)
-            .ToList();
-
-        foreach (var project in stale)
-        {
-            _projects.TryRemove(project.Id, out _);
-            await _persistence.DeleteDocumentAsync(Collection, project.Id, cancellationToken);
-        }
-
-        return stale.Count;
-    }
 
     /// <summary>Load all projects from persistent storage into the cache, rehydrating Client refs from the client store.</summary>
     public async Task HydrateAsync(CancellationToken cancellationToken = default)
