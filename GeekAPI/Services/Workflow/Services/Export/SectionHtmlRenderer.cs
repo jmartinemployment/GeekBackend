@@ -267,6 +267,50 @@ public static class SectionHtmlRenderer
                 }
                 parent.AppendChild(listNode);
                 break;
+
+            case QuoteParagraph quote:
+                var blockquote = doc.CreateElement("blockquote");
+                if (!string.IsNullOrWhiteSpace(quote.Cite))
+                {
+                    blockquote.SetAttributeValue("cite", quote.Cite);
+                }
+                var quoteBody = doc.CreateElement("p");
+                AppendRuns(doc, quoteBody, quote.Runs);
+                blockquote.AppendChild(quoteBody);
+                parent.AppendChild(blockquote);
+                break;
+
+            case CodeParagraph code:
+                var pre = doc.CreateElement("pre");
+                var codeNode = doc.CreateElement("code");
+                if (!string.IsNullOrWhiteSpace(code.Language))
+                {
+                    codeNode.SetAttributeValue("class", $"language-{code.Language}");
+                }
+                // Raw text, encoded by the DOM — never run formatting, which has no meaning here.
+                codeNode.AppendChild(doc.CreateTextNode(code.Code));
+                pre.AppendChild(codeNode);
+                parent.AppendChild(pre);
+                break;
+
+            case DefinitionParagraph definitions:
+                var dl = doc.CreateElement("dl");
+                foreach (var item in definitions.Items)
+                {
+                    var dt = doc.CreateElement("dt");
+                    AppendRuns(doc, dt, item.Term);
+                    dl.AppendChild(dt);
+
+                    var dd = doc.CreateElement("dd");
+                    AppendRuns(doc, dd, item.Definition);
+                    dl.AppendChild(dd);
+                }
+                parent.AppendChild(dl);
+                break;
+
+            // No default. Every Paragraph subtype must appear above: this is the only place tag
+            // characters are produced, so an unhandled type disappears from the published HTML
+            // with no error. The checklist for adding one is on Paragraph in ContentDocument.cs.
         }
     }
 

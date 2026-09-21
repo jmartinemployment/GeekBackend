@@ -1149,7 +1149,7 @@ public class GccGenerateService
             ?? throw new InvalidOperationException("Current body is not a CWV2 ContentDocument.");
 
         var llm = GetLlm(provider);
-        var context = BuildMinimalContext(document.Lede.Heading, FlattenDocument(document), ToLlm(provider));
+        var context = BuildMinimalContext(document.Lede.Heading, ContentDocumentText.Flatten(document), ToLlm(provider));
         var metadata = new BlogMetadataDraft(
             Title: document.Lede.Heading,
             MetaDescription: Truncate(document.Lede.Heading, 160),
@@ -1486,35 +1486,6 @@ public class GccGenerateService
             CtaLabel: ctaLabel,
             LengthBand: lengthBand,
             WritingNotes: writingNotes);
-    }
-
-    private static string FlattenDocument(ContentDocument document)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine(document.Lede.Heading);
-        foreach (var p in document.Lede.Paragraphs)
-            AppendParagraph(sb, p);
-        foreach (var section in document.Sections)
-        {
-            sb.AppendLine(section.Heading);
-            foreach (var p in section.Paragraphs)
-                AppendParagraph(sb, p);
-        }
-        return sb.ToString();
-    }
-
-    private static void AppendParagraph(StringBuilder sb, Paragraph paragraph)
-    {
-        switch (paragraph)
-        {
-            case TextParagraph text:
-                sb.AppendLine(string.Join("", text.Runs.Select(r => r.Text)));
-                break;
-            case ListParagraph list:
-                foreach (var item in list.Items)
-                    sb.AppendLine("- " + string.Join("", item.Select(r => r.Text)));
-                break;
-        }
     }
 
     private static string Slugify(string value)

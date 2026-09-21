@@ -180,6 +180,13 @@ public static class ContentDocumentText
     {
         TextParagraph text => [string.Join(" ", text.Runs.Select(r => r.Text))],
         ListParagraph list => list.Items.Select(item => string.Join(" ", item.Select(r => r.Text))),
+        QuoteParagraph quote => [string.Join(" ", quote.Runs.Select(r => r.Text))],
+        CodeParagraph code => [code.Code],
+        DefinitionParagraph definitions => definitions.Items.Select(item =>
+            $"{string.Join(" ", item.Term.Select(r => r.Text))}: {string.Join(" ", item.Definition.Select(r => r.Text))}"),
+        // Reached only if a Paragraph subtype was added without updating this projection; see the
+        // checklist on Paragraph in ContentDocument.cs. This is the ONE text projection — never
+        // write a second, the way Markdown drift once did.
         _ => [],
     };
 }

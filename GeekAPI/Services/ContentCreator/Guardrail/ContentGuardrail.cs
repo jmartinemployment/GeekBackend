@@ -98,6 +98,19 @@ public static class ContentGuardrail
             case ListParagraph lp:
                 var items = lp.Items.Select(item => CleanRuns(item, counter)).ToList();
                 return new ListParagraph(lp.Ordered, items);
+            case QuoteParagraph qp:
+                // A quote is someone else's words. Cliché cleaning would rewrite a citation into
+                // a misquote, so runs pass through untouched and the cite is preserved.
+                return qp;
+            case CodeParagraph:
+                // Code is not prose; phrase-stripping would corrupt it.
+                return p;
+            case DefinitionParagraph dp:
+                return new DefinitionParagraph(dp.Items
+                    .Select(item => new DefinitionItem(
+                        CleanRuns(item.Term, counter),
+                        CleanRuns(item.Definition, counter)))
+                    .ToList());
             default:
                 return p;
         }
