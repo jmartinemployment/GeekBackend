@@ -299,6 +299,11 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(t => t.DueDate).HasColumnName("due_date").HasColumnType("date");
             entity.Property(t => t.EstimatedHours).HasColumnName("estimated_hours").HasColumnType("numeric(8,2)");
             entity.Property(t => t.SortOrder).HasColumnName("sort_order").IsRequired();
+            // text[], not a joined table: a small, unordered set the operator toggles, read and
+            // written whole with the task — the same reasoning as PartnerUrls/CompetitorUrls on
+            // GccProject. No CHECK against the twenty-value list: that list is still settling on
+            // the frontend, and pinning it here would mean a migration every time it changes.
+            entity.Property(t => t.ContentTypes).HasColumnName("content_types").HasColumnType("text[]").IsRequired();
             entity.Property(t => t.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
             entity.Property(t => t.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
 

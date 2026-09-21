@@ -112,6 +112,15 @@ public class GccTask
     /// <summary>Operator's ordering within the project. Not a priority, just an order.</summary>
     public int SortOrder { get; set; }
 
+    /// <summary>
+    /// Which of the twenty v2 content types this task relates to, if any. Declared, not enforced —
+    /// no CHECK constraint ties this to the frontend's list, on purpose: that list is still
+    /// settling, and pinning it in the database now would mean a migration every time it changes.
+    /// Always empty rather than not required in the sense that matters here: a task with none
+    /// checked is a completely ordinary task, not an incomplete one.
+    /// </summary>
+    public List<string> ContentTypes { get; set; } = [];
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

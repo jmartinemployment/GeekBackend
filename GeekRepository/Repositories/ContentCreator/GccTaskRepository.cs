@@ -54,6 +54,7 @@ public class GccTaskRepository : IGccTaskRepository
             DueDate = command.DueDate,
             EstimatedHours = command.EstimatedHours,
             SortOrder = command.SortOrder,
+            ContentTypes = CleanContentTypes(command.ContentTypes),
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
         };
@@ -67,6 +68,7 @@ public class GccTaskRepository : IGccTaskRepository
             name = entity.Name,
             dueDate = entity.DueDate,
             assigneeUserId = entity.AssigneeUserId,
+            contentTypes = entity.ContentTypes,
         }, now);
 
         await _db.SaveChangesAsync(ct);
@@ -91,6 +93,7 @@ public class GccTaskRepository : IGccTaskRepository
         entity.DueDate = command.DueDate;
         entity.EstimatedHours = command.EstimatedHours;
         entity.SortOrder = command.SortOrder;
+        entity.ContentTypes = CleanContentTypes(command.ContentTypes);
         entity.UpdatedAtUtc = now;
 
         // Completing a task is its own event. "updated" would bury the one transition anybody
@@ -110,6 +113,7 @@ public class GccTaskRepository : IGccTaskRepository
             status = entity.Status,
             dueDate = entity.DueDate,
             assigneeUserId = entity.AssigneeUserId,
+            contentTypes = entity.ContentTypes,
         }, now);
 
         await _db.SaveChangesAsync(ct);
@@ -244,6 +248,15 @@ public class GccTaskRepository : IGccTaskRepository
             Payload = JsonSerializer.Serialize(payload),
         });
 
+    /// <summary>Trimmed, de-duplicated, blanks dropped. Order is not meaningful, so not preserved.</summary>
+    private static List<string> CleanContentTypes(IReadOnlyList<string>? values) =>
+        values is null
+            ? []
+            : values.Select(v => v?.Trim() ?? string.Empty)
+                .Where(v => v.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -258,6 +271,7 @@ public class GccTaskRepository : IGccTaskRepository
             entity.DueDate,
             entity.EstimatedHours,
             entity.SortOrder,
+            entity.ContentTypes.AsReadOnly(),
             entity.CreatedAtUtc,
             entity.UpdatedAtUtc);
 

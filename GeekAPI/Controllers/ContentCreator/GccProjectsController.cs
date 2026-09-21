@@ -185,7 +185,8 @@ public class GccProjectsController : ControllerBase
                 request.AssigneeUserId,
                 request.DueDate,
                 request.EstimatedHours,
-                request.SortOrder),
+                request.SortOrder,
+                request.ContentTypes),
             ct));
     }
 
@@ -213,7 +214,8 @@ public class GccProjectsController : ControllerBase
                 request.AssigneeUserId,
                 request.DueDate,
                 request.EstimatedHours,
-                request.SortOrder),
+                request.SortOrder,
+                request.ContentTypes),
             ct));
     }
 
@@ -329,7 +331,8 @@ public class GccProjectsController : ControllerBase
         string? AssigneeUserId = null,
         DateOnly? DueDate = null,
         decimal? EstimatedHours = null,
-        int SortOrder = 0);
+        int SortOrder = 0,
+        IReadOnlyList<string>? ContentTypes = null);
 
     public sealed record UpdateTaskRequest(
         string Name,
@@ -338,7 +341,8 @@ public class GccProjectsController : ControllerBase
         string? AssigneeUserId = null,
         DateOnly? DueDate = null,
         decimal? EstimatedHours = null,
-        int SortOrder = 0);
+        int SortOrder = 0,
+        IReadOnlyList<string>? ContentTypes = null);
 
     /// <summary>What the browser sends. The user is deliberately absent — it comes from the token.</summary>
     public sealed record LogTimeRequest(

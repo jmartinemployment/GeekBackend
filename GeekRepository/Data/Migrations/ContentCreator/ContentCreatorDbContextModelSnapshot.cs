@@ -726,6 +726,11 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasColumnType("character varying(256)")
                         .HasColumnName("assignee_user_id");
 
+                    b.Property<List<string>>("ContentTypes")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("content_types");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");

@@ -204,6 +204,10 @@ public static class GccProjectStatuses
 /// <param name="Status">todo | in_progress | done.</param>
 /// <param name="AssigneeUserId">The token subject it is assigned to, or null.</param>
 /// <param name="SortOrder">The operator's ordering within the project — an order, not a priority.</param>
+/// <param name="ContentTypes">
+/// Which v2 content types this task relates to. Never required — an empty list is an ordinary
+/// task, not an incomplete one.
+/// </param>
 public sealed record GccTaskDto(
     Guid Id,
     Guid ProjectId,
@@ -214,6 +218,7 @@ public sealed record GccTaskDto(
     DateOnly? DueDate,
     decimal? EstimatedHours,
     int SortOrder,
+    IReadOnlyList<string> ContentTypes,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
@@ -225,7 +230,8 @@ public sealed record CreateGccTaskCommand(
     string? AssigneeUserId = null,
     DateOnly? DueDate = null,
     decimal? EstimatedHours = null,
-    int SortOrder = 0);
+    int SortOrder = 0,
+    IReadOnlyList<string>? ContentTypes = null);
 
 public sealed record UpdateGccTaskCommand(
     Guid Id,
@@ -236,7 +242,8 @@ public sealed record UpdateGccTaskCommand(
     string? AssigneeUserId = null,
     DateOnly? DueDate = null,
     decimal? EstimatedHours = null,
-    int SortOrder = 0);
+    int SortOrder = 0,
+    IReadOnlyList<string>? ContentTypes = null);
 
 /// <summary>The statuses a task may hold. The database carries the same list as a CHECK.</summary>
 public static class GccTaskStatuses
