@@ -130,59 +130,76 @@ builder.Services.AddContentCreatorV2(builder.Configuration);
 builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Write.GccV2CreateLibraryWriter>();
 
-// GeekOAuth-issued JWT bearer, needed only so the v2 realtime hub can require [Authorize]
-// (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade). Additive: existing
-// routes keep authenticating exactly as before via ApiKeyMiddleware.
+// GeekOAuth-issued JWT bearer. Originally added only so the v2 realtime hub could require
+// [Authorize] (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade) — routes
+// reached through ApiKeyMiddleware still authenticate exactly as they did before this existed.
+// It is no longer only that: every Content Creator project, client, task, time and deliverable
+// route now authenticates through this same scheme via content-creator.manage, ahead of
+// ApiKeyMiddleware in the pipeline (UseAuthorization() runs first and short-circuits on failure).
+//
+// Was read only for the v2 hub, and registration of the JWT scheme plus every policy on it —
+// content-creator.manage included — lived inside `if (!string.IsNullOrWhiteSpace(...))`. That
+// coupling stopped being correct the moment ManagePolicy became the thing guarding real project,
+// client and billing routes rather than an auxiliary hub feature: if this variable were ever
+// unset, the hub would degrade (the old comment said so), but content-creator.manage would not
+// exist as a registered policy at all, and every route carrying [Authorize(Policy = ManagePolicy)]
+// would throw InvalidOperationException — "policy not found" — on first request. That is a 500
+// that looks like an unrelated crash, not a clean refusal, and would have shipped silently until
+// someone hit it.
+//
+// Required now, the same as REPO_API_KEY above: GeekAPI refuses to start without it rather than
+// exposing billing-adjacent routes a policy that does not exist.
 var gccV2HubAuthority = (Environment.GetEnvironmentVariable("GEEK_OAUTH_AUTHORITY")
     ?? Environment.GetEnvironmentVariable("AUTH_SERVER_URL")
     ?? string.Empty).Trim().TrimEnd('/');
-if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
+if (string.IsNullOrWhiteSpace(gccV2HubAuthority))
 {
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
-        {
-            options.Authority = gccV2HubAuthority;
-            options.RequireHttpsMetadata = !gccV2HubAuthority.Contains("localhost", StringComparison.OrdinalIgnoreCase);
-            // Inbound claims keep the names the token uses. Mapped, "sub" arrives renamed to the
-            // long WS-Federation nameidentifier URI — which made NameClaimType = "sub" above find
-            // nothing — and "scope" is not reliably carried through either. Every reader in this
-            // service already looks for both spellings (ClaimsExtensions, CurrentUserContext, the
-            // hub user-id providers), so turning mapping off costs nothing and makes the scope
-            // claim readable by the policy below.
-            options.MapInboundClaims = false;
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = false,
-                ValidateLifetime = true,
-                NameClaimType = "sub",
-                ClockSkew = TimeSpan.FromMinutes(1),
-            };
-            GccV2JwtHubQueryToken.AcceptAccessTokenFromQuery(options);
-        });
+    throw new InvalidOperationException(
+        "GEEK_OAUTH_AUTHORITY (or AUTH_SERVER_URL) is not set. It authenticates every Content "
+        + "Creator project, client, task, time and deliverable route via content-creator.manage, "
+        + "and GeekAPI will not start without an authority to validate those tokens against.");
+}
 
-    builder.Services.AddAuthorizationBuilder()
-        // Content Creator's project, client and billing rows. GeekOAuth is shared across Geek
-        // apps, so holding a valid token is not evidence of anything in particular — the scope is
-        // what says this caller was granted this data.
-        //
-        // The claim arrives as one space-delimited string ("openid profile content-creator.manage"),
-        // so an exact-match RequireClaim would never match it. Split, then look for the member.
-        .AddPolicy(GeekAPI.Auth.ContentCreatorAuthConstants.ManagePolicy, policy =>
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = gccV2HubAuthority;
+        options.RequireHttpsMetadata = !gccV2HubAuthority.Contains("localhost", StringComparison.OrdinalIgnoreCase);
+        // Inbound claims keep the names the token uses. Mapped, "sub" arrives renamed to the
+        // long WS-Federation nameidentifier URI — which made NameClaimType = "sub" above find
+        // nothing — and "scope" is not reliably carried through either. Every reader in this
+        // service already looks for both spellings (ClaimsExtensions, CurrentUserContext, the
+        // hub user-id providers), so turning mapping off costs nothing and makes the scope
+        // claim readable by the policy below.
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
-            policy.RequireAuthenticatedUser();
-            policy.RequireAssertion(context =>
-                context.User.Claims.Any(static claim =>
-                    (claim.Type is "scope" or "scp")
-                    && claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                        .Contains(GeekAPI.Auth.ContentCreatorAuthConstants.ManageScope, StringComparer.Ordinal)));
-        });
-}
-else
-{
-    Console.WriteLine("GEEK_OAUTH_AUTHORITY/AUTH_SERVER_URL not set — /hubs/gcc-v2-realtime will reject all connections.");
-}
+            ValidateIssuer = true,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            NameClaimType = "sub",
+            ClockSkew = TimeSpan.FromMinutes(1),
+        };
+        GccV2JwtHubQueryToken.AcceptAccessTokenFromQuery(options);
+    });
+
+builder.Services.AddAuthorizationBuilder()
+    // Content Creator's project, client and billing rows. GeekOAuth is shared across Geek
+    // apps, so holding a valid token is not evidence of anything in particular — the scope is
+    // what says this caller was granted this data.
+    //
+    // The claim arrives as one space-delimited string ("openid profile content-creator.manage"),
+    // so an exact-match RequireClaim would never match it. Split, then look for the member.
+    .AddPolicy(GeekAPI.Auth.ContentCreatorAuthConstants.ManagePolicy, policy =>
+    {
+        policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+        policy.RequireAssertion(context =>
+            context.User.Claims.Any(static claim =>
+                (claim.Type is "scope" or "scp")
+                && claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Contains(GeekAPI.Auth.ContentCreatorAuthConstants.ManageScope, StringComparer.Ordinal)));
+    });
 
 builder.Services.AddHttpClient("GccV2GoogleApis", client =>
 {
@@ -289,25 +306,21 @@ if (app.Environment.IsProduction())
 
 app.UseCors();
 
-// Only wired when GEEK_OAUTH_AUTHORITY/AUTH_SERVER_URL is configured — see registration above.
-// Scoped to the v2 hub: ApiKeyMiddleware below still authenticates every other route exactly as
-// it did before this file was touched.
-if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
-{
-    app.UseAuthentication();
-    app.UseAuthorization();
-}
+// gccV2HubAuthority is guaranteed non-empty here — GeekAPI already refused to start otherwise —
+// so this runs unconditionally. UseAuthorization() sits ahead of ApiKeyMiddleware: a request to a
+// [Authorize(Policy = ManagePolicy)] route is accepted or refused here, before ApiKeyMiddleware
+// gets a turn. Every route ApiKeyMiddleware still owns (nothing under this policy) keeps
+// authenticating exactly as it always did.
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
 
-if (!string.IsNullOrWhiteSpace(gccV2HubAuthority))
-{
-    app.MapHub<GccV2RealtimeHub>("/hubs/gcc-v2-realtime");
-    app.MapHub<GeekCrawlerRealtimeHub>("/hubs/geek-crawler-realtime");
-    app.MapHub<WorkflowRealtimeHub>("/hubs/workflow-realtime");
-}
+app.MapHub<GccV2RealtimeHub>("/hubs/gcc-v2-realtime");
+app.MapHub<GeekCrawlerRealtimeHub>("/hubs/geek-crawler-realtime");
+app.MapHub<WorkflowRealtimeHub>("/hubs/workflow-realtime");
 
 // Workflow: loads persisted projects/clients from GeekRepository at startup.
 await app.HydrateWorkflowAsync();
