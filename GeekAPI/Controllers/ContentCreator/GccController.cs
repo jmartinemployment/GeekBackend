@@ -19,6 +19,7 @@ using GeekApplication.Models.GeekCrawler;
 using GeekAPI.Services.GeekSeo;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -348,7 +349,17 @@ public class GccController : ControllerBase
         return CreatedAtAction(nameof(GetCreate), new { id = created.Id }, created);
     }
 
+    // Clients live here, on this controller, because it already owns this route prefix. A second
+    // controller routed at api/geek-content-creator/clients was tried and produced an ambiguous
+    // match: two actions claiming one path, which ASP.NET answers with a 500 before any
+    // authentication runs. One path, one owner.
+    //
+    // They hold contact and billing details, so each action requires content-creator.manage. The
+    // authority is shared across Geek apps; a valid token alone says nothing about being granted
+    // this client's record.
+
     [HttpGet("clients/{id:guid}")]
+    [Authorize(Policy = ContentCreatorAuthConstants.ManagePolicy)]
     public async Task<ActionResult<GccClientDto>> GetClient(Guid id, CancellationToken ct)
     {
         var client = await _repo.GetClientByIdAsync(id, ct);
@@ -356,11 +367,21 @@ public class GccController : ControllerBase
         return Ok(client);
     }
 
+    /// <summary>
+    /// Every client, or the one with this name.
+    /// </summary>
+    /// <remarks>
+    /// One route doing both because the path is one path. Without a name it is the list the
+    /// operator picks from; with one it is the lookup the create flow has always used, answering
+    /// 404 when there is no such client. Splitting them would mean two actions on
+    /// "clients" again, which is the ambiguity this consolidation removes.
+    /// </remarks>
     [HttpGet("clients")]
-    public async Task<ActionResult<GccClientDto>> GetClientByName([FromQuery] string? name, CancellationToken ct)
+    [Authorize(Policy = ContentCreatorAuthConstants.ManagePolicy)]
+    public async Task<ActionResult> GetClients([FromQuery] string? name, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return BadRequest("name query parameter is required");
+            return Ok(await _repo.ListClientsAsync(ct));
 
         var client = await _repo.GetClientByNameAsync(name, ct);
         if (client is null) return NotFound();
@@ -368,16 +389,99 @@ public class GccController : ControllerBase
     }
 
     [HttpPost("clients")]
+    [Authorize(Policy = ContentCreatorAuthConstants.ManagePolicy)]
     public async Task<ActionResult<GccClientDto>> CreateClient([FromBody] CreateGccClientCommand command, CancellationToken ct)
     {
         if (command is null)
             return BadRequest("Command is required");
 
-        if (string.IsNullOrWhiteSpace(command.Name))
-            return BadRequest("Name is required");
+        var invalid = ValidateClient(
+            command.Name,
+            command.ContactName,
+            command.ContactEmail,
+            command.BillingEmail,
+            command.PaymentTermsDays,
+            command.Currency,
+            command.Rate);
+        if (invalid is not null) return BadRequest(invalid);
 
         var client = await _repo.CreateClientAsync(command, ct);
         return CreatedAtAction(nameof(GetClient), new { id = client.Id }, client);
+    }
+
+    [HttpPut("clients/{id:guid}")]
+    [Authorize(Policy = ContentCreatorAuthConstants.ManagePolicy)]
+    public async Task<ActionResult<GccClientDto>> UpdateClient(
+        Guid id,
+        [FromBody] UpdateGccClientCommand command,
+        CancellationToken ct)
+    {
+        if (command is null) return BadRequest("Command is required");
+        if (id != command.Id) return BadRequest("The id in the route and the body must match.");
+
+        var invalid = ValidateClient(
+            command.Name,
+            command.ContactName,
+            command.ContactEmail,
+            command.BillingEmail,
+            command.PaymentTermsDays,
+            command.Currency,
+            command.Rate);
+        if (invalid is not null) return BadRequest(invalid);
+
+        return Ok(await _repo.UpdateClientAsync(command, ct));
+    }
+
+    /// <summary>
+    /// Delete a client.
+    /// </summary>
+    /// <remarks>
+    /// A client with projects is refused by gcc_projects.client_id, which is RESTRICT, and nothing
+    /// here tries to talk it round. The only way to make the delete succeed would be to destroy
+    /// the client's projects — their schedule, their log, and in time their hours — which is worse
+    /// than a refused button.
+    /// </remarks>
+    [HttpDelete("clients/{id:guid}")]
+    [Authorize(Policy = ContentCreatorAuthConstants.ManagePolicy)]
+    public async Task<IActionResult> DeleteClient(Guid id, CancellationToken ct)
+    {
+        var deleted = await _repo.DeleteClientAsync(id, ct);
+        return deleted ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// The rules the database also enforces, said in a sentence.
+    /// </summary>
+    /// <remarks>
+    /// The CHECK constraints on gcc_clients are the authority. This exists so a caller gets
+    /// "currency must be a three-letter ISO-4217 code" rather than a constraint-violation stack
+    /// trace; nothing passes here that the database would refuse.
+    /// </remarks>
+    private static string? ValidateClient(
+        string? name,
+        string? contactName,
+        string? contactEmail,
+        string? billingEmail,
+        int paymentTermsDays,
+        string? currency,
+        decimal? rate)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "name is required.";
+        if (string.IsNullOrWhiteSpace(contactName)) return "contactName is required.";
+        if (string.IsNullOrWhiteSpace(contactEmail)) return "contactEmail is required.";
+        if (string.IsNullOrWhiteSpace(billingEmail))
+            return "billingEmail is required — it is stored, never derived from the contact email.";
+        if (paymentTermsDays < 0) return "paymentTermsDays cannot be negative.";
+        if (string.IsNullOrWhiteSpace(currency)) return "currency is required.";
+
+        var trimmed = currency.Trim();
+        if (trimmed.Length != 3 || !trimmed.All(char.IsAsciiLetter))
+            return "currency must be a three-letter ISO-4217 code.";
+
+        if (rate is <= 0)
+            return "rate must be greater than zero, or omitted — a rate of zero is an unfilled field.";
+
+        return null;
     }
 
     [HttpPost("creates/{id:guid}/generate")]
