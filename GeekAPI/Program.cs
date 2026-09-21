@@ -126,6 +126,17 @@ builder.Services.AddScoped(sp =>
     return new HttpGccRepository(httpClient, logger);
 });
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
+// In-process job tracking for GccController's generate endpoints — a ConcurrentDictionary with no
+// constructor dependencies, and never actually registered. GccController has therefore been
+// unconstructable since GccJobStore was added to its constructor: every action on it, not only the
+// ones that touch jobs, throws "Unable to resolve service for type GccJobStore" at the DI
+// activation step, before any action code runs. That went unnoticed while nothing routed through
+// GccController in a way anyone was exercising; consolidating the client routes onto it (this
+// session, to fix a route-ambiguity 500) is what put a live path through it and surfaced this as a
+// second 500 in production. AddSingleton to match ToolsGenerationJobStore, the sibling job store
+// this comment on it already calls "same shape... one GeekAPI instance only": in-memory job state
+// has to survive across requests within the process, so scoped or transient would silently lose it.
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
 builder.Services.AddContentCreatorV2(builder.Configuration);
 builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Write.GccV2CreateLibraryWriter>();
