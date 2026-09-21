@@ -2116,25 +2116,32 @@ public class GccGenerateService
         return raw;
     }
 
-    private static readonly Regex H2HeadingPattern = new(
-        @"<h2\b[^>]*>(?<text>.*?)</h2>",
-        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
-
-    private static readonly Regex InlineTagPattern = new(
-        @"<[^>]+>",
-        RegexOptions.Compiled);
-
     /// <summary>
-    /// Reads the H2 headings out of a generated body. The body is semantic HTML; Markdown is not a
-    /// format this pipeline produces, accepts or re-parses at any hop, prompt assembly included.
+    /// Reads the H2 headings out of a generated body with a DOM parser, never a regex
+    /// (`AGENTS.md` — "No regex for HTML"). Markdown is not a format this pipeline produces,
+    /// accepts or re-parses at any hop, prompt assembly included.
     /// </summary>
+    /// <remarks>
+    /// Interim. The Create path still returns a string body (`GccController.cs:667`, `:674`); once
+    /// it returns a <c>ContentDocument</c> this disappears in favour of
+    /// <c>ContentDocumentText.AllHeadings</c>, which reads headings off the document with no parse
+    /// at all. Tracked as Stage 4 in content-creator-v2/plans/grounded-generation-and-serp.md.
+    /// </remarks>
     private static List<string> ExtractSectionHeadings(string body)
     {
         var headings = new List<string>();
-        foreach (Match match in H2HeadingPattern.Matches(body))
+        var document = new HtmlAgilityPack.HtmlDocument();
+        document.LoadHtml(body);
+
+        var nodes = document.DocumentNode.SelectNodes("//h2");
+        if (nodes is null)
         {
-            var text = InlineTagPattern.Replace(match.Groups["text"].Value, string.Empty);
-            text = System.Net.WebUtility.HtmlDecode(text).Trim();
+            return headings;
+        }
+
+        foreach (var node in nodes)
+        {
+            var text = HtmlAgilityPack.HtmlEntity.DeEntitize(node.InnerText ?? string.Empty).Trim();
             if (text.Length > 0)
             {
                 headings.Add(text);
