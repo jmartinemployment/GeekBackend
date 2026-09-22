@@ -1,0 +1,434 @@
+using GeekAPI.Auth;
+using GeekAPI.HttpClients;
+using GeekAPI.Services.GeekCrawler;
+using GeekApplication.Models.GeekCrawler;
+using Microsoft.AspNetCore.Mvc;
+
+namespace GeekAPI.Controllers.GeekCrawler;
+
+[ApiController]
+[Route("api/geek-crawler")]
+public class GeekCrawlerController : ControllerBase
+{
+    private readonly ICurrentUserContext _user;
+    private readonly GeekCrawlerSeedReachability _reachability;
+    private readonly HttpGeekCrawlerRepository _repo;
+    private readonly GeekCrawlerService _crawler;
+    private readonly IGeekCrawlerRagClient _rag;
+
+    public GeekCrawlerController(
+        ICurrentUserContext user,
+        HttpGeekCrawlerRepository repo,
+        GeekCrawlerService crawler,
+        IGeekCrawlerRagClient rag,
+        GeekCrawlerSeedReachability reachability)
+    {
+        _user = user;
+        _repo = repo;
+        _crawler = crawler;
+        _rag = rag;
+        _reachability = reachability;
+    }
+
+    [HttpGet("health")]
+    public ActionResult<object> Health() =>
+        Ok(new
+        {
+            ok = true,
+            product = "geek-crawler",
+            userId = _user.IsAuthenticated ? _user.UserId.ToString("D") : null,
+        });
+
+    /// <summary>
+    /// Check seed URLs before committing to a crawl: syntax and SSRF admission, then DNS, then a
+    /// HEAD request per admitted URL.
+    ///
+    /// Syntax alone cannot tell a real partner site from https://notarealdomain-xyz123.com -- both
+    /// parse and both pass the SSRF rules. Without this the bad one is admitted, crawled, and fails,
+    /// and the shortfall shows up as a page count rather than an error.
+    /// </summary>
+    [HttpPost("seeds/check")]
+    public async Task<IActionResult> CheckSeeds(
+        [FromBody] StartGeekCrawlerRequest request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(request?.Seeds);
+        var reachability = admission.Accepted.Count == 0
+            ? []
+            : await _reachability.CheckAsync(admission.Accepted, ct).ConfigureAwait(false);
+
+        return Ok(new
+        {
+            rejected = admission.Rejected,
+            reachability,
+        });
+    }
+
+    [HttpPost("crawls")]
+    public async Task<IActionResult> StartCrawl(
+        [FromBody] StartGeekCrawlerRequest request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (request is null || !CrawlTypes.IsValid(request.CrawlType))
+            return BadRequest(CrawlTypes.ValidListMessage);
+
+        // One bad URL does not spoil the list. Admit what is usable, carry the rest back with their
+        // reasons, and only refuse when nothing at all can be crawled.
+        var admission = GeekCrawlerSeedNormalizer.AdmitSeeds(request.Seeds);
+        var seeds = admission.Accepted;
+        if (seeds.Count == 0)
+        {
+            return BadRequest(new
+            {
+                error = "No usable seed URLs.",
+                rejected = admission.Rejected,
+            });
+        }
+
+        try
+        {
+            var run = await _crawler.StartCrawlAsync(
+                _user.UserId.ToString("D"),
+                request.CrawlType.Trim(),
+                seeds,
+                ct).ConfigureAwait(false);
+
+            // The dropped URLs travel with the success. A run that quietly crawled 9 of 12 seeds and
+            // said nothing is how a corpus ends up smaller than the operator believes it is.
+            return Ok(new
+            {
+                run = GeekCrawlerService.ToSnapshot(run),
+                seedsAccepted = seeds.Count,
+                rejected = admission.Rejected,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+        }
+    }
+
+    [HttpGet("crawls/latest")]
+    public async Task<IActionResult> GetLatestCrawl(
+        [FromQuery] string crawlType,
+        [FromQuery] string[] seeds,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!CrawlTypes.IsValid(crawlType))
+            return BadRequest(CrawlTypes.ValidListMessage);
+
+        var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds(seeds);
+        if (normalized.Count == 0)
+            return BadRequest("At least one valid seed URL is required.");
+
+        var seedsJson = GeekCrawlerSeedNormalizer.SerializeSeeds(normalized);
+        var run = await _repo.GetLatestRunAsync(
+            _user.UserId.ToString("D"),
+            crawlType.Trim(),
+            seedsJson,
+            ct).ConfigureAwait(false);
+
+        return run is null ? NotFound() : Ok(GeekCrawlerService.ToSnapshot(run));
+    }
+
+    [HttpPost("crawls/{runId:guid}/rebuild-links")]
+    [Obsolete("Admin repair only — replace-on-start clears links on re-queue; normal runs rebuild links during BFS.")]
+    public async Task<IActionResult> RebuildLinks(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        var count = await _crawler.RebuildLinksAsync(runId, ct).ConfigureAwait(false);
+        return Ok(new { linksRebuilt = count });
+    }
+
+    [HttpGet("crawls/{runId:guid}")]
+    public async Task<IActionResult> GetRun(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+        if (run is null) return NotFound();
+        if (!string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.Ordinal))
+            return NotFound();
+        return Ok(GeekCrawlerService.ToSnapshot(run));
+    }
+
+    /// <summary>
+    /// One-shot RAG index status for UI reconnect (no polling). Proxies Geek-Crawler-Rag.
+    /// </summary>
+    [HttpGet("crawls/{runId:guid}/rag-index")]
+    public async Task<IActionResult> GetRagIndexStatus(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+        if (!_rag.IsEnabled)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "RAG is not configured");
+
+        var status = await _rag.GetIndexStatusAsync(runId, ct).ConfigureAwait(false);
+        if (status is null)
+            return NotFound();
+
+        return Ok(new
+        {
+            eventType = "rag_index",
+            runId = status.RunId.ToString("D"),
+            state = status.State,
+            crawlType = status.CrawlType,
+            mongoPageCount = status.MongoPageCount,
+            pagesSeen = status.PagesSeen,
+            pagesEnglish = status.PagesEnglish,
+            pagesSkippedLang = status.PagesSkippedLang,
+            pagesSkippedEmpty = status.PagesSkippedEmpty,
+            chunksUpserted = status.ChunksUpserted,
+            error = status.Error,
+            startedAtUtc = status.StartedAtUtc,
+            finishedAtUtc = status.FinishedAtUtc,
+        });
+    }
+
+    [HttpGet("crawls")]
+    public async Task<IActionResult> ListCrawls(
+        [FromQuery] string? crawlType = null,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        limit = Math.Clamp(limit, 1, 200);
+        var runs = await _crawler.ListRunsForUserAsync(
+            _user.UserId.ToString("D"),
+            crawlType,
+            limit,
+            ct).ConfigureAwait(false);
+
+        return Ok(runs.Select(GeekCrawlerService.ToSnapshot));
+    }
+
+    [HttpPost("crawls/{runId:guid}/cancel")]
+    public async Task<IActionResult> CancelCrawl(Guid runId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        await _crawler.CancelRunAsync(runId, ct).ConfigureAwait(false);
+        var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+        return run is null ? NotFound() : Ok(GeekCrawlerService.ToSnapshot(run));
+    }
+
+    [HttpGet("crawls/{runId:guid}/pages")]
+    public async Task<IActionResult> ListPages(
+        Guid runId,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+        var pages = await _repo.ListPagesAsync(runId, limit, offset, ct).ConfigureAwait(false);
+        return Ok(pages);
+    }
+
+    /// <summary>
+    /// A run's site structure: heading levels, their nesting, and the anchors under each section.
+    ///
+    /// Assembled from the crawler's typed <c>blocks</c>, which already carry <c>heading.level</c> and
+    /// per-block <c>anchors</c>. Nothing here re-parses Html — deriving the same structure a second
+    /// time from a different representation is how the two halves drift apart.
+    ///
+    /// Pages whose extraction produced no blocks are excluded and counted on the response. A run
+    /// whose pages carry Html and no blocks reads as exactly that, never as an empty tree, and there
+    /// is no fallback to parsing <c>contentHtml</c>: missing blocks is terminal for that page.
+    ///
+    /// This lives on the geek-crawler surface because it is crawl data. ContentCreator is one
+    /// consumer of it, not its owner.
+    /// </summary>
+    [HttpGet("crawls/{runId:guid}/site-structure")]
+    public async Task<IActionResult> GetSiteStructure(
+        Guid runId,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        // Blocks only — never Html. Structure comes from the typed blocks, and a payload carrying
+        // page markup is large enough to be truncated in transit and arrive as malformed JSON.
+        var pages = new List<GeekCrawlerPageDto>();
+        var offset = 0;
+        const int batch = 50;
+        while (true)
+        {
+            var chunk = await _repo.ListPageBlocksAsync(runId, batch, offset, ct).ConfigureAwait(false);
+            if (chunk.Count == 0) break;
+            pages.AddRange(chunk);
+            if (chunk.Count < batch) break;
+            offset += chunk.Count;
+        }
+
+        return Ok(GeekCrawlerSiteStructure.Build(runId, pages));
+    }
+
+    /// <summary>
+    /// Lightweight page list for operator UI / reports — no HTML bodies.
+    /// Backed by the resume projection (Origin, Url, HasHtml only).
+    /// </summary>
+    [HttpGet("crawls/{runId:guid}/page-urls")]
+    public async Task<IActionResult> ListPageUrls(
+        Guid runId,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+        var rows = await _repo.ListPagesForResumeAsync(runId, limit, offset, ct)
+            .ConfigureAwait(false);
+        return Ok(rows.Select(r => new
+        {
+            origin = r.Origin,
+            url = r.Url,
+            hasHtml = r.HasHtml,
+        }));
+    }
+
+    [HttpGet("crawls/{runId:guid}/links")]
+    public async Task<IActionResult> ListLinks(
+        Guid runId,
+        [FromQuery] bool? sameOrigin = null,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsRunAsync(runId, ct)) return NotFound();
+
+        limit = Math.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+        var links = await _repo.ListLinksAsync(runId, sameOrigin, limit, offset, ct).ConfigureAwait(false);
+        return Ok(links);
+    }
+
+    private async Task<bool> OwnsRunAsync(Guid runId, CancellationToken ct)
+    {
+        var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+        return run is not null
+               && string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.Ordinal);
+    }
+
+    public record StartGeekCrawlerRequest(string CrawlType, string[]? Seeds);
+
+    [HttpGet("schedules")]
+    public async Task<IActionResult> ListSchedules(
+        [FromQuery] string? crawlType = null,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        limit = Math.Clamp(limit, 1, 200);
+        var schedules = await _repo.ListSchedulesForUserAsync(
+            _user.UserId.ToString("D"),
+            crawlType,
+            limit,
+            ct).ConfigureAwait(false);
+
+        return Ok(schedules);
+    }
+
+    [HttpPost("schedules")]
+    public async Task<IActionResult> CreateSchedule(
+        [FromBody] CreateGeekCrawlerScheduleRequest request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (request is null || !CrawlTypes.IsValid(request.CrawlType))
+            return BadRequest(CrawlTypes.ValidListMessage);
+
+        var scheduleAdmission = GeekCrawlerSeedNormalizer.AdmitSeeds(request.Seeds);
+        var validationError = scheduleAdmission.Accepted.Count == 0
+            ? "No usable seed URLs."
+            : null;
+        if (validationError is not null)
+            return BadRequest(validationError);
+
+        var seeds = GeekCrawlerSeedNormalizer.NormalizeSeeds(request.Seeds);
+        if (seeds.Count == 0)
+            return BadRequest("At least one valid seed URL is required.");
+
+        var intervalHours = Math.Clamp(request.IntervalHours ?? 168, 1, 24 * 365);
+        var schedule = await _repo.CreateScheduleAsync(
+            new CreateGeekCrawlerScheduleCommand(
+                _user.UserId.ToString("D"),
+                request.CrawlType.Trim(),
+                GeekCrawlerSeedNormalizer.SerializeSeeds(seeds),
+                GeekCrawlerSeedNormalizer.ComputeSeedKey(seeds),
+                intervalHours,
+                request.Enabled ?? true,
+                request.StartAtUtc ?? DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+
+        return Ok(schedule);
+    }
+
+    [HttpPatch("schedules/{scheduleId:guid}")]
+    public async Task<IActionResult> PatchSchedule(
+        Guid scheduleId,
+        [FromBody] PatchGeekCrawlerScheduleRequest request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsScheduleAsync(scheduleId, ct)) return NotFound();
+
+        var schedule = await _repo.PatchScheduleAsync(
+            scheduleId,
+            new PatchGeekCrawlerScheduleCommand(
+                request.Enabled,
+                request.IntervalHours is null ? null : Math.Clamp(request.IntervalHours.Value, 1, 24 * 365),
+                request.NextRunUtc),
+            ct).ConfigureAwait(false);
+
+        return Ok(schedule);
+    }
+
+    [HttpDelete("schedules/{scheduleId:guid}")]
+    public async Task<IActionResult> DeleteSchedule(Guid scheduleId, CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+        if (!await OwnsScheduleAsync(scheduleId, ct)) return NotFound();
+
+        await _repo.DeleteScheduleAsync(scheduleId, ct).ConfigureAwait(false);
+        return NoContent();
+    }
+
+    private async Task<bool> OwnsScheduleAsync(Guid scheduleId, CancellationToken ct)
+    {
+        var schedule = await _repo.GetScheduleAsync(scheduleId, ct).ConfigureAwait(false);
+        return schedule is not null
+               && string.Equals(schedule.OwnerUserId, _user.UserId.ToString("D"), StringComparison.Ordinal);
+    }
+
+    public record CreateGeekCrawlerScheduleRequest(
+        string CrawlType,
+        string[]? Seeds,
+        int? IntervalHours = null,
+        bool? Enabled = null,
+        DateTimeOffset? StartAtUtc = null);
+
+    public record PatchGeekCrawlerScheduleRequest(
+        bool? Enabled = null,
+        int? IntervalHours = null,
+        DateTimeOffset? NextRunUtc = null);
+}

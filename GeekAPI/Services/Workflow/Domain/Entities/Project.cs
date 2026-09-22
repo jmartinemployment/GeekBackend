@@ -1,0 +1,142 @@
+using System.Text.Json.Serialization;
+using GeekAPI.Services.Workflow.Domain.Enums;
+
+namespace GeekAPI.Services.Workflow.Domain.Entities;
+
+public class ToolsByHeading
+{
+    public string Heading { get; set; } = string.Empty;
+    public List<ToolInfo> Tools { get; set; } = new();
+}
+
+public class ToolInfo
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Href { get; set; }
+}
+
+/// <summary>
+/// The matched Site Analyzer node and its descendants, as structure.
+/// </summary>
+/// <remarks>
+/// Two problems with the predecessor design: the grounding content for a prompt arrived from
+/// the client, and it was a flattened string that had to be re-parsed to recover the headings
+/// and links the tree already held. GeekAPI fetches the tree itself, so it projects this
+/// directly.
+/// </remarks>
+public class HierarchyAssignment
+{
+    public string Heading { get; set; } = string.Empty;
+
+    /// <summary>Heading depth from the analyzed page (h1-h6). 0 when the node did not report one.</summary>
+    public int Level { get; set; }
+
+    public List<string> Paragraphs { get; set; } = new();
+
+    /// <summary>Anchors on this node. A tool name without its href cites nothing.</summary>
+    public List<ToolInfo> Links { get; set; } = new();
+
+    public List<HierarchyAssignment> Children { get; set; } = new();
+}
+
+public class Project
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ClientId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string ProjectUrl { get; set; } = string.Empty;
+    public string TargetKeyword { get; set; } = string.Empty;
+
+    /// <summary>Department/category slug (e.g. "accounting") — determines the published URL segment: /use-cases/{Department}/{slug}.</summary>
+    public string Department { get; set; } = string.Empty;
+    public ProjectStatus Status { get; set; } = ProjectStatus.Draft;
+    public LlmProviderType PreferredProvider { get; set; } = LlmProviderType.OpenAi;
+
+    /// <summary>When true, skip LLM title generation for the pillar article and use TargetKeyword verbatim as the title.</summary>
+    public bool UseExactKeywordAsTitle { get; set; }
+
+    /// <summary>Optional comma-separated desired headings that must appear in the pillar article outline.</summary>
+    /// <summary>
+    /// Sites this client sells or recommends, as the operator declared them.
+    ///
+    /// The declaration, not the corpus. Partner content is retrieved from the crawl index by topic;
+    /// this records which partners the client actually has, so that claim can be checked against
+    /// what the site references and a partner declared but never mentioned can be spotted.
+    /// </summary>
+    public List<string> PartnerUrls { get; set; } = [];
+
+    /// <summary>Rivals writing on the same topics, as the operator declared them.</summary>
+    public List<string> CompetitorUrls { get; set; } = [];
+
+    public string? Notes { get; set; }
+
+    /// <summary>
+    /// The Geek-Crawler-v2 crawl this project is grounded on.
+    ///
+    /// Required for hierarchy grounding — it is what
+    /// <c>project-site/runs/{runId}/hierarchy-match</c> is keyed on, so a project without it cannot
+    /// resolve a section and cannot generate.
+    ///
+    /// Replaces SiteAnalysisProfileId and SiteAnalysisId, which held the same value under two names
+    /// on one entity: the create path wrote one, GccV2V1ProjectBridge wrote the other, and only the
+    /// first was ever read. A project made through the bridge therefore looked like it had no crawl
+    /// evidence. Site Analyzer, which both names referred to, is retired.
+    /// </summary>
+    public Guid? ProjectSiteRunId { get; set; }
+
+    /// <summary>Matched SA heading breadcrumb (e.g. "Services › HVAC › Installation").</summary>
+    public string? HierarchyPath { get; set; }
+
+    /// <summary>Child heading texts under the matched SA node — pillar/blog must emit these as child headings.</summary>
+    public List<string> HierarchyChildHeadings { get; set; } = new();
+
+    /// <summary>
+    /// Tools grouped by their source heading on the matched SA node and descendants.
+    /// Preserves heading associations so the LLM knows which tool belongs to which section.
+    /// Empty when no tool-list paragraphs are found — never LLM-invented.
+    /// </summary>
+    public List<ToolsByHeading> HierarchyToolsByHeading { get; set; } = new();
+
+    /// <summary>The matched heading and its descendants — what to write about.</summary>
+    public HierarchyAssignment? HierarchyAssignment { get; set; }
+
+    /// <summary>Source page URL for the matched hierarchy node.</summary>
+    public string? HierarchySourcePageUrl { get; set; }
+
+    /// <summary>
+    /// Operator ack that the target keyword is outside site hierarchy scope.
+    /// Required to generate when HierarchyPath is null/empty (no crawl/tone/focus filler).
+    /// </summary>
+    public bool AllowOutsideSiteScope { get; set; }
+
+    /// <summary>Curated SERP organic titles (one per line) — from saved Google results + operator confirm.</summary>
+    public string? SerpTitles { get; set; }
+
+    /// <summary>Curated SERP organic URLs (one per line), paired with SerpTitles.</summary>
+    public string? SerpUrls { get; set; }
+
+    /// <summary>Operator-curated People Also Ask questions (one per line).</summary>
+    public string? SerpPaaQuestions { get; set; }
+
+    /// <summary>Curated related searches (one per line).</summary>
+    public string? SerpRelatedSearches { get; set; }
+
+    /// <summary>Durable link to the Content Creator GccCreate holding the operator-authored Brief.</summary>
+    public Guid? LinkedCreateId { get; set; }
+
+    /// <summary>Cached copy of the linked create's BriefJson, refreshed each time the brief is saved from the UI — avoids a live cross-service fetch during Generate.</summary>
+    public string? BriefJson { get; set; }
+
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAtUtc { get; set; }
+
+    /// <summary>Content Creator: operator content-approval timestamp (gates Repurpose / Mix).</summary>
+    public DateTime? ContentApprovedAtUtc { get; set; }
+
+    /// <summary>Back-reference to the owning row; not serialized (ClientId is the durable FK) — a populated value here forms a JSON cycle through Client.Projects.</summary>
+    [JsonIgnore]
+    public Client? Client { get; set; }
+    public CrawledSite? CrawledSite { get; set; }
+    public List<KeywordSource> KeywordSources { get; set; } = new();
+    public List<GeneratedContent> GeneratedContents { get; set; } = new();
+}
