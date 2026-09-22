@@ -8,9 +8,10 @@ public class GccJobStore
 {
     private readonly ConcurrentDictionary<Guid, GccJob> _jobs = new();
 
-    public GccJob Create(string kind, Guid createId)
+    public GccJob Create(string kind, Guid createId, string ownerUserId)
     {
-        var job = new GccJob(Guid.NewGuid(), kind, createId, "running", null, null, DateTime.UtcNow, null);
+        var job = new GccJob(
+            Guid.NewGuid(), kind, createId, ownerUserId, "running", null, null, DateTime.UtcNow, null);
         _jobs[job.Id] = job;
         return job;
     }
@@ -33,6 +34,9 @@ public sealed record GccJob(
     Guid Id,
     string Kind,
     Guid CreateId,
+    /// <summary>Token subject that started this job. The hub authorises a join against this rather
+    /// than re-reading the create, so joining costs no repository round trip.</summary>
+    string OwnerUserId,
     string Status,
     string? ResultJson,
     string? Error,
