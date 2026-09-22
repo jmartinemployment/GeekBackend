@@ -60,7 +60,8 @@ public class GccGenerateServiceProvenanceTests
         new SoftwareApplicationSchemaBuilder(),
         Options.Create(new CompanyProfileOptions()),
         NullLogger<GccGenerateService>.Instance,
-        competitorResolver);
+        competitorResolver,
+        GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)));
 
     private static GccCompetitorAnalysisResolver NoCompetitorData() =>
         GccCompetitorAnalysisResolverTests.Build(

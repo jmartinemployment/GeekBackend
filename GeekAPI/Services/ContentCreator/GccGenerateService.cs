@@ -55,6 +55,7 @@ public class GccGenerateService
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
     private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
+    private readonly GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService _partnerExtraction;
 
     public GccGenerateService(
         IContentPromptBuilder prompts,
@@ -62,7 +63,8 @@ public class GccGenerateService
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger,
-        GccCompetitorAnalysisResolver competitorAnalysis)
+        GccCompetitorAnalysisResolver competitorAnalysis,
+        GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction)
     {
         _prompts = prompts;
         _cwProviders = cwProviders;
@@ -70,6 +72,7 @@ public class GccGenerateService
         _company = company.Value;
         _logger = logger;
         _competitorAnalysis = competitorAnalysis;
+        _partnerExtraction = partnerExtraction;
     }
 
     public static SiteSectionContextDto? ParseSiteSection(string? json) =>
@@ -1153,7 +1156,8 @@ public class GccGenerateService
                 department: string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department,
                 relatedArticleUrl: null,
                 provider: provider,
-                ct: ct);
+                ct: ct,
+                create: create);
             return JsonSerializer.Serialize(new
             {
                 title = tool.Name,
@@ -1383,7 +1387,8 @@ public class GccGenerateService
         string? relatedArticleUrl,
         ContentGeneratorProvider provider,
         CancellationToken ct,
-        string? preferredSlug = null)
+        string? preferredSlug = null,
+        GccCreateDto? create = null)
     {
         var llmType = ToLlm(provider);
         var llm = _cwProviders.Get(llmType);
@@ -1394,6 +1399,42 @@ public class GccGenerateService
             "\n",
             new[] { brief, sourceContext }.Where(s => !string.IsNullOrWhiteSpace(s)));
         var app = new SoftwareApplicationDescriptor(name, string.IsNullOrWhiteSpace(description) ? null : description);
+
+        // Partner grounding, 2026-09-22: this page was never grounded in the real partner extraction
+        // spec (plans/partner-extraction-complete.md, restored after being swept as collateral) even
+        // though the create form's own commit message once claimed it was. The quoteables here are
+        // whatever GccGroundingResolver already resolved for this create's partner URLs and merged
+        // into ResearchJson -- the same data pillar/blog now read via Stage 2, just run through the
+        // richer extraction service instead of rendered as prose.
+        var partnerPages = create is null
+            ? []
+            : GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables ?? [];
+        var partnerExtraction = partnerPages.Count == 0
+            ? null
+            : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], ct);
+        var groundedExtraction = partnerExtraction is not null && HasAnyPartnerData(partnerExtraction)
+            ? partnerExtraction
+            : null;
+
+        // Fail closed, not a silent degrade to generic content: GccGroundingResolver already
+        // refuses this content type at the controller before generation starts when the project
+        // has no partner URLs or none are indexed (RequiredFor("aitool") = [Partner]). This is the
+        // second half of that same policy -- grounding can pass that gate (partner URLs exist,
+        // something is indexed) and still hand back pages extraction finds nothing usable in. A
+        // Tool/Partner page written from generic brief text in that state is exactly the "aiTool
+        // output type... resolves grounded tool/partner data server-side" claim that was never
+        // actually true -- it must refuse here, not quietly repeat that gap.
+        if (create is not null && groundedExtraction is null)
+        {
+            throw new InvalidOperationException(
+                $"Partner grounding required for '{name}': indexed partner crawl data exists for "
+                + "this project, but nothing extractable was found for this tool. Not generating "
+                + "an ungrounded page.");
+        }
+
+        var extractedToolResearchJson = groundedExtraction is null
+            ? null
+            : JsonSerializer.Serialize(groundedExtraction, PartnerExtractionJsonOpts);
         var pillarMeta = new ArticleMetadataDraft(
             Title: name,
             MetaDescription: Truncate((brief ?? name).Trim(), 160),
@@ -1438,8 +1479,16 @@ public class GccGenerateService
             DesiredHeadings: null,
             MatchedUseCase: null);
 
+        // `brief` used to be passed positionally here, landing in the revisionNotes slot -- every
+        // first-time generation had its own brief framed to the model as "REVISION REQUIRED --
+        // address the reviewer's feedback," phantom feedback on a draft that never existed. It
+        // already reaches the model correctly via app.Description ("Tool summary: ..." below), so
+        // dropping it here removes a misleading duplicate, not the only copy.
         var bodyResult = await llm.CompleteAsync(
-            _prompts.BuildToolBodyPrompt(context, pillarMeta, app, slug, brief),
+            _prompts.BuildToolBodyPrompt(
+                context, pillarMeta, app, slug,
+                revisionNotes: null,
+                extractedToolResearchJson: extractedToolResearchJson),
             ct);
         var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"tool page '{name}'");
         if (sections.Count == 0)
@@ -1461,9 +1510,10 @@ public class GccGenerateService
 
         var toolUrl = $"{_company.ToolBaseUrl.TrimEnd('/')}/{dept}/{slug}";
         var now = DateTime.UtcNow;
-        // AreaServed/PublisherType stay unset here, correctly: this method takes no project or
-        // crawl reference (toolName, brief and sourceContext only), so there is no client site to
-        // ask about geography or declared business type. Not a gap -- there is nothing to wire.
+        // AreaServed/PublisherType stay unset here: neither is part of the partner-extraction
+        // spec's payloads (plans/partner-extraction-complete.md) and both describe the operator's
+        // own site, not a partner's -- site-hierarchy grounding is a separate concern from partner
+        // grounding, not a gap this method's `create` parameter should also close.
         // Faq is independent of site data: it reads the tool page's own generated document.
         var schemaMeta = new ContentMetadata(
             name,
@@ -1482,12 +1532,67 @@ public class GccGenerateService
         var pillarUrl = string.IsNullOrWhiteSpace(relatedArticleUrl)
             ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{dept}"
             : relatedArticleUrl;
-        var jsonLd = _softwareApplicationSchemaBuilder.BuildToolPage(schemaMeta, pillarUrl, app);
+
+        // Partner grounding: when extraction actually yielded data, emit the real partner-extraction
+        // §9 JSON-LD (fail-closed on price/review assertions with no library evidence) instead of the
+        // generic single-description builder, which has no concept of pricing, offers, or reviews at
+        // all. Falls back to the generic builder when ungrounded, so non-partner tool pages are
+        // unaffected.
+        string jsonLd;
+        if (groundedExtraction is not null)
+        {
+            var partnerNode = GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerSoftwareApplicationJsonLd
+                .TryBuild(groundedExtraction, partnerPages);
+            if (partnerNode is not null)
+            {
+                GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerSoftwareApplicationJsonLd
+                    .EnsureShipReadyOrThrow(partnerNode, groundedExtraction);
+                jsonLd = JsonSerializer.Serialize(partnerNode, PartnerExtractionJsonOpts);
+            }
+            else
+            {
+                jsonLd = _softwareApplicationSchemaBuilder.BuildToolPage(schemaMeta, pillarUrl, app);
+            }
+        }
+        else
+        {
+            jsonLd = _softwareApplicationSchemaBuilder.BuildToolPage(schemaMeta, pillarUrl, app);
+        }
+
         if (string.IsNullOrWhiteSpace(jsonLd))
             throw new InvalidOperationException($"CWV2 tool JSON-LD schema builder returned empty for '{name}'.");
 
         return new ToolPageResult(name, slug, document, metadata, jsonLd, pillarUrl, wordCount);
     }
+
+    private static readonly JsonSerializerOptions PartnerExtractionJsonOpts = new(JsonSerializerDefaults.Web);
+
+    /// <summary>True when extraction actually found something -- an all-empty document (no
+    /// indexed partner pages, or pages with nothing this schema covers) must not be treated as
+    /// "grounded" just because the call succeeded.</summary>
+    private static bool HasAnyPartnerData(GccPartnerExtractionDocument extraction) =>
+        extraction.Citables.Count > 0
+        || extraction.Advertisements.Count > 0
+        || extraction.Comparisons.Count > 0
+        || extraction.Alternatives.Count > 0
+        || extraction.PricingCatalog.Count > 0
+        || extraction.Icp.Count > 0
+        || extraction.Integrations.Count > 0
+        || extraction.FaqBank.Count > 0
+        || extraction.CaseStudies.Count > 0
+        || extraction.Testimonials.Count > 0
+        || extraction.Awards.Count > 0
+        || extraction.FeatureInventory.Count > 0
+        || extraction.TechnicalConstraints.Count > 0
+        || extraction.OfferCtas.Count > 0
+        || extraction.Disqualifiers.Count > 0
+        || extraction.UseCasePlaybooks.Count > 0
+        || extraction.Categories.Count > 0
+        || extraction.FreshnessLog.Count > 0
+        || extraction.BattlecardSlices.Count > 0
+        || extraction.DemoBeats.Count > 0
+        || extraction.ComplianceSnippets.Count > 0
+        || extraction.AffiliateDisclosures.Count > 0;
 
     /// <summary>Legacy alias — prefer <see cref="GenerateToolPageAsync"/>.</summary>
     public async Task<(string Name, ContentDocument Document, string? MetaDescription, string? Summary)> GenerateToolAsync(
