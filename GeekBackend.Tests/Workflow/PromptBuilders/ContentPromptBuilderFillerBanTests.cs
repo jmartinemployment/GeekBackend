@@ -1,0 +1,99 @@
+using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.DTOs;
+using GeekAPI.Services.Workflow.Providers;
+using GeekAPI.Services.Workflow.Services.PromptBuilders;
+
+namespace GeekBackend.Tests.Workflow.PromptBuilders;
+
+/// <summary>
+/// Urgent, per the plan: pillar and blog -- the highest-volume outputs -- generated with no
+/// appendix, no filler ban, no Brief, on the live Create path. Assert on the rendered prompt, not
+/// the article, per the plan's own verification standard.
+/// </summary>
+public class ContentPromptBuilderFillerBanTests
+{
+    private static ProjectGenerationContext Context() => new(
+        ProjectName: "Acme",
+        ProjectUrl: "https://acme.test",
+        TargetKeyword: "ai implementation",
+        Department: "marketing",
+        SiteName: "Acme",
+        DetectedTone: string.Empty,
+        DetectedFocus: string.Empty,
+        CrawledHeadings: [],
+        CrawledParagraphs: [],
+        JsonLdStructuredSummary: null,
+        KeywordSources: [],
+        PeopleAlsoAskQuestions: [],
+        PublisherName: "Geek",
+        PublisherLogoUrl: "https://geek.test/logo.png",
+        AuthorName: "Author",
+        ArticleBaseUrl: "https://geek.test/articles",
+        BlogBaseUrl: "https://geek.test/blog",
+        ToolBaseUrl: "https://geek.test/tools",
+        ImplementerPositioning: "an AI implementation partner",
+        Provider: LlmProviderType.OpenAi);
+
+    private static string SystemPrompt(ChatCompletionRequest request) =>
+        request.Messages.Single(m => m.Role == ChatRole.System).Content;
+
+    [Fact]
+    public void Pillar_body_prompt_bans_ai_filler()
+    {
+        var builder = new ContentPromptBuilder();
+        var metadata = new ArticleMetadataDraft("Title", "Meta", ["ai"], ["Overview", "Details"]);
+
+        var request = builder.BuildArticleSectionBatchPrompt(
+            Context(), metadata, headings: ["Details"], fullOutline: ["Overview", "Details"],
+            isRegeneration: false);
+
+        Assert.Contains("Ban filler", SystemPrompt(request));
+    }
+
+    [Fact]
+    public void Blog_body_prompt_bans_ai_filler()
+    {
+        var builder = new ContentPromptBuilder();
+        var metadata = new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview", "Details"]);
+
+        var request = builder.BuildStandaloneBlogBodyPrompt(Context(), metadata);
+
+        Assert.Contains("Ban filler", SystemPrompt(request));
+    }
+
+    [Fact]
+    public void Pillar_body_prompt_carries_populated_brief_fields()
+    {
+        // The Brief reaching generation was the second half of Urgent. On the live Create path it
+        // was dumped as raw JSON only inside GenerateStartingContentAsync -- pillar/blog ignored it
+        // entirely. BuildBriefBodyGuidance is now wired via the shared builder; assert its actual
+        // rendered content, not just that the prompt is non-empty.
+        var builder = new ContentPromptBuilder();
+        var metadata = new ArticleMetadataDraft("Title", "Meta", ["ai"], ["Overview"]);
+        var context = Context() with
+        {
+            PrimaryIntent = "commercial_investigation",
+            WritingNotes = "SMBs looking to implement AI",
+        };
+
+        var request = builder.BuildArticleSectionBatchPrompt(
+            context, metadata, headings: ["Overview"], fullOutline: ["Overview"], isRegeneration: false);
+
+        var system = SystemPrompt(request);
+        Assert.Contains("=== BRIEF CONTROLS", system);
+        Assert.Contains("Primary intent: commercial_investigation", system);
+        Assert.Contains("Writing notes: SMBs looking to implement AI", system);
+    }
+
+    [Fact]
+    public void Pillar_body_prompt_omits_brief_controls_block_when_the_brief_is_empty()
+    {
+        var builder = new ContentPromptBuilder();
+        var metadata = new ArticleMetadataDraft("Title", "Meta", ["ai"], ["Overview"]);
+
+        var request = builder.BuildArticleSectionBatchPrompt(
+            Context(), metadata, headings: ["Overview"], fullOutline: ["Overview"], isRegeneration: false);
+
+        Assert.DoesNotContain("=== BRIEF CONTROLS", SystemPrompt(request));
+    }
+}

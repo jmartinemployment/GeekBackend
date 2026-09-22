@@ -219,6 +219,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string SectionsArrayJsonContract =
         "{\"sections\": [" + SectionJsonContract + ", ...] (top-level h2 sections, in order)}";
 
+    /// <summary>
+    /// The AI-filler ban every body-generating prompt needs. Historically this existed only on
+    /// techArticle/social/ads/imagePrompt/aiTool via the consultant appendix -- pillar and blog,
+    /// the highest-volume outputs, had no equivalent. Same banned phrase list as
+    /// BuildSummaryVariantsPrompt, kept in one place rather than retyped per call site.
+    /// </summary>
+    private const string FillerBanInstruction =
+        "Ban filler: cutting-edge, paradigm shift, transformative potential, seamless transition, " +
+        "maximize ROI, unlock value. Write specific, verifiable claims instead of hype adjectives.";
+
     private const string LedeJsonContract =
         "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", \"heading\": string (a real written headline — never the literal words \"Summary Lede\" etc.), " +
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...], " +
@@ -626,6 +636,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(briefBody)
+            .AppendLine(FillerBanInstruction)
             .AppendLine($"Write {headings.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Respond with ONLY the sections array, one entry per heading listed below, in the same order — no code fences, no commentary:")
@@ -1144,6 +1155,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Write a standalone deep-dive blog post from the research brief and keyword — there is no pillar article to repurpose.")
             .AppendLine("Substantive paragraphs with examples and implementation context; first/second person allowed.")
             .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
+            .AppendLine(FillerBanInstruction)
             .AppendLine(briefBody)
             .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
