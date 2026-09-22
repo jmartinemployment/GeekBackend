@@ -848,7 +848,7 @@ public class GccController : ControllerBase
                 case "aitool":
                 {
                     var (toolName, document, _, _) = await gen.GenerateToolAsync(
-                        create.Topic, create.Notes, primaryIsDocument ? bodyJson : null, provider, ct);
+                        create.Topic, create.Notes, primaryIsDocument ? bodyJson : null, provider, ct, create);
                     var a = await repo.CreateArtifactAsync(
                         new CreateGccArtifactCommand(id, "aiTool", toolName), ct);
                     var v = await repo.CreateVersionAsync(
@@ -997,6 +997,7 @@ public class GccController : ControllerBase
             return BadRequest(err);
 
         var createId = artifact.CreateId;
+        var create = await _repo.GetCreateAsync(createId, ct);
         var created = new List<object>();
 
         var packChannels = new List<string>();
@@ -1091,7 +1092,8 @@ public class GccController : ControllerBase
                         request?.AiToolBrief,
                         version.BodyDocumentJson,
                         provider,
-                        ct);
+                        ct,
+                        create);
                     var toolArtifact = await _repo.CreateArtifactAsync(
                         new CreateGccArtifactCommand(createId, "aiTool", toolName), ct);
                     var toolVersion = await _repo.CreateVersionAsync(
@@ -1133,6 +1135,9 @@ public class GccController : ControllerBase
         if (!TryParseProvider(request.Provider, out var provider, out var err))
             return BadRequest(err);
 
+        var create = await _repo.GetCreateAsync(request.CreateId, ct);
+        if (create is null) return NotFound();
+
         string? sourceContext = null;
         if (request.SourceArtifactId is Guid sid)
         {
@@ -1145,7 +1150,7 @@ public class GccController : ControllerBase
         {
             foreach (var name in names)
             {
-                var (toolName, document, _, _) = await _gen.GenerateToolAsync(name, request.Brief, sourceContext, provider, ct);
+                var (toolName, document, _, _) = await _gen.GenerateToolAsync(name, request.Brief, sourceContext, provider, ct, create);
                 var artifact = await _repo.CreateArtifactAsync(
                     new CreateGccArtifactCommand(request.CreateId, "aiTool", toolName), ct);
                 var version = await _repo.CreateVersionAsync(

@@ -1616,16 +1616,19 @@ public class GccGenerateService
         || extraction.ComplianceSnippets.Count > 0
         || extraction.AffiliateDisclosures.Count > 0;
 
-    /// <summary>Legacy alias — prefer <see cref="GenerateToolPageAsync"/>.</summary>
+    /// <summary>Legacy alias — prefer <see cref="GenerateToolPageAsync"/>. Every caller that has a
+    /// create in scope must pass it through, same as the primary generate path -- omitting it here
+    /// was silently reopening the exact ungrounded-tool-page gap Stage 2 closed.</summary>
     public async Task<(string Name, ContentDocument Document, string? MetaDescription, string? Summary)> GenerateToolAsync(
         string toolName,
         string? brief,
         string? sourceContext,
         ContentGeneratorProvider provider,
-        CancellationToken ct)
+        CancellationToken ct,
+        GccCreateDto? create = null)
     {
         var tool = await GenerateToolPageAsync(
-            toolName, brief, sourceContext, "marketing", null, provider, ct);
+            toolName, brief, sourceContext, "marketing", null, provider, ct, create: create);
         return (tool.Name, tool.Document, tool.Metadata.MetaDescription, tool.Metadata.Summary);
     }
 
