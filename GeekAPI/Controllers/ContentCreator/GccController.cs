@@ -674,6 +674,22 @@ public class GccController : ControllerBase
         return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };
     }
 
+    /// <summary>
+    /// Resolves grounding evidence for one content type and merges it into the create, refusing
+    /// (never proceeding ungrounded) if the resolver says so. The single-select path and any
+    /// multi-select derivative that needs its own contentType-specific grounding (currently just
+    /// Tool, inside RunMultiGenerateAsync) both call this -- previously duplicated inline in both
+    /// places instead of shared.
+    /// </summary>
+    private async Task<GccCreateDto> ResolveAndMergeGroundingAsync(
+        GccCreateDto create, string contentType, CancellationToken ct)
+    {
+        var grounding = await _grounding.ResolveAsync(create, contentType, ct);
+        if (grounding.Refused)
+            throw new InvalidOperationException($"Refused: {grounding.Refusal}");
+        return MergeRetrievedEvidence(create, grounding);
+    }
+
     private async Task<object> RunGenerateAsync(
         HttpGccRepository repo,
         GccGenerateService gen,
@@ -712,10 +728,7 @@ public class GccController : ControllerBase
         // Grounding gate. Every grounding block downstream is conditional, so absent evidence used
         // to drop out silently and generation continued — a draft that reads identically whether
         // it was grounded or not. Required evidence is resolved here and its absence refuses.
-        var grounding = await _grounding.ResolveAsync(create, contentType, ct);
-        if (grounding.Refused)
-            throw new InvalidOperationException($"Refused: {grounding.Refusal}");
-        create = MergeRetrievedEvidence(create, grounding);
+        create = await ResolveAndMergeGroundingAsync(create, contentType, ct);
 
         // Route to appropriate generator based on content type
         string bodyJson;
@@ -879,18 +892,15 @@ public class GccController : ControllerBase
                     // independent, partner-grounded generation as when it's the only type selected.
                     //
                     // Grounding resolve+merge, same day: RunMultiGenerateAsync runs before
-                    // RunGenerateAsync's own _grounding.ResolveAsync/MergeRetrievedEvidence step (it
-                    // returns early into this method at the "multi-output" branch, before that code
-                    // ever runs), so `create` here still carries whatever ResearchJson was persisted
-                    // from a prior save -- never the freshly resolved partner/competitor evidence
-                    // for *this* generate call. That produced a false "no extractable partner pages"
-                    // refusal on a project that actually has indexed partner data, because the tool
-                    // case was never given the chance to see it. Resolved here explicitly, the same
-                    // way the single-select path already does for every content type.
-                    var toolGrounding = await _grounding.ResolveAsync(create, "tool", ct);
-                    if (toolGrounding.Refused)
-                        throw new InvalidOperationException($"Refused: {toolGrounding.Refusal}");
-                    var groundedCreate = MergeRetrievedEvidence(create, toolGrounding);
+                    // RunGenerateAsync's own grounding step (it returns early into this method at
+                    // the "multi-output" branch, before that code ever runs), so `create` here still
+                    // carried whatever ResearchJson was persisted from a prior save -- never the
+                    // freshly resolved partner/competitor evidence for *this* generate call. That
+                    // produced a false "no extractable partner pages" refusal on a project that
+                    // actually has indexed partner data, because the tool case was never given the
+                    // chance to see it. Resolved via the same shared helper the single-select path
+                    // uses, not a second copy of its three lines.
+                    var groundedCreate = await ResolveAndMergeGroundingAsync(create, "tool", ct);
 
                     var toolBodyJson = await gen.GenerateStartingContentAsync(
                         groundedCreate with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock);
