@@ -67,7 +67,9 @@ public class GccDeliverableRepository : IGccDeliverableRepository
             ProjectId = command.ProjectId,
             CreateId = command.CreateId,
             Name = command.Name.Trim(),
-            Type = string.IsNullOrWhiteSpace(command.Type) ? "long-form" : command.Type.Trim(),
+            // A deliverable's type is the create's type -- never a second, client-suppliable copy
+            // that can drift from it. `create` is already loaded above for the ownership check.
+            Type = create.StartingContentType,
             Status = GccDeliverableStatuses.Planned,
             DueDate = command.DueDate,
             CreatedAtUtc = now,

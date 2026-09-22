@@ -16,7 +16,12 @@ public class GccCreate
     /// </remarks>
     public Guid? ProjectId { get; set; }
     public Guid OwnerUserId { get; set; }
-    public string StartingContentType { get; set; } = "long-form";
+    // No default -- "long-form" isn't even a value CONTENT_TYPES recognizes any more, and every
+    // real construction site (GccCreateRepository.CreateCreateAsync) sets this explicitly from a
+    // required command field the controller already validated non-empty. If anything ever
+    // constructs this entity without setting it, the column's NOT NULL constraint should refuse
+    // the save, not silently persist a stale placeholder type.
+    public string StartingContentType { get; set; } = null!;
     public string Topic { get; set; } = string.Empty;
     public string? Notes { get; set; }
     /// <summary>
@@ -45,7 +50,9 @@ public class GccArtifact
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid CreateId { get; set; }
     public Guid? ParentArtifactId { get; set; }
-    public string Type { get; set; } = "long-form"; // long-form, social, ads, image-prompt, tool:<name>
+    // No default -- CreateGccArtifactCommand.Type is a required parameter and the one real
+    // construction site (GccArtifactRepository.CreateAsync) always sets it from that command.
+    public string Type { get; set; } = null!; // e.g. blog, social, ads, image-prompt, tool
     public string Name { get; set; } = string.Empty;
     public string Status { get; set; } = "draft"; // draft, readyForApproval, approved, published
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

@@ -336,7 +336,6 @@ public class GccProjectsController : ControllerBase
                 request.CreateId,
                 request.Name,
                 actor,
-                request.Type ?? "long-form",
                 request.DueDate),
             ct);
 
@@ -365,7 +364,6 @@ public class GccProjectsController : ControllerBase
     public sealed record CreateDeliverableRequest(
         Guid CreateId,
         string Name,
-        string? Type = null,
         DateOnly? DueDate = null);
 
     public sealed record ChangeDeliverableStatusRequest(string Status);

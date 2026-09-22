@@ -338,12 +338,16 @@ public sealed record GccDeliverableDto(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
+// No Type here -- a deliverable's content type is never a separate decision from the create it
+// wraps. It used to be a client-supplied field defaulting to "long-form" (a value CONTENT_TYPES
+// doesn't even recognize any more) when omitted; GccDeliverableRepository.CreateAsync already
+// loads the create to validate client ownership, so it now reads Type off that same create
+// (create.StartingContentType) instead of trusting a redundant, driftable copy from the caller.
 public sealed record CreateGccDeliverableCommand(
     Guid ProjectId,
     Guid CreateId,
     string Name,
     string ActorUserId,
-    string Type = "long-form",
     DateOnly? DueDate = null);
 
 /// <summary>

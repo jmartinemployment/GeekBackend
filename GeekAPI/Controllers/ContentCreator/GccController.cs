@@ -701,11 +701,20 @@ public class GccController : ControllerBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // No default, no fallback -- an empty/omitted outputTypes used to silently fall back to
+        // create.StartingContentType (the type the create happened to be minted with), which is
+        // exactly the default-content-type pattern removed everywhere else this session. Refuse
+        // instead: the frontend already disables Generate at zero selections, so this is only ever
+        // reachable from a caller that skipped the UI, and it must fail closed the same as any
+        // other missing-required-input case.
+        if (requested.Count == 0)
+            throw new InvalidOperationException(
+                "Refused: at least one content type must be requested -- Generate has no default "
+                + "or fallback type.");
+
         // Enforced, not just hidden in the picker -- checked before any generation starts, for
-        // every type that could actually be dispatched (the single starting type, or every item in
-        // a multi-select request).
-        var typesToCheck = requested.Count > 0 ? requested : [create.StartingContentType];
-        var disabledRequested = typesToCheck
+        // every item in the request (single or multi-select alike).
+        var disabledRequested = requested
             .Where(GccGenerateService.IsContentTypeDisabledPendingImplementation)
             .ToList();
         if (disabledRequested.Count > 0)
@@ -740,8 +749,8 @@ public class GccController : ControllerBase
             return new { created = results };
         }
 
-        var contentType = requested.Count == 1 ? requested[0] : create.StartingContentType;
-        return await GenerateAndPersistOneAsync(repo, gen, create, section, provider, contentType, mustMentionBlock, ct);
+        // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
+        return await GenerateAndPersistOneAsync(repo, gen, create, section, provider, requested[0], mustMentionBlock, ct);
     }
 
     /// <summary>
