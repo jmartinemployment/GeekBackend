@@ -1451,11 +1451,16 @@ public class GccGenerateService
             Title: name,
             MetaDescription: Truncate((brief ?? name).Trim(), 160),
             Keywords: [name],
+            // Equal to Pillar's six-section outline in count and per-section depth (Jeff,
+            // 2026-09-22: Tool must be equal in word count to Pillar if not longer) -- must stay in
+            // sync with BuildToolBodyPrompt's own "Required top-level (h2) sections" line.
             SectionOutline:
             [
                 "Overview",
                 "Key Capabilities",
+                "How It Works",
                 "Implementation Considerations",
+                "Evaluation Criteria",
                 "When to Use",
             ]);
 
@@ -1502,17 +1507,29 @@ public class GccGenerateService
                 revisionNotes: null,
                 extractedToolResearchJson: extractedToolResearchJson),
             ct);
-        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"tool page '{name}'");
+        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"tool page '{name}'").ToList();
         if (sections.Count == 0)
             throw new InvalidOperationException($"CWV2 tool body returned no sections for '{name}'.");
+
+        // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
+        // Sourced only from real, already-verified partner FAQ pairs -- never invented and never
+        // re-derived the way Pillar's PAA-driven FAQ section has to answer from scratch.
+        if (groundedExtraction is not null && groundedExtraction.FaqBank.Count > 0)
+        {
+            var faqResult = await llm.CompleteAsync(
+                _prompts.BuildToolFaqSectionPrompt(context, pillarMeta, app, groundedExtraction.FaqBank),
+                ct);
+            sections.Add(LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section"));
+        }
 
         var lede = sections[0] with { Tag = "h2" };
         var document = new ContentDocument(lede, sections.Skip(1).ToList());
 
-        // Per-H2 image prompts. Tool pages are long-form (a fixed four-heading outline) and this
-        // is the revenue-critical content type -- the one place this couldn't be left as a
-        // follow-up the way it briefly was. `section` is accepted but genuinely unused inside
-        // GenerateSectionImagePromptsAsync (checked directly), so null is correct here, not a gap.
+        // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
+        // plus an optional FAQ section) and this is the revenue-critical content type -- the one
+        // place this couldn't be left as a follow-up the way it briefly was. `section` is accepted
+        // but genuinely unused inside GenerateSectionImagePromptsAsync (checked directly), so null
+        // is correct here, not a gap.
         var documentWithImagePrompts = await GenerateSectionImagePromptsAsync(
             "tool", name, JsonSerializer.Serialize(document, CwDocumentJson), null, provider, ct);
         document = JsonSerializer.Deserialize<ContentDocument>(documentWithImagePrompts, CwDocumentJson)

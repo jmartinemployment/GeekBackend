@@ -5,6 +5,7 @@ using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Domain.Entities;
+using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 
@@ -150,6 +151,18 @@ public interface IContentPromptBuilder
         string toolSlug,
         string? revisionNotes = null,
         string? extractedToolResearchJson = null);
+
+    /// <summary>
+    /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
+    /// for it. Sourced from real, already-verified partner FAQ pairs (never re-derived or invented
+    /// the way Pillar's PAA-driven FAQ has to be), so the model formats/paraphrases, it doesn't
+    /// answer from scratch.
+    /// </summary>
+    ChatCompletionRequest BuildToolFaqSectionPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft pillarMetadata,
+        SchemaBuilders.SoftwareApplicationDescriptor app,
+        IReadOnlyList<GccPartnerFaqAsset> faqBank);
 
     ChatCompletionRequest BuildToolMetadataPrompt(
         ProjectGenerationContext context,
@@ -1439,14 +1452,22 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
             .AppendLine("No introductory paragraphs before the first section.")
-            .AppendLine("Required top-level (h2) sections, in order: Overview, Key Capabilities, Implementation Considerations, When to Use.")
-            .AppendLine($"Target at least {ContentLengthTargets.ToolMinWords:N0} words (aim for {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0}). Hard maximum {ContentLengthTargets.ToolHardMaxWords:N0}. Do not stop early.")
+            .AppendLine("Required top-level (h2) sections, in order: Overview, Key Capabilities, How It Works, " +
+                "Implementation Considerations, Evaluation Criteria, When to Use.")
+            .AppendLine($"Target at least {ContentLengthTargets.ToolMinWords:N0} words (aim for {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0}). Hard maximum {ContentLengthTargets.ToolHardMaxWords:N0}. Do not stop early. " +
+                "This is equal to a Pillar page in depth, not a shorter treatment -- six substantial sections, not four.")
+            .AppendLine("This word target is for the six sections above only -- a separate FAQ section, when the tool has " +
+                "verified partner FAQ data, is generated afterward and is additional, not part of this budget.")
             .AppendLine("Per-section budgets (approximate — hit the page floor by covering each thoroughly, not by padding):")
-            .AppendLine("  - Overview: ~350-450 words")
-            .AppendLine("  - Key Capabilities: ~400-550 words")
-            .AppendLine("  - Implementation Considerations: ~450-600 words")
-            .AppendLine("  - When to Use: ~300-400 words")
+            .AppendLine("  - Overview: ~500-700 words")
+            .AppendLine("  - Key Capabilities: ~600-850 words")
+            .AppendLine("  - How It Works: ~550-750 words")
+            .AppendLine("  - Implementation Considerations: ~650-900 words")
+            .AppendLine("  - Evaluation Criteria: ~550-750 words")
+            .AppendLine("  - When to Use: ~450-600 words")
             .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent a feature, integration, or claim to fill space.")
+            .AppendLine($"How It Works covers the platform's actual mechanics/architecture for {app.Name} specifically -- not a restatement of Key Capabilities, and not generic SaaS description.")
+            .AppendLine($"Evaluation Criteria covers what a buyer should weigh -- pricing model and fit (grounded in persisted tool research when it includes pricing; otherwise discuss evaluation factors in general terms rather than inventing a price), ideal company profile, and how {app.Name} compares to adjacent approaches. Never state a specific price, tier, or discount that is not in the persisted research.")
             .AppendLine($"When persisted tool research is provided, treat it as the authoritative source — do not re-extract or contradict it.")
             .AppendLine($"Implementation Considerations must not be generic industry advice — cover, made concrete to {app.Name} specifically:")
             .AppendLine($"  1. Accelerated deployment — what shortens go-live for {app.Name} (pre-built connectors, templated setup, phased rollout).")
@@ -1489,7 +1510,50 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.5,
-            MaxOutputTokens: 8192));
+            // 16384 to match BuildArticleSectionBatchPrompt (Pillar's own body-batch call) now that
+            // Tool targets the same 3,000-5,000 word range across six JSON-structured sections --
+            // 8192 was sized for the old four-section, ~1,500-2,000 word target.
+            MaxOutputTokens: 16384));
+    }
+
+    /// <summary>See <see cref="IContentPromptBuilder.BuildToolFaqSectionPrompt"/>.</summary>
+    public ChatCompletionRequest BuildToolFaqSectionPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft pillarMetadata,
+        SchemaBuilders.SoftwareApplicationDescriptor app,
+        IReadOnlyList<GccPartnerFaqAsset> faqBank)
+    {
+        var faqBlock = string.Join(
+            "\n\n",
+            faqBank.Select((f, i) =>
+                $"  Q{i + 1}: {f.Question}\n  Verified answer: {f.VerifiedAnswer}\n  Source: {f.OriginProofUrl}"));
+
+        var system = new StringBuilder()
+            .AppendLine("You are a senior technical writer for an IT consulting firm.")
+            .AppendLine(BrandTones.ForWebpages())
+            .AppendLine($"Write ONLY the FAQ section of the tool overview page for {app.Name}.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
+            .AppendLine(SectionJsonContract)
+            .AppendLine("This section's tag is \"h2\" and heading is exactly \"Frequently Asked Questions\". Each " +
+                "question is a child Section: tag \"h3\", heading is the question (verbatim or lightly tightened for " +
+                "clarity), paragraphs holds the answer.")
+            .AppendLine("Every answer below is already verified against the partner's own site -- paraphrase and " +
+                $"tighten it into {context.PublisherName}'s ({context.ImplementerPositioning}) voice, but never change " +
+                "its factual content, add a claim not in the verified answer, or drop the substance to shorten it.")
+            .AppendLine("Use every question provided, in the order given, none invented and none skipped.")
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine($"Tool name: {app.Name}")
+            .AppendLine($"Pillar topic: {pillarMetadata.Title}")
+            .AppendLine("=== VERIFIED PARTNER FAQ (authoritative — paraphrase, do not re-derive) ===")
+            .AppendLine(faqBlock)
+            .ToString();
+
+        return WithSectionSchema(new ChatCompletionRequest(
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
+            Temperature: 0.3,
+            MaxOutputTokens: 4096));
     }
 
     public ChatCompletionRequest BuildToolRoundupPrompt(

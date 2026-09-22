@@ -31,8 +31,15 @@ public class GccGenerateServiceToolPageGroundingTests
         """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"capabilities image prompt"},{"section":"Section 2","prompt":"considerations image prompt"}]}""";
     private const string ToolMetadataJson =
         """{"departmentListExcerpt":"x","summary":"x","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
+    private const string ToolFaqJson =
+        """{"tag":"h2","heading":"Frequently Asked Questions","paragraphs":[],"href":null,"children":[{"tag":"h3","heading":"Is it secure?","paragraphs":[{"type":"text","runs":[{"text":"Yes, SOC 2 Type II certified."}]}],"href":null,"children":[]}]}""";
 
-    private sealed class ScriptedProvider : IContentGenerationProvider
+    /// <param name="includeFaq">
+    /// True when the scripted extraction carries FaqBank entries, so GenerateToolPageAsync makes
+    /// an extra call between the body and image-prompts calls. Defaults to false so every test that
+    /// doesn't ground with FAQ data keeps the original 3-call sequence.
+    /// </param>
+    private sealed class ScriptedProvider(bool includeFaq = false) : IContentGenerationProvider
     {
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
         public List<ChatCompletionRequest> Requests { get; } = [];
@@ -41,12 +48,14 @@ public class GccGenerateServiceToolPageGroundingTests
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
-            // Call 0 = tool body (sections array), call 1 = per-H2 image prompts, call 2 = tool
-            // metadata (flat object).
+            // Call 0 = tool body (sections array), [call 1 = FAQ section when includeFaq], next =
+            // per-H2 image prompts, last = tool metadata (flat object).
             var content = Requests.Count switch
             {
                 1 => ToolBodyJson,
+                2 when includeFaq => ToolFaqJson,
                 2 => ToolImagePromptsJson,
+                3 when includeFaq => ToolImagePromptsJson,
                 _ => ToolMetadataJson,
             };
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
@@ -168,6 +177,37 @@ public class GccGenerateServiceToolPageGroundingTests
         // Real partner JSON-LD, not the thin generic builder -- proven by an identity field the
         // generic SoftwareApplicationSchemaBuilder has no source for (the page's own title).
         Assert.Contains("\"name\":\"Partner Widget\"", result.JsonLdSchema);
+    }
+
+    [Fact]
+    public async Task GroundedFaqBankDataProducesAnAdditionalFaqSectionBeyondTheWordCountTarget()
+    {
+        var provider = new ScriptedProvider(includeFaq: true);
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            // PartnerFaqItem is the raw per-page shape ExtractFromPagesAsync aggregates into the
+            // final GccPartnerFaqAsset (page.Url + built provenance) -- no quote-in-text gate at
+            // this stage, just non-empty Question/Answer.
+            Faqs = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFaqItem(
+                "Is Partner Widget secure?", "Yes, SOC 2 Type II certified.", "SOC 2 Type II certified")],
+        };
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
+        var service = Build(provider, partner);
+
+        var result = await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithOnePartnerPage()));
+
+        // FAQ is a real, distinct second call -- carrying the verified answer for the model to
+        // paraphrase, not a question it must answer from scratch -- and the resulting section
+        // survives into the persisted document, beyond the body's own outline.
+        var faqRequest = provider.Requests[1];
+        var faqUserMessage = faqRequest.Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.Contains("SOC 2 Type II certified", faqUserMessage, StringComparison.Ordinal);
+        Assert.Contains("Frequently Asked Questions", result.Document.Sections.Select(s => s.Heading));
     }
 
     [Fact]

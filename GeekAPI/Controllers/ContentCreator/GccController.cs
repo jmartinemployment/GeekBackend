@@ -847,12 +847,22 @@ public class GccController : ControllerBase
 
                 case "aitool":
                 {
-                    var (toolName, document, _, _) = await gen.GenerateToolAsync(
-                        create.Topic, create.Notes, primaryIsDocument ? bodyJson : null, provider, ct, create);
+                    // Tools are never repurposed content, 2026-09-22 (Jeff) -- this used to pass
+                    // whatever long-form primary was also selected (bodyJson) into the tool page as
+                    // sourceContext, coupling a partner-grounded page's content to an unrelated
+                    // article's finished text just because both were checked together. Routing
+                    // through GenerateStartingContentAsync gives the tool the exact same
+                    // independent, partner-grounded generation as when it's the only type selected.
+                    var toolBodyJson = await gen.GenerateStartingContentAsync(
+                        create with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock);
+                    using var toolDoc = JsonDocument.Parse(toolBodyJson);
+                    var toolName = toolDoc.RootElement.TryGetProperty("title", out var titleEl)
+                        ? titleEl.GetString() ?? create.Topic
+                        : create.Topic;
                     var a = await repo.CreateArtifactAsync(
                         new CreateGccArtifactCommand(id, "aiTool", toolName), ct);
                     var v = await repo.CreateVersionAsync(
-                        new CreateGccArtifactVersionCommand(a.Id, GccGenerateService.SerializeDocument(document)), ct);
+                        new CreateGccArtifactVersionCommand(a.Id, toolBodyJson), ct);
                     created.Add(new { artifact = a, version = v });
                     break;
                 }
