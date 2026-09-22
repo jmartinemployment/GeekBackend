@@ -15,6 +15,49 @@ public class JsonLdParserService : IJsonLdParserService
         "Article", "BlogPosting", "NewsArticle", "TechnicalArticle", "ScholarlyArticle"
     };
 
+    /// <summary>
+    /// Every distinct schema.org <c>@type</c> declared across a page's JSON+LD blocks, normalized
+    /// (bare name, not the full schema.org URL). For reading what a competitor page declares
+    /// itself as -- Product, Review, FAQPage, HowTo -- not for extracting the client's own business
+    /// facts, which is what <see cref="Summarize"/> does. Never throws on malformed JSON+LD; a
+    /// block that fails to parse is skipped, matching <see cref="Summarize"/>'s own tolerance.
+    /// </summary>
+    public IReadOnlyList<string> DistinctDeclaredTypes(IReadOnlyList<string> rawBlocks)
+    {
+        var types = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var block in rawBlocks)
+        {
+            if (string.IsNullOrWhiteSpace(block))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(block);
+                foreach (var node in EnumerateNodes(document.RootElement))
+                {
+                    foreach (var type in GetTypes(node))
+                    {
+                        var normalized = NormalizeType(type);
+                        if (normalized.Length > 0 && seen.Add(normalized))
+                        {
+                            types.Add(normalized);
+                        }
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // Skip invalid JSON+LD blocks, same tolerance as Summarize.
+            }
+        }
+
+        return types;
+    }
+
     public JsonLdSiteSummary Summarize(IReadOnlyList<string> rawBlocks)
     {
         var summary = new JsonLdSiteSummary();
