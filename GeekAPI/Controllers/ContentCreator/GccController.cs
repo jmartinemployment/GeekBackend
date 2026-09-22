@@ -814,15 +814,27 @@ public class GccController : ControllerBase
             if (string.Equals(type, primaryType, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            switch (type.ToLowerInvariant())
+            // Normalized the same way as the disabled-type check: strip non-letters, lowercase, so
+            // "tech-article"/"techArticle", "image-prompt"/"imagePrompt", "tool"/"aiTool", and
+            // "email-cold-outreach"/"email" (CONTENT_TYPES' actual value once the picker unified
+            // onto it 2026-09-22, Jeff: "they should be identical") each reach one case.
+            var normalizedType = new string(type.Where(char.IsLetter).ToArray()).ToLowerInvariant();
+            switch (normalizedType)
             {
                 case "linkedin": packChannels.Add("LinkedIn"); break;
                 case "x": packChannels.Add("X"); break;
                 case "instagram": packChannels.Add("Instagram"); break;
                 case "metaads": packChannels.Add("MetaAds"); break;
                 case "googleads": packChannels.Add("GoogleAds"); break;
+                // "social"/"ads" are CONTENT_TYPES' generic entries, not specific channels -- bundle
+                // into the same repurpose-pack engine the specific channels already use rather than
+                // inventing a second dispatch shape. 2026-09-22, Jeff: "The fact a specific content
+                // type does[n't] map isn't my problem" -- silently dropping them (no case matched,
+                // no artifact, no error) was the actual bug this closes.
+                case "social": packChannels.AddRange(["LinkedIn", "X", "Instagram"]); break;
+                case "ads": packChannels.AddRange(["MetaAds", "GoogleAds"]); break;
 
-                case "email" when primaryIsDocument:
+                case "email" or "emailcoldoutreach" when primaryIsDocument:
                 {
                     var emailBody = await gen.GenerateRepurposePackAsync(bodyJson, ["Email"], provider, ct);
                     var a = await repo.CreateArtifactAsync(
@@ -857,7 +869,7 @@ public class GccController : ControllerBase
                     break;
                 }
 
-                case "aitool":
+                case "aitool" or "tool":
                 {
                     // Tools are never repurposed content, 2026-09-22 (Jeff) -- this used to pass
                     // whatever long-form primary was also selected (bodyJson) into the tool page as
@@ -878,6 +890,18 @@ public class GccController : ControllerBase
                     created.Add(new { artifact = a, version = v });
                     break;
                 }
+
+                // Fail closed, not a silent no-op: a type that matches no case above -- either
+                // genuinely unrecognized, or one whose `when primaryIsDocument` guard didn't hold
+                // (e.g. "email-cold-outreach" requested alongside a non-document primary like Tool,
+                // with nothing to derive the email from) -- used to produce nothing at all: no
+                // artifact, no error, the selection just silently vanished. Same defect class as the
+                // social/ads gap above, same fix.
+                default:
+                    throw new InvalidOperationException(
+                        $"'{type}' cannot be generated alongside '{primaryType}' as the primary "
+                        + "(it may require a long-form document primary to derive from, or it may "
+                        + "not be a recognized content type at all).");
             }
         }
 
