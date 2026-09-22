@@ -724,10 +724,20 @@ public class GccController : ControllerBase
             // "Repurpose" itself (disabled entirely for it, GeekBackend 08187d9). Each call below
             // gets its own grounding resolution and its own real generator, exactly as if it were
             // the only thing selected -- literally the same method single-select calls once.
-            var created = new List<object>();
-            foreach (var type in requested)
-                created.Add(await GenerateAndPersistOneAsync(repo, gen, create, section, provider, type, mustMentionBlock, ct));
-            return new { created };
+            //
+            // Parallel, not sequential: every call is genuinely independent now (no shared mutable
+            // state, nothing waits on another type's output), so awaiting them one at a time only
+            // summed their durations for no reason. Real consequence of today's own redesign --
+            // several selected types, previously one full generation plus cheap single-call
+            // rewrites, now each run their own full generation sequence (Tool alone is up to four
+            // sequential LLM calls) -- summed sequentially that's long enough to trip a timeout
+            // somewhere between the browser and here, surfacing as an empty-body 500 with no
+            // exception message at all (the connection dies before any response is written, so
+            // neither of Generate's own catch blocks below ever gets the chance to run).
+            var results = await Task.WhenAll(
+                requested.Select(type =>
+                    GenerateAndPersistOneAsync(repo, gen, create, section, provider, type, mustMentionBlock, ct)));
+            return new { created = results };
         }
 
         var contentType = requested.Count == 1 ? requested[0] : create.StartingContentType;
