@@ -132,6 +132,7 @@ builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>()
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGroundingResolver>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerationCoordinator>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccGenerateNotifier>();
+builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccGenerateJobRunner>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccCompetitorAnalysisResolver>();
 // In-process job tracking for GccController's generate endpoints — a ConcurrentDictionary with no
 // constructor dependencies, and never actually registered. GccController has therefore been

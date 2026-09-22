@@ -74,6 +74,41 @@ public sealed class GccGenerationCoordinator
         return MergeRetrievedEvidence(create, grounding);
     }
 
+    /// <summary>Trimmed, de-duplicated, empty entries dropped. No default is ever substituted.</summary>
+    public static List<string> NormalizeRequestedTypes(IReadOnlyList<string>? outputTypes) =>
+        (outputTypes ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>
+    /// The refusals that cost nothing to decide, as a message or null. Public so Generate can
+    /// answer them with a 400 before starting a background job -- a mistyped request should not
+    /// become a job the operator has to watch fail. RunGenerateAsync calls the same method, so
+    /// there is one definition rather than a controller copy drifting from the real gate.
+    /// </summary>
+    public static string? ValidateRequestedTypes(IReadOnlyList<string> requested)
+    {
+        // No default, no fallback -- an empty/omitted outputTypes used to silently fall back to
+        // create.StartingContentType (the type the create happened to be minted with), which is
+        // exactly the default-content-type pattern removed everywhere else. Refuse instead.
+        if (requested.Count == 0)
+            return "Refused: at least one content type must be requested -- Generate has no "
+                + "default or fallback type.";
+
+        // Enforced, not just hidden in the picker -- checked before any generation starts, for
+        // every item in the request (single or multi-select alike).
+        var disabled = requested
+            .Where(GccGenerateService.IsContentTypeDisabledPendingImplementation)
+            .ToList();
+        if (disabled.Count > 0)
+            return $"Refused: '{string.Join("', '", disabled)}' "
+                + "is disabled pending a written, approved resolve plan for its content-type quality.";
+
+        return null;
+    }
+
     public async Task<object> RunGenerateAsync(
         HttpGccRepository repo,
         GccGenerateService gen,
@@ -85,32 +120,9 @@ public sealed class GccGenerationCoordinator
         CancellationToken ct,
         Func<string, object, Task>? onTypeCompleted = null)
     {
-        var requested = (outputTypes ?? [])
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Select(t => t.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        // No default, no fallback -- an empty/omitted outputTypes used to silently fall back to
-        // create.StartingContentType (the type the create happened to be minted with), which is
-        // exactly the default-content-type pattern removed everywhere else this session. Refuse
-        // instead: the frontend already disables Generate at zero selections, so this is only ever
-        // reachable from a caller that skipped the UI, and it must fail closed the same as any
-        // other missing-required-input case.
-        if (requested.Count == 0)
-            throw new InvalidOperationException(
-                "Refused: at least one content type must be requested -- Generate has no default "
-                + "or fallback type.");
-
-        // Enforced, not just hidden in the picker -- checked before any generation starts, for
-        // every item in the request (single or multi-select alike).
-        var disabledRequested = requested
-            .Where(GccGenerateService.IsContentTypeDisabledPendingImplementation)
-            .ToList();
-        if (disabledRequested.Count > 0)
-            throw new InvalidOperationException(
-                $"Refused: '{string.Join("', '", disabledRequested)}' "
-                + "is disabled pending a written, approved resolve plan for its content-type quality.");
+        var requested = NormalizeRequestedTypes(outputTypes);
+        var refusal = ValidateRequestedTypes(requested);
+        if (refusal is not null) throw new InvalidOperationException(refusal);
 
         if (requested.Count > 1)
         {

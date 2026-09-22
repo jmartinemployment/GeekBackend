@@ -42,6 +42,7 @@ public class GccController : ControllerBase
     private readonly GccGenerateService _gen;
     private readonly GccGroundingResolver _grounding;
     private readonly GccGenerationCoordinator _coordinator;
+    private readonly GccGenerateJobRunner _generateRunner;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
@@ -57,6 +58,7 @@ public class GccController : ControllerBase
         GccGenerateService gen,
         GccGroundingResolver grounding,
         GccGenerationCoordinator coordinator,
+        GccGenerateJobRunner generateRunner,
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
@@ -71,6 +73,7 @@ public class GccController : ControllerBase
         _gen = gen;
         _grounding = grounding;
         _coordinator = coordinator;
+        _generateRunner = generateRunner;
         _seo = seo;
         _jobs = jobs;
         _user = user;
@@ -519,44 +522,25 @@ public class GccController : ControllerBase
 
         var mustMentionBlock = await TryBuildMustMentionBlockAsync(create, ct);
 
-        try
-        {
-            var result = await _coordinator.RunGenerateAsync(
-                _repo, _gen, create, section, provider, request?.OutputTypes, mustMentionBlock, ct);
-            return Ok(result);
-        }
-        catch (InvalidOperationException ex) when (
-            ex.Message.Contains("brief required", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("Site Analyzer", StringComparison.OrdinalIgnoreCase)
-            // A grounding refusal is the operator's answer, not a server fault: the content type
-            // declared evidence it must cite and that evidence is not available.
-            || ex.Message.StartsWith("Refused:", StringComparison.OrdinalIgnoreCase))
-        {
-            return BadRequest(ex.Message);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "Generate validation/config failed");
-            return StatusCode(503, ex.Message);
-        }
-        catch (HttpRequestException ex)
-        {
-            // The provider's own words, not a generic sentence -- "LLM provider request failed"
-            // told an operator nothing they didn't already know from the status code.
-            _logger.LogError(ex, "Generate LLM failed");
-            return StatusCode(502, $"LLM provider request failed: {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            // Every exception type not named above used to escape this method entirely, and
-            // ASP.NET answered it with a bare 500: empty body, no message, nothing rendered in the
-            // UI (Jeff, 2026-09-22 -- "Response -> HEX Empty ... App -> No message"). A timeout
-            // (TaskCanceledException) and a malformed model reply (JsonException) both land here
-            // and are exactly the faults worth naming. Same reasoning as the partner-extraction
-            // counts: an unnamed failure costs hours that a named one costs minutes.
-            _logger.LogError(ex, "Generate failed");
-            return StatusCode(500, $"Generate failed: {ex.GetType().Name}: {ex.Message}");
-        }
+        // The refusals that cost nothing to decide stay here, so a mistyped request is still a
+        // fast 400 rather than a job the operator has to watch fail. Same method the coordinator
+        // itself calls -- one definition, not a controller copy that can drift from the real gate.
+        var requested = GccGenerationCoordinator.NormalizeRequestedTypes(request?.OutputTypes);
+        var refusal = GccGenerationCoordinator.ValidateRequestedTypes(requested);
+        if (refusal is not null) return BadRequest(refusal);
+
+        // Generation runs as a job and reports over SignalR rather than holding this request open.
+        // One Tool page is partner extraction across every retrieved page plus a multi-call write,
+        // and every selected content type runs its own complete pipeline -- longer than any
+        // gateway between the browser and here will wait. Railway's edge was cutting the request
+        // off with "upstream error" before the catch blocks below could report anything at all.
+        //
+        // Join the job on /hubs/workflow-realtime (JoinGccGenerate) for per-type events, or read
+        // GET jobs/{id} on a cold load. See plans/generate-async-signalr.md.
+        var job = _generateRunner.Start(
+            create, section, provider, requested, mustMentionBlock, _user.UserId.ToString());
+
+        return Accepted(new { jobId = job.Id, createId = create.Id, status = job.Status });
     }
 
     [HttpGet("jobs/{id:guid}")]

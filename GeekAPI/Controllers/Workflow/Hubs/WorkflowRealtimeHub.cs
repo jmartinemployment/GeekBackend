@@ -56,7 +56,7 @@ public sealed class WorkflowRealtimeHub : Hub
         if (string.IsNullOrWhiteSpace(userId)) throw new HubException("Unauthorized");
 
         var job = _gccJobs.Get(jobId);
-        if (job is null || !string.Equals(job.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase))
+        if (job is null || !SameUser(job.OwnerUserId, userId))
             throw new HubException("Generate job not found");
 
         await Groups.AddToGroupAsync(Context.ConnectionId, GccGenerateGroup(jobId));
@@ -66,4 +66,15 @@ public sealed class WorkflowRealtimeHub : Hub
 
     public Task LeaveGccGenerate(Guid jobId) =>
         Groups.RemoveFromGroupAsync(Context.ConnectionId, GccGenerateGroup(jobId));
+
+    /// <summary>
+    /// The job records ICurrentUserContext.UserId (a Guid) while the token carries `sub` as a
+    /// string, and the two can be formatted differently. Compare as Guids when both parse, so an
+    /// owner is never refused their own job over brace or casing differences, and fall back to an
+    /// ordinal comparison otherwise rather than letting a mismatch pass.
+    /// </summary>
+    private static bool SameUser(string jobOwner, string caller) =>
+        Guid.TryParse(jobOwner, out var a) && Guid.TryParse(caller, out var b)
+            ? a == b
+            : string.Equals(jobOwner, caller, StringComparison.OrdinalIgnoreCase);
 }
