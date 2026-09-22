@@ -2064,9 +2064,22 @@ public class GccGenerateService
                 fullOutline: PillarOutline,
                 isRegeneration: false),
             ct);
-        var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body");
+        var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body").ToList();
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Pillar body returned no sections.");
+
+        // Stage 8c: the brief's PAA questions were parsed (ExtractBriefFields) and then silently
+        // dropped -- never fed to an FAQ section anywhere on this path. Not "cluster PAA again at
+        // generation time" (the questions are already operator-curated, by SerpIngestPanel's own
+        // selection UI, before they ever reach BriefJson); just stop discarding them.
+        var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions;
+        if (paaQuestions is { Count: > 0 })
+        {
+            var faqResult = await llm.CompleteAsync(
+                _prompts.BuildArticleFaqSectionPrompt(context, metadata, paaQuestions, isRegeneration: false),
+                ct);
+            bodySections.Add(LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", "pillar FAQ section"));
+        }
 
         var document = new ContentDocument(ledeSections[0] with { Tag = "h2" }, bodySections);
         document = ContentGuardrail.Apply(document).Document;
