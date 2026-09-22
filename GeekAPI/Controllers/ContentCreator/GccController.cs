@@ -877,8 +877,23 @@ public class GccController : ControllerBase
                     // article's finished text just because both were checked together. Routing
                     // through GenerateStartingContentAsync gives the tool the exact same
                     // independent, partner-grounded generation as when it's the only type selected.
+                    //
+                    // Grounding resolve+merge, same day: RunMultiGenerateAsync runs before
+                    // RunGenerateAsync's own _grounding.ResolveAsync/MergeRetrievedEvidence step (it
+                    // returns early into this method at the "multi-output" branch, before that code
+                    // ever runs), so `create` here still carries whatever ResearchJson was persisted
+                    // from a prior save -- never the freshly resolved partner/competitor evidence
+                    // for *this* generate call. That produced a false "no extractable partner pages"
+                    // refusal on a project that actually has indexed partner data, because the tool
+                    // case was never given the chance to see it. Resolved here explicitly, the same
+                    // way the single-select path already does for every content type.
+                    var toolGrounding = await _grounding.ResolveAsync(create, "tool", ct);
+                    if (toolGrounding.Refused)
+                        throw new InvalidOperationException($"Refused: {toolGrounding.Refusal}");
+                    var groundedCreate = MergeRetrievedEvidence(create, toolGrounding);
+
                     var toolBodyJson = await gen.GenerateStartingContentAsync(
-                        create with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock);
+                        groundedCreate with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock);
                     using var toolDoc = JsonDocument.Parse(toolBodyJson);
                     var toolName = toolDoc.RootElement.TryGetProperty("title", out var titleEl)
                         ? titleEl.GetString() ?? create.Topic
