@@ -982,8 +982,18 @@ public class GccController : ControllerBase
         return Ok(new { artifact, @event = evt });
     }
 
+    // Disabled 2026-09-22 (Jeff): Repurpose never called ValidateSiteSectionGate, so every type it
+    // produces -- including aiTool -- generated without the Project Site crawl requirement
+    // creates/{id}/generate enforces unconditionally for everything else. RepurposeInternal is kept
+    // as a real, complete implementation rather than deleted so it can be re-enabled once it carries
+    // the same gate; only the route itself is disabled.
     [HttpPost("versions/{id:guid}/repurpose")]
-    public async Task<ActionResult<object>> Repurpose(Guid id, [FromBody] MixRequest? request, CancellationToken ct)
+    public Task<ActionResult<object>> Repurpose(Guid id, [FromBody] MixRequest? request, CancellationToken ct) =>
+        Task.FromResult<ActionResult<object>>(StatusCode(403,
+            "Repurpose is disabled -- it does not enforce the Project Site grounding gate that "
+            + "creates/{id}/generate requires for every content type. Use Generate instead."));
+
+    private async Task<ActionResult<object>> RepurposeInternal(Guid id, MixRequest? request, CancellationToken ct)
     {
         request ??= new MixRequest(false, false, 0, 0, 0, 0, 0, 0, null, null, false, null);
         var version = await _repo.GetVersionAsync(id, ct);
