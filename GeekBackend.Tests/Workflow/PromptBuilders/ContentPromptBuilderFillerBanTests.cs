@@ -96,4 +96,38 @@ public class ContentPromptBuilderFillerBanTests
 
         Assert.DoesNotContain("=== BRIEF CONTROLS", SystemPrompt(request));
     }
+
+    [Fact]
+    public void Blog_lede_prompt_gets_real_lede_type_guidance_not_a_hardcoded_creative_only_line()
+    {
+        // Stage 6: pillar's lede got brief-aware 12-type guidance via BuildLedeTypeGuidance; blog's
+        // lede kept a hardcoded "prefer a creative opening" line while still demanding a ledeType
+        // value from the same 12-way enum, with nothing telling the model how to choose one.
+        var builder = new ContentPromptBuilder();
+        var metadata = new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]);
+
+        var request = builder.BuildStandaloneBlogLedePrompt(Context(), metadata);
+        var system = SystemPrompt(request);
+
+        Assert.Contains("Lede types (pick ONE ledeType", system);
+        Assert.DoesNotContain("Prefer a creative (hook/narrative) opening", system);
+    }
+
+    [Fact]
+    public void Blog_lede_prompt_actually_responds_to_the_briefs_angle_and_intent()
+    {
+        var builder = new ContentPromptBuilder();
+        var metadata = new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]);
+        var context = Context() with
+        {
+            ContentAngle = "comparative",
+            PrimaryIntent = "commercial_investigation",
+        };
+
+        var request = builder.BuildStandaloneBlogLedePrompt(context, metadata);
+        var system = SystemPrompt(request);
+
+        Assert.Contains("Angle: comparative", system);
+        Assert.Contains("Primary intent: commercial_investigation", system);
+    }
 }

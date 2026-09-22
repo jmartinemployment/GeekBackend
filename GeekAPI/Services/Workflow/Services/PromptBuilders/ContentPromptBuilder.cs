@@ -1174,7 +1174,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
-            .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
+            // Stage 6: this used to hardcode "prefer a creative opening" with no way to choose
+            // among the 12 lede types the JSON contract below already demands a value for --
+            // pillar's lede got real brief-aware guidance; blog never did. Same guidance now.
+            .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("2-3 paragraphs: hook, stakes, and who this is for.")
             .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
