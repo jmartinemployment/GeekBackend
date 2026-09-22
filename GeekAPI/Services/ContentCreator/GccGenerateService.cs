@@ -1135,7 +1135,11 @@ public class GccGenerateService
         if (!string.IsNullOrWhiteSpace(mustMentionBlock))
             briefBlock = $"{briefBlock}\n\n{mustMentionBlock}";
 
-        if (string.Equals(create.StartingContentType, "imagePrompt", StringComparison.OrdinalIgnoreCase))
+        // Accepts both spellings: the frontend's content-types.ts sends kebab-case ("image-prompt");
+        // "imagePrompt" is kept too since it's what this check used to require exclusively, and
+        // nothing here can prove no other caller still sends it.
+        if (string.Equals(create.StartingContentType, "imagePrompt", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(create.StartingContentType, "image-prompt", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(create.Topic) || string.IsNullOrWhiteSpace(create.Notes))
                 throw new InvalidOperationException("Standalone image prompt requires topic and notes.");
@@ -1147,7 +1151,15 @@ public class GccGenerateService
                 ct);
         }
 
-        if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase))
+        // Accepts both spellings: content-types.ts's live picker sends "tool" ("Tool page"), never
+        // "aiTool" -- confirmed directly, 2026-09-22, while scoping partner-grounding work.
+        // GccGroundingResolver.RequiredCrawlTypes already hedged both spellings as separate keys;
+        // this routing check hadn't. Without this fix, selecting "Tool page" skipped this branch
+        // entirely and fell through to the generic long-form path below, bypassing partner
+        // grounding altogether -- so "aiTool" is kept only because something might still send it,
+        // not because it's the live value.
+        if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(create.StartingContentType, "tool", StringComparison.OrdinalIgnoreCase))
         {
             var tool = await GenerateToolPageAsync(
                 toolName: create.Topic,

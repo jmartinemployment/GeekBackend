@@ -179,4 +179,56 @@ public class GccGenerateServiceToolPageGroundingTests
         var userMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("Tool summary:", userMessage, StringComparison.Ordinal);
     }
+
+    private const string ValidBriefJson =
+        """{"primaryIntent":"commercial_investigation","buyingStage":"consideration","audienceSegment":"SMB","audienceNotes":"n/a","angle":"comparative","ctaType":"demo","toneOfVoice":"consultant_professional","eeatSignals":["experience"],"lengthBand":"standard"}""";
+
+    private static GccCreateDto DispatchCreate(string startingContentType) => new(
+        Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
+        StartingContentType: startingContentType, Topic: "Partner Widget", Notes: "brief",
+        ProjectSiteRunId: Guid.NewGuid(), SiteSectionJson: null, BriefJson: ValidBriefJson,
+        ResearchJson: null, Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow);
+
+    [Theory]
+    [InlineData("tool")]
+    [InlineData("aiTool")]
+    public async Task GenerateStartingContentAsyncRoutesBothToolSpellingsToTheGroundedToolPageBranch(
+        string startingContentType)
+    {
+        // content-types.ts's live picker sends "tool" ("Tool page"), never "aiTool" -- before this
+        // fix, GenerateStartingContentAsync's dispatch only matched "aiTool", so selecting "Tool
+        // page" fell through to the generic long-form branch instead, silently skipping partner
+        // grounding. Proven here by the exception it throws: the grounded branch's own fail-closed
+        // message means dispatch reached it; the generic branch has no concept of partner
+        // grounding at all and would never throw this specific message.
+        var provider = new ScriptedProvider();
+        var partner = GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider));
+        var service = Build(provider, partner);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateStartingContentAsync(
+                DispatchCreate(startingContentType), null, ContentGeneratorProvider.OpenAi, CancellationToken.None));
+
+        Assert.Contains("Partner grounding required", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("imagePrompt")]
+    [InlineData("image-prompt")]
+    public async Task GenerateStartingContentAsyncRoutesBothImagePromptSpellingsToTheImagePromptBranch(
+        string startingContentType)
+    {
+        // Same mismatch class as tool/aiTool: content-types.ts sends "image-prompt". Proven the
+        // same way -- the image-prompt branch's own precondition message ("requires topic and
+        // notes") only fires from inside that branch, never from the generic long-form path.
+        var provider = new ScriptedProvider();
+        var partner = GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider));
+        var service = Build(provider, partner);
+        var create = DispatchCreate(startingContentType) with { Notes = null };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateStartingContentAsync(create, null, ContentGeneratorProvider.OpenAi, CancellationToken.None));
+
+        Assert.Contains("Standalone image prompt requires topic and notes", ex.Message, StringComparison.Ordinal);
+    }
 }
