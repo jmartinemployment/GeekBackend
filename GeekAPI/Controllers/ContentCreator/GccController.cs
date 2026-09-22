@@ -690,6 +690,18 @@ public class GccController : ControllerBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Enforced, not just hidden in the picker -- checked before any generation starts, for
+        // every type that could actually be dispatched (the single starting type, or every item in
+        // a multi-select request).
+        var typesToCheck = requested.Count > 0 ? requested : [create.StartingContentType];
+        var disabledRequested = typesToCheck
+            .Where(GccGenerateService.IsContentTypeDisabledPendingImplementation)
+            .ToList();
+        if (disabledRequested.Count > 0)
+            throw new InvalidOperationException(
+                $"Refused: '{string.Join("', '", disabledRequested)}' "
+                + "is disabled pending a written, approved resolve plan for its content-type quality.");
+
         // Multi-output: one long-form primary + derivatives, all persisted as artifacts.
         if (requested.Count > 1)
             return await RunMultiGenerateAsync(repo, gen, create, section, provider, requested, mustMentionBlock, ct);

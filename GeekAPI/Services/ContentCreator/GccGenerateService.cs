@@ -164,6 +164,31 @@ public class GccGenerateService
     }
 
     /// <summary>
+    /// Long-form content types disabled 2026-09-22 (Jeff) pending a written, approved resolve plan.
+    /// Tool is the one long-form type that meets the bar (always independently generated via
+    /// GenerateStartingContentAsync, never repurposed) and is deliberately excluded from this set.
+    /// Everything here either (a) has no dedicated generator at all -- always the generic fallback
+    /// inside GenerateStartingContentAsync -- or (b) like Pillar/Blog/TechArticle, CAN still be
+    /// produced via the repurpose/rewrite-derivation path when combined with a sibling long-form
+    /// type in the same multi-select generate. Short-form types (email, social, ads, image prompt,
+    /// linkedin-document) are explicitly out of scope for this disable -- not a current concern.
+    /// Normalized by stripping hyphens/spaces and lowercasing, so "tech-article" and "techArticle"
+    /// both match without needing two entries.
+    /// </summary>
+    private static readonly HashSet<string> DisabledLongFormContentTypes = new(StringComparer.Ordinal)
+    {
+        "pillar", "blog", "techarticle", "comparison", "alternatives", "casestudy",
+        "guide", "listicle", "service", "local", "whitepaper",
+    };
+
+    public static bool IsContentTypeDisabledPendingImplementation(string? contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType)) return false;
+        var normalized = new string(contentType.Where(char.IsLetter).ToArray()).ToLowerInvariant();
+        return DisabledLongFormContentTypes.Contains(normalized);
+    }
+
+    /// <summary>
     /// The Brief as labeled prose, one line per populated field — never a raw JSON dump. Stage 3:
     /// dumping <c>create.BriefJson</c> verbatim meant every field arrived with equal, unweighted
     /// emphasis and no guidance on how to resolve a conflict between them; a model reads "follow
