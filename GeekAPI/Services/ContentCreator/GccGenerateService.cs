@@ -164,28 +164,36 @@ public class GccGenerateService
     }
 
     /// <summary>
-    /// Long-form content types disabled 2026-09-22 (Jeff) pending a written, approved resolve plan.
-    /// Tool is the one long-form type that meets the bar (always independently generated via
-    /// GenerateStartingContentAsync, never repurposed) and is deliberately excluded from this set.
-    /// Everything here either (a) has no dedicated generator at all -- always the generic fallback
-    /// inside GenerateStartingContentAsync -- or (b) like Pillar/Blog/TechArticle, CAN still be
-    /// produced via the repurpose/rewrite-derivation path when combined with a sibling long-form
-    /// type in the same multi-select generate. Short-form types (email, social, ads, image prompt,
-    /// linkedin-document) are explicitly out of scope for this disable -- not a current concern.
-    /// Normalized by stripping hyphens/spaces and lowercasing, so "tech-article" and "techArticle"
-    /// both match without needing two entries.
+    /// Content types disabled 2026-09-22 (Jeff) pending a written, approved resolve plan -- see
+    /// plans/content-type-dispatch-and-richness.md (content-creator-v2). Revised same day: Pillar
+    /// and Blog re-enabled -- they have real, independent dedicated generators and only break in one
+    /// specific combination (multi-select alongside a sibling long-form type, tracked as its own bug
+    /// fix, not a reason to disable a type that mostly works). Tool remains the one long-form type
+    /// excluded outright -- it meets the bar these others don't (always independently generated via
+    /// GenerateStartingContentAsync, never repurposed, never mis-routed).
+    /// Everything still in this set has no real, correctly-routed implementation at all:
+    /// TechArticle/Comparison/Alternatives/CaseStudy/Guide/Listicle/Service/Local/Whitepaper are
+    /// always the generic fallback inside GenerateStartingContentAsync; LinkedInDocument has zero
+    /// content-type-specific treatment; EmailNewsletter/EmailStoryNurture/EmailTransactional all
+    /// currently produce cold-outreach-shaped content regardless of which is selected -- not a thin
+    /// version of the right thing, the wrong thing. Email-cold-outreach, Social, Ads, and standalone
+    /// Image prompt are not in this set -- cold outreach is the one email variant genuinely
+    /// implemented, and Social/Ads/Image prompt were never flagged as broken.
+    /// Normalized by stripping hyphens/spaces/slashes and lowercasing, so "tech-article"/"techArticle"
+    /// and "PDF / LinkedIn document"/"linkedin-document" both match one entry each.
     /// </summary>
-    private static readonly HashSet<string> DisabledLongFormContentTypes = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> DisabledContentTypes = new(StringComparer.Ordinal)
     {
-        "pillar", "blog", "techarticle", "comparison", "alternatives", "casestudy",
-        "guide", "listicle", "service", "local", "whitepaper",
+        "techarticle", "comparison", "alternatives", "casestudy", "guide", "listicle",
+        "service", "local", "whitepaper", "linkedindocument",
+        "emailnewsletter", "emailstorynurture", "emailtransactional",
     };
 
     public static bool IsContentTypeDisabledPendingImplementation(string? contentType)
     {
         if (string.IsNullOrWhiteSpace(contentType)) return false;
         var normalized = new string(contentType.Where(char.IsLetter).ToArray()).ToLowerInvariant();
-        return DisabledLongFormContentTypes.Contains(normalized);
+        return DisabledContentTypes.Contains(normalized);
     }
 
     /// <summary>
