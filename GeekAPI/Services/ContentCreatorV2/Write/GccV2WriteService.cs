@@ -880,7 +880,7 @@ public sealed class GccV2WriteService
         GccV2WriteSection write;
         try
         {
-            write = await GenerateRagSectionAsync(
+            write = await GenerateLibrarySectionAsync(
                 wc, outlineEntry, headings, completedSectionSummaries: [revisionNotes],
                 ContentGenerationStage.Repair, ct);
         }
@@ -907,7 +907,7 @@ public sealed class GccV2WriteService
         GccV2WriteSection generatedLede;
         try
         {
-            generatedLede = await GenerateRagSectionAsync(
+            generatedLede = await GenerateLibrarySectionAsync(
                 wc,
                 ledeOutline ?? new GccV2OutlineSection("lede", "Introduction", "problem", []),
                 headings,
@@ -963,7 +963,7 @@ public sealed class GccV2WriteService
         {
             var ledeEntry = outlineSections.FirstOrDefault()
                 ?? new GccV2OutlineSection("lede", "Introduction", "problem", []);
-            generatedLede = await GenerateRagSectionAsync(
+            generatedLede = await GenerateLibrarySectionAsync(
                 wc, ledeEntry, headings, [], ContentGenerationStage.Section, ct);
         }
         catch (Exception ex)
@@ -1010,7 +1010,7 @@ public sealed class GccV2WriteService
         foreach (var entry in wc.Outline.Sections.Where(s =>
                      !string.Equals(s.Job, "faq", StringComparison.OrdinalIgnoreCase)))
         {
-            ragDrafts.Add(await GenerateRagSectionAsync(
+            ragDrafts.Add(await GenerateLibrarySectionAsync(
                 wc, entry, headings, [], ContentGenerationStage.Section, ct));
         }
         if (ragDrafts.Count == 0)
@@ -1062,19 +1062,19 @@ public sealed class GccV2WriteService
 
     private async Task<GccV2WriteOutput> WriteEmailAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
-        return await WriteRagCompleteAsync(wc, ownerUserId, "email-body", "Email", ct);
+        return await WriteLibraryCompleteAsync(wc, ownerUserId, "email-body", "Email", ct);
     }
 
     private async Task<GccV2WriteOutput> WriteSocialAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
         var platform = ParseSocialPlatform(wc.Brief.RawBriefJson) ?? "LinkedIn";
-        return await WriteRagCompleteAsync(wc, ownerUserId, "social-post", $"{platform} post", ct);
+        return await WriteLibraryCompleteAsync(wc, ownerUserId, "social-post", $"{platform} post", ct);
     }
 
     private async Task<GccV2WriteOutput> WriteAdsAsync(GccV2WriteContext wc, Guid ownerUserId, CancellationToken ct)
     {
         var seed = BuildPartnerExtractionAdsSeed(wc.Brief.RawBriefJson);
-        return await WriteRagCompleteAsync(wc, ownerUserId, "ads-body", "Advertising variations", ct, seed);
+        return await WriteLibraryCompleteAsync(wc, ownerUserId, "ads-body", "Advertising variations", ct, seed);
     }
 
     private static string? BuildPartnerExtractionAdsSeed(string? rawBriefJson)
@@ -1104,7 +1104,7 @@ public sealed class GccV2WriteService
         return lines.Count <= 1 ? null : string.Join("\n", lines);
     }
 
-    private async Task<GccV2WriteOutput> WriteRagCompleteAsync(
+    private async Task<GccV2WriteOutput> WriteLibraryCompleteAsync(
         GccV2WriteContext wc,
         Guid ownerUserId,
         string sectionKey,
@@ -1223,7 +1223,7 @@ public sealed class GccV2WriteService
             }, ContentDocJson);
         }
 
-        return await WriteRagCompleteAsync(
+        return await WriteLibraryCompleteAsync(
             wc,
             ownerUserId,
             "image-prompt",
@@ -1268,7 +1268,7 @@ public sealed class GccV2WriteService
         try
         {
             var completedSummaries = await LoadCompletedSectionSummariesAsync(wc.Job.Id, ct);
-            write = await GenerateRagSectionAsync(
+            write = await GenerateLibrarySectionAsync(
                 wc, entry, allHeadings,
                 completedSectionSummaries: completedSummaries,
                 ContentGenerationStage.Section, ct);
@@ -1303,7 +1303,7 @@ public sealed class GccV2WriteService
         return summaries.TakeLast(12).ToList();
     }
 
-    private async Task<GccV2WriteSection> GenerateRagSectionAsync(
+    private async Task<GccV2WriteSection> GenerateLibrarySectionAsync(
         GccV2WriteContext wc,
         GccV2OutlineSection entry,
         IReadOnlyList<string> allHeadings,

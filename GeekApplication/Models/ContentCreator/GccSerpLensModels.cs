@@ -11,8 +11,16 @@ public sealed record SerpShapeSummary(
     int OrganicCount,
     string? PageHint);
 
-/// <summary>PAA/PAF-style question cluster for outline/FAQ curation.</summary>
-public sealed record PaaPafCluster(
+/// <summary>
+/// People Also Ask questions plus related searches, for outline/FAQ curation.
+/// </summary>
+/// <remarks>
+/// Named <c>PaaPafCluster</c> until 2026-09-21 -- renamed to resolve a collision: PAF means
+/// "People Also Found" in this codebase's older usage but "Primary Answer Feature" in Geek-SEO
+/// (SiteAnalyzerGates.cs). This record never actually held PAF-sourced data (no field for it,
+/// zero call sites), so the fix is dropping the term rather than finding a third meaning for it.
+/// </remarks>
+public sealed record PaaCluster(
     IReadOnlyList<PaaCandidate> Questions,
     IReadOnlyList<string> RelatedSearches);
 
