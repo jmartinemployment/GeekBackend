@@ -131,11 +131,18 @@ public sealed class GccV2PartnerExtractionService(
 
         var schema = GccV2AdHocJsonSchema.For<PartnerPageExtraction>(JsonOpts);
 
+        var failedPages = 0;
+
         foreach (var page in pages)
         {
             var x = await ExtractOnePageAsync(page, partnerToolNames, provider, schema, ct)
                 .ConfigureAwait(false);
-            if (x is null) continue;
+            if (x is null)
+            {
+                // Counted, not merely skipped -- see GccPartnerExtractionDocument.PagesFailed.
+                failedPages++;
+                continue;
+            }
 
             GccPartnerExtractionProvenance Prov(string? quote) => new(
                 OriginProofUrl: page.Url,
@@ -334,7 +341,9 @@ public sealed class GccV2PartnerExtractionService(
             Dedupe(battlecards, a => a.WinTheme),
             Dedupe(demoBeats, a => a.BeatTitle),
             Dedupe(compliance, a => a.TermKind + "|" + a.TermText),
-            Dedupe(disclosures, a => a.DisclosureText));
+            Dedupe(disclosures, a => a.DisclosureText),
+            PagesAttempted: pages.Count,
+            PagesFailed: failedPages);
     }
 
     /// <summary>

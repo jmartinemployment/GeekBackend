@@ -30,7 +30,19 @@ public sealed record GccPartnerExtractionDocument(
     IReadOnlyList<GccPartnerBattlecardSliceAsset> BattlecardSlices,
     IReadOnlyList<GccPartnerDemoBeatAsset> DemoBeats,
     IReadOnlyList<GccPartnerComplianceSnippetAsset> ComplianceSnippets,
-    IReadOnlyList<GccPartnerAffiliateDisclosureAsset> AffiliateDisclosures)
+    IReadOnlyList<GccPartnerAffiliateDisclosureAsset> AffiliateDisclosures,
+    /// <summary>
+    /// How many pages extraction was handed, and how many of those failed outright (the provider
+    /// call threw and the page was skipped).
+    ///
+    /// AGENTS.md, "Fail closed. No middle states.": <i>"Partial extraction is failure. Catching a
+    /// per-page error and logging 'page skipped' is a middle state; it hid a total extraction
+    /// outage behind thirteen drafts of filler."</i> Without these counts a total outage and a
+    /// genuine data shortage produce byte-identical documents -- both simply empty -- so the
+    /// refusal downstream could only ever say "nothing found" for either cause.
+    /// </summary>
+    int PagesAttempted = 0,
+    int PagesFailed = 0)
 {
     // Kept in lockstep with GccV2PartnerExtractionService.ProviderSchemaName ("partner-extraction-v4")
     // -- was "v3" while the provider schema had already moved to v4, an unnoticed drift caught during

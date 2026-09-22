@@ -1699,7 +1699,17 @@ public class GccGenerateService
         if (extraction is null) return "no extractable partner pages";
         var populated = CountPopulatedPartnerDataCategories(extraction);
         var hasCapabilitySignal = extraction.FeatureInventory.Count > 0 || extraction.Citables.Count > 0;
-        return $"{populated} of 22 payload categories populated (need at least 3), "
+
+        // An extraction outage and a genuine data shortage both leave every category empty, so the
+        // message has to separate them or the operator cannot tell a broken pipeline from a partner
+        // site that simply has no pricing/feature content on the retrieved pages.
+        var attempt = extraction.PagesFailed > 0
+            ? $"{extraction.PagesFailed} of {extraction.PagesAttempted} page(s) FAILED extraction "
+              + "(provider call threw -- this is a fault, not a data shortage); "
+            : $"{extraction.PagesAttempted} page(s) extracted cleanly; ";
+
+        return attempt
+            + $"{populated} of 22 payload categories populated (need at least 3), "
             + $"core capability signal (features or citable claims) {(hasCapabilitySignal ? "present" : "missing")}";
     }
 
