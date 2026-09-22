@@ -1479,10 +1479,15 @@ public class GccGenerateService
         if (create is not null && groundedExtraction is null)
         {
             var coverage = DescribePartnerDataCoverage(partnerExtraction);
+            // "Refused:" is not decoration -- GenerateAsync's first catch filters on that prefix to
+            // answer 400 (an operator-facing decision), and everything else falls through to a 503
+            // "Generate validation/config failed". This refusal is deliberate and correct, so it
+            // was being reported to the operator as "Service Unavailable", as though GeekAPI were
+            // down (Jeff, 2026-09-22). Same prefix convention GccGroundingResolver's refusals get.
             throw new InvalidOperationException(
-                $"Partner grounding required for '{name}': indexed partner crawl data exists for "
-                + $"this project, but what extraction found is not enough to ground a full tool "
-                + $"page ({coverage}). Not generating a thinly-grounded page.");
+                $"Refused: Partner grounding required for '{name}': indexed partner crawl data "
+                + $"exists for this project, but what extraction found is not enough to ground a "
+                + $"full tool page ({coverage}). Not generating a thinly-grounded page.");
         }
 
         var extractedToolResearchJson = groundedExtraction is null
