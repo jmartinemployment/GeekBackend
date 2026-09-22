@@ -76,7 +76,20 @@ public class SoftwareApplicationSchemaBuilder : ISoftwareApplicationSchemaBuilde
             ["@id"] = pillarArticleUrl
         };
 
-        return JsonSerializer.Serialize(node, JsonOptions);
+        var faqNode = BuildFaqPage(metadata);
+        if (faqNode is null)
+        {
+            return JsonSerializer.Serialize(node, JsonOptions);
+        }
+
+        node.Remove("@context");
+        var graph = new Dictionary<string, object?>
+        {
+            ["@context"] = "https://schema.org",
+            ["@graph"] = new List<Dictionary<string, object?>> { node, faqNode }
+        };
+
+        return JsonSerializer.Serialize(graph, JsonOptions);
     }
 
     private static Dictionary<string, object?> BuildNode(SoftwareApplicationDescriptor application)

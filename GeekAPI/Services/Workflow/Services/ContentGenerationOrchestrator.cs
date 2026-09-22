@@ -168,7 +168,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var now = DateTime.UtcNow;
         var articleMetadata = new ContentMetadata(
             bodyMetadata.Title, bodyMetadata.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, bodyMetadata.Keywords, wordCount);
+            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, bodyMetadata.Keywords, wordCount,
+            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
+            Faq: ContentDocumentText.ExtractFaqPairs(document));
         var softwareApplications = Array.Empty<SoftwareApplicationDescriptor>();
         articleRow.Body = document;
         articleRow.LedeType = ledeType;
@@ -294,7 +296,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             var now = DateTime.UtcNow;
             var articleMetadata = new ContentMetadata(
                 metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
-                context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount);
+                context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount,
+                AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
+                Faq: ContentDocumentText.ExtractFaqPairs(pillar.Body));
             var softwareApplications = DescriptorsFromToolPosts(project, context);
             pillar.JsonLdSchema = _articleSchemaBuilder.Build(
                 articleMetadata, pillar.RelatedArticleUrl ?? string.Empty, softwareApplications);
@@ -475,7 +479,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             var now = DateTime.UtcNow;
             var articleMetadata = new ContentMetadata(
                 metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
-                context.PublisherLogoUrl, relatedUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount);
+                context.PublisherLogoUrl, relatedUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount,
+                AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
+                Faq: ContentDocumentText.ExtractFaqPairs(pillar.Body));
             pillar.JsonLdSchema = _articleSchemaBuilder.Build(
                 articleMetadata, pillar.RelatedArticleUrl ?? string.Empty, DescriptorsFromToolPosts(project, context));
             await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
@@ -528,12 +534,16 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var now = DateTime.UtcNow;
         var blogMetadata = new ContentMetadata(
             blog.Title, blog.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, blogUrl, context.PublisherLogoUrl, now, now, blog.Keywords, blog.WordCount);
+            context.PublisherLogoUrl, blogUrl, context.PublisherLogoUrl, now, now, blog.Keywords, blog.WordCount,
+            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
+            Faq: ContentDocumentText.ExtractFaqPairs(blog.Body));
         var blogJsonLd = _blogSchemaBuilder.Build(blogMetadata, articleUrl);
 
         var articleMetadata = new ContentMetadata(
             article.Title, article.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, article.Keywords, article.WordCount);
+            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, article.Keywords, article.WordCount,
+            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
+            Faq: ContentDocumentText.ExtractFaqPairs(article.Body));
         var softwareApplications = DescriptorsFromToolPosts(project, context);
         articleRow.JsonLdSchema = _articleSchemaBuilder.Build(articleMetadata, blogUrl, softwareApplications);
         articleRow.RelatedArticleUrl = blogUrl;
@@ -597,7 +607,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var now = DateTime.UtcNow;
         var blogMetadata = new ContentMetadata(
             blogDraft.Title, blogDraft.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, blogUrl, context.PublisherLogoUrl, now, now, blogDraft.Keywords, blogDraft.WordCount);
+            context.PublisherLogoUrl, blogUrl, context.PublisherLogoUrl, now, now, blogDraft.Keywords, blogDraft.WordCount,
+            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
+            Faq: ContentDocumentText.ExtractFaqPairs(blogDraft.Body));
         var blogJsonLd = _blogSchemaBuilder.Build(blogMetadata, relatedArticleUrl: string.Empty);
 
         var summaryVariants = await GenerateSummaryVariantsAsync(
@@ -1153,9 +1165,17 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         }
 
         string? jsonLdSummary = null;
+        IReadOnlyList<string>? siteAreaServed = null;
+        string? sitePublisherType = null;
         if (crawl is not null)
         {
-            jsonLdSummary = JsonLdSummaryFormatter.Format(_jsonLdParser.Summarize(crawl.JsonLdBlocks));
+            // Kept structured, not just formatted to text: areaServed and the declared business
+            // type are schema emission's job (Stage 9), and the formatted string alone cannot
+            // carry them back out once flattened.
+            var siteSummary = _jsonLdParser.Summarize(crawl.JsonLdBlocks);
+            jsonLdSummary = JsonLdSummaryFormatter.Format(siteSummary);
+            siteAreaServed = siteSummary.ServiceAreas.Count > 0 ? siteSummary.ServiceAreas : null;
+            sitePublisherType = siteSummary.BusinessType;
             if (!string.IsNullOrWhiteSpace(jsonLdSummary))
             {
                 _logger.LogInformation(
@@ -1220,7 +1240,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             CtaLabel: brief.CtaLabel,
             LengthBand: brief.LengthBand,
             WritingNotes: brief.WritingNotes,
-            HierarchyAssignment: project.HierarchyAssignment);
+            HierarchyAssignment: project.HierarchyAssignment,
+            SiteAreaServed: siteAreaServed,
+            SitePublisherType: sitePublisherType);
     }
 
     /// <summary>Matches a project's TargetKeyword against a Home page use-case item by name — forgiving

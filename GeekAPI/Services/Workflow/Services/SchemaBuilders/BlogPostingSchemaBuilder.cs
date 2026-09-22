@@ -57,7 +57,20 @@ public class BlogPostingSchemaBuilder : IBlogPostingSchemaBuilder
             };
         }
 
-        return JsonSerializer.Serialize(schema, JsonOptions);
+        var faqNode = BuildFaqPage(metadata);
+        if (faqNode is null)
+        {
+            return JsonSerializer.Serialize(schema, JsonOptions);
+        }
+
+        var graph = new Dictionary<string, object?>
+        {
+            ["@context"] = "https://schema.org",
+            ["@graph"] = new List<Dictionary<string, object?>> { schema, faqNode }
+        };
+        schema.Remove("@context");
+
+        return JsonSerializer.Serialize(graph, JsonOptions);
     }
 
     /// <summary>

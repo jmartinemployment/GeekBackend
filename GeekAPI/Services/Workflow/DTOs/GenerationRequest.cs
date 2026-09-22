@@ -52,7 +52,13 @@ public record ProjectGenerationContext(
     string? CtaLabel = null,
     string? LengthBand = null,
     string? WritingNotes = null,
-    HierarchyAssignment? HierarchyAssignment = null);
+    HierarchyAssignment? HierarchyAssignment = null,
+    /// <summary>Geographies the client's own crawled site declares. Empty when it declares none —
+    /// schema emission must omit the property rather than emit an empty array.</summary>
+    IReadOnlyList<string>? SiteAreaServed = null,
+    /// <summary>The business type the client's own crawled site declares (LocalBusiness,
+    /// ProfessionalService, Organization, ...). Mirrored on the publisher node, never inferred.</summary>
+    string? SitePublisherType = null);
 
 /// <summary>Crawl tool name + optional source href. Generate-time only — not copied onto the project.</summary>
 public sealed record KnownCrawlTool(string Name, string? Href);

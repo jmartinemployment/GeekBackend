@@ -168,6 +168,53 @@ public static class ContentDocumentText
         return targets;
     }
 
+    /// <summary>
+    /// Question/answer pairs from the document's own FAQ section, if it has one — for
+    /// <c>FAQPage</c> schema on the generated page itself. Not the client's site's existing
+    /// structured data (that is <c>JsonLdSiteSummary</c>); this reads the draft being emitted.
+    /// </summary>
+    public static IReadOnlyList<GeekAPI.Services.Workflow.DTOs.ContentFaqEntry> ExtractFaqPairs(
+        ContentDocument? document)
+    {
+        var pairs = new List<GeekAPI.Services.Workflow.DTOs.ContentFaqEntry>();
+        if (document is null) return pairs;
+
+        foreach (var section in document.Sections)
+        {
+            if (!IsFaqSection(section)) continue;
+            CollectFaqPairs(section, pairs);
+        }
+
+        return pairs;
+    }
+
+    private static bool IsFaqSection(Section section) =>
+        section.Heading.Contains("People Also Ask", StringComparison.OrdinalIgnoreCase)
+        || section.Heading.Contains("FAQ", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(section.Tag, "faq", StringComparison.OrdinalIgnoreCase);
+
+    private static void CollectFaqPairs(
+        Section section, List<GeekAPI.Services.Workflow.DTOs.ContentFaqEntry> pairs)
+    {
+        if (section.Children.Count > 0)
+        {
+            foreach (var child in section.Children)
+            {
+                var question = child.Heading.Trim();
+                var answer = string.Join("\n", child.Paragraphs.SelectMany(FlattenParagraph)).Trim();
+                if (question.Length > 0 && answer.Length > 0)
+                    pairs.Add(new(question, answer));
+            }
+
+            return;
+        }
+
+        // Flat FAQ: prefer question-shaped headings only, rather than guessing at Q:/A: prose.
+        var body = string.Join("\n", section.Paragraphs.SelectMany(FlattenParagraph)).Trim();
+        if (section.Heading.TrimEnd().EndsWith('?') && body.Length > 0)
+            pairs.Add(new(section.Heading.Trim(), body));
+    }
+
     private static string FlattenSection(Section section)
     {
         var parts = new List<string> { section.Heading };

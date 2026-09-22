@@ -37,16 +37,23 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
         var softwareNodes = softwareApplications is { Count: > 0 }
             ? _softwareApplicationSchemaBuilder.BuildNodes(softwareApplications)
             : [];
+        var faqNode = BuildFaqPage(metadata);
 
-        if (softwareNodes.Count == 0)
+        if (softwareNodes.Count == 0 && faqNode is null)
         {
             return JsonSerializer.Serialize(articleNode, JsonOptions);
+        }
+
+        var graphNodes = new List<Dictionary<string, object?>>([articleNode, ..softwareNodes]);
+        if (faqNode is not null)
+        {
+            graphNodes.Add(faqNode);
         }
 
         var graph = new Dictionary<string, object?>
         {
             ["@context"] = "https://schema.org",
-            ["@graph"] = new List<Dictionary<string, object?>>([articleNode, ..softwareNodes])
+            ["@graph"] = graphNodes
         };
 
         return JsonSerializer.Serialize(graph, JsonOptions);

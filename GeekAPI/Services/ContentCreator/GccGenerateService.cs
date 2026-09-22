@@ -1395,6 +1395,10 @@ public class GccGenerateService
 
         var toolUrl = $"{_company.ToolBaseUrl.TrimEnd('/')}/{dept}/{slug}";
         var now = DateTime.UtcNow;
+        // AreaServed/PublisherType stay unset here, correctly: this method takes no project or
+        // crawl reference (toolName, brief and sourceContext only), so there is no client site to
+        // ask about geography or declared business type. Not a gap -- there is nothing to wire.
+        // Faq is independent of site data: it reads the tool page's own generated document.
         var schemaMeta = new ContentMetadata(
             name,
             metaDescription,
@@ -1406,7 +1410,8 @@ public class GccGenerateService
             now,
             now,
             pillarMeta.Keywords,
-            wordCount);
+            wordCount,
+            Faq: ContentDocumentText.ExtractFaqPairs(document));
 
         var pillarUrl = string.IsNullOrWhiteSpace(relatedArticleUrl)
             ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{dept}"
