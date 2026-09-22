@@ -711,39 +711,49 @@ public class GccController : ControllerBase
         {
             case "pillar":
                 bodyJson = await gen.GeneratePillarBodyAsync(create, section, provider, mustMentionBlock, ct);
-                // Generate per-H2 image prompts
-                var pillarImagePrompts = await gen.GenerateSectionImagePromptsAsync(
+                // Per-H2 image prompts, merged into the document itself (Section.ImagePrompt) --
+                // previously computed here and discarded; bodyJson now carries the real result.
+                bodyJson = await gen.GenerateSectionImagePromptsAsync(
                     "pillar", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             case "blog":
                 bodyJson = await gen.GenerateBlogBodyAsync(create, section, provider, mustMentionBlock, ct);
-                // Generate per-H2 image prompts
-                var blogImagePrompts = await gen.GenerateSectionImagePromptsAsync(
+                bodyJson = await gen.GenerateSectionImagePromptsAsync(
                     "blog", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             case "email":
                 bodyJson = await gen.GenerateEmailAsync(create, section, provider, mustMentionBlock, ct);
-                // Email gets one standalone image prompt
                 bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             case "linkedin":
                 bodyJson = await gen.GenerateSocialPostAsync(create, "linkedin", section, provider, mustMentionBlock, ct);
-                // LinkedIn gets one standalone image prompt
                 bodyJson = await AddImagePromptForContentAsync(gen, "linkedin", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             case "facebook":
                 bodyJson = await gen.GenerateSocialPostAsync(create, "facebook", section, provider, mustMentionBlock, ct);
-                // Facebook gets one standalone image prompt
                 bodyJson = await AddImagePromptForContentAsync(gen, "facebook", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             default:
                 // Fallback to old generic method for unsupported types
                 bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
+                // imagePrompt/tool return a different shape (a standalone prompt, or a wrapper
+                // object around a document) -- neither is the bare ContentDocument this expects.
+                // Every other type routed here (comparison, guide, tech-article, ...) is one, so
+                // it gets the same per-H2 treatment pillar/blog do, not silently skipped because
+                // it fell through to the generic branch.
+                if (!string.Equals(contentType, "imageprompt", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(contentType, "image-prompt", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(contentType, "tool", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(contentType, "aitool", StringComparison.OrdinalIgnoreCase))
+                {
+                    bodyJson = await gen.GenerateSectionImagePromptsAsync(
+                        contentType, create.Topic, bodyJson, section, provider, ct);
+                }
                 break;
         }
 
@@ -1410,6 +1420,15 @@ public class GccController : ControllerBase
             now)).ToList();
     }
 
+    /// <summary>
+    /// Attaches an <c>imagePrompt</c> field to a short-form body (email/social — a flat JSON
+    /// object, not a <see cref="ContentDocument"/>, so there's no Section to merge into the way
+    /// pillar/blog do). Previously computed the prompt via a real, paid LLM call and discarded
+    /// it unconditionally ("image prompts can be stored separately") -- every email/LinkedIn/
+    /// Facebook generation paid for a prompt nobody ever saw. Image-prompt failure still doesn't
+    /// fail the whole generation (the primary content already succeeded), but it's now logged
+    /// rather than silently swallowed, and cancellation propagates instead of being caught.
+    /// </summary>
     private async Task<string> AddImagePromptForContentAsync(
         GccGenerateService gen,
         string contentType,
@@ -1423,12 +1442,17 @@ public class GccController : ControllerBase
         {
             var imagePromptJson = await gen.GenerateImagePromptJsonAsync(
                 topic, null, contentJson, provider, ct);
-            // For now, just return the content as-is; image prompts can be stored separately
-            return contentJson;
+            return GccGenerateService.MergeImagePromptField(contentJson, imagePromptJson);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            // Image prompt generation is optional, don't fail the whole generation
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Image prompt generation is optional -- the primary content already succeeded and
+            // must still be returned -- but a failure here should be visible, not silent.
+            _logger.LogWarning(ex, "Image prompt generation failed for {ContentType}; content saved without one.", contentType);
             return contentJson;
         }
     }

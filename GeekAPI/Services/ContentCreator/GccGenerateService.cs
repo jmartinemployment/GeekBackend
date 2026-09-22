@@ -1623,6 +1623,23 @@ public class GccGenerateService
     public static string SerializeDocument(ContentDocument document) =>
         JsonSerializer.Serialize(document, CwDocumentJson);
 
+    /// <summary>
+    /// Attaches an <c>imagePrompt</c> field to a flat, short-form body JSON object (email/social —
+    /// no <see cref="Section"/> to merge into the way pillar/blog's per-H2 prompts do). Pure and
+    /// separately testable on purpose: the controller-level caller wraps this in the try/catch
+    /// that makes image-prompt failure non-fatal to the primary content, which needs a live
+    /// HTTP/DI pipeline to exercise; the merge itself does not.
+    /// </summary>
+    public static string MergeImagePromptField(string contentJson, string imagePromptJson)
+    {
+        var contentNode = System.Text.Json.Nodes.JsonNode.Parse(contentJson)?.AsObject()
+            ?? throw new InvalidOperationException("Content body was not a JSON object.");
+        var imagePromptNode = System.Text.Json.Nodes.JsonNode.Parse(imagePromptJson)
+            ?? throw new InvalidOperationException("Image prompt generation returned non-JSON content.");
+        contentNode["imagePrompt"] = imagePromptNode;
+        return contentNode.ToJsonString();
+    }
+
     private IContentGenerationProvider GetLlm(ContentGeneratorProvider provider) =>
         _cwProviders.Get(ToLlm(provider));
 
@@ -2472,6 +2489,17 @@ public class GccGenerateService
         return new GccHeadingProvenanceEvidence(retrievalUrls, populatedBriefFields, paaQuestions, competitorHeadings);
     }
 
+    private sealed record SectionImagePrompt(string Section, string Prompt);
+    private sealed record SectionImagePromptsResponse(List<SectionImagePrompt>? Prompts);
+
+    /// <summary>
+    /// Generates one image prompt per top-level section (plus a hero for the lede) and merges
+    /// them into the document's own <see cref="Section.ImagePrompt"/> fields, returning the
+    /// updated body JSON. Previously computed a real, paid LLM response here and then discarded
+    /// it -- every caller took the return value, generated a section-image-prompts call, and
+    /// never used the result. Every long-form generation was paying for image prompts nobody
+    /// ever saw.
+    /// </summary>
     public async Task<string> GenerateSectionImagePromptsAsync(
         string contentType,
         string title,
@@ -2533,7 +2561,35 @@ public class GccGenerateService
             raw = raw[start..(end + 1)];
         }
 
-        return raw;
+        var parsed = JsonSerializer.Deserialize<SectionImagePromptsResponse>(raw, JsonOpts);
+        var prompts = parsed?.Prompts ?? [];
+        if (prompts.Count == 0)
+            throw new InvalidOperationException("Image prompts generation returned no prompts.");
+
+        var document = JsonSerializer.Deserialize<ContentDocument>(body, CwDocumentJson)
+            ?? throw new InvalidOperationException("Could not re-read the generated body to attach image prompts.");
+
+        // Positional, matching how the request was built: index 0 is always "Hero" (the lede),
+        // index 1.. line up with `sections` (ExtractSectionHeadings' order) one for one -- the
+        // system prompt requires "EXACTLY ONE prompt for EACH listed section, in the exact order
+        // listed", so trusting position over re-matching by name text is the reliable read.
+        var lede = document.Lede;
+        if (prompts.Count > 0 && !string.IsNullOrWhiteSpace(prompts[0].Prompt))
+            lede = lede with { ImagePrompt = prompts[0].Prompt };
+
+        var updatedSections = new List<Section>(document.Sections.Count);
+        for (var i = 0; i < document.Sections.Count; i++)
+        {
+            var promptIndex = i + 1; // offset by the Hero entry at index 0
+            var s = document.Sections[i];
+            updatedSections.Add(
+                promptIndex < prompts.Count && !string.IsNullOrWhiteSpace(prompts[promptIndex].Prompt)
+                    ? s with { ImagePrompt = prompts[promptIndex].Prompt }
+                    : s);
+        }
+
+        var updated = document with { Lede = lede, Sections = updatedSections };
+        return JsonSerializer.Serialize(updated, CwDocumentJson);
     }
 
     /// <summary>
