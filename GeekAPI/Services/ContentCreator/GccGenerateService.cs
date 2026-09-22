@@ -54,19 +54,22 @@ public class GccGenerateService
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
+    private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
 
     public GccGenerateService(
         IContentPromptBuilder prompts,
         IContentProviderFactory cwProviders,
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IOptions<CompanyProfileOptions> company,
-        ILogger<GccGenerateService> logger)
+        ILogger<GccGenerateService> logger,
+        GccCompetitorAnalysisResolver competitorAnalysis)
     {
         _prompts = prompts;
         _cwProviders = cwProviders;
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _company = company.Value;
         _logger = logger;
+        _competitorAnalysis = competitorAnalysis;
     }
 
     public static SiteSectionContextDto? ParseSiteSection(string? json) =>
@@ -210,7 +213,24 @@ public class GccGenerateService
     {
         var sb = new StringBuilder();
         sb.AppendLine(BuildBriefFieldsBlock(ExtractBriefFields(create.BriefJson)));
+        var researchBlock = BuildResearchBlock(create);
+        if (researchBlock.Length > 0)
+            sb.AppendLine(researchBlock);
+        return sb.ToString().TrimEnd();
+    }
 
+    /// <summary>
+    /// Everything <see cref="BuildBriefAndResearchBlock"/> renders beyond the Brief itself:
+    /// quoteable research (retrieved or operator-uploaded), uploaded Keyword SERP files, and the
+    /// SERP index. Split out so the pillar/blog live path -- which builds its own Brief-controls
+    /// block separately via <c>BuildPillarContext</c>/<c>BuildBriefBodyGuidance</c> -- can pull in
+    /// research without duplicating the Brief a second time. Stage 2: this was the retrieved
+    /// evidence <c>GccGroundingResolver</c> resolves and merges into <c>ResearchJson</c> that
+    /// pillar/blog never read back out.
+    /// </summary>
+    internal static string BuildResearchBlock(GccCreateDto create)
+    {
+        var sb = new StringBuilder();
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
         if (research?.Quoteables is { Count: > 0 })
         {
@@ -2035,7 +2055,10 @@ public class GccGenerateService
         CancellationToken ct)
     {
         var llm = GetLlm(provider);
+        var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
         var context = BuildPillarContext(create, section, mustMentionBlock, provider);
+        var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
+        var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         var metadata = new ArticleMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
@@ -2062,11 +2085,24 @@ public class GccGenerateService
                 metadata,
                 headings: [.. PillarOutline.Skip(1)],
                 fullOutline: PillarOutline,
-                isRegeneration: false),
+                isRegeneration: false,
+                revisionNotes: null,
+                requireHeadingProvenance: true,
+                evidenceBlock: evidenceBlock),
             ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body").ToList();
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Pillar body returned no sections.");
+
+        // Stage 2: every heading the model invented beyond the assigned outline must be licensed
+        // by real material shown to it -- retrieval, the brief, curated PAA, or a competitor
+        // heading -- never invented from nothing. Fail closed, same as everywhere else in this
+        // codebase: a draft with an unlicensed heading is not persisted, not trimmed to the
+        // licensed subset.
+        var provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
+        if (provenanceViolations.Count > 0)
+            throw new InvalidOperationException(
+                $"Pillar body contains unlicensed headings: {string.Join("; ", provenanceViolations)}");
 
         // Stage 8c: the brief's PAA questions were parsed (ExtractBriefFields) and then silently
         // dropped -- never fed to an FAQ section anywhere on this path. Not "cluster PAA again at
@@ -2144,7 +2180,10 @@ public class GccGenerateService
         CancellationToken ct)
     {
         var llm = GetLlm(provider);
+        var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
         var context = BuildPillarContext(create, section, mustMentionBlock, provider);
+        var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
+        var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         var metadata = new BlogMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
@@ -2158,14 +2197,162 @@ public class GccGenerateService
             throw new InvalidOperationException("Blog lede returned no sections.");
 
         var bodyResult = await llm.CompleteAsync(
-            _prompts.BuildStandaloneBlogBodyPrompt(context, metadata, revisionNotes: null), ct);
+            _prompts.BuildStandaloneBlogBodyPrompt(
+                context, metadata, revisionNotes: null, requireHeadingProvenance: true,
+                evidenceBlock: evidenceBlock),
+            ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "blog body");
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Blog body returned no sections.");
 
+        var provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
+        if (provenanceViolations.Count > 0)
+            throw new InvalidOperationException(
+                $"Blog body contains unlicensed headings: {string.Join("; ", provenanceViolations)}");
+
         var document = new ContentDocument(ledeSections[0] with { Tag = "h2" }, bodySections);
         document = ContentGuardrail.Apply(document).Document;
         return JsonSerializer.Serialize(document, CwDocumentJson);
+    }
+
+    /// <summary>
+    /// Stage 8a's resolver, called for the first time from generation itself. Returns empty --
+    /// never throws -- when the create has no project or the project has no indexed competitor
+    /// crawl; a missing competitor analysis is not a reason to refuse pillar/blog generation, only
+    /// a reason the "competitor:" provenance tag has nothing to resolve against.
+    /// </summary>
+    private async Task<IReadOnlyList<GccCompetitorPageAnalysis>> ResolveCompetitorAnalysesAsync(
+        GccCreateDto create, CancellationToken ct) =>
+        create.ProjectId is { } projectId
+            ? await _competitorAnalysis.ResolveAsync(projectId, ct)
+            : [];
+
+    /// <summary>
+    /// Stage 2: research + competitor evidence, rendered as one block the caller appends directly
+    /// into the body prompt's own system text. Not routed through <c>ProjectGenerationContext
+    /// .CrawledParagraphs</c> -- <c>ResearchBriefBuilder</c>'s <c>ArticleSection</c> phase (the
+    /// pillar body's own phase) never renders that field at all, so evidence merged there would
+    /// have reached the same silent dead end this stage exists to close. A direct parameter can't
+    /// depend on which phase happens to render it.
+    /// </summary>
+    private static string BuildEvidenceBlock(
+        GccCreateDto create, IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses)
+    {
+        var sb = new StringBuilder();
+        var researchBlock = BuildResearchBlock(create);
+        if (researchBlock.Length > 0)
+            sb.AppendLine(researchBlock);
+
+        var competitorBlock = BuildCompetitorHeadingBlock(competitorAnalyses);
+        if (competitorBlock.Length > 0)
+            sb.AppendLine(competitorBlock);
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private const int MaxCompetitorPagesInPrompt = 5;
+    private const int MaxCompetitorHeadingsPerPage = 25;
+
+    /// <summary>
+    /// Stage 2: competitor headings, resolved but never shown to the model that writes pillar/blog
+    /// bodies (<see cref="GccCompetitorAnalysisResolver"/>'s own doc comment named this as its own
+    /// deferred consumer). Rendered flat with level markers so the model can draw a genuine
+    /// content-gap subsection from one, then tag it "competitor:&lt;exact heading text&gt;".
+    /// </summary>
+    private static string BuildCompetitorHeadingBlock(IReadOnlyList<GccCompetitorPageAnalysis> analyses)
+    {
+        if (analyses.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("=== COMPETITOR HEADING STRUCTURE (for content-gap awareness) ===");
+        sb.AppendLine("Real heading outlines from indexed competitor pages. You may draw a subsection from one");
+        sb.AppendLine("of these headings when it fills a real gap this article should cover -- tag it");
+        sb.AppendLine("\"competitor:<exact heading text>\", the text only, not the \"(hN)\" level marker");
+        sb.AppendLine("(see provenance rules). Do not copy competitor prose.");
+        sb.AppendLine();
+        foreach (var page in analyses.Take(MaxCompetitorPagesInPrompt))
+        {
+            sb.AppendLine($"[{page.Url}]");
+            var flat = new List<(string Text, int Level)>();
+            FlattenCompetitorHeadings(page.Headings, flat);
+            // The level is a parenthetical, not a prefix -- "competitor:<exact heading text>" must
+            // not have to guess whether "H2: " counts as part of the heading it's quoting.
+            foreach (var h in flat.Take(MaxCompetitorHeadingsPerPage))
+                sb.AppendLine($"- {h.Text} (h{h.Level})");
+            sb.AppendLine();
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>Flattens a competitor page's heading tree to (text, level) pairs, depth-first. The
+    /// one shared traversal for both the rendered prompt block above (which also shows the level)
+    /// and <see cref="BuildProvenanceEvidence"/>'s lookup set (which only needs the bare text) --
+    /// so the two can never see a different tree.</summary>
+    private static void FlattenCompetitorHeadings(
+        IReadOnlyList<GeekAPI.Services.ContentCreatorV2.Hierarchy.GccV2HeadingNode> nodes,
+        List<(string Text, int Level)> into)
+    {
+        foreach (var node in nodes)
+        {
+            if (!string.IsNullOrWhiteSpace(node.HeadingText))
+                into.Add((node.HeadingText.Trim(), node.Level));
+            if (node.Children.Count > 0)
+                FlattenCompetitorHeadings(node.Children, into);
+        }
+    }
+
+    /// <summary>
+    /// Stage 2: the concrete evidence set this specific generation call had available -- the same
+    /// research/brief/PAA/competitor material rendered into the prompt, reduced to lookup sets so
+    /// <see cref="GccHeadingProvenanceGuard"/> can check the model's tags against exactly what it
+    /// was shown, never a broader or narrower set.
+    /// </summary>
+    private static GccHeadingProvenanceEvidence BuildProvenanceEvidence(
+        GccCreateDto create, IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses)
+    {
+        var research = GccResearchFetchService.Deserialize(create.ResearchJson);
+        var retrievalUrls = new HashSet<string>(
+            (research?.Quoteables ?? []).Select(q => q.Url), StringComparer.OrdinalIgnoreCase);
+
+        var brief = ExtractBriefFields(create.BriefJson);
+        var populatedBriefFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddIfPresent(string name, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) populatedBriefFields.Add(name);
+        }
+        void AddIfAny(string name, IReadOnlyList<string>? values)
+        {
+            if (values is { Count: > 0 }) populatedBriefFields.Add(name);
+        }
+        AddIfPresent("segment", brief.Segment);
+        AddIfAny("details", brief.Details);
+        AddIfPresent("notes", brief.Notes);
+        AddIfPresent("angle", brief.Angle);
+        AddIfPresent("primaryIntent", brief.PrimaryIntent);
+        AddIfPresent("secondaryIntent", brief.SecondaryIntent);
+        AddIfPresent("buyingStage", brief.BuyingStage);
+        AddIfPresent("toneOfVoice", brief.ToneOfVoice);
+        AddIfAny("eeatSignals", brief.EeatSignals);
+        AddIfPresent("ctaType", brief.CtaType);
+        AddIfPresent("ctaLabel", brief.CtaLabel);
+        AddIfPresent("lengthBand", brief.LengthBand);
+        AddIfPresent("writingNotes", brief.WritingNotes);
+
+        var paaQuestions = new HashSet<string>(
+            (brief.PaaQuestions ?? []).Select(q => q.Trim()), StringComparer.OrdinalIgnoreCase);
+
+        var competitorHeadings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in competitorAnalyses)
+        {
+            var flat = new List<(string Text, int Level)>();
+            FlattenCompetitorHeadings(page.Headings, flat);
+            foreach (var h in flat)
+                competitorHeadings.Add(h.Text);
+        }
+
+        return new GccHeadingProvenanceEvidence(retrievalUrls, populatedBriefFields, paaQuestions, competitorHeadings);
     }
 
     public async Task<string> GenerateSectionImagePromptsAsync(

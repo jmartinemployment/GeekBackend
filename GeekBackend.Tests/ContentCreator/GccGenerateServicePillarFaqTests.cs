@@ -19,7 +19,9 @@ namespace GeekBackend.Tests.ContentCreator;
 public class GccGenerateServicePillarFaqTests
 {
     private const string SectionJson = """{"tag":"h2","heading":"Section","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}""";
-    private const string SectionsArrayJson = """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}]}""";
+    // "provenance":"plan" -- the lede/body calls stand in for the pillar's assigned outline
+    // headings, so Stage 2's guard accepts them unconditionally, same as production would.
+    private const string SectionsArrayJson = """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[],"provenance":"plan"}]}""";
 
     private sealed class RecordingProvider : IContentGenerationProvider
     {
@@ -30,11 +32,14 @@ public class GccGenerateServicePillarFaqTests
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
             var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+            // Call order, not content-sniffing: Stage 2's provenance instruction text itself
+            // mentions "People Also Ask" (describing the "paa:" tag) now that it's appended to the
+            // body prompt too, so a substring match against the FAQ prompt's own heading text is no
+            // longer reliable. GeneratePillarBodyAsync's own sequence is lede(0) -> body(1) ->
+            // FAQ(2), so index is unambiguous.
+            var callIndex = SystemPromptsSeen.Count;
             SystemPromptsSeen.Add(system);
-            // Lede/body calls expect a sections array; the FAQ call expects a single Section.
-            var content = system.Contains("People Also Ask", StringComparison.Ordinal)
-                ? SectionJson
-                : SectionsArrayJson;
+            var content = callIndex == 2 ? SectionJson : SectionsArrayJson;
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
     }
@@ -56,7 +61,11 @@ public class GccGenerateServicePillarFaqTests
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         Options.Create(new CompanyProfileOptions()),
-        NullLogger<GccGenerateService>.Instance);
+        NullLogger<GccGenerateService>.Instance,
+        GccCompetitorAnalysisResolverTests.Build(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            new GccCompetitorAnalysisResolverTests.FakeRag()));
 
     [Fact]
     public async Task NoPaaQuestionsMeansNoFaqCompletionCall()
@@ -69,7 +78,7 @@ public class GccGenerateServicePillarFaqTests
 
         // Lede + body only.
         Assert.Equal(2, provider.SystemPromptsSeen.Count);
-        Assert.DoesNotContain(provider.SystemPromptsSeen, p => p.Contains("People Also Ask", StringComparison.Ordinal));
+        Assert.DoesNotContain(provider.SystemPromptsSeen, p => p.Contains("FAQ section", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -83,7 +92,7 @@ public class GccGenerateServicePillarFaqTests
 
         // Lede + body + FAQ.
         Assert.Equal(3, provider.SystemPromptsSeen.Count);
-        Assert.Contains(provider.SystemPromptsSeen, p => p.Contains("People Also Ask", StringComparison.Ordinal));
+        Assert.Contains("FAQ section", provider.SystemPromptsSeen[2], StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,0 +1,199 @@
+using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Workflow.Domain.Enums;
+using GeekAPI.Services.Workflow.Providers;
+using GeekAPI.Services.Workflow.Services;
+using GeekAPI.Services.Workflow.Services.PromptBuilders;
+using GeekAPI.Services.Workflow.Services.SchemaBuilders;
+using GeekApplication.Interfaces.ContentWriterV3;
+using GeekApplication.Models.ContentCreator;
+using GeekApplication.Models.GeekCrawler;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace GeekBackend.Tests.ContentCreator;
+
+/// <summary>
+/// Stage 2 (heading provenance), at the live-path integration level. Three things the pure
+/// GccHeadingProvenanceGuardTests can't prove on their own: that GeneratePillarBodyAsync actually
+/// resolves competitor evidence and research (not just that the guard's math is right), that the
+/// resolved evidence actually reaches the rendered prompt the model sees, and that a body carrying
+/// an unlicensed invented heading actually refuses the whole generation rather than silently
+/// dropping the offending section.
+/// </summary>
+public class GccGenerateServiceProvenanceTests
+{
+    private sealed class ScriptedProvider(Func<int, string> respond) : IContentGenerationProvider
+    {
+        public LlmProviderType ProviderType => LlmProviderType.OpenAi;
+        public List<ChatCompletionRequest> Requests { get; } = [];
+
+        public Task<ChatCompletionResult> CompleteAsync(
+            ChatCompletionRequest request, CancellationToken cancellationToken = default)
+        {
+            var index = Requests.Count;
+            Requests.Add(request);
+            return Task.FromResult(new ChatCompletionResult(respond(index), "test-model", null, null));
+        }
+    }
+
+    private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
+    {
+        public IContentGenerationProvider Get(LlmProviderType providerType) => provider;
+        public IContentGenerationProvider GetDefault() => provider;
+    }
+
+    private const string LedeJson =
+        """{"sections":[{"tag":"h2","heading":"Lede","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}]}""";
+
+    private static GccCreateDto Create(string? briefJson = null, string? researchJson = null, Guid? projectId = null) => new(
+        Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
+        StartingContentType: "pillar", Topic: "AI implementation", Notes: null,
+        ProjectSiteRunId: null, SiteSectionJson: null, BriefJson: briefJson, ResearchJson: researchJson,
+        Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow,
+        ProjectId: projectId);
+
+    private static GccGenerateService Build(
+        IContentGenerationProvider provider, GccCompetitorAnalysisResolver competitorResolver) => new(
+        new ContentPromptBuilder(),
+        new FakeProviderFactory(provider),
+        new SoftwareApplicationSchemaBuilder(),
+        Options.Create(new CompanyProfileOptions()),
+        NullLogger<GccGenerateService>.Instance,
+        competitorResolver);
+
+    private static GccCompetitorAnalysisResolver NoCompetitorData() =>
+        GccCompetitorAnalysisResolverTests.Build(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            new GccCompetitorAnalysisResolverTests.FakeRag());
+
+    [Fact]
+    public async Task UnlicensedInventedHeadingRefusesTheWholeGeneration()
+    {
+        var provider = new ScriptedProvider(index => index switch
+        {
+            0 => LedeJson,
+            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Made Up Subtopic","paragraphs":[],"href":null,"children":[]}]}]}""",
+        });
+        var service = Build(provider, NoCompetitorData());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GeneratePillarBodyAsync(Create(), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None));
+
+        Assert.Contains("unlicensed", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Made Up Subtopic", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PlanTaggedTopLevelHeadingsPassWithoutAnyOtherEvidence()
+    {
+        var provider = new ScriptedProvider(index => index switch
+        {
+            0 => LedeJson,
+            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[]}]}""",
+        });
+        var service = Build(provider, NoCompetitorData());
+
+        var json = await service.GeneratePillarBodyAsync(Create(), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Contains("Overview", json);
+    }
+
+    [Fact]
+    public async Task CompetitorHeadingReachesThePromptAndLicensesAMatchingTag()
+    {
+        const string competitorHtml =
+            """
+            <html><body>
+              <h1>Pricing</h1>
+              <h2>Enterprise Rollout Timeline</h2>
+            </body></html>
+            """;
+        var rag = new GccCompetitorAnalysisResolverTests.FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://competitor.test", "competitor.test", true, Guid.NewGuid().ToString())]);
+        var pages = new GccCompetitorAnalysisResolverTests.FakePages(
+            [GccCompetitorAnalysisResolverTests.CrawledPage("https://competitor.test/pricing", competitorHtml)]);
+        var project = GccCompetitorAnalysisResolverTests.Project("https://competitor.test");
+        var resolver = GccCompetitorAnalysisResolverTests.Build(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(project), pages, rag);
+
+        var provider = new ScriptedProvider(index => index switch
+        {
+            0 => LedeJson,
+            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Enterprise Rollout Timeline","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Enterprise Rollout Timeline"}]}]}""",
+        });
+        var service = Build(provider, resolver);
+        var create = Create(projectId: project.Id);
+
+        var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Contains("Enterprise Rollout Timeline", json);
+        // The guard passing isn't proof the wiring happened -- the rendered prompt is. Assert the
+        // body call's own system message actually showed the model this heading and its source URL.
+        var bodyRequest = provider.Requests[1];
+        var systemMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.System).Content;
+        Assert.Contains("Enterprise Rollout Timeline", systemMessage, StringComparison.Ordinal);
+        Assert.Contains("competitor.test/pricing", systemMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ResearchEvidenceReachesThePromptAndLicensesAMatchingRetrievalTag()
+    {
+        var researchJson = GccResearchFetchService.Serialize(new GccResearchDocument(
+            SerpIndex: null,
+            Quoteables:
+            [
+                new GccQuoteablePage(
+                    Url: "https://partner.test/integration",
+                    Title: "Partner Integration Guide",
+                    Headings: [new HeadingDto(2, "Setup Steps")],
+                    Paragraphs: ["Connect the API key in under five minutes."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ]));
+
+        var provider = new ScriptedProvider(index => index switch
+        {
+            0 => LedeJson,
+            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Setup Steps","paragraphs":[],"href":null,"children":[],"provenance":"retrieval:https://partner.test/integration"}]}]}""",
+        });
+        var service = Build(provider, NoCompetitorData());
+        var create = Create(researchJson: researchJson);
+
+        var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Contains("Setup Steps", json);
+        var bodyRequest = provider.Requests[1];
+        var systemMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.System).Content;
+        Assert.Contains("partner.test/integration", systemMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ARetrievalTagCitingAUrlNotInEvidenceIsUnlicensedEvenWithOtherResearchPresent()
+    {
+        var researchJson = GccResearchFetchService.Serialize(new GccResearchDocument(
+            SerpIndex: null,
+            Quoteables:
+            [
+                new GccQuoteablePage(
+                    Url: "https://partner.test/real-page",
+                    Title: "Real Page",
+                    Headings: [],
+                    Paragraphs: ["Real content."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ]));
+
+        var provider = new ScriptedProvider(index => index switch
+        {
+            0 => LedeJson,
+            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Fabricated Claim","paragraphs":[],"href":null,"children":[],"provenance":"retrieval:https://not-actually-shown.test/page"}]}]}""",
+        });
+        var service = Build(provider, NoCompetitorData());
+        var create = Create(researchJson: researchJson);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None));
+
+        Assert.Contains("Fabricated Claim", ex.Message, StringComparison.Ordinal);
+    }
+}

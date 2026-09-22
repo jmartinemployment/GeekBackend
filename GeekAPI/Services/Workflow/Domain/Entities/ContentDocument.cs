@@ -74,7 +74,14 @@ public sealed record Section(
     /// <summary>In-page anchor id for jump links / TOC. Assigned in code after generation —
     /// ignored by the LLM section JSON schema so the model never invents or omits it.</summary>
     [property: JsonIgnore]
-    string? Id = null);
+    string? Id = null,
+    /// <summary>Stage 2 (heading provenance). What licensed this section, in the model's own words
+    /// -- "plan", "retrieval:&lt;url&gt;", "brief:&lt;fieldName&gt;", "paa:&lt;question&gt;", or
+    /// "competitor:&lt;heading&gt;". The opposite of <see cref="Id"/>: this flows model -&gt; code,
+    /// so it is never <c>[JsonIgnore]</c> -- it must round-trip into the persisted artifact version
+    /// row. Left null by callers that don't require provenance (FAQ, tool pages); checked by
+    /// <c>GccHeadingProvenanceGuard</c> only where a caller opts in.</summary>
+    string? Provenance = null);
 
 /// <summary>
 /// A generated body: a lede section (opening hook, always tag "h2") followed by the body's

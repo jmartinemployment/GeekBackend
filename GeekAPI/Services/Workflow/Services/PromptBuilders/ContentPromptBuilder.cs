@@ -63,7 +63,9 @@ public interface IContentPromptBuilder
         IReadOnlyList<string> headings,
         IReadOnlyList<string> fullOutline,
         bool isRegeneration,
-        string? revisionNotes = null);
+        string? revisionNotes = null,
+        bool requireHeadingProvenance = false,
+        string? evidenceBlock = null);
 
     ChatCompletionRequest BuildArticleSectionPrompt(
         ProjectGenerationContext context,
@@ -119,7 +121,8 @@ public interface IContentPromptBuilder
     ChatCompletionRequest BuildStandaloneBlogLedePrompt(ProjectGenerationContext context, BlogMetadataDraft metadata);
 
     ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
-        ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null);
+        ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
+        bool requireHeadingProvenance = false, string? evidenceBlock = null);
 
     ChatCompletionRequest BuildSocialPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string platform, string articleUrl);
     ChatCompletionRequest BuildColdOutreachPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string articleUrl);
@@ -218,6 +221,35 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
     private const string SectionsArrayJsonContract =
         "{\"sections\": [" + SectionJsonContract + ", ...] (top-level h2 sections, in order)}";
+
+    /// <summary>
+    /// Stage 2 (heading provenance). Every section a model invents beyond the assigned outline --
+    /// pillar's required h3/h4 children chief among them -- must be licensed by real material, not
+    /// invented from nothing. A section carrying this field is checked by
+    /// <c>GccHeadingProvenanceGuard.FindUnlicensedHeadings</c> after parsing; an unresolvable tag
+    /// fails the whole generation. Binary, queryable, no similarity matching.
+    /// </summary>
+    private const string ProvenanceFieldShape =
+        "\"provenance\": string (required on every section, top-level and nested) -- exactly one of: " +
+        "\"plan\" (only for a heading that matches one you were explicitly assigned to write), " +
+        "\"retrieval:<url>\" (the exact URL of a research passage above that supports it), " +
+        "\"brief:<fieldName>\" (the brief field above it is drawn from), " +
+        "\"paa:<question text>\" (the exact People Also Ask question above it answers), or " +
+        "\"competitor:<heading text>\" (the exact competitor heading above it fills a gap on)";
+
+    private const string SectionJsonContractWithProvenance =
+        "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +
+        "\"paragraphs\": [" + ParagraphJsonShape + ", ...], \"href\": null, " +
+        "\"children\": [<same shape, one level deeper tag>, ...], " + ProvenanceFieldShape + "}";
+
+    private const string SectionsArrayJsonContractWithProvenance =
+        "{\"sections\": [" + SectionJsonContractWithProvenance + ", ...] (top-level h2 sections, in order)}";
+
+    private const string HeadingProvenanceInstruction =
+        "Every section you write, at every level including nested children, must be licensed by real " +
+        "material above -- never invented from nothing. Tag each one with the \"provenance\" field the " +
+        "JSON shape requires, using the exact URL, brief field name, PAA question, or competitor heading " +
+        "it is drawn from. If a subsection cannot honestly be tagged this way, do not write it.";
 
     /// <summary>
     /// The AI-filler ban every body-generating prompt needs. Historically this existed only on
@@ -626,7 +658,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         IReadOnlyList<string> headings,
         IReadOnlyList<string> fullOutline,
         bool isRegeneration,
-        string? revisionNotes = null)
+        string? revisionNotes = null,
+        bool requireHeadingProvenance = false,
+        string? evidenceBlock = null)
     {
         var outlineContext = string.Join("\n", fullOutline.Select((h, i) => $"{i + 1}. {h}"));
         var headingsList = string.Join("\n", headings.Select((h, i) => $"{i + 1}. \"{h}\""));
@@ -640,7 +674,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Write {headings.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Respond with ONLY the sections array, one entry per heading listed below, in the same order — no code fences, no commentary:")
-            .AppendLine(SectionsArrayJsonContract)
+            .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
             .AppendLine("Each section's own tag is \"h2\". Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
             .AppendLine("Each h3 is a keyword-level topic and MUST itself nest 1-3 h4 children covering concrete subtopics of that h3.")
             .AppendLine("Do not leave an h3 as a leaf with only paragraphs — every h3 needs at least one substantive h4 child.")
@@ -658,6 +692,19 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
             .ToString();
+
+        if (requireHeadingProvenance)
+        {
+            if (!string.IsNullOrWhiteSpace(evidenceBlock))
+            {
+                system += Environment.NewLine + evidenceBlock;
+            }
+
+            system += Environment.NewLine + HeadingProvenanceInstruction +
+                " Each top-level section here corresponds to one of the headings you were assigned above" +
+                " — tag its own provenance \"plan\". Every h3/h4 child nested under it is yours to invent," +
+                " and each of those needs a real tag from the rules above.";
+        }
 
         // Per-heading guidance — these blocks are pure functions of context (not the loop index),
         // so appending each one that applies across the whole batch is safe even combined into a
@@ -1146,7 +1193,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     public ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
-        ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null)
+        ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
+        bool requireHeadingProvenance = false, string? evidenceBlock = null)
     {
         var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
@@ -1158,8 +1206,21 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(FillerBanInstruction)
             .AppendLine(briefBody)
             .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
-            .AppendLine(SectionsArrayJsonContract)
+            .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
             .ToString();
+
+        if (requireHeadingProvenance)
+        {
+            if (!string.IsNullOrWhiteSpace(evidenceBlock))
+            {
+                system += Environment.NewLine + evidenceBlock;
+            }
+
+            system += Environment.NewLine + HeadingProvenanceInstruction +
+                " A section whose heading matches one of the advisory H2s below may tag its own" +
+                " provenance \"plan\". Any heading you refine, replace, or add beyond those — at any" +
+                " level, including nested children — needs a real tag from the rules above.";
+        }
 
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes);
         if (revisionBlock is not null)

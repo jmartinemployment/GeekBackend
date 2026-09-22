@@ -15,7 +15,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccCompetitorAnalysisResolverTests
 {
-    private static GccProjectDto Project(params string[] competitorUrls) => new(
+    internal static GccProjectDto Project(params string[] competitorUrls) => new(
         Id: Guid.NewGuid(),
         ClientId: Guid.NewGuid(),
         Name: "Acme",
@@ -36,7 +36,7 @@ public class GccCompetitorAnalysisResolverTests
         CreatedAtUtc: DateTime.UtcNow,
         UpdatedAtUtc: DateTime.UtcNow);
 
-    private static GeekCrawlerPageDto CrawledPage(string url, string html) => new(
+    internal static GeekCrawlerPageDto CrawledPage(string url, string html) => new(
         Id: Guid.NewGuid(),
         RunId: Guid.NewGuid(),
         Origin: url,
@@ -48,20 +48,20 @@ public class GccCompetitorAnalysisResolverTests
         FailureReason: null,
         CrawledAtUtc: DateTimeOffset.UtcNow);
 
-    private sealed class FakeProjects(GccProjectDto? project) : IGccProjectReader
+    internal sealed class FakeProjects(GccProjectDto? project) : IGccProjectReader
     {
         public Task<GccProjectDto?> GetProjectAsync(Guid id, CancellationToken ct = default) =>
             Task.FromResult(project);
     }
 
-    private sealed class FakePages(IReadOnlyList<GeekCrawlerPageDto>? pages = null) : IGccCrawlPageReader
+    internal sealed class FakePages(IReadOnlyList<GeekCrawlerPageDto>? pages = null) : IGccCrawlPageReader
     {
         public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
             Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
             Task.FromResult(pages ?? []);
     }
 
-    private sealed class FakeRag(IReadOnlyList<GeekCrawlerRagHostIndex>? hosts = null) : IGeekCrawlerRagClient
+    internal sealed class FakeRag(IReadOnlyList<GeekCrawlerRagHostIndex>? hosts = null) : IGeekCrawlerRagClient
     {
         public bool IsEnabled => true;
         public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
@@ -94,7 +94,7 @@ public class GccCompetitorAnalysisResolverTests
             Task.FromResult(new GeekCrawlerRagCapabilities());
     }
 
-    private static GccCompetitorAnalysisResolver Build(
+    internal static GccCompetitorAnalysisResolver Build(
         IGccProjectReader projects, IGccCrawlPageReader pages, IGeekCrawlerRagClient rag) =>
         new(projects, pages, rag, new JsonLdParserService(), NullLogger<GccCompetitorAnalysisResolver>.Instance);
 
