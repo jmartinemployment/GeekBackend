@@ -537,8 +537,21 @@ public class GccController : ControllerBase
         }
         catch (HttpRequestException ex)
         {
+            // The provider's own words, not a generic sentence -- "LLM provider request failed"
+            // told an operator nothing they didn't already know from the status code.
             _logger.LogError(ex, "Generate LLM failed");
-            return StatusCode(502, "LLM provider request failed");
+            return StatusCode(502, $"LLM provider request failed: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            // Every exception type not named above used to escape this method entirely, and
+            // ASP.NET answered it with a bare 500: empty body, no message, nothing rendered in the
+            // UI (Jeff, 2026-09-22 -- "Response -> HEX Empty ... App -> No message"). A timeout
+            // (TaskCanceledException) and a malformed model reply (JsonException) both land here
+            // and are exactly the faults worth naming. Same reasoning as the partner-extraction
+            // counts: an unnamed failure costs hours that a named one costs minutes.
+            _logger.LogError(ex, "Generate failed");
+            return StatusCode(500, $"Generate failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
