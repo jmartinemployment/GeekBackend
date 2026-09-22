@@ -8,15 +8,19 @@ namespace GeekBackend.Tests.ContentCreator;
 /// written. These assert the declared table itself, not a run — the table is the thing that gets
 /// edited, and an accidental removal would silently return a type to ungrounded generation.
 /// </summary>
+/// <remarks>
+/// Pillar/Blog/TechArticle moved from "must cite" to "declares no requirement" 2026-09-22 (Jeff:
+/// "I told you to remove this from all content types" -- citing/quoting a source was never a
+/// requirement of any content type). Tool/aiTool are the one exception, and stay required: this
+/// table is the actual retrieval step that populates a create's evidence for Tool's own partner
+/// extraction, not a redundant citation-format check.
+/// </remarks>
 public class GccGroundingPolicyTests
 {
     [Theory]
-    [InlineData("pillar")]
-    [InlineData("blog")]
-    [InlineData("techarticle")]
     [InlineData("tool")]
     [InlineData("aitool")]
-    public void LongFormTypesMustCitePartnerEvidence(string contentType)
+    public void ToolMustCitePartnerEvidence(string contentType)
     {
         var required = GccGroundingResolver.RequiredFor(contentType);
 
@@ -24,13 +28,17 @@ public class GccGroundingPolicyTests
     }
 
     [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("techarticle")]
     [InlineData("email")]
     [InlineData("linkedin")]
     [InlineData("facebook")]
     [InlineData("imageprompt")]
-    public void ShortFormTypesDeclareNoRequirement(string contentType)
+    public void EverythingExceptToolDeclaresNoRequirement(string contentType)
     {
-        // A social post is not refused for want of a partner crawl, because it never declared one.
+        // A pillar/blog/social post is not refused for want of a partner crawl, because it never
+        // declared one -- citing a source is a nice-to-have for these, never a gate.
         Assert.Empty(GccGroundingResolver.RequiredFor(contentType));
     }
 
@@ -39,8 +47,8 @@ public class GccGroundingPolicyTests
     {
         // The controller lowercases before calling, but the table must not depend on that.
         Assert.Equal(
-            GccGroundingResolver.RequiredFor("pillar"),
-            GccGroundingResolver.RequiredFor("Pillar"));
+            GccGroundingResolver.RequiredFor("tool"),
+            GccGroundingResolver.RequiredFor("Tool"));
     }
 
     [Fact]

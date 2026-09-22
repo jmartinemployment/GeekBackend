@@ -68,12 +68,18 @@ public sealed class GccGroundingResolver(
     /// What each content type must be able to cite before it may be written. A type absent from
     /// this table declares no requirement and is never refused for missing evidence.
     /// </summary>
+    /// <remarks>
+    /// Pillar/Blog/TechArticle removed 2026-09-22 (Jeff: "I told you to remove this from all
+    /// content types" -- citing/quoting a source was never a requirement of any content type; see
+    /// the citation-purpose-and-policy memory). Tool/aiTool stay: this table is not a redundant
+    /// second check on top of GenerateToolPageAsync's own HasSufficientPartnerData gate -- it's the
+    /// actual retrieval step (RAG query against the project's indexed partner crawl) that populates
+    /// create.ResearchJson.Quoteables in the first place. Removing it here would mean Tool never
+    /// receives any partner pages to extract from at all, not merely relax a duplicate check.
+    /// </remarks>
     private static readonly Dictionary<string, string[]> RequiredCrawlTypes =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["pillar"] = [CrawlTypes.Partner],
-            ["blog"] = [CrawlTypes.Partner],
-            ["techarticle"] = [CrawlTypes.Partner],
             ["tool"] = [CrawlTypes.Partner],
             ["aitool"] = [CrawlTypes.Partner],
         };

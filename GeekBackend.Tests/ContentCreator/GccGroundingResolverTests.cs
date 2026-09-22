@@ -148,7 +148,7 @@ public class GccGroundingResolverTests
     {
         var resolver = Build(new FakeProjects(null), new FakeRag());
 
-        var outcome = await resolver.ResolveAsync(Create(null), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(null), "tool");
 
         Assert.True(outcome.Refused);
         Assert.Contains("no project", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
@@ -159,7 +159,7 @@ public class GccGroundingResolverTests
     {
         var resolver = Build(new FakeProjects(Project()), new FakeRag());
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.True(outcome.Refused);
         Assert.Contains("no partner URLs", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
@@ -171,7 +171,7 @@ public class GccGroundingResolverTests
         var rag = new FakeRag(hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", false, null)]);
         var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.True(outcome.Refused);
         Assert.Contains("indexed crawl", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
@@ -193,7 +193,7 @@ public class GccGroundingResolverTests
             });
         var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.True(outcome.Refused);
         Assert.Equal("index unreachable", outcome.Refusal);
@@ -207,7 +207,7 @@ public class GccGroundingResolverTests
             result: null);
         var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.True(outcome.Refused);
     }
@@ -221,7 +221,7 @@ public class GccGroundingResolverTests
             result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [], Failed = false });
         var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.True(outcome.Refused);
         Assert.Contains("citable passage", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
@@ -239,7 +239,7 @@ public class GccGroundingResolverTests
             """[{"kind":"quote","text":"Latency fell by half."},{"kind":"code","text":"SELECT 1;"}]""")]);
         var resolver = Build(new FakeProjects(Project("https://p.test")), rag, crawled);
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         var passage = Assert.Single(outcome.Passages);
         var quote = Assert.IsType<QuoteParagraph>(passage.Content[0]);
@@ -258,7 +258,7 @@ public class GccGroundingResolverTests
             result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [page], Failed = false });
         var resolver = Build(new FakeProjects(Project("https://p.test")), rag, new FakePages());
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.False(outcome.Refused);
         Assert.Single(outcome.Pages);
@@ -274,7 +274,7 @@ public class GccGroundingResolverTests
             result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [page], Failed = false });
         var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
 
-        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.False(outcome.Refused);
         Assert.Single(outcome.Pages);
