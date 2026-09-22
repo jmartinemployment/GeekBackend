@@ -1449,7 +1449,7 @@ public class GccGenerateService
         var partnerExtraction = partnerPages.Count == 0
             ? null
             : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], ct);
-        var groundedExtraction = partnerExtraction is not null && HasAnyPartnerData(partnerExtraction)
+        var groundedExtraction = partnerExtraction is not null && HasSufficientPartnerData(partnerExtraction)
             ? partnerExtraction
             : null;
 
@@ -1461,12 +1461,20 @@ public class GccGenerateService
         // Tool/Partner page written from generic brief text in that state is exactly the "aiTool
         // output type... resolves grounded tool/partner data server-side" claim that was never
         // actually true -- it must refuse here, not quietly repeat that gap.
+        //
+        // Strengthened 2026-09-22 (Jeff): "does any one of 22 payload categories have anything in
+        // it" was a reported failure that did not terminate -- a create with a single ICP entry and
+        // nothing else passed this gate, then wrote 3,500-5,000 words across six sections with zero
+        // code-level check on any of it. Tool is the revenue-critical content type and must meet at
+        // least the rigor Pillar/Blog get from GccHeadingProvenanceGuard's per-heading evidence
+        // check, not less -- see HasSufficientPartnerData below for the real bar.
         if (create is not null && groundedExtraction is null)
         {
+            var coverage = DescribePartnerDataCoverage(partnerExtraction);
             throw new InvalidOperationException(
                 $"Partner grounding required for '{name}': indexed partner crawl data exists for "
-                + "this project, but nothing extractable was found for this tool. Not generating "
-                + "an ungrounded page.");
+                + $"this project, but what extraction found is not enough to ground a full tool "
+                + $"page ({coverage}). Not generating a thinly-grounded page.");
         }
 
         var extractedToolResearchJson = groundedExtraction is null
@@ -1634,29 +1642,53 @@ public class GccGenerateService
     /// <summary>True when extraction actually found something -- an all-empty document (no
     /// indexed partner pages, or pages with nothing this schema covers) must not be treated as
     /// "grounded" just because the call succeeded.</summary>
-    private static bool HasAnyPartnerData(GccPartnerExtractionDocument extraction) =>
-        extraction.Citables.Count > 0
-        || extraction.Advertisements.Count > 0
-        || extraction.Comparisons.Count > 0
-        || extraction.Alternatives.Count > 0
-        || extraction.PricingCatalog.Count > 0
-        || extraction.Icp.Count > 0
-        || extraction.Integrations.Count > 0
-        || extraction.FaqBank.Count > 0
-        || extraction.CaseStudies.Count > 0
-        || extraction.Testimonials.Count > 0
-        || extraction.Awards.Count > 0
-        || extraction.FeatureInventory.Count > 0
-        || extraction.TechnicalConstraints.Count > 0
-        || extraction.OfferCtas.Count > 0
-        || extraction.Disqualifiers.Count > 0
-        || extraction.UseCasePlaybooks.Count > 0
-        || extraction.Categories.Count > 0
-        || extraction.FreshnessLog.Count > 0
-        || extraction.BattlecardSlices.Count > 0
-        || extraction.DemoBeats.Count > 0
-        || extraction.ComplianceSnippets.Count > 0
-        || extraction.AffiliateDisclosures.Count > 0;
+    /// <summary>True when extraction found enough to substantively ground a Tool page across all
+    /// six required sections -- not just "some single field has one item," which let a create with
+    /// a lone ICP entry and nothing else pass, then write 3,500-5,000 words with zero code-level
+    /// check on any of it. Tool is the revenue-critical content type and must meet at least the
+    /// rigor Pillar/Blog get from GccHeadingProvenanceGuard, not less (Jeff, 2026-09-22).
+    /// Requires a real signal of what the product actually does -- FeatureInventory ("the
+    /// definitive list of what the product does" per the extraction system prompt) or at least one
+    /// isolated factual claim via Citables -- AND breadth across at least 3 of the 22 payload
+    /// categories, so sections beyond Key Capabilities have something real to draw from too.</summary>
+    private static bool HasSufficientPartnerData(GccPartnerExtractionDocument extraction) =>
+        (extraction.FeatureInventory.Count > 0 || extraction.Citables.Count > 0)
+        && CountPopulatedPartnerDataCategories(extraction) >= 3;
+
+    private static int CountPopulatedPartnerDataCategories(GccPartnerExtractionDocument extraction) =>
+        (extraction.Citables.Count > 0 ? 1 : 0)
+        + (extraction.Advertisements.Count > 0 ? 1 : 0)
+        + (extraction.Comparisons.Count > 0 ? 1 : 0)
+        + (extraction.Alternatives.Count > 0 ? 1 : 0)
+        + (extraction.PricingCatalog.Count > 0 ? 1 : 0)
+        + (extraction.Icp.Count > 0 ? 1 : 0)
+        + (extraction.Integrations.Count > 0 ? 1 : 0)
+        + (extraction.FaqBank.Count > 0 ? 1 : 0)
+        + (extraction.CaseStudies.Count > 0 ? 1 : 0)
+        + (extraction.Testimonials.Count > 0 ? 1 : 0)
+        + (extraction.Awards.Count > 0 ? 1 : 0)
+        + (extraction.FeatureInventory.Count > 0 ? 1 : 0)
+        + (extraction.TechnicalConstraints.Count > 0 ? 1 : 0)
+        + (extraction.OfferCtas.Count > 0 ? 1 : 0)
+        + (extraction.Disqualifiers.Count > 0 ? 1 : 0)
+        + (extraction.UseCasePlaybooks.Count > 0 ? 1 : 0)
+        + (extraction.Categories.Count > 0 ? 1 : 0)
+        + (extraction.FreshnessLog.Count > 0 ? 1 : 0)
+        + (extraction.BattlecardSlices.Count > 0 ? 1 : 0)
+        + (extraction.DemoBeats.Count > 0 ? 1 : 0)
+        + (extraction.ComplianceSnippets.Count > 0 ? 1 : 0)
+        + (extraction.AffiliateDisclosures.Count > 0 ? 1 : 0);
+
+    /// <summary>Diagnostic for the refusal message -- names what was and wasn't found, so "reported
+    /// failure" means an operator can see why, not just that grounding failed.</summary>
+    private static string DescribePartnerDataCoverage(GccPartnerExtractionDocument? extraction)
+    {
+        if (extraction is null) return "no extractable partner pages";
+        var populated = CountPopulatedPartnerDataCategories(extraction);
+        var hasCapabilitySignal = extraction.FeatureInventory.Count > 0 || extraction.Citables.Count > 0;
+        return $"{populated} of 22 payload categories populated (need at least 3), "
+            + $"core capability signal (features or citable claims) {(hasCapabilitySignal ? "present" : "missing")}";
+    }
 
     /// <summary>Legacy alias — prefer <see cref="GenerateToolPageAsync"/>. Every caller that has a
     /// create in scope must pass it through, same as the primary generate path -- omitting it here
@@ -2501,10 +2533,6 @@ public class GccGenerateService
     private static GccHeadingProvenanceEvidence BuildProvenanceEvidence(
         GccCreateDto create, IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses)
     {
-        var research = GccResearchFetchService.Deserialize(create.ResearchJson);
-        var retrievalUrls = new HashSet<string>(
-            (research?.Quoteables ?? []).Select(q => q.Url), StringComparer.OrdinalIgnoreCase);
-
         var brief = ExtractBriefFields(create.BriefJson);
         var populatedBriefFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void AddIfPresent(string name, string? value)
@@ -2541,7 +2569,7 @@ public class GccGenerateService
                 competitorHeadings.Add(h.Text);
         }
 
-        return new GccHeadingProvenanceEvidence(retrievalUrls, populatedBriefFields, paaQuestions, competitorHeadings);
+        return new GccHeadingProvenanceEvidence(populatedBriefFields, paaQuestions, competitorHeadings);
     }
 
     private sealed record SectionImagePrompt(string Section, string Prompt);

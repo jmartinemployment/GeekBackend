@@ -245,7 +245,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string ProvenanceFieldShape =
         "\"provenance\": string (required on every section, top-level and nested) -- exactly one of: " +
         "\"plan\" (only for a heading that matches one you were explicitly assigned to write), " +
-        "\"retrieval:<url>\" (the exact URL of a research passage above that supports it), " +
         "\"brief:<fieldName>\" (the brief field above it is drawn from), " +
         "\"paa:<question text>\" (the exact People Also Ask question above it answers), or " +
         "\"competitor:<heading text>\" (the exact competitor heading above it fills a gap on)";

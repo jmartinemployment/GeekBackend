@@ -9,7 +9,6 @@ namespace GeekAPI.Services.ContentCreator;
 /// must resolve to), so the two can never drift out of sync with each other.
 /// </summary>
 public sealed record GccHeadingProvenanceEvidence(
-    IReadOnlySet<string> RetrievalUrls,
     IReadOnlySet<string> PopulatedBriefFields,
     IReadOnlySet<string> PaaQuestions,
     IReadOnlySet<string> CompetitorHeadings);
@@ -68,7 +67,10 @@ public static class GccHeadingProvenanceGuard
         return kind switch
         {
             "plan" => true,
-            "retrieval" => value is { Length: > 0 } && evidence.RetrievalUrls.Contains(value),
+            // "retrieval:<url>" removed 2026-09-22 (Jeff, "remove this stupid rule"): it checked a
+            // heading's claimed source URL against create.ResearchJson's Quoteables -- an optional,
+            // operator-uploaded, often-empty set unrelated to whether the model actually
+            // hallucinated anything. That made it fail on missing research, not on bad output.
             "brief" => value is { Length: > 0 } && evidence.PopulatedBriefFields.Contains(value),
             "paa" => value is { Length: > 0 } && evidence.PaaQuestions.Contains(value),
             "competitor" => value is { Length: > 0 } && evidence.CompetitorHeadings.Contains(value),

@@ -151,13 +151,48 @@ public class GccGenerateServiceToolPageGroundingTests
     }
 
     [Fact]
+    public async Task ThinExtractionBelowTheCategoryThresholdStillRefusesNotJustTotallyEmptyOnes()
+    {
+        // A single populated field used to pass HasAnyPartnerData -- a create with one lone ICP
+        // entry and nothing else wrote 3,500-5,000 words with zero grounding for five of the six
+        // sections. HasSufficientPartnerData (2026-09-22) requires real breadth, not just presence.
+        var provider = new ScriptedProvider();
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Icp = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIcpItem(
+                ["SMB"], null, "11-50", ["Software"], ["IT Director"], "SMB software companies")],
+        };
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
+        var service = Build(provider, partner);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateToolPageAsync(
+                "Partner Widget", "brief", "context", "marketing", null,
+                ContentGeneratorProvider.OpenAi, CancellationToken.None,
+                create: Create(ResearchJsonWithOnePartnerPage())));
+
+        // "Reported failure" -- the message names what was and wasn't found, not just that it failed.
+        Assert.Contains("Partner grounding required", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("1 of 22 payload categories populated", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("core capability signal", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("missing", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RealExtractionDataGroundsTheBodyPromptAndTheJsonLd()
     {
         var provider = new ScriptedProvider();
+        // Three categories populated, not just one -- HasSufficientPartnerData (2026-09-22) refuses
+        // a create with only a single thin field, the same standard Pillar/Blog get from
+        // GccHeadingProvenanceGuard.
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
             Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+                "Slack", "Notifications", "API", "Slack integration")],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
         var service = Build(provider, partner);
@@ -183,10 +218,15 @@ public class GccGenerateServiceToolPageGroundingTests
     public async Task GroundedFaqBankDataProducesAnAdditionalFaqSectionBeyondTheWordCountTarget()
     {
         var provider = new ScriptedProvider(includeFaq: true);
+        // Three categories populated, not just one -- HasSufficientPartnerData (2026-09-22) refuses
+        // a create with only a single thin field, the same standard Pillar/Blog get from
+        // GccHeadingProvenanceGuard.
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
             Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
             // PartnerFaqItem is the raw per-page shape ExtractFromPagesAsync aggregates into the
             // final GccPartnerFaqAsset (page.Url + built provenance) -- no quote-in-text gate at
             // this stage, just non-empty Question/Answer.

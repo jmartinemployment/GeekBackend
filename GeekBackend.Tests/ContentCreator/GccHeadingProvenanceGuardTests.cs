@@ -10,12 +10,10 @@ namespace GeekBackend.Tests.ContentCreator;
 public class GccHeadingProvenanceGuardTests
 {
     private static GccHeadingProvenanceEvidence Evidence(
-        IEnumerable<string>? urls = null,
         IEnumerable<string>? fields = null,
         IEnumerable<string>? paa = null,
         IEnumerable<string>? competitor = null) =>
         new(
-            new HashSet<string>(urls ?? [], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(fields ?? [], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(paa ?? [], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(competitor ?? [], StringComparer.OrdinalIgnoreCase));
@@ -45,14 +43,14 @@ public class GccHeadingProvenanceGuardTests
     }
 
     [Fact]
-    public void RetrievalTagResolvesOnlyAgainstAUrlActuallyInEvidence()
+    public void RetrievalTagIsNoLongerARecognizedKind()
     {
-        var evidence = Evidence(urls: ["https://partner.test/page"]);
-
-        Assert.Empty(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
-            [Sec("X", "retrieval:https://partner.test/page")], evidence));
-        Assert.Single(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
-            [Sec("X", "retrieval:https://unknown.test/page")], evidence));
+        // "retrieval:<url>" was removed 2026-09-22 -- it checked a claimed source URL against
+        // create.ResearchJson's Quoteables, an optional, often-empty set, so it failed on missing
+        // research rather than on bad output. Now an unrecognized kind, same as any other.
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("X", "retrieval:https://partner.test/page")], Evidence());
+        Assert.Single(violations);
     }
 
     [Fact]
@@ -121,10 +119,10 @@ public class GccHeadingProvenanceGuardTests
     [Fact]
     public void MatchingIsCaseInsensitiveNotExactByteEquality()
     {
-        var evidence = Evidence(urls: ["https://Partner.Test/Page"]);
+        var evidence = Evidence(competitor: ["Enterprise Pricing"]);
 
         Assert.Empty(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
-            [Sec("X", "retrieval:https://partner.test/page")], evidence));
+            [Sec("X", "competitor:enterprise pricing")], evidence));
     }
 
     [Fact]

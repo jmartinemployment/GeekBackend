@@ -76,8 +76,10 @@ public sealed record Section(
     [property: JsonIgnore]
     string? Id = null,
     /// <summary>Stage 2 (heading provenance). What licensed this section, in the model's own words
-    /// -- "plan", "retrieval:&lt;url&gt;", "brief:&lt;fieldName&gt;", "paa:&lt;question&gt;", or
-    /// "competitor:&lt;heading&gt;". The opposite of <see cref="Id"/>: this flows model -&gt; code,
+    /// -- "plan", "brief:&lt;fieldName&gt;", "paa:&lt;question&gt;", or "competitor:&lt;heading&gt;".
+    /// ("retrieval:&lt;url&gt;" removed 2026-09-22 -- checked a claimed source URL against an
+    /// optional, often-empty research set, so it failed on missing research, not bad output.) The
+    /// opposite of <see cref="Id"/>: this flows model -&gt; code,
     /// so it is never <c>[JsonIgnore]</c> -- it must round-trip into the persisted artifact version
     /// row. Left null by callers that don't require provenance (FAQ, tool pages); checked by
     /// <c>GccHeadingProvenanceGuard</c> only where a caller opts in.</summary>

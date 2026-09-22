@@ -138,63 +138,11 @@ public class GccGenerateServiceProvenanceTests
         Assert.Contains("competitor.test/pricing", systemMessage, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task ResearchEvidenceReachesThePromptAndLicensesAMatchingRetrievalTag()
-    {
-        var researchJson = GccResearchFetchService.Serialize(new GccResearchDocument(
-            SerpIndex: null,
-            Quoteables:
-            [
-                new GccQuoteablePage(
-                    Url: "https://partner.test/integration",
-                    Title: "Partner Integration Guide",
-                    Headings: [new HeadingDto(2, "Setup Steps")],
-                    Paragraphs: ["Connect the API key in under five minutes."],
-                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
-            ]));
-
-        var provider = new ScriptedProvider(index => index switch
-        {
-            0 => LedeJson,
-            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Setup Steps","paragraphs":[],"href":null,"children":[],"provenance":"retrieval:https://partner.test/integration"}]}]}""",
-        });
-        var service = Build(provider, NoCompetitorData());
-        var create = Create(researchJson: researchJson);
-
-        var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
-
-        Assert.Contains("Setup Steps", json);
-        var bodyRequest = provider.Requests[1];
-        var systemMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.System).Content;
-        Assert.Contains("partner.test/integration", systemMessage, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ARetrievalTagCitingAUrlNotInEvidenceIsUnlicensedEvenWithOtherResearchPresent()
-    {
-        var researchJson = GccResearchFetchService.Serialize(new GccResearchDocument(
-            SerpIndex: null,
-            Quoteables:
-            [
-                new GccQuoteablePage(
-                    Url: "https://partner.test/real-page",
-                    Title: "Real Page",
-                    Headings: [],
-                    Paragraphs: ["Real content."],
-                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
-            ]));
-
-        var provider = new ScriptedProvider(index => index switch
-        {
-            0 => LedeJson,
-            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Fabricated Claim","paragraphs":[],"href":null,"children":[],"provenance":"retrieval:https://not-actually-shown.test/page"}]}]}""",
-        });
-        var service = Build(provider, NoCompetitorData());
-        var create = Create(researchJson: researchJson);
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None));
-
-        Assert.Contains("Fabricated Claim", ex.Message, StringComparison.Ordinal);
-    }
+    // "retrieval:<url>" provenance was removed 2026-09-22 (Jeff, "remove this stupid rule") --
+    // it checked a claimed source URL against create.ResearchJson's Quoteables, an optional,
+    // operator-uploaded, often-empty set, so it failed on missing research rather than on bad
+    // output. The two tests that lived here (a matching retrieval tag licensing a heading; a
+    // non-matching one refusing the draft) tested a mechanism that no longer exists. Coverage that
+    // an unrecognized provenance kind is always a violation lives in
+    // GccHeadingProvenanceGuardTests.RetrievalTagIsNoLongerARecognizedKind.
 }
