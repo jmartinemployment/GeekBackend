@@ -567,9 +567,6 @@ public class GccController : ControllerBase
         });
     }
 
-    private static readonly HashSet<string> LongFormTypes =
-        new(StringComparer.OrdinalIgnoreCase) { "pillar", "blog", "techArticle" };
-
     /// <summary>
     /// Looks up this create's real "must mention" sub-topics from its analyzed site's persisted
     /// page-section trees (see GccGenerateService.BuildMustMentionSubtopicsBlock). Returns null
@@ -676,10 +673,8 @@ public class GccController : ControllerBase
 
     /// <summary>
     /// Resolves grounding evidence for one content type and merges it into the create, refusing
-    /// (never proceeding ungrounded) if the resolver says so. The single-select path and any
-    /// multi-select derivative that needs its own contentType-specific grounding (currently just
-    /// Tool, inside RunMultiGenerateAsync) both call this -- previously duplicated inline in both
-    /// places instead of shared.
+    /// (never proceeding ungrounded) if the resolver says so. Called once per type by
+    /// GenerateAndPersistOneAsync, whether that's the only type requested or one of several.
     /// </summary>
     private async Task<GccCreateDto> ResolveAndMergeGroundingAsync(
         GccCreateDto create, string contentType, CancellationToken ct)
@@ -718,26 +713,62 @@ public class GccController : ControllerBase
                 $"Refused: '{string.Join("', '", disabledRequested)}' "
                 + "is disabled pending a written, approved resolve plan for its content-type quality.");
 
-        // Multi-output: one long-form primary + derivatives, all persisted as artifacts.
         if (requested.Count > 1)
-            return await RunMultiGenerateAsync(repo, gen, create, section, provider, requested, mustMentionBlock, ct);
+        {
+            // Every selected type is generated independently -- no "primary," nothing derived by
+            // rewriting or repurposing another type's finished text. 2026-09-22 (Jeff, after this
+            // came up twice: "Multi generate methods should not exist... you have created
+            // spaghetti") -- the prior design picked one type as real and faked the rest from it
+            // (rewrite-derivation for a second long-form type, a repurpose-pack for email/social/
+            // ads, sourceContext contamination for Tool), which is the same defect class as
+            // "Repurpose" itself (disabled entirely for it, GeekBackend 08187d9). Each call below
+            // gets its own grounding resolution and its own real generator, exactly as if it were
+            // the only thing selected -- literally the same method single-select calls once.
+            var created = new List<object>();
+            foreach (var type in requested)
+                created.Add(await GenerateAndPersistOneAsync(repo, gen, create, section, provider, type, mustMentionBlock, ct));
+            return new { created };
+        }
 
-        var id = create.Id;
-        var contentType = (requested.Count == 1 ? requested[0] : create.StartingContentType).ToLowerInvariant();
+        var contentType = requested.Count == 1 ? requested[0] : create.StartingContentType;
+        return await GenerateAndPersistOneAsync(repo, gen, create, section, provider, contentType, mustMentionBlock, ct);
+    }
+
+    /// <summary>
+    /// Generates and persists exactly one content type, fully independently -- the single unit both
+    /// a single-select and a multi-select generate call use, once per requested type. Resolves its
+    /// own grounding (never reused across types, since different types can require different
+    /// evidence) and dispatches to that type's real generator; nothing here ever reads another
+    /// type's output as input.
+    /// </summary>
+    private async Task<object> GenerateAndPersistOneAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        string requestedType,
+        string? mustMentionBlock,
+        CancellationToken ct)
+    {
+        var contentType = requestedType.Trim().ToLowerInvariant();
+        // Strips hyphens/spaces so "tech-article"/"techArticle" and "email-cold-outreach"/"email"
+        // (CONTENT_TYPES' real values once the picker unified onto it, Jeff: "they should be
+        // identical") each reach one case, the same normalization the disabled-type check uses.
+        var normalizedType = new string(contentType.Where(char.IsLetter).ToArray());
 
         // Grounding gate. Every grounding block downstream is conditional, so absent evidence used
         // to drop out silently and generation continued — a draft that reads identically whether
         // it was grounded or not. Required evidence is resolved here and its absence refuses.
         create = await ResolveAndMergeGroundingAsync(create, contentType, ct);
 
-        // Route to appropriate generator based on content type
         string bodyJson;
-        switch (contentType)
+        switch (normalizedType)
         {
             case "pillar":
                 bodyJson = await gen.GeneratePillarBodyAsync(create, section, provider, mustMentionBlock, ct);
                 // Per-H2 image prompts, merged into the document itself (Section.ImagePrompt) --
-                // previously computed here and discarded; bodyJson now carries the real result.
+                // previously computed and discarded; bodyJson now carries the real result.
                 bodyJson = await gen.GenerateSectionImagePromptsAsync(
                     "pillar", create.Topic, bodyJson, section, provider, ct);
                 break;
@@ -748,199 +779,59 @@ public class GccController : ControllerBase
                     "blog", create.Topic, bodyJson, section, provider, ct);
                 break;
 
-            case "email":
+            case "email" or "emailcoldoutreach":
                 bodyJson = await gen.GenerateEmailAsync(create, section, provider, mustMentionBlock, ct);
                 bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
                 break;
 
-            case "linkedin":
-                bodyJson = await gen.GenerateSocialPostAsync(create, "linkedin", section, provider, mustMentionBlock, ct);
-                bodyJson = await AddImagePromptForContentAsync(gen, "linkedin", create.Topic, bodyJson, section, provider, ct);
+            // Every social/ads channel is its own independent post now, not one bundled into a
+            // shared "pack" artifact with whichever other channels happened to be checked --
+            // GenerateSocialPostAsync already takes any platform string, with dedicated style
+            // guidance for linkedin/facebook and a generic fallback for the rest.
+            case "linkedin" or "x" or "instagram" or "facebook" or "metaads" or "googleads" or "social" or "ads":
+            {
+                var platform = normalizedType switch
+                {
+                    "x" => "X",
+                    "instagram" => "Instagram",
+                    "metaads" => "MetaAds",
+                    "googleads" => "GoogleAds",
+                    _ => normalizedType, // "linkedin"/"facebook"/"social"/"ads" as-is
+                };
+                bodyJson = await gen.GenerateSocialPostAsync(create, platform, section, provider, mustMentionBlock, ct);
+                bodyJson = await AddImagePromptForContentAsync(gen, platform, create.Topic, bodyJson, section, provider, ct);
+                break;
+            }
+
+            // Both route through GenerateStartingContentAsync's own internal dispatch, which already
+            // fully owns tool's partner grounding + FAQ + per-H2 images and image-prompt's topic/
+            // notes validation -- overriding StartingContentType guarantees the right internal
+            // branch fires regardless of what the create was originally started as.
+            case "aitool" or "tool":
+                bodyJson = await gen.GenerateStartingContentAsync(
+                    create with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock);
                 break;
 
-            case "facebook":
-                bodyJson = await gen.GenerateSocialPostAsync(create, "facebook", section, provider, mustMentionBlock, ct);
-                bodyJson = await AddImagePromptForContentAsync(gen, "facebook", create.Topic, bodyJson, section, provider, ct);
+            case "imageprompt":
+                bodyJson = await gen.GenerateStartingContentAsync(
+                    create with { StartingContentType = "image-prompt" }, section, provider, ct, mustMentionBlock);
                 break;
 
             default:
-                // Fallback to old generic method for unsupported types
+                // Generic fallback -- every type still routed here is disabled pending
+                // content-type-dispatch-and-richness.md, kept only so a future re-enabled type
+                // doesn't need this method touched again just to stop erroring.
                 bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
-                // imagePrompt/tool return a different shape (a standalone prompt, or a wrapper
-                // object around a document) -- neither is the bare ContentDocument this expects.
-                // Every other type routed here (comparison, guide, tech-article, ...) is one, so
-                // it gets the same per-H2 treatment pillar/blog do, not silently skipped because
-                // it fell through to the generic branch.
-                if (!string.Equals(contentType, "imageprompt", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(contentType, "image-prompt", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(contentType, "tool", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(contentType, "aitool", StringComparison.OrdinalIgnoreCase))
-                {
-                    bodyJson = await gen.GenerateSectionImagePromptsAsync(
-                        contentType, create.Topic, bodyJson, section, provider, ct);
-                }
+                bodyJson = await gen.GenerateSectionImagePromptsAsync(
+                    contentType, create.Topic, bodyJson, section, provider, ct);
                 break;
         }
 
-        var primaryArtifact = await repo.CreateArtifactAsync(
-            new CreateGccArtifactCommand(id, contentType, create.Topic), ct);
-        var primaryVersion = await repo.CreateVersionAsync(
-            new CreateGccArtifactVersionCommand(primaryArtifact.Id, bodyJson), ct);
-        return new { artifact = primaryArtifact, version = primaryVersion };
-    }
-
-    /// <summary>
-    /// Multi-output generate: produce one long-form primary body, then derive every other
-    /// requested content type from it (email/social/ads via the repurpose-pack engine,
-    /// additional long-form via revise-rewrite, image prompts + tools directly). No content
-    /// approval required — derivatives run from the freshly generated body.
-    /// </summary>
-    private async Task<object> RunMultiGenerateAsync(
-        HttpGccRepository repo,
-        GccGenerateService gen,
-        GccCreateDto create,
-        SiteSectionContextDto? section,
-        ContentGeneratorProvider provider,
-        IReadOnlyList<string> requested,
-        string? mustMentionBlock,
-        CancellationToken ct)
-    {
-        var id = create.Id;
-        var created = new List<object>();
-
-        // Primary = first long-form requested (else the create's starting type). Its body seeds
-        // every document-derived derivative, so it must be a long-form document.
-        var primaryType = requested.FirstOrDefault(LongFormTypes.Contains) ?? create.StartingContentType;
-        var bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
-        var primaryArtifact = await repo.CreateArtifactAsync(
-            new CreateGccArtifactCommand(id, primaryType, create.Topic), ct);
-        var primaryVersion = await repo.CreateVersionAsync(
-            new CreateGccArtifactVersionCommand(primaryArtifact.Id, bodyJson), ct);
-        created.Add(new { artifact = primaryArtifact, version = primaryVersion });
-
-        var primaryIsDocument = LongFormTypes.Contains(primaryType);
-        var packChannels = new List<string>();
-        var emailIndex = 0;
-
-        foreach (var type in requested)
-        {
-            if (string.Equals(type, primaryType, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Normalized the same way as the disabled-type check: strip non-letters, lowercase, so
-            // "tech-article"/"techArticle", "image-prompt"/"imagePrompt", "tool"/"aiTool", and
-            // "email-cold-outreach"/"email" (CONTENT_TYPES' actual value once the picker unified
-            // onto it 2026-09-22, Jeff: "they should be identical") each reach one case.
-            var normalizedType = new string(type.Where(char.IsLetter).ToArray()).ToLowerInvariant();
-            switch (normalizedType)
-            {
-                case "linkedin": packChannels.Add("LinkedIn"); break;
-                case "x": packChannels.Add("X"); break;
-                case "instagram": packChannels.Add("Instagram"); break;
-                case "metaads": packChannels.Add("MetaAds"); break;
-                case "googleads": packChannels.Add("GoogleAds"); break;
-                // "social"/"ads" are CONTENT_TYPES' generic entries, not specific channels -- bundle
-                // into the same repurpose-pack engine the specific channels already use rather than
-                // inventing a second dispatch shape. 2026-09-22, Jeff: "The fact a specific content
-                // type does[n't] map isn't my problem" -- silently dropping them (no case matched,
-                // no artifact, no error) was the actual bug this closes.
-                case "social": packChannels.AddRange(["LinkedIn", "X", "Instagram"]); break;
-                case "ads": packChannels.AddRange(["MetaAds", "GoogleAds"]); break;
-
-                case "email" or "emailcoldoutreach" when primaryIsDocument:
-                {
-                    var emailBody = await gen.GenerateRepurposePackAsync(bodyJson, ["Email"], provider, ct);
-                    var a = await repo.CreateArtifactAsync(
-                        new CreateGccArtifactCommand(id, "email", $"Email {++emailIndex}"), ct);
-                    var v = await repo.CreateVersionAsync(
-                        new CreateGccArtifactVersionCommand(a.Id, emailBody), ct);
-                    created.Add(new { artifact = a, version = v });
-                    break;
-                }
-
-                case "pillar" or "blog" or "techarticle" when primaryIsDocument:
-                {
-                    var rewritten = await gen.ReviseAsync(
-                        bodyJson, $"Rewrite as a standalone {type}.", "full", null, provider, ct);
-                    var a = await repo.CreateArtifactAsync(
-                        new CreateGccArtifactCommand(id, type, $"{create.Topic} — {type}"), ct);
-                    var v = await repo.CreateVersionAsync(
-                        new CreateGccArtifactVersionCommand(a.Id, rewritten), ct);
-                    created.Add(new { artifact = a, version = v });
-                    break;
-                }
-
-                case "imageprompt":
-                {
-                    var promptJson = await gen.GenerateImagePromptJsonAsync(
-                        create.Topic, create.Notes, primaryIsDocument ? bodyJson : null, provider, ct);
-                    var a = await repo.CreateArtifactAsync(
-                        new CreateGccArtifactCommand(id, "imagePrompt", $"{create.Topic} — Image prompt"), ct);
-                    var v = await repo.CreateVersionAsync(
-                        new CreateGccArtifactVersionCommand(a.Id, promptJson), ct);
-                    created.Add(new { artifact = a, version = v });
-                    break;
-                }
-
-                case "aitool" or "tool":
-                {
-                    // Tools are never repurposed content, 2026-09-22 (Jeff) -- this used to pass
-                    // whatever long-form primary was also selected (bodyJson) into the tool page as
-                    // sourceContext, coupling a partner-grounded page's content to an unrelated
-                    // article's finished text just because both were checked together. Routing
-                    // through GenerateStartingContentAsync gives the tool the exact same
-                    // independent, partner-grounded generation as when it's the only type selected.
-                    //
-                    // Grounding resolve+merge, same day: RunMultiGenerateAsync runs before
-                    // RunGenerateAsync's own grounding step (it returns early into this method at
-                    // the "multi-output" branch, before that code ever runs), so `create` here still
-                    // carried whatever ResearchJson was persisted from a prior save -- never the
-                    // freshly resolved partner/competitor evidence for *this* generate call. That
-                    // produced a false "no extractable partner pages" refusal on a project that
-                    // actually has indexed partner data, because the tool case was never given the
-                    // chance to see it. Resolved via the same shared helper the single-select path
-                    // uses, not a second copy of its three lines.
-                    var groundedCreate = await ResolveAndMergeGroundingAsync(create, "tool", ct);
-
-                    var toolBodyJson = await gen.GenerateStartingContentAsync(
-                        groundedCreate with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock);
-                    using var toolDoc = JsonDocument.Parse(toolBodyJson);
-                    var toolName = toolDoc.RootElement.TryGetProperty("title", out var titleEl)
-                        ? titleEl.GetString() ?? create.Topic
-                        : create.Topic;
-                    var a = await repo.CreateArtifactAsync(
-                        new CreateGccArtifactCommand(id, "aiTool", toolName), ct);
-                    var v = await repo.CreateVersionAsync(
-                        new CreateGccArtifactVersionCommand(a.Id, toolBodyJson), ct);
-                    created.Add(new { artifact = a, version = v });
-                    break;
-                }
-
-                // Fail closed, not a silent no-op: a type that matches no case above -- either
-                // genuinely unrecognized, or one whose `when primaryIsDocument` guard didn't hold
-                // (e.g. "email-cold-outreach" requested alongside a non-document primary like Tool,
-                // with nothing to derive the email from) -- used to produce nothing at all: no
-                // artifact, no error, the selection just silently vanished. Same defect class as the
-                // social/ads gap above, same fix.
-                default:
-                    throw new InvalidOperationException(
-                        $"'{type}' cannot be generated alongside '{primaryType}' as the primary "
-                        + "(it may require a long-form document primary to derive from, or it may "
-                        + "not be a recognized content type at all).");
-            }
-        }
-
-        if (packChannels.Count > 0 && primaryIsDocument)
-        {
-            var packJson = await gen.GenerateRepurposePackAsync(bodyJson, packChannels, provider, ct);
-            var a = await repo.CreateArtifactAsync(
-                new CreateGccArtifactCommand(id, "socialPack", "Social / ads pack"), ct);
-            var v = await repo.CreateVersionAsync(
-                new CreateGccArtifactVersionCommand(a.Id, packJson), ct);
-            created.Add(new { artifact = a, version = v });
-        }
-
-        return new { created };
+        var artifact = await repo.CreateArtifactAsync(
+            new CreateGccArtifactCommand(create.Id, contentType, create.Topic), ct);
+        var version = await repo.CreateVersionAsync(
+            new CreateGccArtifactVersionCommand(artifact.Id, bodyJson), ct);
+        return new { artifact, version };
     }
 
     private static List<string> ParseAiToolNames(string topic, string? notes)
