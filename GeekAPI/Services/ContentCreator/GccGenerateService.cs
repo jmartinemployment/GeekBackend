@@ -1508,6 +1508,16 @@ public class GccGenerateService
 
         var lede = sections[0] with { Tag = "h2" };
         var document = new ContentDocument(lede, sections.Skip(1).ToList());
+
+        // Per-H2 image prompts. Tool pages are long-form (a fixed four-heading outline) and this
+        // is the revenue-critical content type -- the one place this couldn't be left as a
+        // follow-up the way it briefly was. `section` is accepted but genuinely unused inside
+        // GenerateSectionImagePromptsAsync (checked directly), so null is correct here, not a gap.
+        var documentWithImagePrompts = await GenerateSectionImagePromptsAsync(
+            "tool", name, JsonSerializer.Serialize(document, CwDocumentJson), null, provider, ct);
+        document = JsonSerializer.Deserialize<ContentDocument>(documentWithImagePrompts, CwDocumentJson)
+            ?? throw new InvalidOperationException($"Could not re-read '{name}' after attaching image prompts.");
+
         var wordCount = ContentDocumentText.CountWords(document);
 
         var metaResult = await llm.CompleteAsync(

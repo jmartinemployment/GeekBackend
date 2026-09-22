@@ -21,8 +21,14 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccGenerateServiceToolPageGroundingTests
 {
+    // Overview becomes the lede (GenerateToolPageAsync's sections[0]); Key Capabilities and
+    // Implementation Considerations are what's left as real body sections -- a single-section
+    // body was fine before per-H2 image prompts existed, but now leaves document.Sections empty
+    // after lede extraction, which GenerateSectionImagePromptsAsync correctly refuses.
     private const string ToolBodyJson =
-        """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}]}""";
+        """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Key Capabilities","paragraphs":[{"type":"text","runs":[{"text":"Capabilities."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Implementation Considerations","paragraphs":[{"type":"text","runs":[{"text":"Considerations."}]}],"href":null,"children":[]}]}""";
+    private const string ToolImagePromptsJson =
+        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"capabilities image prompt"},{"section":"Section 2","prompt":"considerations image prompt"}]}""";
     private const string ToolMetadataJson =
         """{"departmentListExcerpt":"x","summary":"x","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
 
@@ -35,8 +41,14 @@ public class GccGenerateServiceToolPageGroundingTests
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
-            // Call 0 = tool body (sections array), call 1 = tool metadata (flat object).
-            var content = Requests.Count == 1 ? ToolBodyJson : ToolMetadataJson;
+            // Call 0 = tool body (sections array), call 1 = per-H2 image prompts, call 2 = tool
+            // metadata (flat object).
+            var content = Requests.Count switch
+            {
+                1 => ToolBodyJson,
+                2 => ToolImagePromptsJson,
+                _ => ToolMetadataJson,
+            };
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
     }
