@@ -784,13 +784,21 @@ public class GccController : ControllerBase
                 break;
 
             case "blog":
-                bodyJson = await gen.GenerateBlogBodyAsync(create, section, provider, mustMentionBlock, ct);
+                // Same StartingContentType override tool/image-prompt already use below, extended
+                // to every branch that reaches BuildAudience -- without it, a create originally
+                // started as (say) "tool" would tell the model "Starting content type: tool" while
+                // it was actually generating this blog post. The starting type is a mint-time fact
+                // about the create; what BuildAudience should describe is what's being generated
+                // right now, which is exactly what normalizedType/platform already say below.
+                bodyJson = await gen.GenerateBlogBodyAsync(
+                    create with { StartingContentType = "blog" }, section, provider, mustMentionBlock, ct);
                 bodyJson = await gen.GenerateSectionImagePromptsAsync(
                     "blog", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             case "email" or "emailcoldoutreach":
-                bodyJson = await gen.GenerateEmailAsync(create, section, provider, mustMentionBlock, ct);
+                bodyJson = await gen.GenerateEmailAsync(
+                    create with { StartingContentType = "email" }, section, provider, mustMentionBlock, ct);
                 bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
                 break;
 
@@ -808,7 +816,8 @@ public class GccController : ControllerBase
                     "googleads" => "GoogleAds",
                     _ => normalizedType, // "linkedin"/"facebook"/"social"/"ads" as-is
                 };
-                bodyJson = await gen.GenerateSocialPostAsync(create, platform, section, provider, mustMentionBlock, ct);
+                bodyJson = await gen.GenerateSocialPostAsync(
+                    create with { StartingContentType = platform }, platform, section, provider, mustMentionBlock, ct);
                 bodyJson = await AddImagePromptForContentAsync(gen, platform, create.Topic, bodyJson, section, provider, ct);
                 break;
             }
@@ -830,8 +839,10 @@ public class GccController : ControllerBase
             default:
                 // Generic fallback -- every type still routed here is disabled pending
                 // content-type-dispatch-and-richness.md, kept only so a future re-enabled type
-                // doesn't need this method touched again just to stop erroring.
-                bodyJson = await gen.GenerateStartingContentAsync(create, section, provider, ct, mustMentionBlock);
+                // doesn't need this method touched again just to stop erroring. Same
+                // StartingContentType override as every branch above, for the same reason.
+                bodyJson = await gen.GenerateStartingContentAsync(
+                    create with { StartingContentType = contentType }, section, provider, ct, mustMentionBlock);
                 bodyJson = await gen.GenerateSectionImagePromptsAsync(
                     contentType, create.Topic, bodyJson, section, provider, ct);
                 break;
