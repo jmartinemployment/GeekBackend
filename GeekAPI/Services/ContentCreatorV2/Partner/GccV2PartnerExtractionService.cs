@@ -134,10 +134,24 @@ public sealed class GccV2PartnerExtractionService(
         var failedPages = 0;
         string? firstFailure = null;
 
-        foreach (var page in pages)
+        // One provider call per page, run concurrently instead of one after another. A real
+        // project retrieved 37 partner pages, which meant 37 sequential round-trips before writing
+        // even began -- long enough to time out the whole Generate request and surface as an
+        // empty-bodied 500 (Jeff, 2026-09-22). Every call is independent: nothing here reads
+        // another page's result. ConcurrencyLimitingContentGenerationProvider already caps
+        // in-flight calls globally at LlmProviders:MaxConcurrentCalls, so this rides the existing
+        // limit rather than introducing a second, competing one.
+        //
+        // Results are consumed in page order below, so Dedupe's "first wins" behaviour and the
+        // reported first failure stay deterministic regardless of completion order.
+        var extractions = await Task.WhenAll(
+                pages.Select(p => ExtractOnePageAsync(p, partnerToolNames, provider, schema, ct)))
+            .ConfigureAwait(false);
+
+        for (var pageIndex = 0; pageIndex < pages.Count; pageIndex++)
         {
-            var (x, error) = await ExtractOnePageAsync(page, partnerToolNames, provider, schema, ct)
-                .ConfigureAwait(false);
+            var page = pages[pageIndex];
+            var (x, error) = extractions[pageIndex];
             if (x is null)
             {
                 // Counted and reported, not merely skipped -- see GccPartnerExtractionDocument.
