@@ -42,7 +42,10 @@ public sealed record GccPartnerExtractionDocument(
     /// refusal downstream could only ever say "nothing found" for either cause.
     /// </summary>
     int PagesAttempted = 0,
-    int PagesFailed = 0)
+    int PagesFailed = 0,
+    /// <summary>The first provider error, verbatim, when PagesFailed > 0. Counts say a
+    /// fault happened; only the provider's own message says what the fault was.</summary>
+    string? FirstFailure = null)
 {
     // Kept in lockstep with GccV2PartnerExtractionService.ProviderSchemaName ("partner-extraction-v4")
     // -- was "v3" while the provider schema had already moved to v4, an unnoticed drift caught during

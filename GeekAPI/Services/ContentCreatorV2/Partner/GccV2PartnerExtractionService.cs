@@ -132,15 +132,17 @@ public sealed class GccV2PartnerExtractionService(
         var schema = GccV2AdHocJsonSchema.For<PartnerPageExtraction>(JsonOpts);
 
         var failedPages = 0;
+        string? firstFailure = null;
 
         foreach (var page in pages)
         {
-            var x = await ExtractOnePageAsync(page, partnerToolNames, provider, schema, ct)
+            var (x, error) = await ExtractOnePageAsync(page, partnerToolNames, provider, schema, ct)
                 .ConfigureAwait(false);
             if (x is null)
             {
-                // Counted, not merely skipped -- see GccPartnerExtractionDocument.PagesFailed.
+                // Counted and reported, not merely skipped -- see GccPartnerExtractionDocument.
                 failedPages++;
+                firstFailure ??= error;
                 continue;
             }
 
@@ -343,7 +345,8 @@ public sealed class GccV2PartnerExtractionService(
             Dedupe(compliance, a => a.TermKind + "|" + a.TermText),
             Dedupe(disclosures, a => a.DisclosureText),
             PagesAttempted: pages.Count,
-            PagesFailed: failedPages);
+            PagesFailed: failedPages,
+            FirstFailure: firstFailure);
     }
 
     /// <summary>
@@ -381,7 +384,7 @@ public sealed class GccV2PartnerExtractionService(
             : "other";
     }
 
-    private async Task<PartnerPageExtraction?> ExtractOnePageAsync(
+    private async Task<(PartnerPageExtraction? Value, string? Error)> ExtractOnePageAsync(
         GccQuoteablePage page,
         IReadOnlyList<string>? partnerToolNames,
         IContentGenerationProvider provider,
@@ -389,7 +392,7 @@ public sealed class GccV2PartnerExtractionService(
         CancellationToken ct)
     {
         var userPrompt = BuildUserPrompt(page, partnerToolNames);
-        if (userPrompt.Length == 0) return null;
+        if (userPrompt.Length == 0) return (null, "page had no headings or paragraphs to extract from");
 
         try
         {
@@ -403,7 +406,7 @@ public sealed class GccV2PartnerExtractionService(
                 provider,
                 JsonOpts,
                 ct).ConfigureAwait(false);
-            return completion.Value;
+            return (completion.Value, null);
         }
         catch (OperationCanceledException)
         {
@@ -412,7 +415,7 @@ public sealed class GccV2PartnerExtractionService(
         catch (Exception cause)
         {
             logger.LogWarning(cause, "Partner extraction failed for {Url}; page skipped.", page.Url);
-            return null;
+            return (null, $"{cause.GetType().Name}: {cause.Message}");
         }
     }
 

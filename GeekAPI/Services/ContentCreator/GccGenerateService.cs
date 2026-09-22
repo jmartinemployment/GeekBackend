@@ -1485,9 +1485,13 @@ public class GccGenerateService
             // was being reported to the operator as "Service Unavailable", as though GeekAPI were
             // down (Jeff, 2026-09-22). Same prefix convention GccGroundingResolver's refusals get.
             throw new InvalidOperationException(
-                $"Refused: Partner grounding required for '{name}': indexed partner crawl data "
-                + $"exists for this project, but what extraction found is not enough to ground a "
-                + $"full tool page ({coverage}). Not generating a thinly-grounded page.");
+                // '{name}' is the tool page being written, not the source of the evidence -- the
+                // evidence comes from the project's partner sites. The old phrasing read as though
+                // partner grounding were expected to be found inside that term (Jeff, 2026-09-22).
+                $"Refused: Partner grounding required. The tool page '{name}' must be grounded in "
+                + $"the project's partner evidence; indexed partner crawl data exists, but "
+                + $"extracting it yielded too little to write a full page ({coverage}). "
+                + $"Not generating a thinly-grounded page.");
         }
 
         var extractedToolResearchJson = groundedExtraction is null
@@ -1705,7 +1709,8 @@ public class GccGenerateService
         // site that simply has no pricing/feature content on the retrieved pages.
         var attempt = extraction.PagesFailed > 0
             ? $"{extraction.PagesFailed} of {extraction.PagesAttempted} page(s) FAILED extraction "
-              + "(provider call threw -- this is a fault, not a data shortage); "
+              + "(provider call threw -- this is a fault, not a data shortage) "
+              + $"[first error: {extraction.FirstFailure ?? "unreported"}]; "
             : $"{extraction.PagesAttempted} page(s) extracted cleanly; ";
 
         return attempt
