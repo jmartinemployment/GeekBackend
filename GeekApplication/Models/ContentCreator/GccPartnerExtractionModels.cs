@@ -32,7 +32,10 @@ public sealed record GccPartnerExtractionDocument(
     IReadOnlyList<GccPartnerComplianceSnippetAsset> ComplianceSnippets,
     IReadOnlyList<GccPartnerAffiliateDisclosureAsset> AffiliateDisclosures)
 {
-    public const string CurrentExtractorVersion = "gcc-partner-extraction.v3";
+    // Kept in lockstep with GccV2PartnerExtractionService.ProviderSchemaName ("partner-extraction-v4")
+    // -- was "v3" while the provider schema had already moved to v4, an unnoticed drift caught during
+    // a 2026-09-22 audit against the restored partner-extraction-complete.md spec.
+    public const string CurrentExtractorVersion = "gcc-partner-extraction.v4";
     public const string CrawlTypePartner = "partner";
     public const string CrawlTypeCompetitors = "competitors";
 }
