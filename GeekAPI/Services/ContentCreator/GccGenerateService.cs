@@ -157,13 +157,59 @@ public class GccGenerateService
             throw new InvalidOperationException($"brief required: missing {string.Join(", ", missing)}");
     }
 
-    public static string BuildBriefAndResearchBlock(GccCreateDto create)
+    /// <summary>
+    /// The Brief as labeled prose, one line per populated field — never a raw JSON dump. Stage 3:
+    /// dumping <c>create.BriefJson</c> verbatim meant every field arrived with equal, unweighted
+    /// emphasis and no guidance on how to resolve a conflict between them; a model reads "follow
+    /// this one when they disagree" only if that instruction exists in the same prose it's reading,
+    /// not buried as a sibling JSON key.
+    /// </summary>
+    internal static string BuildBriefFieldsBlock(BriefFields brief)
     {
         var sb = new StringBuilder();
         sb.AppendLine("=== BRIEF ===");
-        sb.AppendLine("(Persisted Content Brief — follow these controls; if audience detail conflicts with primary, follow detail.)");
-        sb.AppendLine(create.BriefJson!.Trim());
-        sb.AppendLine();
+        if (!string.IsNullOrWhiteSpace(brief.Segment))
+        {
+            var line = $"Audience segment: {brief.Segment}";
+            if (brief.Details is { Count: > 0 })
+                line += $" ({string.Join(", ", brief.Details)})";
+            sb.AppendLine(line);
+        }
+        if (!string.IsNullOrWhiteSpace(brief.Notes))
+            sb.AppendLine($"Audience notes: {brief.Notes} — if this conflicts with the segment above, follow the notes.");
+        if (!string.IsNullOrWhiteSpace(brief.Angle))
+            sb.AppendLine($"Angle: {brief.Angle}");
+        if (!string.IsNullOrWhiteSpace(brief.PrimaryIntent))
+        {
+            var line = $"Primary intent: {brief.PrimaryIntent}";
+            if (!string.IsNullOrWhiteSpace(brief.SecondaryIntent))
+                line += $" + {brief.SecondaryIntent}";
+            sb.AppendLine(line);
+        }
+        if (!string.IsNullOrWhiteSpace(brief.BuyingStage))
+            sb.AppendLine($"Buying stage: {brief.BuyingStage} — align examples/CTAs to funnel (awareness=educate, consideration=compare, action=convert).");
+        if (!string.IsNullOrWhiteSpace(brief.ToneOfVoice))
+            sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
+        if (brief.EeatSignals is { Count: > 0 })
+            sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", brief.EeatSignals)}.");
+        if (!string.IsNullOrWhiteSpace(brief.CtaType))
+        {
+            var line = $"CTA: {brief.CtaType}";
+            if (!string.IsNullOrWhiteSpace(brief.CtaLabel))
+                line += $" ({brief.CtaLabel})";
+            sb.AppendLine(line + " — weave naturally into closing, not forced.");
+        }
+        if (!string.IsNullOrWhiteSpace(brief.LengthBand))
+            sb.AppendLine($"Length band: {brief.LengthBand} — respect target length.");
+        if (!string.IsNullOrWhiteSpace(brief.WritingNotes))
+            sb.AppendLine($"Writing notes: {brief.WritingNotes}");
+        return sb.ToString();
+    }
+
+    public static string BuildBriefAndResearchBlock(GccCreateDto create)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(BuildBriefFieldsBlock(ExtractBriefFields(create.BriefJson)));
 
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
         if (research?.Quoteables is { Count: > 0 })
