@@ -60,6 +60,7 @@ public class GccGenerateServiceProvenanceTests
     private static GccGenerateService Build(
         IContentGenerationProvider provider, GccCompetitorAnalysisResolver competitorResolver) => new(
         new ContentPromptBuilder(),
+        TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         Options.Create(new CompanyProfileOptions()),

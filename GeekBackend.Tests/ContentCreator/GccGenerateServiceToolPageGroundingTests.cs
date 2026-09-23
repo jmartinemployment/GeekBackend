@@ -86,6 +86,7 @@ public class GccGenerateServiceToolPageGroundingTests
     private static GccGenerateService Build(
         IContentGenerationProvider provider, GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction) => new(
         new ContentPromptBuilder(),
+        TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         Options.Create(new CompanyProfileOptions()),

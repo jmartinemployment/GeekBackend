@@ -67,6 +67,7 @@ public class GccGenerateServicePillarFaqTests
 
     private static GccGenerateService Build(RecordingProvider provider) => new(
         new ContentPromptBuilder(),
+        TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         Options.Create(new CompanyProfileOptions()),

@@ -50,6 +50,7 @@ public class GccGenerateService
     }
 
     private readonly IContentPromptBuilder _prompts;
+    private readonly GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry _types;
     private readonly IContentProviderFactory _cwProviders;
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly CompanyProfileOptions _company;
@@ -59,6 +60,7 @@ public class GccGenerateService
 
     public GccGenerateService(
         IContentPromptBuilder prompts,
+        GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry types,
         IContentProviderFactory cwProviders,
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IOptions<CompanyProfileOptions> company,
@@ -67,6 +69,7 @@ public class GccGenerateService
         GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction)
     {
         _prompts = prompts;
+        _types = types;
         _cwProviders = cwProviders;
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _company = company.Value;
@@ -1775,6 +1778,15 @@ public class GccGenerateService
         return contentNode.ToJsonString();
     }
 
+    /// <summary>
+    /// The prompt set for a content type. Absent means nothing implements it -- which is the same
+    /// fact DisabledContentTypes asserts separately today, and the reason those two collapse once
+    /// every type resolves through here.
+    /// </summary>
+    private ContentTypes.IContentTypePrompts RequireType(string contentType) =>
+        _types.Find(contentType)
+        ?? throw new InvalidOperationException($"No prompt set is registered for content type '{contentType}'.");
+
     private IContentGenerationProvider GetLlm(ContentGeneratorProvider provider) =>
         _cwProviders.Get(ToLlm(provider));
 
@@ -2332,18 +2344,13 @@ public class GccGenerateService
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
             Keywords: [create.Topic.Trim()],
-            SectionOutline: [.. PillarOutline]);
+            SectionOutline: [.. RequireType("pillar").Outline]);
 
-        var ledeResult = await llm.CompleteAsync(
-            _prompts.BuildPillarLedePrompt(
-                context,
-                metadata,
-                ledeHeading: PillarOutline[0],
-                ledeIndex: 0,
-                totalSections: PillarOutline.Count,
-                fullOutline: PillarOutline,
-                isRegeneration: false),
-            ct);
+        // Prompts come from the type's own set, not from a switch over a flat builder -- see
+        // content-creator-v2/plans/prompts-per-content-type.md.
+        var pillarType = RequireType("pillar");
+        var pillarPromptCtx = new ContentTypes.ContentTypePromptContext(context, metadata);
+        var ledeResult = await llm.CompleteAsync(pillarType.Lede(pillarPromptCtx), ct);
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
         // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way
         // ContentGenerationOrchestrator reads the same prompt. Reading it as a sections array threw
@@ -2354,16 +2361,7 @@ public class GccGenerateService
             LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
 
         var bodyResult = await llm.CompleteAsync(
-            _prompts.BuildArticleSectionBatchPrompt(
-                context,
-                metadata,
-                headings: [.. PillarOutline.Skip(1)],
-                fullOutline: PillarOutline,
-                isRegeneration: false,
-                revisionNotes: null,
-                requireHeadingProvenance: true,
-                evidenceBlock: evidenceBlock),
-            ct);
+            pillarType.Body(pillarPromptCtx with { EvidenceBlock = evidenceBlock }), ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body").ToList();
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Pillar body returned no sections.");
@@ -2394,7 +2392,7 @@ public class GccGenerateService
         // The lede IS the first H2. When the model gives the lede and the introduction the same
         // heading, they are one section and storing both duplicates it -- same merge the
         // orchestrator does for this prompt. Otherwise the introduction is a real section and leads
-        // the body, so PillarOutline[0] is not lost.
+        // the body, so the outline's first entry is not lost.
         var lede = pillarLede with { Tag = "h2" };
         if (string.Equals(lede.Heading.Trim(), pillarIntroduction.Heading.Trim(), StringComparison.OrdinalIgnoreCase))
         {
@@ -2411,15 +2409,6 @@ public class GccGenerateService
     }
 
     /// <summary>The pillar's standing section plan. Headings the writer must fill, not invent.</summary>
-    private static readonly IReadOnlyList<string> PillarOutline =
-    [
-        "Overview",
-        "Why it matters now",
-        "How it works",
-        "What to evaluate",
-        "Implementation path",
-        "Next steps",
-    ];
 
     private ProjectGenerationContext BuildPillarContext(
         GccCreateDto create,
@@ -2478,17 +2467,15 @@ public class GccGenerateService
             Keywords: [create.Topic.Trim()],
             SectionOutline: ["Overview", "Key considerations", "Next steps"]);
 
-        var ledeResult = await llm.CompleteAsync(
-            _prompts.BuildStandaloneBlogLedePrompt(context, metadata), ct);
+        var blogType = RequireType("blog");
+        var blogPromptCtx = new ContentTypes.ContentTypePromptContext(context, BlogMetadata: metadata);
+        var ledeResult = await llm.CompleteAsync(blogType.Lede(blogPromptCtx), ct);
         // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
         // ParseLede. Reading it as a sections array failed every blog generation.
         var (blogLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
 
         var bodyResult = await llm.CompleteAsync(
-            _prompts.BuildStandaloneBlogBodyPrompt(
-                context, metadata, revisionNotes: null, requireHeadingProvenance: true,
-                evidenceBlock: evidenceBlock),
-            ct);
+            blogType.Body(blogPromptCtx with { EvidenceBlock = evidenceBlock }), ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "blog body");
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Blog body returned no sections.");

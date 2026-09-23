@@ -131,6 +131,16 @@ builder.Services.AddScoped<GeekAPI.HttpClients.IGccProjectReader>(sp =>
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGroundingResolver>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerationCoordinator>();
+// One prompt set per content type, resolved by registry -- see
+// content-creator-v2/plans/prompts-per-content-type.md. Pillar, Blog and Tool only for now.
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
+    GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
+    GeekAPI.Services.ContentCreator.ContentTypes.BlogPrompts>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
+    GeekAPI.Services.ContentCreator.ContentTypes.ToolPrompts>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry,
+    GeekAPI.Services.ContentCreator.ContentTypes.ContentTypePromptRegistry>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccGenerateNotifier>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccGenerateJobRunner>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccCompetitorAnalysisResolver>();

@@ -43,6 +43,7 @@ public class GccGenerateServiceImagePromptTests
 
     private static GccGenerateService Build(IContentGenerationProvider provider) => new(
         new ContentPromptBuilder(),
+        TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         Options.Create(new CompanyProfileOptions()),
