@@ -1847,6 +1847,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
+            // Pillar and Blog have banned this vocabulary for weeks; Tool never got it, which is the
+            // wrong way round -- a page about a partner's product is where "transformative
+            // potential" and "unlock value" are most likely to turn up, and where they do the most
+            // damage to a claim that has to be true.
+            .AppendLine(FillerBanInstruction)
             .AppendLine("Respond with ONLY the sections array for this tool overview page — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")

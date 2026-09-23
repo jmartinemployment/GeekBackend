@@ -1639,6 +1639,16 @@ public class GccGenerateService
         document = JsonSerializer.Deserialize<ContentDocument>(documentWithImagePrompts, CwDocumentJson)
             ?? throw new InvalidOperationException($"Could not re-read '{name}' after attaching image prompts.");
 
+        // The page's own subject has to appear in it. The prompt says "Name {app.Name} throughout,
+        // in every section" and nothing checked -- the same asymmetry that let a blog name two
+        // partners out of five while looking finished. One product here rather than five, but the
+        // failure is worse: a tool page that never names its tool is not a thin page, it is a
+        // category explainer wearing a product's title.
+        var toolMissing = GccRequiredToolMentions.Missing(document, [name]);
+        if (toolMissing.Count > 0)
+            throw new InvalidOperationException(
+                $"Tool page for '{name}' never names it. A page about a product must name the product.");
+
         var wordCount = ContentDocumentText.CountWords(document);
 
         var metaResult = await llm.CompleteAsync(

@@ -29,8 +29,11 @@ public class GccGenerateServiceToolPageGroundingTests
     // the outline was a fixed list of titles; it is a list of obligations now and the writer names
     // each one (Jeff, 2026-09-23: "I really don't want to see Overview again, on any content type.
     // Overview is a type of Lede.").
+    // The body names the product, because a real tool page does and the generator now refuses one
+    // that does not. This fixture said "Body." / "Capabilities." / "Considerations." and would have
+    // shipped a page about nothing in particular.
     private const string ToolBodyJson =
-        """{"sections":[{"tag":"h2","heading":"Where the setup hours actually go","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What the wizard takes off your desk","paragraphs":[{"type":"text","runs":[{"text":"Capabilities."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Considerations."}]}],"href":null,"children":[]}]}""";
+        """{"sections":[{"tag":"h2","heading":"Where the setup hours actually go","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget removes the manual pass."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What the wizard takes off your desk","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget captures the invoice on arrival."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget needs the vendor master mapped first."}]}],"href":null,"children":[]}]}""";
     private const string ToolImagePromptsJson =
         // One per H1 plus one per H2, with headroom for the optional FAQ section -- a short list is
         // refused now rather than silently leaving sections without a prompt.
@@ -130,10 +133,10 @@ public class GccGenerateServiceToolPageGroundingTests
         var service = Build(provider, partner);
 
         var result = await service.GenerateToolPageAsync(
-            "Some Tool", "A generic brief", "Some context", "marketing", null,
+            "Partner Widget", "A generic brief", "Some context", "marketing", null,
             ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
-        Assert.Equal("Some Tool", result.Name);
+        Assert.Equal("Partner Widget", result.Name);
     }
 
     [Fact]
@@ -286,7 +289,7 @@ public class GccGenerateServiceToolPageGroundingTests
         var service = Build(provider, partner);
 
         await service.GenerateToolPageAsync(
-            "Some Tool", "A generic brief", "Some context", "marketing", null,
+            "Partner Widget", "A generic brief", "Some context", "marketing", null,
             ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         var bodyRequest = provider.Requests[1];
