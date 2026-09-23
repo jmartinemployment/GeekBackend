@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekApplication.Models.ContentCreator;
@@ -803,7 +804,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 .ToList();
 
             var paragraphs = kept
-                .Select(c => Truncate(c.Text!, GccPartnerResearchCaps.MaxParagraphChars))
+                .Select(RenderChunk)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .ToList();
             if (paragraphs.Count == 0)
@@ -821,6 +822,51 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         }
 
         return pages;
+    }
+
+    /// <summary>
+    /// One chunk as the writer sees it: the section it belongs to, the surrounding parent block
+    /// when this is a child, and the anchors beneath it.
+    ///
+    /// <para>
+    /// This used to be the chunk's text and nothing else, so everything the indexer computed about
+    /// where a passage sits was discarded at the last hop -- a child arrived as a sentence with no
+    /// surroundings, and the writer had no way to tell a heading's subject matter from a stray
+    /// paragraph. The metadata was in the payload the whole time.
+    /// </para>
+    /// </summary>
+    private static string RenderChunk(ChunkDto chunk)
+    {
+        var body = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(chunk.SectionTitle))
+        {
+            body.AppendLine($"Section: {chunk.SectionTitle!.Trim()}");
+        }
+
+        var text = Truncate(chunk.Text!, GccPartnerResearchCaps.MaxParagraphChars);
+        var isChild = string.Equals(chunk.ChunkRole, "child", StringComparison.OrdinalIgnoreCase);
+        if (isChild && !string.IsNullOrWhiteSpace(chunk.ParentText))
+        {
+            body.AppendLine($"Context: {Truncate(chunk.ParentText!.Trim(), GccPartnerResearchCaps.MaxParagraphChars)}");
+            body.AppendLine($"Specific detail: {text}");
+        }
+        else
+        {
+            body.AppendLine(text);
+        }
+
+        var anchors = (chunk.Anchors ?? [])
+            .Where(a => !string.IsNullOrWhiteSpace(a))
+            .Select(a => a.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(GccPartnerResearchCaps.MaxAnchorsPerChunk)
+            .ToList();
+        if (anchors.Count > 0)
+        {
+            body.AppendLine($"Linked from this section: {string.Join(", ", anchors)}");
+        }
+
+        return body.ToString().TrimEnd();
     }
 
     private static string Truncate(string value, int max = 400)
@@ -924,6 +970,20 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         /// survive the per-page cap -- and the cap kept whichever came first on the page.
         /// </summary>
         public double? QualityScore { get; set; }
+
+        /// <summary>"parent" or "child" -- the chunk's place in the parent/child pair.</summary>
+        public string? ChunkRole { get; set; }
+
+        /// <summary>
+        /// The parent block this chunk sits inside, carried in the payload precisely so a matched
+        /// child can be expanded without a second fetch. Returned by Geek-Crawler-Rag from 890a8f3.
+        /// </summary>
+        public string? ParentText { get; set; }
+
+        public string? ChildText { get; set; }
+
+        /// <summary>Link text under the chunk's heading -- what anchor-based tool detection reads.</summary>
+        public List<string>? Anchors { get; set; }
     }
 
     /// <summary>Mirrors Geek-Crawler-Rag's <c>PageTextResponse</c> (models.py).</summary>

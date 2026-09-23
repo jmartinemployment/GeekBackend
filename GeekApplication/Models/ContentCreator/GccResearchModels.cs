@@ -98,6 +98,11 @@ public static class GccPartnerResearchCaps
     public const int MaxHeadingChars = 300;
     public const int MaxParagraphChars = 2000;
     public const int MaxTitleChars = 300;
+    /// <summary>
+    /// Anchors rendered beneath a chunk. They tell the writer which products a section links to,
+    /// which is worth a few lines -- a whole navigation menu is not.
+    /// </summary>
+    public const int MaxAnchorsPerChunk = 8;
     /// <summary>Soft stop once cleaned title+headings+paragraphs reach this many chars.</summary>
     public const int MaxCharsPerPage = 16_000;
     public const int MaxHtmlBytes = 2_000_000;
