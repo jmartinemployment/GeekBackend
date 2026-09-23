@@ -300,6 +300,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
         sb.AppendLine("- question: open with a compelling question.");
         sb.AppendLine("- quote: open with a relevant quotation.");
         sb.AppendLine("- wordplay: clever phrasing or pun (use sparingly, only if topic allows).");
+        // "summary" is the one a model reaches for unprompted on technical B2B material, and it is
+        // listed first here, which makes it the anchor. Jeff, 2026-09-23: "Overview is a boring
+        // type of lede, that does not pique interest." It is still correct sometimes -- a reader
+        // with transactional or navigational intent wants the answer in the first line, not a
+        // scene -- so this biases against it rather than banning it.
+        sb.AppendLine();
+        sb.AppendLine("Choosing: \"summary\" is the weakest hook and the one most often reached for by default.");
+        sb.AppendLine("Use it only when the brief's intent is transactional or navigational, or the reader");
+        sb.AppendLine("genuinely needs the answer in the opening line. Otherwise choose a lede that earns");
+        sb.AppendLine("attention -- an indirect/soft-feature opening (anecdotal, narrative, sceneSetting,");
+        sb.AppendLine("delayedIdentification, startlingStatement, directAddress) carried by the angle and");
+        sb.AppendLine("audience below. A page that opens by restating its own title has not started yet.");
         // Worked examples, supplied by Jeff 2026-09-23. A one-line definition tells the model what
         // a type is called; it does not show the craft -- the specificity, the concrete detail, the
         // withheld name, the second person. These demonstrate the technique.
