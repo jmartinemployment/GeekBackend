@@ -2794,6 +2794,19 @@ public class GccGenerateService
         if (prompts.Count == 0)
             throw new InvalidOperationException("Image prompts generation returned no prompts.");
 
+        // One per section is the whole contract -- the system prompt says "EXACTLY ONE prompt for
+        // EACH listed section" and they are assigned positionally below. A short list used to be
+        // absorbed by the bounds check on that assignment: ask for six, get one, and the hero kept
+        // its prompt while five H2s silently kept none, with a paid call behind it and nothing
+        // reported. Same shape as the extraction swallow that hid a total outage for two hours.
+        //
+        // Expected is the listed sections plus the hero at index 0.
+        var expectedPrompts = sections.Count + 1;
+        if (prompts.Count < expectedPrompts)
+            throw new InvalidOperationException(
+                $"Image prompts for {contentType}: expected {expectedPrompts} (one hero plus one per "
+                + $"H2), received {prompts.Count}. Not attaching a partial set.");
+
         var document = JsonSerializer.Deserialize<ContentDocument>(body, CwDocumentJson)
             ?? throw new InvalidOperationException("Could not re-read the generated body to attach image prompts.");
 

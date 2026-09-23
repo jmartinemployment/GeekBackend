@@ -28,7 +28,9 @@ public class GccGenerateServiceToolPageGroundingTests
     private const string ToolBodyJson =
         """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Key Capabilities","paragraphs":[{"type":"text","runs":[{"text":"Capabilities."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Implementation Considerations","paragraphs":[{"type":"text","runs":[{"text":"Considerations."}]}],"href":null,"children":[]}]}""";
     private const string ToolImagePromptsJson =
-        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"capabilities image prompt"},{"section":"Section 2","prompt":"considerations image prompt"}]}""";
+        // One per H1 plus one per H2, with headroom for the optional FAQ section -- a short list is
+        // refused now rather than silently leaving sections without a prompt.
+        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"capabilities image prompt"},{"section":"Section 2","prompt":"considerations image prompt"},{"section":"Section 3","prompt":"third image prompt"},{"section":"Section 4","prompt":"fourth image prompt"},{"section":"Section 5","prompt":"fifth image prompt"},{"section":"Section 6","prompt":"sixth image prompt"}]}""";
     private const string ToolMetadataJson =
         """{"departmentListExcerpt":"x","summary":"x","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
     private const string ToolFaqJson =

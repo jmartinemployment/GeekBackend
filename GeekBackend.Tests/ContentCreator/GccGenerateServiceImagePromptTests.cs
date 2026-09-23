@@ -88,23 +88,27 @@ public class GccGenerateServiceImagePromptTests
     }
 
     [Fact]
-    public async Task FewerPromptsThanSectionsLeavesTheRestNullRatherThanThrowing()
+    public async Task FewerPromptsThanSectionsRefusesRatherThanAttachingAPartialSet()
     {
-        // Only a hero and one section prompt came back -- the second section gets none, not an
-        // exception and not a mismatched/shifted assignment.
+        // Only a hero and one section prompt came back for a two-section document. This used to
+        // leave the second section null and say nothing: ask for six, get one, ship a page whose
+        // H2s have no prompts, with a paid call behind it. One per H1 and every H2 is the contract
+        // the system prompt states and the operator asked for (Jeff, 2026-09-23), so a short list
+        // is a failure rather than a partial result.
         const string promptsResponse =
             """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"overview image prompt"}]}""";
         var provider = new ScriptedProvider(promptsResponse);
         var service = Build(provider);
 
-        var updatedJson = await service.GenerateSectionImagePromptsAsync(
-            "pillar", "Test Title", TwoSectionDocumentJson(), null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateSectionImagePromptsAsync(
+                "pillar", "Test Title", TwoSectionDocumentJson(), null,
+                ContentGeneratorProvider.OpenAi, CancellationToken.None));
 
-        var document = JsonSerializer.Deserialize<ContentDocument>(
-            updatedJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-
-        Assert.Equal("overview image prompt", document.Sections[0].ImagePrompt);
-        Assert.Null(document.Sections[1].ImagePrompt);
+        // The message has to say what was expected and what arrived -- "image prompts failed" sends
+        // the reader back to the logs, which is the pattern this codebase keeps paying for.
+        Assert.Contains("expected 3", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("received 2", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
