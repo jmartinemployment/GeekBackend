@@ -8,6 +8,22 @@ public record ContentMetadata(
     string PublisherName,
     string PublisherLogoUrl,
     string CanonicalUrl,
+    /// <summary>
+    /// The article's own hero image.
+    ///
+    /// <para>
+    /// At generation time there is no image -- this pipeline produces image <i>prompts</i>, and the
+    /// picture is made afterwards. So this carries
+    /// <see cref="ContentMetadataFactory.ArticleImagePlaceholder"/>, a visible token the operator
+    /// replaces when the real asset exists.
+    /// </para>
+    ///
+    /// <para>
+    /// It used to be handed the publisher's logo, so every article ever generated declared the same
+    /// company logo as its image -- an SVG with no intrinsic dimensions, and not representative of
+    /// any article's content, which is the one thing schema.org's Article image is for.
+    /// </para>
+    /// </summary>
     string MainImageUrl,
     DateTime DatePublishedUtc,
     DateTime DateModifiedUtc,

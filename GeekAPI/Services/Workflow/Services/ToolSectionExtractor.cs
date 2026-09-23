@@ -58,7 +58,9 @@ public static class ToolSectionExtractor
             // .Href is null until InjectToolLinks has run (tool pages don't exist yet the first time
             // this is called, during pillar-body generation) — populated on later calls once the
             // Tools section's child links have actually been assigned.
-            applications.Add(new SoftwareApplicationDescriptor(name, description, platform.Href));
+            // .Href is our own tool page, so it is PageUrl -- the product's own domain is not
+            // something the pillar's Tools section knows.
+            applications.Add(new SoftwareApplicationDescriptor(name, description, Url: null, PageUrl: platform.Href));
         }
 
         if (applications.Count == 0)

@@ -1604,11 +1604,16 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             .OrderBy(c => c.SourceAppOrder)
             .Select(c =>
             {
-                var url = $"{context.ToolBaseUrl.TrimEnd('/')}/{context.Department}/{c.Slug}";
+                // Our page about the product, which is PageUrl -- not the product's own url.
+                // Passed as `url` until 2026-09-23, which published "Tipalti is located at
+                // geekatyourspot.com". The vendor's own domain is not on a GeneratedContent row, so
+                // it stays unset here rather than being guessed.
+                var pageUrl = $"{context.ToolBaseUrl.TrimEnd('/')}/{context.Department}/{c.Slug}";
                 return new SoftwareApplicationDescriptor(
                     c.SourceAppName ?? c.Title,
                     string.IsNullOrWhiteSpace(c.MetaDescription) ? c.Summary : c.MetaDescription,
-                    url);
+                    Url: null,
+                    PageUrl: pageUrl);
             })
             .ToList();
     }

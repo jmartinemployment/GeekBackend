@@ -1476,6 +1476,23 @@ public class GccGenerateService
         var partnerPages = create is null
             ? []
             : GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables ?? [];
+        // The product's own domain, for the SoftwareApplication's url. The partner crawl seeds are
+        // the vendor's own pages, so it is known here -- and only here; the orchestrator's tool
+        // path has no such source and leaves it unset rather than guessing.
+        //
+        // Fail closed on ambiguity: several partners' pages can land in one create's research until
+        // per-partner pages ship (plans/tool-page-per-partner.md), and picking one of several
+        // origins would attach the wrong company's domain to this product.
+        var partnerOrigins = partnerPages
+            .Select(pg => Uri.TryCreate(pg.Url, UriKind.Absolute, out var u) ? u.GetLeftPart(UriPartial.Authority) : null)
+            .Where(o => !string.IsNullOrWhiteSpace(o))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (partnerOrigins.Count == 1)
+        {
+            app = app with { Url = partnerOrigins[0] };
+        }
+
         var partnerExtraction = partnerPages.Count == 0
             ? null
             : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], ct);
@@ -1635,6 +1652,8 @@ public class GccGenerateService
         metadata = metadata with { MetaDescription = metaDescription };
 
         var toolUrl = $"{_company.ToolBaseUrl.TrimEnd('/')}/{dept}/{slug}";
+        // Our page about the product. Distinct from app.Url, which is the product's own home.
+        app = app with { PageUrl = toolUrl };
         var now = DateTime.UtcNow;
         // AreaServed/PublisherType stay unset here: neither is part of the partner-extraction
         // spec's payloads (plans/partner-extraction-complete.md) and both describe the operator's

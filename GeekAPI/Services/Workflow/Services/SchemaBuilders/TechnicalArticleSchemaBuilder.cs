@@ -34,8 +34,9 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
         IReadOnlyList<SoftwareApplicationDescriptor>? softwareApplications = null)
     {
         var articleNode = BuildArticleNode(metadata, relatedBlogPostUrl);
-        var softwareNodes = softwareApplications is { Count: > 0 }
-            ? _softwareApplicationSchemaBuilder.BuildNodes(softwareApplications)
+        var apps = softwareApplications ?? [];
+        var softwareNodes = apps.Count > 0
+            ? _softwareApplicationSchemaBuilder.BuildNodes(apps)
             : [];
         var faqNode = BuildFaqPage(metadata);
 
@@ -44,9 +45,26 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
             return JsonSerializer.Serialize(articleNode, JsonOptions);
         }
 
+        // The graph said nothing about how its nodes relate: an article and four applications side
+        // by side, no @id on any of them, nothing connecting one to another. A reader of that
+        // markup learns the page contains an article and, separately, that four products exist.
+        // "mentions" by @id is the statement the page was actually making (Jeff, 2026-09-23).
+        var mentioned = apps
+            .Select(_softwareApplicationSchemaBuilder.NodeId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(id => new Dictionary<string, object?> { ["@id"] = id })
+            .ToList();
+        if (mentioned.Count > 0)
+        {
+            articleNode["mentions"] = mentioned;
+        }
+
         var graphNodes = new List<Dictionary<string, object?>>([articleNode, ..softwareNodes]);
         if (faqNode is not null)
         {
+            faqNode["@id"] = $"{metadata.CanonicalUrl}#faq";
+            articleNode["hasPart"] = new Dictionary<string, object?> { ["@id"] = faqNode["@id"] };
             graphNodes.Add(faqNode);
         }
 
@@ -67,14 +85,13 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
             // (confirmed: schema.org/TechnicalArticle 404s; schema.org/TechArticle is real and is
             // the only type "proficiencyLevel" below is actually defined on).
             ["@type"] = "TechArticle",
+            // An @id so other nodes in the graph can point at this one, and so this one can point
+            // back. Without it every node is anonymous and the graph carries no relationships.
+            ["@id"] = $"{metadata.CanonicalUrl}#article",
             ["headline"] = metadata.Headline,
             ["description"] = metadata.Description,
             ["image"] = new[] { metadata.MainImageUrl },
-            ["author"] = new Dictionary<string, object?>
-            {
-                ["@type"] = "Person",
-                ["name"] = metadata.AuthorName
-            },
+            ["author"] = SoftwareApplicationSchemaBuilder.BuildAuthor(metadata),
             ["publisher"] = BuildPublisher(metadata),
             ["datePublished"] = metadata.DatePublishedUtc.ToString("O"),
             ["dateModified"] = metadata.DateModifiedUtc.ToString("O"),
@@ -88,22 +105,20 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
             ["proficiencyLevel"] = "Beginner",
         };
 
-        // Only cite a companion blog when there is one. This was emitted unconditionally, so a
-        // blank URL produced citation: [{ "@type": "BlogPosting", "url": "" }] -- a citation
-        // pointing nowhere, which is worse than no citation at all. Callers pass an empty string
-        // legitimately: the orchestrator when RelatedArticleUrl is unset, and the Create path
-        // always, since a pillar there has no companion blog generated alongside it.
-        // BlogPostingSchemaBuilder already guards this way; this one did not.
+        // Our own companion post, when there is one.
+        //
+        // This was "citation", which means a work this page cites -- an external source it drew on.
+        // Our own blog is not that; it is a sibling page in the same cluster, and saying we cite it
+        // both misstates the relationship and quietly claims external corroboration we do not have.
+        // relatedLink says what is true (Jeff, 2026-09-23). Citation policy here is unchanged and
+        // deliberate: the goal is content others cite.
+        //
+        // Still guarded. Emitted unconditionally it produced a link pointing nowhere, and callers
+        // pass an empty string legitimately -- the orchestrator when RelatedArticleUrl is unset,
+        // and the Create path always, since a pillar there has no companion blog beside it.
         if (!string.IsNullOrWhiteSpace(relatedBlogPostUrl))
         {
-            node["citation"] = new[]
-            {
-                new Dictionary<string, object?>
-                {
-                    ["@type"] = "BlogPosting",
-                    ["url"] = relatedBlogPostUrl
-                }
-            };
+            node["relatedLink"] = relatedBlogPostUrl;
         }
 
         return node;

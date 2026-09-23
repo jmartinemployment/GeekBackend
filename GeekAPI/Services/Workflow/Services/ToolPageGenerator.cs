@@ -94,11 +94,14 @@ public sealed class ToolPageGenerator : IToolPageGenerator
             return new ToolGenerationResult(ToolGenerationOutcome.ToolsSectionEmpty, []);
         }
 
+        // Href is the slot's link on our own pillar, so it is PageUrl. The product's own domain is
+        // not carried on a tool slot, and guessing one would assert where a real company lives.
         var applications = toolSlots
             .Select(s => new SoftwareApplicationDescriptor(
                 s.Name,
                 s.Description,
-                Url: string.IsNullOrWhiteSpace(s.Href) ? null : s.Href))
+                Url: null,
+                PageUrl: string.IsNullOrWhiteSpace(s.Href) ? null : s.Href))
             .ToList();
 
         var usedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

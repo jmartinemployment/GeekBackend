@@ -95,7 +95,8 @@ public sealed class GccV2JsonLdBuilder
             GccV2LongFormTypes.Tool => _toolSchema.BuildToolPage(
                 metadata,
                 pillarArticleUrl: pillarArticleUrl ?? string.Empty,
-                new SoftwareApplicationDescriptor(title, metaDescription, canonicalUrl)),
+                // canonicalUrl is our page, so PageUrl. It was passed as the product's own url.
+                new SoftwareApplicationDescriptor(title, metaDescription, Url: null, PageUrl: canonicalUrl)),
             _ => null,
         };
 

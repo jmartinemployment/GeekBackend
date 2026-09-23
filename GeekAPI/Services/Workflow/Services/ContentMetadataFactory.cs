@@ -14,6 +14,17 @@ namespace GeekAPI.Services.Workflow.Services;
 /// </summary>
 public static class ContentMetadataFactory
 {
+    /// <summary>
+    /// What stands in for the hero image until one exists.
+    ///
+    /// The pipeline generates an image <i>prompt</i>, not a picture, so at this stage the URL is
+    /// genuinely unknown. A visible placeholder is the operator's instruction to fill it in; the
+    /// publisher's logo -- which is what this was -- looked like a real answer and was wrong on
+    /// every page (Jeff, 2026-09-23: "you will not know what that is as at this stage it is only an
+    /// image prompt, so use [article-image] as placeholder").
+    /// </summary>
+    public const string ArticleImagePlaceholder = "[article-image]";
+
     /// <param name="includePublisherGeography">
     /// False for a partner page. AreaServed and PublisherType describe the operator's own site, and
     /// asserting them on a page about a third party's product claims something untrue -- the tool
@@ -37,7 +48,7 @@ public static class ContentMetadataFactory
             context.PublisherName,
             context.PublisherLogoUrl,
             canonicalUrl,
-            context.PublisherLogoUrl,
+            ArticleImagePlaceholder,
             now,
             now,
             keywords,

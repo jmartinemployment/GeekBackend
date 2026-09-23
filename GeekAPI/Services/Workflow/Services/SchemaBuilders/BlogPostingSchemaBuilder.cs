@@ -24,14 +24,11 @@ public class BlogPostingSchemaBuilder : IBlogPostingSchemaBuilder
         {
             ["@context"] = "https://schema.org",
             ["@type"] = "BlogPosting",
+            ["@id"] = $"{metadata.CanonicalUrl}#article",
             ["headline"] = metadata.Headline,
             ["description"] = metadata.Description,
             ["image"] = new[] { metadata.MainImageUrl },
-            ["author"] = new Dictionary<string, object?>
-            {
-                ["@type"] = "Person",
-                ["name"] = metadata.AuthorName
-            },
+            ["author"] = SoftwareApplicationSchemaBuilder.BuildAuthor(metadata),
             ["publisher"] = BuildPublisher(metadata),
             ["datePublished"] = metadata.DatePublishedUtc.ToString("O"),
             ["dateModified"] = metadata.DateModifiedUtc.ToString("O"),
@@ -44,17 +41,12 @@ public class BlogPostingSchemaBuilder : IBlogPostingSchemaBuilder
             ["wordCount"] = metadata.WordCount,
         };
 
-        // Cross-link back to the source TechArticle when one exists (companion blog).
+        // Cross-link back to the pillar when one exists. Was "citation" -- see
+        // TechnicalArticleSchemaBuilder: our own pillar is a sibling in the same cluster, not a
+        // work this post cites.
         if (!string.IsNullOrWhiteSpace(relatedArticleUrl))
         {
-            schema["citation"] = new[]
-            {
-                new Dictionary<string, object?>
-                {
-                    ["@type"] = "TechArticle",
-                    ["url"] = relatedArticleUrl
-                }
-            };
+            schema["relatedLink"] = relatedArticleUrl;
         }
 
         var faqNode = BuildFaqPage(metadata);
@@ -62,6 +54,9 @@ public class BlogPostingSchemaBuilder : IBlogPostingSchemaBuilder
         {
             return JsonSerializer.Serialize(schema, JsonOptions);
         }
+
+        faqNode["@id"] = $"{metadata.CanonicalUrl}#faq";
+        schema["hasPart"] = new Dictionary<string, object?> { ["@id"] = faqNode["@id"] };
 
         var graph = new Dictionary<string, object?>
         {
