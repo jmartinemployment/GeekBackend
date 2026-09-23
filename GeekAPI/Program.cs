@@ -145,6 +145,7 @@ builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccGenerateNotifie
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccGenerateJobRunner>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccArtifactExportService>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccCompetitorAnalysisResolver>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccPublisherProfileResolver>();
 // In-process job tracking for GccController's generate endpoints — a ConcurrentDictionary with no
 // constructor dependencies, and never actually registered. GccController has therefore been
 // unconstructable since GccJobStore was added to its constructor: every action on it, not only the

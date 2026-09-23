@@ -108,7 +108,11 @@ public class GccGenerateServiceToolPageGroundingTests
             new GccCompetitorAnalysisResolverTests.FakePages(),
             new GccCompetitorAnalysisResolverTests.FakeRag()),
         partnerExtraction,
-        new GccCompetitorAnalysisResolverTests.FakeProjects(null));
+        new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+        new GccPublisherProfileResolver(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            NullLogger<GccPublisherProfileResolver>.Instance));
 
     private static string ResearchJsonWithOnePartnerPage() =>
         GccResearchFetchService.Serialize(new GccResearchDocument(

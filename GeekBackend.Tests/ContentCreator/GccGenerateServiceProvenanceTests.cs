@@ -75,7 +75,11 @@ public class GccGenerateServiceProvenanceTests
         NullLogger<GccGenerateService>.Instance,
         competitorResolver,
         GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)),
-        new GccCompetitorAnalysisResolverTests.FakeProjects(null));
+        new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+        new GccPublisherProfileResolver(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            NullLogger<GccPublisherProfileResolver>.Instance));
 
     private static GccCompetitorAnalysisResolver NoCompetitorData() =>
         GccCompetitorAnalysisResolverTests.Build(

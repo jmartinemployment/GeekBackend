@@ -304,6 +304,58 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// asks for everywhere rather than only in the opening.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The publisher's own site, when it has been crawled -- their framework, their proof points,
+    /// their offer, in their words.
+    ///
+    /// <para>
+    /// Jeff, 2026-09-23: "You spell out your own methodology instead of enforcing the one on page
+    /// 1/home?", then "it's common knowledge to reference existing items on the Home page, which
+    /// this has electronically", then "Instead its making shit/good shit up."
+    /// </para>
+    ///
+    /// <para>
+    /// Inventing well is still inventing. A page that recommends buying criteria the publisher's own
+    /// methodology contradicts -- "choose a provider offering comprehensive onboarding" against
+    /// "choose ease of use platforms that require minimal training" -- does not read as generic, it
+    /// reads as written by someone who does not work there.
+    /// </para>
+    /// </summary>
+    private static string? BuildPublisherSiteBlock(ProjectGenerationContext context)
+    {
+        var headings = (context.CrawledHeadings ?? []).Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
+        var paragraphs = (context.CrawledParagraphs ?? []).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        if (headings.Count == 0 && paragraphs.Count == 0)
+        {
+            return null;
+        }
+
+        var block = new StringBuilder()
+            .AppendLine($"=== {context.PublisherName}'S OWN SITE -- USE THIS, DO NOT INVENT AROUND IT ===");
+        foreach (var heading in headings) block.AppendLine($"  # {heading}");
+        foreach (var paragraph in paragraphs) block.AppendLine($"  {paragraph}");
+        block.AppendLine(
+            "This is what the publisher already says about themselves, published and live. Where they " +
+            "have a named framework, phases, figures, service area or offer, use theirs -- their " +
+            "wording, their order, their numbers. Do not write a competing version of something they " +
+            "have already published, and do not recommend criteria their own stated approach " +
+            "contradicts.");
+        block.AppendLine(
+            "Reference their existing pages the way any writer references their own publication: name " +
+            "the framework when the section is about how work gets done, use their published figures " +
+            "rather than inventing equivalents, and close on the offer they actually make rather than " +
+            "a generic suggestion to consider one.");
+        block.AppendLine(
+            "Paraphrase it. Use their framework, their phases, their figures and their offer -- in " +
+            "your own sentences, written for this page. Never reprint the home page: a section that " +
+            "quotes their site back at them adds nothing a reader could not get by clicking Home, " +
+            "and a page assembled out of lifted blocks is not a piece of writing.");
+        block.AppendLine(
+            "Where their site is silent, write from the evidence -- but never fill their silence with " +
+            "a plausible-sounding invention about them.");
+        return block.ToString();
+    }
+
     private const string HumanRegisterInstruction =
         "HOW THIS READS: the giveaway is rhythm, not vocabulary. " +
         "Vary sentence length on purpose. A paragraph whose sentences are all fifteen to twenty-five " +
@@ -898,6 +950,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -948,6 +1001,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine()
             .AppendLine("The introduction continues the same opening — it is not a second start:")
             .AppendLine("After the hook, carry straight on into scoping (who this is for, what the article walks through). Never a duplicate hook, and never a heading.")
@@ -1065,6 +1119,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(briefBody)
             .AppendLine(FillerBanInstruction)
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine($"Write {slots.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Respond with ONLY the sections array, one entry per section listed below, in the same order — no code fences, no commentary:")
@@ -1488,6 +1543,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -1590,6 +1646,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -1627,6 +1684,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(FillerBanInstruction)
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine(briefBody)
             .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
             .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
@@ -1895,6 +1953,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             // damage to a claim that has to be true.
             .AppendLine(FillerBanInstruction)
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY the sections array for this tool overview page — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")

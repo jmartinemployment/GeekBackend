@@ -88,7 +88,11 @@ public class GccGenerateServicePillarFaqTests
             new GccCompetitorAnalysisResolverTests.FakePages(),
             new GccCompetitorAnalysisResolverTests.FakeRag()),
         GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)),
-        new GccCompetitorAnalysisResolverTests.FakeProjects(null));
+        new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+        new GccPublisherProfileResolver(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            NullLogger<GccPublisherProfileResolver>.Instance));
 
     [Fact]
     public async Task NoPaaQuestionsMeansNoFaqCompletionCall()
