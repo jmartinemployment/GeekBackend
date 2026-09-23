@@ -1630,19 +1630,10 @@ public class GccGenerateService
         // own site, not a partner's -- site-hierarchy grounding is a separate concern from partner
         // grounding, not a gap this method's `create` parameter should also close.
         // Faq is independent of site data: it reads the tool page's own generated document.
-        var schemaMeta = new ContentMetadata(
-            name,
-            metaDescription,
-            context.AuthorName,
-            context.PublisherName,
-            context.PublisherLogoUrl,
-            toolUrl,
-            context.PublisherLogoUrl,
-            now,
-            now,
-            pillarMeta.Keywords,
-            wordCount,
-            Faq: ContentDocumentText.ExtractFaqPairs(document));
+        var schemaMeta = ContentMetadataFactory.For(
+            context, name, metaDescription, toolUrl, pillarMeta.Keywords, document, now,
+            // A partner page must not assert the operator's own geography or publisher type.
+            includePublisherGeography: false);
 
         var pillarUrl = string.IsNullOrWhiteSpace(relatedArticleUrl)
             ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{dept}"
@@ -2537,19 +2528,8 @@ public class GccGenerateService
 
         var blogNow = DateTime.UtcNow;
         var blogUrl = $"{_company.BlogBaseUrl.TrimEnd('/')}/{Slugify(blogMeta.Title)}";
-        var blogSchemaMeta = new ContentMetadata(
-            blogMeta.Title,
-            blogMetaDescription,
-            context.AuthorName,
-            context.PublisherName,
-            context.PublisherLogoUrl,
-            blogUrl,
-            context.PublisherLogoUrl,
-            blogNow,
-            blogNow,
-            blogMeta.Keywords,
-            ContentDocumentText.CountWords(document),
-            Faq: ContentDocumentText.ExtractFaqPairs(document));
+        var blogSchemaMeta = ContentMetadataFactory.For(
+            context, blogMeta.Title, blogMetaDescription, blogUrl, blogMeta.Keywords, document, blogNow);
 
         return JsonSerializer.Serialize(new
         {

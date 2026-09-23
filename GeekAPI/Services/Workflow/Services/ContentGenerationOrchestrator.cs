@@ -166,11 +166,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var placeholderBlogUrl = CombineUrl(context.BlogBaseUrl, context.Department, $"{articleRow.Slug}-blog");
 
         var now = DateTime.UtcNow;
-        var articleMetadata = new ContentMetadata(
-            bodyMetadata.Title, bodyMetadata.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, bodyMetadata.Keywords, wordCount,
-            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
-            Faq: ContentDocumentText.ExtractFaqPairs(document));
+        var articleMetadata = ContentMetadataFactory.For(
+            context, bodyMetadata.Title, bodyMetadata.MetaDescription, articleUrl, bodyMetadata.Keywords, document, now);
         var softwareApplications = Array.Empty<SoftwareApplicationDescriptor>();
         articleRow.Body = document;
         articleRow.LedeType = ledeType;
@@ -294,11 +291,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         if (pillar is not null)
         {
             var now = DateTime.UtcNow;
-            var articleMetadata = new ContentMetadata(
-                metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
-                context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount,
-                AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
-                Faq: ContentDocumentText.ExtractFaqPairs(pillar.Body));
+            var articleMetadata = ContentMetadataFactory.For(
+                context, metadata.Title, metadata.MetaDescription, articleUrl, metadata.Keywords, pillar.Body, now);
             var softwareApplications = DescriptorsFromToolPosts(project, context);
             pillar.JsonLdSchema = _articleSchemaBuilder.Build(
                 articleMetadata, pillar.RelatedArticleUrl ?? string.Empty, softwareApplications);
@@ -477,11 +471,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         if (pillar is not null)
         {
             var now = DateTime.UtcNow;
-            var articleMetadata = new ContentMetadata(
-                metadata.Title, metadata.MetaDescription, context.AuthorName, context.PublisherName,
-                context.PublisherLogoUrl, relatedUrl, context.PublisherLogoUrl, now, now, metadata.Keywords, pillar.WordCount,
-                AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
-                Faq: ContentDocumentText.ExtractFaqPairs(pillar.Body));
+            var articleMetadata = ContentMetadataFactory.For(
+                context, metadata.Title, metadata.MetaDescription, relatedUrl, metadata.Keywords, pillar.Body, now);
             pillar.JsonLdSchema = _articleSchemaBuilder.Build(
                 articleMetadata, pillar.RelatedArticleUrl ?? string.Empty, DescriptorsFromToolPosts(project, context));
             await SaveProjectAsync(project, ProjectStatus.ReadyForGeneration, cancellationToken);
@@ -532,18 +523,12 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         };
 
         var now = DateTime.UtcNow;
-        var blogMetadata = new ContentMetadata(
-            blog.Title, blog.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, blogUrl, context.PublisherLogoUrl, now, now, blog.Keywords, blog.WordCount,
-            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
-            Faq: ContentDocumentText.ExtractFaqPairs(blog.Body));
+        var blogMetadata = ContentMetadataFactory.For(
+            context, blog.Title, blog.MetaDescription, blogUrl, blog.Keywords, blog.Body, now);
         var blogJsonLd = _blogSchemaBuilder.Build(blogMetadata, articleUrl);
 
-        var articleMetadata = new ContentMetadata(
-            article.Title, article.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, articleUrl, context.PublisherLogoUrl, now, now, article.Keywords, article.WordCount,
-            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
-            Faq: ContentDocumentText.ExtractFaqPairs(article.Body));
+        var articleMetadata = ContentMetadataFactory.For(
+            context, article.Title, article.MetaDescription, articleUrl, article.Keywords, article.Body, now);
         var softwareApplications = DescriptorsFromToolPosts(project, context);
         articleRow.JsonLdSchema = _articleSchemaBuilder.Build(articleMetadata, blogUrl, softwareApplications);
         articleRow.RelatedArticleUrl = blogUrl;
@@ -605,11 +590,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var blogUrl = CombineUrl(context.BlogBaseUrl, context.Department, blogSlug);
 
         var now = DateTime.UtcNow;
-        var blogMetadata = new ContentMetadata(
-            blogDraft.Title, blogDraft.MetaDescription, context.AuthorName, context.PublisherName,
-            context.PublisherLogoUrl, blogUrl, context.PublisherLogoUrl, now, now, blogDraft.Keywords, blogDraft.WordCount,
-            AreaServed: context.SiteAreaServed, PublisherType: context.SitePublisherType,
-            Faq: ContentDocumentText.ExtractFaqPairs(blogDraft.Body));
+        var blogMetadata = ContentMetadataFactory.For(
+            context, blogDraft.Title, blogDraft.MetaDescription, blogUrl, blogDraft.Keywords, blogDraft.Body, now);
         var blogJsonLd = _blogSchemaBuilder.Build(blogMetadata, relatedArticleUrl: string.Empty);
 
         var summaryVariants = await GenerateSummaryVariantsAsync(
