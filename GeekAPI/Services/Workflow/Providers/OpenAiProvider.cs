@@ -42,6 +42,21 @@ public class OpenAiProvider : IContentGenerationProvider
         }
 
         var model = request.Model ?? _options.ResolveModel(request.TaskClass);
+
+        // What was actually sent, when asked for. There has been no way to see the assembled prompt,
+        // so every question about grounding -- did the site content arrive, did the partner evidence,
+        // is the publisher block there at all -- could only be answered by reading code and inferring.
+        // That is how the site grounding returned null on every create for weeks without anyone
+        // being able to tell. Off by default: these run to tens of thousands of characters.
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            foreach (var message in request.Messages)
+            {
+                _logger.LogDebug(
+                    "LLM {Model} [{TaskClass}] {Role}:{NewLine}{Content}",
+                    model, request.TaskClass, message.RoleString, Environment.NewLine, message.Content);
+            }
+        }
         var reasoning = IsReasoningModel(model);
         var payload = new OpenAiCompatibleRequest
         {
