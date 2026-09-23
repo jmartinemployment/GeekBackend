@@ -2169,6 +2169,31 @@ public class GccGenerateService
         var sb = new StringBuilder();
         sb.AppendLine($"Starting content type: {create.StartingContentType}");
         sb.AppendLine($"Topic / keyword: {create.Topic}");
+
+        // The brief. This method is named BuildAudience and contained no audience: it is the only
+        // channel Email and Social have to the brief, and it carried none of it -- no Angle for
+        // SEO, no audience segment, no intent, no tone. Long-form types receive these through
+        // ProjectGenerationContext as well; short form had nothing at all. Jeff, 2026-09-23, on the
+        // angle governing structure: "But this pertains to all Content types, including short form."
+        var brief = ExtractBriefFields(create.BriefJson);
+        if (!string.IsNullOrWhiteSpace(brief.Angle))
+            sb.AppendLine($"Angle for SEO: {brief.Angle} — this frames the piece; open and structure it accordingly.");
+        if (!string.IsNullOrWhiteSpace(brief.PrimaryIntent))
+            sb.AppendLine($"Primary intent: {brief.PrimaryIntent}"
+                + (string.IsNullOrWhiteSpace(brief.SecondaryIntent) ? "" : $" (secondary: {brief.SecondaryIntent})"));
+        if (!string.IsNullOrWhiteSpace(brief.BuyingStage))
+            sb.AppendLine($"Buying stage: {brief.BuyingStage}");
+        if (!string.IsNullOrWhiteSpace(brief.Segment))
+            sb.AppendLine($"Audience: {brief.Segment}"
+                + (brief.Details is { Count: > 0 } d ? $" — {string.Join(", ", d)}" : "")
+                + (string.IsNullOrWhiteSpace(brief.Notes) ? "" : $" — {brief.Notes}"));
+        else if (!string.IsNullOrWhiteSpace(brief.Notes))
+            sb.AppendLine($"Audience notes: {brief.Notes}");
+        if (!string.IsNullOrWhiteSpace(brief.ToneOfVoice))
+            sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
+        if (!string.IsNullOrWhiteSpace(brief.CtaType))
+            sb.AppendLine($"Call to action: {brief.CtaType}"
+                + (string.IsNullOrWhiteSpace(brief.CtaLabel) ? "" : $" — worded as \"{brief.CtaLabel}\""));
         if (!string.IsNullOrWhiteSpace(create.Notes))
             sb.AppendLine($"Operator notes: {create.Notes}");
         if (section is not null)
