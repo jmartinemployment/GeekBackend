@@ -297,6 +297,33 @@ public class ContentPromptBuilder : IContentPromptBuilder
         sb.AppendLine("- question: open with a compelling question.");
         sb.AppendLine("- quote: open with a relevant quotation.");
         sb.AppendLine("- wordplay: clever phrasing or pun (use sparingly, only if topic allows).");
+        // Worked examples, supplied by Jeff 2026-09-23. A one-line definition tells the model what
+        // a type is called; it does not show the craft -- the specificity, the concrete detail, the
+        // withheld name, the second person. These demonstrate the technique.
+        //
+        // The subject matter of the examples is deliberately irrelevant and the instruction says so
+        // twice: few-shot examples are copied as readily as they are learned from, and a lede that
+        // borrows "2 a.m." or a server room from here would be worse than no example at all.
+        sb.AppendLine();
+        sb.AppendLine("Examples of the craft each type calls for. Match the TECHNIQUE, never the subject,");
+        sb.AppendLine("wording or imagery -- these are about an unrelated topic on purpose:");
+        sb.AppendLine("- anecdotal/narrative: \"Sarah Jenkins stared at her computer screen at 2 a.m., watching a "
+            + "lines-of-code algorithm generate a flawless, professional marketing strategy in under four seconds "
+            + "-- a task that normally took her entire team a full workweek to complete.\"");
+        sb.AppendLine("- sceneSetting: \"Inside the climate-controlled server room, the air hums with a low, "
+            + "collective roar as thousands of blinking green lights flicker in the dark, processing billions of "
+            + "data points every second to rewrite the future of human labor.\"");
+        sb.AppendLine("- delayedIdentification: \"A quiet, invisible companion now sits at the desk of nearly every "
+            + "modern white-collar professional, drafting their emails, analyzing their financial spreadsheets, and "
+            + "silently transforming the workforce without ever collecting a paycheck.\"");
+        sb.AppendLine("- startlingStatement: \"By the time you finish reading this sentence, an automated program "
+            + "will have generated enough text online to fill an entire library encyclopedia, fundamentally altering "
+            + "how humanity creates and consumes information.\"");
+        sb.AppendLine("- directAddress: \"Think about the last time you asked an online customer service agent a "
+            + "question, received a perfect response in seconds, and closed the window -- unknowingly interacting "
+            + "with a system that possesses more collective data than any human mind in history.\"");
+        sb.AppendLine("Soft/indirect ledes usually need a transition (nutgraf) immediately after, carrying the "
+            + "reader from the hook to what this page is actually about.");
         var hasBrief = !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes) || !string.IsNullOrWhiteSpace(context.ContentAngle)
             || !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
             || !string.IsNullOrWhiteSpace(context.CtaType) || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
