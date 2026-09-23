@@ -225,7 +225,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
     private const string ParagraphJsonShape =
         "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...]} " +
-        "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[" + RunJsonShape + ", ...], ...]}";
+        "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[" + RunJsonShape + ", ...], ...]} " +
+        "OR {\"type\":\"quote\",\"runs\":[" + RunJsonShape + ", ...],\"cite\":string? (source URL)} " +
+        "(a real block quotation, for wording worth reproducing verbatim with its source — " +
+        "never \"According to X, ...\" written as ordinary prose)";
 
     private const string SectionJsonContract =
         "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +

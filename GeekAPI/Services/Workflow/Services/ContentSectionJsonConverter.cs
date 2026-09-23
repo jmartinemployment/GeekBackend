@@ -18,6 +18,17 @@ public sealed class ParagraphJsonConverter : JsonConverter<Paragraph>
 
         return type switch
         {
+            // A quote is a first-class block: SectionHtmlRenderer already emits <blockquote
+            // cite="...">, and partner extraction already captures a verbatim Quote plus its source
+            // on every citable. Without this the model had no quote shape to return, so attribution
+            // came out as "According to <partner>" inline prose (Jeff, 2026-09-23).
+            "quote" => new QuoteParagraph(
+                root.TryGetProperty("runs", out var quoteRuns) && quoteRuns.ValueKind == JsonValueKind.Array
+                    ? quoteRuns.EnumerateArray().Select(r => r.Deserialize<Run>(options) ?? new Run(string.Empty)).ToList()
+                    : [],
+                root.TryGetProperty("cite", out var cite) && cite.ValueKind == JsonValueKind.String
+                    ? cite.GetString()
+                    : null),
             "list" => new ListParagraph(
                 root.TryGetProperty("ordered", out var o) && o.GetBoolean(),
                 root.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array
@@ -49,6 +60,14 @@ public sealed class ParagraphJsonConverter : JsonConverter<Paragraph>
                 writer.WriteBoolean("ordered", list.Ordered);
                 writer.WritePropertyName("items");
                 JsonSerializer.Serialize(writer, list.Items, options);
+                break;
+            // Without this case a QuoteParagraph serialized to "{}" -- the quote, its runs and its
+            // citation all silently discarded on the way to storage.
+            case QuoteParagraph quote:
+                writer.WriteString("type", "quote");
+                if (!string.IsNullOrWhiteSpace(quote.Cite)) writer.WriteString("cite", quote.Cite);
+                writer.WritePropertyName("runs");
+                JsonSerializer.Serialize(writer, quote.Runs, options);
                 break;
         }
         writer.WriteEndObject();
