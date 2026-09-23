@@ -123,4 +123,35 @@ public sealed class LlmResponseJsonParserLedeTests
         Assert.Single(merged.Children);
         Assert.Equal("Who this is for", merged.Children[0].Heading);
     }
+
+    [Fact]
+    public void ParseLede_accepts_a_heading_less_lede()
+    {
+        // The shape the contract now asks for, and the one both acceptance checks rejected. Nothing
+        // covered this path, so the suite stayed green while every blog and tool lede was refused:
+        // "Model did not return a valid lede for blog lede" on a response that complied exactly.
+        const string json = """
+            {
+              "ledeType": "anecdotal",
+              "paragraphs": [{"type":"text","runs":[{"text":"Jessica Martin sat buried under paperwork."}]}]
+            }
+            """;
+
+        var (lede, ledeType) = LlmResponseJsonParser.ParseLede(json, "blog lede");
+
+        Assert.Equal(LedeType.Anecdotal, ledeType);
+        Assert.Equal(string.Empty, lede.Heading);
+        Assert.Single(lede.Paragraphs);
+    }
+
+    [Fact]
+    public void ParseLede_still_refuses_a_lede_with_no_paragraphs()
+    {
+        // Paragraphs are what make it a lede, so an empty one is not a lede that happens to be
+        // short -- it is nothing, and must fail rather than render as a blank opening.
+        const string json = """{"ledeType": "anecdotal", "paragraphs": []}""";
+
+        Assert.Throws<GeekAPI.Services.Workflow.Providers.ContentGenerationException>(
+            () => LlmResponseJsonParser.ParseLede(json, "blog lede"));
+    }
 }

@@ -131,10 +131,14 @@ public static class LlmResponseJsonParser
             try
             {
                 var parsed = JsonSerializer.Deserialize<LedeResponse>(candidate, SectionJsonOptions);
-                if (parsed is not null && !string.IsNullOrWhiteSpace(parsed.Heading))
+                // Paragraphs, not a heading. The acceptance test here was a non-empty heading, the
+                // same check already corrected in ParseLedeAndIntroduction -- and missed in this
+                // sibling, so the blog and tool paths rejected every lede the moment the contract
+                // stopped asking for one. The model was complying exactly.
+                if (parsed is not null && parsed.Paragraphs is { Count: > 0 })
                 {
                     var ledeType = ParseLedeTypeStrict(parsed.LedeType, label);
-                    var section = Normalize(new Section("h2", parsed.Heading, parsed.Paragraphs ?? [], null, [], parsed.ImagePrompt));
+                    var section = Normalize(new Section("h2", string.Empty, parsed.Paragraphs, null, [], parsed.ImagePrompt));
                     ValidateContentHygiene(section, label);
                     return (section, ledeType);
                 }
