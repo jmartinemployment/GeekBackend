@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Services;
@@ -621,21 +622,78 @@ public class GccController : ControllerBase
     /// deterministic slug match — a missing/uncertain match must never block Generate or inject
     /// a guessed subtree.
     /// </summary>
+    /// <summary>
+    /// The operator's own site structure around this create's topic -- the headings their site
+    /// already carries under it, so the piece covers what the site says it covers and can point at
+    /// pages that exist.
+    /// </summary>
+    /// <remarks>
+    /// This read the retired Site Analyzer until 2026-09-23, and passed it the wrong kind of id:
+    /// create.ProjectSiteRunId is a Geek-Crawler-v2 run id and GetPageSectionTreesAsync wants a
+    /// Site Analyzer profile id -- the local was even named profileId. Site Analyzer's routes were
+    /// deleted (582a171, 5072820), so the call could only fail, and it failed to null. Generation
+    /// then proceeded with no site structure at all, on every create, silently.
+    ///
+    /// The bearer check above it was a second silent null, and a worse one now that generate runs
+    /// as a background job where no bearer is captured.
+    ///
+    /// This is the same read the live project-site/runs/{runId}/hierarchy-match route does -- the
+    /// one the operator confirmed working before the panel was hidden. Blocks, never Html.
+    /// </remarks>
     private async Task<string?> TryBuildMustMentionBlockAsync(GccCreateDto create, CancellationToken ct)
     {
-        if (create.ProjectSiteRunId is not Guid profileId || profileId == Guid.Empty)
+        if (create.ProjectSiteRunId is not Guid runId || runId == Guid.Empty)
+            return null;
+        if (string.IsNullOrWhiteSpace(create.Topic))
             return null;
 
-        var bearer = GetBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return null;
+        var pages = new List<GeekCrawlerPageDto>();
+        var offset = 0;
+        const int batch = 50;
+        while (true)
+        {
+            var chunk = await _crawlerRepo.ListPageBlocksAsync(runId, batch, offset, ct).ConfigureAwait(false);
+            if (chunk.Count == 0) break;
+            pages.AddRange(chunk);
+            if (chunk.Count < batch) break;
+            offset += chunk.Count;
+        }
 
-        var treesResult = await _seo.GetPageSectionTreesAsync(profileId, bearer, ct);
-        if (!treesResult.Ok || treesResult.Value is null || treesResult.Value.Count == 0)
+        if (pages.Count == 0)
+        {
+            _logger.LogInformation(
+                "Site structure: run {RunId} returned no pages, so this create generates without it.", runId);
             return null;
+        }
 
-        var block = GccGenerateService.BuildMustMentionSubtopicsBlock(treesResult.Value, create.Topic);
-        return string.IsNullOrWhiteSpace(block) ? null : block;
+        var structure = GeekCrawlerSiteStructure.Build(runId, pages);
+        var matches = GccSiteStructureMatch.MatchAll(structure, [create.Topic.Trim()]);
+        var matched = matches.FirstOrDefault(m => m.ChildHeadings.Length > 0) ?? matches.FirstOrDefault();
+        if (matched is null)
+        {
+            _logger.LogInformation(
+                "Site structure: nothing on the site matches \"{Topic}\", so this create generates without it.",
+                create.Topic);
+            return null;
+        }
+
+        var block = new StringBuilder()
+            .AppendLine("=== THIS SITE ALREADY COVERS THIS TOPIC ===")
+            .AppendLine($"Matched heading on {matched.SourcePageUrl}: {matched.MatchedHeading}");
+        if (matched.ChildHeadings.Length > 0)
+        {
+            block.AppendLine("Subtopics the site already treats under it, all of which this piece must cover:");
+            foreach (var child in matched.ChildHeadings)
+            {
+                block.AppendLine($"  - {child}");
+            }
+        }
+
+        block.AppendLine(
+            "This is the publisher's own structure, not a suggestion. Cover these, in their terms, " +
+            "and do not invent a competing breakdown of the same topic. Where the page above already " +
+            "answers something, point the reader at it rather than repeating it here.");
+        return block.ToString();
     }
 
     /// <summary>
