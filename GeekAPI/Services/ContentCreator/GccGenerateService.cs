@@ -1247,19 +1247,32 @@ public class GccGenerateService
             brief.CtaLabel,
             brief.LengthBand,
             brief.WritingNotes);
-        var metadata = new BlogMetadataDraft(
-            Title: create.Topic.Trim(),
-            MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
-            Keywords: [create.Topic.Trim()],
-            SectionOutline: ["Overview", "Key considerations", "Next steps"]);
+        // The outline is planned for this post, not taken from a constant. The three headings that
+        // used to sit here -- "Overview", "Key considerations", "Next steps" -- shipped on every
+        // blog this path produced, and a section called "Key considerations" has nothing in
+        // particular to say, which is the whole of why these came back short (Jeff, 2026-09-23:
+        // "The headings reflect why content word count is so drastically low").
+        var metaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
+        var planned = LlmResponseJsonParser.Parse<BlogMetadataDraft>(metaResult.Content, "standalone blog metadata");
+        var metadata = planned with
+        {
+            MetaDescription = Truncate(planned.MetaDescription, 160),
+        };
+
+        // The hook first, so the body continues it rather than restarting in reference voice at the
+        // first H2. This path used to promote the model's first body section into the lede slot,
+        // which is both no hook at all and one section short.
+        var blogLedeResult = await llm.CompleteAsync(
+            _prompts.BuildStandaloneBlogLedePrompt(context, metadata), ct);
+        var (standaloneLede, _) = LlmResponseJsonParser.ParseLede(blogLedeResult.Content, "standalone blog lede");
+
         var bodyResult = await llm.CompleteAsync(
-            _prompts.BuildStandaloneBlogBodyPrompt(context, metadata, revisionNotes: null),
+            _prompts.BuildStandaloneBlogBodyPrompt(context, metadata, revisionNotes: null, lede: standaloneLede),
             ct);
         var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "standalone blog body");
         if (sections.Count == 0)
             throw new InvalidOperationException("CWV2 blog body returned no sections.");
-        var lede = sections[0] with { Tag = "h2" };
-        var blogDocument = new ContentDocument(lede, sections.Skip(1).ToList());
+        var blogDocument = new ContentDocument(standaloneLede with { Tag = "h2" }, sections);
         blogDocument = ContentGuardrail.Apply(blogDocument).Document;
         return JsonSerializer.Serialize(blogDocument, CwDocumentJson);
     }
@@ -1506,22 +1519,7 @@ public class GccGenerateService
         var extractedToolResearchJson = groundedExtraction is null
             ? null
             : JsonSerializer.Serialize(groundedExtraction, PartnerExtractionJsonOpts);
-        var pillarMeta = new ArticleMetadataDraft(
-            Title: name,
-            MetaDescription: Truncate((brief ?? name).Trim(), 160),
-            Keywords: [name],
-            // Equal to Pillar's six-section outline in count and per-section depth (Jeff,
-            // 2026-09-22: Tool must be equal in word count to Pillar if not longer) -- must stay in
-            // sync with BuildToolBodyPrompt's own "Required top-level (h2) sections" line.
-            SectionOutline:
-            [
-                "Overview",
-                "Key Capabilities",
-                "How It Works",
-                "Implementation Considerations",
-                "Evaluation Criteria",
-                "When to Use",
-            ]);
+        var toolType = RequireType("tool");
 
         var paragraphs = new List<string>();
         if (!string.IsNullOrWhiteSpace(sourceContext))
@@ -1559,16 +1557,43 @@ public class GccGenerateService
             toolBrief.LengthBand,
             toolBrief.WritingNotes);
 
+        // Equal to Pillar's outline in count and per-section depth (Jeff, 2026-09-22: Tool must be
+        // equal in word count to Pillar if not longer). It is read from ToolPrompts rather than
+        // written out again here: this literal was the third copy of that list, sitting under a
+        // comment saying it had to be kept in sync with a fourth copy inside BuildToolBodyPrompt.
+        var toolOutlineCtx = new ContentTypes.ContentTypePromptContext(
+            context, App: app, ToolSlug: slug, ExtractedResearchJson: extractedToolResearchJson);
+        var pillarMeta = new ArticleMetadataDraft(
+            Title: name,
+            MetaDescription: Truncate((brief ?? name).Trim(), 160),
+            Keywords: [name],
+            SectionOutline: [.. toolType.OutlineFor(toolOutlineCtx).Select(sl => sl.Label)]);
+
+        // The hook is written before the body, so the body can continue it. It used to run after --
+        // the page was drafted in reference voice and an opening was fitted to the front of it
+        // afterwards, which is exactly how a page reads well for three paragraphs and then turns
+        // into a chore (Jeff, 2026-09-23: "While it starts off nice with a story, it becomes dull
+        // and a chore to read afterward").
+        //
+        // BuildArticleLedePrompt is the shared 12-type lede path, not a Tool-specific copy: the
+        // taxonomy is chosen against this brief's audience, angle, intent and tone. Tool had no
+        // lede call at all until 2026-09-23 -- its first body section was promoted into the lede
+        // slot, so every tool page opened with a section headed "Overview" and the outline quietly
+        // lost a section.
+        //
+        // The hook is additive, the way the FAQ section is: all six outline sections survive. Tool
+        // must equal or exceed Pillar in length, so a lede that consumed a section would push it
+        // the wrong way.
+        var ledeResult = await llm.CompleteAsync(_prompts.BuildArticleLedePrompt(context, pillarMeta), ct);
+        var (toolLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{name}' lede");
+
         // `brief` used to be passed positionally here, landing in the revisionNotes slot -- every
         // first-time generation had its own brief framed to the model as "REVISION REQUIRED --
         // address the reviewer's feedback," phantom feedback on a draft that never existed. It
         // already reaches the model correctly via app.Description ("Tool summary: ..." below), so
         // dropping it here removes a misleading duplicate, not the only copy.
         var bodyResult = await llm.CompleteAsync(
-            _prompts.BuildToolBodyPrompt(
-                context, pillarMeta, app, slug,
-                revisionNotes: null,
-                extractedToolResearchJson: extractedToolResearchJson),
+            toolType.Body(toolOutlineCtx with { Metadata = pillarMeta, Lede = toolLede }),
             ct);
         var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"tool page '{name}'").ToList();
         if (sections.Count == 0)
@@ -1585,23 +1610,6 @@ public class GccGenerateService
             sections.Add(LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section"));
         }
 
-        // Tool gets the same purpose-written hook every other long-form type gets -- the 12-type
-        // taxonomy chosen against this brief's audience, angle, intent and tone
-        // (BuildLedeTypeGuidance). It previously got none: the model's first body section was
-        // promoted into the lede slot, so every tool page opened with a section headed "Overview"
-        // and the outline quietly lost it (Jeff, repeatedly, most sharply 2026-09-23: "Again you
-        // are treating the most important Content Type as a second class citizen. All long form
-        // content gets a purpose-written hook chosen from twelve types against audience and
-        // angle.").
-        //
-        // BuildArticleLedePrompt is the shared lede path, not a Tool-specific copy -- a third
-        // implementation of this flow is the spaghetti that caused the problem in the first place.
-        //
-        // The hook is additive: all six outline sections survive, the way the FAQ section is
-        // additional rather than carved out of the body. Tool must equal or exceed Pillar in
-        // length, so a lede that consumed a section would push it the wrong way.
-        var ledeResult = await llm.CompleteAsync(_prompts.BuildArticleLedePrompt(context, pillarMeta), ct);
-        var (toolLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{name}' lede");
         var document = new ContentDocument(toolLede with { Tag = "h2" }, sections);
 
         // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
@@ -2370,7 +2378,7 @@ public class GccGenerateService
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
             Keywords: [create.Topic.Trim()],
-            SectionOutline: [.. pillarType.OutlineFor(outlineCtx)]);
+            SectionOutline: [.. pillarType.OutlineFor(outlineCtx).Select(sl => sl.Label)]);
         var pillarPromptCtx = outlineCtx with { Metadata = metadata };
         var ledeResult = await llm.CompleteAsync(pillarType.Lede(pillarPromptCtx), ct);
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
@@ -2383,7 +2391,7 @@ public class GccGenerateService
             LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
 
         var bodyResult = await llm.CompleteAsync(
-            pillarType.Body(pillarPromptCtx with { EvidenceBlock = evidenceBlock }), ct);
+            pillarType.Body(pillarPromptCtx with { EvidenceBlock = evidenceBlock, Lede = pillarLede }), ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body").ToList();
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Pillar body returned no sections.");
@@ -2541,7 +2549,7 @@ public class GccGenerateService
         var (blogLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
 
         var bodyResult = await llm.CompleteAsync(
-            blogType.Body(blogPromptCtx with { EvidenceBlock = evidenceBlock }), ct);
+            blogType.Body(blogPromptCtx with { EvidenceBlock = evidenceBlock, Lede = blogLede }), ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "blog body");
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Blog body returned no sections.");
@@ -2632,10 +2640,15 @@ public class GccGenerateService
 
         var sb = new StringBuilder();
         sb.AppendLine("=== COMPETITOR HEADING STRUCTURE (for content-gap awareness) ===");
-        sb.AppendLine("Real heading outlines from indexed competitor pages. You may draw a subsection from one");
-        sb.AppendLine("of these headings when it fills a real gap this article should cover -- tag it");
+        sb.AppendLine("Real heading outlines from indexed competitor pages. They show what a reader expects to");
+        sb.AppendLine("find covered -- they do not show what to call it. Draw a subsection from one when it fills");
+        sb.AppendLine("a real gap this article should cover, then write your own heading for it and tag it");
         sb.AppendLine("\"competitor:<exact heading text>\", the text only, not the \"(hN)\" level marker");
-        sb.AppendLine("(see provenance rules). Do not copy competitor prose.");
+        sb.AppendLine("(see provenance rules). Reusing the cited heading as your own is rejected outright, and");
+        sb.AppendLine("copying competitor prose is never acceptable.");
+        sb.AppendLine("These pages were indexed because they rank, not because they are well written. Most are");
+        sb.AppendLine("thin local SEO pages. Read them as a checklist of what a reader expects covered -- never");
+        sb.AppendLine("as an example of how to cover it, and never as a standard to match.");
         sb.AppendLine();
         foreach (var page in analyses.Take(MaxCompetitorPagesInPrompt))
         {

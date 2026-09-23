@@ -141,14 +141,18 @@ public class GccGenerateServiceProvenanceTests
             0 => LedeJson,
             2 => ImagePromptsJson,
             3 => ArticleMetadataJson,
-            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Enterprise Rollout Timeline","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Enterprise Rollout Timeline"}]}]}""",
+            // The child fills the gap the competitor heading revealed and names it in this page's
+            // own words. Heading it "Enterprise Rollout Timeline" -- the text it cites -- is the
+            // copy the guard now rejects, so the assertions below check the heading reached the
+            // prompt, not that it was reproduced in the output.
+            _ => """{"sections":[{"tag":"h2","heading":"What a staged rollout costs in week one","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"How long the first site really takes","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Enterprise Rollout Timeline"}]}]}""",
         });
         var service = Build(provider, resolver);
         var create = Create(projectId: project.Id);
 
         var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
-        Assert.Contains("Enterprise Rollout Timeline", json);
+        Assert.Contains("How long the first site really takes", json);
         // The guard passing isn't proof the wiring happened -- the rendered prompt is. Assert the
         // body call's own system message actually showed the model this heading and its source URL.
         var bodyRequest = provider.Requests[1];

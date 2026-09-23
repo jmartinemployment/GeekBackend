@@ -45,12 +45,59 @@ public static class GccHeadingProvenanceGuard
                     $"\"{section.Heading}\" ({section.Tag}): provenance " +
                     $"\"{section.Provenance ?? "(missing)"}\" does not resolve to any available source.");
             }
+            else if (IsCopiedCompetitorHeading(section))
+            {
+                violations.Add(
+                    $"\"{section.Heading}\" ({section.Tag}): copied verbatim from the competitor heading it " +
+                    "cites. A competitor heading licenses a gap worth covering, never the words at the top of " +
+                    "the section that covers it.");
+            }
 
             if (section.Children.Count > 0)
             {
                 Walk(section.Children, evidence, violations);
             }
         }
+    }
+
+    /// <summary>
+    /// A section tagged <c>competitor:&lt;text&gt;</c> whose own heading is that same text.
+    ///
+    /// <para>
+    /// This is the one shape the provenance rules accidentally rewarded. Licensing a heading
+    /// required an exact-match tag against real material, and up to 125 competitor headings are
+    /// rendered into the prompt beside that rule -- so the cheapest way to satisfy a hard,
+    /// fail-closed constraint was to lift a competitor's heading and quote it back as the tag,
+    /// which matched exactly and passed. Grounding then pushed every page toward the aggregate
+    /// shape of the pages already ranking, which is where "Overview", "Key Benefits", "Common
+    /// Challenges" and "Final Thoughts" live. Jeff, 2026-09-23: "With RAG the content is far
+    /// worse."
+    /// </para>
+    ///
+    /// <para>
+    /// Exact match, trimmed and case-insensitive -- the same binary, queryable test as the rest of
+    /// this guard, and deliberately not a similarity score. A section that genuinely fills the gap
+    /// a competitor heading revealed still passes; only reproducing the words fails.
+    /// </para>
+    /// </summary>
+    private static bool IsCopiedCompetitorHeading(Section section)
+    {
+        var provenance = section.Provenance;
+        if (string.IsNullOrWhiteSpace(provenance))
+        {
+            return false;
+        }
+
+        var colonIndex = provenance.IndexOf(':');
+        if (colonIndex < 0
+            || !provenance[..colonIndex].Trim().Equals("competitor", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var cited = provenance[(colonIndex + 1)..].Trim();
+        return cited.Length > 0
+               && cited.Equals(section.Heading?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsLicensed(string? provenance, GccHeadingProvenanceEvidence evidence)

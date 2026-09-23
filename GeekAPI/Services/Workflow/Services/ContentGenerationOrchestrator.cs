@@ -1452,7 +1452,11 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         var introIndex = mainSections.IndexOf(introductionHeading);
         var ledeIntroResult = await provider.CompleteAsync(
             _promptBuilder.BuildPillarLedePrompt(
-                context, metadata, introductionHeading, introIndex, mainSections.Count, metadata.SectionOutline,
+                context, metadata, introductionHeading, introIndex, mainSections.Count,
+                // Headings planned per keyword by the plan call, so they are already this page's
+                // own -- assigned slots, not coverage the writer has to name. The Create path is
+                // the one whose outlines were compile-time constants (see SectionSlot).
+                [.. metadata.SectionOutline.Select(SectionSlot.Assigned)],
                 isRegeneration, revisionNotes, existingLedeHeading),
             cancellationToken);
         (lede, ledeType, var introSection) = LlmResponseJsonParser.ParseLedeAndIntroduction(
@@ -1494,7 +1498,10 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             {
                 var batchResult = await provider.CompleteAsync(
                     _promptBuilder.BuildArticleSectionBatchPrompt(
-                        context, metadata, chunk, metadata.SectionOutline, isRegeneration, revisionNotes),
+                        context, metadata,
+                        [.. chunk.Select(SectionSlot.Assigned)],
+                        [.. metadata.SectionOutline.Select(SectionSlot.Assigned)],
+                        isRegeneration, revisionNotes, lede: lede),
                     cancellationToken);
                 var batchSections = LlmResponseJsonParser.ParseSections(
                     batchResult.Content, "TechnicalArticle section batch");

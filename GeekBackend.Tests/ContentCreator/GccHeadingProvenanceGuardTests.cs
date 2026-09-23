@@ -110,10 +110,39 @@ public class GccHeadingProvenanceGuardTests
     public void AFullyLicensedTreeReturnsNoViolations()
     {
         var evidence = Evidence(competitor: ["Nested Gap"]);
-        var child = Sec("Nested Gap", "competitor:Nested Gap");
+        // Fills the gap that competitor heading revealed, in this page's own words -- which is what
+        // a "competitor:" tag licenses. This test used to head the child "Nested Gap", the exact
+        // text it cites, and assert that as fully licensed: the copy the guard now rejects.
+        var child = Sec("What the rollout actually takes", "competitor:Nested Gap");
         var parent = Sec("Top", "plan", [child]);
 
         Assert.Empty(GccHeadingProvenanceGuard.FindUnlicensedHeadings([parent], evidence));
+    }
+
+    [Fact]
+    public void ACompetitorHeadingReusedVerbatimAsTheSectionHeadingIsAViolation()
+    {
+        // The shape grounding was quietly rewarding. Licensing a heading needs an exact-match tag,
+        // and the prompt renders up to 125 competitor headings beside that rule -- so lifting one
+        // and quoting it back as its own source satisfied the constraint perfectly, and every
+        // grounded page drifted toward the outline every page in the niche already has (Jeff,
+        // 2026-09-23: "With RAG the content is far worse").
+        var evidence = Evidence(competitor: ["Common Challenges"]);
+
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("Common Challenges", "competitor:Common Challenges")], evidence);
+
+        Assert.Single(violations);
+        Assert.Contains("copied verbatim", violations[0]);
+    }
+
+    [Fact]
+    public void TheCopyCheckIgnoresCaseAndSurroundingWhitespace()
+    {
+        var evidence = Evidence(competitor: ["Enterprise Pricing"]);
+
+        Assert.Single(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("  enterprise pricing ", "competitor:Enterprise Pricing")], evidence));
     }
 
     [Fact]

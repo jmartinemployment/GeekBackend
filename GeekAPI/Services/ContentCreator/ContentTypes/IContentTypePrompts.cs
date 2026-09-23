@@ -3,6 +3,7 @@ using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
+using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.ContentCreator.ContentTypes;
 
@@ -30,15 +31,23 @@ public interface IContentTypePrompts
     string Key { get; }
 
     /// <summary>
-    /// The type's top-level sections, in order. One definition: Blog's was written inline twice and
-    /// Tool's existed both as an array and as hardcoded prose inside its body prompt, carrying a
-    /// comment that the two had to be kept in sync by hand.
+    /// The type's top-level sections, in order, as obligations rather than titles -- what each
+    /// section owes the reader, with the writer naming it. One definition: Blog's was written
+    /// inline twice and Tool's existed three times over, as an array here, a literal in
+    /// GccGenerateService and hardcoded prose inside its body prompt, carrying a comment that the
+    /// copies had to be kept in sync by hand.
     ///
-    /// Takes the context because an outline can depend on the brief. "Overview" is an
-    /// angle-agnostic placeholder sitting where the Angle for SEO should decide -- Pillar's prompt
-    /// already forbids a generic opener outright, while Tool's mandated one by name.
+    /// Takes the context because an outline depends on the brief -- the Angle for SEO decides what
+    /// the page opens on.
+    ///
+    /// These were fixed heading strings until 2026-09-23, which meant every pillar and every tool
+    /// page shipped with byte-identical H2s. Jeff: "Headings are lame and I would bet repeated on
+    /// every single blog post", "The headings reflect why content word count is so drastically
+    /// low", and "I really don't want to see Overview again, on any content type. Overview is a
+    /// type of Lede." See <see cref="SectionSlot"/> for why the obligation survives and the title
+    /// does not.
     /// </summary>
-    IReadOnlyList<string> OutlineFor(ContentTypePromptContext ctx);
+    IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx);
 
     ChatCompletionRequest Lede(ContentTypePromptContext ctx);
 
@@ -59,4 +68,9 @@ public sealed record ContentTypePromptContext(
     string? EvidenceBlock = null,
     SoftwareApplicationDescriptor? App = null,
     string? ToolSlug = null,
-    string? ExtractedResearchJson = null);
+    string? ExtractedResearchJson = null,
+    /// <summary>The opening already written for this page. The body prompts could not see it, so a
+    /// page that opened as anecdote switched to reference voice at the first H2 (Jeff, 2026-09-23:
+    /// "While it starts off nice with a story, it becomes dull and a chore to read
+    /// afterward").</summary>
+    Section? Lede = null);

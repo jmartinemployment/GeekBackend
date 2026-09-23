@@ -21,12 +21,16 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccGenerateServiceToolPageGroundingTests
 {
-    // Overview becomes the lede (GenerateToolPageAsync's sections[0]); Key Capabilities and
-    // Implementation Considerations are what's left as real body sections -- a single-section
-    // body was fine before per-H2 image prompts existed, but now leaves document.Sections empty
-    // after lede extraction, which GenerateSectionImagePromptsAsync correctly refuses.
+    // Three body sections, because a single-section body leaves document.Sections empty once the
+    // lede is separated and GenerateSectionImagePromptsAsync correctly refuses that.
+    //
+    // The headings are written ones, not the outline's slot names. Tool's sections used to arrive
+    // headed "Overview / Key Capabilities / Implementation Considerations" on every page because
+    // the outline was a fixed list of titles; it is a list of obligations now and the writer names
+    // each one (Jeff, 2026-09-23: "I really don't want to see Overview again, on any content type.
+    // Overview is a type of Lede.").
     private const string ToolBodyJson =
-        """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Key Capabilities","paragraphs":[{"type":"text","runs":[{"text":"Capabilities."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Implementation Considerations","paragraphs":[{"type":"text","runs":[{"text":"Considerations."}]}],"href":null,"children":[]}]}""";
+        """{"sections":[{"tag":"h2","heading":"Where the setup hours actually go","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What the wizard takes off your desk","paragraphs":[{"type":"text","runs":[{"text":"Capabilities."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Considerations."}]}],"href":null,"children":[]}]}""";
     private const string ToolImagePromptsJson =
         // One per H1 plus one per H2, with headroom for the optional FAQ section -- a short list is
         // refused now rather than silently leaving sections without a prompt.
@@ -38,12 +42,11 @@ public class GccGenerateServiceToolPageGroundingTests
 
     /// <param name="includeFaq">
     /// True when the scripted extraction carries FaqBank entries, so GenerateToolPageAsync makes
-    /// an extra call between the body and image-prompts calls. Defaults to false so every test that
-    /// doesn't ground with FAQ data keeps the original 3-call sequence.
+    /// an extra call between the body and image-prompts calls.
     /// </param>
-    // LedeJsonContract, what BuildArticleLedePrompt asks for -- Tool now gets the same
-    // purpose-written hook every other long-form type gets instead of promoting its first body
-    // section into the lede slot.
+    // LedeJsonContract, what BuildArticleLedePrompt asks for -- Tool gets the same purpose-written
+    // hook every other long-form type gets instead of promoting its first body section into the
+    // lede slot.
     private const string ToolLedeJson =
         """{"ledeType":"directAddress","heading":"Reclaiming The Hours You Lose","paragraphs":[{"type":"text","runs":[{"text":"A hook paragraph that opens the page."}]}]}""";
 
@@ -56,15 +59,17 @@ public class GccGenerateServiceToolPageGroundingTests
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
-            // Call 0 = tool body (sections array), [call 1 = FAQ section when includeFaq], next =
-            // the lede (Tool gets the shared 12-type hook now, so this call exists), then per-H2
-            // image prompts, last = tool metadata (flat object).
+            // Call 0 = the lede, call 1 = tool body (sections array), [call 2 = FAQ section when
+            // includeFaq], then per-H2 image prompts, last = tool metadata (flat object).
+            //
+            // The lede runs first so the body can continue it. It used to run after the body, which
+            // is how a page reads well for three paragraphs and then turns into a chore -- the
+            // opening was fitted to the front of a draft already written in reference voice.
             var content = Requests.Count switch
             {
-                1 => ToolBodyJson,
-                2 when includeFaq => ToolFaqJson,
-                2 => ToolLedeJson,
-                3 when includeFaq => ToolLedeJson,
+                1 => ToolLedeJson,
+                2 => ToolBodyJson,
+                3 when includeFaq => ToolFaqJson,
                 3 => ToolImagePromptsJson,
                 4 when includeFaq => ToolImagePromptsJson,
                 _ => ToolMetadataJson,
@@ -216,9 +221,9 @@ public class GccGenerateServiceToolPageGroundingTests
             ContentGeneratorProvider.OpenAi, CancellationToken.None,
             create: Create(ResearchJsonWithOnePartnerPage()));
 
-        // The body prompt's own request (call 0) actually carried the extraction, not just that
-        // the call succeeded.
-        var bodyRequest = provider.Requests[0];
+        // The body prompt's own request (call 1, after the lede) actually carried the extraction,
+        // not just that the call succeeded.
+        var bodyRequest = provider.Requests[1];
         var userMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("PARTNER DATA", userMessage, StringComparison.Ordinal);
         Assert.Contains("reduces setup time by half", userMessage, StringComparison.Ordinal);
@@ -260,10 +265,10 @@ public class GccGenerateServiceToolPageGroundingTests
             ContentGeneratorProvider.OpenAi, CancellationToken.None,
             create: Create(ResearchJsonWithOnePartnerPage()));
 
-        // FAQ is a real, distinct second call -- carrying the verified answer for the model to
+        // FAQ is a real, distinct call of its own -- carrying the verified answer for the model to
         // paraphrase, not a question it must answer from scratch -- and the resulting section
         // survives into the persisted document, beyond the body's own outline.
-        var faqRequest = provider.Requests[1];
+        var faqRequest = provider.Requests[2];
         var faqUserMessage = faqRequest.Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("SOC 2 Type II certified", faqUserMessage, StringComparison.Ordinal);
         Assert.Contains("Frequently Asked Questions", result.Document.Sections.Select(s => s.Heading));
@@ -284,7 +289,7 @@ public class GccGenerateServiceToolPageGroundingTests
             "Some Tool", "A generic brief", "Some context", "marketing", null,
             ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
-        var bodyRequest = provider.Requests[0];
+        var bodyRequest = provider.Requests[1];
         var system = bodyRequest.Messages.First(m => m.Role == ChatRole.System).Content;
         Assert.DoesNotContain("REVISION REQUIRED", system, StringComparison.Ordinal);
         var userMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.User).Content;

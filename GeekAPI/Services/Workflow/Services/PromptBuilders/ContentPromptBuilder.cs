@@ -40,7 +40,7 @@ public interface IContentPromptBuilder
         string ledeHeading,
         int ledeIndex,
         int totalSections,
-        IReadOnlyList<string> fullOutline,
+        IReadOnlyList<SectionSlot> fullOutline,
         bool isRegeneration,
         string? revisionNotes = null,
         string? existingLedeHeading = null);
@@ -58,15 +58,21 @@ public interface IContentPromptBuilder
     /// <summary>Writes several main-body H2 sections in one call (e.g. Benefits + any other
     /// non-Implementation/Introduction sections) — call-count consolidation, same
     /// SectionsArrayJsonContract/ParseSections pattern the blog fix and tool pages already use.</summary>
+    /// <param name="slots">One entry per section to write, in order. A slot either carries a
+    /// heading a planning call wrote for this page, or states what the section must cover and
+    /// leaves the heading to the writer -- see <see cref="SectionSlot"/>.</param>
+    /// <param name="lede">The opening already written for this page, so the body continues it
+    /// instead of restarting in reference voice at the first H2.</param>
     ChatCompletionRequest BuildArticleSectionBatchPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
-        IReadOnlyList<string> headings,
-        IReadOnlyList<string> fullOutline,
+        IReadOnlyList<SectionSlot> slots,
+        IReadOnlyList<SectionSlot> fullOutline,
         bool isRegeneration,
         string? revisionNotes = null,
         bool requireHeadingProvenance = false,
-        string? evidenceBlock = null);
+        string? evidenceBlock = null,
+        Section? lede = null);
 
     ChatCompletionRequest BuildArticleSectionPrompt(
         ProjectGenerationContext context,
@@ -123,7 +129,7 @@ public interface IContentPromptBuilder
 
     ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
-        bool requireHeadingProvenance = false, string? evidenceBlock = null);
+        bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null);
 
     ChatCompletionRequest BuildSocialPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string platform, string articleUrl);
     ChatCompletionRequest BuildColdOutreachPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string articleUrl);
@@ -144,13 +150,18 @@ public interface IContentPromptBuilder
         string? notes,
         string? artifactContext);
 
+    /// <param name="outline">The page's sections as obligations. Tool's outline used to exist three
+    /// times -- an array in its prompt set, a literal in GccGenerateService, and prose inside the
+    /// prompt itself carrying a comment that the copies had to be kept in sync by hand.</param>
     ChatCompletionRequest BuildToolBodyPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
         SchemaBuilders.SoftwareApplicationDescriptor app,
         string toolSlug,
+        IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
-        string? extractedToolResearchJson = null);
+        string? extractedToolResearchJson = null,
+        Section? lede = null);
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
@@ -264,7 +275,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "Every section you write, at every level including nested children, must be licensed by real " +
         "material above -- never invented from nothing. Tag each one with the \"provenance\" field the " +
         "JSON shape requires, using the exact URL, brief field name, PAA question, or competitor heading " +
-        "it is drawn from. If a subsection cannot honestly be tagged this way, do not write it.";
+        "it is drawn from. If a subsection cannot honestly be tagged this way, do not write it. " +
+        "A \"competitor:\" tag names a gap that heading revealed, never a heading you may reuse: " +
+        "writing the cited text as your own heading is rejected outright. Their outline tells you " +
+        "what a reader expects to find covered; it does not tell you what to call it, and " +
+        "reproducing the headings every page in this niche already carries is how a page ends up " +
+        "reading like all of them.";
 
     /// <summary>
     /// The AI-filler ban every body-generating prompt needs. Historically this existed only on
@@ -275,6 +291,103 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string FillerBanInstruction =
         "Ban filler: cutting-edge, paradigm shift, transformative potential, seamless transition, " +
         "maximize ROI, unlock value. Write specific, verifiable claims instead of hype adjectives.";
+
+    /// <summary>
+    /// Headings, for every type that lets the writer name its own sections.
+    ///
+    /// <para>
+    /// Jeff, 2026-09-23: "Headings are lame and I would bet repeated on every single blog post",
+    /// immediately followed by "The headings reflect why content word count is so drastically low."
+    /// The bet was safe -- Pillar and Tool shipped compile-time heading lists, so they repeated by
+    /// construction, and Blog's were model-written with nothing telling the model that a reusable
+    /// skeleton was the wrong answer. The second sentence is the part that matters here: this is
+    /// not a polish rule. A category label is a section with nothing in particular to say, so it
+    /// gets a little of everything and stops early. Naming the claim is what gives the section
+    /// somewhere to go, which is why the specificity test below is stated as a test and not as a
+    /// preference.
+    /// </para>
+    /// </summary>
+    private const string HeadingCraftInstruction =
+        "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
+        "would sit unchanged on a page about a different product, industry or keyword, it is the " +
+        "wrong heading; rewrite it so it states this section's own specific claim. Never use, and " +
+        "never lightly reword, any of: Overview, Introduction, Understanding X, What Is X, Why It " +
+        "Matters, How It Works, Key Benefits, Key Capabilities, Key Considerations, Key Takeaways, " +
+        "Common Challenges, Best Practices, Getting Started, Next Steps, The Future of X, Final " +
+        "Thoughts, Conclusion. A reader who scans nothing but your headings should come away with " +
+        "the argument. And a category label is also a section with nothing in particular to say, " +
+        "which is why generic headings come back thin -- name the claim and the section has " +
+        "somewhere to go. \"Overview\" in particular is not a section at all: an overview is a kind " +
+        "of lede -- the summary hook -- so it belongs in this page's opening and nowhere after it. " +
+        "A later section that sets out to overview the subject is the opening written a second " +
+        "time, and the reader has already read it.";
+
+    /// <summary>
+    /// Structural monotony, which is a different defect from a bad heading and was producing the
+    /// same symptom. Jeff, 2026-09-23: "While it starts off nice with a story, it becomes dull and
+    /// a chore to read afterward." The lede lands because it is chosen from twelve types against
+    /// audience and angle; the body then ran one formula over every section -- open on the
+    /// practitioner problem, nest two to three h3s, nest one to three h4s under each, 500-700 words
+    /// -- so all six sections had the same silhouette. That reads as a form someone filled in, and
+    /// no amount of per-sentence quality fixes it.
+    /// </summary>
+    private const string SectionVarietyInstruction =
+        "VARY THE SECTIONS: they are parts of one piece of writing, not repetitions of a template. " +
+        "Do not open every section the same way, do not give every section the same internal shape, " +
+        "and do not close every section on the same note. Some sections carry one example at " +
+        "length; some are mostly argument; some earn a list and most do not; some need " +
+        "subsections and some are stronger as continuous prose. A page where every section opens " +
+        "on a problem statement and resolves into three subheadings is a chore to read by the " +
+        "third one, however good the sentences are.";
+
+    /// <summary>
+    /// What the opening already did, handed to the call that writes the body.
+    ///
+    /// <para>
+    /// The body prompts could not see the lede, so the page changed voice at the first H2: a hook
+    /// written as anecdote or scene-setting, then neutral reference prose that reintroduces the
+    /// topic to a reader who is already three paragraphs in. Nothing in either prompt was wrong on
+    /// its own; they were simply two documents. Returns null when there is no lede to continue, so
+    /// callers can append unconditionally.
+    /// </para>
+    /// </summary>
+    private static string? BuildLedeContinuityBlock(Section? lede, string? ledeType = null)
+    {
+        if (lede is null || string.IsNullOrWhiteSpace(lede.Heading))
+        {
+            return null;
+        }
+
+        var opening = ContentDocumentText.Flatten(new ContentDocument(lede, [])).Trim();
+        var block = new StringBuilder()
+            .AppendLine("=== THE OPENING THIS PAGE ALREADY HAS (continue it -- do not restate it) ===")
+            .AppendLine($"Opening heading: {lede.Heading}");
+        if (!string.IsNullOrWhiteSpace(ledeType))
+        {
+            block.AppendLine($"Hook type: {ledeType}");
+        }
+
+        if (opening.Length > 0)
+        {
+            block.AppendLine(opening.Length > 1_800 ? opening[..1_800] : opening);
+        }
+
+        block.AppendLine(
+            "The page has started and the reader is inside that thread. The sections below are the " +
+            "same piece of writing continuing, not a reference document appended to a story. Keep " +
+            "the register the opening set; do not hook the reader a second time, do not " +
+            "reintroduce the topic, and do not drop into neutral textbook voice at the first " +
+            "heading. Where the opening raised something specific -- a person, a moment, a cost, a " +
+            "question -- pay it off later rather than leaving it behind.");
+        return block.ToString();
+    }
+
+    /// <summary>
+    /// Renders the outline for a prompt. Assigned slots list their planned heading; coverage slots
+    /// list what they owe the reader and say, once, that the writer names them.
+    /// </summary>
+    private static string RenderOutline(IReadOnlyList<SectionSlot> outline) =>
+        string.Join(Environment.NewLine, outline.Select((s, i) => $"{i + 1}. {s.Label}"));
 
     private const string LedeJsonContract =
         "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", \"heading\": string (a real written headline — never the literal words \"Summary Lede\" etc.), " +
@@ -591,9 +704,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(ArticleMetadataJsonContract)
             .AppendLine("With the exception of the Lede, article headings are never questions.")
-            .AppendLine("GOOD sectionOutline example: [\"Overview of Enterprise AI\", \"Implementation Framework\", \"Measuring ROI\", \"People Also Ask\"]")
+            .AppendLine("GOOD sectionOutline example: [\"Where Enterprise AI Budgets Actually Go\", \"Implementation Framework\", \"Measuring ROI\", \"People Also Ask\"]")
             .AppendLine("BAD sectionOutline example: [\"What is AI?\", \"How does it work?\"] — never use questions as main H2s.")
             .AppendLine("CRITICAL: sectionOutline[0] is the opening H2 — it MUST be a creative hook headline (lede-driven, specific to the keyword), never a generic \"Introduction to...\" / \"Introduction/Overview\" label. The lede's 12-type hook IS this first H2.")
+            .AppendLine("No heading anywhere in the outline is \"Overview\" or a variant of it. An overview is a kind of lede — the summary hook — so it belongs in the opening H2 and nowhere else; a later section that sets out to overview the topic is the opening written twice.")
             .AppendLine("BAD first H2: \"Introduction to AI Content Creation Workflow\" — never use a bare Introduction label.")
             .AppendLine("Meta description MUST be 140-160 characters, include the target keyword naturally, and stay factual — no hype words like \"cutting-edge\".")
             .ToString();
@@ -682,12 +796,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
         string ledeHeading,
         int ledeIndex,
         int totalSections,
-        IReadOnlyList<string> fullOutline,
+        IReadOnlyList<SectionSlot> fullOutline,
         bool isRegeneration,
         string? revisionNotes = null,
         string? existingLedeHeading = null)
     {
-        var outlineContext = string.Join("\n", fullOutline.Select((h, i) => $"{i + 1}. {h}"));
+        var outlineContext = RenderOutline(fullOutline);
 
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
@@ -742,7 +856,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
             .AppendLine()
-            .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}: \"{ledeHeading}\".")
+            .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}. It covers: {ledeHeading}. You write its heading.")
             .AppendLine($"Article title: {metadata.Title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Meta description: {metadata.MetaDescription}")
@@ -796,15 +910,22 @@ public class ContentPromptBuilder : IContentPromptBuilder
     public ChatCompletionRequest BuildArticleSectionBatchPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
-        IReadOnlyList<string> headings,
-        IReadOnlyList<string> fullOutline,
+        IReadOnlyList<SectionSlot> slots,
+        IReadOnlyList<SectionSlot> fullOutline,
         bool isRegeneration,
         string? revisionNotes = null,
         bool requireHeadingProvenance = false,
-        string? evidenceBlock = null)
+        string? evidenceBlock = null,
+        Section? lede = null)
     {
-        var outlineContext = string.Join("\n", fullOutline.Select((h, i) => $"{i + 1}. {h}"));
-        var headingsList = string.Join("\n", headings.Select((h, i) => $"{i + 1}. \"{h}\""));
+        var outlineContext = RenderOutline(fullOutline);
+        var namesItsOwn = slots.Any(sl => sl.WritesItsOwnHeading);
+        var headingsList = string.Join(Environment.NewLine, slots.Select((sl, i) =>
+            sl.WritesItsOwnHeading
+                ? $"{i + 1}. Cover: {sl.Covers}"
+                    + (sl.Depth is { Length: > 0 } ? $" (roughly {sl.Depth})" : string.Empty)
+                    + (sl.Guidance is { Length: > 0 } ? Environment.NewLine + $"   {sl.Guidance}" : string.Empty)
+                : $"{i + 1}. \"{sl.Heading}\""));
 
         var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
@@ -812,16 +933,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(briefBody)
             .AppendLine(FillerBanInstruction)
-            .AppendLine($"Write {headings.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
+            .AppendLine($"Write {slots.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
-            .AppendLine("Respond with ONLY the sections array, one entry per heading listed below, in the same order — no code fences, no commentary:")
+            .AppendLine("Respond with ONLY the sections array, one entry per section listed below, in the same order — no code fences, no commentary:")
             .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
-            .AppendLine("Each section's own tag is \"h2\". Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
-            .AppendLine("Each h3 is a keyword-level topic and MUST itself nest 1-3 h4 children covering concrete subtopics of that h3.")
-            .AppendLine("Do not leave an h3 as a leaf with only paragraphs — every h3 needs at least one substantive h4 child.")
-            .AppendLine("PROBLEM-FIRST OPENING (required) for each section: the first paragraph must open on the practitioner problem this section addresses ")
-            .AppendLine("(cost, delay, error, risk, wasted effort). Technology and capability come after that pain is clear.")
-            .AppendLine("Do NOT open any section with \"AI enables…\", \"Intelligent X is…\", a product capability list, or a definition of the technology.")
+            .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
+            .AppendLine(SectionVarietyInstruction)
+            .AppendLine("Open each section where its own material starts. Somewhere early in the page the practitioner's cost — the delay, the error rate, the wasted hours of the status quo — has to be concrete, but it is one page making one argument: do not restate the pain at the top of every section, and never open with \"AI enables…\", \"Intelligent X is…\", a capability list, or a definition of the technology.")
             .AppendLine("Do not write these as neutral textbook explainers — every subsection should be framed through what an AI implementation " +
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")
             .AppendLine("Do NOT repeat the same point, example, or framing across sections in this batch — each must cover genuinely distinct ground.")
@@ -834,6 +952,17 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
             .ToString();
 
+        if (namesItsOwn)
+        {
+            system += Environment.NewLine + HeadingCraftInstruction;
+        }
+
+        var continuity = BuildLedeContinuityBlock(lede);
+        if (continuity is not null)
+        {
+            system += Environment.NewLine + continuity;
+        }
+
         if (requireHeadingProvenance)
         {
             if (!string.IsNullOrWhiteSpace(evidenceBlock))
@@ -842,15 +971,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
             }
 
             system += Environment.NewLine + HeadingProvenanceInstruction +
-                " Each top-level section here corresponds to one of the headings you were assigned above" +
-                " — tag its own provenance \"plan\". Every h3/h4 child nested under it is yours to invent," +
-                " and each of those needs a real tag from the rules above.";
+                " Each top-level section here fulfils one of the numbered sections you were assigned" +
+                " above — tag its own provenance \"plan\", whether the heading was given to you or you" +
+                " wrote it yourself. Every h3/h4 child nested under it is yours to invent, and each of" +
+                " those needs a real tag from the rules above.";
         }
 
         // Per-heading guidance — these blocks are pure functions of context (not the loop index),
         // so appending each one that applies across the whole batch is safe even combined into a
         // single call, as long as they're clearly scoped to the heading they apply to.
-        foreach (var heading in headings)
+        foreach (var heading in slots.Select(sl => sl.Label))
         {
             if (PillarSectionClassifier.IsBenefitsSection(heading))
             {
@@ -875,7 +1005,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         if (revisionBlock is not null)
         {
             system += Environment.NewLine + revisionBlock;
-            if (headings.Any(h => PillarSectionClassifier.IsBenefitsSection(h)) || NotesAskForConcreteness(revisionNotes, string.Empty))
+            if (slots.Any(sl => PillarSectionClassifier.IsBenefitsSection(sl.Label)) || NotesAskForConcreteness(revisionNotes, string.Empty))
             {
                 system += Environment.NewLine + BuildConcretenessRevisionAmplifier();
             }
@@ -884,7 +1014,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
             .AppendLine()
-            .AppendLine("Write these sections, in this order:")
+            .AppendLine(namesItsOwn
+                ? "Write these sections, in this order. Each numbered entry says what the section must cover; you write its heading:"
+                : "Write these sections, in this order:")
             .AppendLine(headingsList)
             .AppendLine()
             .AppendLine($"Article title: {metadata.Title}")
@@ -1181,7 +1313,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     private const string BlogMetadataJsonContract =
-        "{\"title\": string, \"summary\": string (the standfirst: one or two sentences placed directly under the H1, stating the promise this page makes to the reader in plain language — not the meta description reworded, not a list of what the page covers), \"metaDescription\": string (max 160 chars), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-6 conversational H2 headings — hooks, numbered angles, or how-to framing; do NOT copy pillar H2s verbatim)}";
+        "{\"title\": string, \"summary\": string (the standfirst: one or two sentences placed directly under the H1, stating the promise this page makes to the reader in plain language — not the meta description reworded, not a list of what the page covers), \"metaDescription\": string (max 160 chars), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-6 conversational H2 headings — hooks, numbered angles, or how-to framing; do NOT copy pillar H2s verbatim; " +
+        "each states that section's own specific claim about this subject, never a reusable label — no Overview, Introduction, Key Takeaways, Common Challenges, Best Practices or Final Thoughts)}";
 
     public ChatCompletionRequest BuildBlogMetadataPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle)
     {
@@ -1342,7 +1475,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
     public ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
-        bool requireHeadingProvenance = false, string? evidenceBlock = null)
+        bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null)
     {
         var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
@@ -1351,6 +1484,15 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Write a standalone deep-dive blog post from the research brief and keyword — there is no pillar article to repurpose.")
             .AppendLine("Substantive paragraphs with examples and implementation context; first/second person allowed.")
             .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
+            // A whole-document target is a number the model cannot act on while writing section
+            // three of six. Pillar has carried a per-section range all along and lands in its band;
+            // blog carried only the total and came back at 791 words against 1,800-2,500 (Jeff,
+            // 2026-09-23). Both constants already existed and nothing on this path used them.
+            .AppendLine($"Each section runs {ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words. " +
+                $"That is what {ContentLengthTargets.BlogSectionCountMin}-{ContentLengthTargets.BlogSectionCountTarget} sections of real depth adds up to -- " +
+                "a section coming in at half of it has not finished making its point, it has not been written concisely.")
+            .AppendLine(HeadingCraftInstruction)
+            .AppendLine(SectionVarietyInstruction)
             .AppendLine(FillerBanInstruction)
             .AppendLine(briefBody)
             .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
@@ -1370,6 +1512,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 " level, including nested children — needs a real tag from the rules above.";
         }
 
+        var blogContinuity = BuildLedeContinuityBlock(lede);
+        if (blogContinuity is not null)
+        {
+            system += Environment.NewLine + blogContinuity;
+        }
+
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes);
         if (revisionBlock is not null)
         {
@@ -1384,7 +1532,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine($"Blog meta description: {metadata.MetaDescription}")
             .AppendLine()
-            .AppendLine("Advisory section outline (prefer these H2s when they still fit, but you may refine):")
+            .AppendLine("Advisory section outline (prefer these H2s when they still fit, but refine any that reads as a reusable label rather than this page's own claim):")
             .AppendLine(string.Join(Environment.NewLine, (metadata.SectionOutline ?? []).Select(h => $"- {h}")))
             .AppendLine()
             .AppendLine("Write the blog body sections. Name platforms from the research brief in running prose where they fit. End with a clear next-step CTA for the reader.")
@@ -1573,9 +1721,32 @@ public class ContentPromptBuilder : IContentPromptBuilder
         ArticleMetadataDraft pillarMetadata,
         SchemaBuilders.SoftwareApplicationDescriptor app,
         string toolSlug,
+        IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
-        string? extractedToolResearchJson = null)
+        string? extractedToolResearchJson = null,
+        Section? lede = null)
     {
+        // One rendering of the outline, from the one definition. This block used to be three hand-
+        // written prose lists inside this prompt -- the required section names, the per-section word
+        // budget, and three paragraphs of per-section instruction addressing sections by name --
+        // beside a fourth copy in ToolPrompts and a fifth in GccGenerateService.
+        var sectionBlock = new StringBuilder();
+        for (var i = 0; i < outline.Count; i++)
+        {
+            var slot = outline[i];
+            sectionBlock.AppendLine(slot.WritesItsOwnHeading
+                ? $"{i + 1}. Cover: {slot.Covers}"
+                : $"{i + 1}. \"{slot.Heading}\"");
+            if (slot.Depth is { Length: > 0 })
+            {
+                sectionBlock.AppendLine($"   Roughly {slot.Depth} -- for proportion between sections, not a quota.");
+            }
+            if (slot.Guidance is { Length: > 0 })
+            {
+                sectionBlock.AppendLine($"   {slot.Guidance}");
+            }
+        }
+
         var system = new StringBuilder()
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
             .AppendLine(BrandTones.ForWebpages())
@@ -1601,8 +1772,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
                 "about a competing product is a sentence that has not done its job.")
             .AppendLine("No introductory paragraphs before the first section.")
-            .AppendLine("Required top-level (h2) sections, in order: Overview, Key Capabilities, How It Works, " +
-                "Implementation Considerations, Evaluation Criteria, When to Use.")
+            .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +
+                "section is responsible for; you write its heading:")
+            .AppendLine(sectionBlock.ToString().TrimEnd())
+            .AppendLine(HeadingCraftInstruction)
+            .AppendLine(SectionVarietyInstruction)
             // Length is guidance for long form, never a quota. "Target at least N words, do not stop
             // early" is padding pressure: on thin partner data the only way to satisfy it is filler,
             // and filler on a partner page is worse than a short honest one. Jeff, 2026-09-23:
@@ -1616,30 +1790,23 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "Never pad, never restate a point in new words to add length, never invent detail to fill a section. " +
                 "A shorter section that is entirely supported beats a longer one that is padded -- if the partner data " +
                 "does not support a section, say less.")
-            .AppendLine("Equal to a Pillar page in ambition, not a thinner treatment -- six substantial sections, not four.")
-            .AppendLine("This word target is for the six sections above only -- a separate FAQ section, when the tool has " +
+            .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {outline.Count} substantial sections, not four.")
+            .AppendLine($"This word target is for the {outline.Count} sections above only -- a separate FAQ section, when the tool has " +
                 "verified partner FAQ data, is generated afterward and is additional, not part of this budget.")
-            .AppendLine("Approximate per-section depth, for proportion between sections -- not quotas:")
-            .AppendLine("  - Overview: ~500-700 words")
-            .AppendLine("  - Key Capabilities: ~600-850 words")
-            .AppendLine("  - How It Works: ~550-750 words")
-            .AppendLine("  - Implementation Considerations: ~650-900 words")
-            .AppendLine("  - Evaluation Criteria: ~550-750 words")
-            .AppendLine("  - When to Use: ~450-600 words")
             .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent a feature, integration, or claim to fill space.")
-            .AppendLine($"How It Works covers the platform's actual mechanics/architecture for {app.Name} specifically -- not a restatement of Key Capabilities, and not generic SaaS description.")
-            .AppendLine($"Evaluation Criteria covers what a buyer should weigh -- pricing model and fit (grounded in persisted tool research when it includes pricing; otherwise discuss evaluation factors in general terms rather than inventing a price), ideal company profile, and how {app.Name} compares to adjacent approaches. Never state a specific price, tier, or discount that is not in the persisted research.")
             .AppendLine($"When persisted tool research is provided, treat it as the authoritative source — do not re-extract or contradict it.")
-            .AppendLine($"Implementation Considerations must not be generic industry advice — cover, made concrete to {app.Name} specifically:")
-            .AppendLine($"  1. Accelerated deployment — what shortens go-live for {app.Name} (pre-built connectors, templated setup, phased rollout).")
-            .AppendLine($"  2. Data model design — what {app.Name}-specific data structure/mapping decisions matter upfront.")
-            .AppendLine($"  3. Workflow/process configuration — what {app.Name}-specific approval chains, routing, or automation logic get configured.")
-            .AppendLine($"  4. Custom code/development — {app.Name}'s own extension mechanism if it has one (API, scripting, SDK); if it's config-only, say so rather than inventing one.")
-            .AppendLine($"Frame these as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
+            .AppendLine($"Frame the implementation material as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
             .AppendLine("There is no real case-study data available — never present a named client, company, or engagement as if it were real. " +
                 "A quantified outcome is fine for narrative punch only if explicitly labeled hypothetical/illustrative — avoid recycling a stock 40% line.")
-            .AppendLine($"Tie Overview and When to Use to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps — this page is about {app.Name}, not a roundup.")
+            .AppendLine($"Tie the opening and closing sections to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps — this page is about {app.Name}, not a roundup.")
             .ToString();
+
+        var toolContinuity = BuildLedeContinuityBlock(lede);
+        if (toolContinuity is not null)
+        {
+            system += Environment.NewLine + toolContinuity;
+        }
+
 
         // Who the page is for, and what it has to do for them. Drawn from Jeff's own partner-page
         // template (2026-09-23), supplied "to facilitate, not dictate" -- so the six-section
@@ -1660,12 +1827,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
             + "that reader — hours returned, errors removed, a job that stops needing a person. A capability listed without "
             + "its consequence is a spec sheet, and they can already read the vendor's own.");
         audience.AppendLine("Lead with outcomes, not mechanism. Plain language over jargon, concrete over abstract.");
-        audience.AppendLine($"Implementation Considerations is where you answer the DIY question: what {context.PublisherName} "
+        audience.AppendLine($"The implementation section is where you answer the DIY question: what {context.PublisherName} "
             + $"({context.ImplementerPositioning}) does that makes {app.Name} work in their environment — configuration, data "
             + "mapping, integration with what they already run, training. Earn the claim, never assert it.");
         if (!string.IsNullOrWhiteSpace(context.CtaType))
         {
-            audience.AppendLine($"Close When to Use with a single clear call to action ({context.CtaType}"
+            audience.AppendLine($"Close the final section with a single clear call to action ({context.CtaType}"
                 + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $", worded as \"{context.CtaLabel}\"")
                 + $"). One ask, placed naturally after the reader has reason to act — never a banner and never repeated per section.");
         }
@@ -1688,7 +1855,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Public path: /tools/{toolSlug}");
         if (!string.IsNullOrWhiteSpace(context.PillarBodyExcerpt))
         {
-            user.AppendLine("=== PILLAR USE-CASE EXCERPT (ground Overview and When to Use here; do not reprint the pillar) ===");
+            user.AppendLine("=== PILLAR USE-CASE EXCERPT (ground the opening and closing sections here; do not reprint the pillar) ===");
             user.AppendLine(context.PillarBodyExcerpt);
         }
         if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))

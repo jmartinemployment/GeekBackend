@@ -483,8 +483,15 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         return LlmResponseJsonParser.Parse<ToolMetadataDraft>(result.Content, "tool metadata");
     }
 
-    /// <summary>Generates the tool page as a sections array; the first section (always "Overview")
-    /// becomes the document's lede, the rest become its top-level sections.</summary>
+    /// <summary>
+    /// Generates the tool page: the shared 12-type hook, then the body sections it opens.
+    ///
+    /// The hook used to be the body's own first section promoted into the lede slot, which cost the
+    /// page a section and meant it never got a purpose-written opening -- the same defect the
+    /// Create path carried until 2026-09-23. It also ran the wrong way round: writing the body
+    /// first and fitting an opening to the front of it is how a page reads well for three
+    /// paragraphs and then turns into a chore.
+    /// </summary>
     private async Task<ContentDocument> GenerateToolBodyWithValidationAsync(
         IContentGenerationProvider provider,
         ProjectGenerationContext context,
@@ -495,8 +502,12 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         string? revisionNotes,
         CancellationToken cancellationToken)
     {
+        var ledeResult = await provider.CompleteAsync(
+            _promptBuilder.BuildArticleLedePrompt(context, pillarMetadata), cancellationToken);
+        var (lede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{app.Name}' lede");
+
         var sections = await GenerateFullToolBodyAsync(
-            provider, context, pillarMetadata, app, researchJson, toolSlug, revisionNotes, cancellationToken);
+            provider, context, pillarMetadata, app, researchJson, toolSlug, revisionNotes, lede, cancellationToken);
 
         var wordCount = ContentDocumentText.CountWords(sections);
 
@@ -510,8 +521,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 ContentLengthTargets.ToolHardMaxWords);
         }
 
-        var lede = sections[0] with { Tag = "h2" };
-        return new ContentDocument(lede, sections.Skip(1).ToList());
+        return new ContentDocument(lede with { Tag = "h2" }, sections);
     }
 
     private async Task<List<Section>> GenerateFullToolBodyAsync(
@@ -522,10 +532,16 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         string? researchJson,
         string toolSlug,
         string? revisionNotes,
+        Section? lede,
         CancellationToken cancellationToken)
     {
         var result = await provider.CompleteAsync(
-            _promptBuilder.BuildToolBodyPrompt(context, pillarMetadata, app, toolSlug, revisionNotes, researchJson),
+            _promptBuilder.BuildToolBodyPrompt(
+                context, pillarMetadata, app, toolSlug,
+                // The tool outline, from the one place it is defined. Not pillarMetadata's outline
+                // -- that is the pillar's planned sections, a different page.
+                GeekAPI.Services.ContentCreator.ContentTypes.ToolPrompts.Outline(context, app.Name),
+                revisionNotes, researchJson, lede),
             cancellationToken);
         return LlmResponseJsonParser.ParseSections(result.Content, $"tool page '{app.Name}'").ToList();
     }

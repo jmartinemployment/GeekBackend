@@ -6,16 +6,25 @@ using GeekAPI.Services.Workflow.Services.PromptBuilders;
 namespace GeekAPI.Services.ContentCreator.ContentTypes;
 
 /// <summary>
-/// Blog: a deep-dive companion article. One outline definition -- this literal was written inline
-/// twice in GccGenerateService, in two methods, kept identical by hand.
+/// Blog: a deep-dive companion article. Unlike Pillar and Tool, a blog's sections are planned per
+/// post by BuildStandaloneBlogMetadataPrompt rather than fixed here -- so this type's outline is
+/// whatever that call returned, and the constant that used to sit in this file
+/// ("Overview / Key considerations / Next steps", written inline twice in GccGenerateService and
+/// kept identical by hand) named three sections no blog has been written against since the body
+/// began using the planned outline.
 /// </summary>
 public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePrompts
 {
     public string Key => "blog";
 
-    private static readonly string[] Sections = ["Overview", "Key considerations", "Next steps"];
-
-    public IReadOnlyList<string> OutlineFor(ContentTypePromptContext ctx) => Sections;
+    /// <summary>
+    /// The outline the metadata call planned for this post, as assigned slots -- they are already
+    /// this post's own headings, written against its title and angle, not a reusable skeleton.
+    /// Empty before that call has run, which is the honest answer: a blog has no outline until one
+    /// is planned for it.
+    /// </summary>
+    public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx) =>
+        [.. (ctx.BlogMetadata?.SectionOutline ?? []).Select(SectionSlot.Assigned)];
 
     /// <summary>LedeJsonContract -- read with ParseLede, not ParseSections.</summary>
     public ChatCompletionRequest Lede(ContentTypePromptContext ctx) =>
@@ -31,5 +40,6 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
             Meta(ctx),
             revisionNotes: null,
             requireHeadingProvenance: true,
-            evidenceBlock: ctx.EvidenceBlock);
+            evidenceBlock: ctx.EvidenceBlock,
+            lede: ctx.Lede);
 }

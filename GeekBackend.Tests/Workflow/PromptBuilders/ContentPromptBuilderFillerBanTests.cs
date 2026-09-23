@@ -44,7 +44,9 @@ public class ContentPromptBuilderFillerBanTests
         var metadata = new ArticleMetadataDraft("Title", "Meta", ["ai"], ["Overview", "Details"]);
 
         var request = builder.BuildArticleSectionBatchPrompt(
-            Context(), metadata, headings: ["Details"], fullOutline: ["Overview", "Details"],
+            Context(), metadata,
+            slots: [SectionSlot.Assigned("Details")],
+            fullOutline: [SectionSlot.Assigned("Overview"), SectionSlot.Assigned("Details")],
             isRegeneration: false);
 
         Assert.Contains("Ban filler", SystemPrompt(request));
@@ -77,7 +79,10 @@ public class ContentPromptBuilderFillerBanTests
         };
 
         var request = builder.BuildArticleSectionBatchPrompt(
-            context, metadata, headings: ["Overview"], fullOutline: ["Overview"], isRegeneration: false);
+            context, metadata,
+            slots: [SectionSlot.Assigned("Overview")],
+            fullOutline: [SectionSlot.Assigned("Overview")],
+            isRegeneration: false);
 
         var system = SystemPrompt(request);
         Assert.Contains("=== BRIEF CONTROLS", system);
@@ -92,7 +97,10 @@ public class ContentPromptBuilderFillerBanTests
         var metadata = new ArticleMetadataDraft("Title", "Meta", ["ai"], ["Overview"]);
 
         var request = builder.BuildArticleSectionBatchPrompt(
-            Context(), metadata, headings: ["Overview"], fullOutline: ["Overview"], isRegeneration: false);
+            Context(), metadata,
+            slots: [SectionSlot.Assigned("Overview")],
+            fullOutline: [SectionSlot.Assigned("Overview")],
+            isRegeneration: false);
 
         Assert.DoesNotContain("=== BRIEF CONTROLS", SystemPrompt(request));
     }
