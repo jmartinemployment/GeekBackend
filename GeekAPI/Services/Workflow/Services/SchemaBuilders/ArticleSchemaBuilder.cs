@@ -4,16 +4,19 @@ using GeekAPI.Services.Workflow.DTOs;
 
 namespace GeekAPI.Services.Workflow.Services.SchemaBuilders;
 
-public interface ITechnicalArticleSchemaBuilder
+public interface IArticleSchemaBuilder
 {
-    /// <summary>Builds a schema.org TechnicalArticle JSON+LD document that cites the companion blog post.</summary>
+    /// <summary>
+    /// Builds the schema.org Article JSON+LD for a pillar page, linking the companion blog post and
+    /// any applications the page names.
+    /// </summary>
     string Build(
         ContentMetadata metadata,
         string relatedBlogPostUrl,
         IReadOnlyList<SoftwareApplicationDescriptor>? softwareApplications = null);
 }
 
-public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
+public class ArticleSchemaBuilder : IArticleSchemaBuilder
 {
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
 
@@ -23,7 +26,7 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
         WriteIndented = true
     };
 
-    public TechnicalArticleSchemaBuilder(ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder)
+    public ArticleSchemaBuilder(ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder)
     {
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
     }
@@ -81,10 +84,16 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
     {
         var node = new Dictionary<string, object?>
         {
-            // "TechArticle" is the real schema.org type — "TechnicalArticle" doesn't exist there
-            // (confirmed: schema.org/TechnicalArticle 404s; schema.org/TechArticle is real and is
-            // the only type "proficiencyLevel" below is actually defined on).
-            ["@type"] = "TechArticle",
+            // TechArticle is schema.org's type for technical documentation -- how-to tasks,
+            // step-by-step procedures, troubleshooting, specifications. A commercial pillar page
+            // written for buyers is none of those, and it was published as one on every page
+            // (Jeff, 2026-09-23, on being told the type was a judgement call rather than an error:
+            // "Either it is wrong or it is not?" -- it is wrong).
+            //
+            // proficiencyLevel went with it. It is defined only on TechArticle, so it is invalid
+            // on this type, and it was a hardcoded "Beginner" on every page regardless -- an
+            // assertion with nothing behind it even where the type had allowed it.
+            ["@type"] = "Article",
             // An @id so other nodes in the graph can point at this one, and so this one can point
             // back. Without it every node is anonymous and the graph carries no relationships.
             ["@id"] = $"{metadata.CanonicalUrl}#article",
@@ -102,7 +111,6 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
             },
             ["keywords"] = string.Join(", ", metadata.Keywords),
             ["wordCount"] = metadata.WordCount,
-            ["proficiencyLevel"] = "Beginner",
         };
 
         // Our own companion post, when there is one.

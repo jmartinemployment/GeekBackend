@@ -96,7 +96,9 @@ public class SoftwareApplicationSchemaBuilder : ISoftwareApplicationSchemaBuilde
         node["keywords"] = string.Join(", ", metadata.Keywords);
         node["subjectOf"] = new Dictionary<string, object?>
         {
-            ["@type"] = "TechArticle",
+            // Matches the pillar's own @type, corrected from TechArticle 2026-09-23. A subjectOf
+                // naming a type the target does not have is a dangling reference.
+                ["@type"] = "Article",
             ["@id"] = pillarArticleUrl
         };
 

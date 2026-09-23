@@ -114,7 +114,7 @@ public class HtmlExportService : IHtmlExportService
             GeneratedContentType.ToolPost => "website",
             _ => "website",
         };
-        // JSON+LD is only ever built for these three types (TechnicalArticleSchemaBuilder /
+        // JSON+LD is only ever built for these three types (ArticleSchemaBuilder /
         // BlogPostingSchemaBuilder / SoftwareApplicationSchemaBuilder) — JsonLdSchema is null/"{}"
         // for social, email, and image-prompt rows, so RenderDocument's own guard skips the script
         // tag for those without needing a type check here too.

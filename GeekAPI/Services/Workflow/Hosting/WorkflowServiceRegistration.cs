@@ -69,7 +69,7 @@ public static class WorkflowServiceRegistration
         services.AddScoped<IKeywordHtmlParserService, KeywordHtmlParserService>();
         services.AddScoped<IContentPromptBuilder, ContentPromptBuilder>();
         services.AddScoped<ISoftwareApplicationSchemaBuilder, SoftwareApplicationSchemaBuilder>();
-        services.AddScoped<ITechnicalArticleSchemaBuilder, TechnicalArticleSchemaBuilder>();
+        services.AddScoped<IArticleSchemaBuilder, ArticleSchemaBuilder>();
         services.AddScoped<IBlogPostingSchemaBuilder, BlogPostingSchemaBuilder>();
         services.AddScoped<WorkflowSeoBearerContext>();
         services.AddScoped<IToolPageGenerator, ToolPageGenerator>();

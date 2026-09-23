@@ -37,7 +37,7 @@ public class SchemaAreaServedPublisherTypeFaqTests
     [Fact]
     public void AreaServed_absent_from_publisher_when_the_summary_has_none()
     {
-        var builder = new TechnicalArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder());
+        var builder = new ArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder());
         var json = builder.Build(Metadata(areaServed: null), "https://geek.test/blog");
 
         using var doc = JsonDocument.Parse(json);
@@ -47,7 +47,7 @@ public class SchemaAreaServedPublisherTypeFaqTests
     [Fact]
     public void AreaServed_present_and_matches_when_the_summary_has_one()
     {
-        var builder = new TechnicalArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder());
+        var builder = new ArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder());
         var json = builder.Build(Metadata(areaServed: ["Denver, CO", "Boulder, CO"]), "https://geek.test/blog");
 
         using var doc = JsonDocument.Parse(json);
@@ -60,7 +60,7 @@ public class SchemaAreaServedPublisherTypeFaqTests
     public void AreaServed_is_never_emitted_as_an_empty_array()
     {
         // An empty [] asserts "serves nowhere" -- worse than omitting the property.
-        var builder = new TechnicalArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder());
+        var builder = new ArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder());
         var json = builder.Build(Metadata(areaServed: []), "https://geek.test/blog");
 
         using var doc = JsonDocument.Parse(json);

@@ -21,13 +21,13 @@ public sealed class GccV2JsonLdBuilder
     };
 
     private readonly CompanyProfileOptions _company;
-    private readonly ITechnicalArticleSchemaBuilder _articleSchema;
+    private readonly IArticleSchemaBuilder _articleSchema;
     private readonly IBlogPostingSchemaBuilder _blogSchema;
     private readonly ISoftwareApplicationSchemaBuilder _toolSchema;
 
     public GccV2JsonLdBuilder(
         IOptions<CompanyProfileOptions> company,
-        ITechnicalArticleSchemaBuilder articleSchema,
+        IArticleSchemaBuilder articleSchema,
         IBlogPostingSchemaBuilder blogSchema,
         ISoftwareApplicationSchemaBuilder toolSchema)
     {

@@ -45,7 +45,7 @@ public class JsonLdCorrectnessTests
         ImplementerPositioning: "an AI implementation partner",
         Provider: GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi);
 
-    private static TechnicalArticleSchemaBuilder Article() => new(new SoftwareApplicationSchemaBuilder());
+    private static ArticleSchemaBuilder Article() => new(new SoftwareApplicationSchemaBuilder());
 
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
@@ -124,7 +124,7 @@ public class JsonLdCorrectnessTests
         };
 
         var json = Parse(Article().Build(Metadata(), string.Empty, apps));
-        var article = NodeOfType(json, "TechArticle");
+        var article = NodeOfType(json, "Article");
 
         Assert.Equal("https://geek.test/use-cases/marketing/ap#article", article.GetProperty("@id").GetString());
 
@@ -164,6 +164,32 @@ public class JsonLdCorrectnessTests
         Assert.Equal("https://geek.test/blog/marketing/why-ap#article", json.GetProperty("@id").GetString());
         Assert.False(json.TryGetProperty("citation", out _));
         Assert.Equal("https://geek.test/use-cases/marketing/ap", json.GetProperty("relatedLink").GetString());
+    }
+
+    [Fact]
+    public void APillarIsAnArticleNotTechnicalDocumentation()
+    {
+        // TechArticle is schema.org's type for how-to tasks, procedures, troubleshooting and
+        // specifications. A commercial pillar written for buyers is none of those, and
+        // proficiencyLevel is defined only on TechArticle -- hardcoded "Beginner" on every page.
+        var json = Parse(Article().Build(Metadata(), relatedBlogPostUrl: string.Empty));
+
+        Assert.Equal("Article", json.GetProperty("@type").GetString());
+        Assert.False(json.TryGetProperty("proficiencyLevel", out _));
+    }
+
+    [Fact]
+    public void AToolPagePointsAtThePillarByThePillarsActualType()
+    {
+        // subjectOf naming a type the target does not have is a dangling reference.
+        var about = new SoftwareApplicationDescriptor("Medius", "AP automation.", Url: "https://www.medius.com");
+
+        var json = Parse(new SoftwareApplicationSchemaBuilder().BuildToolPage(
+            Metadata("https://geek.test/tools/marketing/medius"),
+            "https://geek.test/use-cases/marketing/ap",
+            about));
+
+        Assert.Equal("Article", json.GetProperty("subjectOf").GetProperty("@type").GetString());
     }
 
     [Fact]

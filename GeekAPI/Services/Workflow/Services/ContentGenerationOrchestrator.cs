@@ -21,7 +21,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
     private readonly IContentProviderFactory _providerFactory;
     private readonly IContentPromptBuilder _promptBuilder;
     private readonly IJsonLdParserService _jsonLdParser;
-    private readonly ITechnicalArticleSchemaBuilder _articleSchemaBuilder;
+    private readonly IArticleSchemaBuilder _articleSchemaBuilder;
     private readonly IBlogPostingSchemaBuilder _blogSchemaBuilder;
     private readonly IToolPageGenerator _toolPageGenerator;
     private readonly GccGenerateService _gccGenerate;
@@ -33,7 +33,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         IContentProviderFactory providerFactory,
         IContentPromptBuilder promptBuilder,
         IJsonLdParserService jsonLdParser,
-        ITechnicalArticleSchemaBuilder articleSchemaBuilder,
+        IArticleSchemaBuilder articleSchemaBuilder,
         IBlogPostingSchemaBuilder blogSchemaBuilder,
         IToolPageGenerator toolPageGenerator,
         GccGenerateService gccGenerate,

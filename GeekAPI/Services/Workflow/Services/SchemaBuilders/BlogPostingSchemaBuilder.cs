@@ -42,7 +42,7 @@ public class BlogPostingSchemaBuilder : IBlogPostingSchemaBuilder
         };
 
         // Cross-link back to the pillar when one exists. Was "citation" -- see
-        // TechnicalArticleSchemaBuilder: our own pillar is a sibling in the same cluster, not a
+        // ArticleSchemaBuilder: our own pillar is a sibling in the same cluster, not a
         // work this post cites.
         if (!string.IsNullOrWhiteSpace(relatedArticleUrl))
         {

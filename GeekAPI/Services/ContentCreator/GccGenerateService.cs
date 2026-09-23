@@ -54,7 +54,7 @@ public class GccGenerateService
     private readonly IContentProviderFactory _cwProviders;
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly IBlogPostingSchemaBuilder _blogSchema;
-    private readonly ITechnicalArticleSchemaBuilder _articleSchema;
+    private readonly IArticleSchemaBuilder _articleSchema;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
     private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
@@ -66,7 +66,7 @@ public class GccGenerateService
         IContentProviderFactory cwProviders,
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IBlogPostingSchemaBuilder blogSchema,
-        ITechnicalArticleSchemaBuilder articleSchema,
+        IArticleSchemaBuilder articleSchema,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger,
         GccCompetitorAnalysisResolver competitorAnalysis,
@@ -2463,7 +2463,7 @@ public class GccGenerateService
 
         // Title, standfirst, meta description and TechArticle JSON-LD. v1's orchestrator produced
         // all of it for a pillar; the Create reimplementation returned a bare document, leaving
-        // BuildArticleMetadataPrompt and TechnicalArticleSchemaBuilder sitting here with no caller.
+        // BuildArticleMetadataPrompt and ArticleSchemaBuilder sitting here with no caller.
         var pillarMetaResult = await llm.CompleteAsync(_prompts.BuildArticleMetadataPrompt(context), ct);
         var pillarMeta = LlmResponseJsonParser.Parse<ArticleMetadataDraft>(pillarMetaResult.Content, "pillar metadata");
         var pillarMetaDescription = pillarMeta.MetaDescription.Length > 160
