@@ -781,13 +781,30 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         var pages = new List<GccQuoteablePage>();
         foreach (var (url, group) in byUrl)
         {
-            group.Sort((a, b) => a.ChunkIndex.CompareTo(b.ChunkIndex));
             var title = group.Select(c => c.Title).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t))
                         ?? url;
-            var paragraphs = group
+
+            // Keep the best chunks, then restore reading order among the ones kept.
+            //
+            // This sorted by ChunkIndex and took the first N, so the cap was a guarantee that
+            // top-of-page content survived: navigation, language selectors, hero taglines, cookie
+            // notices. The dense, substantive blocks further down the page were evicted by position
+            // -- which is the "top-k returns footers and boilerplate" failure, arriving here rather
+            // than at retrieval, and it silently undid the quality scoring done at index time.
+            //
+            // QualityScore first, retrieval Score as the tiebreak, since a chunk with no score is
+            // still ranked by how well it matched.
+            var kept = group
+                .Where(c => !string.IsNullOrWhiteSpace(c.Text))
+                .OrderByDescending(c => c.QualityScore ?? double.MinValue)
+                .ThenByDescending(c => c.Score)
+                .Take(GccPartnerResearchCaps.MaxParagraphsPerPage)
+                .OrderBy(c => c.ChunkIndex)
+                .ToList();
+
+            var paragraphs = kept
                 .Select(c => Truncate(c.Text!, GccPartnerResearchCaps.MaxParagraphChars))
                 .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Take(GccPartnerResearchCaps.MaxParagraphsPerPage)
                 .ToList();
             if (paragraphs.Count == 0)
                 continue;
@@ -798,7 +815,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 Headings: [],
                 Paragraphs: paragraphs,
                 PageId: group.Select(c => c.PageId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id)),
-                SectionTitle: group.Select(c => c.SectionTitle)
+                SectionTitle: kept.Select(c => c.SectionTitle)
                     .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)),
                 RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk));
         }
@@ -900,6 +917,13 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public double Score { get; set; }
         public string? PageId { get; set; }
         public string? SectionTitle { get; set; }
+
+        /// <summary>
+        /// Geek-Crawler-Rag scores every chunk at index time (metadata.quality_score) and returns it
+        /// on every hit. This side did not read it, so it could not be used to decide which chunks
+        /// survive the per-page cap -- and the cap kept whichever came first on the page.
+        /// </summary>
+        public double? QualityScore { get; set; }
     }
 
     /// <summary>Mirrors Geek-Crawler-Rag's <c>PageTextResponse</c> (models.py).</summary>
