@@ -375,6 +375,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
         }
 
         block.AppendLine(
+            "Carry the story forward. If the opening put someone in a situation, they come back: the " +
+            "same team, the same invoice, the same Friday afternoon, further along. Two or three " +
+            "times across the piece is enough -- a concrete return to the people in the opening, " +
+            "where the material naturally allows it. A story used once as a hook and then dropped " +
+            "for explanation is the shape that reads well for three paragraphs and becomes a chore.");
+        block.AppendLine(
             "The page has started and the reader is inside that thread. The sections below are the " +
             "same piece of writing continuing, not a reference document appended to a story. Keep " +
             "the register the opening set; do not hook the reader a second time, do not " +
@@ -513,7 +519,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private static string BuildLedeTypeGuidance(ProjectGenerationContext context)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Lede types (pick ONE ledeType that best fits this audience + angle + heading/topic):");
+        sb.AppendLine("Lede types (pick ONE ledeType that best fits this audience + angle + topic):");
         sb.AppendLine("- summary: direct thesis-first overview (what/why).");
         sb.AppendLine("- immediateIdentification: lead names the who/what up front.");
         sb.AppendLine("- delayedIdentification: hold identity for reveal after hook.");
@@ -532,18 +538,24 @@ public class ContentPromptBuilder : IContentPromptBuilder
         // with transactional or navigational intent wants the answer in the first line, not a
         // scene -- so this biases against it rather than banning it.
         sb.AppendLine();
-        sb.AppendLine("The heading must not restate the page title. The title already says what the page is;");
-        sb.AppendLine("a lede heading that rephrases it wastes the one slot that could have earned attention.");
-        sb.AppendLine("\"How X Can Transform Your Business\" over \"Transform Your Business with X\" is one");
-        sb.AppendLine("headline printed twice (Jeff, 2026-09-23). They do different jobs: the title states the");
-        sb.AppendLine("subject, the lede heading is the hook that makes someone read on.");
-        sb.AppendLine();
+        // The three lines that stood here told the model not to let the lede's heading restate the
+        // page title. The lede has no heading any more -- it is the lead paragraph, under the title
+        // -- so that was instruction about a slot that no longer exists, spending prompt space and
+        // describing a shape the contract contradicts.
+
         sb.AppendLine("Choosing: \"summary\" is the weakest hook and the one most often reached for by default.");
         sb.AppendLine("Use it only when the brief's intent is transactional or navigational, or the reader");
-        sb.AppendLine("genuinely needs the answer in the opening line. Otherwise choose a lede that earns");
-        sb.AppendLine("attention -- an indirect/soft-feature opening (anecdotal, narrative, sceneSetting,");
-        sb.AppendLine("delayedIdentification, startlingStatement, directAddress) carried by the angle and");
-        sb.AppendLine("audience below. A page that opens by restating its own title has not started yet.");
+        sb.AppendLine("genuinely needs the answer in the opening line.");
+        sb.AppendLine("Otherwise open with a story. Prefer anecdotal, narrative or sceneSetting: put a");
+        sb.AppendLine("person in a situation the reader recognises and let the problem show up in what");
+        sb.AppendLine("happens to them, before any explanation of it. \"Picture your accounts team");
+        sb.AppendLine("struggling through stacks of invoices, each one a potential error waiting to");
+        sb.AppendLine("happen\" is the shape -- concrete, peopled, in motion.");
+        sb.AppendLine("directAddress, question, startlingStatement and delayedIdentification are the");
+        sb.AppendLine("fallbacks when the material genuinely has no scene in it -- not the default. They");
+        sb.AppendLine("are safer to write and that is exactly why they keep getting chosen: a page that");
+        sb.AppendLine("opens by addressing the reader in the abstract has stated a topic, not started a");
+        sb.AppendLine("piece of writing.");
         // Worked examples, supplied by Jeff 2026-09-23. A one-line definition tells the model what
         // a type is called; it does not show the craft -- the specificity, the concrete detail, the
         // withheld name, the second person. These demonstrate the technique.
