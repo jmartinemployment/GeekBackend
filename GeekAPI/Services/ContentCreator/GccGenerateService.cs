@@ -54,6 +54,7 @@ public class GccGenerateService
     private readonly IContentProviderFactory _cwProviders;
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly IBlogPostingSchemaBuilder _blogSchema;
+    private readonly ITechnicalArticleSchemaBuilder _articleSchema;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
     private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
@@ -65,6 +66,7 @@ public class GccGenerateService
         IContentProviderFactory cwProviders,
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IBlogPostingSchemaBuilder blogSchema,
+        ITechnicalArticleSchemaBuilder articleSchema,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger,
         GccCompetitorAnalysisResolver competitorAnalysis,
@@ -75,6 +77,7 @@ public class GccGenerateService
         _cwProviders = cwProviders;
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _blogSchema = blogSchema;
+        _articleSchema = articleSchema;
         _company = company.Value;
         _logger = logger;
         _competitorAnalysis = competitorAnalysis;
@@ -2424,7 +2427,36 @@ public class GccGenerateService
 
         var document = new ContentDocument(lede, bodySections);
         document = ContentGuardrail.Apply(document).Document;
-        return JsonSerializer.Serialize(document, CwDocumentJson);
+
+        // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
+        // ran them over the returned JSON, which only worked while this returned a bare document.
+        var pillarWithPrompts = await GenerateSectionImagePromptsAsync(
+            "pillar", create.Topic, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct);
+        document = JsonSerializer.Deserialize<ContentDocument>(pillarWithPrompts, CwDocumentJson) ?? document;
+
+        // Title, standfirst, meta description and TechArticle JSON-LD. v1's orchestrator produced
+        // all of it for a pillar; the Create reimplementation returned a bare document, leaving
+        // BuildArticleMetadataPrompt and TechnicalArticleSchemaBuilder sitting here with no caller.
+        var pillarMetaResult = await llm.CompleteAsync(_prompts.BuildArticleMetadataPrompt(context), ct);
+        var pillarMeta = LlmResponseJsonParser.Parse<ArticleMetadataDraft>(pillarMetaResult.Content, "pillar metadata");
+        var pillarMetaDescription = pillarMeta.MetaDescription.Length > 160
+            ? pillarMeta.MetaDescription[..160]
+            : pillarMeta.MetaDescription;
+
+        var pillarUrl = $"{_company.ArticleBaseUrl.TrimEnd('/')}/{Slugify(pillarMeta.Title)}";
+        var pillarSchemaMeta = ContentMetadataFactory.For(
+            context, pillarMeta.Title, pillarMetaDescription, pillarUrl, pillarMeta.Keywords, document);
+
+        return JsonSerializer.Serialize(new
+        {
+            title = pillarMeta.Title,
+            metaDescription = pillarMetaDescription,
+            summary = pillarMeta.Summary,
+            body = document,
+            // No companion blog exists on this path, so there is nothing to cite as related -- an
+            // invented URL would be a claim about a page that does not exist.
+            jsonLdSchema = _articleSchema.Build(pillarSchemaMeta, relatedBlogPostUrl: string.Empty),
+        }, CwDocumentJson);
     }
 
     /// <summary>The pillar's standing section plan. Headings the writer must fill, not invent.</summary>

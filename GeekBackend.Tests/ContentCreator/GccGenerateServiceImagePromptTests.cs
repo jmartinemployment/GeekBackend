@@ -47,6 +47,7 @@ public class GccGenerateServiceImagePromptTests
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         new BlogPostingSchemaBuilder(),
+        new TechnicalArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder()),
         Options.Create(new CompanyProfileOptions()),
         NullLogger<GccGenerateService>.Instance,
         GccCompetitorAnalysisResolverTests.Build(

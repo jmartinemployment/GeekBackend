@@ -25,6 +25,12 @@ public class GccGenerateServicePillarFaqTests
     private const string LedeAndIntroJson =
         """{"lede":{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}}""";
 
+    private const string ImagePromptsJson =
+        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"A","prompt":"section image prompt"},{"section":"B","prompt":"second image prompt"}]}""";
+    // ArticleMetadataDraft, now including the standfirst summary.
+    private const string ArticleMetadataJson =
+        """{"title":"A Title","summary":"A standfirst.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
+
     private const string SectionsArrayJson = """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[],"provenance":"plan"}]}""";
 
     private sealed class RecordingProvider : IContentGenerationProvider
@@ -43,12 +49,15 @@ public class GccGenerateServicePillarFaqTests
             // FAQ(2), so index is unambiguous.
             var callIndex = SystemPromptsSeen.Count;
             SystemPromptsSeen.Add(system);
-            var content = callIndex switch
-            {
-                0 => LedeAndIntroJson,
-                2 => SectionJson,
-                _ => SectionsArrayJson,
-            };
+            // Pillar's sequence is lede -> body -> [FAQ] -> image prompts -> metadata. The last two
+            // are identified by their own prompt text rather than by index, since whether the FAQ
+            // call happens depends on the brief and shifts everything after it.
+            var content =
+                system.Contains("image-generation prompts", StringComparison.Ordinal) ? ImagePromptsJson
+                : system.Contains("sectionOutline", StringComparison.Ordinal) ? ArticleMetadataJson
+                : callIndex == 0 ? LedeAndIntroJson
+                : callIndex == 2 ? SectionJson
+                : SectionsArrayJson;
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
     }
@@ -71,6 +80,7 @@ public class GccGenerateServicePillarFaqTests
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         new BlogPostingSchemaBuilder(),
+        new TechnicalArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder()),
         Options.Create(new CompanyProfileOptions()),
         NullLogger<GccGenerateService>.Instance,
         GccCompetitorAnalysisResolverTests.Build(
@@ -88,8 +98,8 @@ public class GccGenerateServicePillarFaqTests
 
         await service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
-        // Lede + body only.
-        Assert.Equal(2, provider.SystemPromptsSeen.Count);
+        // Lede + body + image prompts + metadata -- no FAQ call.
+        Assert.Equal(4, provider.SystemPromptsSeen.Count);
         Assert.DoesNotContain(provider.SystemPromptsSeen, p => p.Contains("FAQ section", StringComparison.Ordinal));
     }
 
@@ -102,8 +112,8 @@ public class GccGenerateServicePillarFaqTests
 
         await service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
-        // Lede + body + FAQ.
-        Assert.Equal(3, provider.SystemPromptsSeen.Count);
+        // Lede + body + FAQ + image prompts + metadata.
+        Assert.Equal(5, provider.SystemPromptsSeen.Count);
         Assert.Contains("FAQ section", provider.SystemPromptsSeen[2], StringComparison.Ordinal);
     }
 

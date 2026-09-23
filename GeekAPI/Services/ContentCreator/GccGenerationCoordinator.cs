@@ -226,11 +226,9 @@ public sealed class GccGenerationCoordinator
         switch (normalizedType)
         {
             case "pillar":
+                // Image prompts, metadata and JSON-LD all attach inside, as they do for Blog and
+                // Tool -- the method returns a finished envelope, not a bare document.
                 bodyJson = await gen.GeneratePillarBodyAsync(create, section, provider, mustMentionBlock, ct);
-                // Per-H2 image prompts, merged into the document itself (Section.ImagePrompt) --
-                // previously computed and discarded; bodyJson now carries the real result.
-                bodyJson = await gen.GenerateSectionImagePromptsAsync(
-                    "pillar", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             case "blog":

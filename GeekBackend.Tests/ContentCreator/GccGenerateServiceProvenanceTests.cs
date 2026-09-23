@@ -47,6 +47,12 @@ public class GccGenerateServiceProvenanceTests
     // sections array, which is the shape the caller wrongly parsed -- so the fixture encoded the
     // bug and kept it green while every pillar generation in production failed at the lede step.
     // Lede and introduction share a heading, the common case, so they merge into one H2.
+    // Pillar now attaches image prompts and metadata before returning, so both calls are scripted.
+    private const string ImagePromptsJson =
+        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"A","prompt":"section image prompt"}]}""";
+    private const string ArticleMetadataJson =
+        """{"title":"A Title","summary":"A standfirst.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
+
     private const string LedeJson =
         """{"lede":{"ledeType":"summary","heading":"Lede","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"Lede","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}}""";
 
@@ -64,6 +70,7 @@ public class GccGenerateServiceProvenanceTests
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
         new BlogPostingSchemaBuilder(),
+        new TechnicalArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder()),
         Options.Create(new CompanyProfileOptions()),
         NullLogger<GccGenerateService>.Instance,
         competitorResolver,
@@ -81,6 +88,8 @@ public class GccGenerateServiceProvenanceTests
         var provider = new ScriptedProvider(index => index switch
         {
             0 => LedeJson,
+            2 => ImagePromptsJson,
+            3 => ArticleMetadataJson,
             _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Made Up Subtopic","paragraphs":[],"href":null,"children":[]}]}]}""",
         });
         var service = Build(provider, NoCompetitorData());
@@ -98,6 +107,8 @@ public class GccGenerateServiceProvenanceTests
         var provider = new ScriptedProvider(index => index switch
         {
             0 => LedeJson,
+            2 => ImagePromptsJson,
+            3 => ArticleMetadataJson,
             _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[]}]}""",
         });
         var service = Build(provider, NoCompetitorData());
@@ -128,6 +139,8 @@ public class GccGenerateServiceProvenanceTests
         var provider = new ScriptedProvider(index => index switch
         {
             0 => LedeJson,
+            2 => ImagePromptsJson,
+            3 => ArticleMetadataJson,
             _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Enterprise Rollout Timeline","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Enterprise Rollout Timeline"}]}]}""",
         });
         var service = Build(provider, resolver);
