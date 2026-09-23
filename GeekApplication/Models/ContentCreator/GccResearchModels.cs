@@ -99,6 +99,17 @@ public static class GccPartnerResearchCaps
     public const int MaxParagraphChars = 2000;
     public const int MaxTitleChars = 300;
     /// <summary>
+    /// Quality floor for a retrieved chunk, applied by Geek-Crawler-Rag before ranking.
+    ///
+    /// <para>
+    /// 0.55 is deliberately permissive: this exists to drop navigation, cookie notices and footer
+    /// fragments, not to second-guess the writer about what is interesting. A floor set high enough
+    /// to be opinionated would quietly starve pages whose crawl scored modestly across the board,
+    /// and a retrieval that returns nothing is worse than one that returns something plain.
+    /// </para>
+    /// </summary>
+    public const double MinChunkQuality = 0.55;
+    /// <summary>
     /// Anchors rendered beneath a chunk. They tell the writer which products a section links to,
     /// which is worth a few lines -- a whole navigation menu is not.
     /// </summary>

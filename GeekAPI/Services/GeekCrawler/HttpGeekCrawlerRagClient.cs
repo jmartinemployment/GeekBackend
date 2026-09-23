@@ -452,6 +452,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 ["need"] = need,
                 ["runId"] = runId.ToString("D"),
                 ["topK"] = topK,
+                // A quality floor at retrieval, not at serialization. Geek-Crawler-Rag has accepted
+                // minQuality all along and applies it inside build_metadata_filters; this side never
+                // sent one. Discarding boilerplate after retrieval still spends a topK slot on it --
+                // a cookie banner retrieved and then dropped is a slot a real passage did not get.
+                ["minQuality"] = GccPartnerResearchCaps.MinChunkQuality,
             };
             if (!string.IsNullOrWhiteSpace(crawlType))
                 payload["crawlType"] = crawlType;
