@@ -1500,8 +1500,26 @@ public class ContentPromptBuilder : IContentPromptBuilder
         }
         if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
         {
-            user.AppendLine("=== PERSISTED TOOL RESEARCH (authoritative) ===");
+            // This is the substance of the page, not background reading. A tool page paraphrases
+            // the partner's own data -- capabilities, pricing, who it is for, integrations, limits,
+            // proof -- into our words. Labelling it "authoritative" and then asking for prose about
+            // the subject produced pages that named no partner and restated nothing from it
+            // (Jeff, 2026-09-23: "Tools should be paraphrasing Partner data").
+            user.AppendLine("=== PARTNER DATA -- THE SUBSTANCE OF THIS PAGE (authoritative) ===");
             user.AppendLine(extractedToolResearchJson);
+            user.AppendLine();
+            user.AppendLine(
+                "Write this page as a paraphrase of the partner data above. Every factual statement " +
+                "-- capabilities, pricing, integrations, who it is for, limitations, evidence -- must " +
+                "restate something actually present in that data, in your own words.");
+            user.AppendLine(
+                "Do not reproduce it verbatim, and do not add capabilities, figures, customers, " +
+                "integrations or claims that are not in it. Where the data is silent on something a " +
+                "section would normally cover, write less rather than inventing it -- an unsupported " +
+                "claim on a partner page is worse than a shorter section.");
+            user.AppendLine(
+                "Name the product and its specifics concretely. A page that could be about any tool " +
+                "in this category has not used the data.");
         }
 
         user.AppendLine($"Write expert third-person technical prose focused on {app.Name}, grounded in this use-case.");

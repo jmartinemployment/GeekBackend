@@ -206,8 +206,13 @@ public class GccGenerateServiceToolPageGroundingTests
         // the call succeeded.
         var bodyRequest = provider.Requests[0];
         var userMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("PERSISTED TOOL RESEARCH", userMessage, StringComparison.Ordinal);
+        Assert.Contains("PARTNER DATA", userMessage, StringComparison.Ordinal);
         Assert.Contains("reduces setup time by half", userMessage, StringComparison.Ordinal);
+
+        // Carrying the data is not enough -- the page is a paraphrase of it, so the instruction
+        // that makes it the substance has to be in the same prompt. Without this the model was
+        // handed real partner data and still wrote a category page that named no partner.
+        Assert.Contains("paraphrase of the partner data", userMessage, StringComparison.Ordinal);
 
         // Real partner JSON-LD, not the thin generic builder -- proven by an identity field the
         // generic SoftwareApplicationSchemaBuilder has no source for (the page's own title).
