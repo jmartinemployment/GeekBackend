@@ -43,8 +43,12 @@ public class GccGenerateServiceProvenanceTests
         public IContentGenerationProvider GetDefault() => provider;
     }
 
+    // The real LedeAndIntroductionJsonContract BuildPillarLedePrompt asks for. This used to be a
+    // sections array, which is the shape the caller wrongly parsed -- so the fixture encoded the
+    // bug and kept it green while every pillar generation in production failed at the lede step.
+    // Lede and introduction share a heading, the common case, so they merge into one H2.
     private const string LedeJson =
-        """{"sections":[{"tag":"h2","heading":"Lede","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}]}""";
+        """{"lede":{"ledeType":"summary","heading":"Lede","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"Lede","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}}""";
 
     private static GccCreateDto Create(string? briefJson = null, string? researchJson = null, Guid? projectId = null) => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),

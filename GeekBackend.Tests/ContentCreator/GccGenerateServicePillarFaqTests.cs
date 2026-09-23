@@ -21,6 +21,10 @@ public class GccGenerateServicePillarFaqTests
     private const string SectionJson = """{"tag":"h2","heading":"Section","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}""";
     // "provenance":"plan" -- the lede/body calls stand in for the pillar's assigned outline
     // headings, so Stage 2's guard accepts them unconditionally, same as production would.
+    // Call 0 is the lede, which asks for LedeAndIntroductionJsonContract -- not a sections array.
+    private const string LedeAndIntroJson =
+        """{"lede":{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}}""";
+
     private const string SectionsArrayJson = """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[],"provenance":"plan"}]}""";
 
     private sealed class RecordingProvider : IContentGenerationProvider
@@ -39,7 +43,12 @@ public class GccGenerateServicePillarFaqTests
             // FAQ(2), so index is unambiguous.
             var callIndex = SystemPromptsSeen.Count;
             SystemPromptsSeen.Add(system);
-            var content = callIndex == 2 ? SectionJson : SectionsArrayJson;
+            var content = callIndex switch
+            {
+                0 => LedeAndIntroJson,
+                2 => SectionJson,
+                _ => SectionsArrayJson,
+            };
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
     }

@@ -2324,9 +2324,14 @@ public class GccGenerateService
                 fullOutline: PillarOutline,
                 isRegeneration: false),
             ct);
-        var ledeSections = LlmResponseJsonParser.ParseSections(ledeResult.Content, "pillar lede");
-        if (ledeSections.Count == 0)
-            throw new InvalidOperationException("Pillar lede returned no sections.");
+        // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
+        // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way
+        // ContentGenerationOrchestrator reads the same prompt. Reading it as a sections array threw
+        // "Model did not return a valid sections array for pillar lede" on every single pillar
+        // generation, while the model was in fact complying exactly (Jeff, 2026-09-23, whose error
+        // carried a perfectly good directAddress hook that this then discarded).
+        var (pillarLede, _, pillarIntroduction) =
+            LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
 
         var bodyResult = await llm.CompleteAsync(
             _prompts.BuildArticleSectionBatchPrompt(
@@ -2366,7 +2371,21 @@ public class GccGenerateService
             bodySections.Add(LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", "pillar FAQ section"));
         }
 
-        var document = new ContentDocument(ledeSections[0] with { Tag = "h2" }, bodySections);
+        // The lede IS the first H2. When the model gives the lede and the introduction the same
+        // heading, they are one section and storing both duplicates it -- same merge the
+        // orchestrator does for this prompt. Otherwise the introduction is a real section and leads
+        // the body, so PillarOutline[0] is not lost.
+        var lede = pillarLede with { Tag = "h2" };
+        if (string.Equals(lede.Heading.Trim(), pillarIntroduction.Heading.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            lede = lede with { Paragraphs = [.. lede.Paragraphs, .. pillarIntroduction.Paragraphs] };
+        }
+        else
+        {
+            bodySections.Insert(0, pillarIntroduction);
+        }
+
+        var document = new ContentDocument(lede, bodySections);
         document = ContentGuardrail.Apply(document).Document;
         return JsonSerializer.Serialize(document, CwDocumentJson);
     }
@@ -2441,9 +2460,9 @@ public class GccGenerateService
 
         var ledeResult = await llm.CompleteAsync(
             _prompts.BuildStandaloneBlogLedePrompt(context, metadata), ct);
-        var ledeSections = LlmResponseJsonParser.ParseSections(ledeResult.Content, "blog lede");
-        if (ledeSections.Count == 0)
-            throw new InvalidOperationException("Blog lede returned no sections.");
+        // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
+        // ParseLede. Reading it as a sections array failed every blog generation.
+        var (blogLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
 
         var bodyResult = await llm.CompleteAsync(
             _prompts.BuildStandaloneBlogBodyPrompt(
@@ -2459,7 +2478,7 @@ public class GccGenerateService
             throw new InvalidOperationException(
                 $"Blog body contains unlicensed headings: {string.Join("; ", provenanceViolations)}");
 
-        var document = new ContentDocument(ledeSections[0] with { Tag = "h2" }, bodySections);
+        var document = new ContentDocument(blogLede with { Tag = "h2" }, bodySections);
         document = ContentGuardrail.Apply(document).Document;
         return JsonSerializer.Serialize(document, CwDocumentJson);
     }
