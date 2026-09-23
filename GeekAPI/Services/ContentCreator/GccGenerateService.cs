@@ -2443,7 +2443,11 @@ public class GccGenerateService
             ? pillarMeta.MetaDescription[..160]
             : pillarMeta.MetaDescription;
 
-        var pillarUrl = $"{_company.ArticleBaseUrl.TrimEnd('/')}/{Slugify(pillarMeta.Title)}";
+        // {base}/{department}/{slug} -- the scheme the live site and v1's export both use
+        // (geekatyourspot.com/use-cases/marketing/<slug>). Written without the department first,
+        // which would have produced a canonical URL pointing at a page that does not exist.
+        var pillarDept = string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department.Trim();
+        var pillarUrl = $"{_company.ArticleBaseUrl.TrimEnd('/')}/{pillarDept}/{Slugify(pillarMeta.Title)}";
         var pillarSchemaMeta = ContentMetadataFactory.For(
             context, pillarMeta.Title, pillarMetaDescription, pillarUrl, pillarMeta.Keywords, document);
 
@@ -2559,7 +2563,8 @@ public class GccGenerateService
             : blogMeta.MetaDescription;
 
         var blogNow = DateTime.UtcNow;
-        var blogUrl = $"{_company.BlogBaseUrl.TrimEnd('/')}/{Slugify(blogMeta.Title)}";
+        var blogDept = string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department.Trim();
+        var blogUrl = $"{_company.BlogBaseUrl.TrimEnd('/')}/{blogDept}/{Slugify(blogMeta.Title)}";
         var blogSchemaMeta = ContentMetadataFactory.For(
             context, blogMeta.Title, blogMetaDescription, blogUrl, blogMeta.Keywords, document, blogNow);
 
