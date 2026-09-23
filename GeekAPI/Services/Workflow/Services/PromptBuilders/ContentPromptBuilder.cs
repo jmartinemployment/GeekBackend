@@ -1589,6 +1589,37 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Tie Overview and When to Use to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps — this page is about {app.Name}, not a roundup.")
             .ToString();
 
+        // Who the page is for, and what it has to do for them. Drawn from Jeff's own partner-page
+        // template (2026-09-23), supplied "to facilitate, not dictate" -- so the six-section
+        // outline stays and its conversion intent is folded in as instruction. Until now the tool
+        // body prompt named no audience and had no call to action at all, while the brief has
+        // collected both for months and ResearchBriefPhase.ToolBody emits neither.
+        var audience = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes))
+        {
+            audience.AppendLine($"WHO THIS IS FOR: {context.AudienceSegment}"
+                + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — {context.AudienceNotes}"));
+        }
+        if (!string.IsNullOrWhiteSpace(context.BuyingStage))
+            audience.AppendLine($"Buying stage: {context.BuyingStage} — pitch the page at where they already are.");
+        audience.AppendLine($"They are weighing {app.Name} and want three questions answered: is it right for a business my size, "
+            + $"what does it fix for my team specifically, and why hire {context.PublisherName} to set it up instead of doing it myself.");
+        audience.AppendLine("Translate capability into consequence. Every feature you state must land with what it means for "
+            + "that reader — hours returned, errors removed, a job that stops needing a person. A capability listed without "
+            + "its consequence is a spec sheet, and they can already read the vendor's own.");
+        audience.AppendLine("Lead with outcomes, not mechanism. Plain language over jargon, concrete over abstract.");
+        audience.AppendLine($"Implementation Considerations is where you answer the DIY question: what {context.PublisherName} "
+            + $"({context.ImplementerPositioning}) does that makes {app.Name} work in their environment — configuration, data "
+            + "mapping, integration with what they already run, training. Earn the claim, never assert it.");
+        if (!string.IsNullOrWhiteSpace(context.CtaType))
+        {
+            audience.AppendLine($"Close When to Use with a single clear call to action ({context.CtaType}"
+                + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $", worded as \"{context.CtaLabel}\"")
+                + $"). One ask, placed naturally after the reader has reason to act — never a banner and never repeated per section.");
+        }
+
+        system += Environment.NewLine + audience.ToString();
+
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
         if (revisionBlock is not null)
         {
