@@ -124,4 +124,32 @@ public static class GccRequiredToolMentions
         var text = ContentDocumentText.Flatten(document);
         return [.. toolNames.Where(name => text.IndexOf(name, StringComparison.OrdinalIgnoreCase) < 0)];
     }
+
+    /// <summary>
+    /// The instruction for a second attempt, naming exactly what the first one left out.
+    ///
+    /// <para>
+    /// Discarding a finished draft over one omitted name is the rule being blunt rather than right.
+    /// The model is not refusing -- it wrote about the partners it had evidence for and skipped the
+    /// one it did not. Telling it which name is missing, and that a partner with no evidence is
+    /// named without claims attached, turns a thrown-away generation into a finished one.
+    /// </para>
+    ///
+    /// <para>
+    /// One retry, then the refusal stands. A loop that keeps asking until it gets the answer it
+    /// wants is how unsupported claims get written.
+    /// </para>
+    /// </summary>
+    public static string RetryInstruction(IReadOnlyList<string> missing)
+    {
+        var block = new StringBuilder()
+            .AppendLine($"OMITTED ON THE LAST ATTEMPT -- {string.Join(", ", missing)} must appear in this draft.");
+        block.AppendLine(
+            "Name each one in running prose where it genuinely belongs. If the evidence says nothing " +
+            "about a product, name it plainly for what it is and stop there -- one honest clause is " +
+            "the correct treatment of a partner you have nothing to report on. Do not invent a " +
+            "capability, a figure or a customer to justify the mention, and do not append a list of " +
+            "names to satisfy the count.");
+        return block.ToString();
+    }
 }

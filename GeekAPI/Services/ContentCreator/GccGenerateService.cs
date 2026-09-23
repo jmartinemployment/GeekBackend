@@ -2499,11 +2499,35 @@ public class GccGenerateService
         var document = new ContentDocument(lede, bodySections);
         document = ContentGuardrail.Apply(document).Document;
 
+        // One retry naming what was left out, rather than discarding a finished draft over an
+        // omission the model would fix if told. Then the refusal stands -- asking repeatedly until
+        // the answer comes back right is how unsupported claims get written.
         var pillarMissing = GccRequiredToolMentions.Missing(document, requiredTools);
         if (pillarMissing.Count > 0)
+        {
+            _logger.LogInformation(
+                "Pillar omitted {Missing}; retrying once with the omission named.", string.Join(", ", pillarMissing));
+            var retryEvidence = $"{pillarEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(pillarMissing)}";
+            var retry = await llm.CompleteAsync(
+                pillarType.Body(pillarPromptCtx with { EvidenceBlock = retryEvidence, Lede = pillarLede }), ct);
+            var retrySections = LlmResponseJsonParser.ParseSections(retry.Content, "pillar body (retry)").ToList();
+            if (retrySections.Count > 0)
+            {
+                var retryViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(retrySections, evidence);
+                if (retryViolations.Count == 0)
+                {
+                    document = ContentGuardrail.Apply(new ContentDocument(lede, retrySections)).Document;
+                    pillarMissing = GccRequiredToolMentions.Missing(document, requiredTools);
+                }
+            }
+        }
+
+        if (pillarMissing.Count > 0)
             throw new InvalidOperationException(
-                $"Pillar names {requiredTools.Count - pillarMissing.Count} of {requiredTools.Count} partner tools. "
-                + $"Missing: {string.Join(", ", pillarMissing)}. Every declared partner must be named.");
+                $"Pillar names {requiredTools.Count - pillarMissing.Count} of {requiredTools.Count} partner tools, "
+                + $"after a retry naming the omission. Missing: {string.Join(", ", pillarMissing)}. "
+                + "Every declared partner must be named -- check that each has an indexed crawl, since a partner "
+                + "with no evidence gives the writer nothing to say about it.");
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
@@ -2643,9 +2667,28 @@ public class GccGenerateService
 
         var blogMissing = GccRequiredToolMentions.Missing(document, blogRequiredTools);
         if (blogMissing.Count > 0)
+        {
+            _logger.LogInformation(
+                "Blog omitted {Missing}; retrying once with the omission named.", string.Join(", ", blogMissing));
+            var blogRetryEvidence = $"{blogEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(blogMissing)}";
+            var blogRetry = await llm.CompleteAsync(
+                blogType.Body(blogPromptCtx with { EvidenceBlock = blogRetryEvidence, Lede = blogLede }), ct);
+            var blogRetrySections = LlmResponseJsonParser.ParseSections(blogRetry.Content, "blog body (retry)");
+            if (blogRetrySections.Count > 0
+                && GccHeadingProvenanceGuard.FindUnlicensedHeadings(blogRetrySections, evidence).Count == 0)
+            {
+                document = ContentGuardrail.Apply(
+                    new ContentDocument(blogLede with { Tag = "h2" }, blogRetrySections)).Document;
+                blogMissing = GccRequiredToolMentions.Missing(document, blogRequiredTools);
+            }
+        }
+
+        if (blogMissing.Count > 0)
             throw new InvalidOperationException(
-                $"Blog names {blogRequiredTools.Count - blogMissing.Count} of {blogRequiredTools.Count} partner tools. "
-                + $"Missing: {string.Join(", ", blogMissing)}. Every declared partner must be named.");
+                $"Blog names {blogRequiredTools.Count - blogMissing.Count} of {blogRequiredTools.Count} partner tools, "
+                + $"after a retry naming the omission. Missing: {string.Join(", ", blogMissing)}. "
+                + "Every declared partner must be named -- check that each has an indexed crawl, since a partner "
+                + "with no evidence gives the writer nothing to say about it.");
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this
