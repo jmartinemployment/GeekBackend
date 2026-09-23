@@ -63,7 +63,7 @@ public sealed class GccGenerationCoordinator
     /// <summary>
     /// Resolves grounding evidence for one content type and merges it into the create, refusing
     /// (never proceeding ungrounded) if the resolver says so. Called once per type by
-    /// GenerateAndPersistOneAsync, whether that's the only type requested or one of several.
+    /// GenerateOneAsync, whether that's the only type requested or one of several.
     /// </summary>
     private async Task<GccCreateDto> ResolveAndMergeGroundingAsync(
         GccCreateDto create, string contentType, CancellationToken ct)
@@ -145,22 +145,21 @@ public sealed class GccGenerationCoordinator
             // somewhere between the browser and here, surfacing as an empty-body 500 with no
             // exception message at all (the connection dies before any response is written, so
             // neither of Generate's own catch blocks below ever gets the chance to run).
-            // Each type succeeds or fails on its own. Task.WhenAll propagates the first
-            // exception, so one refused type used to abort the aggregate and lose every other
-            // type's reason with it -- three types selected, one artifact kept, one error
-            // reported, two outcomes silently gone (Jeff, 2026-09-23: "I select three Content
-            // Types I got one"). Each type already persists its own artifact before this returns,
-            // so a thrown aggregate was never even atomic; it just hid the detail.
+            // Generate every requested type first, persisting none of them. One failure fails the
+            // whole request and leaves nothing behind -- Jeff, 2026-09-23, after three selected
+            // types produced one saved page and a single error: "do not incur changes on failures.
+            // One failure fails all, for now."
             //
-            // A partial result is the honest answer: two artifacts and one named refusal, not one
-            // blanket failure. Same rule as partner pages in plans/tool-page-per-partner.md.
-            var outcomes = await Task.WhenAll(requested.Select(async type =>
+            // Every failure is collected rather than the first one thrown, because Task.WhenAll
+            // surfaces only whichever lost the race and discards the rest -- that is how Blog's
+            // error vanished behind Pillar's. The refusal names every type that failed.
+            var attempts = await Task.WhenAll(requested.Select(async type =>
             {
                 try
                 {
-                    var produced = await GenerateAndPersistOneAsync(
-                        repo, gen, create, section, provider, type, mustMentionBlock, ct, onTypeOutcome);
-                    return (Type: type, Produced: (object?)produced, Error: (string?)null);
+                    var generated = await GenerateOneAsync(
+                        repo, gen, create, section, provider, type, mustMentionBlock, ct);
+                    return (Type: type, Body: (string?)generated.BodyJson, Error: (string?)null);
                 }
                 catch (OperationCanceledException)
                 {
@@ -170,28 +169,29 @@ public sealed class GccGenerationCoordinator
                 {
                     _logger.LogWarning(
                         ex, "Generate failed for type {ContentType} on create {CreateId}", type, create.Id);
-                    if (onTypeOutcome is not null) await onTypeOutcome(type, null, ex.Message);
-                    return (Type: type, Produced: (object?)null, Error: (string?)ex.Message);
+                    return (Type: type, Body: (string?)null, Error: (string?)ex.Message);
                 }
             }));
 
-            var created = outcomes.Where(o => o.Produced is not null).Select(o => o.Produced!).ToList();
-            var failed = outcomes
-                .Where(o => o.Error is not null)
-                .Select(o => new { contentType = o.Type, error = o.Error })
-                .ToList();
-
-            // Every requested type failing is a failure, not a partial success with nothing in it.
-            if (created.Count == 0)
+            var failures = attempts.Where(a => a.Error is not null).ToList();
+            if (failures.Count > 0)
                 throw new InvalidOperationException(
-                    string.Join(" | ", failed.Select(f => $"{f.contentType}: {f.error}")));
+                    string.Join(" | ", failures.Select(f => $"{f.Type}: {f.Error}")));
 
-            return new { created, failed };
+            var created = new List<object>(attempts.Length);
+            foreach (var attempt in attempts)
+            {
+                created.Add(await PersistOneAsync(
+                    repo, create, attempt.Type, attempt.Body!, onTypeOutcome, ct));
+            }
+
+            return new { created };
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
-        return await GenerateAndPersistOneAsync(
-            repo, gen, create, section, provider, requested[0], mustMentionBlock, ct, onTypeOutcome);
+        var single = await GenerateOneAsync(
+            repo, gen, create, section, provider, requested[0], mustMentionBlock, ct);
+        return await PersistOneAsync(repo, create, single.ContentType, single.BodyJson, onTypeOutcome, ct);
     }
 
     /// <summary>
@@ -201,7 +201,7 @@ public sealed class GccGenerationCoordinator
     /// evidence) and dispatches to that type's real generator; nothing here ever reads another
     /// type's output as input.
     /// </summary>
-    private async Task<object> GenerateAndPersistOneAsync(
+    private async Task<(string ContentType, string BodyJson)> GenerateOneAsync(
         HttpGccRepository repo,
         GccGenerateService gen,
         GccCreateDto create,
@@ -209,8 +209,7 @@ public sealed class GccGenerationCoordinator
         ContentGeneratorProvider provider,
         string requestedType,
         string? mustMentionBlock,
-        CancellationToken ct,
-        Func<string, object?, string?, Task>? onTypeOutcome = null)
+        CancellationToken ct)
     {
         var contentType = requestedType.Trim().ToLowerInvariant();
         // Strips hyphens/spaces so "tech-article"/"techArticle" and "email-cold-outreach"/"email"
@@ -299,14 +298,27 @@ public sealed class GccGenerationCoordinator
                 break;
         }
 
+        // Nothing is persisted here. Generation and persistence are separate phases so that a
+        // failure in any requested type leaves no artifacts behind at all (Jeff, 2026-09-23: "do
+        // not incur changes on failures. One failure fails all, for now."). Persisting per type as
+        // it finished is what left one page on disk when two other types failed.
+        return (contentType, bodyJson);
+    }
+
+    /// <summary>Writes one already-generated body as an artifact and its first version.</summary>
+    private static async Task<object> PersistOneAsync(
+        HttpGccRepository repo,
+        GccCreateDto create,
+        string contentType,
+        string bodyJson,
+        Func<string, object?, string?, Task>? onTypeOutcome,
+        CancellationToken ct)
+    {
         var artifact = await repo.CreateArtifactAsync(
             new CreateGccArtifactCommand(create.Id, contentType, create.Topic), ct);
         var version = await repo.CreateVersionAsync(
             new CreateGccArtifactVersionCommand(artifact.Id, bodyJson), ct);
         var produced = new { artifact, version };
-        // Announced the moment this type lands, not when every type does -- with several types
-        // selected the caller can surface each artifact as it arrives instead of waiting on the
-        // slowest one.
         if (onTypeOutcome is not null) await onTypeOutcome(contentType, produced, null);
         return produced;
     }
