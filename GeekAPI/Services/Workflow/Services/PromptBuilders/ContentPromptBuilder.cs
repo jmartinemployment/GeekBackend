@@ -1015,7 +1015,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
             .AppendLine("Each h3 is a keyword-level topic and MUST itself nest 1-3 h4 children covering concrete subtopics of that h3.")
             .AppendLine("Do not leave an h3 as a leaf with only paragraphs — every h3 needs at least one substantive h4 child.")
-            .AppendLine("CRITICAL: there is no real case-study data available, so never present a named client, company, or engagement as if it were real. ")
+            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. ")
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch, but MUST be explicitly labeled hypothetical/illustrative.")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage — vary outcomes and make them operationally specific.")
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for the Introduction section.")
@@ -1137,7 +1141,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")
             .AppendLine("Do NOT repeat the same point, example, or framing across sections in this batch — each must cover genuinely distinct ground.")
             .AppendLine("If a hypothetical scenario is used, keep it to 1-2 sentences woven naturally into the surrounding paragraph.")
-            .AppendLine("CRITICAL: there is no real case-study data available, so never present a named client, company, or engagement as if it were real. ")
+            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. ")
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch, but MUST be explicitly labeled hypothetical/illustrative. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
@@ -1269,7 +1277,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it. " +
                 "A reader should finish the section understanding a consultancy's specific angle on it, not just the general concept.")
             .AppendLine("If a hypothetical scenario is used, keep it to 1-2 sentences woven naturally into the surrounding paragraph — not a bolt-on closing paragraph that repeats what was already said.")
-            .AppendLine("CRITICAL: there is no real case-study data available, so never present a named client, company, or engagement as if it were real. ")
+            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. ")
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch (e.g. \"month-end close compressed from two weeks to three days\"), ")
             .AppendLine("but it MUST be explicitly labeled hypothetical/illustrative — e.g. \"a hypothetical mid-sized manufacturer\" or ")
             .AppendLine("\"in a representative scenario\". Never phrase it as something that already happened to a real client. ")
@@ -1416,7 +1428,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Then one child Section (tag h4, heading \"How an AI implementer helps with {Platform}\").")
             .AppendLine($"Target ~{perPlatformTarget} words for this platform subtree so the full Tools section lands near {ContentLengthTargets.PillarToolsSectionMinWords}-{ContentLengthTargets.PillarToolsSectionTargetMaxWords} words.")
             .AppendLine("Never invent a feature or capability; if unsure a feature exists, describe it generically instead of naming it.")
-            .AppendLine("CRITICAL: there is no real case-study data available, so never present a named client, company, or engagement as if it were real. ")
+            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. ")
             .AppendLine("A quantified outcome is fine only if explicitly labeled hypothetical/illustrative.")
             .ToString();
 
@@ -2005,7 +2021,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent a feature, integration, or claim to fill space.")
             .AppendLine($"When persisted tool research is provided, treat it as the authoritative source — do not re-extract or contradict it.")
             .AppendLine($"Frame the implementation material as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
-            .AppendLine("There is no real case-study data available — never present a named client, company, or engagement as if it were real. " +
+            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. " +
                 "A quantified outcome is fine for narrative punch only if explicitly labeled hypothetical/illustrative — avoid recycling a stock 40% line.")
             .AppendLine($"Tie the opening and closing sections to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps — this page is about {app.Name}, not a roundup.")
             .ToString();
@@ -2634,7 +2654,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("closes that gap (e.g. \"Without a documented data model, teams re-map fields after go-live; an implementer front-loads this ")
             .AppendLine("during discovery so config work doesn't get redone.\").")
             .AppendLine("Any tool or platform named here must be real and verifiable — never invent a feature or product to illustrate a practice.")
-            .AppendLine("There is no real case-study data available — never present a named client, company, or engagement as if it were real. " +
+            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. " +
                 "A quantified outcome is fine for narrative punch only if explicitly labeled hypothetical/illustrative — avoid recycling a stock 40% line.")
             .ToString();
     }
@@ -2648,7 +2672,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"{context.PublisherName} is positioned to help clients act on it now — e.g. evaluating/piloting the trend, adapting existing ")
             .AppendLine("data models or workflows to it, or guiding change management as teams adopt it. Keep it consultative, not a sales pitch.")
             .AppendLine("Only cite real, verifiable tools, vendors, or capabilities when discussing a trend — never invent one to make the trend concrete.")
-            .AppendLine("There is no real case-study data available — never present a named client, company, or engagement as if it were real. " +
+            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. " +
                 "A quantified outcome is fine for narrative punch only if explicitly labeled hypothetical/illustrative — avoid recycling a stock 40% line.")
             .ToString();
     }
