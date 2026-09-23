@@ -39,6 +39,12 @@ public class GccGenerateServiceToolPageGroundingTests
     /// an extra call between the body and image-prompts calls. Defaults to false so every test that
     /// doesn't ground with FAQ data keeps the original 3-call sequence.
     /// </param>
+    // LedeJsonContract, what BuildArticleLedePrompt asks for -- Tool now gets the same
+    // purpose-written hook every other long-form type gets instead of promoting its first body
+    // section into the lede slot.
+    private const string ToolLedeJson =
+        """{"ledeType":"directAddress","heading":"Reclaiming The Hours You Lose","paragraphs":[{"type":"text","runs":[{"text":"A hook paragraph that opens the page."}]}]}""";
+
     private sealed class ScriptedProvider(bool includeFaq = false) : IContentGenerationProvider
     {
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
@@ -49,13 +55,16 @@ public class GccGenerateServiceToolPageGroundingTests
         {
             Requests.Add(request);
             // Call 0 = tool body (sections array), [call 1 = FAQ section when includeFaq], next =
-            // per-H2 image prompts, last = tool metadata (flat object).
+            // the lede (Tool gets the shared 12-type hook now, so this call exists), then per-H2
+            // image prompts, last = tool metadata (flat object).
             var content = Requests.Count switch
             {
                 1 => ToolBodyJson,
                 2 when includeFaq => ToolFaqJson,
-                2 => ToolImagePromptsJson,
-                3 when includeFaq => ToolImagePromptsJson,
+                2 => ToolLedeJson,
+                3 when includeFaq => ToolLedeJson,
+                3 => ToolImagePromptsJson,
+                4 when includeFaq => ToolImagePromptsJson,
                 _ => ToolMetadataJson,
             };
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));

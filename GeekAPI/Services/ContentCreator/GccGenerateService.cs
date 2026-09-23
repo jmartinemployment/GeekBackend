@@ -1572,8 +1572,24 @@ public class GccGenerateService
             sections.Add(LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section"));
         }
 
-        var lede = sections[0] with { Tag = "h2" };
-        var document = new ContentDocument(lede, sections.Skip(1).ToList());
+        // Tool gets the same purpose-written hook every other long-form type gets -- the 12-type
+        // taxonomy chosen against this brief's audience, angle, intent and tone
+        // (BuildLedeTypeGuidance). It previously got none: the model's first body section was
+        // promoted into the lede slot, so every tool page opened with a section headed "Overview"
+        // and the outline quietly lost it (Jeff, repeatedly, most sharply 2026-09-23: "Again you
+        // are treating the most important Content Type as a second class citizen. All long form
+        // content gets a purpose-written hook chosen from twelve types against audience and
+        // angle.").
+        //
+        // BuildArticleLedePrompt is the shared lede path, not a Tool-specific copy -- a third
+        // implementation of this flow is the spaghetti that caused the problem in the first place.
+        //
+        // The hook is additive: all six outline sections survive, the way the FAQ section is
+        // additional rather than carved out of the body. Tool must equal or exceed Pillar in
+        // length, so a lede that consumed a section would push it the wrong way.
+        var ledeResult = await llm.CompleteAsync(_prompts.BuildArticleLedePrompt(context, pillarMeta), ct);
+        var (toolLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{name}' lede");
+        var document = new ContentDocument(toolLede with { Tag = "h2" }, sections);
 
         // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type -- the one
