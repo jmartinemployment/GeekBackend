@@ -529,7 +529,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     private const string ArticleMetadataJsonContract =
-        "{\"title\": string, \"metaDescription\": string (140-160 characters, must include the target keyword naturally, no hype), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-7 declarative H2 headings, plus final item: \"People Also Ask\")}";
+        "{\"title\": string, \"summary\": string (the standfirst: one or two sentences placed directly under the H1, stating the promise this page makes to the reader in plain language — not the meta description reworded, not a list of what the page covers), \"metaDescription\": string (140-160 characters, must include the target keyword naturally, no hype), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-7 declarative H2 headings, plus final item: \"People Also Ask\")}";
 
     private const string SocialJsonContract =
         "{\"text\": string}";
@@ -1145,7 +1145,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     private const string BlogMetadataJsonContract =
-        "{\"title\": string, \"metaDescription\": string (max 160 chars), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-6 conversational H2 headings — hooks, numbered angles, or how-to framing; do NOT copy pillar H2s verbatim)}";
+        "{\"title\": string, \"summary\": string (the standfirst: one or two sentences placed directly under the H1, stating the promise this page makes to the reader in plain language — not the meta description reworded, not a list of what the page covers), \"metaDescription\": string (max 160 chars), \"keywords\": string[] (5-10 items), \"sectionOutline\": string[] (5-6 conversational H2 headings — hooks, numbered angles, or how-to framing; do NOT copy pillar H2s verbatim)}";
 
     public ChatCompletionRequest BuildBlogMetadataPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle)
     {
@@ -1166,7 +1166,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Editorial standard: {ContentLengthTargets.BlogEditorialDefinition}")
             .AppendLine(HierarchyChildOutlineInstruction(context, forPillarOrBlog: true))
             .AppendLine("Each section must support substantive depth — data points, examples, and implementation context, not surface summaries.")
-            .AppendLine("Return title, metaDescription, keywords, and sectionOutline only (body is written separately).")
+            .AppendLine("Return title, summary, metaDescription, keywords, and sectionOutline only (body is written separately).")
             .ToString();
 
         return new ChatCompletionRequest(
@@ -1264,7 +1264,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"Plan a standalone deep-dive blog ({ContentLengthTargets.BlogRangeLabel} words) with a distinct title, angle, and {ContentLengthTargets.BlogSectionCountMin}-{ContentLengthTargets.BlogSectionCountTarget} H2 section headings."))
             .AppendLine($"Editorial standard: {ContentLengthTargets.BlogEditorialDefinition}")
             .AppendLine("Each section must support substantive depth — data points, examples, and implementation context.")
-            .AppendLine("Return title, metaDescription, keywords, and sectionOutline only (body is written separately).")
+            .AppendLine("Return title, summary, metaDescription, keywords, and sectionOutline only (body is written separately).")
             .ToString();
 
         return new ChatCompletionRequest(

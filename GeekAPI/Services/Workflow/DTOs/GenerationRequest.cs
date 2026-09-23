@@ -81,13 +81,22 @@ public record ArticleMetadataDraft(
     string Title,
     string MetaDescription,
     List<string> Keywords,
-    List<string> SectionOutline);
+    List<string> SectionOutline,
+    /// <summary>
+    /// The standfirst under the H1: the page's promise in a sentence or two, distinct from the
+    /// meta description (a SERP snippet) and from the lede (the hook, which is its own H2 section).
+    /// Tool's metadata draft has always carried one; Article and Blog did not, which is why only
+    /// Tool could render one.
+    /// </summary>
+    string? Summary = null);
 
 public record BlogMetadataDraft(
     string Title,
     string MetaDescription,
     List<string> Keywords,
-    List<string> SectionOutline);
+    List<string> SectionOutline,
+    /// <summary>The standfirst under the H1 — see <see cref="ArticleMetadataDraft.Summary"/>.</summary>
+    string? Summary = null);
 
 /// <summary>
 /// <see cref="Body"/> is the structural source of truth (per-element addressing, e.g.
