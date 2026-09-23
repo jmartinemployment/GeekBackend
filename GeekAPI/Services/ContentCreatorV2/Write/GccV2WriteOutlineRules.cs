@@ -17,9 +17,10 @@ internal static class GccV2WriteOutlineRules
     /// <summary>When the combined lede+introduction response uses the same H2 twice, merge like workflow v1.</summary>
     internal static Section MergeLedeAndIntroduction(Section lede, Section introduction)
     {
-        if (!HeadingsEqual(lede.Heading, introduction.Heading))
-            return lede;
-
+        // Unconditional. This used to merge only when the two headings matched, so whether a reader
+        // got one opening or two came down to whether the model returned the same string twice.
+        // Neither carries a heading now -- a lede is the lead paragraph and runs under the page
+        // title -- so there is nothing to compare: the introduction is the lede continuing.
         return lede with
         {
             Paragraphs = lede.Paragraphs.Concat(introduction.Paragraphs).ToList(),

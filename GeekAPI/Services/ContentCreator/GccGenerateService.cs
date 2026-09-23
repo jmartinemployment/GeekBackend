@@ -2405,8 +2405,16 @@ public class GccGenerateService
         var (pillarLede, _, pillarIntroduction) =
             LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
 
+        // The partner tools this page is obliged to name, stated to the model and checked against
+        // the result below -- one list, so the instruction and the check cannot disagree.
+        var requiredTools = GccRequiredToolMentions.For(create.BriefJson);
+        var toolInstruction = GccRequiredToolMentions.Instruction(requiredTools);
+        var pillarEvidence = string.IsNullOrWhiteSpace(toolInstruction)
+            ? evidenceBlock
+            : $"{evidenceBlock}{Environment.NewLine}{toolInstruction}";
+
         var bodyResult = await llm.CompleteAsync(
-            pillarType.Body(pillarPromptCtx with { EvidenceBlock = evidenceBlock, Lede = pillarLede }), ct);
+            pillarType.Body(pillarPromptCtx with { EvidenceBlock = pillarEvidence, Lede = pillarLede }), ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body").ToList();
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Pillar body returned no sections.");
@@ -2439,17 +2447,25 @@ public class GccGenerateService
         // orchestrator does for this prompt. Otherwise the introduction is a real section and leads
         // the body, so the outline's first entry is not lost.
         var lede = pillarLede with { Tag = "h2" };
-        if (string.Equals(lede.Heading.Trim(), pillarIntroduction.Heading.Trim(), StringComparison.OrdinalIgnoreCase))
+        // Always merged, never conditional. This used to compare the two headings and insert the
+        // introduction as a separate first section when they differed -- so whether a reader got one
+        // opening or two came down to whether the model happened to return matching strings. Jeff,
+        // 2026-09-23: "This just feels wrong". Neither carries a heading now, so there is nothing to
+        // compare and nothing to decide: the introduction is the lede continuing.
+        lede = lede with
         {
-            lede = lede with { Paragraphs = [.. lede.Paragraphs, .. pillarIntroduction.Paragraphs] };
-        }
-        else
-        {
-            bodySections.Insert(0, pillarIntroduction);
-        }
+            Paragraphs = [.. lede.Paragraphs, .. pillarIntroduction.Paragraphs],
+            Children = [.. lede.Children, .. pillarIntroduction.Children],
+        };
 
         var document = new ContentDocument(lede, bodySections);
         document = ContentGuardrail.Apply(document).Document;
+
+        var pillarMissing = GccRequiredToolMentions.Missing(document, requiredTools);
+        if (pillarMissing.Count > 0)
+            throw new InvalidOperationException(
+                $"Pillar names {requiredTools.Count - pillarMissing.Count} of {requiredTools.Count} partner tools. "
+                + $"Missing: {string.Join(", ", pillarMissing)}. Every declared partner must be named.");
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
@@ -2563,8 +2579,14 @@ public class GccGenerateService
         // ParseLede. Reading it as a sections array failed every blog generation.
         var (blogLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
 
+        var blogRequiredTools = GccRequiredToolMentions.For(create.BriefJson);
+        var blogToolInstruction = GccRequiredToolMentions.Instruction(blogRequiredTools);
+        var blogEvidence = string.IsNullOrWhiteSpace(blogToolInstruction)
+            ? evidenceBlock
+            : $"{evidenceBlock}{Environment.NewLine}{blogToolInstruction}";
+
         var bodyResult = await llm.CompleteAsync(
-            blogType.Body(blogPromptCtx with { EvidenceBlock = evidenceBlock, Lede = blogLede }), ct);
+            blogType.Body(blogPromptCtx with { EvidenceBlock = blogEvidence, Lede = blogLede }), ct);
         var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "blog body");
         if (bodySections.Count == 0)
             throw new InvalidOperationException("Blog body returned no sections.");
@@ -2576,6 +2598,12 @@ public class GccGenerateService
 
         var document = new ContentDocument(blogLede with { Tag = "h2" }, bodySections);
         document = ContentGuardrail.Apply(document).Document;
+
+        var blogMissing = GccRequiredToolMentions.Missing(document, blogRequiredTools);
+        if (blogMissing.Count > 0)
+            throw new InvalidOperationException(
+                $"Blog names {blogRequiredTools.Count - blogMissing.Count} of {blogRequiredTools.Count} partner tools. "
+                + $"Missing: {string.Join(", ", blogMissing)}. Every declared partner must be named.");
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this

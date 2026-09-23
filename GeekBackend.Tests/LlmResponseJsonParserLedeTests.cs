@@ -36,9 +36,11 @@ public sealed class LlmResponseJsonParserLedeTests
         var (lede, ledeType, intro) = LlmResponseJsonParser.ParseLedeAndIntroduction(json, "pillar lede");
 
         Assert.Equal(LedeType.Question, ledeType);
-        Assert.Equal("Is Your Team Ready for AI?", lede.Heading);
+        // A lede has no headline of its own -- it runs directly under the page title. It carried
+        // one until 2026-09-23, rendered as an h2, so every page showed two headlines stacked.
+        Assert.Equal(string.Empty, lede.Heading);
         Assert.Single(lede.Paragraphs);
-        Assert.Equal("Is Your Team Ready for AI?", intro.Heading);
+        Assert.Equal(string.Empty, intro.Heading);
         Assert.Single(intro.Children);
     }
 
@@ -59,7 +61,7 @@ public sealed class LlmResponseJsonParserLedeTests
         var (lede, ledeType, intro) = LlmResponseJsonParser.ParseLedeAndIntroduction(json, "pillar lede");
 
         Assert.Equal(LedeType.Question, ledeType);
-        Assert.Equal("Is Your Business Missing Opportunities?", lede.Heading);
+        Assert.Equal(string.Empty, lede.Heading);
         Assert.Equal(lede.Heading, intro.Heading);
         Assert.Empty(intro.Paragraphs);
         Assert.Empty(intro.Children);
@@ -88,7 +90,7 @@ public sealed class LlmResponseJsonParserLedeTests
 
         var (_, _, intro) = LlmResponseJsonParser.ParseLedeAndIntroduction(json, "pillar lede");
 
-        Assert.Equal("Understanding AI Marketing", intro.Heading);
+        Assert.Equal(string.Empty, intro.Heading);
         Assert.Single(intro.Paragraphs);
     }
 

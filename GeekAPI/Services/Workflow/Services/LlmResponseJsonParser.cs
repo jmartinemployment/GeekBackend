@@ -166,7 +166,10 @@ public static class LlmResponseJsonParser
             try
             {
                 var parsed = JsonSerializer.Deserialize<LedeAndIntroductionResponse>(candidate, SectionJsonOptions);
-                if (parsed?.Lede is not { } lede || string.IsNullOrWhiteSpace(lede.Heading))
+                // Paragraphs, not a heading, are what makes this a lede. The acceptance test was a
+                // non-empty heading until 2026-09-23 -- which would now reject every valid response,
+                // since the contract stopped asking for one.
+                if (parsed?.Lede is not { } lede || lede.Paragraphs is not { Count: > 0 })
                 {
                     continue;
                 }
@@ -178,7 +181,9 @@ public static class LlmResponseJsonParser
                 var introduction = parsed.Introduction;
                 if (introduction is not null && !string.IsNullOrWhiteSpace(introduction.Heading))
                 {
-                    var introSection = Normalize(introduction) with { Tag = "h2" };
+                    // Heading dropped: the introduction continues the lede, under the page title,
+                    // and a heading here is the second headline the lede no longer carries either.
+                    var introSection = Normalize(introduction) with { Tag = "h2", Heading = string.Empty };
                     ValidateContentHygiene(introSection, $"{label} (introduction)");
                     return (ledeSection, ledeType, introSection);
                 }
@@ -188,7 +193,7 @@ public static class LlmResponseJsonParser
                 var introParagraphs = introduction?.Paragraphs ?? [];
                 var syntheticIntro = Normalize(new Section(
                     "h2",
-                    lede.Heading,
+                    string.Empty,
                     introParagraphs,
                     null,
                     introChildren,
@@ -216,8 +221,13 @@ public static class LlmResponseJsonParser
             $"Model did not return a valid lede+introduction for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
     }
 
+    /// <summary>
+    /// The lede as a heading-less opening. Empty heading is deliberate, not missing data: a lede
+    /// runs under the page title and has no headline of its own, and the renderers skip a blank
+    /// heading rather than emitting an empty tag.
+    /// </summary>
     private static Section BuildLedeSection(LedeResponse lede) =>
-        Normalize(new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
+        Normalize(new Section("h2", string.Empty, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
 
     private sealed record SectionsArrayResponse(List<Section>? Sections);
 
@@ -292,6 +302,16 @@ public static class LlmResponseJsonParser
         if (text.Contains("<a href=\"/tools/", StringComparison.OrdinalIgnoreCase))
         {
             return;
+        }
+        // An image prompt written into the prose. The field was removed from the lede contract on
+        // 2026-09-23 because the model kept answering it as a paragraph -- "Image prompt: A
+        // conceptual image of a futuristic office..." sitting in the body of a published draft.
+        // Prompt changes are not a guarantee, so this fails the generation rather than shipping it.
+        if (text.TrimStart().StartsWith("Image prompt", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ContentGenerationException(
+                $"Model wrote an image prompt into the prose for {label}: \"{text[..Math.Min(80, text.Length)]}\". " +
+                "Image prompts are produced by their own call and shipped as separate files, never as page text.");
         }
         if (LeakedMarkupSyntax.IsMatch(text))
         {

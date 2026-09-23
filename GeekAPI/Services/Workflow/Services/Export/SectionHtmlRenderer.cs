@@ -218,6 +218,14 @@ public static class SectionHtmlRenderer
 
     private static void AppendSection(HtmlDocument doc, HtmlNode parent, Section section)
     {
+        // A lede has no headline of its own -- it runs directly under the page title -- so it
+        // arrives with a blank heading and must not produce an empty <h2></h2>.
+        if (string.IsNullOrWhiteSpace(section.Heading))
+        {
+            AppendSectionBody(doc, parent, section);
+            return;
+        }
+
         var headingTag = doc.CreateElement(section.Tag);
         if (!string.IsNullOrWhiteSpace(section.Id))
         {
@@ -236,6 +244,12 @@ public static class SectionHtmlRenderer
         }
         parent.AppendChild(headingTag);
 
+        AppendSectionBody(doc, parent, section);
+    }
+
+    /// <summary>A section's paragraphs and nested children, with no heading of its own.</summary>
+    private static void AppendSectionBody(HtmlDocument doc, HtmlNode parent, Section section)
+    {
         foreach (var paragraph in section.Paragraphs)
         {
             AppendParagraph(doc, parent, paragraph);

@@ -412,9 +412,24 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "the turn that names what is at stake, and the line that says who this is for and what they " +
         "get. A three-sentence opening is not a short opening, it is an opening that has not started.";
 
+    /// <summary>
+    /// The lede is the lead paragraph. It sits directly under the headline and has no headline of
+    /// its own -- which is why there is no "heading" here.
+    ///
+    /// <para>
+    /// It asked for one until 2026-09-23, and the lede was stored as a Section and rendered through
+    /// the same path as a body section, so every page carried two headlines stacked: the title, then
+    /// the lede's. That is the redundancy Jeff reported as "How Automated Data Entry &amp; Processing
+    /// Can Transform Your Business then Transform Your Business with Automated Data Entry &amp;
+    /// Processing seem redundant" -- which I treated as a wording problem and answered with an
+    /// instruction not to restate the title, when the lede should never have had a heading at all.
+    /// The twelve types are the tell: summary, anecdotal, narrative, question, startling statement
+    /// are kinds of opening <i>paragraph</i>. Nobody picks "anecdotal" for a section heading.
+    /// </para>
+    /// </summary>
     private const string LedeJsonContract =
-        "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", \"heading\": string (a real written headline — never the literal words \"Summary Lede\" etc.), " +
-        "\"paragraphs\": [" + ParagraphJsonShape + ", ...], " +
+        "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", " +
+        "\"paragraphs\": [" + ParagraphJsonShape + ", ...] (the opening itself -- no heading: it runs directly under the page title)" +
         "}";
 
     private const string LedeAndIntroductionJsonContract =
