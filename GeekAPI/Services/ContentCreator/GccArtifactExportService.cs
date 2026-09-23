@@ -38,7 +38,7 @@ public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<Gcc
             if (latest is null) continue;
 
             var parsed = Parse(latest.BodyDocumentJson);
-            if (parsed.Document is null)
+            if (parsed.Document is null || IsNotADocument(parsed.Document))
             {
                 // A body that will not parse is exported verbatim rather than dropped -- losing an
                 // artifact silently is worse than exporting something the operator has to look at.
@@ -71,6 +71,25 @@ public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<Gcc
     }
 
     /// <summary>
+    /// Whether a deserialized body is actually a document.
+    ///
+    /// <para>
+    /// System.Text.Json does not enforce a record's non-nullable parameters, so an artifact that is
+    /// not a ContentDocument at all -- an image-prompt pack, a metadata artifact, a body stored as a
+    /// string -- deserializes into a ContentDocument with a null Lede and no sections. It passes a
+    /// null check on the document itself and then throws inside the renderer, which is the 500 the
+    /// export button returned (Jeff, 2026-09-23).
+    /// </para>
+    ///
+    /// <para>
+    /// Treated as unparseable, so it exports raw rather than failing the whole archive: one
+    /// artifact the operator has to look at beats no export at all.
+    /// </para>
+    /// </summary>
+    private static bool IsNotADocument(ContentDocument document) =>
+        document.Lede is null && (document.Sections is null || document.Sections.Count == 0);
+
+    /// <summary>
     /// One file per image prompt, under image-prompts/&lt;type&gt;/, numbered by position with the
     /// heading it belongs to in the body. They are deliberately not left inside the page: a prompt
     /// is something the operator takes to an image generator, not something they read in the prose.
@@ -80,15 +99,15 @@ public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<Gcc
     {
         var folder = $"image-prompts/{FolderFor(contentType)}";
 
-        if (!string.IsNullOrWhiteSpace(document.Lede.ImagePrompt))
+        if (document.Lede is { ImagePrompt: { } ledePrompt } && !string.IsNullOrWhiteSpace(ledePrompt))
         {
             yield return new ExportedHtmlDocument(
                 $"{folder}/{slug}-00-hero.txt",
-                $"{document.Lede.Heading}{Environment.NewLine}{Environment.NewLine}{document.Lede.ImagePrompt}");
+                $"{document.Lede.Heading}{Environment.NewLine}{Environment.NewLine}{ledePrompt}");
         }
 
         var index = 1;
-        foreach (var section in document.Sections)
+        foreach (var section in document.Sections ?? [])
         {
             if (!string.IsNullOrWhiteSpace(section.ImagePrompt))
             {

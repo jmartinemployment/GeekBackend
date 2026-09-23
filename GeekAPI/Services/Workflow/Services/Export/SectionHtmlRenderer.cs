@@ -129,7 +129,8 @@ public static class SectionHtmlRenderer
         h1.AppendChild(CreateEncodedTextNode(doc, title));
         body_.AppendChild(h1);
 
-        AppendSection(doc, body_, body.Lede);
+        // A document with no lede is not a failure worth throwing over at export time.
+        if (body.Lede is not null) AppendSection(doc, body_, body.Lede);
         foreach (var section in body.Sections)
         {
             AppendSection(doc, body_, section);
@@ -192,7 +193,7 @@ public static class SectionHtmlRenderer
         var container = doc.CreateElement("div");
         doc.DocumentNode.AppendChild(container);
 
-        AppendSection(doc, container, body.Lede);
+        if (body.Lede is not null) AppendSection(doc, container, body.Lede);
         foreach (var section in body.Sections)
         {
             AppendSection(doc, container, section);
