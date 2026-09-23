@@ -118,7 +118,7 @@ public sealed class GccGenerationCoordinator
         IReadOnlyList<string>? outputTypes,
         string? mustMentionBlock,
         CancellationToken ct,
-        Func<string, object, Task>? onTypeCompleted = null)
+        Func<string, object?, string?, Task>? onTypeOutcome = null)
     {
         var requested = NormalizeRequestedTypes(outputTypes);
         var refusal = ValidateRequestedTypes(requested);
@@ -145,16 +145,53 @@ public sealed class GccGenerationCoordinator
             // somewhere between the browser and here, surfacing as an empty-body 500 with no
             // exception message at all (the connection dies before any response is written, so
             // neither of Generate's own catch blocks below ever gets the chance to run).
-            var results = await Task.WhenAll(
-                requested.Select(type =>
-                    GenerateAndPersistOneAsync(
-                        repo, gen, create, section, provider, type, mustMentionBlock, ct, onTypeCompleted)));
-            return new { created = results };
+            // Each type succeeds or fails on its own. Task.WhenAll propagates the first
+            // exception, so one refused type used to abort the aggregate and lose every other
+            // type's reason with it -- three types selected, one artifact kept, one error
+            // reported, two outcomes silently gone (Jeff, 2026-09-23: "I select three Content
+            // Types I got one"). Each type already persists its own artifact before this returns,
+            // so a thrown aggregate was never even atomic; it just hid the detail.
+            //
+            // A partial result is the honest answer: two artifacts and one named refusal, not one
+            // blanket failure. Same rule as partner pages in plans/tool-page-per-partner.md.
+            var outcomes = await Task.WhenAll(requested.Select(async type =>
+            {
+                try
+                {
+                    var produced = await GenerateAndPersistOneAsync(
+                        repo, gen, create, section, provider, type, mustMentionBlock, ct, onTypeOutcome);
+                    return (Type: type, Produced: (object?)produced, Error: (string?)null);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex, "Generate failed for type {ContentType} on create {CreateId}", type, create.Id);
+                    if (onTypeOutcome is not null) await onTypeOutcome(type, null, ex.Message);
+                    return (Type: type, Produced: (object?)null, Error: (string?)ex.Message);
+                }
+            }));
+
+            var created = outcomes.Where(o => o.Produced is not null).Select(o => o.Produced!).ToList();
+            var failed = outcomes
+                .Where(o => o.Error is not null)
+                .Select(o => new { contentType = o.Type, error = o.Error })
+                .ToList();
+
+            // Every requested type failing is a failure, not a partial success with nothing in it.
+            if (created.Count == 0)
+                throw new InvalidOperationException(
+                    string.Join(" | ", failed.Select(f => $"{f.contentType}: {f.error}")));
+
+            return new { created, failed };
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
         return await GenerateAndPersistOneAsync(
-            repo, gen, create, section, provider, requested[0], mustMentionBlock, ct, onTypeCompleted);
+            repo, gen, create, section, provider, requested[0], mustMentionBlock, ct, onTypeOutcome);
     }
 
     /// <summary>
@@ -173,7 +210,7 @@ public sealed class GccGenerationCoordinator
         string requestedType,
         string? mustMentionBlock,
         CancellationToken ct,
-        Func<string, object, Task>? onTypeCompleted = null)
+        Func<string, object?, string?, Task>? onTypeOutcome = null)
     {
         var contentType = requestedType.Trim().ToLowerInvariant();
         // Strips hyphens/spaces so "tech-article"/"techArticle" and "email-cold-outreach"/"email"
@@ -270,7 +307,7 @@ public sealed class GccGenerationCoordinator
         // Announced the moment this type lands, not when every type does -- with several types
         // selected the caller can surface each artifact as it arrives instead of waiting on the
         // slowest one.
-        if (onTypeCompleted is not null) await onTypeCompleted(contentType, produced);
+        if (onTypeOutcome is not null) await onTypeOutcome(contentType, produced, null);
         return produced;
     }
 
