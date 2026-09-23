@@ -288,6 +288,42 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// the highest-volume outputs, had no equivalent. Same banned phrase list as
     /// BuildSummaryVariantsPrompt, kept in one place rather than retyped per call site.
     /// </summary>
+    /// <summary>
+    /// How the prose reads, as opposed to what it says.
+    ///
+    /// <para>
+    /// Jeff, 2026-09-23: "Even with RAG it still does not act like human, so it is very easy to spot
+    /// as AI written?" Grounding changes what a page says and leaves its register untouched -- a
+    /// perfectly evidenced page written in this rhythm still reads as machine-written, and every
+    /// other rule added today is about structure or facts.
+    /// </para>
+    ///
+    /// <para>
+    /// The tells are mechanical, so the instructions are too. The one passage he liked all day --
+    /// a named person at her desk at month-end -- broke most of them, which is the register this
+    /// asks for everywhere rather than only in the opening.
+    /// </para>
+    /// </summary>
+    private const string HumanRegisterInstruction =
+        "HOW THIS READS: the giveaway is rhythm, not vocabulary. " +
+        "Vary sentence length on purpose. A paragraph whose sentences are all fifteen to twenty-five " +
+        "words reads as machine-written however good each one is. Use short sentences -- three to " +
+        "eight words -- and let some run long. " +
+        "Vary paragraph length too: some are one sentence, some are six. Never a page of even blocks. " +
+        "Drop the scaffolding: no Moreover, Furthermore, Additionally, In conclusion, It is worth " +
+        "noting, It is important to note. Start the sentence. " +
+        "Break the symmetry: no \"not just X, but Y\", no three-item lists used for cadence rather " +
+        "than because there are exactly three things, no paired clauses balanced against each other " +
+        "line after line. " +
+        "Never restate. A paragraph that summarises the paragraph above it is filler with good " +
+        "manners, and a closing recap of points already made is the same thing at the end. " +
+        "Commit. Say which option is worse and why, say what you would not do, leave something out " +
+        "because it does not matter. Covering every angle evenly is how a page says nothing. " +
+        "Be specific in a way a generic page could not be: \"a twelve-person AP team\" rather than " +
+        "\"businesses\", the actual figure from the evidence rather than \"significant savings\", the " +
+        "named product rather than \"leading platforms\". One concrete detail per section that could " +
+        "not have been written about any other subject.";
+
     private const string FillerBanInstruction =
         "Ban filler: cutting-edge, paradigm shift, transformative potential, seamless transition, " +
         "maximize ROI, unlock value. Write specific, verifiable claims instead of hype adjectives.";
@@ -861,6 +897,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(HumanRegisterInstruction)
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -910,6 +947,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(HumanRegisterInstruction)
             .AppendLine()
             .AppendLine("The introduction continues the same opening — it is not a second start:")
             .AppendLine("After the hook, carry straight on into scoping (who this is for, what the article walks through). Never a duplicate hook, and never a heading.")
@@ -1026,6 +1064,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(briefBody)
             .AppendLine(FillerBanInstruction)
+            .AppendLine(HumanRegisterInstruction)
             .AppendLine($"Write {slots.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Respond with ONLY the sections array, one entry per section listed below, in the same order — no code fences, no commentary:")
@@ -1448,6 +1487,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(HumanRegisterInstruction)
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -1549,6 +1589,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(HumanRegisterInstruction)
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -1585,6 +1626,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(FillerBanInstruction)
+            .AppendLine(HumanRegisterInstruction)
             .AppendLine(briefBody)
             .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
             .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
@@ -1852,6 +1894,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             // potential" and "unlock value" are most likely to turn up, and where they do the most
             // damage to a claim that has to be true.
             .AppendLine(FillerBanInstruction)
+            .AppendLine(HumanRegisterInstruction)
             .AppendLine("Respond with ONLY the sections array for this tool overview page — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
