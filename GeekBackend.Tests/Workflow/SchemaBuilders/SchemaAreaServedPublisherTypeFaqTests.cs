@@ -140,6 +140,38 @@ public class SchemaAreaServedPublisherTypeFaqTests
         Assert.Contains(graph, n => n.GetProperty("@type").GetString() == "SoftwareApplication");
     }
 
+    // --- one publisher, described the same way on every type ---
+
+    [Fact]
+    public void Tool_page_publisher_carries_the_same_geography_and_type_as_the_pillar()
+    {
+        // The publisher node describes the operator, not the page's subject. A flag once suppressed
+        // areaServed and PublisherType on tool pages because "a partner page must not assert the
+        // operator's own geography" -- but the publisher of a page about Tipalti is still us, and
+        // our service areas are still true. The effect was the revenue-critical type shipping a
+        // generic Organization with no geography while pillar and blog carried the real one.
+        var metadata = Metadata(areaServed: ["Delray Beach, FL"], publisherType: "ProfessionalService");
+
+        var pillar = new ArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder())
+            .Build(metadata, "https://geek.test/blog");
+        var tool = new SoftwareApplicationSchemaBuilder()
+            .BuildToolPage(metadata, "https://geek.test/pillar", new SoftwareApplicationDescriptor("Tool", "Does things"));
+
+        using var pillarDoc = JsonDocument.Parse(pillar);
+        using var toolDoc = JsonDocument.Parse(tool);
+
+        var pillarPublisher = pillarDoc.RootElement.GetProperty("publisher");
+        var toolPublisher = toolDoc.RootElement.GetProperty("publisher");
+
+        Assert.Equal(
+            pillarPublisher.GetProperty("@type").GetString(),
+            toolPublisher.GetProperty("@type").GetString());
+        Assert.Equal("ProfessionalService", toolPublisher.GetProperty("@type").GetString());
+        Assert.Equal(
+            pillarPublisher.GetProperty("areaServed").EnumerateArray().Select(e => e.GetString()).ToList(),
+            toolPublisher.GetProperty("areaServed").EnumerateArray().Select(e => e.GetString()).ToList());
+    }
+
     // --- ExtractFaqPairs: the document-walking extractor itself ---
 
     [Fact]

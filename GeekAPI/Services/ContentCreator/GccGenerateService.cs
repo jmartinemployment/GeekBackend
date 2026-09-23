@@ -1655,15 +1655,11 @@ public class GccGenerateService
         // Our page about the product. Distinct from app.Url, which is the product's own home.
         app = app with { PageUrl = toolUrl };
         var now = DateTime.UtcNow;
-        // AreaServed/PublisherType stay unset here: neither is part of the partner-extraction
-        // spec's payloads (plans/partner-extraction-complete.md) and both describe the operator's
-        // own site, not a partner's -- site-hierarchy grounding is a separate concern from partner
-        // grounding, not a gap this method's `create` parameter should also close.
+        // AreaServed/PublisherType come through like everywhere else: they describe the publisher
+        // node, and this page's publisher is the operator, same as the pillar's.
         // Faq is independent of site data: it reads the tool page's own generated document.
         var schemaMeta = ContentMetadataFactory.For(
-            context, name, metaDescription, toolUrl, pillarMeta.Keywords, document, now,
-            // A partner page must not assert the operator's own geography or publisher type.
-            includePublisherGeography: false);
+            context, name, metaDescription, toolUrl, pillarMeta.Keywords, document, now);
 
         var pillarUrl = string.IsNullOrWhiteSpace(relatedArticleUrl)
             ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{dept}"

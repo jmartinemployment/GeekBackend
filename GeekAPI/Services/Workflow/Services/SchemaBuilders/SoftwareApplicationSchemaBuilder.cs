@@ -84,8 +84,8 @@ public class SoftwareApplicationSchemaBuilder : ISoftwareApplicationSchemaBuilde
         // metadata.CanonicalUrl here -- our page -- directly beside the subjectOf below that was
         // already saying the same thing correctly.
         node["image"] = new[] { metadata.MainImageUrl };
-        node["author"] = BuildAuthor(metadata);
-        node["publisher"] = BuildPublisher(metadata);
+        node["author"] = SchemaNodes.BuildAuthor(metadata);
+        node["publisher"] = SchemaNodes.BuildPublisher(metadata);
         node["datePublished"] = metadata.DatePublishedUtc.ToString("O");
         node["dateModified"] = metadata.DateModifiedUtc.ToString("O");
         node["mainEntityOfPage"] = new Dictionary<string, object?>
@@ -102,7 +102,7 @@ public class SoftwareApplicationSchemaBuilder : ISoftwareApplicationSchemaBuilde
             ["@id"] = pillarArticleUrl
         };
 
-        var faqNode = BuildFaqPage(metadata);
+        var faqNode = SchemaNodes.BuildFaqPage(metadata);
         if (faqNode is null)
         {
             return JsonSerializer.Serialize(node, JsonOptions);
@@ -163,87 +163,4 @@ public class SoftwareApplicationSchemaBuilder : ISoftwareApplicationSchemaBuilde
 
         return node;
     }
-
-    /// <summary>
-    /// The author node. Organization, not Person: the configured author is the editorial team, and
-    /// typing a team as a Person sends a search engine looking for a human of that name and finding
-    /// nobody, so the authorship signal resolves to no entity at all (Jeff, 2026-09-23:
-    /// "organization").
-    /// </summary>
-    internal static Dictionary<string, object?> BuildAuthor(ContentMetadata metadata) =>
-        new()
-        {
-            ["@type"] = "Organization",
-            ["name"] = metadata.AuthorName,
-        };
-
-    /// <summary>
-    /// The publisher node. Its <c>@type</c> mirrors what the client's own markup declares — never
-    /// inferred — and <c>areaServed</c> appears only when the site actually declares service areas.
-    /// An empty array would assert "serves nowhere", so absent means absent.
-    /// </summary>
-    private static Dictionary<string, object?> BuildPublisher(ContentMetadata metadata)
-    {
-        var publisher = new Dictionary<string, object?>
-        {
-            ["@type"] = string.IsNullOrWhiteSpace(metadata.PublisherType)
-                ? "Organization"
-                : metadata.PublisherType,
-            ["name"] = metadata.PublisherName,
-            ["logo"] = new Dictionary<string, object?>
-            {
-                ["@type"] = "ImageObject",
-                ["url"] = metadata.PublisherLogoUrl
-            }
-        };
-
-        var areas = metadata.AreaServed?
-            .Where(area => !string.IsNullOrWhiteSpace(area))
-            .Select(area => area.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (areas is { Count: > 0 })
-        {
-            publisher["areaServed"] = areas;
-        }
-
-        return publisher;
-    }
-
-    /// <summary>
-    /// The <c>FAQPage</c> node for questions the page actually contains.
-    /// </summary>
-    /// <remarks>
-    /// Google restricted FAQ <i>rich results</i> to authoritative government and health sites in
-    /// August 2023, so this does not render as a SERP feature for most sites. The markup is emitted
-    /// for machine consumption — answer engines and entity understanding — where
-    /// question-to-answer adjacency is the point. Never emit an entry the page does not answer.
-    /// </remarks>
-    private static Dictionary<string, object?>? BuildFaqPage(ContentMetadata metadata)
-    {
-        var entries = metadata.Faq?
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.Question)
-                            && !string.IsNullOrWhiteSpace(entry.Answer))
-            .ToList();
-        if (entries is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        return new Dictionary<string, object?>
-        {
-            ["@type"] = "FAQPage",
-            ["mainEntity"] = entries.Select(entry => new Dictionary<string, object?>
-            {
-                ["@type"] = "Question",
-                ["name"] = entry.Question.Trim(),
-                ["acceptedAnswer"] = new Dictionary<string, object?>
-                {
-                    ["@type"] = "Answer",
-                    ["text"] = entry.Answer.Trim()
-                }
-            }).ToList()
-        };
-    }
-
 }
