@@ -204,6 +204,54 @@ public static class GccV2PartnerUrlResearchService
     /// </param>
     public sealed record PartnerToolRow(string Name, string? Url, string Source, string? Perk = null);
 
+    /// <summary>
+    /// Host -&gt; the spelling that host's product is written with, for labelling a retrieved chunk by
+    /// the partner its links point at. Keys are registrable hosts without a leading "www.",
+    /// lowercased; lookups are case-insensitive.
+    ///
+    /// <para>
+    /// Built from the brief's own rows, which carry the URL and the operator's spelling together --
+    /// the same pairing V1 gets from <c>GccRequiredToolMentions.AnchorLookup</c>, read out of a V2
+    /// brief by the V2 parser. A row with no URL contributes nothing: there is no host to match it
+    /// on, and guessing one from the name is how a chunk gets labelled with a partner it never
+    /// linked to. Empty when the brief declares no partners, which is not an error.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> AnchorLookup(string? rawBriefJson)
+    {
+        var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in CollectPartnerToolRows(rawBriefJson))
+        {
+            if (string.IsNullOrWhiteSpace(row.Name))
+            {
+                continue;
+            }
+
+            if (!Uri.TryCreate(row.Url?.Trim(), UriKind.Absolute, out var uri))
+            {
+                continue;
+            }
+
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            {
+                continue;
+            }
+
+            var host = uri.Host.ToLowerInvariant();
+            if (host.StartsWith("www.", StringComparison.Ordinal))
+            {
+                host = host[4..];
+            }
+
+            if (host.Length > 0)
+            {
+                lookup[host] = row.Name.Trim();
+            }
+        }
+
+        return lookup;
+    }
+
     public static string? MergePartnerResearchIntoBriefJson(
         string? rawBriefJson,
         IReadOnlyList<GccQuoteablePage> pages)

@@ -323,6 +323,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 CrawlTypes.Local,
                 seed,
                 topic,
+                rawBriefJson,
                 ct);
             if (pages.Count > 0)
                 quoteable.AddRange(pages);
@@ -447,6 +448,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 CrawlTypes.Partner,
                 seed,
                 topic,
+                rawBriefJson,
                 ct);
             if (pages.Count > 0)
             {
@@ -526,6 +528,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 CrawlTypes.Competitors,
                 seed,
                 topic,
+                rawBriefJson,
                 ct);
             if (pages.Count > 0)
             {
@@ -637,6 +640,10 @@ public sealed class GccV2GeekCrawlerResearchResolver
                 crawlType,
                 seed,
                 topic,
+                // No brief on this overload -- it takes seeds and a crawl type, nothing that names
+                // the create -- so chunks retrieved here carry no partner label rather than a
+                // guessed one.
+                rawBriefJson: null,
                 ct);
             quoteable.AddRange(pages);
         }
@@ -644,11 +651,18 @@ public sealed class GccV2GeekCrawlerResearchResolver
         return quoteable;
     }
 
+    /// <summary>
+    /// <paramref name="rawBriefJson"/> is here for anchor-based tool detection: the brief's partner
+    /// rows carry the URL and the operator's spelling together, which is what lets a retrieved chunk
+    /// be labelled with the partner its links point at. Passed rather than re-read from a field
+    /// because this type holds no brief -- every caller already has one in hand.
+    /// </summary>
     private async Task<(IReadOnlyList<GccQuoteablePage> Pages, string? Warning, Guid? RunId)> TryResolveExternalSeedAsync(
         string ownerUserId,
         string crawlType,
         string seed,
         RagTopicContext topic,
+        string? rawBriefJson,
         CancellationToken ct)
     {
         var normalized = GeekCrawlerSeedNormalizer.NormalizeSeeds([seed]);
@@ -711,6 +725,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             topK: 12,
             preferParent: true,
             preferChild: false,
+            anchorToolLookup: GccV2PartnerUrlResearchService.AnchorLookup(rawBriefJson),
             ct: ct).ConfigureAwait(false);
         if (rag is null || rag.Pages.Count == 0)
         {
@@ -950,8 +965,11 @@ public sealed class GccV2GeekCrawlerResearchResolver
         {
             try
             {
+                // A readiness probe: it asks whether a seed resolves and what its index state is,
+                // and discards the prose. No brief is in scope and none is needed -- nothing here
+                // reaches a prompt.
                 var (pages, warning, runId) = await TryResolveExternalSeedAsync(
-                    ownerUserId, crawlType, seed, RagTopicContext.Empty, ct);
+                    ownerUserId, crawlType, seed, RagTopicContext.Empty, rawBriefJson: null, ct);
 
                 // GeekRepository's own record of RAG's index status (kept current by the
                 // index-status webhook), not a live RAG call -- cheaper, and available even if

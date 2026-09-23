@@ -720,6 +720,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             bool? preferChild = null,
             IReadOnlyList<string>? entityNames = null,
             string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagQueryResult?>(null);
 
@@ -780,6 +781,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             bool? preferChild = null,
             IReadOnlyList<string>? entityNames = null,
             string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
             CancellationToken ct = default)
         {
             LastNeed = need;

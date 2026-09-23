@@ -446,6 +446,7 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             bool? preferChild = null,
             IReadOnlyList<string>? entityNames = null,
             string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagQueryResult?>(null);
 

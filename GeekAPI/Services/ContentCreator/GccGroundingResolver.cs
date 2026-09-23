@@ -122,6 +122,15 @@ public sealed class GccGroundingResolver(
                 $"'{contentType}' requires evidence from project {projectId}, which was not found.");
         }
 
+        // Host -> partner spelling for this project, built once. GccRequiredToolMentions owns the
+        // precedence (a brief row's spelling beats a host-derived one), so a chunk labelled from its
+        // links and the required-mentions block in the prompt can never name one partner two ways.
+        // The brief comes off the create, not the project: GccProjectDto carries PartnerUrls but no
+        // brief (GccProjectDtos.cs:18-37), and partner URLs alone can only yield host-derived names
+        // -- "Zoneandco" where the operator wrote "Zone & Co". Both halves are what makes the
+        // spelling authoritative.
+        var anchorToolLookup = GccRequiredToolMentions.AnchorLookup(create.BriefJson, project.PartnerUrls);
+
         var retrieved = new List<GccQuoteablePage>();
         var passages = new List<GccGroundedPassage>();
         var warnings = new List<string>();
@@ -162,7 +171,13 @@ public sealed class GccGroundingResolver(
             foreach (var runId in runIds)
             {
                 var need = BuildNeed(create.Topic, crawlType);
-                var result = await rag.QueryAsync(need, runId, crawlType: crawlType, topK: TopK, ct: ct);
+                var result = await rag.QueryAsync(
+                    need,
+                    runId,
+                    crawlType: crawlType,
+                    topK: TopK,
+                    anchorToolLookup: anchorToolLookup,
+                    ct: ct);
 
                 // A null client result and Failed are both failures. Empty Pages on a successful
                 // query is not — it means this run had nothing relevant, which other runs may cover.

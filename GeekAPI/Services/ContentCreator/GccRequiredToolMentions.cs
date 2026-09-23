@@ -55,6 +55,90 @@ public static class GccRequiredToolMentions
         return names;
     }
 
+    /// <summary>
+    /// Host -> the spelling that host's product is written with, for a caller that has a link and
+    /// needs the name.
+    ///
+    /// <para>
+    /// Here rather than at the caller because the precedence is already decided here: a brief row
+    /// beats a host-derived name, because a host cannot know that "zoneandco" is written "Zone &amp;
+    /// Co". A caller that built this mapping itself would have to re-derive that rule, and the first
+    /// time the two disagreed the prompt would name one partner two ways -- the required-mentions
+    /// block asking for "Zone &amp; Co" while a retrieved chunk was labelled "Zoneandco".
+    /// </para>
+    ///
+    /// <para>
+    /// Keys are registrable hosts without a leading "www.", lowercased; lookups are
+    /// case-insensitive. Empty when the create declares no partners, which is not an error.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> AnchorLookup(
+        string? briefJson,
+        IReadOnlyList<string>? partnerUrls = null)
+    {
+        var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var names = For(briefJson, partnerUrls);
+        if (names.Count == 0)
+        {
+            return lookup;
+        }
+
+        // A partner URL contributes its host; the name comes from the merged list, so a brief row's
+        // spelling is what lands even when the key was derived from the URL.
+        foreach (var url in partnerUrls ?? [])
+        {
+            var host = HostOf(url);
+            if (host.Length == 0 || lookup.ContainsKey(host))
+            {
+                continue;
+            }
+
+            var derived = NameFromUrl(url);
+            var authoritative = names.FirstOrDefault(name => Covers(name, derived)) ?? derived;
+            if (authoritative.Length == 0)
+            {
+                continue;
+            }
+
+            lookup[host] = authoritative;
+        }
+
+        // Brief rows last, and they overwrite: a row carries both the URL and the operator's own
+        // spelling, which is the most authoritative pairing available.
+        foreach (var row in GccPartnerUrlResearchService.CollectPartnerToolRows(briefJson))
+        {
+            var host = HostOf(row.Url);
+            if (host.Length == 0 || string.IsNullOrWhiteSpace(row.Name))
+            {
+                continue;
+            }
+
+            lookup[host] = row.Name.Trim();
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
+    /// The registrable host of a URL, lowercased and without a leading "www.". Empty when the value
+    /// is not an absolute http(s) URL, which is the only form a partner URL is stored in.
+    /// </summary>
+    private static string HostOf(string? url)
+    {
+        if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri))
+        {
+            return string.Empty;
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return string.Empty;
+        }
+
+        var host = uri.Host.ToLowerInvariant();
+        return host.StartsWith("www.", StringComparison.Ordinal) ? host[4..] : host;
+    }
+
     /// <summary>Whether two names refer to the same product, ignoring spacing and punctuation.</summary>
     private static bool Covers(string a, string b)
     {

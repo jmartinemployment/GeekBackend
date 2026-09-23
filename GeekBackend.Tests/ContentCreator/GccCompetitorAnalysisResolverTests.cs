@@ -75,6 +75,7 @@ public class GccCompetitorAnalysisResolverTests
             string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
             bool? preferParent = null, bool? preferChild = null,
             IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
             CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagQueryResult?>(null);
         public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(

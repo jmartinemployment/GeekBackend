@@ -136,4 +136,72 @@ public sealed class HttpGeekCrawlerRagClientTests
         Assert.DoesNotContain(labels, l => string.IsNullOrWhiteSpace(l));
         Assert.DoesNotContain("/pricing", paragraph, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The spelling is the authority's, not this file's. A host-derived name would render
+    /// "Zoneandco" into the same prompt whose required-mentions block asks for "Zone &amp; Co".
+    /// </summary>
+    [Fact]
+    public void MapChunksToQuoteable_labelsChunkWithPartnerFromItsAnchors()
+    {
+        var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["zoneandco.com"] = "Zone & Co",
+        };
+
+        var pages = HttpGeekCrawlerRagClient.MapChunksToQuoteable(
+        [
+            new()
+            {
+                Url = "https://partner.example/tools",
+                FinalUrl = "https://partner.example/tools",
+                Title = "Partner Tool",
+                ChunkIndex = 0,
+                Text = "The directory lists every integration.",
+                Anchors =
+                [
+                    new() { Label = "Docs", Href = "/docs" },
+                    new() { Label = "Zone", Href = "https://WWW.ZoneAndCo.com/pricing" },
+                ],
+            },
+        ],
+            lookup);
+
+        var paragraph = Assert.Single(Assert.Single(pages).Paragraphs);
+        Assert.Contains("Target Entity Match: Zone & Co", paragraph, StringComparison.Ordinal);
+    }
+
+    /// <summary>A subdomain is the same partner; the lookup is keyed on the registrable host.</summary>
+    [Fact]
+    public void DetectEntityFromAnchors_matchesSubdomains_andIgnoresUnknownHosts()
+    {
+        var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["dext.com"] = "Dext",
+        };
+
+        Assert.Equal("Dext", HttpGeekCrawlerRagClient.DetectEntityFromAnchors(
+            [new() { Label = "App", Href = "https://app.dext.com/signin" }], lookup));
+        Assert.Equal("Dext", HttpGeekCrawlerRagClient.DetectEntityFromAnchors(
+            [new() { Label = "Home", Href = "//dext.com" }], lookup));
+        Assert.Null(HttpGeekCrawlerRagClient.DetectEntityFromAnchors(
+            [new() { Label = "Other", Href = "https://notdext.com/x" }], lookup));
+        Assert.Null(HttpGeekCrawlerRagClient.DetectEntityFromAnchors(
+            [new() { Label = "Mail", Href = "mailto:hi@dext.com" }], lookup));
+        Assert.Null(HttpGeekCrawlerRagClient.DetectEntityFromAnchors(
+            [new() { Label = "Rel", Href = "/pricing" }], lookup));
+    }
+
+    /// <summary>No lookup means no label -- never a guessed one.</summary>
+    [Fact]
+    public void DetectEntityFromAnchors_withoutLookup_returnsNull()
+    {
+        Assert.Null(HttpGeekCrawlerRagClient.DetectEntityFromAnchors(
+            [new() { Label = "App", Href = "https://dext.com" }], null));
+        Assert.Null(HttpGeekCrawlerRagClient.DetectEntityFromAnchors(
+            [new() { Label = "App", Href = "https://dext.com" }],
+            new Dictionary<string, string>()));
+        Assert.Null(HttpGeekCrawlerRagClient.DetectEntityFromAnchors(null,
+            new Dictionary<string, string> { ["dext.com"] = "Dext" }));
+    }
 }

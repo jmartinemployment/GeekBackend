@@ -55,6 +55,13 @@ public interface IGeekCrawlerRagClient
     /// HTTP/transport failures set <see cref="GeekCrawlerRagQueryResult.Failed"/> — empty Pages must not be treated as success.
     /// Optional preferParent/preferChild and entityNames are forward-compatible with
     /// Geek-Crawler-Rag Phase B (ignored by older indexers).
+    ///
+    /// <para>
+    /// anchorToolLookup is host -&gt; partner spelling, from
+    /// <c>GccRequiredToolMentions.AnchorLookup</c>. It is never sent to Geek-Crawler-Rag: it labels
+    /// retrieved chunks locally, so a caller with no brief passes null and gets unlabelled chunks
+    /// rather than wrong ones.
+    /// </para>
     /// </summary>
     Task<GeekCrawlerRagQueryResult?> QueryAsync(
         string need,
@@ -66,6 +73,7 @@ public interface IGeekCrawlerRagClient
         bool? preferChild = null,
         IReadOnlyList<string>? entityNames = null,
         string? retrievalMode = null,
+        IReadOnlyDictionary<string, string>? anchorToolLookup = null,
         CancellationToken ct = default);
 
     /// <summary>Phase D2 — upsert ad templates into Geek-Crawler-Rag. Null when disabled.</summary>
@@ -444,6 +452,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         bool? preferChild = null,
         IReadOnlyList<string>? entityNames = null,
         string? retrievalMode = null,
+        IReadOnlyDictionary<string, string>? anchorToolLookup = null,
         CancellationToken ct = default)
     {
         if (!_enabled)
@@ -507,7 +516,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
             var dto = await response.Content.ReadFromJsonAsync<QueryResponseDto>(JsonOpts, ct)
                 .ConfigureAwait(false);
-            var pages = MapChunksToQuoteable(dto?.Chunks);
+            var pages = MapChunksToQuoteable(dto?.Chunks, anchorToolLookup);
             return new GeekCrawlerRagQueryResult
             {
                 RunId = runId,
@@ -778,7 +787,9 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             .ToList();
     }
 
-    internal static IReadOnlyList<GccQuoteablePage> MapChunksToQuoteable(IReadOnlyList<ChunkDto>? chunks)
+    internal static IReadOnlyList<GccQuoteablePage> MapChunksToQuoteable(
+        IReadOnlyList<ChunkDto>? chunks,
+        IReadOnlyDictionary<string, string>? anchorToolLookup = null)
     {
         if (chunks is null || chunks.Count == 0)
             return [];
@@ -827,6 +838,17 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 .OrderBy(c => c.ChunkIndex)
                 .ToList();
 
+            // Anchor-based tool detection. A chunk that links out to a partner's own domain is a
+            // chunk about that partner, and the writer is told so in one line. Over `kept`, not
+            // `group`, so the work tracks exactly what reaches the prompt.
+            foreach (var chunk in kept)
+            {
+                if (string.IsNullOrWhiteSpace(chunk.EntityName))
+                {
+                    chunk.EntityName = DetectEntityFromAnchors(chunk.Anchors, anchorToolLookup);
+                }
+            }
+
             var paragraphs = kept
                 .Select(RenderChunk)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
@@ -849,6 +871,82 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
     }
 
     /// <summary>
+    /// The partner tool a chunk's links point at, or null when they point at nothing the create
+    /// declared.
+    ///
+    /// <para>
+    /// This resolves a host and looks it up. It deliberately does not compose a name: the value it
+    /// returns was produced by <c>GccRequiredToolMentions.AnchorLookup</c>, which owns the
+    /// precedence rule that a brief row's spelling beats a host-derived one. Capitalising a host
+    /// here would put "Zoneandco" in front of the writer while the required-mentions block asked
+    /// for "Zone &amp; Co", and one partner named two ways in one prompt is how a draft comes back
+    /// naming a product that does not exist.
+    /// </para>
+    ///
+    /// <para>
+    /// First match in anchor order wins, which is the page's own order and therefore stable across
+    /// runs. A chunk linking to two partners is labelled with the one it links to first.
+    /// </para>
+    /// </summary>
+    internal static string? DetectEntityFromAnchors(
+        List<GeekCrawlerRagAnchorDto>? anchors,
+        IReadOnlyDictionary<string, string>? anchorToolLookup)
+    {
+        if (anchors is null || anchors.Count == 0)
+            return null;
+        if (anchorToolLookup is null || anchorToolLookup.Count == 0)
+            return null;
+
+        foreach (var anchor in anchors)
+        {
+            var host = HostFromHref(anchor?.Href);
+            if (host.Length == 0)
+                continue;
+
+            // Exact host first, then each parent domain: a partner's links are as likely to point at
+            // app.dext.com or help.dext.com as at dext.com, and the lookup is keyed on the
+            // registrable host the operator entered.
+            for (var candidate = host; candidate.Contains('.', StringComparison.Ordinal);)
+            {
+                if (anchorToolLookup.TryGetValue(candidate, out var name)
+                    && !string.IsNullOrWhiteSpace(name))
+                {
+                    return name.Trim();
+                }
+
+                var cut = candidate.IndexOf('.', StringComparison.Ordinal);
+                var parent = candidate[(cut + 1)..];
+                if (!parent.Contains('.', StringComparison.Ordinal))
+                    break;
+                candidate = parent;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The host of an anchor href, lowercased and without a leading "www.". Empty when the href
+    /// names no host -- a relative link, a fragment, a mailto:, or anything that will not parse.
+    /// Protocol-relative hrefs are real in crawled markup, so "//host/path" is read as https.
+    /// </summary>
+    private static string HostFromHref(string? href)
+    {
+        var value = href?.Trim();
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+        if (value.StartsWith("//", StringComparison.Ordinal))
+            value = "https:" + value;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+            return string.Empty;
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            return string.Empty;
+
+        var host = uri.Host.ToLowerInvariant();
+        return host.StartsWith("www.", StringComparison.Ordinal) ? host[4..] : host;
+    }
+
+    /// <summary>
     /// One chunk as the writer sees it: the section it belongs to, the surrounding parent block
     /// when this is a child, and the anchors beneath it.
     ///
@@ -865,6 +963,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         if (!string.IsNullOrWhiteSpace(chunk.SectionTitle))
         {
             body.AppendLine($"Section: {chunk.SectionTitle!.Trim()}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(chunk.EntityName))
+        {
+            body.AppendLine($"Target Entity Match: {chunk.EntityName!.Trim()}");
         }
 
         var text = Truncate(chunk.Text!, GccPartnerResearchCaps.MaxParagraphChars);
@@ -1006,6 +1109,23 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? ParentText { get; set; }
 
         public string? ChildText { get; set; }
+
+        /// <summary>
+        /// The partner tool this chunk is about, resolved here from its anchors.
+        ///
+        /// <para>
+        /// Deliberately not bound to the wire's <c>entityName</c>, hence
+        /// <see cref="JsonIgnoreAttribute"/>. The indexer sets that field on every chunk it writes --
+        /// <c>entity_from_crawl</c> falls back to the page's normalised host and then to the crawl
+        /// type, so it is never null (metadata.py:192-195) -- and a bare host is not a tool
+        /// detection. Bound to the wire, this would be non-empty on every chunk, the backfill in
+        /// MapChunksToQuoteable would be unreachable, and every chunk would carry a
+        /// "Target Entity Match: dext.com" line into the prompt. Unbound, it means one thing: a
+        /// partner the create declared was identified from this chunk's own links.
+        /// </para>
+        /// </summary>
+        [JsonIgnore]
+        public string? EntityName { get; set; }
 
         /// <summary>
         /// Link text under the chunk's heading -- what anchor-based tool detection reads.

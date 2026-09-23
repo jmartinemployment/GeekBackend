@@ -629,6 +629,19 @@ public sealed class GccV2CreateLibraryWriter
             preferChild: preferChild,
             entityNames: entityFilter,
             retrievalMode: retrievalMode,
+            // No anchor tool lookup on this path, and null rather than an empty dictionary so the
+            // absence is the stated thing it is. Building one needs the create's brief -- host ->
+            // partner spelling comes from GccRequiredToolMentions.AnchorLookup(briefJson,
+            // partnerUrls) -- and nothing carries a brief, a project or a partner list into this
+            // class: its dependencies are the RAG client, the provider factory, the logger and two
+            // flags. Chunks retrieved here therefore reach the writer with no "Target Entity Match"
+            // line, which is correct for a path that cannot know which partners the create declared;
+            // labelling them from anything else available here would be a guess. Threading the brief
+            // from DraftAsync down through QueryRunAsync is the fix, and is deliberately not done
+            // here as a drive-by. Tracked in plans/writer-anchor-tool-detection.md, which found that
+            // request.CanonicalBrief already carries the brief as rawBrief -- so the fix threads one
+            // optional parameter and changes no DTO.
+            anchorToolLookup: null,
             ct: ct).ConfigureAwait(false);
 
         _logger.LogInformation(
