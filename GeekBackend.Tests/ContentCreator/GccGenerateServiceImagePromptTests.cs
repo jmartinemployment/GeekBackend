@@ -54,7 +54,8 @@ public class GccGenerateServiceImagePromptTests
             new GccCompetitorAnalysisResolverTests.FakeProjects(null),
             new GccCompetitorAnalysisResolverTests.FakePages(),
             new GccCompetitorAnalysisResolverTests.FakeRag()),
-        GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)));
+        GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)),
+        new GccCompetitorAnalysisResolverTests.FakeProjects(null));
 
     private static string TwoSectionDocumentJson() =>
         GccGenerateService.SerializeDocument(new ContentDocument(

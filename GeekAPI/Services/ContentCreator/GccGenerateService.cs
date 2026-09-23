@@ -18,6 +18,7 @@ using Microsoft.Extensions.Options;
 using GeekAPI.Services.GeekSeo;
 using GeekAPI.Services.ContentCreatorV2;
 
+using GeekAPI.HttpClients;
 namespace GeekAPI.Services.ContentCreator;
 
 using RelatedPageDto = GeekAPI.Services.ContentCreatorV2.RelatedPageDto;
@@ -59,6 +60,19 @@ public class GccGenerateService
     private readonly ILogger<GccGenerateService> _logger;
     private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
     private readonly GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService _partnerExtraction;
+    private readonly IGccProjectReader _projects;
+
+    /// <summary>
+    /// The partner URLs the operator entered on this create's project -- the authority on which
+    /// products a page must name. Empty when the create belongs to no project, which is a create
+    /// with no partners rather than an error.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> PartnerUrlsForAsync(GccCreateDto create, CancellationToken ct)
+    {
+        if (create.ProjectId is not { } projectId) return [];
+        var project = await _projects.GetProjectAsync(projectId, ct);
+        return project?.PartnerUrls ?? [];
+    }
 
     public GccGenerateService(
         IContentPromptBuilder prompts,
@@ -70,7 +84,8 @@ public class GccGenerateService
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger,
         GccCompetitorAnalysisResolver competitorAnalysis,
-        GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction)
+        GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction,
+        IGccProjectReader projects)
     {
         _prompts = prompts;
         _types = types;
@@ -82,6 +97,7 @@ public class GccGenerateService
         _logger = logger;
         _competitorAnalysis = competitorAnalysis;
         _partnerExtraction = partnerExtraction;
+        _projects = projects;
     }
 
     public static SiteSectionContextDto? ParseSiteSection(string? json) =>
@@ -2417,7 +2433,8 @@ public class GccGenerateService
 
         // The partner tools this page is obliged to name, stated to the model and checked against
         // the result below -- one list, so the instruction and the check cannot disagree.
-        var requiredTools = GccRequiredToolMentions.For(create.BriefJson);
+        var requiredTools = GccRequiredToolMentions.For(
+            create.BriefJson, await PartnerUrlsForAsync(create, ct));
         var toolInstruction = GccRequiredToolMentions.Instruction(requiredTools);
         var pillarEvidence = string.IsNullOrWhiteSpace(toolInstruction)
             ? evidenceBlock
@@ -2589,7 +2606,8 @@ public class GccGenerateService
         // ParseLede. Reading it as a sections array failed every blog generation.
         var (blogLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
 
-        var blogRequiredTools = GccRequiredToolMentions.For(create.BriefJson);
+        var blogRequiredTools = GccRequiredToolMentions.For(
+            create.BriefJson, await PartnerUrlsForAsync(create, ct));
         var blogToolInstruction = GccRequiredToolMentions.Instruction(blogRequiredTools);
         var blogEvidence = string.IsNullOrWhiteSpace(blogToolInstruction)
             ? evidenceBlock
