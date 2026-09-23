@@ -310,17 +310,19 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
         "would sit unchanged on a page about a different product, industry or keyword, it is the " +
-        "wrong heading; rewrite it so it states this section's own specific claim. Never use, and " +
-        "never lightly reword, any of: Overview, Introduction, Understanding X, What Is X, Why It " +
-        "Matters, How It Works, Key Benefits, Key Capabilities, Key Considerations, Key Takeaways, " +
-        "Common Challenges, Best Practices, Getting Started, Next Steps, The Future of X, Final " +
-        "Thoughts, Conclusion. A reader who scans nothing but your headings should come away with " +
-        "the argument. And a category label is also a section with nothing in particular to say, " +
-        "which is why generic headings come back thin -- name the claim and the section has " +
-        "somewhere to go. \"Overview\" in particular is not a section at all: an overview is a kind " +
-        "of lede -- the summary hook -- so it belongs in this page's opening and nowhere after it. " +
-        "A later section that sets out to overview the subject is the opening written a second " +
-        "time, and the reader has already read it.";
+        "wrong heading; rewrite it so it states this section's own specific claim. " +
+        "\"Overview\" is never a section heading at all: an overview is a kind of lede -- the summary " +
+        "hook -- so it belongs in this page's opening and nowhere after it, and this page already " +
+        "has an opening. A later section that overviews the subject is the opening written twice. " +
+        "The other stock openers -- Introduction, Understanding X, What Is X, Why It Matters, How " +
+        "It Works, Key Benefits, Key Capabilities, Key Considerations, Key Takeaways, Common " +
+        "Challenges, Best Practices, Getting Started, Next Steps, The Future of X, Final Thoughts, " +
+        "Conclusion -- are not forbidden, they are unfinished. Each is fine once it carries this " +
+        "page's own subject: \"How It Works\" is a label, \"How Invoice Capture Actually Works\" is a " +
+        "heading. Never leave one bare. " +
+        "A reader who scans nothing but your headings should come away with the argument. And a " +
+        "bare category label is also a section with nothing in particular to say, which is why " +
+        "generic headings come back thin -- name the claim and the section has somewhere to go.";
 
     /// <summary>
     /// Structural monotony, which is a different defect from a bad heading and was producing the

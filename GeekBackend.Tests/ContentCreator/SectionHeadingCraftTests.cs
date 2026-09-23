@@ -113,6 +113,12 @@ public class SectionHeadingCraftTests
 
         Assert.Contains("HEADINGS: write them for this page and no other", system, StringComparison.Ordinal);
         Assert.Contains("an overview is a kind of lede", system, StringComparison.Ordinal);
+        // The stock openers are unfinished, not forbidden. A blacklist would reject "How Invoice
+        // Capture Actually Works" for containing "How It Works" -- forbidding a construction that
+        // is right the moment it carries the page's own subject (Jeff, 2026-09-23: "Add a word or
+        // two to any of those 16 banned and they work much better...?").
+        Assert.Contains("are not forbidden, they are unfinished", system, StringComparison.Ordinal);
+        Assert.Contains("\"How Invoice Capture Actually Works\" is a heading", system, StringComparison.Ordinal);
         Assert.Contains("VARY THE SECTIONS", system, StringComparison.Ordinal);
         Assert.Contains("you write its heading", user, StringComparison.Ordinal);
     }
