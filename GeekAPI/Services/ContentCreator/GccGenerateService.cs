@@ -2569,7 +2569,10 @@ public class GccGenerateService
             metaDescription = blogMetaDescription,
             summary = blogMeta.Summary,
             body = document,
-            jsonLdSchema = _blogSchema.Build(blogSchemaMeta, relatedArticleUrl: blogUrl),
+            // Empty, not the blog's own URL -- passing blogUrl made the BlogPosting cite itself.
+            // Pillar and Blog are independent artifacts on this path, so there is no companion
+            // article to cite; the builder omits the citation when this is blank.
+            jsonLdSchema = _blogSchema.Build(blogSchemaMeta, relatedArticleUrl: string.Empty),
         }, CwDocumentJson);
     }
 

@@ -61,7 +61,7 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
 
     private static Dictionary<string, object?> BuildArticleNode(ContentMetadata metadata, string relatedBlogPostUrl)
     {
-        return new Dictionary<string, object?>
+        var node = new Dictionary<string, object?>
         {
             // "TechArticle" is the real schema.org type — "TechnicalArticle" doesn't exist there
             // (confirmed: schema.org/TechnicalArticle 404s; schema.org/TechArticle is real and is
@@ -86,15 +86,27 @@ public class TechnicalArticleSchemaBuilder : ITechnicalArticleSchemaBuilder
             ["keywords"] = string.Join(", ", metadata.Keywords),
             ["wordCount"] = metadata.WordCount,
             ["proficiencyLevel"] = "Beginner",
-            ["citation"] = new[]
+        };
+
+        // Only cite a companion blog when there is one. This was emitted unconditionally, so a
+        // blank URL produced citation: [{ "@type": "BlogPosting", "url": "" }] -- a citation
+        // pointing nowhere, which is worse than no citation at all. Callers pass an empty string
+        // legitimately: the orchestrator when RelatedArticleUrl is unset, and the Create path
+        // always, since a pillar there has no companion blog generated alongside it.
+        // BlogPostingSchemaBuilder already guards this way; this one did not.
+        if (!string.IsNullOrWhiteSpace(relatedBlogPostUrl))
+        {
+            node["citation"] = new[]
             {
                 new Dictionary<string, object?>
                 {
                     ["@type"] = "BlogPosting",
                     ["url"] = relatedBlogPostUrl
                 }
-            }
-        };
+            };
+        }
+
+        return node;
     }
 
     /// <summary>
