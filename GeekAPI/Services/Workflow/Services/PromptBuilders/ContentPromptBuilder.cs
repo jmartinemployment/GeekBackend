@@ -1531,6 +1531,23 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY the sections array for this tool overview page — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
+            // What this page IS. The prompt previously described a consulting firm writing about a
+            // tool and never said the word partner -- while the extraction prompt that feeds it
+            // defines one precisely. The two halves of the same pipeline did not share a
+            // definition, so the writer had to infer the relationship it was writing about
+            // (Jeff, 2026-09-23: "this doesn't appear to be a prompt that is specifically written
+            // for Partners/Tools?"). Kept deliberately consistent with
+            // GccV2PartnerExtractionService's wording, since both run over the same material.
+            .AppendLine($"WHAT THIS PAGE IS: {app.Name} is a PARTNER — a third-party SaaS product that " +
+                $"{context.PublisherName} promotes and implements for clients. This page exists to show a reader " +
+                $"facing \"{context.TargetKeyword}\" how {app.Name} specifically addresses that problem. It is one " +
+                "product's page, not a category explainer and not a roundup.")
+            .AppendLine($"Keep the two roles distinct and never blur them: {app.Name} is the software; " +
+                $"{context.PublisherName} ({context.ImplementerPositioning}) is the implementer who deploys and " +
+                $"configures it. Never describe {app.Name} as if it delivered human consulting or agency services, " +
+                $"and never claim {context.PublisherName} builds the product's own features.")
+            .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
+                "about a competing product is a sentence that has not done its job.")
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine("Required top-level (h2) sections, in order: Overview, Key Capabilities, How It Works, " +
                 "Implementation Considerations, Evaluation Criteria, When to Use.")
