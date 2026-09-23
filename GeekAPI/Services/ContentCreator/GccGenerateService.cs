@@ -2340,16 +2340,16 @@ public class GccGenerateService
         var context = BuildPillarContext(create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
+        // Prompts come from the type's own set, not from a switch over a flat builder -- see
+        // content-creator-v2/plans/prompts-per-content-type.md.
+        var pillarType = RequireType("pillar");
+        var outlineCtx = new ContentTypes.ContentTypePromptContext(context);
         var metadata = new ArticleMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
             Keywords: [create.Topic.Trim()],
-            SectionOutline: [.. RequireType("pillar").Outline]);
-
-        // Prompts come from the type's own set, not from a switch over a flat builder -- see
-        // content-creator-v2/plans/prompts-per-content-type.md.
-        var pillarType = RequireType("pillar");
-        var pillarPromptCtx = new ContentTypes.ContentTypePromptContext(context, metadata);
+            SectionOutline: [.. pillarType.OutlineFor(outlineCtx)]);
+        var pillarPromptCtx = outlineCtx with { Metadata = metadata };
         var ledeResult = await llm.CompleteAsync(pillarType.Lede(pillarPromptCtx), ct);
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
         // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way

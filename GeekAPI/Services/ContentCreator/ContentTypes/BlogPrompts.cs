@@ -13,7 +13,9 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
 {
     public string Key => "blog";
 
-    public IReadOnlyList<string> Outline { get; } = ["Overview", "Key considerations", "Next steps"];
+    private static readonly string[] Sections = ["Overview", "Key considerations", "Next steps"];
+
+    public IReadOnlyList<string> OutlineFor(ContentTypePromptContext ctx) => Sections;
 
     /// <summary>LedeJsonContract -- read with ParseLede, not ParseSections.</summary>
     public ChatCompletionRequest Lede(ContentTypePromptContext ctx) =>

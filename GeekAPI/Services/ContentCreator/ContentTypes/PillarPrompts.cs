@@ -10,7 +10,7 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
 {
     public string Key => "pillar";
 
-    public IReadOnlyList<string> Outline { get; } =
+    private static readonly string[] Sections =
     [
         "Overview",
         "Why it matters now",
@@ -19,6 +19,8 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
         "Implementation path",
         "When it is the right call",
     ];
+
+    public IReadOnlyList<string> OutlineFor(ContentTypePromptContext ctx) => Sections;
 
     /// <summary>
     /// Returns the lede AND the introduction section -- BuildPillarLedePrompt asks for
@@ -32,10 +34,10 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
         prompts.BuildPillarLedePrompt(
             ctx.Context,
             Meta(ctx),
-            ledeHeading: Outline[0],
+            ledeHeading: Sections[0],
             ledeIndex: 0,
-            totalSections: Outline.Count,
-            fullOutline: Outline,
+            totalSections: Sections.Length,
+            fullOutline: Sections,
             isRegeneration: false);
 
     /// <summary>Outline minus the lede slot: the lede already wrote Outline[0].</summary>
@@ -43,8 +45,8 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
         prompts.BuildArticleSectionBatchPrompt(
             ctx.Context,
             Meta(ctx),
-            headings: [.. Outline.Skip(1)],
-            fullOutline: Outline,
+            headings: [.. Sections.Skip(1)],
+            fullOutline: Sections,
             isRegeneration: false,
             revisionNotes: null,
             requireHeadingProvenance: true,

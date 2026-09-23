@@ -33,8 +33,12 @@ public interface IContentTypePrompts
     /// The type's top-level sections, in order. One definition: Blog's was written inline twice and
     /// Tool's existed both as an array and as hardcoded prose inside its body prompt, carrying a
     /// comment that the two had to be kept in sync by hand.
+    ///
+    /// Takes the context because an outline can depend on the brief. "Overview" is an
+    /// angle-agnostic placeholder sitting where the Angle for SEO should decide -- Pillar's prompt
+    /// already forbids a generic opener outright, while Tool's mandated one by name.
     /// </summary>
-    IReadOnlyList<string> Outline { get; }
+    IReadOnlyList<string> OutlineFor(ContentTypePromptContext ctx);
 
     ChatCompletionRequest Lede(ContentTypePromptContext ctx);
 
