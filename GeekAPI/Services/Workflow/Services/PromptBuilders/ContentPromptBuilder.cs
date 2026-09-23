@@ -405,6 +405,40 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// paragraph and two stubs.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// How a piece ends.
+    ///
+    /// <para>
+    /// "End with a clear next-step CTA for the reader" was the whole instruction, and it produced
+    /// the same non-ending every time -- Jeff, 2026-09-23, quoting a finished post: "If you're
+    /// considering automation, it may be beneficial to explore similar success stories in your
+    /// industry to understand the potential impact further." That asks the reader to go and think
+    /// about it. It names no action, no actor and no next step, and "every sample has lacked" a
+    /// real one.
+    /// </para>
+    ///
+    /// <para>
+    /// The brief already carries the ask -- ctaType and ctaLabel -- and the closing simply has to
+    /// make it. Where the brief names none, the piece still ends on something the reader does, not
+    /// on a suggestion that they reflect.
+    /// </para>
+    /// </summary>
+    private static string ClosingCallToActionInstruction(ProjectGenerationContext context)
+    {
+        var ask = string.IsNullOrWhiteSpace(context.CtaType)
+            ? "the one action this reader should take next"
+            : context.CtaType
+              + (string.IsNullOrWhiteSpace(context.CtaLabel) ? string.Empty : $", worded as \"{context.CtaLabel}\"");
+
+        return "CLOSING: the last section ends by asking for " + ask + ". One ask, stated plainly, "
+            + "addressed to the reader, naming who does what next. "
+            + "Do NOT end on a reflection -- \"it may be beneficial to explore\", \"consider how this "
+            + "could apply\", \"these examples provide insight\", \"to understand the potential impact "
+            + "further\". Those name no action and no actor; they are a piece trailing off, and they "
+            + "are what every draft has closed on so far. If the reader finishes and does not know "
+            + "what they are being asked to do, the ending has failed.";
+    }
+
     private static readonly string LedeLengthInstruction =
         $"LENGTH: the opening runs {ContentLengthTargets.LedeRangeLabel} words across 3-4 paragraphs, " +
         $"and no paragraph in it is shorter than {ContentLengthTargets.LedeParagraphMinWords} words. " +
@@ -432,8 +466,17 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...] (the opening itself -- no heading: it runs directly under the page title)" +
         "}";
 
+    /// <summary>
+    /// The introduction has no heading either. It is the opening continuing, not a first section --
+    /// it used to take the full section shape, heading included, which is how a pillar could end up
+    /// with the title, a lede headline and then a third headline before any body section.
+    /// </summary>
+    private const string IntroductionJsonContract =
+        "{\"paragraphs\": [" + ParagraphJsonShape + ", ...] (continues the lede; no heading), " +
+        "\"children\": [" + SectionJsonContract + ", ...] (optional nested h3s)}";
+
     private const string LedeAndIntroductionJsonContract =
-        "{\"lede\": " + LedeJsonContract + ", \"introduction\": " + SectionJsonContract + "}";
+        "{\"lede\": " + LedeJsonContract + ", \"introduction\": " + IntroductionJsonContract + "}";
 
     /// <summary>
     /// The angle as an instruction, not a token. This printed the raw enum -- "Angle:
@@ -799,7 +842,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Write the opening lede for a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine(BuildLedeTypeGuidance(context))
-            .AppendLine("The heading is a real written headline for the opening — never the literal words \"Creative Lead\"/\"Summary Lede\"; that label goes only in ledeType.")
             .AppendLine("Do NOT start with \"How\" or a question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
@@ -844,20 +886,19 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + heading/topic → 12 types); keep expert, consultative tone throughout.")
+            .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + topic → 12 types); keep expert, consultative tone throughout.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine()
-            .AppendLine("Produce the pillar's Lede — it IS the first H2 (no separate Introduction/Overview label):")
+            .AppendLine("Produce the pillar's opening — the lead paragraphs that run directly under the page title. No heading of any kind: the title is the page's only headline.")
             .AppendLine(BuildLedeTypeGuidance(context))
-            .AppendLine("The heading IS the H2 — a real creative headline (hook), never a generic \"Introduction to...\" / \"Introduction/Overview\" string and never the literal words \"Creative Lead\"/\"Summary Lede\"; that label goes only in ledeType.")
             .AppendLine("Do NOT start with \"How\" or a question unless ledeType is Question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
             .AppendLine()
-            .AppendLine("LEDE H2 — real content follows the hook in the same H2:")
-            .AppendLine("This H2's opening paragraphs ARE the lede hook above — then continue in the same H2 with scoping (who it's for, what the article walks through), not a duplicate hook.")
+            .AppendLine("The introduction continues the same opening — it is not a second start:")
+            .AppendLine("After the hook, carry straight on into scoping (who this is for, what the article walks through). Never a duplicate hook, and never a heading.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
             .AppendLine("Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
             .AppendLine("Each h3 is a keyword-level topic and MUST itself nest 1-3 h4 children covering concrete subtopics of that h3.")
@@ -869,7 +910,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BuildIntroductionSectionGuidance(context))
             .AppendLine()
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
-            .AppendLine("Always include both \"lede\" and \"introduction\" keys; when they share one H2, use the same heading string in both.")
+            .AppendLine("Always include both \"lede\" and \"introduction\" keys. Neither carries a heading — they are one continuous opening, and the introduction's paragraphs follow the lede's.")
             .AppendLine(LedeAndIntroductionJsonContract)
             .ToString();
 
@@ -988,6 +1029,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
+            .AppendLine(ClosingCallToActionInstruction(context))
             .ToString();
 
         if (namesItsOwn)
@@ -1121,6 +1163,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for this section. Do not write other sections.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
+            .AppendLine(ClosingCallToActionInstruction(context))
             .ToString();
 
         var perCall = new StringBuilder();
@@ -1569,7 +1612,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Advisory section outline (prefer these H2s when they still fit, but refine any that reads as a reusable label rather than this page's own claim):")
             .AppendLine(string.Join(Environment.NewLine, (metadata.SectionOutline ?? []).Select(h => $"- {h}")))
             .AppendLine()
-            .AppendLine("Write the blog body sections. Name platforms from the research brief in running prose where they fit. End with a clear next-step CTA for the reader.")
+            .AppendLine("Write the blog body sections. Name platforms from the research brief in running prose where they fit.")
+            .AppendLine(ClosingCallToActionInstruction(context))
             .ToString();
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
@@ -1864,12 +1908,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         audience.AppendLine($"The implementation section is where you answer the DIY question: what {context.PublisherName} "
             + $"({context.ImplementerPositioning}) does that makes {app.Name} work in their environment — configuration, data "
             + "mapping, integration with what they already run, training. Earn the claim, never assert it.");
-        if (!string.IsNullOrWhiteSpace(context.CtaType))
-        {
-            audience.AppendLine($"Close the final section with a single clear call to action ({context.CtaType}"
-                + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $", worded as \"{context.CtaLabel}\"")
-                + $"). One ask, placed naturally after the reader has reason to act — never a banner and never repeated per section.");
-        }
+        audience.AppendLine(ClosingCallToActionInstruction(context));
+        audience.AppendLine("Place it after the reader has reason to act — never a banner, never repeated per section.");
 
         system += Environment.NewLine + audience.ToString();
 

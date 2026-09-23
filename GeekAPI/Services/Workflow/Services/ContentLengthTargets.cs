@@ -31,11 +31,16 @@ public static class ContentLengthTargets
         "and link out to smaller cluster articles. Quality means comprehensive coverage — not padding.";
 
     // Deep-Dive Blog Posts — companion articles aimed at outranking competitors.
-    public const int BlogMinWords = 1_800;
-    public const int BlogTargetMinWords = 1_800;
-    public const int BlogTargetMaxWords = 2_500;
-    public const int BlogSectionMinWords = 400;
-    public const int BlogSectionTargetMaxWords = 550;
+    // Raised from 1,800-2,500 on 2026-09-23. Blog landed 300-400 words under target run after run,
+    // so the stated range moves up to where the output actually needs to be (Jeff: "Blog is
+    // consistently 300-400 words short of target, so increase target range to 2000 - 2700 words").
+    // The per-section budget moves with it -- a total nothing supports section by section is the
+    // number the model already ignores.
+    public const int BlogMinWords = 2_000;
+    public const int BlogTargetMinWords = 2_000;
+    public const int BlogTargetMaxWords = 2_700;
+    public const int BlogSectionMinWords = 450;
+    public const int BlogSectionTargetMaxWords = 600;
     public const int BlogSectionCountMin = 5;
     public const int BlogSectionCountTarget = 6;
 

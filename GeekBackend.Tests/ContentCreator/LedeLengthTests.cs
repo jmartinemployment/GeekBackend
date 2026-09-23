@@ -114,6 +114,52 @@ public class LedeLengthTests
             + $"{ContentLengthTargets.LedeRangeLabel} words of JSON-wrapped prose.");
     }
 
+    [Theory]
+    [MemberData(nameof(EveryLedePrompt))]
+    public void NoLedePromptAsksForAHeading(string which)
+    {
+        // A lede is the lead paragraph. It runs under the page title and has no headline of its
+        // own -- it had one until 2026-09-23, rendered as an h2, so every page showed two headlines
+        // stacked and the slot a reader reads as the lede held a one-sentence summary instead.
+        var prompt = Prompt(Build(which));
+
+        // Scoped to the lede's own shape: nested h3 children legitimately do carry headings, so a
+        // blanket search for the word would fail on a correct contract.
+        var ledeShapeStart = prompt.IndexOf("\"ledeType\"", StringComparison.Ordinal);
+        Assert.True(ledeShapeStart >= 0, "the lede contract is missing from the prompt entirely");
+        var ledeShape = prompt[ledeShapeStart..Math.Min(ledeShapeStart + 600, prompt.Length)];
+
+        Assert.DoesNotContain("\"heading\"", ledeShape, StringComparison.Ordinal);
+        Assert.Contains("no heading", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TheBlogBodyPromptAsksForAnActionNotAReflection()
+    {
+        // "End with a clear next-step CTA" produced the same non-ending every time: "If you're
+        // considering automation, it may be beneficial to explore similar success stories..."
+        // No action, no actor, no next step (Jeff: "which every sample has lacked").
+        var builder = new ContentPromptBuilder();
+        var request = builder.BuildStandaloneBlogBodyPrompt(Context(), Blog);
+        var prompt = Prompt(request);
+
+        Assert.Contains("CLOSING:", prompt, StringComparison.Ordinal);
+        Assert.Contains("it may be beneficial to explore", prompt, StringComparison.Ordinal);
+        Assert.Contains("the ending has failed", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheBlogTargetMatchesWhatTheSectionsAddUpTo()
+    {
+        // A document total nothing supports section by section is the number the model ignores.
+        Assert.Equal(2_000, ContentLengthTargets.BlogTargetMinWords);
+        Assert.Equal(2_700, ContentLengthTargets.BlogTargetMaxWords);
+        Assert.True(
+            ContentLengthTargets.BlogSectionMinWords * ContentLengthTargets.BlogSectionCountMin
+                >= ContentLengthTargets.BlogTargetMinWords,
+            "The per-section floor cannot reach the document target.");
+    }
+
     [Fact]
     public void TheLedeTargetIsAboutThreeTimesWhatTwoOrThreeShortParagraphsProduced()
     {
