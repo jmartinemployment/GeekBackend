@@ -53,6 +53,7 @@ public class GccGenerateService
     private readonly GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry _types;
     private readonly IContentProviderFactory _cwProviders;
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
+    private readonly IBlogPostingSchemaBuilder _blogSchema;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
     private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
@@ -63,6 +64,7 @@ public class GccGenerateService
         GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry types,
         IContentProviderFactory cwProviders,
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
+        IBlogPostingSchemaBuilder blogSchema,
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger,
         GccCompetitorAnalysisResolver competitorAnalysis,
@@ -72,6 +74,7 @@ public class GccGenerateService
         _types = types;
         _cwProviders = cwProviders;
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
+        _blogSchema = blogSchema;
         _company = company.Value;
         _logger = logger;
         _competitorAnalysis = competitorAnalysis;
@@ -2512,7 +2515,50 @@ public class GccGenerateService
 
         var document = new ContentDocument(blogLede with { Tag = "h2" }, bodySections);
         document = ContentGuardrail.Apply(document).Document;
-        return JsonSerializer.Serialize(document, CwDocumentJson);
+
+        // Image prompts are attached here rather than by the caller, the way the tool page already
+        // does it. The caller used to run them on the returned JSON, which only worked while this
+        // returned a bare ContentDocument -- it now returns the same envelope Tool does, so the
+        // step has to happen before wrapping.
+        var withPrompts = await GenerateSectionImagePromptsAsync(
+            "blog", create.Topic, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct);
+        document = JsonSerializer.Deserialize<ContentDocument>(withPrompts, CwDocumentJson) ?? document;
+
+        // Title, standfirst, meta description and JSON-LD -- none of which this path produced. v1's
+        // orchestrator called BuildStandaloneBlogMetadataPrompt and set JsonLdSchema from the
+        // schema builders; the Create reimplementation kept neither, so a blog artifact was a bare
+        // document with no H1 and no schema while the prompt and the builder both sat here unused
+        // (Jeff, 2026-09-23: "each type produce Json schema; v1 produced in depth Json+Ld").
+        var blogMetaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
+        var blogMeta = LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata");
+        var blogMetaDescription = blogMeta.MetaDescription.Length > 160
+            ? blogMeta.MetaDescription[..160]
+            : blogMeta.MetaDescription;
+
+        var blogNow = DateTime.UtcNow;
+        var blogUrl = $"{_company.BlogBaseUrl.TrimEnd('/')}/{Slugify(blogMeta.Title)}";
+        var blogSchemaMeta = new ContentMetadata(
+            blogMeta.Title,
+            blogMetaDescription,
+            context.AuthorName,
+            context.PublisherName,
+            context.PublisherLogoUrl,
+            blogUrl,
+            context.PublisherLogoUrl,
+            blogNow,
+            blogNow,
+            blogMeta.Keywords,
+            ContentDocumentText.CountWords(document),
+            Faq: ContentDocumentText.ExtractFaqPairs(document));
+
+        return JsonSerializer.Serialize(new
+        {
+            title = blogMeta.Title,
+            metaDescription = blogMetaDescription,
+            summary = blogMeta.Summary,
+            body = document,
+            jsonLdSchema = _blogSchema.Build(blogSchemaMeta, relatedArticleUrl: blogUrl),
+        }, CwDocumentJson);
     }
 
     /// <summary>

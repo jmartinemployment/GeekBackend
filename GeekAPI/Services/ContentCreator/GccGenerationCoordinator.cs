@@ -240,10 +240,10 @@ public sealed class GccGenerationCoordinator
                 // it was actually generating this blog post. The starting type is a mint-time fact
                 // about the create; what BuildAudience should describe is what's being generated
                 // right now, which is exactly what normalizedType/platform already say below.
+                // Image prompts, metadata and JSON-LD are all attached inside, the way the tool
+                // page does it -- the method returns a finished envelope, not a bare document.
                 bodyJson = await gen.GenerateBlogBodyAsync(
                     create with { StartingContentType = "blog" }, section, provider, mustMentionBlock, ct);
-                bodyJson = await gen.GenerateSectionImagePromptsAsync(
-                    "blog", create.Topic, bodyJson, section, provider, ct);
                 break;
 
             case "email" or "emailcoldoutreach":

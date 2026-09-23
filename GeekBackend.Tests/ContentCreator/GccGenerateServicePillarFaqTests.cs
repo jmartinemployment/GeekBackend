@@ -70,6 +70,7 @@ public class GccGenerateServicePillarFaqTests
         TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
         new SoftwareApplicationSchemaBuilder(),
+        new BlogPostingSchemaBuilder(),
         Options.Create(new CompanyProfileOptions()),
         NullLogger<GccGenerateService>.Instance,
         GccCompetitorAnalysisResolverTests.Build(
