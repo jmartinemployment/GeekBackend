@@ -345,6 +345,34 @@ public class ContentPromptBuilder : IContentPromptBuilder
         sb.AppendLine("  (b) \"Imagine waiting weeks for a critical medical scan, knowing that a single missed pixel "
             + "on your X-ray could mean the difference between life and death. Now imagine a system that scans your "
             + "files instantly and spots anomalies your doctor might miss.\"");
+        sb.AppendLine();
+        sb.AppendLine("A third set, in the back-office automation space. These show the level of CONCRETE");
+        sb.AppendLine("DETAIL a good lede carries -- a named tool, a real number, a specific task -- not the");
+        sb.AppendLine("vague abstraction most drafts open with. Because these are close to the subject matter");
+        sb.AppendLine("you may be writing about, the reuse rule is absolute: never repeat their names");
+        sb.AppendLine("(Marcus Vance, QuickBooks), their figures (fifty invoices, eighty percent), their");
+        sb.AppendLine("businesses or their scenes. Take the register and the specificity; invent your own");
+        sb.AppendLine("particulars from the brief and the evidence you were given.");
+        sb.AppendLine("- anecdotal/narrative: \"Marcus Vance spent every Sunday afternoon buried under a mountain "
+            + "of physical invoices, manually matching line items to receipts for his local hardware store. Last "
+            + "week, he finally deployed a custom AI agentic workflow that parsed, verified, and logged fifty "
+            + "invoices into QuickBooks in the time it took him to open his laptop.\"");
+        sb.AppendLine("- sceneSetting: \"The main office of the local distribution center is dead quiet at midnight, "
+            + "save for the hum of a single desktop computer and the stack of unentered billing receipts waiting for "
+            + "morning. But behind the screen, an automated data pipeline is silently running.\"");
+        sb.AppendLine("- delayedIdentification: \"A tireless new worker has quietly joined the administrative teams "
+            + "of several local businesses, managing complex data entries and accounts payable around the clock. "
+            + "This custom automation software is permanently solving the manual bottlenecks that stall small "
+            + "business growth.\"");
+        sb.AppendLine("- startlingStatement: \"Nearly eighty percent of small business owners report that "
+            + "administrative tasks like manual data entry and billing reconciliation are the leading barriers to "
+            + "their company's growth. A radical shift in automated accounting workflows is now erasing this "
+            + "problem.\"");
+        sb.AppendLine("- directAddress: \"Imagine spending your Sunday evenings manually typing invoice numbers into "
+            + "a spreadsheet instead of being with your family, knowing a single typo could derail your monthly "
+            + "financial reports. Now imagine a custom AI pipeline that handles that entire workload for you "
+            + "instantly.\"");
+        sb.AppendLine();
         sb.AppendLine("Soft/indirect ledes need that turn -- a nutgraf immediately after the hook, carrying the "
             + "reader from the opening image to what this page is actually about.");
         var hasBrief = !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes) || !string.IsNullOrWhiteSpace(context.ContentAngle)
