@@ -41,7 +41,7 @@ public class OpenAiProvider : IContentGenerationProvider
                 "OpenAI API key is not configured. Set OPENAI_API_KEY (or LlmProviders__OpenAi__ApiKey).");
         }
 
-        var model = request.Model ?? _options.Model;
+        var model = request.Model ?? _options.ResolveModel(request.TaskClass);
         var reasoning = IsReasoningModel(model);
         var payload = new OpenAiCompatibleRequest
         {

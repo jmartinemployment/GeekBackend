@@ -53,7 +53,10 @@ public sealed record GccV2SchemaConstrainedRequest(
     string SchemaName,
     string? Model = null,
     double Temperature = 0.4,
-    int MaxOutputTokens = 4096);
+    int MaxOutputTokens = 4096,
+    /// <summary>Extraction by default: every caller of this shape is pulling structured JSON out of
+    /// a crawled page, which is the volume worth moving to a cheaper model.</summary>
+    LlmTaskClass TaskClass = LlmTaskClass.Extraction);
 
 public sealed record GccV2SchemaConstrainedCompletion<T>(
     T Value,
@@ -89,7 +92,8 @@ public sealed class GccV2SchemaConstrainedGenerator : IGccV2SchemaConstrainedGen
             MaxOutputTokens: request.MaxOutputTokens,
             Model: request.Model,
             JsonSchemaName: request.SchemaName,
-            JsonSchema: request.JsonSchema);
+            JsonSchema: request.JsonSchema,
+            TaskClass: request.TaskClass);
 
         var result = await provider.CompleteAsync(chatRequest, ct).ConfigureAwait(false);
         var content = result.Content?.Trim() ?? "";

@@ -1762,7 +1762,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user.ToString()) },
             Temperature: 0.7,
-            MaxOutputTokens: 8192);
+            MaxOutputTokens: 8192,
+            // Utility: image prompts -- structured, short, no prose a reader reads.
+            TaskClass: LlmTaskClass.Utility);
     }
 
     public ChatCompletionRequest BuildStandaloneImagePrompt(
@@ -1802,7 +1804,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.7,
-            MaxOutputTokens: 1024);
+            MaxOutputTokens: 1024,
+            // Utility: a standalone image prompt -- structured, short, no prose a reader reads.
+            TaskClass: LlmTaskClass.Utility);
     }
 
     private const string ToolMetadataJsonContract =
@@ -2018,7 +2022,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionSchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: 0.3,
-            MaxOutputTokens: 4096));
+            MaxOutputTokens: 4096,
+            // Utility: FAQ formatting from already-verified partner answers -- structured, short, no prose a reader reads.
+            TaskClass: LlmTaskClass.Utility));
     }
 
     public ChatCompletionRequest BuildToolRoundupPrompt(

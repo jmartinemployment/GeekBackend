@@ -29,8 +29,38 @@ public class OpenAiOptions
 {
     public string BaseUrl { get; set; } = "https://api.openai.com/v1/chat/completions";
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The writing model -- prose a reader will read. Also the fallback for every other task class,
+    /// so leaving the two below unset keeps the previous single-model behaviour exactly.
+    /// </summary>
     public string Model { get; set; } = "gpt-4o";
+
+    /// <summary>
+    /// Structured extraction over crawled pages: <c>LlmProviders__OpenAi__ExtractionModel</c>.
+    /// The bulk of the call volume and no prose judgement in it, so this is where a cheaper model
+    /// actually saves money. Empty falls back to <see cref="Model"/>.
+    /// </summary>
+    public string ExtractionModel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Short structured work around the edges -- image prompts, FAQ formatting:
+    /// <c>LlmProviders__OpenAi__UtilityModel</c>. Empty falls back to <see cref="Model"/>.
+    /// </summary>
+    public string UtilityModel { get; set; } = string.Empty;
+
     public int TimeoutSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// The model for a task class, falling back to <see cref="Model"/> whenever the specific one is
+    /// unset -- so an absent setting keeps working rather than sending an empty model name.
+    /// </summary>
+    public string ResolveModel(LlmTaskClass taskClass) => taskClass switch
+    {
+        LlmTaskClass.Extraction when !string.IsNullOrWhiteSpace(ExtractionModel) => ExtractionModel.Trim(),
+        LlmTaskClass.Utility when !string.IsNullOrWhiteSpace(UtilityModel) => UtilityModel.Trim(),
+        _ => Model,
+    };
 }
 
 public class AnthropicOptions
