@@ -1551,11 +1551,23 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine("Required top-level (h2) sections, in order: Overview, Key Capabilities, How It Works, " +
                 "Implementation Considerations, Evaluation Criteria, When to Use.")
-            .AppendLine($"Target at least {ContentLengthTargets.ToolMinWords:N0} words (aim for {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0}). Hard maximum {ContentLengthTargets.ToolHardMaxWords:N0}. Do not stop early. " +
-                "This is equal to a Pillar page in depth, not a shorter treatment -- six substantial sections, not four.")
+            // Length is guidance for long form, never a quota. "Target at least N words, do not stop
+            // early" is padding pressure: on thin partner data the only way to satisfy it is filler,
+            // and filler on a partner page is worse than a short honest one. Jeff, 2026-09-23:
+            // "Quality is more important than an arbitrary word count" and "quality of the prose is
+            // more important than word count for each and every content type. Short forms rein word
+            // count" -- so the range informs depth here, while short-form types keep hard limits
+            // because brevity is the point of them.
+            .AppendLine($"Length guidance, not a quota: {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0} words is what full coverage of this product usually takes, and {ContentLengthTargets.ToolHardMaxWords:N0} is the ceiling. " +
+                "Treat it as a signal about depth, never a target to reach.")
+            .AppendLine("Write to the material you were given and stop when the section is genuinely covered. " +
+                "Never pad, never restate a point in new words to add length, never invent detail to fill a section. " +
+                "A shorter section that is entirely supported beats a longer one that is padded -- if the partner data " +
+                "does not support a section, say less.")
+            .AppendLine("Equal to a Pillar page in ambition, not a thinner treatment -- six substantial sections, not four.")
             .AppendLine("This word target is for the six sections above only -- a separate FAQ section, when the tool has " +
                 "verified partner FAQ data, is generated afterward and is additional, not part of this budget.")
-            .AppendLine("Per-section budgets (approximate — hit the page floor by covering each thoroughly, not by padding):")
+            .AppendLine("Approximate per-section depth, for proportion between sections -- not quotas:")
             .AppendLine("  - Overview: ~500-700 words")
             .AppendLine("  - Key Capabilities: ~600-850 words")
             .AppendLine("  - How It Works: ~550-750 words")
