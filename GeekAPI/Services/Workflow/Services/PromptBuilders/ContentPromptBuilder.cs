@@ -351,6 +351,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
             "quotes their site back at them adds nothing a reader could not get by clicking Home, " +
             "and a page assembled out of lifted blocks is not a piece of writing.");
         block.AppendLine(
+            "Never block-quote any of it. A publisher does not quote themselves on their own site -- " +
+            "their voice is the whole page, so their own words in a quote box read as padding. A " +
+            "blockquote is for words that belong to someone else and carries a cite saying whose: a " +
+            "partner's claim from the partner's own page, a named customer's testimonial. The " +
+            "publisher's own material is simply used.");
+        block.AppendLine(
             "Where their site is silent, write from the evidence -- but never fill their silence with " +
             "a plausible-sounding invention about them.");
         return block.ToString();
