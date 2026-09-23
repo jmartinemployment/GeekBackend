@@ -43,6 +43,7 @@ public class GccController : ControllerBase
     private readonly GccGroundingResolver _grounding;
     private readonly GccGenerationCoordinator _coordinator;
     private readonly GccGenerateJobRunner _generateRunner;
+    private readonly GccArtifactExportService _export;
     private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
@@ -59,6 +60,7 @@ public class GccController : ControllerBase
         GccGroundingResolver grounding,
         GccGenerationCoordinator coordinator,
         GccGenerateJobRunner generateRunner,
+        GccArtifactExportService export,
         HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
@@ -74,6 +76,7 @@ public class GccController : ControllerBase
         _grounding = grounding;
         _coordinator = coordinator;
         _generateRunner = generateRunner;
+        _export = export;
         _seo = seo;
         _jobs = jobs;
         _user = user;
@@ -541,6 +544,49 @@ public class GccController : ControllerBase
             create, section, provider, requested, mustMentionBlock, _user.UserId.ToString());
 
         return Accepted(new { jobId = job.Id, createId = create.Id, status = job.Status });
+    }
+
+    /// <summary>
+    /// A create's generated content as a zip: one file per artifact foldered by content type, and
+    /// the image prompts in their own parallel tree rather than mixed into the prose.
+    /// </summary>
+    /// <remarks>
+    /// The two export services that already existed both read stores this path never writes -- v1's
+    /// reads GeneratedContent rows on a Workflow project, GccV2's reads GccV2 jobs -- so exporting
+    /// a create through either returned an empty archive.
+    /// </remarks>
+    [HttpGet("creates/{id:guid}/export/html")]
+    public async Task<IActionResult> ExportCreateHtml(Guid id, CancellationToken ct)
+    {
+        var create = await _repo.GetCreateAsync(id, ct);
+        if (create is null) return NotFound();
+
+        var documents = await _export.ExportAsync(id, ct);
+        if (documents.Count == 0)
+            return BadRequest("Nothing to export: this create has no generated artifacts yet.");
+
+        using var zipStream = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(
+            zipStream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var document in documents)
+            {
+                var entry = archive.CreateEntry(document.FileName, System.IO.Compression.CompressionLevel.Optimal);
+                await using var entryStream = entry.Open();
+                if (document.BinaryContent is { Length: > 0 } bytes)
+                {
+                    await entryStream.WriteAsync(bytes, ct);
+                }
+                else
+                {
+                    await using var writer = new StreamWriter(entryStream);
+                    await writer.WriteAsync(document.Content ?? string.Empty);
+                }
+            }
+        }
+
+        zipStream.Position = 0;
+        return File(zipStream.ToArray(), "application/zip", $"{id}-content-export.zip");
     }
 
     [HttpGet("jobs/{id:guid}")]
