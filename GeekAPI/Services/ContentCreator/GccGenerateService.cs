@@ -1520,31 +1520,35 @@ public class GccGenerateService
         if (!string.IsNullOrWhiteSpace(brief))
             paragraphs.Add(brief.Trim());
 
+        // Built by the shared BuildMinimalContext, not by hand. This was a duplicate of that
+        // method's construction, identical field for field except that it passed none of the brief
+        // -- no ContentAngle, no AudienceSegment, no PrimaryIntent, no ToneOfVoice -- so
+        // BuildLedeTypeGuidance's `hasBrief` check was false on the tool path and the lede type was
+        // chosen with nothing to go on. Jeff, 2026-09-23: "The right lede, based off of the 'Angle
+        // for SEO' already supplied but apparently not used?" -- supplied, and never delivered.
+        //
+        // Pillar reaches the same method through BuildPillarContext and passes all seventeen
+        // fields; Tool passing none is exactly the second-class treatment that keeps recurring.
         var dept = string.IsNullOrWhiteSpace(department) ? "marketing" : department.Trim();
-        var context = new ProjectGenerationContext(
-            ProjectName: name,
-            ProjectUrl: _company.ArticleBaseUrl,
-            TargetKeyword: name,
-            Department: dept,
-            SiteName: _company.PublisherName,
-            DetectedTone: "Professional, consultative",
-            DetectedFocus: name,
-            CrawledHeadings: [],
-            CrawledParagraphs: paragraphs,
-            JsonLdStructuredSummary: null,
-            KeywordSources: [],
-            PeopleAlsoAskQuestions: [],
-            PublisherName: _company.PublisherName,
-            PublisherLogoUrl: _company.PublisherLogoUrl,
-            AuthorName: _company.AuthorName,
-            ArticleBaseUrl: _company.ArticleBaseUrl,
-            BlogBaseUrl: _company.BlogBaseUrl,
-            ToolBaseUrl: _company.ToolBaseUrl,
-            ImplementerPositioning: _company.ImplementerPositioning,
-            Provider: llmType,
-            UseExactKeywordAsTitle: false,
-            DesiredHeadings: null,
-            MatchedUseCase: null);
+        var toolBrief = ExtractBriefFields(create?.BriefJson);
+        var context = BuildMinimalContext(
+            name,
+            string.Join("\n\n", paragraphs),
+            llmType,
+            dept,
+            toolBrief.Segment,
+            toolBrief.Details,
+            toolBrief.Notes,
+            toolBrief.Angle,
+            toolBrief.PrimaryIntent,
+            toolBrief.SecondaryIntent,
+            toolBrief.BuyingStage,
+            toolBrief.ToneOfVoice,
+            toolBrief.EeatSignals,
+            toolBrief.CtaType,
+            toolBrief.CtaLabel,
+            toolBrief.LengthBand,
+            toolBrief.WritingNotes);
 
         // `brief` used to be passed positionally here, landing in the revisionNotes slot -- every
         // first-time generation had its own brief framed to the model as "REVISION REQUIRED --
