@@ -284,6 +284,36 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string LedeAndIntroductionJsonContract =
         "{\"lede\": " + LedeJsonContract + ", \"introduction\": " + SectionJsonContract + "}";
 
+    /// <summary>
+    /// The angle as an instruction, not a token. This printed the raw enum -- "Angle:
+    /// problem_solution" -- in a prompt where all twelve lede types carry a line explaining what
+    /// they are, so the one control the operator uses to shape the piece was the only one the model
+    /// had to guess at (Jeff, 2026-09-23: "Doesn't seem to be using Angle for Seo?").
+    ///
+    /// Vocabulary is CONTENT_ANGLES in brief-catalog.ts. An unrecognised value is passed through
+    /// rather than dropped, so a new angle still reaches the model while it waits for a line here.
+    /// </summary>
+    private static string DescribeAngle(string angle) =>
+        angle.Trim().ToLowerInvariant() switch
+        {
+            "problem_solution" =>
+                "Angle -- Problem-Solution: open on the reader's problem and what it is costing them, "
+                + "then show how this resolves it. The problem is the hook, not a preamble; earn the "
+                + "solution by making the cost concrete first.",
+            "comparative" =>
+                "Angle -- Comparative (\"versus\"): frame against the alternatives this reader is "
+                + "actually weighing. The value is in the contrast and the trade-offs, never a feature "
+                + "list that ignores what else they could do.",
+            "case_study_data" =>
+                "Angle -- Case Study / Data-Driven: lead with evidence -- a number, an outcome, a "
+                + "documented result -- and let the argument follow from it. Never invent a figure to "
+                + "carry this angle; if the evidence is not in what you were given, argue from what is.",
+            "ultimate_guide" =>
+                "Angle -- Comprehensive \"Ultimate Guide\": the promise is completeness. Breadth and "
+                + "structure carry it: cover the whole territory in an order a reader can follow.",
+            _ => $"Angle: {angle}",
+        };
+
     private static string BuildLedeTypeGuidance(ProjectGenerationContext context)
     {
         var sb = new StringBuilder();
@@ -413,7 +443,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             if (context.AudienceDetails is { Count: > 0 } details && string.IsNullOrWhiteSpace(context.AudienceSegment))
                 sb.AppendLine($"Audience details: {string.Join(", ", details)}");
             if (!string.IsNullOrWhiteSpace(context.ContentAngle))
-                sb.AppendLine($"Angle: {context.ContentAngle}");
+                sb.AppendLine(DescribeAngle(context.ContentAngle));
             if (!string.IsNullOrWhiteSpace(context.ToneOfVoice))
                 sb.AppendLine($"Tone of voice: {context.ToneOfVoice}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {string.Join(", ", ee)}" : ""));
             else if (context.EeatSignals is { Count: > 0 } eeOnly)
@@ -1188,7 +1218,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
-            .AppendLine("2-3 paragraphs: hook, stakes, and who this is for.")
+            .AppendLine("2-3 paragraphs: hook, stakes, and who this is for. Each carries a real thought -- "
+                + "a single short sentence is an opening that has not started. Write the hook, then the turn "
+                + "that says what this page gives the reader.")
             .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
@@ -1289,7 +1321,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
             // among the 12 lede types the JSON contract below already demands a value for --
             // pillar's lede got real brief-aware guidance; blog never did. Same guidance now.
             .AppendLine(BuildLedeTypeGuidance(context))
-            .AppendLine("2-3 paragraphs: hook, stakes, and who this is for.")
+            .AppendLine("2-3 paragraphs: hook, stakes, and who this is for. Each carries a real thought -- "
+                + "a single short sentence is an opening that has not started. Write the hook, then the turn "
+                + "that says what this page gives the reader.")
             .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)

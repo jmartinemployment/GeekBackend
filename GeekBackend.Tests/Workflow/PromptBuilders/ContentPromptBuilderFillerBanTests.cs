@@ -127,7 +127,13 @@ public class ContentPromptBuilderFillerBanTests
         var request = builder.BuildStandaloneBlogLedePrompt(context, metadata);
         var system = SystemPrompt(request);
 
-        Assert.Contains("Angle: comparative", system);
+        // The angle has to arrive as an instruction, not a token. "Angle: comparative" told the
+        // model a value and left it to guess what to do with it, in a prompt where all twelve lede
+        // types carry a line explaining what they are -- which is why the angle visibly failed to
+        // shape the writing (Jeff, 2026-09-23).
+        Assert.Contains("Comparative", system, StringComparison.Ordinal);
+        Assert.Contains("the alternatives this reader is actually weighing", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("Angle: comparative", system, StringComparison.Ordinal);
         Assert.Contains("Primary intent: commercial_investigation", system);
     }
 }
