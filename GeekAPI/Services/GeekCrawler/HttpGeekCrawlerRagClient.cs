@@ -195,7 +195,11 @@ public sealed class GeekCrawlerRagIndexStatus
 
 public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 {
-    private static readonly JsonSerializerOptions JsonOpts = CreateJsonOptions();
+    /// <summary>
+    /// Internal so a test can deserialize a real Geek-Crawler-Rag payload through the same options
+    /// the client uses, rather than through a copy of them that can drift away from these.
+    /// </summary>
+    internal static readonly JsonSerializerOptions JsonOpts = CreateJsonOptions();
 
     private static JsonSerializerOptions CreateJsonOptions()
     {
@@ -452,10 +456,20 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 ["need"] = need,
                 ["runId"] = runId.ToString("D"),
                 ["topK"] = topK,
-                // A quality floor at retrieval, not at serialization. Geek-Crawler-Rag has accepted
-                // minQuality all along and applies it inside build_metadata_filters; this side never
-                // sent one. Discarding boilerplate after retrieval still spends a topK slot on it --
-                // a cookie banner retrieved and then dropped is a slot a real passage did not get.
+                // A page-level quality floor, applied at retrieval rather than after it.
+                // Geek-Crawler-Rag has accepted minQuality all along and turns it into a Qdrant
+                // range filter on the qualityScore payload key (build_metadata_filters in
+                // llama_engine.py, build_filter in qdrant_store.py); this side never sent one, so
+                // nothing was filtered.
+                //
+                // What it drops is whole thin pages -- nav stubs, cookie policies, near-empty
+                // landing pages -- before they take up a topK slot. What it cannot do is strip
+                // boilerplate chunks out of a page that is otherwise good: quality_score()
+                // (metadata.py, called once per page at llama_nodes.py:51) reads only page-level
+                // signals -- total length, title presence, whether blocks parsed -- and the result
+                // is stamped identically on every chunk of that page. A cookie banner sitting on a
+                // substantial docs page therefore carries that page's score and passes the floor.
+                // Chunk-level boilerplate containment is a different mechanism, and this is not it.
                 ["minQuality"] = GccPartnerResearchCaps.MinChunkQuality,
             };
             if (!string.IsNullOrWhiteSpace(crawlType))
@@ -795,11 +809,16 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             // This sorted by ChunkIndex and took the first N, so the cap was a guarantee that
             // top-of-page content survived: navigation, language selectors, hero taglines, cookie
             // notices. The dense, substantive blocks further down the page were evicted by position
-            // -- which is the "top-k returns footers and boilerplate" failure, arriving here rather
-            // than at retrieval, and it silently undid the quality scoring done at index time.
+            // -- the "top-k returns footers and boilerplate" failure, arriving here rather than at
+            // retrieval.
             //
-            // QualityScore first, retrieval Score as the tiebreak, since a chunk with no score is
-            // still ranked by how well it matched.
+            // Retrieval Score is what actually orders this. QualityScore stands first as a
+            // cross-page safety boundary, but within one URL's chunks it is a constant: the indexer
+            // scores a page once and stamps every chunk of it with that one value, so the sort is
+            // stable on a constant key and Score alone decides which chunks survive the cap. That
+            // is the intended outcome -- vector similarity beating position is the whole fix -- but
+            // it is not index-time quality scoring doing the work, and reading it that way points
+            // the next tuning attempt at a knob that cannot turn.
             var kept = group
                 .Where(c => !string.IsNullOrWhiteSpace(c.Text))
                 .OrderByDescending(c => c.QualityScore ?? double.MinValue)
@@ -861,8 +880,9 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         }
 
         var anchors = (chunk.Anchors ?? [])
-            .Where(a => !string.IsNullOrWhiteSpace(a))
-            .Select(a => a.Trim())
+            .Select(a => a?.Label)
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Select(label => label!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(GccPartnerResearchCaps.MaxAnchorsPerChunk)
             .ToList();
@@ -987,8 +1007,31 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
         public string? ChildText { get; set; }
 
-        /// <summary>Link text under the chunk's heading -- what anchor-based tool detection reads.</summary>
-        public List<string>? Anchors { get; set; }
+        /// <summary>
+        /// Link text under the chunk's heading -- what anchor-based tool detection reads.
+        ///
+        /// <para>
+        /// Objects, not strings. Geek-Crawler-Rag returns one <c>{label, href}</c> per anchor
+        /// (<c>ChunkAnchor</c>, models.py) because that is how the crawler stores them. Typing this
+        /// <c>List&lt;string&gt;</c> made <see cref="JsonSerializer"/> throw on the first chunk that
+        /// carried one, and the throw landed in QueryAsync's catch -- so a page with links came back
+        /// as <see cref="GeekCrawlerRagQueryResult.Failed"/> rather than as content. The same
+        /// mistake on the Python side returned 500 for the same reason.
+        /// </para>
+        /// </summary>
+        public List<GeekCrawlerRagAnchorDto>? Anchors { get; set; }
+    }
+
+    /// <summary>
+    /// One link under a chunk's heading, exactly as Geek-Crawler-Rag's <c>ChunkAnchor</c> sends it.
+    /// </summary>
+    internal sealed class GeekCrawlerRagAnchorDto
+    {
+        [JsonPropertyName("label")]
+        public string? Label { get; init; }
+
+        [JsonPropertyName("href")]
+        public string? Href { get; init; }
     }
 
     /// <summary>Mirrors Geek-Crawler-Rag's <c>PageTextResponse</c> (models.py).</summary>
