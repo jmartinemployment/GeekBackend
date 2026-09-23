@@ -2516,11 +2516,22 @@ public class GccGenerateService
         var context = BuildPillarContext(create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
-        var metadata = new BlogMetadataDraft(
-            Title: create.Topic.Trim(),
-            MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
-            Keywords: [create.Topic.Trim()],
-            SectionOutline: ["Overview", "Key considerations", "Next steps"]);
+        // Metadata first, because everything downstream needs what it produces. The title has to
+        // exist before the lede is written or the hook just restates it, and the section outline is
+        // what the body is actually written against.
+        //
+        // This used to run last, and the body was handed a hardcoded ["Overview", "Key
+        // considerations", "Next steps"] instead -- three generic sections where the metadata
+        // prompt itself asks for "5-6 conversational H2 headings -- hooks, numbered angles, or
+        // how-to framing" and BlogSectionCountMin is 5. The model generated a real outline and it
+        // was thrown away, which is why a blog came back at 791 words opening with "Overview"
+        // (Jeff, 2026-09-23).
+        var blogMetaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
+        var blogMeta = LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata");
+        var blogMetaDescription = blogMeta.MetaDescription.Length > 160
+            ? blogMeta.MetaDescription[..160]
+            : blogMeta.MetaDescription;
+        var metadata = blogMeta with { MetaDescription = blogMetaDescription };
 
         var blogType = RequireType("blog");
         var blogPromptCtx = new ContentTypes.ContentTypePromptContext(context, BlogMetadata: metadata);
@@ -2551,28 +2562,17 @@ public class GccGenerateService
             "blog", create.Topic, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct);
         document = JsonSerializer.Deserialize<ContentDocument>(withPrompts, CwDocumentJson) ?? document;
 
-        // Title, standfirst, meta description and JSON-LD -- none of which this path produced. v1's
-        // orchestrator called BuildStandaloneBlogMetadataPrompt and set JsonLdSchema from the
-        // schema builders; the Create reimplementation kept neither, so a blog artifact was a bare
-        // document with no H1 and no schema while the prompt and the builder both sat here unused
-        // (Jeff, 2026-09-23: "each type produce Json schema; v1 produced in depth Json+Ld").
-        var blogMetaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
-        var blogMeta = LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata");
-        var blogMetaDescription = blogMeta.MetaDescription.Length > 160
-            ? blogMeta.MetaDescription[..160]
-            : blogMeta.MetaDescription;
-
         var blogNow = DateTime.UtcNow;
         var blogDept = string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department.Trim();
-        var blogUrl = $"{_company.BlogBaseUrl.TrimEnd('/')}/{blogDept}/{Slugify(blogMeta.Title)}";
+        var blogUrl = $"{_company.BlogBaseUrl.TrimEnd('/')}/{blogDept}/{Slugify(metadata.Title)}";
         var blogSchemaMeta = ContentMetadataFactory.For(
-            context, blogMeta.Title, blogMetaDescription, blogUrl, blogMeta.Keywords, document, blogNow);
+            context, metadata.Title, blogMetaDescription, blogUrl, metadata.Keywords, document, blogNow);
 
         return JsonSerializer.Serialize(new
         {
-            title = blogMeta.Title,
+            title = metadata.Title,
             metaDescription = blogMetaDescription,
-            summary = blogMeta.Summary,
+            summary = metadata.Summary,
             body = document,
             // Empty, not the blog's own URL -- passing blogUrl made the BlogPosting cite itself.
             // Pillar and Blog are independent artifacts on this path, so there is no companion

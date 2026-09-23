@@ -306,6 +306,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
         // with transactional or navigational intent wants the answer in the first line, not a
         // scene -- so this biases against it rather than banning it.
         sb.AppendLine();
+        sb.AppendLine("The heading must not restate the page title. The title already says what the page is;");
+        sb.AppendLine("a lede heading that rephrases it wastes the one slot that could have earned attention.");
+        sb.AppendLine("\"How X Can Transform Your Business\" over \"Transform Your Business with X\" is one");
+        sb.AppendLine("headline printed twice (Jeff, 2026-09-23). They do different jobs: the title states the");
+        sb.AppendLine("subject, the lede heading is the hook that makes someone read on.");
+        sb.AppendLine();
         sb.AppendLine("Choosing: \"summary\" is the weakest hook and the one most often reached for by default.");
         sb.AppendLine("Use it only when the brief's intent is transactional or navigational, or the reader");
         sb.AppendLine("genuinely needs the answer in the opening line. Otherwise choose a lede that earns");
