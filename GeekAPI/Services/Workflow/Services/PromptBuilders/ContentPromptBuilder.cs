@@ -389,10 +389,33 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private static string RenderOutline(IReadOnlyList<SectionSlot> outline) =>
         string.Join(Environment.NewLine, outline.Select((s, i) => $"{i + 1}. {s.Label}"));
 
+    /// <summary>
+    /// How long the opening actually runs.
+    ///
+    /// <para>
+    /// Every lede prompt said "2-3 paragraphs" and nothing else. That is a count, and three
+    /// one-sentence paragraphs satisfies it exactly -- so the one paragraph that decides whether
+    /// anybody reads the rest was the only part of the pipeline with no size on it, while body
+    /// sections carried 500-700. Jeff, twice: "Lede paragraph way to short", then "Lede paragraph
+    /// still ridiculously short! Should be 3 x that length it is LAME."
+    /// </para>
+    ///
+    /// <para>
+    /// A per-paragraph floor comes with the total, because a total alone is satisfiable by one long
+    /// paragraph and two stubs.
+    /// </para>
+    /// </summary>
+    private static readonly string LedeLengthInstruction =
+        $"LENGTH: the opening runs {ContentLengthTargets.LedeRangeLabel} words across 3-4 paragraphs, " +
+        $"and no paragraph in it is shorter than {ContentLengthTargets.LedeParagraphMinWords} words. " +
+        "This is the paragraph that decides whether the rest gets read, so give it room: the hook, " +
+        "the turn that names what is at stake, and the line that says who this is for and what they " +
+        "get. A three-sentence opening is not a short opening, it is an opening that has not started.";
+
     private const string LedeJsonContract =
         "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", \"heading\": string (a real written headline — never the literal words \"Summary Lede\" etc.), " +
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...], " +
-        "\"imagePrompt\": string (40-400 words describing an image to accompany this opening — subject, setting, style; no text/words rendered in the image)}";
+        "}";
 
     private const string LedeAndIntroductionJsonContract =
         "{\"lede\": " + LedeJsonContract + ", \"introduction\": " + SectionJsonContract + "}";
@@ -765,8 +788,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Do NOT start with \"How\" or a question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
-            .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation. 2-3 paragraphs total.")
-            .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
+            .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
+            .AppendLine(LedeLengthInstruction)
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -787,7 +810,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: 0.65,
-            MaxOutputTokens: 1024);
+            MaxOutputTokens: 2048);
     }
 
     public ChatCompletionRequest BuildPillarLedePrompt(
@@ -815,8 +838,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Do NOT start with \"How\" or a question unless ledeType is Question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
-            .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation. 2-3 paragraphs total.")
-            .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
+            .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
+            .AppendLine(LedeLengthInstruction)
             .AppendLine()
             .AppendLine("LEDE H2 — real content follows the hook in the same H2:")
             .AppendLine("This H2's opening paragraphs ARE the lede hook above — then continue in the same H2 with scoping (who it's for, what the article walks through), not a duplicate hook.")
@@ -868,7 +891,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: 4096);
+            MaxOutputTokens: 6144);
     }
 
     public ChatCompletionRequest? BuildArticleMetaRevisionPrompt(
@@ -1351,10 +1374,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
-            .AppendLine("2-3 paragraphs: hook, stakes, and who this is for. Each carries a real thought -- "
-                + "a single short sentence is an opening that has not started. Write the hook, then the turn "
-                + "that says what this page gives the reader.")
-            .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
+            .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
+            .AppendLine(LedeLengthInstruction)
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -1368,7 +1389,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: 0.7,
-            MaxOutputTokens: 1024);
+            MaxOutputTokens: 2048);
     }
 
     public ChatCompletionRequest BuildBlogBodyPrompt(
@@ -1454,10 +1475,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             // among the 12 lede types the JSON contract below already demands a value for --
             // pillar's lede got real brief-aware guidance; blog never did. Same guidance now.
             .AppendLine(BuildLedeTypeGuidance(context))
-            .AppendLine("2-3 paragraphs: hook, stakes, and who this is for. Each carries a real thought -- "
-                + "a single short sentence is an opening that has not started. Write the hook, then the turn "
-                + "that says what this page gives the reader.")
-            .AppendLine("Also write imagePrompt: a prompt for an image-generation model to illustrate this opening.")
+            .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
+            .AppendLine(LedeLengthInstruction)
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
@@ -1470,7 +1489,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: 0.7,
-            MaxOutputTokens: 1024);
+            MaxOutputTokens: 2048);
     }
 
     public ChatCompletionRequest BuildStandaloneBlogBodyPrompt(

@@ -3,6 +3,20 @@ namespace GeekAPI.Services.Workflow.Services;
 /// <summary>Recommended word-count ranges and editorial definitions by content type.</summary>
 public static class ContentLengthTargets
 {
+    // The lede — the opening hook, on every long-form type.
+    //
+    // It had no word target at all while every body section had one, so "2-3 paragraphs" was the
+    // only size signal and three one-sentence paragraphs satisfied it literally. Jeff, 2026-09-23,
+    // twice: "Lede paragraph way to short" and then "Lede paragraph still ridiculously short!
+    // Should be 3 x that length it is LAME."
+    public const int LedeMinWords = 250;
+    public const int LedeTargetMaxWords = 400;
+
+    /// <summary>A paragraph below this has not made a point; it is a sentence with space after it.</summary>
+    public const int LedeParagraphMinWords = 70;
+
+    public static string LedeRangeLabel => $"{LedeMinWords}-{LedeTargetMaxWords}";
+
     // Pillar Pages — exhaustive macro-level hubs linking to cluster articles.
     public const int PillarMinWords = 3_000;
     public const int PillarTargetMinWords = 3_500;

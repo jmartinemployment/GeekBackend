@@ -84,7 +84,7 @@ public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<Gcc
         {
             yield return new ExportedHtmlDocument(
                 $"{folder}/{slug}-00-hero.txt",
-                $"# {document.Lede.Heading}{Environment.NewLine}{Environment.NewLine}{document.Lede.ImagePrompt}");
+                $"{document.Lede.Heading}{Environment.NewLine}{Environment.NewLine}{document.Lede.ImagePrompt}");
         }
 
         var index = 1;
@@ -94,7 +94,7 @@ public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<Gcc
             {
                 yield return new ExportedHtmlDocument(
                     $"{folder}/{slug}-{index:D2}-{Slug(section.Heading, Guid.Empty)}.txt",
-                    $"# {section.Heading}{Environment.NewLine}{Environment.NewLine}{section.ImagePrompt}");
+                    $"{section.Heading}{Environment.NewLine}{Environment.NewLine}{section.ImagePrompt}");
             }
             index++;
         }
