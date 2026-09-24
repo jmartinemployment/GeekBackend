@@ -543,7 +543,17 @@ public sealed class GeekCrawlerService
         {
             try
             {
-                await _rag.EnqueueIndexAsync(runId).ConfigureAwait(false);
+                // Null, not an exception, is how this reports a failed enqueue -- see the same
+                // check in GeekCrawlerIngestController. The catch below only covers a transport
+                // fault the client did not already swallow.
+                var status = await _rag.EnqueueIndexAsync(runId).ConfigureAwait(false);
+                if (status is null)
+                {
+                    _logger.LogWarning(
+                        "Geek-Crawler-Rag index enqueue did not take for {RunId}; "
+                        + "the run is crawled and content-ready but unindexed",
+                        runId);
+                }
             }
             catch (Exception ex)
             {

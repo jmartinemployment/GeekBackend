@@ -437,11 +437,26 @@ public class GeekCrawlerIngestController : ControllerBase
                 {
                     try
                     {
-                        await _rag.EnqueueIndexAsync(run.Id).ConfigureAwait(false);
+                        // EnqueueIndexAsync fails closed: it returns null rather than throwing, so
+                        // the catch below cannot see a failed enqueue and this null check is the
+                        // only place the ingest path learns the run was never queued. Ignoring it
+                        // is what let eleven crawls complete on 2026-09-24 with nothing indexed,
+                        // no trace against any run, and a 502 on an unrelated endpoint as the
+                        // first visible symptom hours later.
+                        var status = await _rag.EnqueueIndexAsync(run.Id).ConfigureAwait(false);
+                        if (status is null)
+                        {
+                            _logger.LogWarning(
+                                "Geek-Crawler-Rag index enqueue did not take for {RunId}; "
+                                + "the run is crawled and content-ready but unindexed",
+                                run.Id);
+                        }
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         // Fire-and-forget; crawl ingest must not fail on RAG trigger.
+                        _logger.LogWarning(
+                            ex, "Geek-Crawler-Rag index trigger threw for {RunId}", run.Id);
                     }
                 });
             }
