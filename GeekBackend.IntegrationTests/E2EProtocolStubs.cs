@@ -323,6 +323,102 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
             return Json(HttpStatusCode.OK, run);
         }
 
+        // Mirrors GeekCrawlerRunsController.GetForSlot -> MongoGeekCrawlerService.GetRunForSlotAsync:
+        // newest run in the slot, "complete" only when publishedOnly, and 404 when the slot is
+        // empty. 404 is the part that matters -- HttpGeekCrawlerRepository.GetAsync maps it to null,
+        // which is how CreateRun learns the slot is free. Without this route the unmatched-GET
+        // fallback below answered "[]", and an array cannot deserialize into a single
+        // GeekCrawlerRunDto, so every ingest test died on a JsonException at the first byte.
+        if (request.Method == HttpMethod.Get && path == "repo/geek-crawler/runs/for-slot")
+        {
+            var slot = ParseQuery(request.RequestUri);
+            slot.TryGetValue("ownerUserId", out var slotOwnerUserId);
+            slot.TryGetValue("crawlType", out var slotCrawlType);
+            slot.TryGetValue("seedKey", out var slotSeedKey);
+            var publishedOnly = slot.TryGetValue("publishedOnly", out var publishedOnlyRaw)
+                && bool.TryParse(publishedOnlyRaw, out var publishedOnlyParsed)
+                && publishedOnlyParsed;
+
+            var slotRun = _runs.Values
+                .Where(run => run.OwnerUserId == slotOwnerUserId
+                              && run.CrawlType == slotCrawlType
+                              && run.SeedKey == slotSeedKey
+                              && (!publishedOnly || run.Status == "complete"))
+                .OrderByDescending(run => run.CreatedAtUtc)
+                .FirstOrDefault();
+
+            return slotRun is null
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : Json(HttpStatusCode.OK, slotRun);
+        }
+
+        // Storage headroom is not optional: CheckCapacityAsync refuses the crawl outright when it
+        // reads null ("headroom could not be read ... No crawl was started"). AvgPageBytes null is
+        // the honest fixture answer -- an empty corpus has no measured page size, which is the one
+        // case the controller treats as nothing to check against.
+        if (request.Method == HttpMethod.Get && path == "repo/geek-crawler/runs/storage-headroom")
+            return Json(
+                HttpStatusCode.OK,
+                new GeekCrawlerStorageHeadroomDto(
+                    TotalBytes: 100L * 1024 * 1024 * 1024,
+                    FreeBytes: 80L * 1024 * 1024 * 1024,
+                    AvgPageBytes: null,
+                    AvgLinkBytes: null));
+
+        // Both mirror their controllers: newest run matching the slot, else 404 -> null.
+        if (request.Method == HttpMethod.Get
+            && path is "repo/geek-crawler/runs/latest" or "repo/geek-crawler/runs/containing-seed")
+        {
+            var lookup = ParseQuery(request.RequestUri);
+            lookup.TryGetValue("ownerUserId", out var lookupOwnerUserId);
+            lookup.TryGetValue("crawlType", out var lookupCrawlType);
+            // Both endpoints require a seed and filter on it: "latest" matches the whole seed set,
+            // "containing-seed" matches one seed inside it. Ignoring the seed would hand back a run
+            // from an unrelated slot -- and, since these tests share a class fixture, a run some
+            // earlier test in the class left behind.
+            var matchesSeed = path.EndsWith("containing-seed", StringComparison.Ordinal)
+                ? new Func<GeekCrawlerRunDto, bool>(run =>
+                    lookup.TryGetValue("seed", out var seed)
+                    && run.SeedUrlsJson.Contains(seed, StringComparison.OrdinalIgnoreCase))
+                : run => lookup.TryGetValue("seedsJson", out var seedsJson)
+                    && string.Equals(run.SeedUrlsJson, seedsJson, StringComparison.Ordinal);
+
+            var match = _runs.Values
+                .Where(run => run.OwnerUserId == lookupOwnerUserId
+                              && run.CrawlType == lookupCrawlType
+                              && matchesSeed(run))
+                .OrderByDescending(run => run.CreatedAtUtc)
+                .FirstOrDefault();
+
+            return match is null
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : Json(HttpStatusCode.OK, match);
+        }
+
+        // Page activity has to report what this stub actually stored. The completion path refuses to
+        // publish a run whose page count is zero ("no usable pages ... Nothing was published"), so a
+        // 404 here would fail every ingest that had in fact stored pages. 404 is only correct for a
+        // run this stub has never seen.
+        if (request.Method == HttpMethod.Get && path == "repo/geek-crawler/pages/activity")
+        {
+            var activity = ParseQuery(request.RequestUri);
+            if (!activity.TryGetValue("runId", out var activityRunIdRaw)
+                || !Guid.TryParse(activityRunIdRaw, out var activityRunId)
+                || !_pages.TryGetValue(activityRunId, out var storedPages))
+            {
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+
+            return Json(
+                HttpStatusCode.OK,
+                new GeekCrawlerPageActivityDto(storedPages.Count, DateTimeOffset.UtcNow));
+        }
+
+        // Link activity only sizes a re-crawl estimate, and the controller falls back to its
+        // first-crawl estimate when it is null.
+        if (request.Method == HttpMethod.Get && path == "repo/geek-crawler/links/activity")
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+
         if (TryRunId(path, out var runId))
         {
             if (request.Method == HttpMethod.Get)
@@ -371,7 +467,13 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
                     item.FailureReason,
                     DateTimeOffset.UtcNow,
                     item.Title,
-                    item.Excerpt);
+                    item.Excerpt,
+                    // contentHtml and blocks are the corpus body. Dropping them here made the stub
+                    // store a page the crawler never sends and the Library cannot use -- the same
+                    // shape whose loss cost 5,274 pages -- and left every assertion about stored
+                    // content reading null.
+                    item.ContentHtml,
+                    item.Blocks);
                 lock (pages) pages.Add(page);
                 return new GeekCrawlerCreatedPageDto(item.Url, page.Id);
             }).ToList();
@@ -475,6 +577,33 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
         return new(
             definitionId, "fact-density", "Fact Density", "Measure claim and citation density.",
             "published", now, null, [version]);
+    }
+
+    /// <summary>
+    /// Query string as a case-insensitive map. The stub routes on AbsolutePath, so anything a
+    /// handler needs from the query has to be read back out here.
+    /// </summary>
+    private static Dictionary<string, string> ParseQuery(Uri? uri)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var query = uri?.Query;
+        if (string.IsNullOrEmpty(query))
+            return values;
+
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = pair.IndexOf('=', StringComparison.Ordinal);
+            if (separator < 0)
+            {
+                values[Uri.UnescapeDataString(pair)] = "";
+                continue;
+            }
+
+            values[Uri.UnescapeDataString(pair[..separator])] =
+                Uri.UnescapeDataString(pair[(separator + 1)..]);
+        }
+
+        return values;
     }
 
     private static bool TryRunId(string path, out Guid runId)
