@@ -41,15 +41,35 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
     public IReadOnlyList<GccV2StageResultDto> GccStageResults(Guid jobId) =>
         _gccStageResults.TryGetValue(jobId, out var results) ? results : [];
 
+    /// <summary>
+    /// Seeds a job and its brief.
+    ///
+    /// <para>
+    /// <paramref name="partnerSourceRunId"/> is what makes the brief citeable. The generation brief
+    /// reads partner runs out of the brief JSON (<c>GccV2GenerationBriefAssembler.Assemble</c> ->
+    /// <c>ReadRunIds</c>), and with none there the Create library writer queries no corpus at all:
+    /// QueryRunsAsync returns empty on an empty run list, so the writer reaches its citation step
+    /// with no pages and refuses the draft. A test that asserts a verified citation has to seed a
+    /// run for that citation to come from. Left null by default so the retry-model tests, which
+    /// never reach the writer, keep the brief they were written against.
+    /// </para>
+    /// </summary>
     public GccV2JobDto SeedFailedGccJob(
         Guid ownerUserId,
         string status = "failed",
-        string stage = "write")
+        string stage = "write",
+        Guid? partnerSourceRunId = null)
     {
         var createId = Guid.NewGuid();
+        var briefJson = partnerSourceRunId is { } partnerRun
+            ? $$"""
+              {"modelPolicy":{"version":"content-model-policy.v1","preset":"best-quality"},
+               "partnerSourceRunId":"{{partnerRun:D}}"}
+              """
+            : """{"modelPolicy":{"version":"content-model-policy.v1","preset":"best-quality"}}""";
         var brief = new GccV2BriefDto(
             Guid.NewGuid(), createId, 1, "retry model", "blog",
-            """{"modelPolicy":{"version":"content-model-policy.v1","preset":"best-quality"}}""",
+            briefJson,
             null, DateTimeOffset.UtcNow);
         var job = new GccV2JobDto(
             Guid.NewGuid(), "blog", brief.Id, ownerUserId.ToString("D"), createId,

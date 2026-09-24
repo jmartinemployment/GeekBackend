@@ -465,7 +465,12 @@ public sealed class RagClientContractTests : IClassFixture<GeekApiTestFactory>
     [Fact]
     public async Task Final_synthesis_returns_structured_output_for_validation_without_losing_tool_extras()
     {
-        var job = _factory.Repository.SeedFailedGccJob(GeekApiTestFactory.OwnerUserId);
+        // A partner run is the precondition for the assertion below that synthesis carries one
+        // verified citation: the writer cites retrieved pages, and it retrieves nothing when the
+        // brief names no crawl run.
+        var job = _factory.Repository.SeedFailedGccJob(
+            GeekApiTestFactory.OwnerUserId,
+            partnerSourceRunId: Guid.NewGuid());
         var briefDto = _factory.Repository.GccBrief(job.BriefId)!;
         var generationBrief = GccV2GenerationBriefAssembler.Assemble(job, briefDto, null, null);
         var lede = new GccV2WriteSection(

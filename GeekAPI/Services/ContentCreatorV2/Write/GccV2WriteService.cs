@@ -45,6 +45,29 @@ public sealed class GccV2WriteOutput
     public IReadOnlyList<string> Keywords { get; init; } = [];
     public GccV2ToolPageWriteExtras? ToolPage { get; init; }
     public IReadOnlyList<RagCitationDto> Citations { get; init; } = [];
+
+    /// <summary>
+    /// Citations that belong to the document rather than to any one section.
+    ///
+    /// <para>
+    /// Final synthesis produces these: it cites retrieved pages, and the writer that draws each
+    /// quote is never told what the sections are -- <c>FinalSynthesizeAsync</c>'s request carries
+    /// DraftContent, Sources and CanonicalBrief but no Outline -- so it has no basis to attribute a
+    /// page-level quote to a heading. Before this channel existed there was nowhere to put them:
+    /// <see cref="Citations"/> is assembled by matching each citation's SectionTitle to a section
+    /// heading, so a section-less citation was dropped on the floor, and the heading-match guard in
+    /// FinalSynthesizeAsync threw rather than let that happen silently. That left the stage
+    /// unsatisfiable in both directions and is why nothing had ever synthesized through it.
+    /// </para>
+    ///
+    /// <para>
+    /// These are merged into <see cref="Citations"/> so every consumer still sees one document-wide
+    /// list, and kept here separately so a later REPAIR of one section cannot quietly discard
+    /// evidence that was never that section's to begin with.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<RagCitationDto> SynthesisCitations { get; init; } = [];
+
     public IReadOnlyList<GccV2GenerationProvenance> Provenance { get; init; } = [];
     public IReadOnlyList<CreateLibraryDraftSourceDto> Sources { get; init; } = [];
 
@@ -57,11 +80,11 @@ public sealed class GccV2WriteOutput
     {
         if (replacement.SectionKey == Lede.SectionKey)
         {
-            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage, Citations = MergeCitations(new[] { replacement }.Concat(Sections)), Provenance = MergeProvenance(new[] { replacement }.Concat(Sections)), Sources = MergeSources(new[] { replacement }.Concat(Sections)) };
+            return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = replacement, Sections = Sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage, Citations = MergeCitations(new[] { replacement }.Concat(Sections), SynthesisCitations), SynthesisCitations = SynthesisCitations, Provenance = MergeProvenance(new[] { replacement }.Concat(Sections)), Sources = MergeSources(new[] { replacement }.Concat(Sections)) };
         }
 
         var sections = Sections.Select(s => s.SectionKey == replacement.SectionKey ? replacement : s).ToList();
-        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage, Citations = MergeCitations(new[] { Lede }.Concat(sections)), Provenance = MergeProvenance(new[] { Lede }.Concat(sections)), Sources = MergeSources(new[] { Lede }.Concat(sections)) };
+        return new GccV2WriteOutput { Title = Title, MetaDescription = MetaDescription, Lede = Lede, Sections = sections, TokensUsed = TokensUsed, Keywords = Keywords, ToolPage = ToolPage, Citations = MergeCitations(new[] { Lede }.Concat(sections), SynthesisCitations), SynthesisCitations = SynthesisCitations, Provenance = MergeProvenance(new[] { Lede }.Concat(sections)), Sources = MergeSources(new[] { Lede }.Concat(sections)) };
     }
 
     public GccV2WriteOutput WithAppendedSection(GccV2WriteSection section) =>
@@ -74,13 +97,24 @@ public sealed class GccV2WriteOutput
             TokensUsed = TokensUsed,
             Keywords = Keywords,
             ToolPage = ToolPage,
-            Citations = MergeCitations(new[] { Lede }.Concat(Sections).Append(section)),
+            Citations = MergeCitations(new[] { Lede }.Concat(Sections).Append(section), SynthesisCitations),
+            SynthesisCitations = SynthesisCitations,
             Provenance = MergeProvenance(new[] { Lede }.Concat(Sections).Append(section)),
             Sources = MergeSources(new[] { Lede }.Concat(Sections).Append(section)),
         };
 
-    internal static IReadOnlyList<RagCitationDto> MergeCitations(IEnumerable<GccV2WriteSection> sections) =>
-        sections.SelectMany(s => s.Citations ?? []).DistinctBy(c => $"{c.PageId}|{c.Url}|{c.Quote}").ToList();
+    /// <summary>
+    /// The document-wide citation list: every section's citations, plus any that belong to the
+    /// document rather than a section. <paramref name="documentScoped"/> is what keeps a synthesis
+    /// citation from being discarded for having no heading to match.
+    /// </summary>
+    internal static IReadOnlyList<RagCitationDto> MergeCitations(
+        IEnumerable<GccV2WriteSection> sections,
+        IEnumerable<RagCitationDto>? documentScoped = null) =>
+        sections.SelectMany(s => s.Citations ?? [])
+            .Concat(documentScoped ?? [])
+            .DistinctBy(c => $"{c.PageId}|{c.Url}|{c.Quote}")
+            .ToList();
 
     internal static IReadOnlyList<GccV2GenerationProvenance> MergeProvenance(IEnumerable<GccV2WriteSection> sections) =>
         sections.Select(s => s.Provenance).Where(p => p is not null).Cast<GccV2GenerationProvenance>().ToList();
@@ -505,10 +539,19 @@ public sealed class GccV2WriteService
         var knownHeadings = current.AllSections
             .Select(section => section.Heading)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // A heading that names no section is the thing to reject. An absent heading is not that:
+        // final synthesis cites the document, and those citations are captured in
+        // GccV2WriteOutput.SynthesisCitations below rather than matched against a section. Before
+        // that channel existed, rejecting them here was the only thing standing between a
+        // section-less citation and a silent discard in the rebuild -- so the guard threw and the
+        // stage could never complete. It now narrows to its actual purpose.
+        var documentScopedCitations = response.Citations
+            .Where(citation => string.IsNullOrWhiteSpace(citation.SectionTitle))
+            .ToList();
         var unknownCitationHeadings = response.Citations
-            .Where(citation => string.IsNullOrWhiteSpace(citation.SectionTitle)
-                || !knownHeadings.Contains(citation.SectionTitle.Trim()))
-            .Select(citation => citation.SectionTitle ?? "(missing)")
+            .Where(citation => !string.IsNullOrWhiteSpace(citation.SectionTitle)
+                && !knownHeadings.Contains(citation.SectionTitle.Trim()))
+            .Select(citation => citation.SectionTitle!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (unknownCitationHeadings.Count > 0)
@@ -543,7 +586,8 @@ public sealed class GccV2WriteService
             TokensUsed = current.TokensUsed,
             Keywords = current.Keywords,
             ToolPage = current.ToolPage,
-            Citations = GccV2WriteOutput.MergeCitations(rebuilt),
+            Citations = GccV2WriteOutput.MergeCitations(rebuilt, documentScopedCitations),
+            SynthesisCitations = documentScopedCitations,
             Provenance = current.Provenance.Append(provenance).ToList(),
             Sources = response.Sources.Count > 0 ? response.Sources : sources,
         };
