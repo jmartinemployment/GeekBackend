@@ -32,6 +32,12 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="GeekBackend.Tests" />
+    <!--
+      The RAG contract tests deserialize a stub /v1/query payload through the client's own
+      JsonOpts and ChunkDto rather than a copy of them, so a naming-policy or field-shape change
+      on the production client fails the contract test instead of passing a parallel fixture.
+    -->
+    <InternalsVisibleTo Include="GeekBackend.IntegrationTests" />
   </ItemGroup>
 
 </Project>

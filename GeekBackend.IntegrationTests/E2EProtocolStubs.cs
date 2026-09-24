@@ -3,6 +3,7 @@ extern alias GeekApi;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using GeekApi::GeekAPI.HttpClients;
 
@@ -497,6 +498,69 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
     public const string ArticleText =
         "Fixture article\n\nDeterministic citations must exactly match the stored page text.\n\nMore text.";
 
+    /// <summary>
+    /// The structural metadata Geek-Crawler-Rag returns on every hit (models.py ChunkHit): the
+    /// parent block a matched child sits inside, the child span itself, and the anchors under the
+    /// chunk's heading. Carried on the fixture because a stub that omits them lets the contract
+    /// test pass against a payload the Library never sends -- which is exactly how anchors shipped
+    /// typed as strings and took every query with a link down with it.
+    /// </summary>
+    /// <summary>
+    /// The parent block, which must stay a verbatim span of <see cref="ArticleText"/>. Both are
+    /// projections of the same page by the same block-text function upstream, so a quote the writer
+    /// lifts out of the parent has to verify against the page text endpoint. A fixture that
+    /// paraphrases the page here would fail quote verification for a reason no production payload
+    /// can produce.
+    /// </summary>
+    public const string ChunkParentText = ArticleText;
+
+    public const string ChunkChildText = CitationQuote;
+    public const string ChunkRole = "child";
+
+    /// <summary>
+    /// Anchors are {label, href} objects, never strings. Two of them, so the test proves ordering
+    /// and per-object binding rather than only that something arrived.
+    /// </summary>
+    public const string AnchorPricingLabel = "Pricing";
+    public const string AnchorPricingHref = "https://fixture.test/pricing";
+    public const string AnchorDocsLabel = "Docs";
+    public const string AnchorDocsHref = "https://docs.fixture.test/start";
+
+    /// <summary>
+    /// The exact bytes the client receives from <c>/v1/query</c>. Built here and served here, so a
+    /// test asserting against this payload is asserting against what production deserializes.
+    /// </summary>
+    public static string BuildQueryResponseJson(string? runId) =>
+        JsonSerializer.Serialize(
+            new
+            {
+                runId,
+                retrieval = "hybrid",
+                chunks = new[]
+                {
+                    new
+                    {
+                        runId,
+                        url = ArticleUrl,
+                        finalUrl = ArticleUrl,
+                        title = "Fixture article",
+                        chunkIndex = 0,
+                        text = CitationQuote,
+                        pageId = ArticlePageId,
+                        sectionTitle = "Fixture article",
+                        chunkRole = ChunkRole,
+                        parentText = ChunkParentText,
+                        childText = ChunkChildText,
+                        anchors = new[]
+                        {
+                            new { label = AnchorPricingLabel, href = AnchorPricingHref },
+                            new { label = AnchorDocsLabel, href = AnchorDocsHref },
+                        },
+                    },
+                },
+            },
+            JsonOptions);
+
     public bool FailRequests { get; set; }
     public IReadOnlyList<CapturedRequest> Requests => _requests.ToArray();
 
@@ -547,25 +611,13 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
         {
             using var document = JsonDocument.Parse(body);
             var runId = document.RootElement.GetProperty("runId").GetString();
-            return Json(new
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                runId,
-                retrieval = "hybrid",
-                chunks = new[]
-                {
-                    new
-                    {
-                        runId,
-                        url = ArticleUrl,
-                        finalUrl = ArticleUrl,
-                        title = "Fixture article",
-                        chunkIndex = 0,
-                        text = CitationQuote,
-                        pageId = ArticlePageId,
-                        sectionTitle = "Fixture article",
-                    },
-                },
-            });
+                Content = new StringContent(
+                    BuildQueryResponseJson(runId),
+                    Encoding.UTF8,
+                    "application/json"),
+            };
         }
 
         if (request.Method == HttpMethod.Get && path == $"/v1/pages/{ArticlePageId}")

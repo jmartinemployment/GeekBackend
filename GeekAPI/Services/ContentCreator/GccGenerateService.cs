@@ -302,12 +302,51 @@ public class GccGenerateService
             // Attribution is the requirement, not a nicety: drafts previously named partners and
             // tools with capabilities nobody could source. Every claim about a partner or tool must
             // trace to one of the passages below, and carry that passage's URL.
+            //
+            // The passages are no longer flat prose. A retrieved chunk arrives already carrying
+            // where it sat on its page and what it linked to (HttpGeekCrawlerRagClient.RenderChunk),
+            // and the model cannot use structure nobody described to it. Only retrieved passages
+            // carry these lines; an operator upload is plain prose, which is why the per-page origin
+            // line below distinguishes the two rather than leaving the model to guess.
+            sb.AppendLine("How to read a passage. A retrieved passage may carry labelled lines above");
+            sb.AppendLine("or around its text; an operator-supplied passage is plain prose and carries");
+            sb.AppendLine("none of them. The labels are:");
+            sb.AppendLine("  Section: <title>            the heading that passage sits under on its page.");
+            sb.AppendLine("  Target Entity Match: <name> the partner tool that passage's own links point at.");
+            sb.AppendLine("  Context: / Specific detail: the surrounding block, then the matched sentence.");
+            sb.AppendLine("  Linked from this section:   the link text under that heading.");
+            sb.AppendLine();
+            sb.AppendLine("What they mean for what you write:");
+            sb.AppendLine("- Section: is the feature or business category the passage belongs to. A claim");
+            sb.AppendLine("  drawn from a passage belongs in the part of the piece that covers that");
+            sb.AppendLine("  category. Do not carry a pricing passage into an integrations discussion");
+            sb.AppendLine("  because the sentence happens to fit there.");
+            sb.AppendLine("- Target Entity Match: <name> means that passage is evidence about that named");
+            sb.AppendLine("  tool, established from the links in the passage itself. Treat the named tool");
+            sb.AppendLine("  as the authoritative subject of that passage: its claims are that tool's");
+            sb.AppendLine("  claims, and they are not evidence about any other product.");
+            sb.AppendLine("- Context: is background for the sentence under Specific detail:. Quote the");
+            sb.AppendLine("  detail; use the context to get it right, not as a second claim.");
+            sb.AppendLine();
             sb.AppendLine("Rules for this block, and they are not optional:");
-            sb.AppendLine("1. Any claim about a partner, tool or product must come from a passage below.");
+            sb.AppendLine("1. Any claim about a partner, tool or product must come from a passage below,");
+            sb.AppendLine("   and from one whose Target Entity Match or Section places it with that");
+            sb.AppendLine("   product. A passage labelled for one tool does not support a claim about");
+            sb.AppendLine("   another, however similar the products are.");
             sb.AppendLine("2. Attribute it: name the source and include its URL where the claim appears.");
+            sb.AppendLine("   Both are on the bracketed line above the passage -- the page title first,");
+            sb.AppendLine("   then its URL in parentheses -- and every passage indented beneath that line");
+            sb.AppendLine("   belongs to it. Never attribute a claim to a URL you did not read it under.");
             sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
             sb.AppendLine("   price, integration or limitation that no passage states.");
             sb.AppendLine("4. If the evidence does not cover something, omit it. Do not fill the gap.");
+            sb.AppendLine("5. A tool named by a Target Entity Match line has evidence here by definition,");
+            sb.AppendLine("   so it is named in the piece and its claims are cited from those passages.");
+            sb.AppendLine("   There is no case where a labelled tool is left out for want of evidence:");
+            sb.AppendLine("   the label is the evidence, and the passage under it is what to cite. This");
+            sb.AppendLine("   does not license the reverse -- a tool with no labelled passage is still");
+            sb.AppendLine("   governed by rules 1 and 4, and is named plainly with no claims attached");
+            sb.AppendLine("   rather than given capabilities nothing here states.");
             sb.AppendLine();
             // Uploaded research is unlimited — read every quoteable (per-page heading/paragraph
             // trimming below still bounds prompt size).

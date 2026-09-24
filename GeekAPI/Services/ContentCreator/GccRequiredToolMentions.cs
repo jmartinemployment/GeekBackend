@@ -187,6 +187,13 @@ public static class GccRequiredToolMentions
             "the page, not a decoration on it -- a draft that covers two of five has left three " +
             "partners out of a piece they are paying to appear in.");
         block.AppendLine(
+            "Find the evidence for each name in QUOTEABLE RESEARCH. A passage headed \"Target Entity " +
+            "Match: <name>\" is evidence about that tool specifically, established from the links in " +
+            "the passage itself, and the spelling in that label is the spelling listed above -- the " +
+            "same source produced both. A tool with a labelled passage therefore has something " +
+            "sourceable to say about it: say it, and cite that passage. A tool with no labelled " +
+            "passage is named plainly for what it is, with no claims attached.");
+        block.AppendLine(
             "Weave each into a sentence where it genuinely belongs: what it does for this reader, in " +
             "this context. Never a roundup section, never a product name as a heading, never a bare " +
             "list of names to satisfy the count. If the evidence supports saying more about one than " +

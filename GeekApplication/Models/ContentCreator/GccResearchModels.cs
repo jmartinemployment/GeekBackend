@@ -96,6 +96,17 @@ public static class GccPartnerResearchCaps
     public const int MaxHeadingsPerPage = 60;
     public const int MaxParagraphsPerPage = 80;
     public const int MaxHeadingChars = 300;
+    /// <summary>
+    /// Per-paragraph cap applied to a chunk's body and, for a child chunk, to its expanded parent
+    /// block.
+    ///
+    /// <para>
+    /// Load-bearing beyond truncation: <c>HttpGeekCrawlerRagClient.MapChunksToQuoteable</c>
+    /// estimates a chunk's prompt cost against this cap rather than against its raw string, so
+    /// that the estimate matches what <c>RenderChunk</c> actually emits. Raising it raises the
+    /// measured cost of every chunk and therefore lowers how many survive the token ceiling.
+    /// </para>
+    /// </summary>
     public const int MaxParagraphChars = 2000;
     public const int MaxTitleChars = 300;
     /// <summary>
@@ -114,7 +125,20 @@ public static class GccPartnerResearchCaps
     /// which is worth a few lines -- a whole navigation menu is not.
     /// </summary>
     public const int MaxAnchorsPerChunk = 8;
-    /// <summary>Soft stop once cleaned title+headings+paragraphs reach this many chars.</summary>
+    /// <summary>
+    /// Soft stop once cleaned title+headings+paragraphs reach this many chars.
+    ///
+    /// <para>
+    /// Cross-reference, because the value coincides with a limit it has nothing to do with: the
+    /// downstream RAG chunk/retrieval path runs its own independent budget, <c>
+    /// HttpGeekCrawlerRagClient.PromptResearchTokenCeiling</c> -- 16,000 *tokens* per page, not
+    /// 16,000 chars, and it is never applied here. This constant bounds what the HTML extractors
+    /// (<c>GccArticleHtmlExtractor</c>, <c>GccV2ArticleHtmlExtractor</c>,
+    /// <c>GccV2TaskAgentPageHydrator</c>) scrape out of a page layout. Changing it moves chunk
+    /// density on the scrape path; it does not move what saturates the generation prompt's context
+    /// window, and raising it will not relieve a page the RAG path is truncating.
+    /// </para>
+    /// </summary>
     public const int MaxCharsPerPage = 16_000;
     public const int MaxHtmlBytes = 2_000_000;
     public const int FetchTimeoutSeconds = 15;

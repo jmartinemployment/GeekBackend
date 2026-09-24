@@ -222,6 +222,20 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         return options;
     }
 
+    /// <summary>
+    /// Ceiling on the estimated tokens one page contributes to a research prompt.
+    ///
+    /// <para>
+    /// <see cref="GccPartnerResearchCaps.MaxParagraphsPerPage"/> caps how many chunks reach the
+    /// prompt, not how large they are. Eighty chunks each carrying a 2,000-char body plus a
+    /// 2,000-char expanded parent block is roughly 80k tokens from a single URL, and a burst query
+    /// run stacks several URLs into one context window. <c>MaxCharsPerPage</c> does not apply on
+    /// this path -- it guards the HTML extractors, not RAG chunks -- so this is the only size
+    /// bound between an expanded parent/child payload and the model.
+    /// </para>
+    /// </summary>
+    private const int PromptResearchTokenCeiling = 16000;
+
     private readonly HttpClient _http;
     private readonly ILogger<HttpGeekCrawlerRagClient> _logger;
     private readonly bool _enabled;
@@ -516,7 +530,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
             var dto = await response.Content.ReadFromJsonAsync<QueryResponseDto>(JsonOpts, ct)
                 .ConfigureAwait(false);
-            var pages = MapChunksToQuoteable(dto?.Chunks, anchorToolLookup);
+            var pages = MapChunksToQuoteable(dto?.Chunks, anchorToolLookup, _logger);
             return new GeekCrawlerRagQueryResult
             {
                 RunId = runId,
@@ -789,7 +803,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
     internal static IReadOnlyList<GccQuoteablePage> MapChunksToQuoteable(
         IReadOnlyList<ChunkDto>? chunks,
-        IReadOnlyDictionary<string, string>? anchorToolLookup = null)
+        IReadOnlyDictionary<string, string>? anchorToolLookup = null,
+        ILogger? logger = null)
     {
         if (chunks is null || chunks.Count == 0)
             return [];
@@ -849,10 +864,50 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 }
             }
 
-            var paragraphs = kept
-                .Select(RenderChunk)
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .ToList();
+            // Token ceiling, applied in reading order so a truncated page keeps its opening
+            // chunks rather than an arbitrary slice. Estimated at the standard English
+            // approximation of 4 characters per token, plus a flat 50 for the markup RenderChunk
+            // wraps each chunk in: the section header, the entity line, the anchor line.
+            var paragraphs = new List<string>();
+            int accumulatedTokens = 0;
+            foreach (var chunk in kept)
+            {
+                // Weighed against the capped lengths, not the raw ones. RenderChunk truncates the
+                // body and the expanded parent to MaxParagraphChars before either reaches the
+                // prompt, so a 40k-char chunk costs the model exactly what a 2k one costs.
+                // Measuring the raw string taxes the budget for characters nothing ever sends and
+                // evicts chunks that fit.
+                var isChild = string.Equals(chunk.ChunkRole, "child", StringComparison.OrdinalIgnoreCase);
+                int chunkWeight =
+                    Math.Min(chunk.Text?.Length ?? 0, GccPartnerResearchCaps.MaxParagraphChars) / 4;
+                int parentWeight = isChild && !string.IsNullOrWhiteSpace(chunk.ParentText)
+                    ? Math.Min(chunk.ParentText.Length, GccPartnerResearchCaps.MaxParagraphChars) / 4
+                    : 0;
+
+                int trueChunkWeight = chunkWeight + parentWeight + 50;
+                if (accumulatedTokens + trueChunkWeight > PromptResearchTokenCeiling)
+                {
+                    logger?.LogWarning(
+                        "Research token threshold reached for {Url}: {Accumulated} estimated tokens "
+                        + "across {Rendered} chunks, next chunk needs {Next}, ceiling is {Ceiling}. "
+                        + "Dropping the remaining {Dropped} chunks for this page.",
+                        url,
+                        accumulatedTokens,
+                        paragraphs.Count,
+                        trueChunkWeight,
+                        PromptResearchTokenCeiling,
+                        kept.Count - paragraphs.Count);
+                    break;
+                }
+
+                accumulatedTokens += trueChunkWeight;
+                var rendered = RenderChunk(chunk);
+                if (!string.IsNullOrWhiteSpace(rendered))
+                {
+                    paragraphs.Add(rendered);
+                }
+            }
+
             if (paragraphs.Count == 0)
                 continue;
 
