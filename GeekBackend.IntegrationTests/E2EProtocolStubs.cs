@@ -787,3 +787,139 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
     private static HttpResponseMessage Json(object value) =>
         new(HttpStatusCode.OK) { Content = JsonContent.Create(value, options: JsonOptions) };
 }
+
+/// <summary>
+/// A deterministic stand-in for api.openai.com, so integration tests never depend on a key or
+/// a network call.
+///
+/// <para>
+/// This exists because of a two-week blind spot. <c>OpenAiProvider</c> falls back to the ambient
+/// <c>OPENAI_API_KEY</c> environment variable when config carries none, so on a developer machine
+/// the LLM tests quietly called the real API -- billing real tokens and passing -- while the same
+/// tests failed in CI with "OpenAI API key is not configured". Every
+/// "Cross-repository citation contract" run from 2026-09-11 onward was red for that reason, and
+/// it looked green locally the whole time.
+/// </para>
+///
+/// <para>
+/// It answers by prompt kind because one writer makes several different calls, and each parses a
+/// different shape. A synthesis request gets the draft echoed back verbatim: the draft already
+/// arrives in the <c>{"title","sections"}</c> shape that prompt asks for, and the prompt demands
+/// "Preserve factual claims" and "Preserve the section order and every heading EXACTLY" -- so
+/// echoing is what a COMPLIANT model does. A stub that invented fresh prose would be simulating a
+/// non-compliant one and would fail assertions that are about the pipeline carrying content
+/// through, not about the model's wording.
+/// </para>
+/// </summary>
+public sealed class OpenAiStubHandler : HttpMessageHandler
+{
+    /// <summary>Requests seen, for a test that wants to assert the LLM was reached at all.</summary>
+    public int Calls { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        Calls++;
+
+        var prompt = request.Content is null
+            ? string.Empty
+            : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        var content = ChooseContent(prompt);
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            model = "stub-model",
+            choices = new[]
+            {
+                new
+                {
+                    message = new { role = "assistant", content },
+                    finish_reason = "stop",
+                },
+            },
+            usage = new { prompt_tokens = 0, completion_tokens = 0 },
+        });
+
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+    }
+
+    /// <summary>
+    /// The assistant content to answer with, chosen from the prompt the writer composed.
+    ///
+    /// <para>
+    /// The body is parsed as JSON rather than scanned as text. An earlier version did string
+    /// surgery on the raw body and un-escaped it by hand, which silently left <c>\"</c> in the
+    /// draft and produced content the writer rejected with "'\' is an invalid start of a property
+    /// name". The parser already knows how to unescape; doing it twice by hand is how a fixture
+    /// starts lying about its own shape.
+    /// </para>
+    /// </summary>
+    private static string ChooseContent(string body)
+    {
+        var prompt = ReadPrompt(body);
+
+        const string marker = "Draft to synthesize:";
+        var index = prompt.IndexOf(marker, StringComparison.Ordinal);
+        if (index >= 0)
+        {
+            var tail = prompt[(index + marker.Length)..].Trim();
+            var open = tail.IndexOf('{');
+            var close = tail.LastIndexOf('}');
+            if (open >= 0 && close > open)
+            {
+                // Echo the draft verbatim. It already arrives in the {"title","sections"} shape
+                // this prompt asks for, and the prompt demands the headings and claims survive --
+                // so echoing is precisely what a compliant model returns.
+                return tail[open..(close + 1)];
+            }
+        }
+
+        if (prompt.Contains("\"outline\"", StringComparison.Ordinal))
+        {
+            return """{"outline":[{"key":"introduction","heading":"Introduction","brief":"Set up the problem","evidenceIds":[]}]}""";
+        }
+
+        return JsonSerializer.Serialize(new { title = "Synthesized", sections = Array.Empty<object>() });
+    }
+
+    /// <summary>Every message's content, joined — the prompt as the writer actually composed it.</summary>
+    private static string ReadPrompt(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("messages", out var messages)
+                || messages.ValueKind != JsonValueKind.Array)
+            {
+                return string.Empty;
+            }
+
+            var parts = new List<string>();
+            foreach (var message in messages.EnumerateArray())
+            {
+                if (message.TryGetProperty("content", out var content)
+                    && content.ValueKind == JsonValueKind.String)
+                {
+                    parts.Add(content.GetString() ?? string.Empty);
+                }
+            }
+
+            return string.Join("\n", parts);
+        }
+        catch (JsonException)
+        {
+            // A body this stub cannot read is not something to guess at.
+            return string.Empty;
+        }
+    }
+}

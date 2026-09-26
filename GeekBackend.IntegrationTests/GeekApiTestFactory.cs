@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
 using GeekApi::GeekAPI.Services.GeekCrawler;
+using GeekApi::GeekAPI.Services.Workflow.Providers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
@@ -36,6 +37,13 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
     public InMemoryGeekRepositoryHandler Repository { get; } = new();
     public RagProtocolStubHandler Rag { get; } = new();
 
+    /// <summary>
+    /// Stands in for api.openai.com. Not optional: OpenAiProvider falls back to the ambient
+    /// OPENAI_API_KEY env var, so without this the LLM tests call the real API on any machine
+    /// that has a key -- billing tokens, and passing locally while CI fails for want of one.
+    /// </summary>
+    public OpenAiStubHandler OpenAi { get; } = new();
+
     public GeekApiTestFactory()
     {
         Environment.SetEnvironmentVariable("REPO_API_KEY", "integration-test-key");
@@ -65,6 +73,7 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
                 ["CORS_ORIGINS"] = "https://www.geekatyourspot.com",
                 ["GccV2Skills:AdminUserIds"] = OwnerUserId.ToString("D"),
                 ["GccV2Agents:SnapshotSigningKey"] = "integration-agent-signing-key-000001",
+                ["LlmProviders:OpenAi:ApiKey"] = "integration-test-openai-key",
             });
         });
         builder.ConfigureServices(services =>
@@ -81,6 +90,11 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
                         "integration-test-rag-key");
                 })
                 .ConfigurePrimaryHttpMessageHandler(() => Rag);
+
+            // Same shape as the RAG and Repository stubs above: the typed client keeps its real
+            // wiring and only its transport is replaced, so request composition stays under test.
+            services.AddHttpClient<OpenAiProvider>()
+                .ConfigurePrimaryHttpMessageHandler(() => OpenAi);
 
             services.AddAuthentication(options =>
                 {
