@@ -120,5 +120,10 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
             outline: OutlineFor(ctx),
             revisionNotes: null,
             extractedToolResearchJson: ctx.ExtractedResearchJson,
-            lede: ctx.Lede);
+            lede: ctx.Lede,
+            // This slot is filled from the grounded partner extraction and nothing else --
+            // GccGenerateService refuses to generate at all when that extraction is null -- and
+            // every extracted item carries the verbatim span it was taken from. So evidence here
+            // means there is something real to quote.
+            quotableSourceAvailable: !string.IsNullOrWhiteSpace(ctx.ExtractedResearchJson));
 }

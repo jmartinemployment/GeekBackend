@@ -132,6 +132,9 @@ public interface IContentPromptBuilder
     /// <param name="outline">The page's sections as obligations. Tool's outline used to exist three
     /// times -- an array in its prompt set, a literal in GccGenerateService, and prose inside the
     /// prompt itself carrying a comment that the copies had to be kept in sync by hand.</param>
+    /// <param name="quotableSourceAvailable">Whether <paramref name="extractedToolResearchJson"/>
+    /// carries verbatim spans from the partner's own pages. False means nothing on this page may be
+    /// block-quoted, because there is nothing to quote.</param>
     ChatCompletionRequest BuildToolBodyPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
@@ -140,7 +143,8 @@ public interface IContentPromptBuilder
         IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
         string? extractedToolResearchJson = null,
-        Section? lede = null);
+        Section? lede = null,
+        bool quotableSourceAvailable = false);
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
@@ -515,6 +519,42 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// the writer so.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Whether this page may carry a block quotation, and where its words have to come from.
+    ///
+    /// <para>
+    /// A tool page is about a partner's product, and <see cref="BuildPublisherSiteBlock"/> names
+    /// exactly that as the case a blockquote exists for: "a partner's claim from the partner's own
+    /// page". The section contract offers the paragraph type and the cite field to put it in. What
+    /// neither checks is whether any partner wording was actually supplied.
+    /// </para>
+    ///
+    /// <para>
+    /// On the Create path it always is -- generation refuses outright without a grounded partner
+    /// extraction ("Refused: Partner grounding required"), and every extracted item carries the
+    /// verbatim span it came from. On the ToolPageGenerator path it never is: a tool slot's research
+    /// is <c>{ name, href }</c>, and on the hierarchy branch it is null. The only prose in that
+    /// prompt is the publisher's own site, which the same block forbids quoting -- so every
+    /// quotable source there is either absent or banned, and a quote could only be invented with a
+    /// real company's URL attached saying where to verify it. Nothing downstream would catch it:
+    /// the guardrail passes quotes through untouched on purpose, and the renderer writes the cite
+    /// straight onto the tag.
+    /// </para>
+    /// </summary>
+    private static string ToolQuotationInstruction(string productName, bool quotableSourceAvailable) =>
+        quotableSourceAvailable
+            ? "QUOTING " + productName + ": a paragraph of type \"quote\" carries words that are already "
+              + "in the partner evidence below, copied exactly, with \"cite\" set to the URL that "
+              + "evidence names as their source. Nothing else may be quoted -- not a paraphrase "
+              + "tidied into quotation marks, not a claim you are confident they make, not wording "
+              + "assembled from several places. If the span you want is not in front of you verbatim, "
+              + "write the point as your own prose instead."
+            : "QUOTING " + productName + ": you have been given no verbatim wording from any of their "
+              + "pages, so this page carries no block quotation. Do not emit a paragraph of type "
+              + "\"quote\", and do not set \"cite\" on anything. A quote box says these are someone's "
+              + "exact published words and the cite says where to go and check -- writing one from a "
+              + "product name and a link invents both. State what the product does in your own prose.";
+
     private static string ClosingCallToActionInstruction(ProjectGenerationContext context)
     {
         var scheduler = context.ConsultationAnchorHref;
@@ -1828,7 +1868,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
         string? extractedToolResearchJson = null,
-        Section? lede = null)
+        Section? lede = null,
+        bool quotableSourceAvailable = false)
     {
         // One rendering of the outline, from the one definition. This block used to be three hand-
         // written prose lists inside this prompt -- the required section names, the per-section word
@@ -1882,6 +1923,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"and never claim {context.PublisherName} builds the product's own features.")
             .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
                 "about a competing product is a sentence that has not done its job.")
+            .AppendLine(ToolQuotationInstruction(app.Name, quotableSourceAvailable))
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +
                 "section is responsible for; you write its heading:")
