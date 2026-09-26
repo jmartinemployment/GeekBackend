@@ -1931,6 +1931,8 @@ public class GccGenerateService
             BlogBaseUrl: _company.BlogBaseUrl,
             ToolBaseUrl: _company.ToolBaseUrl,
             ImplementerPositioning: _company.ImplementerPositioning,
+            ConsultationAnchorHref: _company.ConsultationAnchorHref,
+            ConsultationCtaLabel: _company.ConsultationCtaLabel,
             Provider: llmType,
             UseExactKeywordAsTitle: false,
             DesiredHeadings: null,

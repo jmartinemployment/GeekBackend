@@ -58,7 +58,13 @@ public record ProjectGenerationContext(
     IReadOnlyList<string>? SiteAreaServed = null,
     /// <summary>The business type the client's own crawled site declares (LocalBusiness,
     /// ProfessionalService, Organization, ...). Mirrored on the publisher node, never inferred.</summary>
-    string? SitePublisherType = null);
+    string? SitePublisherType = null,
+    /// <summary>In-page anchor for the scheduler the closing call to action asks the reader to use.
+    /// Null when the publisher has no such component, in which case the closing names no destination
+    /// at all rather than inventing one.</summary>
+    string? ConsultationAnchorHref = null,
+    /// <summary>What that scheduler calls itself, used as the ask when the brief names no ctaType.</summary>
+    string? ConsultationCtaLabel = null);
 
 /// <summary>Crawl tool name + optional source href. Generate-time only — not copied onto the project.</summary>
 public sealed record KnownCrawlTool(string Name, string? Href);

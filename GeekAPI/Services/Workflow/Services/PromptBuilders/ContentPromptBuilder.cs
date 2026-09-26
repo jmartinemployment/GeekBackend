@@ -524,16 +524,44 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// make it. Where the brief names none, the piece still ends on something the reader does, not
     /// on a suggestion that they reflect.
     /// </para>
+    ///
+    /// <para>
+    /// An ask still needs somewhere to land, and naming the action was not enough on its own: the
+    /// writer knew to ask and had no destination, so it sent the reader off the page. Jeff,
+    /// 2026-09-26: "the shared schedule component is on each page including Blog posts and has a
+    /// link of href="#consultationAppointment2xl"". The scheduler is already below whatever the
+    /// reader is reading, which makes the destination an in-page anchor, not a contact page, not a
+    /// URL, and not an email address. That is the same missing-wire shape as KnownCrawlTools and as
+    /// the publisher profile: the component exists, the reader is already on it, and nothing told
+    /// the writer so.
+    /// </para>
     /// </summary>
     private static string ClosingCallToActionInstruction(ProjectGenerationContext context)
     {
-        var ask = string.IsNullOrWhiteSpace(context.CtaType)
-            ? "the one action this reader should take next"
-            : context.CtaType
-              + (string.IsNullOrWhiteSpace(context.CtaLabel) ? string.Empty : $", worded as \"{context.CtaLabel}\"");
+        var scheduler = context.ConsultationAnchorHref;
+        var hasScheduler = !string.IsNullOrWhiteSpace(scheduler);
+
+        var ask = !string.IsNullOrWhiteSpace(context.CtaType)
+            ? context.CtaType
+              + (string.IsNullOrWhiteSpace(context.CtaLabel) ? string.Empty : $", worded as \"{context.CtaLabel}\"")
+            : hasScheduler && !string.IsNullOrWhiteSpace(context.ConsultationCtaLabel)
+                ? $"the reader to book time, worded as \"{context.ConsultationCtaLabel}\""
+                : "the one action this reader should take next";
+
+        // With no anchor configured there is no destination to give, and a destination the writer
+        // makes up is a link to a page that does not exist. The ask is then made in words only.
+        var destination = hasScheduler
+            ? "That ask is a link: put it on a run in the closing paragraph with href "
+              + $"\"{scheduler}\". The scheduler it opens is part of every page on this site -- blog "
+              + "posts included -- so it is already further down the page the reader is on. Write it "
+              + "as something they do here, not somewhere they go: never \"visit our site\", never "
+              + "\"head over to our contact page\", never an email address, and never any other URL "
+              + "or path. That href is the only destination this closing gets."
+            : "Name no destination: you have not been given one, and a URL, path or email address "
+              + "you supply yourself points at a page that does not exist. Make the ask in words.";
 
         return "CLOSING: the last section ends by asking for " + ask + ". One ask, stated plainly, "
-            + "addressed to the reader, naming who does what next. "
+            + "addressed to the reader, naming who does what next. " + destination + " "
             + "Do NOT end on a reflection -- \"it may be beneficial to explore\", \"consider how this "
             + "could apply\", \"these examples provide insight\", \"to understand the potential impact "
             + "further\". Those name no action and no actor; they are a piece trailing off, and they "

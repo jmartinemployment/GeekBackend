@@ -383,6 +383,21 @@ internal static class ResearchBriefBuilder
     /// <summary>
     /// Grounds pillar/blog/tool prose in crawl tool names fetched at generate time.
     /// Instructs named, substantive discussion in running paragraphs — not a roll-call and not links alone.
+    ///
+    /// <para>
+    /// A named tool also links to its own page. Jeff, 2026-09-26: "Tool mentions should be Next js
+    /// &lt;Links&gt; to /tools". That is a statement about the href, not about the markup: the site
+    /// renders a body link as a Next <c>Link</c> when the href is a relative path and as a plain
+    /// external anchor when it starts <c>http</c> (<c>article-body.tsx</c>, via
+    /// <c>external: /^https?:/i.test(href)</c> in <c>article-sections.ts</c>). So the public path is
+    /// what makes the mention a <c>Link</c>, and a vendor URL is what stops it being one.
+    /// </para>
+    ///
+    /// <para>
+    /// Linking was optional here and the drafts took the option: tools were named and none of them
+    /// went anywhere. It is now the first substantive mention in each section, capped there so prose
+    /// does not turn into a row of links.
+    /// </para>
     /// </summary>
     private static void AppendKnownToolsBrief(StringBuilder sb, ProjectGenerationContext context)
     {
@@ -401,10 +416,16 @@ internal static class ResearchBriefBuilder
             "Discuss them substantively — what they do for this use case, not a one-word mention. " +
             "Do not produce a roll-call list, and do not write a Tools heading or catalog. " +
             "Recurring mentions are fine when they add something; first-mention-only is not enough. " +
-            "A link is optional and never a substitute for discussing the tool.");
+            "A link is never a substitute for discussing the tool.");
         sb.AppendLine(
-            "If a public path is given, you may set Run.href on at most 1-2 substantive body mentions per tool " +
-            "(not headings). Never fabricate a URL. Do not send the reader to the crawl source page.");
+            "Every tool below has a public path on this site, and a named tool links to it: set Run.href to that " +
+            "exact path on the first substantive body mention of each tool in each section. Later mentions of the " +
+            "same tool in that same section stay plain text — one link per tool per section, so the prose does not " +
+            "become a row of links. Headings are never linked.");
+        sb.AppendLine(
+            "The path is relative and starts with a slash, exactly as written below. Do not link a tool to the " +
+            "vendor's own website, to the crawl source page, or to any absolute URL, and never fabricate a path: " +
+            "an off-site href is not the link being asked for here.");
         sb.AppendLine("Tools from the crawl:");
         foreach (var tool in tools)
         {

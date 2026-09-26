@@ -1195,6 +1195,8 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             BlogBaseUrl: _companyProfile.BlogBaseUrl,
             ToolBaseUrl: _companyProfile.ToolBaseUrl,
             ImplementerPositioning: _companyProfile.ImplementerPositioning,
+            ConsultationAnchorHref: _companyProfile.ConsultationAnchorHref,
+            ConsultationCtaLabel: _companyProfile.ConsultationCtaLabel,
             Provider: project.PreferredProvider,
             UseExactKeywordAsTitle: project.UseExactKeywordAsTitle,
             DesiredHeadings: project.Notes
@@ -1839,4 +1841,23 @@ public class CompanyProfileOptions
         "Geek At Your Spot is an AI implementation consultancy for B2B organizations. " +
         "In every pillar Tools section, for each major platform covered, explain which client problems an AI implementer solves " +
         "(accelerated deployment, data model design, workflow configuration, custom code, autonomous agents, integration, and change management).";
+
+    /// <summary>
+    /// Where the closing call to action sends the reader: the shared scheduler component, which the
+    /// site renders on every page -- home, tool pages, use cases and blog posts alike -- so the
+    /// destination is an in-page anchor and never a path to somewhere else.
+    ///
+    /// <para>
+    /// Jeff, 2026-09-26: "the shared schedule component is on each page including Blog posts and has
+    /// a link of href="#consultationAppointment2xl"". The writer had not been told this and closed
+    /// on an ask with nowhere to go.
+    /// </para>
+    /// </summary>
+    public string ConsultationAnchorHref { get; set; } = "#consultationAppointment2xl";
+
+    /// <summary>
+    /// What that scheduler is called, taken from its own heading rather than left to the model to
+    /// invent. Used as the ask only when the brief names no ctaType of its own.
+    /// </summary>
+    public string ConsultationCtaLabel { get; set; } = "Schedule a Free Consultation";
 }
