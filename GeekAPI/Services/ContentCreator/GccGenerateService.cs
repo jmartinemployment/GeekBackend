@@ -1674,6 +1674,31 @@ public class GccGenerateService
         if (sections.Count == 0)
             throw new InvalidOperationException($"CWV2 tool body returned no sections for '{name}'.");
 
+        // Every tool page carries a block quotation of the partner, in their own published words
+        // (Jeff, 2026-09-26: "I want a blockquote in each tool"). The prompt asks for it; this is
+        // what makes it true. Without a check the model could return the page with no quote at all,
+        // or with one it wrote itself carrying a real company's URL on its cite -- ContentGuardrail
+        // passes quotes through untouched by design, and the renderer writes the cite straight onto
+        // the tag, so nothing further down would have looked.
+        //
+        // Refuse, never repair: a rewritten quote is still a quote nobody verified, and trimming one
+        // out would ship the page missing an element of the type. Same "Refused:" prefix the partner
+        // grounding gate uses, so GenerateAsync answers 400 rather than a 503 reading as an outage.
+        //
+        // Scoped to `create is not null`, the same boundary the partner-grounding refusal above
+        // draws. The legacy no-create path is already exempt from grounding entirely; it has no
+        // partner evidence at all, so requiring a partner quote there would be requiring an
+        // invented one. Where the page is grounded, it carries the quote.
+        var quoteViolations = create is null
+            ? []
+            : Guardrail.GccToolQuoteGuard.FindViolations(sections, groundedExtraction);
+        if (quoteViolations.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Refused: the tool page '{name}' does not carry a verifiable block quotation. "
+                + string.Join(" ", quoteViolations));
+        }
+
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
         // Sourced only from real, already-verified partner FAQ pairs -- never invented and never
         // re-derived the way Pillar's PAA-driven FAQ section has to answer from scratch.

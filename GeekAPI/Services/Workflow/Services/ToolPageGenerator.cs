@@ -544,12 +544,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
                 // The tool outline, from the one place it is defined. Not pillarMetadata's outline
                 // -- that is the pillar's planned sections, a different page.
                 GeekAPI.Services.ContentCreator.ContentTypes.ToolPrompts.Outline(context, app.Name),
-                revisionNotes, researchJson, lede,
-                // A tool slot's research is ResearchJsonFor's { name, href }, and null on the
-                // hierarchy branch. Neither is wording anyone published, so there is nothing on
-                // this path a quote box could honestly hold. If real partner spans ever reach a
-                // slot, this is the line that says so.
-                quotableSourceAvailable: false),
+                revisionNotes, researchJson, lede),
             cancellationToken);
         return LlmResponseJsonParser.ParseSections(result.Content, $"tool page '{app.Name}'").ToList();
     }

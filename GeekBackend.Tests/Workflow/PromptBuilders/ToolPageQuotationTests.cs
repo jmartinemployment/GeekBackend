@@ -8,15 +8,14 @@ using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 namespace GeekBackend.Tests.Workflow.PromptBuilders;
 
 /// <summary>
-/// A tool page may block-quote its partner only when the partner's own wording was supplied.
+/// Every tool page asks for a block quotation of the partner, in their own words, cited to their
+/// own page. Jeff, 2026-09-26: "I want a blockquote in each tool".
 ///
 /// <para>
-/// BuildPublisherSiteBlock names "a partner's claim from the partner's own page" as the case a
-/// blockquote exists for, and the section contract offers the type and the cite field to hold one.
-/// Neither checks that any partner wording arrived. Where none did, a quote box would assert
-/// someone's exact published words and a cite would say where to verify them, both invented from a
-/// product name and a link -- and nothing downstream looks: the guardrail passes quotes through
-/// deliberately and the renderer writes the cite straight onto the tag.
+/// A tool page is an advertisement for that partner, which is what makes the quote box belong on
+/// it -- so it is a required element of the type, not an option the writer weighs. These assert the
+/// prompt asks unconditionally; <see cref="GeekBackend.Tests.ContentCreator.GccToolQuoteGuardTests"/>
+/// asserts the code that refuses a draft without one, because an instruction is not enforcement.
 /// </para>
 /// </summary>
 public class ToolPageQuotationTests
@@ -45,7 +44,7 @@ public class ToolPageQuotationTests
         ImplementerPositioning: "an AI implementation partner",
         Provider: LlmProviderType.OpenAi);
 
-    private static string ToolPrompt(bool quotableSourceAvailable, string? researchJson)
+    private static string ToolPrompt(string? researchJson)
     {
         var context = Context();
         var app = new SoftwareApplicationDescriptor("Tipalti", "Payables automation.");
@@ -57,57 +56,59 @@ public class ToolPageQuotationTests
             ToolPrompts.Outline(context, app.Name),
             revisionNotes: null,
             extractedToolResearchJson: researchJson,
-            lede: null,
-            quotableSourceAvailable: quotableSourceAvailable);
+            lede: null);
         return string.Join("\n", request.Messages.Select(m => m.Content));
     }
 
     [Fact]
-    public void With_no_partner_wording_the_page_may_not_quote_at_all()
+    public void The_page_is_told_it_carries_a_block_quotation()
     {
-        // ToolPageGenerator's shape: a name and a link, which is not wording anyone published.
-        var system = ToolPrompt(false, """{"name":"Tipalti","href":"https://tipalti.com"}""");
+        var system = ToolPrompt("""{"testimonials":[{"quoteText":"We cut approval time."}]}""");
 
-        Assert.Contains("this page carries no block quotation", system, StringComparison.Ordinal);
-        Assert.Contains("Do not emit a paragraph of type \"quote\"", system, StringComparison.Ordinal);
-        Assert.Contains("do not set \"cite\" on anything", system, StringComparison.Ordinal);
+        Assert.Contains("this page carries exactly one block quotation", system, StringComparison.Ordinal);
+        Assert.Contains("and it is required", system, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void With_no_partner_wording_the_prompt_does_not_still_invite_one()
+    public void The_words_are_pinned_to_the_evidence_and_the_cite_to_its_source()
     {
-        // The permission and the prohibition must not both be in the prompt; the model would be
-        // choosing between them.
-        var system = ToolPrompt(false, null);
+        var system = ToolPrompt("""{"testimonials":[{"quoteText":"We cut approval time."}]}""");
 
-        Assert.DoesNotContain("copied exactly", system, StringComparison.Ordinal);
+        Assert.Contains("copied character for character", system, StringComparison.Ordinal);
+        Assert.Contains("the URL that evidence gives as their source", system, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void With_grounded_partner_evidence_a_quote_is_allowed_but_pinned_to_it()
+    public void A_near_quote_is_named_as_the_thing_it_may_not_be()
     {
-        // The Create path's shape: a grounded extraction, every item carrying its verbatim span.
-        var system = ToolPrompt(true, """{"citables":[{"claim":"Cuts approval time","quote":"Cuts approval time"}]}""");
+        // The failure guarded against is not an absent quote, it is a near one presented as exact.
+        var system = ToolPrompt("{}");
 
-        Assert.Contains("copied exactly", system, StringComparison.Ordinal);
-        Assert.Contains("the URL that evidence names as their source", system, StringComparison.Ordinal);
-        Assert.DoesNotContain("this page carries no block quotation", system, StringComparison.Ordinal);
+        Assert.Contains("a paraphrase tidied into quotation marks", system, StringComparison.Ordinal);
+        Assert.Contains("a claim you are confident they make", system, StringComparison.Ordinal);
+        Assert.Contains("wording assembled from several places", system, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void An_allowed_quote_still_refuses_a_tidied_paraphrase()
+    public void The_prompt_says_the_draft_is_rejected_rather_than_published_with_an_invented_quote()
     {
-        // The failure this guards is not an absent quote, it is a near one presented as exact.
-        var system = ToolPrompt(true, """{"citables":[{"claim":"x","quote":"x"}]}""");
+        // The prompt and GccToolQuoteGuard have to describe the same consequence, or the writer is
+        // being asked to guess which one is real.
+        var system = ToolPrompt("{}");
 
-        Assert.Contains("not a paraphrase tidied into quotation marks", system, StringComparison.Ordinal);
-        Assert.Contains("not a claim you are confident they make", system, StringComparison.Ordinal);
+        Assert.Contains("the draft is rejected rather than published with an invented one", system, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void The_product_is_named_in_the_rule_either_way()
+    public void The_requirement_is_unconditional()
     {
-        Assert.Contains("QUOTING Tipalti", ToolPrompt(true, "{}"), StringComparison.Ordinal);
-        Assert.Contains("QUOTING Tipalti", ToolPrompt(false, null), StringComparison.Ordinal);
+        // There is no evidence-shaped escape hatch: the old wording had a branch that told the page
+        // to carry no quotation, which is the opposite of the requirement.
+        foreach (var research in new[] { null, "{}", """{"name":"Tipalti","href":"https://tipalti.com"}""" })
+        {
+            var system = ToolPrompt(research);
+            Assert.Contains("QUOTE Tipalti ONCE, IN THEIR OWN WORDS", system, StringComparison.Ordinal);
+            Assert.DoesNotContain("carries no block quotation", system, StringComparison.Ordinal);
+        }
     }
 }

@@ -132,9 +132,6 @@ public interface IContentPromptBuilder
     /// <param name="outline">The page's sections as obligations. Tool's outline used to exist three
     /// times -- an array in its prompt set, a literal in GccGenerateService, and prose inside the
     /// prompt itself carrying a comment that the copies had to be kept in sync by hand.</param>
-    /// <param name="quotableSourceAvailable">Whether <paramref name="extractedToolResearchJson"/>
-    /// carries verbatim spans from the partner's own pages. False means nothing on this page may be
-    /// block-quoted, because there is nothing to quote.</param>
     ChatCompletionRequest BuildToolBodyPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
@@ -143,8 +140,7 @@ public interface IContentPromptBuilder
         IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
         string? extractedToolResearchJson = null,
-        Section? lede = null,
-        bool quotableSourceAvailable = false);
+        Section? lede = null);
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
@@ -520,40 +516,35 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// </para>
     /// </summary>
     /// <summary>
-    /// Whether this page may carry a block quotation, and where its words have to come from.
+    /// The block quotation every tool page carries, and where its words have to come from.
     ///
     /// <para>
-    /// A tool page is about a partner's product, and <see cref="BuildPublisherSiteBlock"/> names
-    /// exactly that as the case a blockquote exists for: "a partner's claim from the partner's own
-    /// page". The section contract offers the paragraph type and the cite field to put it in. What
-    /// neither checks is whether any partner wording was actually supplied.
+    /// A tool page is an advertisement for that partner, which is what makes a quote box belong on
+    /// it. Jeff, 2026-09-26: <i>"I want a blockquote in each tool"</i>. It is a required element of
+    /// the type, not an option the writer weighs -- <see cref="BuildPublisherSiteBlock"/> already
+    /// says a blockquote is for "a partner's claim from the partner's own page", and on this page
+    /// that is the whole subject.
     /// </para>
     ///
     /// <para>
-    /// On the Create path it always is -- generation refuses outright without a grounded partner
-    /// extraction ("Refused: Partner grounding required"), and every extracted item carries the
-    /// verbatim span it came from. On the ToolPageGenerator path it never is: a tool slot's research
-    /// is <c>{ name, href }</c>, and on the hierarchy branch it is null. The only prose in that
-    /// prompt is the publisher's own site, which the same block forbids quoting -- so every
-    /// quotable source there is either absent or banned, and a quote could only be invented with a
-    /// real company's URL attached saying where to verify it. Nothing downstream would catch it:
-    /// the guardrail passes quotes through untouched on purpose, and the renderer writes the cite
-    /// straight onto the tag.
+    /// Required does not mean invented. The words have to be a span already in the evidence, cited
+    /// to the page it came from, and <c>GccToolQuoteGuard</c> rejects the draft when they are not --
+    /// this instruction asks, that guard enforces. A path with no partner evidence cannot satisfy
+    /// either and must refuse before it gets here, rather than reach this prompt and fabricate.
     /// </para>
     /// </summary>
-    private static string ToolQuotationInstruction(string productName, bool quotableSourceAvailable) =>
-        quotableSourceAvailable
-            ? "QUOTING " + productName + ": a paragraph of type \"quote\" carries words that are already "
-              + "in the partner evidence below, copied exactly, with \"cite\" set to the URL that "
-              + "evidence names as their source. Nothing else may be quoted -- not a paraphrase "
-              + "tidied into quotation marks, not a claim you are confident they make, not wording "
-              + "assembled from several places. If the span you want is not in front of you verbatim, "
-              + "write the point as your own prose instead."
-            : "QUOTING " + productName + ": you have been given no verbatim wording from any of their "
-              + "pages, so this page carries no block quotation. Do not emit a paragraph of type "
-              + "\"quote\", and do not set \"cite\" on anything. A quote box says these are someone's "
-              + "exact published words and the cite says where to go and check -- writing one from a "
-              + "product name and a link invents both. State what the product does in your own prose.";
+    private static string ToolQuotationInstruction(string productName) =>
+        "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries exactly one block "
+        + "quotation -- a paragraph of type \"quote\" -- and it is required. Take its words from the "
+        + "partner evidence below, copied character for character, and set \"cite\" to the URL that "
+        + "evidence gives as their source. A testimonial or an isolated claim is what this is for. "
+        + "Put it in the section whose point it supports, where the reader has just been told "
+        + "something and the quote is " + productName + " saying it themselves -- not stacked at the "
+        + "top, not left to the end as decoration. "
+        + "What it may not be: a paraphrase tidied into quotation marks, a claim you are confident "
+        + "they make, wording assembled from several places, or anything at all with a cite pointing "
+        + "somewhere the words did not come from. If a span is not in front of you verbatim, it is "
+        + "not quotable, and the draft is rejected rather than published with an invented one.";
 
     private static string ClosingCallToActionInstruction(ProjectGenerationContext context)
     {
@@ -1868,8 +1859,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
         string? extractedToolResearchJson = null,
-        Section? lede = null,
-        bool quotableSourceAvailable = false)
+        Section? lede = null)
     {
         // One rendering of the outline, from the one definition. This block used to be three hand-
         // written prose lists inside this prompt -- the required section names, the per-section word
@@ -1923,7 +1913,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"and never claim {context.PublisherName} builds the product's own features.")
             .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
                 "about a competing product is a sentence that has not done its job.")
-            .AppendLine(ToolQuotationInstruction(app.Name, quotableSourceAvailable))
+            .AppendLine(ToolQuotationInstruction(app.Name))
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +
                 "section is responsible for; you write its heading:")
