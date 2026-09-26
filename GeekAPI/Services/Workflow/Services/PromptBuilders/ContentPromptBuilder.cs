@@ -91,27 +91,6 @@ public interface IContentPromptBuilder
         bool isRegeneration,
         string? revisionNotes = null);
 
-    /// <summary>Lightweight first Tools call: ordered list of 4–5 real platform names (no nested section JSON).</summary>
-    ChatCompletionRequest BuildToolsPlatformListPrompt(
-        ProjectGenerationContext context,
-        ArticleMetadataDraft metadata,
-        string toolsSectionHeading,
-        bool isRegeneration,
-        string? revisionNotes = null);
-
-    /// <summary>One platform h3 subtree (overview, capability list, implementer h4) for the Tools section.</summary>
-    ChatCompletionRequest BuildToolsPlatformChildPrompt(
-        ProjectGenerationContext context,
-        ArticleMetadataDraft metadata,
-        string toolsSectionHeading,
-        string platformName,
-        IReadOnlyList<string> allPlatforms,
-        int platformIndex,
-        int platformCount,
-        bool isRegeneration,
-        string? revisionNotes = null,
-        string? crawlHref = null);
-
     ChatCompletionRequest BuildBlogMetadataPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle);
 
     ChatCompletionRequest BuildBlogBodyPrompt(
@@ -1381,126 +1360,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
             MaxOutputTokens: PillarSectionMaxOutputTokens));
     }
 
-    public ChatCompletionRequest BuildToolsPlatformListPrompt(
-        ProjectGenerationContext context,
-        ArticleMetadataDraft metadata,
-        string toolsSectionHeading,
-        bool isRegeneration,
-        string? revisionNotes = null)
-    {
-        var briefBody = BuildBriefBodyGuidance(context);
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(briefBody)
-            .AppendLine("Choose 4-5 major platforms or tools for the Tools H2 of a TechnicalArticle pillar.")
-            .AppendLine("Only real, verifiable, well-known products relevant to the target keyword. Never invent a tool name or vendor.")
-            .AppendLine("Prefer depth on 4 platforms over shallow coverage of 6.")
-            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
-            .AppendLine("{\"platforms\": string[] (4-5 product names, display order)}")
-            .ToString();
-
-        if (isRegeneration)
-        {
-            system += Environment.NewLine + "REGENERATION: pick a fresh but still accurate platform set when the notes call for it; otherwise keep strong existing choices.";
-        }
-
-        var revisionBlock = BuildRevisionNotesBlock(revisionNotes, sectionHeading: toolsSectionHeading);
-        if (revisionBlock is not null)
-        {
-            system += Environment.NewLine + revisionBlock;
-        }
-
-        var user = new StringBuilder()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection,
-                $"List platforms for Tools section \"{toolsSectionHeading}\"."))
-            .AppendLine()
-            .AppendLine($"Article title: {metadata.Title}")
-            .AppendLine($"Target keyword: {context.TargetKeyword}")
-            .AppendLine($"Tools section heading: {toolsSectionHeading}")
-            .ToString();
-
-        return new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
-            Temperature: isRegeneration ? 0.55 : 0.4,
-            MaxOutputTokens: 512);
-    }
-
-    public ChatCompletionRequest BuildToolsPlatformChildPrompt(
-        ProjectGenerationContext context,
-        ArticleMetadataDraft metadata,
-        string toolsSectionHeading,
-        string platformName,
-        IReadOnlyList<string> allPlatforms,
-        int platformIndex,
-        int platformCount,
-        bool isRegeneration,
-        string? revisionNotes = null,
-        string? crawlHref = null)
-    {
-        var perPlatformTarget =
-            $"{ContentLengthTargets.PillarToolsSectionMinWords / Math.Max(platformCount, 1)}" +
-            $"-{ContentLengthTargets.PillarToolsSectionTargetMaxWords / Math.Max(platformCount, 1)}";
-
-        var briefBody = BuildBriefBodyGuidance(context);
-        // Fully static across every platform call in a run — see BuildArticleSectionPrompt's
-        // identical rationale for why this needs to be a stable prefix for prompt caching.
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(briefBody)
-            .AppendLine("Write ONE platform subsection for the Tools H2 of a TechnicalArticle pillar — third person, expert, consultative.")
-            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary, no other platforms.")
-            .AppendLine(SectionJsonContract)
-            .AppendLine("This section's own tag is \"h3\". Heading must be exactly \"<a href=\"/tools/{department}/{slug}\">PlatformName</a>\" — enclose the platform name in an anchor tag linking to /tools/{department}/{slugified-platform-name} (e.g. <a href=\"/tools/marketing/tipalti\">Tipalti</a>), using the department from the project context and the slugified tool name.")
-            .AppendLine("Include: a brief overview paragraph of what the platform does for this use case, then a list paragraph with 2-4 factual capability bullets.")
-            .AppendLine("Then one child Section (tag h4, heading \"How an AI implementer helps with {Platform}\").")
-            .AppendLine($"Target ~{perPlatformTarget} words for this platform subtree so the full Tools section lands near {ContentLengthTargets.PillarToolsSectionMinWords}-{ContentLengthTargets.PillarToolsSectionTargetMaxWords} words.")
-            .AppendLine("Never invent a feature or capability; if unsure a feature exists, describe it generically instead of naming it.")
-            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
-                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
-                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
-                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
-                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. ")
-            .AppendLine("A quantified outcome is fine only if explicitly labeled hypothetical/illustrative.")
-            .ToString();
-
-        var perCall = new StringBuilder();
-        perCall.AppendLine(BuildToolsPlatformChildGuidance(context, platformName));
-
-        if (isRegeneration)
-        {
-            perCall.AppendLine("REGENERATION: use fresh prose and examples.");
-        }
-
-        // Scope by platform name so Tool:/section notes about other platforms do not leak in.
-        var revisionBlock = BuildRevisionNotesBlock(revisionNotes, sectionHeading: platformName);
-        if (revisionBlock is not null)
-        {
-            perCall.AppendLine(revisionBlock);
-        }
-
-        var platformList = string.Join(", ", allPlatforms.Select((p, i) => i == platformIndex ? $"[{p}]" : p));
-        var user = new StringBuilder()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
-            .AppendLine()
-            .Append(perCall)
-            .AppendLine($"Write Tools platform {platformIndex + 1} of {platformCount}: \"{platformName}\".")
-            .AppendLine($"Article title: {metadata.Title}")
-            .AppendLine($"Target keyword: {context.TargetKeyword}")
-            .AppendLine($"Tools section heading: {toolsSectionHeading}")
-            .AppendLine($"Platforms in this Tools section (write ONLY the bracketed one): {platformList}")
-            .AppendLine($"Platform to write: {platformName}");
-        if (!string.IsNullOrWhiteSpace(crawlHref))
-        {
-            user.AppendLine($"This platform was linked from the crawl at: {crawlHref}");
-        }
-
-        return WithSectionSchema(new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
-            Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: 2048));
-    }
-
     public ChatCompletionRequest BuildArticleFaqSectionPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
@@ -1879,7 +1738,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("- Pillar H2 sections: teaching diagram, slightly more technical.")
             .AppendLine("- Blog sections: warmer step-by-step feel, still no readable text.")
             .AppendLine("- People Also Ask: abstract Q&A bubbles/shapes without words.")
-            .AppendLine("- Tools sections: generic software tiles/icons — no brand names.")
             .AppendLine()
             .AppendLine("IMAGE SETTINGS (include in JSON for each section):")
             .AppendLine($"- imageModel: \"{ImagePromptDefaults.DefaultImageModel}\"")
@@ -2534,24 +2392,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
         var normalized = Regex.Replace(text, @"\s+", " ").Trim();
         return normalized.Length <= maxChars ? normalized : normalized[..maxChars].TrimEnd() + "…";
-    }
-
-    private static string BuildToolsPlatformChildGuidance(ProjectGenerationContext context, string platformName)
-    {
-        return new StringBuilder()
-            .AppendLine("PLATFORM SUBSECTION REQUIREMENTS:")
-            .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
-            .AppendLine($"Platform: {platformName}")
-            .AppendLine("In the h4 child's paragraphs, cover all four of these mechanisms, each made concrete to THIS specific platform (not generic filler):")
-            .AppendLine($"  1. Accelerated deployment — what specifically shortens go-live for {platformName}.")
-            .AppendLine($"  2. Data model design — what {platformName}-specific data structure/mapping decisions an implementer gets right upfront.")
-            .AppendLine($"  3. Workflow/process configuration — what {platformName}-specific approval chains, routing rules, or automation logic get configured.")
-            .AppendLine($"  4. Custom code/development — what {platformName}-specific extension mechanism exists if the platform supports one; if it genuinely has no such layer, say so plainly instead of inventing one.")
-            .AppendLine("Keep each of the 4 points to ONE tight sentence — flowing prose in a single text paragraph, not a numbered list.")
-            .AppendLine("Tie these to outcomes: reduced time-to-value, fewer failed pilots, production-ready automation.")
-            .AppendLine($"Write from the perspective of {context.PublisherName} as the implementer where natural — without hard-selling.")
-            .AppendLine("This h3 child should describe a real software product suitable for schema.org SoftwareApplication JSON+LD.")
-            .ToString();
     }
 
     private static string BuildIntroductionSectionGuidance(ProjectGenerationContext context)

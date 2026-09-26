@@ -91,7 +91,7 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         var toolSlots = await ResolveToolSlotsAsync(project, cancellationToken);
         if (toolSlots.Count == 0)
         {
-            return new ToolGenerationResult(ToolGenerationOutcome.ToolsSectionEmpty, []);
+            return new ToolGenerationResult(ToolGenerationOutcome.NoToolsInCrawl, []);
         }
 
         // Href is the slot's link on our own pillar, so it is PageUrl. The product's own domain is

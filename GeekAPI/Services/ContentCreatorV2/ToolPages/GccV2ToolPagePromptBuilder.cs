@@ -160,8 +160,8 @@ public sealed class GccV2ToolPagePromptBuilder
         string onSiteHref)
     {
         var perPlatformTarget =
-            $"{ContentLengthTargets.PillarToolsSectionMinWords / Math.Max(platformCount, 1)}" +
-            $"-{ContentLengthTargets.PillarToolsSectionTargetMaxWords / Math.Max(platformCount, 1)}";
+            $"{ContentLengthTargets.ToolsIndexSectionMinWords / Math.Max(platformCount, 1)}" +
+            $"-{ContentLengthTargets.ToolsIndexSectionTargetMaxWords / Math.Max(platformCount, 1)}";
 
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")

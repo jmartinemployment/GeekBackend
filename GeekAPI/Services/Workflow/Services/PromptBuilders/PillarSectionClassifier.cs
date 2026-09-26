@@ -8,34 +8,15 @@ internal static class PillarSectionClassifier
     /// Strict test for a heading that names a standalone tools listing — the H2 the pillar must
     /// not carry, because Generate Tools owns that content.
     /// <para>
-    /// Deliberately narrower than <see cref="IsToolsSection"/>, which matches "platform",
-    /// "solution", "vendor" and friends. That looseness is fine for choosing how to write a
-    /// section, but this predicate rejects a plan outright, so a false positive blocks valid work:
-    /// it flagged "Common Challenges and Solutions" on the word "solution". Only the word "tool"
-    /// or "tools" counts here.
+    /// Only the word "tool" or "tools" counts. A looser predicate used to sit beside this one,
+    /// matching "platform", "solution", "vendor" and friends so a Tools section could be found and
+    /// written; it went with the section. The looseness is why the two were never merged: this
+    /// predicate rejects a plan outright, so a false positive blocks valid work — it flagged
+    /// "Common Challenges and Solutions" on the word "solution".
     /// </para>
     /// </summary>
     public static bool IsToolsListingHeading(string sectionHeading) =>
         Regex.IsMatch(sectionHeading ?? string.Empty, @"\btools?\b", RegexOptions.IgnoreCase);
-
-    public static bool IsToolsSection(string sectionHeading)
-    {
-        var text = sectionHeading.Trim();
-        ReadOnlySpan<string> markers =
-        [
-            "tool", "platform", "software", "vendor", "solution", "stack", "technology"
-        ];
-
-        foreach (var marker in markers)
-        {
-            if (text.Contains(marker, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     public static bool IsBestPracticesSection(string sectionHeading)
     {

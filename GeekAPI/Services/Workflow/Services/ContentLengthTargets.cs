@@ -23,8 +23,11 @@ public static class ContentLengthTargets
     public const int PillarTargetMaxWords = 5_000;
     public const int PillarSectionMinWords = 500;
     public const int PillarSectionTargetMaxWords = 700;
-    public const int PillarToolsSectionMinWords = 700;
-    public const int PillarToolsSectionTargetMaxWords = 900;
+    // The tools index on a keyword overview page (v2). Named for the pillar's Tools section until
+    // 2026-09-26, when that section was removed -- a pillar carries no Tools H2, so a budget for one
+    // reads as evidence that it does.
+    public const int ToolsIndexSectionMinWords = 700;
+    public const int ToolsIndexSectionTargetMaxWords = 900;
 
     public const string PillarEditorialDefinition =
         "Pillar pages are exhaustive, macro-level entry points for massive topics. They host multiple subsections " +

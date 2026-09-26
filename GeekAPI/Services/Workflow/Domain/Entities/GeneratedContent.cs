@@ -53,7 +53,7 @@ public class GeneratedContent
     /// <summary>Top Tools app name this tool row was generated from (tool posts only).</summary>
     public string? SourceAppName { get; set; }
 
-    /// <summary>Order within the pillar Top Tools section (tool posts only).</summary>
+    /// <summary>Order the tool was resolved from the crawl in (tool posts only).</summary>
     public int? SourceAppOrder { get; set; }
 
     public string? MetaDescription { get; set; }

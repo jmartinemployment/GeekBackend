@@ -1323,7 +1323,7 @@ public class GccController : ControllerBase
 
     /// <summary>
     /// Content Creator addition on CWV2 projects: generate tool pages from human-supplied names + brief
-    /// using CWV2 tool prompts — does <b>not</b> require a pillar Tools section.
+    /// using CWV2 tool prompts — the operator names the tools instead of the crawl resolving them.
     /// </summary>
     [HttpPost("projects/{projectId:guid}/tools-from-names")]
     public async Task<IActionResult> GenerateToolsFromNames(
@@ -1601,7 +1601,9 @@ public class GccController : ControllerBase
     }
 
     /// <summary>
-    /// Names operators can pick for AI Tools — from pillar Tools section and existing tool drafts.
+    /// Names operators can pick for AI Tools — from existing tool drafts and the project's notes.
+    /// The pillar was a third source, read off the h3 headings under its Tools section; it carries no
+    /// such section, so there is nothing there to read.
     /// </summary>
     [HttpGet("projects/{projectId:guid}/tool-name-candidates")]
     public async Task<IActionResult> ToolNameCandidates(Guid projectId, CancellationToken ct)
@@ -1618,16 +1620,6 @@ public class GccController : ControllerBase
             if (string.IsNullOrWhiteSpace(name)) return;
             var trimmed = name.Trim();
             if (seen.Add(trimmed)) names.Add(trimmed);
-        }
-
-        var pillar = project.GeneratedContents.FirstOrDefault(c =>
-            c.ContentType == GeneratedContentType.TechnicalArticle
-            && c.Body is not null
-            && c.WordCount >= 200);
-        if (pillar is not null)
-        {
-            foreach (var app in ToolSectionExtractor.ExtractApplications(pillar.Body, pillar.SectionOutline))
-                Add(app.Name);
         }
 
         foreach (var tool in project.GeneratedContents
