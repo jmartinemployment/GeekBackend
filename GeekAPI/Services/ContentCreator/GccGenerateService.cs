@@ -1747,8 +1747,9 @@ public class GccGenerateService
                 var retried = new ContentDocument(toolLede with { Tag = "h2" }, toolCtaSections);
                 var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
                     retried, context.ConsultationAnchorHref);
-                // The block quotation is required on this type too, so a retry that fixes the link
-                // and loses the quote is not a draft worth keeping.
+                // A tool page carries a block quotation and nothing else does, so a retry that fixes
+                // the link and loses the quote is not a draft worth keeping. This check belongs to
+                // this method only.
                 if (retriedViolations.Count == 0
                     && Guardrail.GccToolQuoteGuard.FindViolations(toolCtaSections, groundedExtraction).Count == 0)
                 {
@@ -1759,10 +1760,14 @@ public class GccGenerateService
             }
         }
 
+        // Reported, not refused. The scheduler href is a known constant that did not get attached to
+        // a sentence -- nothing is invented either way -- and a draft whose closing is unlinked is
+        // one the operator can see and fix, where a refused generate is nothing at all
+        // (Jeff, 2026-09-27: "It's a CTA? WTF?").
         if (toolCtaViolations.Count > 0)
-            throw new InvalidOperationException(
-                $"Refused: the tool page '{name}' does not link the scheduler, after a retry naming the omission. "
-                + string.Join(" ", toolCtaViolations));
+            _logger.LogWarning(
+                "The tool page {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
+                name, string.Join(" ", toolCtaViolations));
 
         // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type -- the one
@@ -2687,10 +2692,14 @@ public class GccGenerateService
             }
         }
 
+        // Reported, not refused. The scheduler href is a known constant that did not get attached to
+        // a sentence -- nothing is invented either way -- and a draft whose closing is unlinked is
+        // one the operator can see and fix, where a refused generate is nothing at all
+        // (Jeff, 2026-09-27: "It's a CTA? WTF?").
         if (pillarCtaViolations.Count > 0)
-            throw new InvalidOperationException(
-                $"Refused: the pillar '{create.Topic}' does not link the scheduler, after a retry naming the omission. "
-                + string.Join(" ", pillarCtaViolations));
+            _logger.LogWarning(
+                "The pillar {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
+                create.Topic, string.Join(" ", pillarCtaViolations));
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
@@ -2892,10 +2901,14 @@ public class GccGenerateService
             }
         }
 
+        // Reported, not refused. The scheduler href is a known constant that did not get attached to
+        // a sentence -- nothing is invented either way -- and a draft whose closing is unlinked is
+        // one the operator can see and fix, where a refused generate is nothing at all
+        // (Jeff, 2026-09-27: "It's a CTA? WTF?").
         if (blogCtaViolations.Count > 0)
-            throw new InvalidOperationException(
-                $"Refused: the blog '{create.Topic}' does not link the scheduler, after a retry naming the omission. "
-                + string.Join(" ", blogCtaViolations));
+            _logger.LogWarning(
+                "The blog {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
+                create.Topic, string.Join(" ", blogCtaViolations));
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this
