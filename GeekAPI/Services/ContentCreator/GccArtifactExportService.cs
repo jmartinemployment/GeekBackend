@@ -5,6 +5,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Services.Export;
+using Microsoft.Extensions.Options;
 
 namespace GeekAPI.Services.ContentCreator;
 
@@ -19,9 +20,14 @@ namespace GeekAPI.Services.ContentCreator;
 /// image prompts never mixed in with the prose they belong to (Jeff, 2026-09-23: "Mixed together
 /// would be difficult for me to process").
 /// </summary>
-public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<GccArtifactExportService> logger)
+public sealed class GccArtifactExportService(
+    HttpGccRepository repo,
+    IOptions<CompanyProfileOptions> companyProfile,
+    ILogger<GccArtifactExportService> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private readonly CompanyProfileOptions _company = companyProfile.Value;
 
     public async Task<IReadOnlyList<ExportedHtmlDocument>> ExportAsync(Guid createId, CancellationToken ct)
     {
@@ -52,19 +58,28 @@ public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<Gcc
             }
 
             var slug = Slug(parsed.Title ?? artifact.Name ?? create.Topic, artifact.Id);
+            var title = parsed.Title ?? artifact.Name ?? create.Topic;
+            var department = string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department.Trim();
             documents.Add(new ExportedHtmlDocument(
                 $"{FolderFor(artifact.Type)}/{slug}.html",
                 SectionHtmlRenderer.RenderDocument(
-                    title: parsed.Title ?? artifact.Name ?? create.Topic,
+                    title: title,
                     description: parsed.MetaDescription,
-                    canonicalUrl: null,
-                    ogType: "article",
-                    ogImage: null,
+                    canonicalUrl: CanonicalUrlFor(artifact.Type, department, slug),
+                    ogType: OgTypeFor(artifact.Type),
+                    ogImage: _company.PublisherLogoUrl,
                     jsonLdSchema: parsed.JsonLdSchema,
-                    additionalMeta: new Dictionary<string, string?>(),
-                    body: parsed.Document)));
+                    additionalMeta: MetaFor(parsed, slug, department, latest.CreatedAtUtc),
+                    body: parsed.Document,
+                    gtmContainerId: _company.GtmContainerId,
+                    siteName: _company.PublisherName,
+                    authorName: _company.AuthorName,
+                    faviconUrl: _company.FaviconUrl,
+                    googleSiteVerification: _company.GoogleSiteVerification,
+                    yandexVerification: _company.YandexVerification,
+                    yahooVerification: _company.YahooVerification)));
 
-            documents.AddRange(ImagePromptFiles(artifact.Type, slug, parsed.Document));
+            documents.AddRange(ImagePromptFiles(slug, parsed.Document));
         }
 
         return documents;
@@ -90,33 +105,97 @@ public sealed class GccArtifactExportService(HttpGccRepository repo, ILogger<Gcc
         document.Lede is null && (document.Sections is null || document.Sections.Count == 0);
 
     /// <summary>
-    /// One file per image prompt, under image-prompts/&lt;type&gt;/, numbered by position with the
-    /// heading it belongs to in the body. They are deliberately not left inside the page: a prompt
-    /// is something the operator takes to an image generator, not something they read in the prose.
+    /// The canonical URL for this artifact, matching what v1's export puts in the tag and what each
+    /// JSON+LD builder puts in its "url" field. A mismatch between the two is the kind of thing
+    /// search engines flag, which is why v1 derives both from the same base URL + department + slug.
     /// </summary>
-    private static IEnumerable<ExportedHtmlDocument> ImagePromptFiles(
-        string contentType, string slug, ContentDocument document)
-    {
-        var folder = $"image-prompts/{FolderFor(contentType)}";
-
-        if (document.Lede is { ImagePrompt: { } ledePrompt } && !string.IsNullOrWhiteSpace(ledePrompt))
+    private string? CanonicalUrlFor(string? contentType, string department, string slug) =>
+        (contentType ?? "").Trim().ToLowerInvariant() switch
         {
-            yield return new ExportedHtmlDocument(
-                $"{folder}/{slug}-00-hero.txt",
-                $"{document.Lede.Heading}{Environment.NewLine}{Environment.NewLine}{ledePrompt}");
+            "pillar" => $"{_company.ArticleBaseUrl.TrimEnd('/')}/{department}/{slug}",
+            "blog" => $"{_company.BlogBaseUrl.TrimEnd('/')}/{department}/{slug}",
+            "tool" or "aitool" => $"{_company.ToolBaseUrl.TrimEnd('/')}/{department}/{slug}",
+            _ => null,
+        };
+
+    /// <summary>v1's mapping: a pillar and a blog are articles, everything else is a website.</summary>
+    private static string OgTypeFor(string? contentType) =>
+        (contentType ?? "").Trim().ToLowerInvariant() switch
+        {
+            "pillar" or "blog" => "article",
+            _ => "website",
+        };
+
+    /// <summary>
+    /// The meta block v1 writes into every exported page. The summary variants it carries --
+    /// mainSummary, heroSummary, homeSummary, blogSummary, advertisingSummary -- are columns on a v1
+    /// GeneratedContent row and have no equivalent on a create artifact, so they are omitted rather
+    /// than emitted empty: a meta tag with no value is worse than no tag.
+    /// </summary>
+    private static Dictionary<string, string?> MetaFor(
+        (ContentDocument? Document, string? Title, string? MetaDescription, string? JsonLdSchema) parsed,
+        string slug,
+        string department,
+        DateTime createdAtUtc) =>
+        new()
+        {
+            ["slug"] = slug,
+            ["department"] = department,
+            ["date"] = createdAtUtc.ToString("O"),
+            ["excerpt"] = parsed.MetaDescription,
+        };
+
+    /// <summary>
+    /// One .txt per image prompt under image-prompts/sections/, named the way v1 names them. A
+    /// prompt is something the operator takes to an image generator, never something a reader reads,
+    /// which is why it is a separate file and not left in the page (Jeff, 2026-09-23: "Mixed
+    /// together would be difficult for me to process").
+    ///
+    /// <para>
+    /// One deliberate departure from v1: the index increments. v1 calls its collector with
+    /// <c>sectionIndex: 0</c> for the lede and for every top-level section, so every section's
+    /// prompt lands on <c>{slug}-0.txt</c> and they collide inside the archive. Reproducing that
+    /// would mean shipping one prompt file per page instead of one per section.
+    /// </para>
+    /// </summary>
+    private static IEnumerable<ExportedHtmlDocument> ImagePromptFiles(string slug, ContentDocument document)
+    {
+        var index = 0;
+        foreach (var file in Collect(document.Lede, slug, ref index))
+        {
+            yield return file;
         }
 
-        var index = 1;
         foreach (var section in document.Sections ?? [])
         {
-            if (!string.IsNullOrWhiteSpace(section.ImagePrompt))
+            foreach (var file in Collect(section, slug, ref index))
             {
-                yield return new ExportedHtmlDocument(
-                    $"{folder}/{slug}-{index:D2}-{Slug(section.Heading, Guid.Empty)}.txt",
-                    $"{section.Heading}{Environment.NewLine}{Environment.NewLine}{section.ImagePrompt}");
+                yield return file;
             }
-            index++;
         }
+    }
+
+    /// <summary>
+    /// Depth-first, so a nested subsection's prompt is numbered where it actually sits in the page.
+    /// Not an iterator, because <c>ref</c> cannot cross a <c>yield</c>.
+    /// </summary>
+    private static List<ExportedHtmlDocument> Collect(Section? section, string slug, ref int index)
+    {
+        var files = new List<ExportedHtmlDocument>();
+        if (section is null) return files;
+
+        if (!string.IsNullOrWhiteSpace(section.ImagePrompt))
+        {
+            files.Add(new ExportedHtmlDocument($"image-prompts/sections/{slug}-{index}.txt", section.ImagePrompt!));
+        }
+        index++;
+
+        foreach (var child in section.Children ?? [])
+        {
+            files.AddRange(Collect(child, slug, ref index));
+        }
+
+        return files;
     }
 
     /// <summary>v1's folder scheme, by content type.</summary>
