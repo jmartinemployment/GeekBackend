@@ -5,8 +5,7 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Every page links the scheduler (Jeff, 2026-09-27: "CTA is on every page and should be
-/// referenced"). Unlike the block quotation, which belongs on a tool page because that page
-/// advertises a partner, this is not scoped to one content type.
+/// referenced"). Every live type carries it, because the scheduler component is on every page.
 ///
 /// <para>
 /// Asserted on the finished document, because the prompt already asked and a draft still came back

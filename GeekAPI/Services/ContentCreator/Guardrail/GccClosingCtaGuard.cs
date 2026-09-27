@@ -13,17 +13,18 @@ namespace GeekAPI.Services.ContentCreator.Guardrail;
 /// </para>
 ///
 /// <para>
-/// Asking is not having, which is the lesson the blockquote already taught: the instruction was
-/// there, nothing checked, and a draft came back closing on "book a consultation with our team" as
-/// plain text. A closing sentence with no link is a call to action the reader cannot act on, and
-/// nothing further down would have noticed -- <c>SectionHtmlRenderer</c> renders a run without an
-/// href as ordinary prose, correctly, because that is what it was given.
+/// Asking is not having: the instruction was there, nothing checked, and a draft came back closing
+/// on "book a consultation with our team" as plain text. A closing sentence with no link is a call
+/// to action the reader cannot act on, and nothing further down would have noticed --
+/// <c>SectionHtmlRenderer</c> renders a run without an href as ordinary prose, correctly, because
+/// that is what it was given.
 /// </para>
 ///
 /// <para>
-/// Unlike the block quotation, this is not scoped to one content type. A blockquote belongs on a
-/// tool page because that page advertises a partner; the scheduler is on every page, so pillar, blog
-/// and tool all carry it.
+/// Every live type carries this -- pillar, blog and tool -- because the scheduler component is on
+/// every page. Reported rather than refused: the href is a known constant that did not get attached
+/// to a sentence, so nothing is invented either way, and an unlinked closing is something the
+/// operator can see and fix.
 /// </para>
 /// </summary>
 public static class GccClosingCtaGuard
