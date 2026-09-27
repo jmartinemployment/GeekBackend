@@ -362,17 +362,27 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return block.ToString();
     }
 
+    /// <summary>
+    /// How the prose sounds. Extended 2026-09-27 with Jeff's own brief, after a finished blog was
+    /// reported as 100% AI-detected: "Act as a human copywriter explaining your draft to a colleague
+    /// over coffee", clear everyday language, active voice, no formal opener and no wrap-up.
+    /// </summary>
     private const string HumanRegisterInstruction =
+        "WHO IS TALKING: a copywriter explaining this to a colleague over coffee. Clear, everyday " +
+        "words. Active voice -- somebody does something, rather than something being done. Casual, " +
+        "direct, honest. " +
+        "No formal opener and no wrap-up: do not introduce what you are about to cover, and do not " +
+        "close by telling the reader what they just read. Start talking, and stop when you are done. " +
         "HOW THIS READS: the giveaway is rhythm, not vocabulary. " +
         "Vary sentence length on purpose. A paragraph whose sentences are all fifteen to twenty-five " +
         "words reads as machine-written however good each one is. Use short sentences -- three to " +
         "eight words -- and let some run long. " +
         "Vary paragraph length too: some are one sentence, some are six. Never a page of even blocks. " +
-        "Drop the scaffolding: no Moreover, Furthermore, Additionally, In conclusion, It is worth " +
-        "noting, It is important to note. Start the sentence. " +
+        "Drop the scaffolding: no Moreover, Furthermore, Additionally, Consequently, In conclusion, " +
+        "It is worth noting, It is important to note. Start the sentence. " +
         "Break the symmetry: no \"not just X, but Y\", no three-item lists used for cadence rather " +
-        "than because there are exactly three things, no paired clauses balanced against each other " +
-        "line after line. " +
+        "than because there are exactly three things, no three adjectives in a row, no paired " +
+        "clauses balanced against each other line after line. " +
         "Never restate. A paragraph that summarises the paragraph above it is filler with good " +
         "manners, and a closing recap of points already made is the same thing at the end. " +
         "Commit. Say which option is worse and why, say what you would not do, leave something out " +
@@ -382,9 +392,21 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "named product rather than \"leading platforms\". One concrete detail per section that could " +
         "not have been written about any other subject.";
 
+    /// <summary>
+    /// Words that mark a page as machine-written on sight.
+    ///
+    /// <para>
+    /// The second list is Jeff's, given 2026-09-27 after a finished blog came back reported as 100%
+    /// AI-detected. They are not bad words in themselves -- they are the words a model reaches for
+    /// when it has nothing specific to say, which is why a detector and a reader both notice them.
+    /// </para>
+    /// </summary>
     private const string FillerBanInstruction =
         "Ban filler: cutting-edge, paradigm shift, transformative potential, seamless transition, " +
-        "maximize ROI, unlock value. Write specific, verifiable claims instead of hype adjectives.";
+        "maximize ROI, unlock value. Write specific, verifiable claims instead of hype adjectives. " +
+        "Ban these words outright, in any form: delve, testament, unlock, tapestry, beacon, realm, " +
+        "dynamic, pivotal, navigating. If one of them is the word you want, the sentence has not " +
+        "decided what it is saying yet -- say the thing instead.";
 
     /// <summary>
     /// Headings, for every type that lets the writer name its own sections.
