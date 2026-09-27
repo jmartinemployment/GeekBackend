@@ -265,9 +265,13 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         {
             throw new ContentGenerationException(generation.Outcome switch
             {
-                ToolGenerationOutcome.NoToolsInCrawl =>
+                ToolGenerationOutcome.ToolsSectionEmpty =>
                     "No tool links under this hierarchy match (or its parent headings). " +
                     "Pick a section that lists tools as links, or use Tool pages from names.",
+                ToolGenerationOutcome.NoToolsSection =>
+                    "No Tools section in the pillar to generate pages from.",
+                ToolGenerationOutcome.ToolsSectionNotFoundInBody =>
+                    "The pillar outline lists Tools, but the body has no matching Tools section.",
                 _ => "Tool page generation produced no pages.",
             });
         }
@@ -1832,18 +1836,10 @@ public class CompanyProfileOptions
     public string? YandexVerification { get; set; }
     public string? YahooVerification { get; set; }
 
-    /// <summary>
-    /// How the publisher positions AI implementation services wherever a platform is discussed.
-    ///
-    /// <para>
-    /// This used to say "in every pillar Tools section", which asked the model to fill a section the
-    /// pillar outline prompt forbids it from writing at all. A platform is covered in running prose
-    /// now, so that is where the positioning belongs.
-    /// </para>
-    /// </summary>
+    /// <summary>How the publisher positions AI implementation services in pillar Tools sections.</summary>
     public string ImplementerPositioning { get; set; } =
         "Geek At Your Spot is an AI implementation consultancy for B2B organizations. " +
-        "Wherever a major platform is discussed, explain which client problems an AI implementer solves " +
+        "In every pillar Tools section, for each major platform covered, explain which client problems an AI implementer solves " +
         "(accelerated deployment, data model design, workflow configuration, custom code, autonomous agents, integration, and change management).";
 
     /// <summary>
