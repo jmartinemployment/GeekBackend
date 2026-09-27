@@ -116,7 +116,10 @@ public class GccGenerateServiceToolPageGroundingTests
         new GccPublisherProfileResolver(
             new GccCompetitorAnalysisResolverTests.FakeProjects(null),
             new GccCompetitorAnalysisResolverTests.FakePages(),
-            NullLogger<GccPublisherProfileResolver>.Instance));
+            NullLogger<GccPublisherProfileResolver>.Instance),
+        new GccKnownToolsResolver(
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            NullLogger<GccKnownToolsResolver>.Instance));
 
     private static string ResearchJsonWithOnePartnerPage() =>
         GccResearchFetchService.Serialize(new GccResearchDocument(

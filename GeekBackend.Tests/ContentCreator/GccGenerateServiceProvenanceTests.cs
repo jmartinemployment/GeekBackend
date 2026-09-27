@@ -79,7 +79,10 @@ public class GccGenerateServiceProvenanceTests
         new GccPublisherProfileResolver(
             new GccCompetitorAnalysisResolverTests.FakeProjects(null),
             new GccCompetitorAnalysisResolverTests.FakePages(),
-            NullLogger<GccPublisherProfileResolver>.Instance));
+            NullLogger<GccPublisherProfileResolver>.Instance),
+        new GccKnownToolsResolver(
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            NullLogger<GccKnownToolsResolver>.Instance));
 
     private static GccCompetitorAnalysisResolver NoCompetitorData() =>
         GccCompetitorAnalysisResolverTests.Build(

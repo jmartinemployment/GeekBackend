@@ -92,7 +92,10 @@ public class GccGenerateServicePillarFaqTests
         new GccPublisherProfileResolver(
             new GccCompetitorAnalysisResolverTests.FakeProjects(null),
             new GccCompetitorAnalysisResolverTests.FakePages(),
-            NullLogger<GccPublisherProfileResolver>.Instance));
+            NullLogger<GccPublisherProfileResolver>.Instance),
+        new GccKnownToolsResolver(
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            NullLogger<GccKnownToolsResolver>.Instance));
 
     [Fact]
     public async Task NoPaaQuestionsMeansNoFaqCompletionCall()

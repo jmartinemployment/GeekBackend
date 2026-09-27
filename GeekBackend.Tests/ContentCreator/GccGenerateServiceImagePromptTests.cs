@@ -59,7 +59,10 @@ public class GccGenerateServiceImagePromptTests
         new GccPublisherProfileResolver(
             new GccCompetitorAnalysisResolverTests.FakeProjects(null),
             new GccCompetitorAnalysisResolverTests.FakePages(),
-            NullLogger<GccPublisherProfileResolver>.Instance));
+            NullLogger<GccPublisherProfileResolver>.Instance),
+        new GccKnownToolsResolver(
+            new GccCompetitorAnalysisResolverTests.FakePages(),
+            NullLogger<GccKnownToolsResolver>.Instance));
 
     private static string TwoSectionDocumentJson() =>
         GccGenerateService.SerializeDocument(new ContentDocument(

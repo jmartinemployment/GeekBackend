@@ -15,4 +15,15 @@ public interface IGccCrawlPageReader
         Guid runId,
         IReadOnlyList<string> seedUrls,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// One page of a run's crawled pages with their blocks, for a caller that needs the site rather
+    /// than named URLs — the heading tree a tool match is built from. Paged and bounded by the
+    /// caller, because the remark above still holds: a project-site run is routinely 50,000 pages.
+    /// </summary>
+    Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
+        Guid runId,
+        int limit = 100,
+        int offset = 0,
+        CancellationToken ct = default);
 }

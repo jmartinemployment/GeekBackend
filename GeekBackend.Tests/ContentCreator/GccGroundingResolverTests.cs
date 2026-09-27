@@ -110,6 +110,12 @@ public class GccGroundingResolverTests
         public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
             Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
             Task.FromResult(pages ?? []);
+
+        // These fakes exist to exercise seed lookup. Whole-run paging belongs to the tool resolver,
+        // which has its own fake, so answering pages here would assert something this file does not.
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
+            Guid runId, int limit = 100, int offset = 0, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
     }
 
     private static GccGroundingResolver Build(

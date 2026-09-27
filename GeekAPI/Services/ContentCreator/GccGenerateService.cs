@@ -62,6 +62,7 @@ public class GccGenerateService
     private readonly GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService _partnerExtraction;
     private readonly IGccProjectReader _projects;
     private readonly GccPublisherProfileResolver _publisherProfile;
+    private readonly GccKnownToolsResolver _knownTools;
 
     /// <summary>
     /// The partner URLs the operator entered on this create's project -- the authority on which
@@ -87,7 +88,8 @@ public class GccGenerateService
         GccCompetitorAnalysisResolver competitorAnalysis,
         GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction,
         IGccProjectReader projects,
-        GccPublisherProfileResolver publisherProfile)
+        GccPublisherProfileResolver publisherProfile,
+        GccKnownToolsResolver knownTools)
     {
         _prompts = prompts;
         _types = types;
@@ -101,6 +103,7 @@ public class GccGenerateService
         _partnerExtraction = partnerExtraction;
         _projects = projects;
         _publisherProfile = publisherProfile;
+        _knownTools = knownTools;
     }
 
     public static SiteSectionContextDto? ParseSiteSection(string? json) =>
@@ -1924,7 +1927,8 @@ public class GccGenerateService
         string? ctaLabel = null,
         string? lengthBand = null,
         string? writingNotes = null,
-        GccPublisherProfileResolver.PublisherProfile? publisherProfile = null)
+        GccPublisherProfileResolver.PublisherProfile? publisherProfile = null,
+        IReadOnlyList<KnownCrawlTool>? knownTools = null)
     {
         // The operator's own home page, when the project site has been crawled. CrawledHeadings was
         // [] and CrawledParagraphs held only the create's Notes, so the writer had never seen the
@@ -1974,7 +1978,10 @@ public class GccGenerateService
             CtaType: ctaType,
             CtaLabel: ctaLabel,
             LengthBand: lengthBand,
-            WritingNotes: writingNotes);
+            WritingNotes: writingNotes,
+            // Empty on every Create-path generate until 2026-09-27, which is why
+            // AppendKnownToolsBrief never rendered and no draft ever linked a tool.
+            KnownCrawlTools: knownTools);
     }
 
     private static string Slugify(string value)
@@ -2485,7 +2492,9 @@ public class GccGenerateService
         var llm = GetLlm(provider);
         var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
         var context = BuildPillarContext(
-            await _publisherProfile.ResolveAsync(create.ProjectId, ct), create, section, mustMentionBlock, provider);
+            await _publisherProfile.ResolveAsync(create.ProjectId, ct),
+            await _knownTools.ResolveAsync(create, ct),
+            create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         // Prompts come from the type's own set, not from a switch over a flat builder -- see
@@ -2634,6 +2643,7 @@ public class GccGenerateService
 
     private ProjectGenerationContext BuildPillarContext(
         GccPublisherProfileResolver.PublisherProfile publisherProfile,
+        IReadOnlyList<KnownCrawlTool> knownTools,
         GccCreateDto create,
         SiteSectionContextDto? section,
         string? mustMentionBlock,
@@ -2666,7 +2676,8 @@ public class GccGenerateService
             brief.CtaLabel,
             brief.LengthBand,
             brief.WritingNotes,
-            publisherProfile);
+            publisherProfile,
+            knownTools);
     }
 
     /// <summary>
@@ -2683,7 +2694,9 @@ public class GccGenerateService
         var llm = GetLlm(provider);
         var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
         var context = BuildPillarContext(
-            await _publisherProfile.ResolveAsync(create.ProjectId, ct), create, section, mustMentionBlock, provider);
+            await _publisherProfile.ResolveAsync(create.ProjectId, ct),
+            await _knownTools.ResolveAsync(create, ct),
+            create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         // Metadata first, because everything downstream needs what it produces. The title has to
