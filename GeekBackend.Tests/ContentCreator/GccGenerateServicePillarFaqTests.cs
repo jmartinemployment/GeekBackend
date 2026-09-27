@@ -18,12 +18,12 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccGenerateServicePillarFaqTests
 {
-    private const string SectionJson = """{"tag":"h2","heading":"Section","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}""";
+    private const string SectionJson = """{"tag":"h2","heading":"Section","paragraphs":[{"type":"text","runs":[{"text":"Body."}]},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[]}""";
     // "provenance":"plan" -- the lede/body calls stand in for the pillar's assigned outline
     // headings, so Stage 2's guard accepts them unconditionally, same as production would.
     // Call 0 is the lede, which asks for LedeAndIntroductionJsonContract -- not a sections array.
     private const string LedeAndIntroJson =
-        """{"lede":{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}}""";
+        """{"lede":{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[]}}""";
 
     private const string ImagePromptsJson =
         """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"A","prompt":"section image prompt"},{"section":"B","prompt":"second image prompt"}]}""";
@@ -31,7 +31,7 @@ public class GccGenerateServicePillarFaqTests
     private const string ArticleMetadataJson =
         """{"title":"A Title","summary":"A standfirst.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
 
-    private const string SectionsArrayJson = """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[],"provenance":"plan"}]}""";
+    private const string SectionsArrayJson = """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[],"provenance":"plan"}]}""";
 
     private sealed class RecordingProvider : IContentGenerationProvider
     {

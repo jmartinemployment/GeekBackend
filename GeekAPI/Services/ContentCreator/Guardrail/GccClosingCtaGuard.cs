@@ -1,0 +1,92 @@
+using GeekAPI.Services.Workflow.Domain.Entities;
+
+namespace GeekAPI.Services.ContentCreator.Guardrail;
+
+/// <summary>
+/// Every page references the scheduler, as a link.
+///
+/// <para>
+/// Jeff, 2026-09-27: "CTA is on every page and should be referenced". The scheduler is a shared
+/// component the site renders on every page, so the ask is an in-page anchor and the draft has to
+/// carry it -- <c>ClosingCallToActionInstruction</c> asks for exactly that, naming the href and
+/// forbidding "visit our site", a contact page and an email address.
+/// </para>
+///
+/// <para>
+/// Asking is not having, which is the lesson the blockquote already taught: the instruction was
+/// there, nothing checked, and a draft came back closing on "book a consultation with our team" as
+/// plain text. A closing sentence with no link is a call to action the reader cannot act on, and
+/// nothing further down would have noticed -- <c>SectionHtmlRenderer</c> renders a run without an
+/// href as ordinary prose, correctly, because that is what it was given.
+/// </para>
+///
+/// <para>
+/// Unlike the block quotation, this is not scoped to one content type. A blockquote belongs on a
+/// tool page because that page advertises a partner; the scheduler is on every page, so pillar, blog
+/// and tool all carry it.
+/// </para>
+/// </summary>
+public static class GccClosingCtaGuard
+{
+    /// <summary>
+    /// Violations, empty when the document links the anchor at least once. Never repairs: writing
+    /// the href in afterwards would make the check pass on a closing the model did not actually
+    /// write as an ask, which is the difference between a page that converts and a page with a link
+    /// stapled to the end.
+    /// </summary>
+    public static IReadOnlyList<string> FindViolations(ContentDocument? document, string? anchorHref)
+    {
+        // No anchor configured is "this publisher has no scheduler", which the instruction already
+        // handles by asking for no destination at all. Nothing to enforce.
+        if (string.IsNullOrWhiteSpace(anchorHref)) return [];
+        if (document is null) return ["The draft has no document, so it carries no call to action."];
+
+        var anchor = anchorHref.Trim();
+        if (LinksAnchor(document.Lede, anchor)) return [];
+        foreach (var section in document.Sections)
+        {
+            if (LinksAnchor(section, anchor)) return [];
+        }
+
+        return
+        [
+            $"No run in the draft links {anchor}, so the closing asks for nothing the reader can act on. "
+            + "The scheduler is on this page already; the ask has to be a link to it.",
+        ];
+    }
+
+    private static bool LinksAnchor(Section? section, string anchor)
+    {
+        if (section is null) return false;
+
+        foreach (var paragraph in section.Paragraphs)
+        {
+            if (RunsLinkAnchor(RunsOf(paragraph), anchor)) return true;
+        }
+
+        foreach (var child in section.Children)
+        {
+            if (LinksAnchor(child, anchor)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Every run a paragraph kind carries. A list item is as good a home for the ask as a sentence
+    /// is, and a quote is not -- but excluding one kind here would only mean a draft that put the
+    /// link somewhere reasonable got refused for it.
+    /// </summary>
+    private static IEnumerable<Run> RunsOf(Paragraph paragraph) => paragraph switch
+    {
+        TextParagraph text => text.Runs,
+        QuoteParagraph quote => quote.Runs,
+        ListParagraph list => list.Items.SelectMany(item => item),
+        DefinitionParagraph definition => definition.Items.SelectMany(item => item.Term.Concat(item.Definition)),
+        _ => [],
+    };
+
+    private static bool RunsLinkAnchor(IEnumerable<Run> runs, string anchor) =>
+        runs.Any(run => !string.IsNullOrWhiteSpace(run.Href)
+            && string.Equals(run.Href!.Trim(), anchor, StringComparison.OrdinalIgnoreCase));
+}

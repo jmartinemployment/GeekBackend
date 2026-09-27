@@ -1715,6 +1715,15 @@ public class GccGenerateService
 
         var document = new ContentDocument(toolLede with { Tag = "h2" }, sections);
 
+        // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
+        // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
+        // draft closing on "book a consultation with our team" as plain text ships, because a run
+        // with no href is ordinary prose and the renderer is right to draw it that way.
+        var toolCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
+        if (toolCtaViolations.Count > 0)
+            throw new InvalidOperationException(
+                $"Refused: the tool page '{name}' does not link the scheduler. " + string.Join(" ", toolCtaViolations));
+
         // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type -- the one
         // place this couldn't be left as a follow-up the way it briefly was. `section` is accepted
@@ -2604,6 +2613,15 @@ public class GccGenerateService
                 + "Every declared partner must be named -- check that each has an indexed crawl, since a partner "
                 + "with no evidence gives the writer nothing to say about it.");
 
+        // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
+        // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
+        // draft closing on "book a consultation with our team" as plain text ships, because a run
+        // with no href is ordinary prose and the renderer is right to draw it that way.
+        var pillarCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
+        if (pillarCtaViolations.Count > 0)
+            throw new InvalidOperationException(
+                $"Refused: the pillar '{create.Topic}' does not link the scheduler. " + string.Join(" ", pillarCtaViolations));
+
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
         var pillarWithPrompts = await GenerateSectionImagePromptsAsync(
@@ -2768,6 +2786,15 @@ public class GccGenerateService
                 + $"after a retry naming the omission. Missing: {string.Join(", ", blogMissing)}. "
                 + "Every declared partner must be named -- check that each has an indexed crawl, since a partner "
                 + "with no evidence gives the writer nothing to say about it.");
+
+        // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
+        // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
+        // draft closing on "book a consultation with our team" as plain text ships, because a run
+        // with no href is ordinary prose and the renderer is right to draw it that way.
+        var blogCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
+        if (blogCtaViolations.Count > 0)
+            throw new InvalidOperationException(
+                $"Refused: the blog '{create.Topic}' does not link the scheduler. " + string.Join(" ", blogCtaViolations));
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this

@@ -36,8 +36,11 @@ public class GccGenerateServiceToolPageGroundingTests
     // The body names the product, because a real tool page does and the generator now refuses one
     // that does not. This fixture said "Body." / "Capabilities." / "Considerations." and would have
     // shipped a page about nothing in particular.
+    // The last section closes on the scheduler as a link, because every page does and
+    // GccClosingCtaGuard refuses a draft that does not (Jeff, 2026-09-27: "CTA is on every page and
+    // should be referenced").
     private const string ToolBodyJson =
-        """{"sections":[{"tag":"h2","heading":"Where the setup hours actually go","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget removes the manual pass."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What the wizard takes off your desk","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget captures the invoice on arrival."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget needs the vendor master mapped first."}]},{"type":"quote","runs":[{"text":"reduces setup time by half"}],"cite":"https://partner.test/widget"}],"href":null,"children":[]}]}""";
+        """{"sections":[{"tag":"h2","heading":"Where the setup hours actually go","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget removes the manual pass."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What the wizard takes off your desk","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget captures the invoice on arrival."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget needs the vendor master mapped first."}]},{"type":"quote","runs":[{"text":"reduces setup time by half"}],"cite":"https://partner.test/widget"},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[]}]}""";
     private const string ToolImagePromptsJson =
         // One per H1 plus one per H2, with headroom for the optional FAQ section -- a short list is
         // refused now rather than silently leaving sections without a prompt.
