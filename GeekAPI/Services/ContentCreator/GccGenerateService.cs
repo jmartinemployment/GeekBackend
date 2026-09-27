@@ -1705,12 +1705,18 @@ public class GccGenerateService
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
         // Sourced only from real, already-verified partner FAQ pairs -- never invented and never
         // re-derived the way Pillar's PAA-driven FAQ section has to answer from scratch.
+        //
+        // Held separately as well as appended, because the CTA retry below regenerates the body and
+        // would otherwise drop it -- it is answered from verified partner data, not written, so
+        // re-running the body has no bearing on it.
+        Section? toolFaqSection = null;
         if (groundedExtraction is not null && groundedExtraction.FaqBank.Count > 0)
         {
             var faqResult = await llm.CompleteAsync(
                 _prompts.BuildToolFaqSectionPrompt(context, pillarMeta, app, groundedExtraction.FaqBank),
                 ct);
-            sections.Add(LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section"));
+            toolFaqSection = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section");
+            sections.Add(toolFaqSection);
         }
 
         var document = new ContentDocument(toolLede with { Tag = "h2" }, sections);
@@ -1719,10 +1725,44 @@ public class GccGenerateService
         // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
         // draft closing on "book a consultation with our team" as plain text ships, because a run
         // with no href is ordinary prose and the renderer is right to draw it that way.
+        //
+        // One retry naming the omission before the refusal stands, matching pillar and blog. The
+        // retry regenerates the body only, so the FAQ section is put back onto it.
         var toolCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
         if (toolCtaViolations.Count > 0)
+        {
+            _logger.LogInformation("Tool closing did not link the scheduler; retrying once with the omission named.");
+            var toolCtaRetry = await llm.CompleteAsync(
+                toolType.Body(toolOutlineCtx with
+                {
+                    Metadata = pillarMeta,
+                    Lede = toolLede,
+                    EvidenceBlock = Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!),
+                }),
+                ct);
+            var toolCtaSections = LlmResponseJsonParser.ParseSections(toolCtaRetry.Content, $"tool page '{name}' (cta retry)").ToList();
+            if (toolCtaSections.Count > 0)
+            {
+                if (toolFaqSection is not null) toolCtaSections.Add(toolFaqSection);
+                var retried = new ContentDocument(toolLede with { Tag = "h2" }, toolCtaSections);
+                var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
+                    retried, context.ConsultationAnchorHref);
+                // The block quotation is required on this type too, so a retry that fixes the link
+                // and loses the quote is not a draft worth keeping.
+                if (retriedViolations.Count == 0
+                    && Guardrail.GccToolQuoteGuard.FindViolations(toolCtaSections, groundedExtraction).Count == 0)
+                {
+                    document = retried;
+                    sections = toolCtaSections;
+                    toolCtaViolations = retriedViolations;
+                }
+            }
+        }
+
+        if (toolCtaViolations.Count > 0)
             throw new InvalidOperationException(
-                $"Refused: the tool page '{name}' does not link the scheduler. " + string.Join(" ", toolCtaViolations));
+                $"Refused: the tool page '{name}' does not link the scheduler, after a retry naming the omission. "
+                + string.Join(" ", toolCtaViolations));
 
         // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type -- the one
@@ -2617,10 +2657,40 @@ public class GccGenerateService
         // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
         // draft closing on "book a consultation with our team" as plain text ships, because a run
         // with no href is ordinary prose and the renderer is right to draw it that way.
+        //
+        // One retry naming the omission before the refusal stands, the same treatment the required
+        // partner mentions above get.
         var pillarCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
         if (pillarCtaViolations.Count > 0)
+        {
+            _logger.LogInformation("Pillar closing did not link the scheduler; retrying once with the omission named.");
+            var pillarCtaEvidence = $"{pillarEvidence}{Environment.NewLine}"
+                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!);
+            var pillarCtaRetry = await llm.CompleteAsync(
+                pillarType.Body(pillarPromptCtx with { EvidenceBlock = pillarCtaEvidence, Lede = pillarLede }), ct);
+            var pillarCtaSections = LlmResponseJsonParser.ParseSections(pillarCtaRetry.Content, "pillar body (cta retry)").ToList();
+            if (pillarCtaSections.Count > 0
+                && GccHeadingProvenanceGuard.FindUnlicensedHeadings(pillarCtaSections, evidence).Count == 0)
+            {
+                var retried = ContentGuardrail.Apply(new ContentDocument(lede, pillarCtaSections)).Document;
+                var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
+                    retried, context.ConsultationAnchorHref);
+                // Only take the retry when it fixed the thing it was asked to fix, and when it did
+                // not drop a partner the first draft had named -- trading one refusal for another is
+                // not progress.
+                if (retriedViolations.Count == 0
+                    && GccRequiredToolMentions.Missing(retried, requiredTools).Count == 0)
+                {
+                    document = retried;
+                    pillarCtaViolations = retriedViolations;
+                }
+            }
+        }
+
+        if (pillarCtaViolations.Count > 0)
             throw new InvalidOperationException(
-                $"Refused: the pillar '{create.Topic}' does not link the scheduler. " + string.Join(" ", pillarCtaViolations));
+                $"Refused: the pillar '{create.Topic}' does not link the scheduler, after a retry naming the omission. "
+                + string.Join(" ", pillarCtaViolations));
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
@@ -2791,10 +2861,41 @@ public class GccGenerateService
         // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
         // draft closing on "book a consultation with our team" as plain text ships, because a run
         // with no href is ordinary prose and the renderer is right to draw it that way.
+        //
+        // One retry naming the omission before the refusal stands, the same treatment the required
+        // partner mentions above get: the model does emit the run when told plainly, and discarding
+        // two thousand words over a missing href is waste.
         var blogCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
         if (blogCtaViolations.Count > 0)
+        {
+            _logger.LogInformation("Blog closing did not link the scheduler; retrying once with the omission named.");
+            var ctaEvidence = $"{blogEvidence}{Environment.NewLine}"
+                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!);
+            var ctaRetry = await llm.CompleteAsync(
+                blogType.Body(blogPromptCtx with { EvidenceBlock = ctaEvidence, Lede = blogLede }), ct);
+            var ctaRetrySections = LlmResponseJsonParser.ParseSections(ctaRetry.Content, "blog body (cta retry)");
+            if (ctaRetrySections.Count > 0
+                && GccHeadingProvenanceGuard.FindUnlicensedHeadings(ctaRetrySections, evidence).Count == 0)
+            {
+                var retried = ContentGuardrail.Apply(
+                    new ContentDocument(blogLede with { Tag = "h2" }, ctaRetrySections)).Document;
+                var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
+                    retried, context.ConsultationAnchorHref);
+                // Only take the retry when it actually fixed the thing it was asked to fix -- a
+                // second draft that still has no link is not an improvement worth keeping, and it
+                // would also discard the required-tool mentions the first one had satisfied.
+                if (retriedViolations.Count == 0)
+                {
+                    document = retried;
+                    blogCtaViolations = retriedViolations;
+                }
+            }
+        }
+
+        if (blogCtaViolations.Count > 0)
             throw new InvalidOperationException(
-                $"Refused: the blog '{create.Topic}' does not link the scheduler. " + string.Join(" ", blogCtaViolations));
+                $"Refused: the blog '{create.Topic}' does not link the scheduler, after a retry naming the omission. "
+                + string.Join(" ", blogCtaViolations));
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this

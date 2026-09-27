@@ -55,6 +55,30 @@ public static class GccClosingCtaGuard
         ];
     }
 
+    /// <summary>
+    /// What to tell the writer when the first attempt came back without the link.
+    ///
+    /// <para>
+    /// One retry naming the omission, then the refusal stands -- the same treatment
+    /// <c>GccRequiredToolMentions</c> gives a missing partner, and for the same reason: discarding a
+    /// finished draft over something the model would fix if told is waste, and asking repeatedly
+    /// until the answer comes back right is how unsupported work gets written.
+    /// </para>
+    ///
+    /// <para>
+    /// It shows the run shape rather than describing it. The instruction already said "put it on a
+    /// run in the closing paragraph with href", and a draft still came back with the words and no
+    /// link, so the thing worth repeating is the JSON.
+    /// </para>
+    /// </summary>
+    public static string RetryInstruction(string anchorHref) =>
+        $"OMITTED ON THE LAST ATTEMPT -- the closing did not link the scheduler. The last section "
+        + "must end by asking the reader to book time, and that ask is a run carrying the href: "
+        + $"{{\"text\": \"Book a free consultation.\", \"href\": \"{anchorHref}\"}} inside the closing "
+        + "paragraph's runs. Write the wording that fits the piece, but the run has to carry that "
+        + "exact href. Do not add a separate link paragraph at the end -- the ask is the closing "
+        + "sentence, and the link is on it.";
+
     private static bool LinksAnchor(Section? section, string anchor)
     {
         if (section is null) return false;
