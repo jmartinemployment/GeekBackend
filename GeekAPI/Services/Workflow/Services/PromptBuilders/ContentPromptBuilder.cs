@@ -220,6 +220,26 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// </summary>
     private const int PillarSectionMaxOutputTokens = 4096;
 
+    /// <summary>
+    /// What a long-form body needs to be able to say its own word floor.
+    ///
+    /// <para>
+    /// Prose in this contract is not prose. Every run carries all four fields the schema marks
+    /// required -- <c>{"text":"...","bold":false,"italic":false,"href":null}</c> -- and every
+    /// section carries its tag, heading, href, children and provenance. The scaffolding roughly
+    /// doubles the token cost of the words, so a budget set by eye against a word count lands at
+    /// about half of what those words need.
+    /// </para>
+    ///
+    /// <para>
+    /// The blog body had 6,144 against an 1,800-word floor: 3.4 tokens a word, where the pillar
+    /// runs at 5.5 and works. It could not reach its floor, stopped near 1,200 words, and failed
+    /// density as a consequence -- two mentions in 1,199 words is 0.17%. Three prompt rewrites went
+    /// into a cause that was never in the prompt (Jeff, 2026-09-28: scores 0, 40, 60).
+    /// </para>
+    /// </summary>
+    private const int LongFormBodyMaxOutputTokens = 16384;
+
     private const string TopicFocusJsonContract =
         "{\"focus\": string[] (4-8 short topic phrases, 1-4 words each, describing the site's real services/subject matter — no generic filler words)}";
 
@@ -1440,7 +1460,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: 16384));
+            MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
 
     public ChatCompletionRequest BuildArticleSectionPrompt(
@@ -1840,7 +1860,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
             Temperature: 0.7,
-            MaxOutputTokens: 6144));
+            MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
 
     public ChatCompletionRequest BuildStandaloneBlogMetadataPrompt(ProjectGenerationContext context)
@@ -1978,7 +1998,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
             Temperature: 0.7,
-            MaxOutputTokens: 6144));
+            MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
 
     public ChatCompletionRequest BuildSocialPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string platform, string articleUrl)
@@ -2226,6 +2246,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(sectionBlock.ToString().TrimEnd())
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
+            .AppendLine(SeoBodyInstruction(context.TargetKeyword, GccV2LongFormTypes.Tool))
             // Length is guidance for long form, never a quota. "Target at least N words, do not stop
             // early" is padding pressure: on thin partner data the only way to satisfy it is filler,
             // and filler on a partner page is worse than a short honest one. Jeff, 2026-09-23:
@@ -2339,7 +2360,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             // 16384 to match BuildArticleSectionBatchPrompt (Pillar's own body-batch call) now that
             // Tool targets the same 3,000-5,000 word range across six JSON-structured sections --
             // 8192 was sized for the old four-section, ~1,500-2,000 word target.
-            MaxOutputTokens: 16384));
+            MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
 
     /// <summary>See <see cref="IContentPromptBuilder.BuildToolFaqSectionPrompt"/>.</summary>

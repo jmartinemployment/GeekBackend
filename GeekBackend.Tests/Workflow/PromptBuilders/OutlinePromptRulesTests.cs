@@ -2,6 +2,7 @@ using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
+using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 
 namespace GeekBackend.Tests.Workflow.PromptBuilders;
@@ -73,6 +74,13 @@ public class OutlinePromptRulesTests
         {
             "blog" => Rendered(builder.BuildStandaloneBlogBodyPrompt(
                 Context(), new BlogMetadataDraft("T", "M", ["ai"], ["One"]))),
+            "tool" => Rendered(builder.BuildToolBodyPrompt(
+                Context(),
+                new ArticleMetadataDraft("Partner Widget", "M", ["ai"], []),
+                new GeekAPI.Services.Workflow.Services.SchemaBuilders.SoftwareApplicationDescriptor(
+                    "Partner Widget", "A widget."),
+                "partner-widget",
+                GeekAPI.Services.ContentCreator.ContentTypes.ToolPrompts.Outline(Context(), "Partner Widget"))),
             "pillar" => Rendered(builder.BuildArticleSectionBatchPrompt(
                 Context(),
                 new ArticleMetadataDraft("T", "M", ["ai"], ["One"]),
@@ -117,8 +125,24 @@ public class OutlinePromptRulesTests
         Assert.Contains("within its first hundred words", rendered, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Tool_equals_pillar_on_every_scored_measure()
+    {
+        // Tool is the revenue-critical type and GetSeoLengthRules graded it at half of Pillar --
+        // 1,500 words and 2 sections against 3,000 and 3 -- while ContentLengthTargets had it right.
+        // Jeff, 2026-09-28: "Tool is the most important Content Type and at very least should equal
+        // a Pillar on every measure", which is the same instruction recorded on 2026-09-22.
+        Assert.Equal(
+            GccV2LongFormTypes.GetSeoLengthRules(GccV2LongFormTypes.Pillar),
+            GccV2LongFormTypes.GetSeoLengthRules(GccV2LongFormTypes.Tool));
+
+        Assert.Equal(ContentLengthTargets.PillarMinWords, ContentLengthTargets.ToolMinWords);
+        Assert.Equal(ContentLengthTargets.PillarTargetMaxWords, ContentLengthTargets.ToolTargetMaxWords);
+    }
+
     [Theory]
     [InlineData("pillar", 3000, 3)]
+    [InlineData("tool", 3000, 3)]
     [InlineData("blog", 1800, 3)]
     public void The_body_is_given_the_floor_the_scorer_actually_uses(string which, int minWords, int minSections)
     {
@@ -160,6 +184,37 @@ public class OutlinePromptRulesTests
         Assert.Contains("DIRECT ANSWERS", rendered, StringComparison.Ordinal);
         Assert.Contains("answers its own heading in its first two sentences", rendered, StringComparison.Ordinal);
         Assert.Contains("extracted more reliably", rendered, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("pillar", 3000)]
+    [InlineData("blog", 1800)]
+    public void The_output_budget_can_hold_the_word_floor_it_asks_for(string which, int minWords)
+    {
+        // The cause of three short drafts, and it was never in the prompt. Every run emits all four
+        // required fields and every section its tag, heading, href, children and provenance, so the
+        // JSON roughly doubles the token cost of the words. The blog body had 6,144 tokens against
+        // an 1,800-word floor -- 3.4 a word, where the pillar runs at 5.5 and reaches its floor --
+        // so it stopped near 1,200 and failed density as a consequence.
+        //
+        // 5.4 is the ratio that demonstrably works. Anything below it is a budget that cannot say
+        // what the prompt is asking for, whatever the prompt says.
+        var builder = new ContentPromptBuilder();
+        var request = which == "pillar"
+            ? builder.BuildArticleSectionBatchPrompt(
+                Context(),
+                new ArticleMetadataDraft("T", "M", ["ai"], ["One"]),
+                slots: [SectionSlot.Assigned("One")],
+                fullOutline: [SectionSlot.Assigned("One")],
+                isRegeneration: false)
+            : builder.BuildStandaloneBlogBodyPrompt(
+                Context(), new BlogMetadataDraft("T", "M", ["ai"], ["One"]));
+
+        Assert.NotNull(request.MaxOutputTokens);
+        Assert.True(
+            request.MaxOutputTokens >= minWords * 5.4,
+            $"{which}: {request.MaxOutputTokens} output tokens for a {minWords:N0}-word floor is "
+            + $"{request.MaxOutputTokens / (double)minWords:0.0} a word; 5.4 is the ratio that works.");
     }
 
     [Theory]

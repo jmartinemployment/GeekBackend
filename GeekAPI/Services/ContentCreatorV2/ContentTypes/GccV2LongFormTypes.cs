@@ -73,7 +73,16 @@ public static class GccV2LongFormTypes
         {
             Pillar => (3000, 3, true),
             Blog => (1800, 3, true),
-            Tool => (1500, 2, true),
+            // Tool equals Pillar on every measure. It is the revenue-critical type and this table
+            // graded it at half -- 1,500 words and 2 sections against 3,000 and 3 -- while
+            // ContentLengthTargets had it right (ToolMinWords = PillarMinWords). Two length specs,
+            // one of them scoring the most important content type as a second-class one.
+            //
+            // Jeff, 2026-09-28: "Tool is the most important Content Type and at very least should
+            // equal a Pillar on every measure." The same instruction is on record from 2026-09-22:
+            // "equal to Pillar, never shorter", and the note there says a spec showing Tool below
+            // Pillar is stale and should be fixed rather than observed.
+            Tool => (3000, 3, true),
             Comparison => (2200, 4, true),
             CaseStudy => (1800, 4, true),
             Guide => (2500, 4, true),
