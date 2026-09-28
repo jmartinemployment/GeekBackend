@@ -7,6 +7,8 @@ using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekApplication.Models.ContentCreator;
 
+using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+
 namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 
 public interface IContentPromptBuilder
@@ -307,44 +309,88 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "existing on the site.";
 
     /// <summary>
-    /// Where the keyword goes when a prompt is planning the piece: one H2 carries it.
+    /// Everything the SEO score measures, said to the writer in the writer's terms.
+    ///
+    /// <para>
+    /// These rules were accreted one sentence at a time, in whichever prompt was open when a
+    /// failure was reported, and they ended up spread across outline, lede and body prompts while
+    /// <c>GcwSeoAnalyzer</c> measured a different list. That is why a draft came back scoring 40
+    /// with keyword-in-lede, density and length all failing: nothing had asked for any of them
+    /// where those things are written.
+    /// </para>
+    ///
+    /// <para>
+    /// The numbers come from <see cref="GccV2LongFormTypes.GetSeoLengthRules"/> -- the scorer's own
+    /// source -- so the floor the writer is given and the floor it is judged against cannot drift.
+    /// They were separate constants in separate files: the blog prompt asked for 2,000 while the
+    /// score required 1,800, and the tool prompt asked for 3,000 against a floor of 1,500.
+    /// </para>
     /// </summary>
-    private static string KeywordPlacementInstruction(string keyword) =>
-        $"KEYWORD PLACEMENT: \"{keyword}\" appears in at least one H2, as part of a heading someone "
-        + "would actually write. Not in every heading -- a page that reads as stuffed fails on "
-        + "density a few checks later.";
+    private static string SeoBodyInstruction(string keyword, string contentType)
+    {
+        var (minWords, minSections, _) = GccV2LongFormTypes.GetSeoLengthRules(contentType);
+        // 0.6% sits mid-band in the scorer's 0.4-2.5%, so a draft that lands near it passes without
+        // reading as stuffed at either edge.
+        var mentions = Math.Max(4, (int)Math.Round(minWords * 0.006));
+        var perSection = minWords / Math.Max(minSections + 2, 1);
+
+        return new StringBuilder()
+            .AppendLine("=== WHAT THIS PAGE IS SCORED ON ===")
+            .AppendLine(
+                $"LENGTH: {minWords:N0} words is the floor, not the aim. Below it the page fails "
+                + "outright. Across your sections that is roughly "
+                + $"{perSection:N0}+ words each -- three to five substantial paragraphs per section. "
+                + "A total alone is satisfiable by one long section and several thin ones, which is "
+                + "how a piece asked for a floor came back at half of it. Count as you go.")
+            .AppendLine(
+                $"SECTIONS: at least {minSections} top-level sections, and more where the subject "
+                + "has more to say. Each one covers something the others do not.")
+            .AppendLine(
+                $"KEYWORD FREQUENCY: \"{keyword}\" and its natural variants appear about {mentions} "
+                + "times across the piece -- roughly once every 200 words. Never twice in a "
+                + "paragraph, never where a pronoun reads better. One mention in a long piece fails "
+                + "this as surely as forty do.")
+            .AppendLine(
+                $"HEADINGS: at least one H2 contains \"{keyword}\". Headings answer the question a "
+                + "reader arrived with -- \"What it costs to keep doing this by hand\" rather than "
+                + "\"Overview\" -- because a heading that names its question is the one a search "
+                + "engine and an answer engine can both use.")
+            .AppendLine(
+                "DIRECT ANSWERS: each section answers its own heading in its first two sentences, "
+                + "then develops it. Burying the answer four paragraphs down loses the reader and "
+                + "loses the extract.")
+            .AppendLine(
+                "STRUCTURE: use a list where the content genuinely is a list -- steps, criteria, "
+                + "what is included -- because a list is extracted more reliably than the same "
+                + "material written as prose. Never as decoration, and never a list of three used "
+                + "for rhythm.")
+            .ToString()
+            .TrimEnd();
+    }
 
     /// <summary>
-    /// The opening paragraph carries the keyword, told to the prompt that writes the opening.
+    /// The SEO rules that belong to a plan: what the headings have to do.
+    /// </summary>
+    private static string SeoOutlineInstruction(string keyword) =>
+        $"HEADINGS AND THE KEYWORD: at least one H2 contains \"{keyword}\", and not more than two -- "
+        + "a page with it in every heading fails on density. Every heading names the question its "
+        + "section answers, in the reader's words, never a label like \"Overview\" or \"Key "
+        + "Considerations\". A heading that states its question is the one an answer engine quotes.";
+
+    /// <summary>
+    /// The SEO rules that belong to an opening: the keyword, and the answer.
     ///
     /// <para>
     /// This lived in the outline prompts, which plan the piece and do not write the lede, so
-    /// "keyword in lede" failed on a draft whose lede prompt had never been told (Jeff, 2026-09-28:
-    /// score 40, keyword in lede failing).
+    /// "keyword in lede" failed on a draft whose lede prompt had never been told.
     /// </para>
     /// </summary>
-    private static string KeywordInLedeInstruction(string keyword) =>
-        $"KEYWORD: the opening paragraph contains \"{keyword}\", in a sentence that would be there "
-        + "anyway. Not as a label, not bolted onto the first line -- the reader should not be able to "
-        + "tell it was required.";
-
-    /// <summary>
-    /// How often the keyword appears in the prose, as a number the writer can aim at.
-    ///
-    /// <para>
-    /// "Not repeated to hit a count" was the whole guidance, and the model obeyed it exactly: one
-    /// mention in 1,132 words, a density of 0.09% against a target floor of 0.4%. Telling a writer
-    /// what not to do, with no target, is how a check and a prompt end up disagreeing.
-    /// </para>
-    /// </summary>
-    private static string KeywordDensityInstruction(string keyword, int targetWords)
-    {
-        var floor = Math.Max(4, (int)Math.Round(targetWords * 0.006));
-        return $"KEYWORD FREQUENCY: \"{keyword}\" and its natural variants appear roughly {floor} "
-            + $"times across the piece -- about once every 200 words -- never twice in a paragraph "
-            + "and never where a pronoun reads better. This is what the density check measures; one "
-            + "mention in a long piece fails it as surely as forty do.";
-    }
+    private static string SeoLedeInstruction(string keyword) =>
+        $"KEYWORD AND ANSWER: the opening contains \"{keyword}\" in a sentence that would be there "
+        + "anyway -- not as a label, not bolted onto the first line. And it answers the question the "
+        + "title asks within its first hundred words, before any history, context or scene-setting. "
+        + "A reader who stops after the opening should already have the answer; everything after it "
+        + "is why.";
 
     private const string HeadingProvenanceInstruction =
         "Every section you write, at every level including nested children, must be licensed by real " +
@@ -1074,7 +1120,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             "Derive sectionOutline from keyword SERP and local pack headings (declarative topics like \"Benefits of X\", not questions). " +
             "Frame this as a use case showing how AI implementation services solve the client problem — not just generic background. " +
             "Do not include a Tools H2. Tool names from the crawl belong in body sentences later, not as outline headings. " +
-            KeywordPlacementInstruction(context.TargetKeyword) + " " +
+            SeoOutlineInstruction(context.TargetKeyword) + " " +
             "With the exception of the Lede, article headings are never questions. People Also Ask questions from the brief are not outline headings. " +
             "Title must NOT be a question and must NOT start with \"How\" — use a definitive statement (e.g. \"AI Prospecting and Lead Intelligence: Implementation Guide\"). " +
             $"Meta description: 140-160 characters, include \"{context.TargetKeyword}\" naturally, concise factual summary for B2B readers, no hype. " +
@@ -1106,7 +1152,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
+            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
             .AppendLine("Write the opening lede for a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine(BuildLedeTypeGuidance(context))
@@ -1156,7 +1202,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
+            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
             .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + topic → 12 types); keep expert, consultative tone throughout.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine()
@@ -1298,7 +1344,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
-            .AppendLine(KeywordDensityInstruction(context.TargetKeyword, ContentLengthTargets.PillarTargetMinWords))
+            .AppendLine(SeoBodyInstruction(context.TargetKeyword, GccV2LongFormTypes.Pillar))
             .AppendLine("Open each section where its own material starts. Somewhere early in the page the practitioner's cost — the delay, the error rate, the wasted hours of the status quo — has to be concrete, but it is one page making one argument: do not restate the pain at the top of every section, and never open with \"AI enables…\", \"Intelligent X is…\", a capability list, or a definition of the technology.")
             .AppendLine("Do not write these as neutral textbook explainers — every subsection should be framed through what an AI implementation " +
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")
@@ -1698,7 +1744,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("The blog title MUST be different from the pillar title — use a conversational hook, question, or numbered angle (e.g. \"3 Ways...\", \"Why...\"). Never copy the pillar title verbatim.")
-            .AppendLine(KeywordPlacementInstruction(context.TargetKeyword))
+            .AppendLine(SeoOutlineInstruction(context.TargetKeyword))
             .AppendLine("Do not include a Tools H2. Tool names belong in body sentences, not as outline headings.")
             .ToString();
 
@@ -1725,7 +1771,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
+            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
@@ -1763,12 +1809,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Substantive paragraphs with examples, drawn from what the pillar actually says; first/second person allowed.")
             .AppendLine("Weave the pillar's takeaways into this blog's own paragraphs. Name listed platforms in prose where they help the angle — a closing CTA is not weaving.")
             .AppendLine(
-                $"LENGTH: {ContentLengthTargets.BlogRangeLabel} words, and {ContentLengthTargets.BlogMinWords:N0} is a floor "
-                + "rather than a target. Across the sections you are writing that is roughly "
-                + $"{ContentLengthTargets.BlogMinWords / 5:N0}-{ContentLengthTargets.BlogTargetMaxWords / 5:N0} words each, "
-                + "three to five substantial paragraphs per section. A total alone is satisfiable by "
-                + "one long section and four thin ones, which is how a piece asked for "
-                + $"{ContentLengthTargets.BlogMinWords:N0} came back at half that. Count as you go.")
+                $"Aim for {ContentLengthTargets.BlogRangeLabel} words. The scored floor stated below is "
+                + "lower than that aim, and a piece that only clears the floor is a thin one.")
             .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .ToString();
@@ -1809,7 +1851,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("This is a standalone deep-dive blog — there is no companion pillar article. Title should be a conversational hook, question, or numbered angle.")
-            .AppendLine(KeywordPlacementInstruction(context.TargetKeyword))
+            .AppendLine(SeoOutlineInstruction(context.TargetKeyword))
             // The ban lived only in the pillar's outline prompt, so nothing ever told a blog not to
             // write one -- which is why "Choosing the Right AI Tools for ..." turned up on them.
             .AppendLine("Do not include a Tools H2. Tool names belong in body sentences, not as outline headings.")
@@ -1836,7 +1878,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
+            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
             // Stage 6: this used to hardcode "prefer a creative opening" with no way to choose
             // among the 12 lede types the JSON contract below already demands a value for --
@@ -1872,12 +1914,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Write a standalone deep-dive blog post from the research brief and keyword — there is no pillar article to repurpose.")
             .AppendLine("Substantive paragraphs with examples and implementation context; first/second person allowed.")
             .AppendLine(
-                $"LENGTH: {ContentLengthTargets.BlogRangeLabel} words, and {ContentLengthTargets.BlogMinWords:N0} is a floor "
-                + "rather than a target. Across the sections you are writing that is roughly "
-                + $"{ContentLengthTargets.BlogMinWords / 5:N0}-{ContentLengthTargets.BlogTargetMaxWords / 5:N0} words each, "
-                + "three to five substantial paragraphs per section. A total alone is satisfiable by "
-                + "one long section and four thin ones, which is how a piece asked for "
-                + $"{ContentLengthTargets.BlogMinWords:N0} came back at half that. Count as you go.")
+                $"Aim for {ContentLengthTargets.BlogRangeLabel} words. The scored floor stated below is "
+                + "lower than that aim, and a piece that only clears the floor is a thin one.")
             // A whole-document target is a number the model cannot act on while writing section
             // three of six. Pillar has carried a per-section range all along and lands in its band;
             // blog carried only the total and came back at 791 words against 1,800-2,500 (Jeff,
@@ -1888,7 +1926,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
-            .AppendLine(KeywordDensityInstruction(context.TargetKeyword, ContentLengthTargets.BlogTargetMinWords))
+            .AppendLine(SeoBodyInstruction(context.TargetKeyword, GccV2LongFormTypes.Blog))
             .AppendLine(FillerBanInstruction)
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))
