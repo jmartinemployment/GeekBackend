@@ -57,6 +57,7 @@ public class GeekCrawlerIngestController : ControllerBase
     private readonly HttpGeekCrawlerRepository _repo;
     private readonly GeekCrawlerProgressNotifier _notifier;
     private readonly IGeekCrawlerRagClient _rag;
+    private readonly GeekCrawlerRunOwnerCache _ownerCache;
     private readonly ILogger<GeekCrawlerIngestController> _logger;
 
     public GeekCrawlerIngestController(
@@ -64,12 +65,14 @@ public class GeekCrawlerIngestController : ControllerBase
         HttpGeekCrawlerRepository repo,
         GeekCrawlerProgressNotifier notifier,
         IGeekCrawlerRagClient rag,
+        GeekCrawlerRunOwnerCache ownerCache,
         ILogger<GeekCrawlerIngestController> logger)
     {
         _user = user;
         _repo = repo;
         _notifier = notifier;
         _rag = rag;
+        _ownerCache = ownerCache;
         _logger = logger;
     }
 
@@ -178,6 +181,7 @@ public class GeekCrawlerIngestController : ControllerBase
                     // non-terminal state forever. That is precisely the outcome an explicit
                     // awaiting_* state exists to avoid.
                     await _repo.DeleteRunAsync(stuck.Id, ct).ConfigureAwait(false);
+                    _ownerCache.Forget(stuck.Id);
                     _logger.LogInformation(
                         "Purged and retired superseded run {StuckRunId}; crawl block cleared.",
                         stuck.Id);
@@ -215,6 +219,7 @@ public class GeekCrawlerIngestController : ControllerBase
 
                 await _repo.ClearRunCrawlDataAsync(stale.Id, ct).ConfigureAwait(false);
                 await _repo.DeleteRunAsync(stale.Id, ct).ConfigureAwait(false);
+                _ownerCache.Forget(stale.Id);
             }
 
             // Capacity preflight. Staging a second copy is what makes the publish atomic, and it is
@@ -271,7 +276,7 @@ public class GeekCrawlerIngestController : ControllerBase
         CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
-        if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
+        if (await DenyIfNotOwnedAsync(runId, ct).ConfigureAwait(false) is { } denied) return denied;
         if (request is null)
             return BadRequest("patch body is required");
         if (request.ClearContentReadyAt && request.ContentReadyAt is not null)
@@ -406,6 +411,7 @@ public class GeekCrawlerIngestController : ControllerBase
                 if (purged)
                 {
                     await _repo.DeleteRunAsync(outgoing.Id, ct).ConfigureAwait(false);
+                    _ownerCache.Forget(outgoing.Id);
                 }
                 else
                 {
@@ -560,7 +566,7 @@ public class GeekCrawlerIngestController : ControllerBase
     public async Task<IActionResult> DeleteRun(Guid runId, CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
-        if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
+        if (await DenyIfNotOwnedAsync(runId, ct).ConfigureAwait(false) is { } denied) return denied;
 
         if (!_rag.IsEnabled)
         {
@@ -585,6 +591,7 @@ public class GeekCrawlerIngestController : ControllerBase
             // of a corpus that no longer existed. The indexed-runs report read those numbers and
             // advertised runs with nothing behind them.
             await _repo.DeleteRunAsync(runId, ct).ConfigureAwait(false);
+            _ownerCache.Forget(runId);
         }
         catch (HttpRequestException ex)
         {
@@ -602,7 +609,7 @@ public class GeekCrawlerIngestController : ControllerBase
         CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
-        if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
+        if (await DenyIfNotOwnedAsync(runId, ct).ConfigureAwait(false) is { } denied) return denied;
         if (request?.Pages is null || request.Pages.Count == 0)
             return BadRequest("pages are required");
         if (request.Pages.Count > GeekCrawlerIngestLimits.MaxPagesPerBatch)
@@ -740,7 +747,7 @@ public class GeekCrawlerIngestController : ControllerBase
         CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
-        if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
+        if (await DenyIfNotOwnedAsync(runId, ct).ConfigureAwait(false) is { } denied) return denied;
         if (request?.Links is null || request.Links.Count == 0)
             return BadRequest("links are required");
         if (request.Links.Count > GeekCrawlerIngestLimits.MaxLinksPerBatch)
@@ -766,11 +773,100 @@ public class GeekCrawlerIngestController : ControllerBase
         }
     }
 
-    private async Task<bool> OwnsRunAsync(Guid runId, CancellationToken ct)
+    /// <summary>What an ownership check concluded. Unavailable is not "no".</summary>
+    private enum RunOwnership
     {
-        var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
-        return run is not null
-               && string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.Ordinal);
+        /// <summary>The caller owns this run.</summary>
+        Owned,
+
+        /// <summary>The run does not exist, or belongs to someone else. A 404.</summary>
+        Denied,
+
+        /// <summary>
+        /// The question could not be answered — GeekRepository was unreachable. A 502, because
+        /// reporting it as Denied would tell the crawler its run had vanished.
+        /// </summary>
+        Unavailable,
+    }
+
+    /// <summary>
+    /// Whether the caller owns this run, answered from cache where possible.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a bool and a bare <c>_repo.GetRunAsync</c> on every ingest request. Two
+    /// things were wrong with that, and both cost real crawls.
+    ///
+    /// <para>
+    /// It asked GeekRepository over HTTP every time, hundreds of times per crawl, to re-answer a
+    /// question whose answer never changes. <see cref="GeekCrawlerRunOwnerCache"/> now answers
+    /// repeat calls, so the lookup mostly stops happening — which is what §3a means by fixing the
+    /// root cause rather than retrying it.
+    /// </para>
+    ///
+    /// <para>
+    /// And a transport failure came back as an exception that nothing caught, because the call sits
+    /// before each handler's try/catch. On 2026-09-28 at 16:04:59 that produced a bare 500 with an
+    /// empty body in 22ms, and the crawler discarded 752 pages and 69,968 links. The failure is now
+    /// a returned value, so every call site answers it deliberately instead of depending on where
+    /// the try block happens to start.
+    /// </para>
+    /// </remarks>
+    private async Task<RunOwnership> ResolveOwnershipAsync(Guid runId, CancellationToken ct)
+    {
+        var caller = _user.UserId.ToString("D");
+
+        var cached = _ownerCache.TryGet(runId);
+        if (cached is not null)
+        {
+            return string.Equals(cached, caller, StringComparison.Ordinal)
+                ? RunOwnership.Owned
+                : RunOwnership.Denied;
+        }
+
+        GeekCrawlerRunDto? run;
+        try
+        {
+            run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // No retry: §3a. Report it as what it is -- the ownership question was not answered --
+            // and let the caller return a 502 that names the cause.
+            _logger.LogError(
+                ex,
+                "Ownership lookup for run {RunId} could not reach GeekRepository",
+                runId);
+            return RunOwnership.Unavailable;
+        }
+
+        if (run is null) return RunOwnership.Denied;
+
+        // Only a resolved owner is cached, never an absent run.
+        _ownerCache.Set(runId, run.OwnerUserId ?? "");
+
+        return string.Equals(run.OwnerUserId, caller, StringComparison.Ordinal)
+            ? RunOwnership.Owned
+            : RunOwnership.Denied;
+    }
+
+    /// <summary>
+    /// The ownership gate every ingest route opens with. Returns null when the caller may proceed,
+    /// or the response to return when it may not.
+    /// </summary>
+    private async Task<IActionResult?> DenyIfNotOwnedAsync(Guid runId, CancellationToken ct)
+    {
+        switch (await ResolveOwnershipAsync(runId, ct).ConfigureAwait(false))
+        {
+            case RunOwnership.Owned:
+                return null;
+            case RunOwnership.Unavailable:
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    $"Could not verify ownership of run {runId:D}: GeekRepository was unreachable. "
+                    + "Nothing was written. Retry the request.");
+            default:
+                return NotFound();
+        }
     }
 
     private static bool IsAllowedIngestStatus(string status) =>
@@ -813,7 +909,7 @@ public class GeekCrawlerIngestController : ControllerBase
     public async Task<IActionResult> GetRunReport(Guid runId, CancellationToken ct)
     {
         if (!_user.IsAuthenticated) return Unauthorized();
-        if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
+        if (await DenyIfNotOwnedAsync(runId, ct).ConfigureAwait(false) is { } denied) return denied;
 
         try
         {

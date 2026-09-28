@@ -67,6 +67,12 @@ public static class GeekCrawlerServiceRegistration
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<GeekCrawlerWake>();
         services.AddSingleton<GeekCrawlerProgressNotifier>();
+
+        // Singleton so the cache spans requests -- a per-request instance would cache nothing and
+        // leave the ownership lookup firing on every batch, which is the failure this removes.
+        // AddMemoryCache is idempotent; it is also registered by the ContentCreatorV2 module.
+        services.AddMemoryCache();
+        services.AddSingleton<GeekCrawlerRunOwnerCache>();
         services.AddScoped<GeekCrawlerPageBatchWriter>();
         services.AddScoped<GeekCrawlerLinkRebuilder>();
         services.AddScoped<MobilePageFetcher>();
