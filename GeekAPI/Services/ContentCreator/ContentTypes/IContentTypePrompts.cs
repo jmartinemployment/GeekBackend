@@ -73,4 +73,8 @@ public sealed record ContentTypePromptContext(
     /// page that opened as anecdote switched to reference voice at the first H2 (Jeff, 2026-09-23:
     /// "While it starts off nice with a story, it becomes dull and a chore to read
     /// afterward").</summary>
-    Section? Lede = null);
+    Section? Lede = null,
+    /// <summary>What this pass has to change. Set only when revising: a type's body prompt is the
+    /// only correct way to rewrite that type, and revise could not reach one without this -- so it
+    /// used the blog prompt for everything and rewrote pillars and tool pages to blog length.</summary>
+    string? RevisionNotes = null);

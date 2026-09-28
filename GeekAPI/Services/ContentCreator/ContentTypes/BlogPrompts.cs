@@ -38,7 +38,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
         prompts.BuildStandaloneBlogBodyPrompt(
             ctx.Context,
             Meta(ctx),
-            revisionNotes: null,
+            revisionNotes: ctx.RevisionNotes,
             requireHeadingProvenance: true,
             evidenceBlock: ctx.EvidenceBlock,
             lede: ctx.Lede);

@@ -786,6 +786,11 @@ public class GccController : ControllerBase
         var current = await _repo.GetVersionAsync(id, ct);
         if (current is null) return NotFound();
 
+        // Revise wrote every type with the blog prompt, so a pillar or a tool page was rewritten to
+        // blog length -- 2,000 words against their 3,500 -- and lost a third of itself on the first
+        // press. The artifact knows what it is.
+        var artifact = await _repo.GetArtifactAsync(current.ArtifactId, ct);
+
         try
         {
             var revised = await _gen.ReviseAsync(
@@ -794,7 +799,8 @@ public class GccController : ControllerBase
                 request.Scope ?? "full",
                 request.SectionPath,
                 provider,
-                ct);
+                ct,
+                artifact?.Type);
             var version = await _repo.CreateVersionAsync(
                 new CreateGccArtifactVersionCommand(current.ArtifactId, revised), ct);
             return Ok(version);

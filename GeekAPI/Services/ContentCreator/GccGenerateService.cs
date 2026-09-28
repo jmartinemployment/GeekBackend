@@ -1342,13 +1342,36 @@ public class GccGenerateService
     /// Legacy GCC artifact revise. Prefer project revise via CWV2 orchestrator.
     /// Uses CWV2 section JSON + revision notes — not CWV3 ReviseStructuredDraftAsync.
     /// </summary>
+    /// <summary>
+    /// A new version of a draft, revised against feedback.
+    ///
+    /// <para>
+    /// Three things were wrong here and all three shortened the piece on every press, which is what
+    /// made "Fix these and revise" reliably make a draft worse (Jeff, 2026-09-28: clicked it three
+    /// times, lost word count each time).
+    /// </para>
+    ///
+    /// <list type="number">
+    /// <item>It wrote every type with the standalone blog prompt. Blog targets 2,000-2,700 words;
+    /// pillar and tool target 3,500-5,000. A tool page revised once was handed a target a third
+    /// smaller than the draft it was revising.</item>
+    /// <item>It promoted the first returned section into the lede and dropped it from the body, so
+    /// the body lost a section per press -- the pattern every generation path stopped using on
+    /// 2026-09-23, kept here because revise has no lede call of its own. The document already has a
+    /// lede; it is now kept, and passed to the body prompt for continuity.</item>
+    /// <item>It still regenerates rather than edits -- the current draft reaches the model as
+    /// flattened prose, so each pass is a rewrite from a summary. That is a larger change and is
+    /// not fixed here.</item>
+    /// </list>
+    /// </summary>
     public async Task<string> ReviseAsync(
         string currentJson,
         string feedback,
         string scope,
         string? sectionPath,
         ContentGeneratorProvider provider,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? contentType = null)
     {
         var fb = feedback.Trim();
         if (string.Equals(scope, "section", StringComparison.OrdinalIgnoreCase))
@@ -1370,19 +1393,38 @@ public class GccGenerateService
 
         var llm = GetLlm(provider);
         var context = BuildMinimalContext(document.Lede.Heading, ContentDocumentText.Flatten(document), ToLlm(provider));
-        var metadata = new BlogMetadataDraft(
+        var metadata = new ArticleMetadataDraft(
             Title: document.Lede.Heading,
             MetaDescription: Truncate(document.Lede.Heading, 160),
             Keywords: [document.Lede.Heading],
             SectionOutline: document.Sections.Select(s => s.Heading).Where(h => !string.IsNullOrWhiteSpace(h)).ToList());
-        var bodyResult = await llm.CompleteAsync(
-            _prompts.BuildStandaloneBlogBodyPrompt(context, metadata, revisionNotes: fb),
-            ct);
-        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "revised blog body");
+
+        // The type's own prompt set, so a pillar is revised as a pillar. Falls back to the blog
+        // prompt only for a type with no set registered, which is what every type used to get.
+        var typeSet = _types.Find(contentType);
+        // Both metadata shapes: Blog's prompts take BlogMetadataDraft and refuse the article shape,
+        // which is a real per-type difference rather than something to convert away. Supplying only
+        // one means revising that type throws instead of revising.
+        var promptCtx = new ContentTypes.ContentTypePromptContext(
+            context,
+            Metadata: metadata,
+            BlogMetadata: new BlogMetadataDraft(
+                metadata.Title, metadata.MetaDescription, metadata.Keywords, metadata.SectionOutline),
+            Lede: document.Lede);
+        var request = typeSet is not null
+            ? typeSet.Body(promptCtx with { RevisionNotes = fb })
+            : _prompts.BuildStandaloneBlogBodyPrompt(
+                context,
+                new BlogMetadataDraft(metadata.Title, metadata.MetaDescription, metadata.Keywords, metadata.SectionOutline),
+                revisionNotes: fb,
+                lede: document.Lede);
+
+        var bodyResult = await llm.CompleteAsync(request, ct);
+        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "revised body");
         if (sections.Count == 0)
             throw new InvalidOperationException("CWV2 revise returned no sections.");
-        var lede = sections[0] with { Tag = "h2" };
-        var revised = new ContentDocument(lede, sections.Skip(1).ToList());
+        // Every returned section is body. The lede is the one the piece was written with.
+        var revised = new ContentDocument(document.Lede, [.. sections]);
         revised = ContentGuardrail.Apply(revised).Document;
         // Back into the envelope it came from. Revise used to store the bare document, so a revised
         // blog lost its title, meta description, summary and JSON-LD -- the envelope was not only

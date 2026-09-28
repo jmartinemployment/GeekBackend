@@ -62,8 +62,8 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
             Meta(ctx),
             slots: [.. Sections.Skip(1)],
             fullOutline: Sections,
-            isRegeneration: false,
-            revisionNotes: null,
+            isRegeneration: ctx.RevisionNotes is { Length: > 0 },
+            revisionNotes: ctx.RevisionNotes,
             requireHeadingProvenance: true,
             evidenceBlock: ctx.EvidenceBlock,
             lede: ctx.Lede);
