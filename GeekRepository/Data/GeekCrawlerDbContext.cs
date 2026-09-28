@@ -12,9 +12,22 @@ public class GeekCrawlerDbContext : DbContext
     }
 
     public virtual DbSet<GeekCrawlerRun> GeekCrawlerRuns => Set<GeekCrawlerRun>();
-    public virtual DbSet<GeekCrawlerPage> GeekCrawlerPages => Set<GeekCrawlerPage>();
-    public virtual DbSet<GeekCrawlerLink> GeekCrawlerLinks => Set<GeekCrawlerLink>();
     public virtual DbSet<GeekCrawlerSchedule> GeekCrawlerSchedules => Set<GeekCrawlerSchedule>();
+
+    // GeekCrawlerPages and GeekCrawlerLinks are gone. Crawl pages and links are Mongo
+    // documents — MongoGeekCrawlerService writes crawl_pages and crawl_links, and no code
+    // ever read either DbSet. A mapped DbSet with no reader is read as evidence that EF is
+    // one of the ways this data is reached, and it is not.
+    //
+    // The entity CLASSES stay: GeekCrawlerPage and GeekCrawlerLink are Mongo's models too,
+    // registered through BsonClassMap in MongoGeekCrawlerService. What is removed here is the
+    // EF mapping, not the type.
+    //
+    // The existing migrations under Migrations/GeekCrawler still create and alter the
+    // crawl_pages and crawl_links tables, and still apply: a migration runs its own Up(),
+    // independent of the current model. Those are hand-written with no model snapshot, so
+    // removing these entities cannot produce a generated DROP TABLE for a schema that may
+    // still hold old rows.
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,46 +51,6 @@ public class GeekCrawlerDbContext : DbContext
                 .HasDatabaseName("ix_crawl_runs_owner_type_created");
             entity.HasIndex(r => new { r.CrawlType, r.Status })
                 .HasDatabaseName("ix_crawl_runs_type_status");
-        });
-
-        modelBuilder.Entity<GeekCrawlerPage>(entity =>
-        {
-            entity.ToTable("crawl_pages");
-            entity.HasKey(p => p.Id);
-            entity.Property(p => p.Origin).IsRequired().HasMaxLength(512);
-            entity.Property(p => p.Url).IsRequired().HasMaxLength(2048);
-            entity.Property(p => p.FinalUrl).IsRequired().HasMaxLength(2048);
-            entity.Property(p => p.Html).HasColumnType("text");
-            entity.Property(p => p.Title).HasMaxLength(1024);
-            // Postgres is deprecated for geek_crawler — Mongo is the live store and nothing reads
-            // or writes crawl_pages through EF. These two are ignored rather than migrated: EF has
-            // no mapping for BsonArray, and adding columns to a table nothing populates would be
-            // schema for a dead path. Startup catches migration failure and continues, so a model
-            // EF cannot build would degrade silently instead of failing loudly.
-            entity.Ignore(p => p.ContentHtml);
-            entity.Ignore(p => p.Blocks);
-            entity.Property(p => p.Excerpt).HasMaxLength(4096);
-            entity.Property(p => p.FailureReason).HasMaxLength(512);
-            entity.Property(p => p.CrawledAtUtc).IsRequired();
-            entity.HasIndex(p => p.RunId).HasDatabaseName("ix_crawl_pages_run_id");
-            entity.HasIndex(p => new { p.RunId, p.Url }).HasDatabaseName("ix_crawl_pages_run_url");
-        });
-
-        modelBuilder.Entity<GeekCrawlerLink>(entity =>
-        {
-            entity.ToTable("crawl_links");
-            entity.HasKey(l => l.Id);
-            entity.Property(l => l.FromUrl).IsRequired().HasMaxLength(2048);
-            entity.Property(l => l.LinkUrl).IsRequired().HasMaxLength(2048);
-            entity.Property(l => l.DiscoveredAtUtc).IsRequired();
-            entity.HasIndex(l => l.RunId).HasDatabaseName("ix_crawl_links_run_id");
-            entity.HasIndex(l => new { l.RunId, l.FromUrl }).HasDatabaseName("ix_crawl_links_run_from");
-            entity.HasIndex(l => new { l.RunId, l.IsSameOrigin }).HasDatabaseName("ix_crawl_links_run_same_origin");
-            entity.HasIndex(l => new { l.RunId, l.IsSameOrigin, l.DiscoveredAtUtc, l.Id })
-                .HasDatabaseName("ix_crawl_links_run_same_origin_discovered_id");
-            entity.HasIndex(l => new { l.RunId, l.FromUrl, l.LinkUrl })
-                .IsUnique()
-                .HasDatabaseName("ux_crawl_links_run_from_link");
         });
 
         modelBuilder.Entity<GeekCrawlerSchedule>(entity =>
