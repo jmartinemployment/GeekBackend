@@ -122,5 +122,6 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
             extractedToolResearchJson: ctx.ExtractedResearchJson,
             lede: ctx.Lede,
             fullOutline: OutlineFor(ctx),
-            batchIndex: ctx.SectionBatchIndex);
+            batchIndex: ctx.SectionBatchIndex,
+            evidenceBlock: ctx.EvidenceBlock);
 }

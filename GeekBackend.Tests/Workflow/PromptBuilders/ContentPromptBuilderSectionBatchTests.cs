@@ -208,6 +208,27 @@ public class ContentPromptBuilderSectionBatchTests
     }
 
     [Fact]
+    public void A_tool_retry_tells_the_model_what_it_is_retrying()
+    {
+        // GenerateToolPageAsync sets EvidenceBlock on the context for its closing-CTA retry.
+        // BuildToolBodyPrompt had no parameter for it and ToolPrompts.Body did not forward it, so
+        // the retry re-sent a byte-identical prompt -- a second paid draft that could not differ
+        // from the first. Pillar and Blog have always rendered theirs.
+        var app = new SoftwareApplicationDescriptor("Partner Widget", "A widget.");
+        var full = ToolPrompts.Outline(Context(), app.Name);
+        var prompt = Rendered(new ContentPromptBuilder().BuildToolBodyPrompt(
+            Context(),
+            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
+            app,
+            "partner-widget",
+            outline: full,
+            fullOutline: full,
+            evidenceBlock: "RETRY: the closing did not link the scheduler."));
+
+        Assert.Contains("RETRY: the closing did not link the scheduler.", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void An_unbatched_body_owns_its_own_closing()
     {
         // Nothing above applies to a page written in one call: it owns every section, so it owns

@@ -170,7 +170,8 @@ public interface IContentPromptBuilder
         string? extractedToolResearchJson = null,
         Section? lede = null,
         IReadOnlyList<SectionSlot>? fullOutline = null,
-        int batchIndex = 0);
+        int batchIndex = 0,
+        string? evidenceBlock = null);
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
@@ -2318,7 +2319,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         string? extractedToolResearchJson = null,
         Section? lede = null,
         IReadOnlyList<SectionSlot>? fullOutline = null,
-        int batchIndex = 0)
+        int batchIndex = 0,
+        string? evidenceBlock = null)
     {
         // One rendering of the outline, from the one definition. This block used to be three hand-
         // written prose lists inside this prompt -- the required section names, the per-section word
@@ -2461,6 +2463,17 @@ public class ContentPromptBuilder : IContentPromptBuilder
         audience.AppendLine("Place it after the reader has reason to act — never a banner, never repeated per section.");
 
         system += Environment.NewLine + audience.ToString();
+
+        // What this particular call has to fix, when it is a retry. Pillar and Blog have carried
+        // this since their guards were written; Tool's prompt had no parameter for it, so
+        // GenerateToolPageAsync set EvidenceBlock on the context, ToolPrompts.Body did not forward
+        // it and nothing here would have rendered it -- the closing-CTA retry re-sent a
+        // byte-identical prompt and was charged for a second draft that could not differ from the
+        // first. A retry that cannot say what was wrong is not a retry.
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            system += Environment.NewLine + evidenceBlock;
+        }
 
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
         if (revisionBlock is not null)
