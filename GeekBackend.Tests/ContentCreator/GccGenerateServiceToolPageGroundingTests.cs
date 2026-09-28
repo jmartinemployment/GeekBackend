@@ -39,12 +39,21 @@ public class GccGenerateServiceToolPageGroundingTests
     // The last section closes on the scheduler as a link, because every page does and
     // GccClosingCtaGuard refuses a draft that does not (Jeff, 2026-09-27: "CTA is on every page and
     // should be referenced").
-    private const string ToolBodyJson =
-        """{"sections":[{"tag":"h2","heading":"Where the setup hours actually go","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget removes the manual pass."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What the wizard takes off your desk","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget captures the invoice on arrival."}]}],"href":null,"children":[]},{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget needs the vendor master mapped first."}]},{"type":"quote","runs":[{"text":"reduces setup time by half"}],"cite":"https://partner.test/widget"},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[]}]}""";
+    /// <summary>
+    /// The body arrives in batches of two sections, so the fixture answers one batch per call. It
+    /// used to be a single three-section string returned for every body call, which built a page
+    /// out of three copies of itself.
+    /// </summary>
+    private static readonly string[] ToolBodyBatches =
+    [
+        """{"sections":[{"tag":"h2","heading":"Where the setup hours actually go","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget removes the manual pass."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What the wizard takes off your desk","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget captures the invoice on arrival."}]}],"href":null,"children":[]}]}""",
+        """{"sections":[{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget needs the vendor master mapped first."}]},{"type":"quote","runs":[{"text":"reduces setup time by half"}],"cite":"https://partner.test/widget"}],"href":null,"children":[]},{"tag":"h2","heading":"Judging Partner Widget against the alternatives","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget is priced per document."}]}],"href":null,"children":[]}]}""",
+        """{"sections":[{"tag":"h2","heading":"Who Partner Widget suits","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget fits a team already on a ledger."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What to do next with Partner Widget","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget rewards a scoped pilot."}]},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[]}]}""",
+    ];
     private const string ToolImagePromptsJson =
         // One per H1 plus one per H2, with headroom for the optional FAQ section -- a short list is
         // refused now rather than silently leaving sections without a prompt.
-        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"capabilities image prompt"},{"section":"Section 2","prompt":"considerations image prompt"},{"section":"Section 3","prompt":"third image prompt"},{"section":"Section 4","prompt":"fourth image prompt"},{"section":"Section 5","prompt":"fifth image prompt"},{"section":"Section 6","prompt":"sixth image prompt"}]}""";
+        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"capabilities image prompt"},{"section":"Section 2","prompt":"considerations image prompt"},{"section":"Section 3","prompt":"third image prompt"},{"section":"Section 4","prompt":"fourth image prompt"},{"section":"Section 5","prompt":"fifth image prompt"},{"section":"Section 6","prompt":"sixth image prompt"},{"section":"FAQ","prompt":"faq image prompt"}]}""";
     private const string ToolMetadataJson =
         """{"departmentListExcerpt":"x","summary":"x","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
     private const string ToolFaqJson =
@@ -62,6 +71,8 @@ public class GccGenerateServiceToolPageGroundingTests
 
     private sealed class ScriptedProvider(bool includeFaq = false) : IContentGenerationProvider
     {
+        private int bodyCalls;
+
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
         public List<ChatCompletionRequest> Requests { get; } = [];
 
@@ -69,23 +80,31 @@ public class GccGenerateServiceToolPageGroundingTests
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
-            // Call 0 = the lede, call 1 = tool body (sections array), [call 2 = FAQ section when
-            // includeFaq], then per-H2 image prompts, last = tool metadata (flat object).
-            //
-            // The lede runs first so the body can continue it. It used to run after the body, which
-            // is how a page reads well for three paragraphs and then turns into a chore -- the
-            // opening was fitted to the front of a draft already written in reference voice.
-            var content = Requests.Count switch
+
+            // Answers what was asked rather than counting calls. The call order used to be encoded
+            // as indexes here, so the body being written in batches -- three calls where there was
+            // one -- made every later index answer the wrong question, and ten tests failed for a
+            // change none of them was about. A fixture that asserts call order is asserting an
+            // implementation detail it was never meant to pin.
+            var asked = string.Join("\n", request.Messages.Select(m => m.Content));
+            // JsonSchemaName is the exact discriminator: "sections" is a body batch and "section" is
+            // the single FAQ section. Matching on prompt text alone put the body in the FAQ branch,
+            // because the body prompt mentions the FAQ when explaining what its word target excludes.
+            var content = request.JsonSchemaName switch
             {
-                1 => ToolLedeJson,
-                2 => ToolBodyJson,
-                3 when includeFaq => ToolFaqJson,
-                3 => ToolImagePromptsJson,
-                4 when includeFaq => ToolImagePromptsJson,
-                _ => ToolMetadataJson,
+                // One batch per body call. Returning the whole body each time gave the page three
+                // copies of itself, which the image-prompt count then caught.
+                "sections" => ToolBodyBatches[Math.Min(bodyCalls++, ToolBodyBatches.Length - 1)],
+                "section" => includeFaq ? ToolFaqJson : ToolMetadataJson,
+                _ => Asked(asked, "ledeType") ? ToolLedeJson
+                    : Asked(asked, "image-generation prompts") ? ToolImagePromptsJson
+                    : ToolMetadataJson,
             };
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
+
+        private static bool Asked(string prompt, string marker) =>
+            prompt.Contains(marker, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory

@@ -77,4 +77,17 @@ public sealed record ContentTypePromptContext(
     /// <summary>What this pass has to change. Set only when revising: a type's body prompt is the
     /// only correct way to rewrite that type, and revise could not reach one without this -- so it
     /// used the blog prompt for everything and rewrote pillars and tool pages to blog length.</summary>
-    string? RevisionNotes = null);
+    string? RevisionNotes = null,
+    /// <summary>
+    /// The sections this call writes, when the body is being generated in batches. Null means the
+    /// whole outline in one call, which is what every type did -- and a single call cannot exceed
+    /// the model's output ceiling, so a long piece was capped by arithmetic rather than by what it
+    /// had to say.
+    /// </summary>
+    IReadOnlyList<SectionSlot>? SectionBatch = null,
+    /// <summary>
+    /// Which batch this is, counting from zero. The page's keyword-bearing H2 belongs to exactly one
+    /// call -- the scorer wants at least one and the outline rules cap it at two, so asking every
+    /// batch for one puts it in half the headings on the page.
+    /// </summary>
+    int SectionBatchIndex = 0);

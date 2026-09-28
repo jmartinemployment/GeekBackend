@@ -25,39 +25,49 @@ public class GccGenerateServicePillarFaqTests
     private const string LedeAndIntroJson =
         """{"lede":{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[]}}""";
 
-    private const string ImagePromptsJson =
-        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"A","prompt":"section image prompt"},{"section":"B","prompt":"second image prompt"}]}""";
+    private static readonly string ImagePromptsJson = ScriptedBody.ImagePrompts();
     // ArticleMetadataDraft, now including the standfirst summary.
     private const string ArticleMetadataJson =
         """{"title":"A Title","summary":"A standfirst.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
 
     private const string SectionsArrayJson = """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[],"provenance":"plan"}]}""";
 
+    /// <summary>
+    /// Answers by what each prompt asks for. This used to key off call order -- lede(0), body(1),
+    /// FAQ(2) -- which stopped being a sequence the moment the body began arriving in batches: the
+    /// FAQ answer went to a body call and the run failed on a shape mismatch. Whether the FAQ call
+    /// happens is exactly what these tests are about, so it is the one thing the fixture must not
+    /// assume.
+    /// </summary>
     private sealed class RecordingProvider : IContentGenerationProvider
     {
+        private int bodyCalls;
+
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
         public List<string> SystemPromptsSeen { get; } = [];
+
+        /// <summary>The literal that opens BuildArticleFaqSectionPrompt, and nothing else. The
+        /// metadata prompt names "People Also Ask" too, when it tells the model to end the outline
+        /// with one, so the bare phrase does not identify this call.</summary>
+        internal const string FaqPromptMarker = """Write ONLY the "People Also Ask" FAQ section""";
 
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
             var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
-            // Call order, not content-sniffing: Stage 2's provenance instruction text itself
-            // mentions "People Also Ask" (describing the "paa:" tag) now that it's appended to the
-            // body prompt too, so a substring match against the FAQ prompt's own heading text is no
-            // longer reliable. GeneratePillarBodyAsync's own sequence is lede(0) -> body(1) ->
-            // FAQ(2), so index is unambiguous.
-            var callIndex = SystemPromptsSeen.Count;
             SystemPromptsSeen.Add(system);
-            // Pillar's sequence is lede -> body -> [FAQ] -> image prompts -> metadata. The last two
-            // are identified by their own prompt text rather than by index, since whether the FAQ
-            // call happens depends on the brief and shifts everything after it.
-            var content =
-                system.Contains("image-generation prompts", StringComparison.Ordinal) ? ImagePromptsJson
+
+            // The body is the only call asking for a sections array; the FAQ asks for one section,
+            // and the remaining three are told apart by their own prompt text. The lede is the
+            // fallback because its contract is the one thing named in no other prompt here.
+            var content = request.JsonSchemaName == "sections"
+                ? bodyCalls < 1 ? SectionsArrayJson : ScriptedBody.PlannedBatch(bodyCalls)
+                : system.Contains(FaqPromptMarker, StringComparison.Ordinal) ? SectionJson
+                : system.Contains("image-generation prompts", StringComparison.Ordinal) ? ImagePromptsJson
                 : system.Contains("sectionOutline", StringComparison.Ordinal) ? ArticleMetadataJson
-                : callIndex == 0 ? LedeAndIntroJson
-                : callIndex == 2 ? SectionJson
-                : SectionsArrayJson;
+                : LedeAndIntroJson;
+            if (request.JsonSchemaName == "sections") bodyCalls++;
+
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
     }
@@ -106,9 +116,11 @@ public class GccGenerateServicePillarFaqTests
 
         await service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
-        // Lede + body + image prompts + metadata -- no FAQ call.
-        Assert.Equal(4, provider.SystemPromptsSeen.Count);
-        Assert.DoesNotContain(provider.SystemPromptsSeen, p => p.Contains("FAQ section", StringComparison.Ordinal));
+        // No FAQ call. The total call count used to stand in for this and no longer can: the body
+        // is written in batches, so it is several calls and the number is the outline's business.
+        Assert.DoesNotContain(
+            provider.SystemPromptsSeen,
+            p => p.Contains(RecordingProvider.FaqPromptMarker, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -120,9 +132,11 @@ public class GccGenerateServicePillarFaqTests
 
         await service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
-        // Lede + body + FAQ + image prompts + metadata.
-        Assert.Equal(5, provider.SystemPromptsSeen.Count);
-        Assert.Contains("FAQ section", provider.SystemPromptsSeen[2], StringComparison.Ordinal);
+        // Exactly one, which is the claim -- two PAA questions are one FAQ section, not two calls.
+        Assert.Equal(
+            1,
+            provider.SystemPromptsSeen.Count(
+                p => p.Contains(RecordingProvider.FaqPromptMarker, StringComparison.Ordinal)));
     }
 
     [Fact]

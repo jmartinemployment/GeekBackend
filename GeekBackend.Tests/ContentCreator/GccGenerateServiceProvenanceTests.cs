@@ -23,17 +23,43 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccGenerateServiceProvenanceTests
 {
-    private sealed class ScriptedProvider(Func<int, string> respond) : IContentGenerationProvider
+    /// <summary>
+    /// Answers by what the prompt asks for rather than by call index.
+    ///
+    /// <para>
+    /// The index form encoded the exact sequence of model calls, so writing the body in batches --
+    /// three calls where there had been one -- made every later index answer a different question
+    /// than the one being asked, and six tests failed for a change none of them was about. A
+    /// fixture keyed on call order pins an implementation detail it was never meant to assert.
+    /// </para>
+    ///
+    /// <para>
+    /// <c>body</c> is served once per batch, in order; batches past the scripted ones — these tests
+    /// script the one heading they are about — get <see cref="ScriptedBody.PlannedBatch"/>, so the
+    /// page the service assembles is a page rather than several copies of one section.
+    /// </para>
+    /// </summary>
+    private sealed class ScriptedProvider(
+        string lede, string imagePrompts, string metadata, params string[] body) : IContentGenerationProvider
     {
+        private int bodyCalls;
+
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
         public List<ChatCompletionRequest> Requests { get; } = [];
 
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
-            var index = Requests.Count;
             Requests.Add(request);
-            return Task.FromResult(new ChatCompletionResult(respond(index), "test-model", null, null));
+            var asked = string.Join("\n", request.Messages.Select(m => m.Content));
+
+            var content = request.JsonSchemaName == "sections"
+                ? bodyCalls < body.Length ? body[bodyCalls++] : ScriptedBody.PlannedBatch(bodyCalls++)
+                : asked.Contains("ledeType", StringComparison.OrdinalIgnoreCase) ? lede
+                : asked.Contains("image-generation prompts", StringComparison.OrdinalIgnoreCase) ? imagePrompts
+                : metadata;
+
+            return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
     }
 
@@ -48,8 +74,7 @@ public class GccGenerateServiceProvenanceTests
     // bug and kept it green while every pillar generation in production failed at the lede step.
     // Lede and introduction share a heading, the common case, so they merge into one H2.
     // Pillar now attaches image prompts and metadata before returning, so both calls are scripted.
-    private const string ImagePromptsJson =
-        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"A","prompt":"section image prompt"}]}""";
+    private static readonly string ImagePromptsJson = ScriptedBody.ImagePrompts();
     private const string ArticleMetadataJson =
         """{"title":"A Title","summary":"A standfirst.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
 
@@ -93,13 +118,11 @@ public class GccGenerateServiceProvenanceTests
     [Fact]
     public async Task UnlicensedInventedHeadingRefusesTheWholeGeneration()
     {
-        var provider = new ScriptedProvider(index => index switch
-        {
-            0 => LedeJson,
-            2 => ImagePromptsJson,
-            3 => ArticleMetadataJson,
-            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Made Up Subtopic","paragraphs":[],"href":null,"children":[]}]}]}""",
-        });
+        var provider = new ScriptedProvider(
+            lede: LedeJson,
+            imagePrompts: ImagePromptsJson,
+            metadata: ArticleMetadataJson,
+            body: """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Made Up Subtopic","paragraphs":[],"href":null,"children":[]}]}]}""");
         var service = Build(provider, NoCompetitorData());
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -112,13 +135,11 @@ public class GccGenerateServiceProvenanceTests
     [Fact]
     public async Task PlanTaggedTopLevelHeadingsPassWithoutAnyOtherEvidence()
     {
-        var provider = new ScriptedProvider(index => index switch
-        {
-            0 => LedeJson,
-            2 => ImagePromptsJson,
-            3 => ArticleMetadataJson,
-            _ => """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[]}]}""",
-        });
+        var provider = new ScriptedProvider(
+            lede: LedeJson,
+            imagePrompts: ImagePromptsJson,
+            metadata: ArticleMetadataJson,
+            body: """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[]}]}""");
         var service = Build(provider, NoCompetitorData());
 
         var json = await service.GeneratePillarBodyAsync(Create(), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
@@ -144,17 +165,11 @@ public class GccGenerateServiceProvenanceTests
         var resolver = GccCompetitorAnalysisResolverTests.Build(
             new GccCompetitorAnalysisResolverTests.FakeProjects(project), pages, rag);
 
-        var provider = new ScriptedProvider(index => index switch
-        {
-            0 => LedeJson,
-            2 => ImagePromptsJson,
-            3 => ArticleMetadataJson,
-            // The child fills the gap the competitor heading revealed and names it in this page's
-            // own words. Heading it "Enterprise Rollout Timeline" -- the text it cites -- is the
-            // copy the guard now rejects, so the assertions below check the heading reached the
-            // prompt, not that it was reproduced in the output.
-            _ => """{"sections":[{"tag":"h2","heading":"What a staged rollout costs in week one","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"How long the first site really takes","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Enterprise Rollout Timeline"}]}]}""",
-        });
+        var provider = new ScriptedProvider(
+            lede: LedeJson,
+            imagePrompts: ImagePromptsJson,
+            metadata: ArticleMetadataJson,
+            body: """{"sections":[{"tag":"h2","heading":"What a staged rollout costs in week one","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"How long the first site really takes","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Enterprise Rollout Timeline"}]}]}""");
         var service = Build(provider, resolver);
         var create = Create(projectId: project.Id);
 

@@ -41,5 +41,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
             revisionNotes: ctx.RevisionNotes,
             requireHeadingProvenance: true,
             evidenceBlock: ctx.EvidenceBlock,
-            lede: ctx.Lede);
+            lede: ctx.Lede,
+            sectionBatch: ctx.SectionBatch,
+            batchIndex: ctx.SectionBatchIndex);
 }

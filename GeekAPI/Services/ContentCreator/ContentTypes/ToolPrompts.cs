@@ -117,8 +117,10 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
             Meta(ctx),
             ctx.App ?? throw new InvalidOperationException("A tool page needs the product it is about."),
             ctx.ToolSlug ?? string.Empty,
-            outline: OutlineFor(ctx),
+            outline: ctx.SectionBatch ?? OutlineFor(ctx),
             revisionNotes: ctx.RevisionNotes,
             extractedToolResearchJson: ctx.ExtractedResearchJson,
-            lede: ctx.Lede);
+            lede: ctx.Lede,
+            fullOutline: OutlineFor(ctx),
+            batchIndex: ctx.SectionBatchIndex);
 }

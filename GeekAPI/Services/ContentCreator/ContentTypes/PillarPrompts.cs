@@ -60,11 +60,12 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
         prompts.BuildArticleSectionBatchPrompt(
             ctx.Context,
             Meta(ctx),
-            slots: [.. Sections.Skip(1)],
+            slots: ctx.SectionBatch ?? [.. Sections.Skip(1)],
             fullOutline: Sections,
             isRegeneration: ctx.RevisionNotes is { Length: > 0 },
             revisionNotes: ctx.RevisionNotes,
             requireHeadingProvenance: true,
             evidenceBlock: ctx.EvidenceBlock,
-            lede: ctx.Lede);
+            lede: ctx.Lede,
+            batchIndex: ctx.SectionBatchIndex);
 }

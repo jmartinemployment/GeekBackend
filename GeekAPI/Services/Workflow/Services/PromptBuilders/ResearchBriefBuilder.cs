@@ -96,7 +96,13 @@ internal static class ResearchBriefBuilder
                 break;
 
             case ResearchBriefPhase.ToolBody:
-                AppendAuthoritativeSourcesBrief(sb, context, maxSources: 1, maxHeadingsPerFile: 2, maxParagraphsPerFile: 2);
+                // The SERP for the keyword, at ArticleSection's depth. A tool page is scored on the
+                // same keyword as the pillar and is the type Jeff calls the most important, and it
+                // was the one long-form phase writing with no idea what the search results for its
+                // own keyword contain. Partner data says what the product does; the SERP says what
+                // the reader was looking at before they arrived.
+                AppendKeywordSerpBrief(sb, context, maxHeadingsPerFile: 3, maxParagraphsPerFile: 1);
+                AppendAuthoritativeSourcesBrief(sb, context);
                 AppendKnownToolsBrief(sb, context);
                 break;
         }

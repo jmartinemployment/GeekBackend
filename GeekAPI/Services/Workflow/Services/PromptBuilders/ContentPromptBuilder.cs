@@ -74,7 +74,8 @@ public interface IContentPromptBuilder
         string? revisionNotes = null,
         bool requireHeadingProvenance = false,
         string? evidenceBlock = null,
-        Section? lede = null);
+        Section? lede = null,
+        int batchIndex = 0);
 
     ChatCompletionRequest BuildArticleSectionPrompt(
         ProjectGenerationContext context,
@@ -129,9 +130,13 @@ public interface IContentPromptBuilder
 
     ChatCompletionRequest BuildStandaloneBlogLedePrompt(ProjectGenerationContext context, BlogMetadataDraft metadata);
 
+    /// <param name="sectionBatch">The sections this call owns, when the body is written in
+    /// batches. Null writes the whole planned outline in one response, which is what a blog short
+    /// enough to fit does.</param>
     ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
-        bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null);
+        bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null,
+        IReadOnlyList<SectionSlot>? sectionBatch = null, int batchIndex = 0);
 
     ChatCompletionRequest BuildSocialPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string platform, string articleUrl);
     ChatCompletionRequest BuildColdOutreachPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string articleUrl);
@@ -163,7 +168,9 @@ public interface IContentPromptBuilder
         IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
         string? extractedToolResearchJson = null,
-        Section? lede = null);
+        Section? lede = null,
+        IReadOnlyList<SectionSlot>? fullOutline = null,
+        int batchIndex = 0);
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
@@ -345,8 +352,28 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// They were separate constants in separate files: the blog prompt asked for 2,000 while the
     /// score required 1,800, and the tool prompt asked for 3,000 against a floor of 1,500.
     /// </para>
+    ///
+    /// <para>
+    /// Every number here is the whole page's, and a batched body hands this block to each call that
+    /// writes part of it. Left unscaled, a call writing two of six sections is told to produce the
+    /// page's entire word floor and the page's entire keyword count -- so three calls either aim at
+    /// three times the page or, more likely, read the numbers as unreachable and ignore them.
+    /// <paramref name="sectionsInThisCall"/> and <paramref name="sectionsInThePage"/> are what turn
+    /// the page's budget into this call's share.
+    /// </para>
     /// </summary>
-    private static string SeoBodyInstruction(string keyword, string contentType)
+    /// <param name="sectionsInThisCall">Sections this response is responsible for.</param>
+    /// <param name="sectionsInThePage">Sections the whole page has. Equal to
+    /// <paramref name="sectionsInThisCall"/> when the body is written in one call.</param>
+    /// <param name="ownsTheKeywordHeading">Whether this call carries the page's keyword-bearing H2.
+    /// The scorer wants at least one and the outline rules cap it at two, so exactly one call is
+    /// asked for it -- told to every batch, a six-section page comes back with three.</param>
+    private static string SeoBodyInstruction(
+        string keyword,
+        string contentType,
+        int sectionsInThisCall,
+        int sectionsInThePage,
+        bool ownsTheKeywordHeading)
     {
         var (minWords, minSections, _) = GccV2LongFormTypes.GetSeoLengthRules(contentType);
         // 0.6% sits mid-band in the scorer's 0.4-2.5%, so a draft that lands near it passes without
@@ -354,27 +381,50 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var mentions = Math.Max(4, (int)Math.Round(minWords * 0.006));
         var perSection = minWords / Math.Max(minSections + 2, 1);
 
+        var writesWholePage = sectionsInThisCall >= sectionsInThePage;
+        var share = Math.Max(1d, sectionsInThisCall) / Math.Max(1, sectionsInThePage);
+        var wordsHere = perSection * Math.Max(1, sectionsInThisCall);
+        var mentionsHere = Math.Max(1, (int)Math.Round(mentions * share));
+
         return new StringBuilder()
             .AppendLine("=== WHAT THIS PAGE IS SCORED ON ===")
-            .AppendLine(
-                $"LENGTH: {minWords:N0} words is the floor, not the aim. Below it the page fails "
-                + "outright. Across your sections that is roughly "
-                + $"{perSection:N0}+ words each -- three to five substantial paragraphs per section. "
-                + "A total alone is satisfiable by one long section and several thin ones, which is "
-                + "how a piece asked for a floor came back at half of it. Count as you go.")
-            .AppendLine(
-                $"SECTIONS: at least {minSections} top-level sections, and more where the subject "
-                + "has more to say. Each one covers something the others do not.")
-            .AppendLine(
-                $"KEYWORD FREQUENCY: \"{keyword}\" and its natural variants appear about {mentions} "
-                + "times across the piece -- roughly once every 200 words. Never twice in a "
-                + "paragraph, never where a pronoun reads better. One mention in a long piece fails "
-                + "this as surely as forty do.")
-            .AppendLine(
-                $"HEADINGS: at least one H2 contains \"{keyword}\". Headings answer the question a "
-                + "reader arrived with -- \"What it costs to keep doing this by hand\" rather than "
-                + "\"Overview\" -- because a heading that names its question is the one a search "
-                + "engine and an answer engine can both use.")
+            .AppendLine(writesWholePage
+                ? $"LENGTH: {minWords:N0} words is the floor, not the aim. Below it the page fails "
+                  + "outright. Across your sections that is roughly "
+                  + $"{perSection:N0}+ words each -- three to five substantial paragraphs per section. "
+                  + "A total alone is satisfiable by one long section and several thin ones, which is "
+                  + "how a piece asked for a floor came back at half of it. Count as you go."
+                : $"LENGTH: the finished page has a {minWords:N0}-word floor and fails outright below "
+                  + $"it. You are writing {sectionsInThisCall} of its {sectionsInThePage} sections, so "
+                  + $"your share is about {wordsHere:N0} words -- roughly {perSection:N0}+ each, three "
+                  + "to five substantial paragraphs per section. A short batch is not made up by "
+                  + "another one; it is simply the page arriving under the floor. Count as you go.")
+            .AppendLine(writesWholePage
+                ? $"SECTIONS: at least {minSections} top-level sections, and more where the subject "
+                  + "has more to say. Each one covers something the others do not."
+                : $"SECTIONS: exactly the {sectionsInThisCall} top-level sections you were assigned, "
+                  + "each covering something the others -- yours and the other calls' -- do not.")
+            .AppendLine(writesWholePage
+                ? $"KEYWORD FREQUENCY: \"{keyword}\" and its natural variants appear about {mentions} "
+                  + "times across the piece -- roughly once every 200 words. Never twice in a "
+                  + "paragraph, never where a pronoun reads better. One mention in a long piece fails "
+                  + "this as surely as forty do."
+                : $"KEYWORD FREQUENCY: \"{keyword}\" and its natural variants appear about {mentions} "
+                  + $"times across the finished page, so about {mentionsHere} in your sections -- "
+                  + "roughly once every 200 words. Never twice in a paragraph, never where a pronoun "
+                  + "reads better. Writing the page's whole count into your share is how a draft "
+                  + "comes back reading stuffed.")
+            .AppendLine(ownsTheKeywordHeading
+                ? $"HEADINGS: at least one H2 contains \"{keyword}\". Headings answer the question a "
+                  + "reader arrived with -- \"What it costs to keep doing this by hand\" rather than "
+                  + "\"Overview\" -- because a heading that names its question is the one a search "
+                  + "engine and an answer engine can both use."
+                : $"HEADINGS: the page's keyword-bearing H2 is written by another call, so none of "
+                  + $"yours needs \"{keyword}\" in it -- put it in a heading only where it is the "
+                  + "natural phrasing anyway. Headings answer the question a reader arrived with -- "
+                  + "\"What it costs to keep doing this by hand\" rather than \"Overview\" -- because a "
+                  + "heading that names its question is the one a search engine and an answer engine "
+                  + "can both use.")
             .AppendLine(
                 "DIRECT ANSWERS: each section answers its own heading in its first two sentences, "
                 + "then develops it. Burying the answer four paragraphs down loses the reader and "
@@ -731,6 +781,38 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "they make, wording assembled from several places, or anything at all with a cite pointing "
         + "somewhere the words did not come from. If a span is not in front of you verbatim, it is "
         + "not quotable, and the draft is rejected rather than published with an invented one.";
+
+    /// <summary>
+    /// The closing instruction for one call of a batched body: the real ask when this call owns the
+    /// page's final section, and an explicit "do not close" when it does not.
+    ///
+    /// <para>
+    /// "The last section ends by asking for..." is unambiguous in a single call and ambiguous in
+    /// every batch of a page. Handed to all of them it produces a closing per call -- three asks and
+    /// three sign-offs on one page; handed to none of them the page just stops. So the page's last
+    /// batch gets the ask and the others are told plainly that the page continues past them.
+    /// </para>
+    /// </summary>
+    private static string BatchClosingInstruction(
+        ProjectGenerationContext context,
+        IReadOnlyList<string> batch,
+        IReadOnlyList<string>? fullOutline) =>
+        OwnsTheClosing(batch, fullOutline)
+            ? ClosingCallToActionInstruction(context)
+            : "This call does not end the page -- sections you were not given follow yours. End your "
+              + "last section on its own material: no summary of what came before, no wrap-up of the "
+              + "page, and no call to action. The closing is written by the call that owns the final "
+              + "section.";
+
+    /// <summary>
+    /// Whether this call writes the page's final section. True for an unbatched call, which owns
+    /// the whole outline and therefore its end.
+    /// </summary>
+    private static bool OwnsTheClosing(
+        IReadOnlyList<string> batch, IReadOnlyList<string>? fullOutline) =>
+        fullOutline is not { Count: > 0 }
+        || batch.Count == 0
+        || string.Equals(batch[^1], fullOutline[^1], StringComparison.Ordinal);
 
     private static string ClosingCallToActionInstruction(ProjectGenerationContext context)
     {
@@ -1338,7 +1420,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         string? revisionNotes = null,
         bool requireHeadingProvenance = false,
         string? evidenceBlock = null,
-        Section? lede = null)
+        Section? lede = null,
+        int batchIndex = 0)
     {
         var outlineContext = RenderOutline(fullOutline);
         var namesItsOwn = slots.Any(sl => sl.WritesItsOwnHeading);
@@ -1364,7 +1447,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
-            .AppendLine(SeoBodyInstruction(context.TargetKeyword, GccV2LongFormTypes.Pillar))
+            // The lede wrote fullOutline[0], so the body's own sections are what remains.
+            .AppendLine(SeoBodyInstruction(
+                context.TargetKeyword, GccV2LongFormTypes.Pillar,
+                slots.Count, Math.Max(slots.Count, fullOutline.Count - 1), batchIndex == 0))
             .AppendLine("Open each section where its own material starts. Somewhere early in the page the practitioner's cost — the delay, the error rate, the wasted hours of the status quo — has to be concrete, but it is one page making one argument: do not restate the pain at the top of every section, and never open with \"AI enables…\", \"Intelligent X is…\", a capability list, or a definition of the technology.")
             .AppendLine("Do not write these as neutral textbook explainers — every subsection should be framed through what an AI implementation " +
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")
@@ -1380,7 +1466,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
-            .AppendLine(ClosingCallToActionInstruction(context))
+            .AppendLine(BatchClosingInstruction(
+                context, [.. slots.Select(sl => sl.Label)], [.. fullOutline.Select(sl => sl.Label)]))
             .ToString();
 
         if (namesItsOwn)
@@ -1925,8 +2012,19 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
     public ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
-        bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null)
+        bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null,
+        IReadOnlyList<SectionSlot>? sectionBatch = null, int batchIndex = 0)
     {
+        // The planned outline is this post's own, written by the metadata call against its title and
+        // angle. `sectionBatch` is the slice of it this call owns; the whole plan still goes to the
+        // model as context, so a batch neither re-covers what another owns nor closes a page it
+        // cannot see continuing.
+        var blogOutline = metadata.SectionOutline ?? [];
+        var blogBatch = sectionBatch is { Count: > 0 }
+            ? [.. sectionBatch.Select(sl => sl.Label)]
+            : blogOutline;
+        var isBlogBatch = blogBatch.Count != blogOutline.Count;
+
         var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
@@ -1943,10 +2041,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Each section runs {ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words. " +
                 $"That is what {ContentLengthTargets.BlogSectionCountMin}-{ContentLengthTargets.BlogSectionCountTarget} sections of real depth adds up to -- " +
                 "a section coming in at half of it has not finished making its point, it has not been written concisely.")
+            .AppendLine(isBlogBatch
+                ? $"Write {blogBatch.Count} of this post's sections in this response. The word aim above is the "
+                  + "whole post's, across every call; yours is the per-section range."
+                : string.Empty)
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
-            .AppendLine(SeoBodyInstruction(context.TargetKeyword, GccV2LongFormTypes.Blog))
+            .AppendLine(SeoBodyInstruction(
+                context.TargetKeyword, GccV2LongFormTypes.Blog,
+                blogBatch.Count, blogOutline.Count, batchIndex == 0))
             .AppendLine(FillerBanInstruction)
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))
@@ -1988,11 +2092,19 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine($"Blog meta description: {metadata.MetaDescription}")
             .AppendLine()
-            .AppendLine("Advisory section outline (prefer these H2s when they still fit, but refine any that reads as a reusable label rather than this page's own claim):")
-            .AppendLine(string.Join(Environment.NewLine, (metadata.SectionOutline ?? []).Select(h => $"- {h}")))
+            .AppendLine(isBlogBatch
+                ? "Write ONLY these sections, in this order (prefer these H2s when they still fit, but refine any that reads as a reusable label rather than this page's own claim):"
+                : "Advisory section outline (prefer these H2s when they still fit, but refine any that reads as a reusable label rather than this page's own claim):")
+            .AppendLine(string.Join(Environment.NewLine, blogBatch.Select(h => $"- {h}")))
             .AppendLine()
+            .AppendLine(isBlogBatch
+                ? "THE REST OF THIS POST, written by other calls -- do not cover these, do not recap "
+                  + "them, and do not write a conclusion for the post unless its closing section is "
+                  + "listed above as yours:" + Environment.NewLine
+                  + string.Join(Environment.NewLine, blogOutline.Select(h => $"- {h}")) + Environment.NewLine
+                : string.Empty)
             .AppendLine("Write the blog body sections. Name platforms from the research brief in running prose where they fit.")
-            .AppendLine(ClosingCallToActionInstruction(context))
+            .AppendLine(BatchClosingInstruction(context, blogBatch, blogOutline))
             .ToString();
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
@@ -2185,7 +2297,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         IReadOnlyList<SectionSlot> outline,
         string? revisionNotes = null,
         string? extractedToolResearchJson = null,
-        Section? lede = null)
+        Section? lede = null,
+        IReadOnlyList<SectionSlot>? fullOutline = null,
+        int batchIndex = 0)
     {
         // One rendering of the outline, from the one definition. This block used to be three hand-
         // written prose lists inside this prompt -- the required section names, the per-section word
@@ -2212,6 +2326,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
+            // The operator's brief, from the one place that renders it. Pillar, Blog, the FAQ
+            // section, social and cold outreach all called this; the tool body never did, so the
+            // primary intent, the buying-stage funnel alignment, the tone of voice, the E-E-A-T
+            // signals, the CTA, the length band and the writing notes reached every content type
+            // except the one Jeff calls the most important. The gap read as covered because the
+            // audience block below names the segment and asks for a closing -- neither of which is
+            // this rendering, so a reader checking those two found them.
+            .AppendLine(BuildBriefBodyGuidance(context))
             // Pillar and Blog have banned this vocabulary for weeks; Tool never got it, which is the
             // wrong way round -- a page about a partner's product is where "transformative
             // potential" and "unlock value" are most likely to turn up, and where they do the most
@@ -2244,9 +2366,19 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +
                 "section is responsible for; you write its heading:")
             .AppendLine(sectionBlock.ToString().TrimEnd())
+            // When this call writes part of the page, the rest of the plan is context: it stops a
+            // batch re-covering what another owns, and stops it closing the page it cannot see
+            // continues.
+            .AppendLine(fullOutline is { Count: > 0 } && fullOutline.Count != outline.Count
+                ? "THE REST OF THIS PAGE, written by other calls -- do not cover these, do not recap "
+                  + "them, and do not write a conclusion for the page:" + Environment.NewLine
+                  + RenderOutline(fullOutline)
+                : string.Empty)
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
-            .AppendLine(SeoBodyInstruction(context.TargetKeyword, GccV2LongFormTypes.Tool))
+            .AppendLine(SeoBodyInstruction(
+                context.TargetKeyword, GccV2LongFormTypes.Tool,
+                outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count), batchIndex == 0))
             // Length is guidance for long form, never a quota. "Target at least N words, do not stop
             // early" is padding pressure: on thin partner data the only way to satisfy it is filler,
             // and filler on a partner page is worse than a short honest one. Jeff, 2026-09-23:
@@ -2288,13 +2420,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
         // body prompt named no audience and had no call to action at all, while the brief has
         // collected both for months and ResearchBriefPhase.ToolBody emits neither.
         var audience = new StringBuilder();
+        // The audience is this block's own: BuildBriefBodyGuidance renders the six control fields
+        // (intent, buying stage, tone, E-E-A-T, CTA, length band, notes) and not the segment, so
+        // this is where the tool body learns who it is written for, not a second copy of it.
         if (!string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes))
         {
             audience.AppendLine($"WHO THIS IS FOR: {context.AudienceSegment}"
                 + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — {context.AudienceNotes}"));
         }
-        if (!string.IsNullOrWhiteSpace(context.BuyingStage))
-            audience.AppendLine($"Buying stage: {context.BuyingStage} — pitch the page at where they already are.");
         audience.AppendLine($"They are weighing {app.Name} and want three questions answered: is it right for a business my size, "
             + $"what does it fix for my team specifically, and why hire {context.PublisherName} to set it up instead of doing it myself.");
         audience.AppendLine("Translate capability into consequence. Every feature you state must land with what it means for "
@@ -2304,7 +2437,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         audience.AppendLine($"The implementation section is where you answer the DIY question: what {context.PublisherName} "
             + $"({context.ImplementerPositioning}) does that makes {app.Name} work in their environment — configuration, data "
             + "mapping, integration with what they already run, training. Earn the claim, never assert it.");
-        audience.AppendLine(ClosingCallToActionInstruction(context));
+        audience.AppendLine(BatchClosingInstruction(
+            context, [.. outline.Select(sl => sl.Label)], [.. (fullOutline ?? outline).Select(sl => sl.Label)]));
         audience.AppendLine("Place it after the reader has reason to act — never a banner, never repeated per section.");
 
         system += Environment.NewLine + audience.ToString();

@@ -1795,12 +1795,21 @@ public class GccGenerateService
         // address the reviewer's feedback," phantom feedback on a draft that never existed. It
         // already reaches the model correctly via app.Description ("Tool summary: ..." below), so
         // dropping it here removes a misleading duplicate, not the only copy.
-        var bodyResult = await llm.CompleteAsync(
-            toolType.Body(toolOutlineCtx with { Metadata = pillarMeta, Lede = toolLede }),
-            ct);
-        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"tool page '{name}'").ToList();
-        if (sections.Count == 0)
-            throw new InvalidOperationException($"CWV2 tool body returned no sections for '{name}'.");
+        // In batches, same reason as the pillar: this page's own outline asks for 3,200-4,400 words
+        // and a single response holds about 3,000 in this JSON.
+        // The CTA retry below re-writes the body, so it batches too: a retry that asks for the whole
+        // page in one response is the arithmetic cap batching removed, put back on the draft that
+        // ships.
+        Task<List<Section>> WriteToolBodyAsync(string? evidenceBlock) =>
+            GenerateSectionsInBatchesAsync(
+                llm,
+                toolType,
+                toolOutlineCtx with { Metadata = pillarMeta, Lede = toolLede, EvidenceBlock = evidenceBlock },
+                toolType.OutlineFor(toolOutlineCtx),
+                $"Tool page '{name}'",
+                ct);
+
+        var sections = await WriteToolBodyAsync(toolOutlineCtx.EvidenceBlock);
 
         // Every tool page carries a block quotation of the partner, in their own published words
         // (Jeff, 2026-09-26: "I want a blockquote in each tool"). The prompt asks for it; this is
@@ -1857,31 +1866,21 @@ public class GccGenerateService
         if (toolCtaViolations.Count > 0)
         {
             _logger.LogInformation("Tool closing did not link the scheduler; retrying once with the omission named.");
-            var toolCtaRetry = await llm.CompleteAsync(
-                toolType.Body(toolOutlineCtx with
-                {
-                    Metadata = pillarMeta,
-                    Lede = toolLede,
-                    EvidenceBlock = Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!),
-                }),
-                ct);
-            var toolCtaSections = LlmResponseJsonParser.ParseSections(toolCtaRetry.Content, $"tool page '{name}' (cta retry)").ToList();
-            if (toolCtaSections.Count > 0)
+            var toolCtaSections = await WriteToolBodyAsync(
+                Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
+            if (toolFaqSection is not null) toolCtaSections.Add(toolFaqSection);
+            var retried = new ContentDocument(toolLede with { Tag = "h2" }, toolCtaSections);
+            var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
+                retried, context.ConsultationAnchorHref);
+            // A tool page carries a block quotation and nothing else does, so a retry that fixes
+            // the link and loses the quote is not a draft worth keeping. This check belongs to
+            // this method only.
+            if (retriedViolations.Count == 0
+                && Guardrail.GccToolQuoteGuard.FindViolations(toolCtaSections, groundedExtraction).Count == 0)
             {
-                if (toolFaqSection is not null) toolCtaSections.Add(toolFaqSection);
-                var retried = new ContentDocument(toolLede with { Tag = "h2" }, toolCtaSections);
-                var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
-                    retried, context.ConsultationAnchorHref);
-                // A tool page carries a block quotation and nothing else does, so a retry that fixes
-                // the link and loses the quote is not a draft worth keeping. This check belongs to
-                // this method only.
-                if (retriedViolations.Count == 0
-                    && Guardrail.GccToolQuoteGuard.FindViolations(toolCtaSections, groundedExtraction).Count == 0)
-                {
-                    document = retried;
-                    sections = toolCtaSections;
-                    toolCtaViolations = retriedViolations;
-                }
+                document = retried;
+                sections = toolCtaSections;
+                toolCtaViolations = retriedViolations;
             }
         }
 
@@ -2705,11 +2704,23 @@ public class GccGenerateService
             ? evidenceBlock
             : $"{evidenceBlock}{Environment.NewLine}{toolInstruction}";
 
-        var bodyResult = await llm.CompleteAsync(
-            pillarType.Body(pillarPromptCtx with { EvidenceBlock = pillarEvidence, Lede = pillarLede }), ct);
-        var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "pillar body").ToList();
-        if (bodySections.Count == 0)
-            throw new InvalidOperationException("Pillar body returned no sections.");
+        // In batches. One response cannot hold a 3,000-word floor in this JSON -- see
+        // SectionsPerBatch -- so asking for the whole page in one call capped it by arithmetic.
+        var pillarOutline = pillarType.OutlineFor(outlineCtx);
+
+        // Every retry below re-writes the body, so every retry batches too. A retry that asks for
+        // the whole page in one response is exactly the arithmetic cap batching removed, put back
+        // at the point the page can least afford it -- the draft that ships.
+        Task<List<Section>> WritePillarBodyAsync(string evidenceBlock) =>
+            GenerateSectionsInBatchesAsync(
+                llm,
+                pillarType,
+                pillarPromptCtx with { EvidenceBlock = evidenceBlock, Lede = pillarLede },
+                [.. pillarOutline.Skip(1)],
+                "Pillar body",
+                ct);
+
+        var bodySections = await WritePillarBodyAsync(pillarEvidence);
 
         // Stage 2: every heading the model invented beyond the assigned outline must be licensed
         // by real material shown to it -- retrieval, the brief, curated PAA, or a competitor
@@ -2726,16 +2737,10 @@ public class GccGenerateService
             _logger.LogInformation(
                 "Pillar wrote a tools section ({Headings}); retrying once with it named.",
                 string.Join(", ", pillarToolsSections));
-            var pillarToolsRetry = await llm.CompleteAsync(
-                pillarType.Body(pillarPromptCtx with
-                {
-                    EvidenceBlock = $"{pillarEvidence}{Environment.NewLine}"
-                        + Guardrail.GccToolsSectionGuard.RetryInstruction(pillarToolsSections),
-                    Lede = pillarLede,
-                }),
-                ct);
-            var retried = LlmResponseJsonParser.ParseSections(pillarToolsRetry.Content, "pillar body (tools retry)").ToList();
-            if (retried.Count > 0 && Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
+            var retried = await WritePillarBodyAsync(
+                $"{pillarEvidence}{Environment.NewLine}"
+                + Guardrail.GccToolsSectionGuard.RetryInstruction(pillarToolsSections));
+            if (Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
             {
                 bodySections = retried;
                 provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
@@ -2793,18 +2798,12 @@ public class GccGenerateService
         {
             _logger.LogInformation(
                 "Pillar omitted {Missing}; retrying once with the omission named.", string.Join(", ", pillarMissing));
-            var retryEvidence = $"{pillarEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(pillarMissing)}";
-            var retry = await llm.CompleteAsync(
-                pillarType.Body(pillarPromptCtx with { EvidenceBlock = retryEvidence, Lede = pillarLede }), ct);
-            var retrySections = LlmResponseJsonParser.ParseSections(retry.Content, "pillar body (retry)").ToList();
-            if (retrySections.Count > 0)
+            var retrySections = await WritePillarBodyAsync(
+                $"{pillarEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(pillarMissing)}");
+            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(retrySections, evidence).Count == 0)
             {
-                var retryViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(retrySections, evidence);
-                if (retryViolations.Count == 0)
-                {
-                    document = ContentGuardrail.Apply(new ContentDocument(lede, retrySections)).Document;
-                    pillarMissing = GccRequiredToolMentions.Missing(document, requiredTools);
-                }
+                document = ContentGuardrail.Apply(new ContentDocument(lede, retrySections)).Document;
+                pillarMissing = GccRequiredToolMentions.Missing(document, requiredTools);
             }
         }
 
@@ -2826,13 +2825,10 @@ public class GccGenerateService
         if (pillarCtaViolations.Count > 0)
         {
             _logger.LogInformation("Pillar closing did not link the scheduler; retrying once with the omission named.");
-            var pillarCtaEvidence = $"{pillarEvidence}{Environment.NewLine}"
-                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!);
-            var pillarCtaRetry = await llm.CompleteAsync(
-                pillarType.Body(pillarPromptCtx with { EvidenceBlock = pillarCtaEvidence, Lede = pillarLede }), ct);
-            var pillarCtaSections = LlmResponseJsonParser.ParseSections(pillarCtaRetry.Content, "pillar body (cta retry)").ToList();
-            if (pillarCtaSections.Count > 0
-                && GccHeadingProvenanceGuard.FindUnlicensedHeadings(pillarCtaSections, evidence).Count == 0)
+            var pillarCtaSections = await WritePillarBodyAsync(
+                $"{pillarEvidence}{Environment.NewLine}"
+                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
+            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(pillarCtaSections, evidence).Count == 0)
             {
                 var retried = ContentGuardrail.Apply(new ContentDocument(lede, pillarCtaSections)).Document;
                 var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
@@ -2984,11 +2980,22 @@ public class GccGenerateService
             ? evidenceBlock
             : $"{evidenceBlock}{Environment.NewLine}{blogToolInstruction}";
 
-        var bodyResult = await llm.CompleteAsync(
-            blogType.Body(blogPromptCtx with { EvidenceBlock = blogEvidence, Lede = blogLede }), ct);
-        var bodySections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "blog body");
-        if (bodySections.Count == 0)
-            throw new InvalidOperationException("Blog body returned no sections.");
+        // In batches, same reason as pillar and tool: one response cannot hold the 1,800-word floor
+        // in this JSON, so asking for the whole post in one call capped it by arithmetic -- 1,199
+        // words and a 0.2% keyword density were the symptom (Jeff, 2026-09-28).
+        //
+        // Every retry below re-writes the body, so every retry batches too.
+        var blogOutline = blogType.OutlineFor(blogPromptCtx);
+        Task<List<Section>> WriteBlogBodyAsync(string evidenceBlock) =>
+            GenerateSectionsInBatchesAsync(
+                llm,
+                blogType,
+                blogPromptCtx with { EvidenceBlock = evidenceBlock, Lede = blogLede },
+                blogOutline,
+                "Blog body",
+                ct);
+
+        List<Section> bodySections = await WriteBlogBodyAsync(blogEvidence);
 
         var provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
         // Before provenance, because a tools section fails provenance for the wrong-looking reason:
@@ -3001,16 +3008,10 @@ public class GccGenerateService
             _logger.LogInformation(
                 "Blog wrote a tools section ({Headings}); retrying once with it named.",
                 string.Join(", ", blogToolsSections));
-            var blogToolsRetry = await llm.CompleteAsync(
-                blogType.Body(blogPromptCtx with
-                {
-                    EvidenceBlock = $"{blogEvidence}{Environment.NewLine}"
-                        + Guardrail.GccToolsSectionGuard.RetryInstruction(blogToolsSections),
-                    Lede = blogLede,
-                }),
-                ct);
-            var retried = LlmResponseJsonParser.ParseSections(blogToolsRetry.Content, "blog body (tools retry)").ToList();
-            if (retried.Count > 0 && Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
+            var retried = await WriteBlogBodyAsync(
+                $"{blogEvidence}{Environment.NewLine}"
+                + Guardrail.GccToolsSectionGuard.RetryInstruction(blogToolsSections));
+            if (Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
             {
                 bodySections = retried;
                 provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
@@ -3036,12 +3037,9 @@ public class GccGenerateService
         {
             _logger.LogInformation(
                 "Blog omitted {Missing}; retrying once with the omission named.", string.Join(", ", blogMissing));
-            var blogRetryEvidence = $"{blogEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(blogMissing)}";
-            var blogRetry = await llm.CompleteAsync(
-                blogType.Body(blogPromptCtx with { EvidenceBlock = blogRetryEvidence, Lede = blogLede }), ct);
-            var blogRetrySections = LlmResponseJsonParser.ParseSections(blogRetry.Content, "blog body (retry)");
-            if (blogRetrySections.Count > 0
-                && GccHeadingProvenanceGuard.FindUnlicensedHeadings(blogRetrySections, evidence).Count == 0)
+            var blogRetrySections = await WriteBlogBodyAsync(
+                $"{blogEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(blogMissing)}");
+            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(blogRetrySections, evidence).Count == 0)
             {
                 document = ContentGuardrail.Apply(
                     new ContentDocument(blogLede with { Tag = "h2" }, blogRetrySections)).Document;
@@ -3068,13 +3066,10 @@ public class GccGenerateService
         if (blogCtaViolations.Count > 0)
         {
             _logger.LogInformation("Blog closing did not link the scheduler; retrying once with the omission named.");
-            var ctaEvidence = $"{blogEvidence}{Environment.NewLine}"
-                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!);
-            var ctaRetry = await llm.CompleteAsync(
-                blogType.Body(blogPromptCtx with { EvidenceBlock = ctaEvidence, Lede = blogLede }), ct);
-            var ctaRetrySections = LlmResponseJsonParser.ParseSections(ctaRetry.Content, "blog body (cta retry)");
-            if (ctaRetrySections.Count > 0
-                && GccHeadingProvenanceGuard.FindUnlicensedHeadings(ctaRetrySections, evidence).Count == 0)
+            var ctaRetrySections = await WriteBlogBodyAsync(
+                $"{blogEvidence}{Environment.NewLine}"
+                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
+            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(ctaRetrySections, evidence).Count == 0)
             {
                 var retried = ContentGuardrail.Apply(
                     new ContentDocument(blogLede with { Tag = "h2" }, ctaRetrySections)).Document;
@@ -3218,6 +3213,72 @@ public class GccGenerateService
             if (node.Children.Count > 0)
                 FlattenCompetitorHeadings(node.Children, into);
         }
+    }
+
+    /// <summary>
+    /// How many sections one call writes.
+    ///
+    /// <para>
+    /// A single call cannot exceed the model's output ceiling, and prose in this contract costs
+    /// roughly twice its own tokens -- every run carries four required fields, every section its
+    /// tag, heading, href, children and provenance. So a long page written in one response is
+    /// capped by arithmetic rather than by what it has to say: the blog stopped near 1,200 words of
+    /// an 1,800 floor, and a tool page's own outline asks for 3,200-4,400 words against a ceiling
+    /// that holds about 3,000.
+    /// </para>
+    ///
+    /// <para>
+    /// Two sections a call leaves the budget three to four times what a pair of sections needs, so
+    /// a batch is never the thing that ends a section early. The cost is one extra call per pair,
+    /// against drafts that currently fail their own floor.
+    /// </para>
+    /// </summary>
+    private const int SectionsPerBatch = 2;
+
+    /// <summary>
+    /// The body, written in batches of <see cref="SectionsPerBatch"/> and concatenated.
+    ///
+    /// <para>
+    /// Each call is told which sections it owns and which the other calls own, so a batch neither
+    /// re-covers its neighbours nor writes a conclusion for a page it cannot see continuing. The
+    /// outline is the plan either way -- batching changes how many responses build it, never what
+    /// it contains.
+    /// </para>
+    ///
+    /// <para>
+    /// A batch that returns nothing is a failure, not a short page: continuing would store a draft
+    /// missing whole sections of its own plan and call it finished.
+    /// </para>
+    /// </summary>
+    private static async Task<List<Section>> GenerateSectionsInBatchesAsync(
+        IContentGenerationProvider llm,
+        ContentTypes.IContentTypePrompts type,
+        ContentTypes.ContentTypePromptContext promptCtx,
+        IReadOnlyList<SectionSlot> outline,
+        string label,
+        CancellationToken ct)
+    {
+        var written = new List<Section>();
+        for (var i = 0; i < outline.Count; i += SectionsPerBatch)
+        {
+            var batch = outline.Skip(i).Take(SectionsPerBatch).ToList();
+            var result = await llm.CompleteAsync(
+                type.Body(promptCtx with { SectionBatch = batch, SectionBatchIndex = i / SectionsPerBatch }), ct);
+            var sections = LlmResponseJsonParser.ParseSections(
+                result.Content, $"{label} sections {i + 1}-{i + batch.Count}").ToList();
+
+            if (sections.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{label}: sections {i + 1}-{i + batch.Count} of {outline.Count} came back empty. "
+                    + "The draft is not saved -- a page missing part of its own plan is not a short "
+                    + "page, it is an incomplete one.");
+            }
+
+            written.AddRange(sections);
+        }
+
+        return written;
     }
 
     /// <summary>
