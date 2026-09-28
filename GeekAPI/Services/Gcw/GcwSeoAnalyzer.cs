@@ -130,98 +130,25 @@ public static class GcwSeoAnalyzer
             applyFeedback);
     }
 
+    /// <summary>
+    /// One reader, shared with the polish analyser -- see <see cref="GcwBodyDocument"/>. The copy
+    /// that lived here read `lede`/`sections` off the envelope root, treated the lede as a string,
+    /// and matched paragraphs on `$type` when the converter writes `type`. Any one of those made a
+    /// full draft score 0 words.
+    /// </summary>
     private static string ExtractPlainText(
         string bodyDocumentJson,
         out string lede,
         out List<string> headings,
         out int sectionCount)
     {
-        lede = "";
-        headings = [];
-        sectionCount = 0;
-        if (string.IsNullOrWhiteSpace(bodyDocumentJson))
-            return "";
-
-        try
-        {
-            using var doc = JsonDocument.Parse(bodyDocumentJson);
-            var root = doc.RootElement;
-            if (root.TryGetProperty("lede", out var ledeEl) && ledeEl.ValueKind == JsonValueKind.String)
-                lede = ledeEl.GetString() ?? "";
-
-            var parts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(lede))
-                parts.Add(lede);
-
-            if (root.TryGetProperty("sections", out var sections) && sections.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var section in sections.EnumerateArray())
-                {
-                    sectionCount++;
-                    CollectSection(section, parts, headings);
-                }
-            }
-
-            return string.Join("\n", parts);
-        }
-        catch (JsonException)
-        {
-            return bodyDocumentJson;
-        }
+        var text = GcwBodyDocument.Read(bodyDocumentJson);
+        lede = text.Lede;
+        headings = [.. text.Headings];
+        sectionCount = text.SectionCount;
+        return text.PlainText;
     }
 
-    private static void CollectSection(JsonElement section, List<string> parts, List<string> headings)
-    {
-        if (section.TryGetProperty("heading", out var heading) && heading.ValueKind == JsonValueKind.String)
-        {
-            var h = heading.GetString() ?? "";
-            if (!string.IsNullOrWhiteSpace(h))
-            {
-                headings.Add(h);
-                parts.Add(h);
-            }
-        }
-
-        if (section.TryGetProperty("paragraphs", out var paragraphs) && paragraphs.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var p in paragraphs.EnumerateArray())
-                CollectParagraph(p, parts);
-        }
-
-        if (section.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var child in children.EnumerateArray())
-                CollectSection(child, parts, headings);
-        }
-    }
-
-    private static void CollectParagraph(JsonElement paragraph, List<string> parts)
-    {
-        if (!paragraph.TryGetProperty("$type", out var type) || type.ValueKind != JsonValueKind.String)
-            return;
-
-        var t = type.GetString();
-        if (t == "text" && paragraph.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var run in runs.EnumerateArray())
-            {
-                if (run.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
-                    parts.Add(text.GetString() ?? "");
-            }
-        }
-        else if (t == "list" && paragraph.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in items.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Array) continue;
-                foreach (var run in item.EnumerateArray())
-                {
-                    if (run.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
-                        parts.Add(text.GetString() ?? "");
-                }
-            }
-        }
-    }
 
     private static List<string> Tokenize(string text) =>
         Regex.Matches(text.ToLowerInvariant(), @"[a-z0-9']+")

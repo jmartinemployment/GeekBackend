@@ -228,84 +228,14 @@ public static class GcwPolishAnalyzer
         }
     }
 
+    /// <summary>One reader, shared with the SEO analyser -- see <see cref="GcwBodyDocument"/>.</summary>
     private static string ExtractPlainText(string bodyDocumentJson, out string lede)
     {
-        lede = "";
-        if (string.IsNullOrWhiteSpace(bodyDocumentJson))
-            return "";
-
-        try
-        {
-            using var doc = JsonDocument.Parse(bodyDocumentJson);
-            var root = doc.RootElement;
-            if (root.TryGetProperty("lede", out var ledeEl) && ledeEl.ValueKind == JsonValueKind.String)
-                lede = ledeEl.GetString() ?? "";
-
-            var parts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(lede))
-                parts.Add(lede);
-
-            if (root.TryGetProperty("sections", out var sections) && sections.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var section in sections.EnumerateArray())
-                    CollectSection(section, parts);
-            }
-
-            return string.Join("\n", parts);
-        }
-        catch (JsonException)
-        {
-            return bodyDocumentJson;
-        }
+        var text = GcwBodyDocument.Read(bodyDocumentJson);
+        lede = text.Lede;
+        return text.PlainText;
     }
 
-    private static void CollectSection(JsonElement section, List<string> parts)
-    {
-        if (section.TryGetProperty("heading", out var heading) && heading.ValueKind == JsonValueKind.String)
-        {
-            var h = heading.GetString();
-            if (!string.IsNullOrWhiteSpace(h))
-                parts.Add(h);
-        }
-
-        if (section.TryGetProperty("paragraphs", out var paragraphs) && paragraphs.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var p in paragraphs.EnumerateArray())
-                CollectParagraph(p, parts);
-        }
-
-        if (section.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var child in children.EnumerateArray())
-                CollectSection(child, parts);
-        }
-    }
-
-    private static void CollectParagraph(JsonElement paragraph, List<string> parts)
-    {
-        if (!paragraph.TryGetProperty("$type", out var type) || type.ValueKind != JsonValueKind.String)
-            return;
-
-        var t = type.GetString();
-        if (t == "text" && paragraph.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var run in runs.EnumerateArray())
-            {
-                if (run.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
-                    parts.Add(text.GetString() ?? "");
-            }
-        }
-        else if (t == "list" && paragraph.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in items.EnumerateArray())
-            {
-                if (item.ValueKind == JsonValueKind.String)
-                    parts.Add(item.GetString() ?? "");
-                else if (item.ValueKind == JsonValueKind.Object)
-                    CollectParagraph(item, parts);
-            }
-        }
-    }
 
     private static List<string> Tokenize(string text) =>
         Regex.Matches(text.ToLowerInvariant(), @"[a-z0-9']+")
