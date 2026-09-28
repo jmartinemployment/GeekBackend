@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using GeekApplication.Validation;
+using GeekAPI.Services.GeekCrawler;
 
 namespace GeekAPI.Controllers.ContentCreator;
 
@@ -29,12 +30,86 @@ namespace GeekAPI.Controllers.ContentCreator;
 public class GccProjectsController : ControllerBase
 {
     private readonly HttpGccRepository _repo;
+    private readonly IGeekCrawlerRagClient _rag;
     private readonly ILogger<GccProjectsController> _logger;
 
-    public GccProjectsController(HttpGccRepository repo, ILogger<GccProjectsController> logger)
+    public GccProjectsController(
+        HttpGccRepository repo,
+        IGeekCrawlerRagClient rag,
+        ILogger<GccProjectsController> logger)
     {
         _repo = repo;
+        _rag = rag;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Every declared partner and competitor URL must already have an indexed crawl behind it.
+    /// Returns null when the project may be saved, or the response to return instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>plans/validate-partner-competitor-urls.md</c> has mandated this since 2026-09-17 and the
+    /// form has shown the answer per URL since <c>fd5c920</c> -- but nothing refused, on either
+    /// side. A declared partner is what obliges Pillar, Blog and Tool to name it
+    /// (<c>GccRequiredToolMentions</c>), so declaring one with no crawl behind it buys a refusal at
+    /// generate time reading "a partner with no evidence gives the writer nothing to say about it"
+    /// -- a failure the operator can do nothing about by then.
+    /// </para>
+    /// <para>
+    /// Here rather than only in the form because <c>CLAUDE.md</c> §2 is explicit: a boundary is only
+    /// fail-closed if code rejects the bad input. <c>PUT</c> takes the same URLs and its frontend
+    /// caller has no call site in the UI, so it is reachable only by direct API call.
+    /// </para>
+    /// <para>
+    /// An empty result means the index could not be asked, never that nothing is indexed --
+    /// <c>HostsIndexedAsync</c> returns <c>[]</c> when disabled, on a non-2xx and on a throw, and
+    /// <c>RagController</c> answers 502 for the same reason. That is a 503 here, not a 400: the
+    /// operator's URLs are not the thing at fault.
+    /// </para>
+    /// </remarks>
+    private async Task<ActionResult?> RefuseUndeclarableUrlsAsync(
+        IReadOnlyList<string>? partnerUrls,
+        IReadOnlyList<string>? competitorUrls,
+        CancellationToken ct)
+    {
+        var declared = (partnerUrls ?? [])
+            .Concat(competitorUrls ?? [])
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // An empty list blocks nothing, and asking about nothing is a call worth not making.
+        if (declared.Count == 0) return null;
+
+        var rows = await _rag.HostsIndexedAsync(declared, ct);
+        if (rows.Count == 0)
+        {
+            _logger.LogWarning(
+                "Index unreachable while validating {Count} declared URL(s); refusing rather than guessing.",
+                declared.Count);
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                "The index could not be reached, so the declared partner and competitor URLs could "
+                + "not be checked. Nothing was saved — try again.");
+        }
+
+        var answered = rows.ToDictionary(r => r.Url, StringComparer.OrdinalIgnoreCase);
+        var unusable = declared
+            .Where(u => !answered.TryGetValue(u, out var row) || !row.Indexed)
+            .ToList();
+
+        if (unusable.Count > 0)
+        {
+            return BadRequest(
+                $"No indexed crawl exists for: {string.Join(", ", unusable)}. "
+                + "Crawl and index each one, then save the project. A declared partner or competitor "
+                + "with no evidence is one the writer will be told to name and given nothing to say "
+                + "about.");
+        }
+
+        return null;
     }
 
     [HttpGet]
@@ -85,6 +160,9 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
+        if (await RefuseUndeclarableUrlsAsync(request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
+            return refusal;
+
         var result = await _repo.CreateProjectAsync(
             new CreateGccProjectCommand(
                 request.ClientId,
@@ -128,6 +206,9 @@ public class GccProjectsController : ControllerBase
             return BadRequest($"partnerUrls contains an invalid URL: '{badPartner}'. Each must be an absolute http or https URL.");
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
+
+        if (await RefuseUndeclarableUrlsAsync(request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
+            return refusal;
 
         var project = await _repo.UpdateProjectAsync(
             new UpdateGccProjectCommand(
