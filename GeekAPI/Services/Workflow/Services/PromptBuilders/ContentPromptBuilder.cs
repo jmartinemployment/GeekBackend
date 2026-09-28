@@ -1084,9 +1084,28 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var sb = new StringBuilder();
         var hasAny = !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
             || !string.IsNullOrWhiteSpace(context.CtaType) || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
-            || context.EeatSignals is { Count: > 0 };
+            || context.EeatSignals is { Count: > 0 }
+            || !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes)
+            || context.AudienceDetails is { Count: > 0 };
         if (!hasAny) return string.Empty;
         sb.AppendLine("=== BRIEF CONTROLS (honor in body) ===");
+        // Who the piece is for, first, because every line under it is a decision made about this
+        // reader. The audience reached the lede prompts and the tool body's own block and no other
+        // body -- so a pillar and a blog were written to a reader the operator had named and the
+        // writer had never been told about. The tool page's copy of this line is gone now that one
+        // rendering carries it; it never had the details list, which this does.
+        if (!string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes)
+            || context.AudienceDetails is { Count: > 0 })
+        {
+            var who = new StringBuilder("WHO THIS IS FOR: ");
+            who.Append(string.IsNullOrWhiteSpace(context.AudienceSegment) ? "see the notes below" : context.AudienceSegment);
+            if (context.AudienceDetails is { Count: > 0 } aud)
+                who.Append($" — details: {string.Join(", ", aud)}");
+            if (!string.IsNullOrWhiteSpace(context.AudienceNotes))
+                who.Append($" — notes: {context.AudienceNotes}");
+            sb.AppendLine(who.ToString());
+            sb.AppendLine("Write to that reader specifically: their vocabulary, their constraints, the decision they are actually making. A passage that would read the same to any reader has not used this.");
+        }
         if (!string.IsNullOrWhiteSpace(context.PrimaryIntent))
             sb.AppendLine($"Primary intent: {context.PrimaryIntent}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $" + {context.SecondaryIntent}"));
         if (!string.IsNullOrWhiteSpace(context.BuyingStage))
@@ -2331,8 +2350,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
             // primary intent, the buying-stage funnel alignment, the tone of voice, the E-E-A-T
             // signals, the CTA, the length band and the writing notes reached every content type
             // except the one Jeff calls the most important. The gap read as covered because the
-            // audience block below names the segment and asks for a closing -- neither of which is
-            // this rendering, so a reader checking those two found them.
+            // audience block below named the segment and asked for a closing -- neither of which
+            // was this rendering, so a reader checking those two found them.
+            //
+            // None of this is the page's grounding: the partner evidence RAG retrieved is the
+            // substance of a tool page, arrives as PARTNER DATA in the user message, and is
+            // refused outright when extraction yields too little. These are the operator's
+            // controls over how that evidence is written up.
             .AppendLine(BuildBriefBodyGuidance(context))
             // Pillar and Blog have banned this vocabulary for weeks; Tool never got it, which is the
             // wrong way round -- a page about a partner's product is where "transformative
@@ -2419,15 +2443,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
         // outline stays and its conversion intent is folded in as instruction. Until now the tool
         // body prompt named no audience and had no call to action at all, while the brief has
         // collected both for months and ResearchBriefPhase.ToolBody emits neither.
+        // The audience line that used to open this block is gone: BuildBriefBodyGuidance above now
+        // renders it, with the details list this copy dropped. What stays is what is Tool's alone --
+        // what this reader wants to know about this product.
         var audience = new StringBuilder();
-        // The audience is this block's own: BuildBriefBodyGuidance renders the six control fields
-        // (intent, buying stage, tone, E-E-A-T, CTA, length band, notes) and not the segment, so
-        // this is where the tool body learns who it is written for, not a second copy of it.
-        if (!string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes))
-        {
-            audience.AppendLine($"WHO THIS IS FOR: {context.AudienceSegment}"
-                + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — {context.AudienceNotes}"));
-        }
         audience.AppendLine($"They are weighing {app.Name} and want three questions answered: is it right for a business my size, "
             + $"what does it fix for my team specifically, and why hire {context.PublisherName} to set it up instead of doing it myself.");
         audience.AppendLine("Translate capability into consequence. Every feature you state must land with what it means for "

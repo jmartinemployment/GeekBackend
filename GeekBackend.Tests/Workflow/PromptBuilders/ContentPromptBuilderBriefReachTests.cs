@@ -19,9 +19,16 @@ namespace GeekBackend.Tests.Workflow.PromptBuilders;
 /// </para>
 ///
 /// <para>
-/// The gap read as covered because the tool prompt has an audience block of its own naming the
-/// segment and the call to action. Neither is among the seven — the segment is not in that block at
-/// all — so what looked like the brief arriving was a different, smaller set of fields.
+/// The gap read as covered because the tool prompt had an audience block of its own naming the
+/// segment and asking for a closing. Neither was that rendering, so a reader checking those two
+/// found them.
+/// </para>
+///
+/// <para>
+/// The audience segment went the other way: it reached the lede prompts and the tool page's own
+/// block, and no other body — so a pillar and a blog were written to a reader the operator had
+/// named and the writer had never been told about. It belongs to the same rendering as the rest of
+/// the brief, which is where it is now; Tool's copy is gone rather than kept beside it.
 /// </para>
 /// </summary>
 public class ContentPromptBuilderBriefReachTests
@@ -51,7 +58,8 @@ public class ContentPromptBuilderBriefReachTests
         ConsultationCtaLabel: "Schedule a Free Consultation")
     {
         AudienceSegment = "SMB finance leads",
-        AudienceNotes = "time-poor, budget-conscious",
+        AudienceDetails = ["budget-conscious", "time-poor"],
+        AudienceNotes = "weighing a first automation purchase",
         ContentAngle = "problem_solution",
         PrimaryIntent = "commercial_investigation",
         SecondaryIntent = "informational",
@@ -105,6 +113,8 @@ public class ContentPromptBuilderBriefReachTests
         var prompt = Render(type);
 
         Assert.Contains("=== BRIEF CONTROLS (honor in body) ===", prompt, StringComparison.Ordinal);
+        Assert.Contains("WHO THIS IS FOR: SMB finance leads", prompt, StringComparison.Ordinal);
+        Assert.Contains("notes: weighing a first automation purchase", prompt, StringComparison.Ordinal);
         Assert.Contains("Primary intent: commercial_investigation", prompt, StringComparison.Ordinal);
         Assert.Contains("Buying stage: consideration", prompt, StringComparison.Ordinal);
         Assert.Contains("Tone of voice: consultant_professional", prompt, StringComparison.Ordinal);
@@ -113,15 +123,23 @@ public class ContentPromptBuilderBriefReachTests
         Assert.Contains("Writing notes: Avoid jargon in the first two paragraphs.", prompt, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void The_tool_body_still_names_who_the_page_is_for()
+    [Theory]
+    [MemberData(nameof(EveryLongFormBody))]
+    public void Every_long_form_body_is_shown_the_audiences_details(string type)
     {
-        // The audience segment is not one of the control fields, so adding the shared block does
-        // not cover it. It reaches the tool body through the page's own audience block and nowhere
-        // else — dropping that line as a duplicate would have removed the only copy.
+        // The details list is the half the tool page's own copy dropped, which is the argument for
+        // one rendering rather than a per-type line that covers most of a field.
+        Assert.Contains("details: budget-conscious, time-poor", Render(type), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_tool_body_names_who_the_page_is_for_exactly_once()
+    {
+        // Its own copy is gone now that the shared rendering carries it. Two copies of one fact in
+        // one prompt is how the two drift, and the copy here was already the poorer of them.
         var prompt = ToolBody();
 
-        Assert.Contains("WHO THIS IS FOR: SMB finance leads", prompt, StringComparison.Ordinal);
-        Assert.Contains("time-poor, budget-conscious", prompt, StringComparison.Ordinal);
+        Assert.Equal(1, prompt.Split("WHO THIS IS FOR:").Length - 1);
+        Assert.Equal(1, prompt.Split("SMB finance leads").Length - 1);
     }
 }
