@@ -288,6 +288,24 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// fails a draft for a few lines later.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// No section that is a tools listing, wherever the section came from.
+    ///
+    /// <para>
+    /// The ban lived in the outline prompts only. A body prompt may add sections beyond the
+    /// outline -- that is what provenance licenses -- so the plan came back clean and the body then
+    /// wrote "Top Tools for Automated Data Entry &amp; Processing" with one h3 per product anyway
+    /// (Jeff, 2026-09-28). Banning it at planning time and not at writing time bans it nowhere.
+    /// </para>
+    /// </summary>
+    private const string NoToolsSectionInstruction =
+        "NO TOOLS SECTION: do not write a section that lists tools, whatever it is called -- not "
+        + "\"Top Tools for ...\", not \"Choosing the Right Tools\", not a heading per product with a "
+        + "product name in it. Name the tools in running prose where each one earns the mention, and "
+        + "link the first substantive mention. A section whose job is to enumerate products is the "
+        + "one shape this page must not have, and it is not licensed by a heading of that shape "
+        + "existing on the site.";
+
     private static string KeywordPlacementInstruction(string keyword) =>
         $"KEYWORD PLACEMENT: \"{keyword}\" appears in the opening paragraph and in at least one H2, "
         + "both times as part of a sentence someone would actually write. Not in every heading, and "
@@ -1242,6 +1260,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
             .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
             .AppendLine(SectionVarietyInstruction)
+            .AppendLine(NoToolsSectionInstruction)
             .AppendLine("Open each section where its own material starts. Somewhere early in the page the practitioner's cost — the delay, the error rate, the wasted hours of the status quo — has to be concrete, but it is one page making one argument: do not restate the pain at the top of every section, and never open with \"AI enables…\", \"Intelligent X is…\", a capability list, or a definition of the technology.")
             .AppendLine("Do not write these as neutral textbook explainers — every subsection should be framed through what an AI implementation " +
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")
@@ -1816,6 +1835,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "a section coming in at half of it has not finished making its point, it has not been written concisely.")
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
+            .AppendLine(NoToolsSectionInstruction)
             .AppendLine(FillerBanInstruction)
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))

@@ -2717,6 +2717,38 @@ public class GccGenerateService
         // codebase: a draft with an unlicensed heading is not persisted, not trimmed to the
         // licensed subset.
         var provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
+
+        // Before provenance: a tools section fails that check for the wrong-looking reason, because
+        // the model licenses it against a real "Top 5 ... Tools" heading on the site.
+        var pillarToolsSections = Guardrail.GccToolsSectionGuard.FindToolsSections(bodySections);
+        if (pillarToolsSections.Count > 0)
+        {
+            _logger.LogInformation(
+                "Pillar wrote a tools section ({Headings}); retrying once with it named.",
+                string.Join(", ", pillarToolsSections));
+            var pillarToolsRetry = await llm.CompleteAsync(
+                pillarType.Body(pillarPromptCtx with
+                {
+                    EvidenceBlock = $"{pillarEvidence}{Environment.NewLine}"
+                        + Guardrail.GccToolsSectionGuard.RetryInstruction(pillarToolsSections),
+                    Lede = pillarLede,
+                }),
+                ct);
+            var retried = LlmResponseJsonParser.ParseSections(pillarToolsRetry.Content, "pillar body (tools retry)").ToList();
+            if (retried.Count > 0 && Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
+            {
+                bodySections = retried;
+                provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
+                pillarToolsSections = [];
+            }
+        }
+
+        if (pillarToolsSections.Count > 0)
+            throw new InvalidOperationException(
+                "Refused: the pillar carries a section whose job is to list tools — "
+                + string.Join(", ", pillarToolsSections.Select(h => $"\"{h}\""))
+                + " — after a retry naming it. Tools belong in the prose of the sections they serve.");
+
         if (provenanceViolations.Count > 0)
             throw new InvalidOperationException(
                 $"Pillar body contains unlicensed headings: {string.Join("; ", provenanceViolations)}");
@@ -2959,6 +2991,39 @@ public class GccGenerateService
             throw new InvalidOperationException("Blog body returned no sections.");
 
         var provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
+        // Before provenance, because a tools section fails provenance for the wrong-looking reason:
+        // the model tries to license it against a real "Top 5 ... Tools" heading on the site, and
+        // the refusal then talks about tags when the problem is the section. One retry naming it,
+        // then the refusal stands.
+        var blogToolsSections = Guardrail.GccToolsSectionGuard.FindToolsSections(bodySections);
+        if (blogToolsSections.Count > 0)
+        {
+            _logger.LogInformation(
+                "Blog wrote a tools section ({Headings}); retrying once with it named.",
+                string.Join(", ", blogToolsSections));
+            var blogToolsRetry = await llm.CompleteAsync(
+                blogType.Body(blogPromptCtx with
+                {
+                    EvidenceBlock = $"{blogEvidence}{Environment.NewLine}"
+                        + Guardrail.GccToolsSectionGuard.RetryInstruction(blogToolsSections),
+                    Lede = blogLede,
+                }),
+                ct);
+            var retried = LlmResponseJsonParser.ParseSections(blogToolsRetry.Content, "blog body (tools retry)").ToList();
+            if (retried.Count > 0 && Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
+            {
+                bodySections = retried;
+                provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
+                blogToolsSections = [];
+            }
+        }
+
+        if (blogToolsSections.Count > 0)
+            throw new InvalidOperationException(
+                "Refused: the blog carries a section whose job is to list tools — "
+                + string.Join(", ", blogToolsSections.Select(h => $"\"{h}\""))
+                + " — after a retry naming it. Tools belong in the prose of the sections they serve.");
+
         if (provenanceViolations.Count > 0)
             throw new InvalidOperationException(
                 $"Blog body contains unlicensed headings: {string.Join("; ", provenanceViolations)}");
