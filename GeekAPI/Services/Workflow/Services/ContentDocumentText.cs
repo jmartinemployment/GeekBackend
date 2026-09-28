@@ -223,6 +223,14 @@ public static class ContentDocumentText
         return string.Join("\n", parts.Where(p => p.Length > 0));
     }
 
+    /// <summary>
+    /// One section's paragraph text, for a caller that needs the shape as well as the words -- the
+    /// revise prompt renders the draft heading by heading. Uses the same projection as
+    /// <see cref="Flatten"/>; this is an entry point to it, never a second one.
+    /// </summary>
+    public static IEnumerable<string> ParagraphTexts(Section section) =>
+        section.Paragraphs.SelectMany(FlattenParagraph);
+
     private static IEnumerable<string> FlattenParagraph(Paragraph paragraph) => paragraph switch
     {
         TextParagraph text => [string.Join(" ", text.Runs.Select(r => r.Text))],

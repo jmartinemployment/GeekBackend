@@ -110,6 +110,31 @@ public class GccReviseTests
     }
 
     [Fact]
+    public void The_draft_reaches_the_prompt_as_the_draft_and_not_as_site_copy()
+    {
+        // The flattened draft used to go into CrawledParagraphs, which the research brief renders
+        // under "Representative site copy:" -- so the model was shown the previous draft labelled
+        // as background from the publisher's website, with nothing saying it was the thing being
+        // revised. It rewrote from what it had been told it was looking at.
+        var notes = "=== THE DRAFT YOU ARE REVISING ===\n[H2] Where the hours go\nThree days of keying.\n\nExpand it.";
+        var rendered = Rendered(SetFor("blog").Body(Ctx(notes)));
+
+        Assert.Contains("THE DRAFT YOU ARE REVISING", rendered, StringComparison.Ordinal);
+        Assert.Contains("Three days of keying.", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_draft_block_carries_no_markdown()
+    {
+        // A prompt that shows the model Markdown gets Markdown back, and it is banned end to end.
+        var notes = "=== THE DRAFT YOU ARE REVISING ===\n[H2] Where the hours go\nThree days of keying.";
+        var rendered = Rendered(SetFor("blog").Body(Ctx(notes)));
+
+        Assert.DoesNotContain("## Where the hours go", rendered, StringComparison.Ordinal);
+        Assert.Contains("[H2] Where the hours go", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_body_prompt_is_told_the_opening_that_already_exists()
     {
         // Revise keeps the document's lede rather than promoting a body section into it, so the

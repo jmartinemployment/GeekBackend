@@ -1391,8 +1391,14 @@ public class GccGenerateService
             ?? throw new InvalidOperationException(
                 "This draft cannot be revised: its stored body is not a content document.");
 
+        // The draft used to be flattened into `notes`, which BuildMinimalContext puts in
+        // CrawledParagraphs -- rendered by the research brief under "Representative site copy:". So
+        // the model was handed the previous draft labelled as background from the publisher's
+        // website, with nothing saying it was the thing being revised. It rewrote, correctly, from
+        // what it had been told it was looking at. The draft now arrives as the draft.
         var llm = GetLlm(provider);
-        var context = BuildMinimalContext(document.Lede.Heading, ContentDocumentText.Flatten(document), ToLlm(provider));
+        var context = BuildMinimalContext(document.Lede.Heading, notes: null, ToLlm(provider));
+        fb = $"{CurrentDraftBlock(document)}{Environment.NewLine}{Environment.NewLine}{fb}";
         var metadata = new ArticleMetadataDraft(
             Title: document.Lede.Heading,
             MetaDescription: Truncate(document.Lede.Heading, 160),
@@ -1425,11 +1431,78 @@ public class GccGenerateService
             throw new InvalidOperationException("CWV2 revise returned no sections.");
         // Every returned section is body. The lede is the one the piece was written with.
         var revised = new ContentDocument(document.Lede, [.. sections]);
+
+        // A revision that comes back a quarter shorter has not revised the draft, it has replaced
+        // it with a summary -- which is what three presses of "Fix these and revise" did, each one
+        // storing the loss as a new version. Refused rather than repaired: the previous version is
+        // intact and still the latest, and a draft the model shortened cannot be lengthened back by
+        // this code without inventing the missing words.
+        var beforeWords = ContentDocumentText.CountWords(document);
+        var afterWords = ContentDocumentText.CountWords(revised);
+        if (beforeWords > 0 && afterWords < beforeWords * 0.75)
+        {
+            throw new InvalidOperationException(
+                $"Refused: the revision came back at {afterWords:N0} words from {beforeWords:N0} -- "
+                + "it rewrote the piece rather than revising it. The current version is unchanged. "
+                + "Narrow the feedback to the sections that need work and try again.");
+        }
         revised = ContentGuardrail.Apply(revised).Document;
         // Back into the envelope it came from. Revise used to store the bare document, so a revised
         // blog lost its title, meta description, summary and JSON-LD -- the envelope was not only
         // unread, it was dropped.
         return GccBodyEnvelope.Write(envelope, revised, CwDocumentJson);
+    }
+
+    /// <summary>
+    /// The draft being revised, as the draft being revised.
+    ///
+    /// <para>
+    /// Revise regenerates rather than edits -- the type's body prompt returns a fresh sections
+    /// array -- so the only way to keep what the feedback did not ask to change is to put it in
+    /// front of the model and say so. Headings and prose, in order, with the instruction that
+    /// everything not named by the feedback comes back as it was.
+    /// </para>
+    /// </summary>
+    private static string CurrentDraftBlock(ContentDocument document)
+    {
+        var sb = new StringBuilder()
+            .AppendLine("=== THE DRAFT YOU ARE REVISING ===")
+            .AppendLine(
+                "This is the current piece, in full. Return it revised -- not rewritten. Every "
+                + "section below comes back, in this order, with its substance intact, unless the "
+                + "feedback asks for that section to change. Keep the examples, the figures, the "
+                + "named products and the length. A revision that returns less than it was given "
+                + "has lost the reader something nobody asked to remove.")
+            .AppendLine();
+
+        foreach (var section in document.Sections)
+        {
+            AppendDraftSection(sb, section, depth: 0);
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendDraftSection(StringBuilder sb, Section section, int depth)
+    {
+        var indent = new string(' ', depth * 2);
+        // Not "## heading": Markdown is banned end to end here, and a prompt that shows the model
+        // Markdown is a prompt that gets Markdown back.
+        if (!string.IsNullOrWhiteSpace(section.Heading))
+        {
+            sb.AppendLine($"{indent}[{(depth == 0 ? "H2" : "H" + (depth + 2))}] {section.Heading}");
+        }
+
+        foreach (var text in ContentDocumentText.ParagraphTexts(section))
+        {
+            if (!string.IsNullOrWhiteSpace(text)) sb.AppendLine($"{indent}{text}");
+        }
+
+        sb.AppendLine();
+        foreach (var child in section.Children)
+        {
+            AppendDraftSection(sb, child, depth + 1);
+        }
     }
 
     public async Task<string> GenerateImagePromptJsonAsync(
