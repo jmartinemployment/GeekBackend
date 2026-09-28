@@ -175,16 +175,16 @@ public class GccProjectsControllerIndexGateTests
     }
 
     [Fact]
-    public async Task AnUnreachableIndexIs503NotABadRequest()
+    public async Task AUrlWithNoAnswerIsNotIndexed()
     {
-        // HostsIndexedAsync returns [] when disabled, on a non-2xx and on a throw -- never false.
-        // RagController answers 502 for the same reason: "Returning 'not indexed' for every URL
-        // would block creates on an answer never obtained." The operator's URLs are not at fault.
+        // One question, one answer. A URL the index returned nothing for has no index behind it --
+        // never crawled, will not parse, or the index could not be asked. Same answer, same fix.
         var (controller, repo) = Build();
 
         var result = await controller.Create(CreateRequest([Partner], []), CancellationToken.None);
 
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, StatusOf(result));
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains(Partner, BodyOf(result), StringComparison.Ordinal);
         Assert.Equal(0, repo.Calls);
     }
 
@@ -215,14 +215,14 @@ public class GccProjectsControllerIndexGateTests
     }
 
     [Fact]
-    public async Task UpdateWithAnUnreachableIndexIs503()
+    public async Task UpdateRefusesAUrlWithNoAnswerToo()
     {
         var (controller, repo) = Build();
 
         var result = await controller.Update(
             Guid.NewGuid(), UpdateRequest([Partner], []), CancellationToken.None);
 
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, StatusOf(result));
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Equal(0, repo.Calls);
     }
 }
