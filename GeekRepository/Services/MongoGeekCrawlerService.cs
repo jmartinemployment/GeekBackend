@@ -71,7 +71,7 @@ public interface IMongoGeekCrawlerService
     /// and no further crawling should happen until it is cleared. A run still in flight is excluded:
     /// holding pages is what an in-flight crawl is supposed to do.
     /// </summary>
-    Task<List<GeekCrawlerRun>> ListFailedRunsHoldingDataAsync(string ownerUserId, CancellationToken ct = default);
+    Task<List<GeekCrawlerRun>> ListRunsBlockingCrawlAsync(string ownerUserId, CancellationToken ct = default);
     /// <summary>
     /// Finds the latest run for owner+crawlType whose seed set CONTAINS the given single normalized
     /// seed — unlike <see cref="GetLatestRunAsync"/>/<see cref="GetRunForSlotAsync"/>, which require an
@@ -613,10 +613,16 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         {
             var collection = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
             return await collection
+                // awaiting_vector_purge is excluded deliberately. It is not abandoned staging —
+                // it published, and the global gate in GeekCrawlerIngestController owns
+                // resolving it (and runs first). Letting this sweep pick it up too would give
+                // one condition two owners and report a published run as "abandoned staging
+                // run" in the refusal message.
                 .Find(r => r.OwnerUserId == ownerUserId
                            && r.CrawlType == crawlType
                            && r.SeedKey == seedKey
-                           && r.Status != "complete")
+                           && r.Status != "complete"
+                           && r.Status != "awaiting_vector_purge")
                 .Sort(Builders<GeekCrawlerRun>.Sort.Descending(r => r.CreatedAtUtc))
                 .ToListAsync(ct);
         }
@@ -937,7 +943,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         }
     }
 
-    public async Task<List<GeekCrawlerRun>> ListFailedRunsHoldingDataAsync(string ownerUserId, CancellationToken ct = default)
+    public async Task<List<GeekCrawlerRun>> ListRunsBlockingCrawlAsync(string ownerUserId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(ownerUserId))
             throw new ArgumentException("ownerUserId is required", nameof(ownerUserId));
@@ -947,9 +953,16 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             var runs = _db.GetCollection<GeekCrawlerRun>("crawl_runs");
             var pages = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
 
+            // awaiting_vector_purge belongs here and is the reason this query exists at all:
+            // a superseded run whose Qdrant points survive is the same integrity break as a
+            // discard that did not complete, and it must block crawling the same way. Omitting
+            // it would leave the new state operator-visible but unenforced, which is a safety
+            // property documented and not checked.
             var terminal = await runs
                 .Find(r => r.OwnerUserId == ownerUserId
-                           && (r.Status == "failed" || r.Status == "cancelled"))
+                           && (r.Status == "failed"
+                               || r.Status == "cancelled"
+                               || r.Status == "awaiting_vector_purge"))
                 .Sort(Builders<GeekCrawlerRun>.Sort.Descending(r => r.CreatedAtUtc))
                 .ToListAsync(ct);
 

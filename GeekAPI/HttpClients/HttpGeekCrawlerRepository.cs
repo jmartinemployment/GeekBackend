@@ -217,7 +217,7 @@ public sealed class HttpGeekCrawlerRepository : IGeekCrawlerResumeRepository, IG
         CancellationToken ct = default) =>
         PostAsync<object>("repo/geek-crawler/links/batch", command, ct);
 
-    public Task<IReadOnlyList<GeekCrawlerRunDto>> ListFailedRunsHoldingDataAsync(
+    public Task<IReadOnlyList<GeekCrawlerRunDto>> ListRunsBlockingCrawlAsync(
         string ownerUserId,
         CancellationToken ct = default) =>
         GetListAsync<GeekCrawlerRunDto>(

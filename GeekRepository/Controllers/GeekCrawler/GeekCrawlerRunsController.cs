@@ -227,16 +227,27 @@ public class GeekCrawlerRunsController : ControllerBase
     }
 
 
-    /// <summary>Failed runs still holding pages — discards that did not complete.</summary>
+    /// <summary>
+    /// Runs that block every new crawl for this owner: a discard that did not complete
+    /// (failed/cancelled still holding pages), or a superseded run left
+    /// <c>awaiting_vector_purge</c>. Both mean Qdrant and the corpus may disagree.
+    /// </summary>
+    /// <remarks>
+    /// The path still says "failed-holding-data" though the answer is broader. It is a wire
+    /// contract between two independently deployed services: renaming it would open a window
+    /// where GeekAPI calls a route GeekRepository does not yet serve, and this route feeds the
+    /// gate that blocks crawling, so a 404 there stops all crawls. Rename it in a coordinated
+    /// deploy, not as a tidy-up.
+    /// </remarks>
     [HttpGet("failed-holding-data")]
-    public async Task<ActionResult<List<GeekCrawlerRun>>> ListFailedHoldingData(
+    public async Task<ActionResult<List<GeekCrawlerRun>>> ListRunsBlockingCrawl(
         [FromQuery] string ownerUserId,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(ownerUserId))
             return BadRequest("ownerUserId is required");
 
-        return Ok(await _mongo.ListFailedRunsHoldingDataAsync(ownerUserId, ct));
+        return Ok(await _mongo.ListRunsBlockingCrawlAsync(ownerUserId, ct));
     }
 
     /// <summary>Filesystem headroom on the Mongo host, for crawl capacity preflight.</summary>

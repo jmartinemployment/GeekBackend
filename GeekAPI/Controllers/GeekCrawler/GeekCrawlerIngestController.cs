@@ -135,30 +135,62 @@ public class GeekCrawlerIngestController : ControllerBase
                     + "started.");
             }
 
-            var unresolved = await _repo.ListFailedRunsHoldingDataAsync(ownerUserId, ct)
+            var unresolved = await _repo.ListRunsBlockingCrawlAsync(ownerUserId, ct)
                 .ConfigureAwait(false);
 
             foreach (var stuck in unresolved)
             {
+                var superseded = string.Equals(
+                    stuck.Status,
+                    GeekCrawlerRunStatuses.AwaitingVectorPurge,
+                    StringComparison.OrdinalIgnoreCase);
+
                 if (!await _rag.DeleteRunIndexAsync(stuck.Id, ct).ConfigureAwait(false))
                 {
                     _logger.LogError(
-                        "Crawling is stopped: vectors for failed run {StuckRunId} still cannot be "
-                        + "deleted, so its pages cannot be discarded.",
+                        "Crawling is stopped: vectors for {StuckStatus} run {StuckRunId} still "
+                        + "cannot be deleted.",
+                        stuck.Status,
                         stuck.Id);
 
                     return StatusCode(
                         StatusCodes.Status502BadGateway,
-                        $"Crawling is stopped. Failed run {stuck.Id:D} is still holding pages "
-                        + "because its vectors cannot be deleted from Qdrant. Resolve the Qdrant "
-                        + "deletion before starting any crawl — retrying this request will clear "
-                        + "the block once it succeeds.");
+                        superseded
+                            ? $"Crawling is stopped. Superseded run {stuck.Id:D} is still "
+                              + "awaiting its vector purge, so its index may still be reachable. "
+                              + "Resolve the Qdrant deletion before starting any crawl — retrying "
+                              + "this request will clear the block once it succeeds."
+                            : $"Crawling is stopped. Failed run {stuck.Id:D} is still holding "
+                              + "pages because its vectors cannot be deleted from Qdrant. Resolve "
+                              + "the Qdrant deletion before starting any crawl — retrying this "
+                              + "request will clear the block once it succeeds.");
                 }
 
-                await _repo.ClearRunCrawlDataAsync(stuck.Id, ct).ConfigureAwait(false);
-                _logger.LogInformation(
-                    "Cleared previously stuck discard for failed run {StuckRunId}.",
-                    stuck.Id);
+                if (superseded)
+                {
+                    // Finish the retirement the commit could not. DeleteRunAsync removes the run
+                    // document with its pages and links, which is exactly what the commit path
+                    // would have done had the purge succeeded there.
+                    //
+                    // Clearing its data and leaving the document, as the discard branch does,
+                    // would strand it: awaiting_vector_purge with no pages no longer matches this
+                    // gate, so nothing would ever look at it again and it would sit in a
+                    // non-terminal state forever. That is precisely the outcome an explicit
+                    // awaiting_* state exists to avoid.
+                    await _repo.DeleteRunAsync(stuck.Id, ct).ConfigureAwait(false);
+                    _logger.LogInformation(
+                        "Purged and retired superseded run {StuckRunId}; crawl block cleared.",
+                        stuck.Id);
+                }
+                else
+                {
+                    // A discard keeps its document on purpose, carrying its status and
+                    // ErrorSummary — a few hundred bytes against the pages it held.
+                    await _repo.ClearRunCrawlDataAsync(stuck.Id, ct).ConfigureAwait(false);
+                    _logger.LogInformation(
+                        "Cleared previously stuck discard for failed run {StuckRunId}.",
+                        stuck.Id);
+                }
             }
 
             // Reclaim abandoned staging from earlier crawls that died in this slot. They never
@@ -295,6 +327,9 @@ public class GeekCrawlerIngestController : ControllerBase
             // Identify what this slot publishes today BEFORE committing, so the outgoing run is known
             // even though the commit itself is what makes the new one visible.
             GeekCrawlerRunDto? outgoing = null;
+            // Set when the superseded run could not be purged. Reported on the response so the
+            // caller learns the cleanup is outstanding without this run being called a failure.
+            Guid? supersededAwaitingPurge = null;
             if (committing)
             {
                 var staging = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
@@ -345,35 +380,63 @@ public class GeekCrawlerIngestController : ControllerBase
             // in a slot resolve to the newer by CreatedAtUtc, which is the one just committed.
             if (outgoing is not null)
             {
-                if (!_rag.IsEnabled)
-                {
-                    return StatusCode(
-                        StatusCodes.Status503ServiceUnavailable,
-                        $"Run {runId:D} is published, but Geek-Crawler-Rag is disabled so the "
-                        + $"superseded run {outgoing.Id:D} could not have its vectors purged. "
-                        + "Crawling is stopped until that is resolved.");
-                }
+                // The purge of the OUTGOING run is not this run's business to fail for.
+                //
+                // Refusing to go quiet about orphaned vectors is right, and the reason is
+                // stronger than "costs disk": every retrieval is filtered to exactly one runId,
+                // and /v1/index/hosts resolves a host to a runId by scanning Qdrant on host
+                // alone, so a superseded run's surviving points can be selected as a host's
+                // grounding evidence and cited. Crawling must stay blocked until they are gone.
+                //
+                // But reporting THIS run failed to express that was borrowing one run's failure
+                // to describe another. This run published; the PATCH above already recorded it
+                // complete. The 502 then made the crawler mark it failed locally and write a
+                // post-mortem for a run that had succeeded — eleven of them on 24–25 September
+                // 2026, each holding a fully indexed corpus, and the operator could not tell "this
+                // crawl is bad" from "an unrelated cleanup is pending".
+                //
+                // So the condition is recorded against the run it is actually about, in an
+                // explicit awaiting_* state, and enforcement moves to the global gate at the top
+                // of StartCrawl — which already retries the purge, so the next crawl attempt
+                // clears the block by itself the moment Qdrant is healthy. Nothing is swallowed:
+                // the state is durable, operator-visible, and blocks every crawl for this owner.
+                var purged = _rag.IsEnabled
+                    && await _rag.DeleteRunIndexAsync(outgoing.Id, ct).ConfigureAwait(false);
 
-                if (!await _rag.DeleteRunIndexAsync(outgoing.Id, ct).ConfigureAwait(false))
+                if (purged)
                 {
-                    // Full stop. The previous shape logged a warning and returned 200, which made
-                    // the guard advisory: the one moment index/corpus consistency actually needed
-                    // enforcing was the moment the code declined to enforce it. "Costs disk, never
-                    // correctness" was a rationalisation, and it was a fallback.
+                    await _repo.DeleteRunAsync(outgoing.Id, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    var why = _rag.IsEnabled
+                        ? "its vectors could not be purged from Qdrant"
+                        : "Geek-Crawler-Rag is disabled, so its vectors could not be purged";
+
                     _logger.LogError(
                         "Vector purge failed for superseded run {OutgoingRunId} after {RunId} "
-                        + "published. Crawling is stopped until Qdrant deletion succeeds.",
+                        + "published. {OutgoingRunId} is now {AwaitingStatus}; crawling is blocked "
+                        + "for this owner until the purge succeeds. {RunId} remains published.",
                         outgoing.Id,
+                        runId,
+                        outgoing.Id,
+                        GeekCrawlerRunStatuses.AwaitingVectorPurge,
                         runId);
 
-                    return StatusCode(
-                        StatusCodes.Status502BadGateway,
-                        $"Run {runId:D} is published, but vectors for the superseded run "
-                        + $"{outgoing.Id:D} could not be purged. Crawling is stopped until Qdrant "
-                        + "deletion succeeds for that run.");
-                }
+                    await _repo.PatchRunAsync(
+                        outgoing.Id,
+                        new PatchGeekCrawlerRunCommand(
+                            Status: GeekCrawlerRunStatuses.AwaitingVectorPurge,
+                            ErrorSummary:
+                                $"Superseded by run {runId:D}, but {why}. Its pages and vectors "
+                                + "are retained and crawling is blocked for this owner until the "
+                                + "purge succeeds; starting any crawl retries it.",
+                            CompletedAtUtc: DateTimeOffset.UtcNow,
+                            ClearContentReadyAt: true),
+                        ct).ConfigureAwait(false);
 
-                await _repo.DeleteRunAsync(outgoing.Id, ct).ConfigureAwait(false);
+                    supersededAwaitingPurge = outgoing.Id;
+                }
             }
 
             // Abort. A crawl that failed or was cancelled never published, so the pages it managed to
@@ -430,6 +493,25 @@ public class GeekCrawlerIngestController : ControllerBase
 
             var snapshot = GeekCrawlerService.ToSnapshot(run);
             await _notifier.PushAsync(snapshot, run.Id, run.OwnerUserId, ct).ConfigureAwait(false);
+            if (supersededAwaitingPurge is not null)
+            {
+                // 200, because this run published and saying otherwise is the defect being fixed.
+                // The outstanding condition travels as data on a successful response rather than
+                // as an error about the wrong run, and the gate — not this status code — is what
+                // enforces it.
+                return Ok(new
+                {
+                    snapshot.RunId,
+                    snapshot.CrawlType,
+                    snapshot.Status,
+                    snapshot.SeedUrls,
+                    supersededRunAwaitingVectorPurge = supersededAwaitingPurge,
+                    warning =
+                        $"Published. The superseded run {supersededAwaitingPurge:D} could not have "
+                        + "its vectors purged and is now awaiting_vector_purge; crawling is blocked "
+                        + "for this owner until that succeeds. Starting a crawl retries it.",
+                });
+            }
             if (string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase)
                 && _rag.IsEnabled)
             {
