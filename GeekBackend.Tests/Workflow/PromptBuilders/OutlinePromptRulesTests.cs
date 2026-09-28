@@ -74,7 +74,7 @@ public class OutlinePromptRulesTests
         var rendered = Outline(which);
 
         Assert.Contains("KEYWORD PLACEMENT", rendered, StringComparison.Ordinal);
-        Assert.Contains("appears in the opening paragraph and in at least one H2", rendered, StringComparison.Ordinal);
+        Assert.Contains("appears in at least one H2", rendered, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -84,10 +84,50 @@ public class OutlinePromptRulesTests
     {
         // The density check fails a draft that took "put the keyword in a heading" as licence to put
         // it in all of them, so the instruction that creates that risk has to close it.
-        var rendered = Outline(which);
+        Assert.Contains("Not in every heading", Outline(which), StringComparison.Ordinal);
+    }
 
-        Assert.Contains("Not in every heading", rendered, StringComparison.Ordinal);
-        Assert.Contains("not repeated to hit a count", rendered, StringComparison.Ordinal);
+    [Fact]
+    public void The_lede_prompt_is_the_one_told_to_put_the_keyword_in_the_lede()
+    {
+        // It was in the outline prompts, which plan the piece and do not write the lede. So
+        // "keyword in lede" failed on a draft whose lede prompt had never been told.
+        var builder = new ContentPromptBuilder();
+        var rendered = string.Join("\n", builder
+            .BuildStandaloneBlogLedePrompt(Context(), new BlogMetadataDraft("T", "M", ["ai"], ["One"]))
+            .Messages.Select(m => m.Content));
+
+        Assert.Contains("the opening paragraph contains", rendered, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Automated Data Entry & Processing", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_body_prompt_is_given_a_frequency_to_aim_at_not_just_a_warning()
+    {
+        // "Not repeated to hit a count" was the whole guidance and the model obeyed it exactly: one
+        // mention in 1,132 words, 0.09% against a 0.4% floor.
+        var builder = new ContentPromptBuilder();
+        var rendered = string.Join("\n", builder
+            .BuildStandaloneBlogBodyPrompt(Context(), new BlogMetadataDraft("T", "M", ["ai"], ["One"]))
+            .Messages.Select(m => m.Content));
+
+        Assert.Contains("KEYWORD FREQUENCY", rendered, StringComparison.Ordinal);
+        Assert.Contains("about once every 200 words", rendered, StringComparison.Ordinal);
+        Assert.Contains("one mention in a long piece fails it", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_length_instruction_carries_the_per_section_arithmetic()
+    {
+        // A total alone is satisfiable by one long section and four thin ones, which is how a piece
+        // asked for 2,000 words came back at 1,132.
+        var builder = new ContentPromptBuilder();
+        var rendered = string.Join("\n", builder
+            .BuildStandaloneBlogBodyPrompt(Context(), new BlogMetadataDraft("T", "M", ["ai"], ["One"]))
+            .Messages.Select(m => m.Content));
+
+        Assert.Contains("words each", rendered, StringComparison.Ordinal);
+        Assert.Contains("is a floor", rendered, StringComparison.Ordinal);
     }
 
     [Theory]

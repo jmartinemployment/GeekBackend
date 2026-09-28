@@ -306,10 +306,45 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "one shape this page must not have, and it is not licensed by a heading of that shape "
         + "existing on the site.";
 
+    /// <summary>
+    /// Where the keyword goes when a prompt is planning the piece: one H2 carries it.
+    /// </summary>
     private static string KeywordPlacementInstruction(string keyword) =>
-        $"KEYWORD PLACEMENT: \"{keyword}\" appears in the opening paragraph and in at least one H2, "
-        + "both times as part of a sentence someone would actually write. Not in every heading, and "
-        + "not repeated to hit a count -- a page that reads as stuffed fails on density.";
+        $"KEYWORD PLACEMENT: \"{keyword}\" appears in at least one H2, as part of a heading someone "
+        + "would actually write. Not in every heading -- a page that reads as stuffed fails on "
+        + "density a few checks later.";
+
+    /// <summary>
+    /// The opening paragraph carries the keyword, told to the prompt that writes the opening.
+    ///
+    /// <para>
+    /// This lived in the outline prompts, which plan the piece and do not write the lede, so
+    /// "keyword in lede" failed on a draft whose lede prompt had never been told (Jeff, 2026-09-28:
+    /// score 40, keyword in lede failing).
+    /// </para>
+    /// </summary>
+    private static string KeywordInLedeInstruction(string keyword) =>
+        $"KEYWORD: the opening paragraph contains \"{keyword}\", in a sentence that would be there "
+        + "anyway. Not as a label, not bolted onto the first line -- the reader should not be able to "
+        + "tell it was required.";
+
+    /// <summary>
+    /// How often the keyword appears in the prose, as a number the writer can aim at.
+    ///
+    /// <para>
+    /// "Not repeated to hit a count" was the whole guidance, and the model obeyed it exactly: one
+    /// mention in 1,132 words, a density of 0.09% against a target floor of 0.4%. Telling a writer
+    /// what not to do, with no target, is how a check and a prompt end up disagreeing.
+    /// </para>
+    /// </summary>
+    private static string KeywordDensityInstruction(string keyword, int targetWords)
+    {
+        var floor = Math.Max(4, (int)Math.Round(targetWords * 0.006));
+        return $"KEYWORD FREQUENCY: \"{keyword}\" and its natural variants appear roughly {floor} "
+            + $"times across the piece -- about once every 200 words -- never twice in a paragraph "
+            + "and never where a pronoun reads better. This is what the density check measures; one "
+            + "mention in a long piece fails it as surely as forty do.";
+    }
 
     private const string HeadingProvenanceInstruction =
         "Every section you write, at every level including nested children, must be licensed by real " +
@@ -1071,6 +1106,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
             .AppendLine("Write the opening lede for a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine(BuildLedeTypeGuidance(context))
@@ -1120,6 +1156,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
             .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + topic → 12 types); keep expert, consultative tone throughout.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine()
@@ -1261,6 +1298,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
+            .AppendLine(KeywordDensityInstruction(context.TargetKeyword, ContentLengthTargets.PillarTargetMinWords))
             .AppendLine("Open each section where its own material starts. Somewhere early in the page the practitioner's cost — the delay, the error rate, the wasted hours of the status quo — has to be concrete, but it is one page making one argument: do not restate the pain at the top of every section, and never open with \"AI enables…\", \"Intelligent X is…\", a capability list, or a definition of the technology.")
             .AppendLine("Do not write these as neutral textbook explainers — every subsection should be framed through what an AI implementation " +
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")
@@ -1687,6 +1725,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
@@ -1723,7 +1762,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("that pick out a distinct angle or subset of the pillar's material (duplicate structure/headings across the two published pages hurts SEO).")
             .AppendLine("Substantive paragraphs with examples, drawn from what the pillar actually says; first/second person allowed.")
             .AppendLine("Weave the pillar's takeaways into this blog's own paragraphs. Name listed platforms in prose where they help the angle — a closing CTA is not weaving.")
-            .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
+            .AppendLine(
+                $"LENGTH: {ContentLengthTargets.BlogRangeLabel} words, and {ContentLengthTargets.BlogMinWords:N0} is a floor "
+                + "rather than a target. Across the sections you are writing that is roughly "
+                + $"{ContentLengthTargets.BlogMinWords / 5:N0}-{ContentLengthTargets.BlogTargetMaxWords / 5:N0} words each, "
+                + "three to five substantial paragraphs per section. A total alone is satisfiable by "
+                + "one long section and four thin ones, which is how a piece asked for "
+                + $"{ContentLengthTargets.BlogMinWords:N0} came back at half that. Count as you go.")
             .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
             .AppendLine(SectionsArrayJsonContract)
             .ToString();
@@ -1791,6 +1836,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(KeywordInLedeInstruction(context.TargetKeyword))
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
             // Stage 6: this used to hardcode "prefer a creative opening" with no way to choose
             // among the 12 lede types the JSON contract below already demands a value for --
@@ -1825,7 +1871,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine("Write a standalone deep-dive blog post from the research brief and keyword — there is no pillar article to repurpose.")
             .AppendLine("Substantive paragraphs with examples and implementation context; first/second person allowed.")
-            .AppendLine($"Target at least {ContentLengthTargets.BlogMinWords:N0} words (aim for {ContentLengthTargets.BlogRangeLabel}). Do not stop early.")
+            .AppendLine(
+                $"LENGTH: {ContentLengthTargets.BlogRangeLabel} words, and {ContentLengthTargets.BlogMinWords:N0} is a floor "
+                + "rather than a target. Across the sections you are writing that is roughly "
+                + $"{ContentLengthTargets.BlogMinWords / 5:N0}-{ContentLengthTargets.BlogTargetMaxWords / 5:N0} words each, "
+                + "three to five substantial paragraphs per section. A total alone is satisfiable by "
+                + "one long section and four thin ones, which is how a piece asked for "
+                + $"{ContentLengthTargets.BlogMinWords:N0} came back at half that. Count as you go.")
             // A whole-document target is a number the model cannot act on while writing section
             // three of six. Pillar has carried a per-section range all along and lands in its band;
             // blog carried only the total and came back at 791 words against 1,800-2,500 (Jeff,
@@ -1836,6 +1888,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
+            .AppendLine(KeywordDensityInstruction(context.TargetKeyword, ContentLengthTargets.BlogTargetMinWords))
             .AppendLine(FillerBanInstruction)
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))
