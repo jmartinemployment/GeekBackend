@@ -12,11 +12,52 @@ public class GccHeadingProvenanceGuardTests
     private static GccHeadingProvenanceEvidence Evidence(
         IEnumerable<string>? fields = null,
         IEnumerable<string>? paa = null,
-        IEnumerable<string>? competitor = null) =>
+        IEnumerable<string>? competitor = null,
+        IEnumerable<string>? site = null) =>
         new(
             new HashSet<string>(fields ?? [], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(paa ?? [], StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(competitor ?? [], StringComparer.OrdinalIgnoreCase));
+            new HashSet<string>(competitor ?? [], StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(site ?? [], StringComparer.OrdinalIgnoreCase));
+
+    [Fact]
+    public void A_heading_covering_one_of_the_sites_own_subtopics_is_licensed()
+    {
+        // The must-mention block calls these compulsory and licensed none of them, so a heading
+        // written to obey it could not be tagged and the draft was refused.
+        var evidence = Evidence(site: ["Invoice capture"]);
+
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("How invoices arrive", "site:Invoice capture")], evidence);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void A_site_tag_naming_the_list_rather_than_a_subtopic_is_refused()
+    {
+        // The exact failure: the model described where it had found the material instead of quoting
+        // it -- "brief:Subtopics the site already treats under it, all of which this piece must
+        // cover" -- and that must keep failing, whichever kind it is filed under.
+        var evidence = Evidence(site: ["Invoice capture"]);
+
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("Top Tools for Streamlining Your Accounts Payable",
+                 "site:Subtopics the site already treats under it, all of which this piece must cover")],
+            evidence);
+
+        Assert.Single(violations);
+    }
+
+    [Fact]
+    public void A_site_tag_with_no_subtopics_supplied_is_refused()
+    {
+        // No matched section is no source. Absence of evidence never licenses a heading.
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("Invented", "site:Invoice capture")], Evidence());
+
+        Assert.Single(violations);
+    }
 
     private static Section Sec(string heading, string? provenance, IReadOnlyList<Section>? children = null) =>
         new("h3", heading, [], null, children ?? [], Provenance: provenance);

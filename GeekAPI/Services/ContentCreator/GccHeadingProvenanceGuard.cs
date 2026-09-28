@@ -11,7 +11,14 @@ namespace GeekAPI.Services.ContentCreator;
 public sealed record GccHeadingProvenanceEvidence(
     IReadOnlySet<string> PopulatedBriefFields,
     IReadOnlySet<string> PaaQuestions,
-    IReadOnlySet<string> CompetitorHeadings);
+    IReadOnlySet<string> CompetitorHeadings,
+    /// <summary>
+    /// The publisher's own subtopics for this section, from the must-mention block. Compulsory
+    /// content -- the block says "all of which this piece must cover" -- and until 2026-09-28 they
+    /// licensed nothing, so a heading written to obey that instruction could not be tagged and the
+    /// draft was refused for it.
+    /// </summary>
+    IReadOnlySet<string> SiteSubtopics);
 
 /// <summary>
 /// Stage 2 (heading provenance). Every section a model invents beyond its assigned outline --
@@ -121,6 +128,7 @@ public static class GccHeadingProvenanceGuard
             "brief" => value is { Length: > 0 } && evidence.PopulatedBriefFields.Contains(value),
             "paa" => value is { Length: > 0 } && evidence.PaaQuestions.Contains(value),
             "competitor" => value is { Length: > 0 } && evidence.CompetitorHeadings.Contains(value),
+            "site" => value is { Length: > 0 } && evidence.SiteSubtopics.Contains(value),
             _ => false,
         };
     }

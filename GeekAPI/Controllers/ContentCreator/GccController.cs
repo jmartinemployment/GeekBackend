@@ -677,23 +677,9 @@ public class GccController : ControllerBase
             return null;
         }
 
-        var block = new StringBuilder()
-            .AppendLine("=== THIS SITE ALREADY COVERS THIS TOPIC ===")
-            .AppendLine($"Matched heading on {matched.SourcePageUrl}: {matched.MatchedHeading}");
-        if (matched.ChildHeadings.Length > 0)
-        {
-            block.AppendLine("Subtopics the site already treats under it, all of which this piece must cover:");
-            foreach (var child in matched.ChildHeadings)
-            {
-                block.AppendLine($"  - {child}");
-            }
-        }
-
-        block.AppendLine(
-            "This is the publisher's own structure, not a suggestion. Cover these, in their terms, " +
-            "and do not invent a competing breakdown of the same topic. Where the page above already " +
-            "answers something, point the reader at it rather than repeating it here.");
-        return block.ToString();
+        // Formatted by GccMustMention so the guard can read back the subtopics it names -- they
+        // are compulsory, and a heading covering one needs a source to be licensed against.
+        return GccMustMention.Format(matched.MatchedHeading, matched.SourcePageUrl, matched.ChildHeadings);
     }
 
     /// <summary>

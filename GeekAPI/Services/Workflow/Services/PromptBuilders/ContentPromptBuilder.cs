@@ -260,8 +260,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "\"provenance\": string (required on every section, top-level and nested) -- exactly one of: " +
         "\"plan\" (only for a heading that matches one you were explicitly assigned to write), " +
         "\"brief:<fieldName>\" (the brief field above it is drawn from), " +
-        "\"paa:<question text>\" (the exact People Also Ask question above it answers), or " +
-        "\"competitor:<heading text>\" (the exact competitor heading above it fills a gap on)";
+        "\"paa:<question text>\" (the exact People Also Ask question above it answers), " +
+        "\"competitor:<heading text>\" (the exact competitor heading above it fills a gap on), or " +
+        // The must-mention block calls its subtopics compulsory and, until 2026-09-28, licensed
+        // none of them -- so a heading written to obey it had no honest tag, and the nearest
+        // available one ("brief:Subtopics the site already treats under it, ...") failed the guard
+        // and refused the draft.
+        "\"site:<subtopic text>\" (the exact subtopic from THIS SITE ALREADY COVERS THIS TOPIC that " +
+        "the section covers)";
 
     private const string SectionJsonContractWithProvenance =
         "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +
@@ -290,8 +296,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string HeadingProvenanceInstruction =
         "Every section you write, at every level including nested children, must be licensed by real " +
         "material above -- never invented from nothing. Tag each one with the \"provenance\" field the " +
-        "JSON shape requires, using the exact URL, brief field name, PAA question, or competitor heading " +
-        "it is drawn from. If a subsection cannot honestly be tagged this way, do not write it. " +
+        "JSON shape requires, using the exact brief field name, PAA question, competitor heading, or " +
+        "site subtopic it is drawn from. A tag is the source's own text copied exactly, never a " +
+        "description of where you found it: \"site:Invoice capture\", not \"site:the subtopics list\". " +
+        "If a subsection cannot honestly be tagged this way, do not write it. " +
         "A \"competitor:\" tag names a gap that heading revealed, never a heading you may reuse: " +
         "writing the cited text as your own heading is rejected outright. Their outline tells you " +
         "what a reader expects to find covered; it does not tell you what to call it, and " +

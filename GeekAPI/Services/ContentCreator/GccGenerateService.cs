@@ -2559,7 +2559,7 @@ public class GccGenerateService
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
             await _knownTools.ResolveAsync(create, ct),
             create, section, mustMentionBlock, provider);
-        var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
+        var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         // Prompts come from the type's own set, not from a switch over a flat builder -- see
         // content-creator-v2/plans/prompts-per-content-type.md.
@@ -2804,7 +2804,7 @@ public class GccGenerateService
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
             await _knownTools.ResolveAsync(create, ct),
             create, section, mustMentionBlock, provider);
-        var evidence = BuildProvenanceEvidence(create, competitorAnalyses);
+        var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         // Metadata first, because everything downstream needs what it produces. The title has to
         // exist before the lede is written or the hook just restates it, and the section outline is
@@ -3047,7 +3047,9 @@ public class GccGenerateService
     /// was shown, never a broader or narrower set.
     /// </summary>
     private static GccHeadingProvenanceEvidence BuildProvenanceEvidence(
-        GccCreateDto create, IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses)
+        GccCreateDto create,
+        IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses,
+        string? mustMentionBlock)
     {
         var brief = ExtractBriefFields(create.BriefJson);
         var populatedBriefFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -3085,7 +3087,11 @@ public class GccGenerateService
                 competitorHeadings.Add(h.Text);
         }
 
-        return new GccHeadingProvenanceEvidence(populatedBriefFields, paaQuestions, competitorHeadings);
+        var siteSubtopics = new HashSet<string>(
+            GccMustMention.Subtopics(mustMentionBlock), StringComparer.OrdinalIgnoreCase);
+
+        return new GccHeadingProvenanceEvidence(
+            populatedBriefFields, paaQuestions, competitorHeadings, siteSubtopics);
     }
 
     private sealed record SectionImagePrompt(string Section, string Prompt);
