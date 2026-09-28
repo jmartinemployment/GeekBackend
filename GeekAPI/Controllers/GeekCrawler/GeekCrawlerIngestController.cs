@@ -605,8 +605,9 @@ public class GeekCrawlerIngestController : ControllerBase
         if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
         if (request?.Pages is null || request.Pages.Count == 0)
             return BadRequest("pages are required");
-        if (request.Pages.Count > 100)
-            return BadRequest("at most 100 pages per batch");
+        if (request.Pages.Count > GeekCrawlerIngestLimits.MaxPagesPerBatch)
+            return BadRequest(
+                $"at most {GeekCrawlerIngestLimits.MaxPagesPerBatch} pages per batch");
 
         var robotsDisallowedCount = request.Pages.Count(p => !p.RobotsAllowed);
         var failureReasonCount = request.Pages.Count(p =>
@@ -742,8 +743,9 @@ public class GeekCrawlerIngestController : ControllerBase
         if (!await OwnsRunAsync(runId, ct).ConfigureAwait(false)) return NotFound();
         if (request?.Links is null || request.Links.Count == 0)
             return BadRequest("links are required");
-        if (request.Links.Count > 2000)
-            return BadRequest("at most 2000 links per batch");
+        if (request.Links.Count > GeekCrawlerIngestLimits.MaxLinksPerBatch)
+            return BadRequest(
+                $"at most {GeekCrawlerIngestLimits.MaxLinksPerBatch} links per batch");
 
         var items = request.Links.Select(l => new CreateGeekCrawlerLinkItemCommand(
             l.PageId,
