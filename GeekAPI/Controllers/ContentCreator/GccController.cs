@@ -829,7 +829,12 @@ public class GccController : ControllerBase
     {
         var version = await _repo.GetVersionAsync(id, ct);
         if (version is null) return NotFound();
-        var report = GccGenerateService.AnalyzeSeo(version.BodyDocumentJson, keyword ?? "");
+        // A topic is context plus keyword -- "Accounts Payable: Automated Data Entry & Processing"
+        // -- and the caller sends the whole thing. Scoring the whole thing asks whether the lede
+        // contains both halves verbatim, which no readable sentence does, so keyword-in-lede and
+        // keyword-in-heading failed on drafts that used the keyword correctly throughout.
+        var report = GccGenerateService.AnalyzeSeo(
+            version.BodyDocumentJson, GccTargetKeyword.FromTopic(keyword));
         return Ok(report);
     }
 

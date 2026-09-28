@@ -106,6 +106,20 @@ public static class GccSiteStructureMatch
                 if (TokenCount(Slugify(prefix)) < 2) continue;
                 if (seen.Add(prefix)) yield return prefix;
             }
+
+            // A colon splits context from keyword the other way round: "Accounts Payable: Automated
+            // Data Entry & Processing" is a page about the second half, filed under the first. Both
+            // halves are seeded, because the site may file its own page under either -- and neither
+            // half prefix-matches the whole, so without this the topic matched nothing at all.
+            var colon = k.LastIndexOf(':');
+            if (colon > 0 && colon < k.Length - 1)
+            {
+                foreach (var half in new[] { NormalizeHeading(k[..colon]), NormalizeHeading(k[(colon + 1)..]) })
+                {
+                    if (TokenCount(Slugify(half)) < 2) continue;
+                    if (seen.Add(half)) yield return half;
+                }
+            }
         }
     }
 

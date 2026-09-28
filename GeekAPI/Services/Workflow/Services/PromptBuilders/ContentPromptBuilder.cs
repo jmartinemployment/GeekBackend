@@ -271,6 +271,22 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string SectionsArrayJsonContractWithProvenance =
         "{\"sections\": [" + SectionJsonContractWithProvenance + ", ...] (top-level h2 sections, in order)}";
 
+    /// <summary>
+    /// Where the keyword has to appear, which the SEO report has always scored and no prompt ever
+    /// asked for. GcwSeoAnalyzer checks keyword-in-lede and keyword-in-heading; the only placement
+    /// instruction that existed was "metaDescription must include the target keyword", so two of
+    /// its five checks marked down drafts for doing something nobody had requested.
+    ///
+    /// <para>
+    /// Naturally, and once. A keyword pushed into every heading is the stuffing the density check
+    /// fails a draft for a few lines later.
+    /// </para>
+    /// </summary>
+    private static string KeywordPlacementInstruction(string keyword) =>
+        $"KEYWORD PLACEMENT: \"{keyword}\" appears in the opening paragraph and in at least one H2, "
+        + "both times as part of a sentence someone would actually write. Not in every heading, and "
+        + "not repeated to hit a count -- a page that reads as stuffed fails on density.";
+
     private const string HeadingProvenanceInstruction =
         "Every section you write, at every level including nested children, must be licensed by real " +
         "material above -- never invented from nothing. Tag each one with the \"provenance\" field the " +
@@ -997,6 +1013,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             "Derive sectionOutline from keyword SERP and local pack headings (declarative topics like \"Benefits of X\", not questions). " +
             "Frame this as a use case showing how AI implementation services solve the client problem — not just generic background. " +
             "Do not include a Tools H2. Tool names from the crawl belong in body sentences later, not as outline headings. " +
+            KeywordPlacementInstruction(context.TargetKeyword) + " " +
             "With the exception of the Lede, article headings are never questions. People Also Ask questions from the brief are not outline headings. " +
             "Title must NOT be a question and must NOT start with \"How\" — use a definitive statement (e.g. \"AI Prospecting and Lead Intelligence: Implementation Guide\"). " +
             $"Meta description: 140-160 characters, include \"{context.TargetKeyword}\" naturally, concise factual summary for B2B readers, no hype. " +
@@ -1616,6 +1633,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("The blog title MUST be different from the pillar title — use a conversational hook, question, or numbered angle (e.g. \"3 Ways...\", \"Why...\"). Never copy the pillar title verbatim.")
+            .AppendLine(KeywordPlacementInstruction(context.TargetKeyword))
+            .AppendLine("Do not include a Tools H2. Tool names belong in body sentences, not as outline headings.")
             .ToString();
 
         var user = new StringBuilder()
@@ -1718,6 +1737,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("This is a standalone deep-dive blog — there is no companion pillar article. Title should be a conversational hook, question, or numbered angle.")
+            .AppendLine(KeywordPlacementInstruction(context.TargetKeyword))
+            // The ban lived only in the pillar's outline prompt, so nothing ever told a blog not to
+            // write one -- which is why "Choosing the Right AI Tools for ..." turned up on them.
+            .AppendLine("Do not include a Tools H2. Tool names belong in body sentences, not as outline headings.")
             .ToString();
 
         var user = new StringBuilder()
