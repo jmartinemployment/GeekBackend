@@ -1358,8 +1358,15 @@ public class GccGenerateService
             fb = $"Revise ONLY the section at path “{sectionPath}”. Leave all other sections unchanged.\n\n{fb}";
         }
 
-        var document = JsonSerializer.Deserialize<ContentDocument>(currentJson, CwDocumentJson)
-            ?? throw new InvalidOperationException("Current body is not a CWV2 ContentDocument.");
+        // The stored body is an envelope for every long-form type -- { title, metaDescription,
+        // summary, body, jsonLdSchema } -- and deserializing that straight into a ContentDocument
+        // returns a shell with a null Lede rather than null, so the `?? throw` here never fired and
+        // the next line dereferenced it. That NullReferenceException is the 500 Revise returned on
+        // every long-form draft.
+        var envelope = GccBodyEnvelope.Read(currentJson, CwDocumentJson);
+        var document = envelope.Document
+            ?? throw new InvalidOperationException(
+                "This draft cannot be revised: its stored body is not a content document.");
 
         var llm = GetLlm(provider);
         var context = BuildMinimalContext(document.Lede.Heading, ContentDocumentText.Flatten(document), ToLlm(provider));
@@ -1377,7 +1384,10 @@ public class GccGenerateService
         var lede = sections[0] with { Tag = "h2" };
         var revised = new ContentDocument(lede, sections.Skip(1).ToList());
         revised = ContentGuardrail.Apply(revised).Document;
-        return JsonSerializer.Serialize(revised, CwDocumentJson);
+        // Back into the envelope it came from. Revise used to store the bare document, so a revised
+        // blog lost its title, meta description, summary and JSON-LD -- the envelope was not only
+        // unread, it was dropped.
+        return GccBodyEnvelope.Write(envelope, revised, CwDocumentJson);
     }
 
     public async Task<string> GenerateImagePromptJsonAsync(

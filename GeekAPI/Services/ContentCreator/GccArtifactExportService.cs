@@ -43,8 +43,8 @@ public sealed class GccArtifactExportService(
             var latest = versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
             if (latest is null) continue;
 
-            var parsed = Parse(latest.BodyDocumentJson);
-            if (parsed.Document is null || IsNotADocument(parsed.Document))
+            var parsed = GccBodyEnvelope.Read(latest.BodyDocumentJson, Json);
+            if (parsed.Document is null)
             {
                 // A body that will not parse is exported verbatim rather than dropped -- losing an
                 // artifact silently is worse than exporting something the operator has to look at.
@@ -86,25 +86,6 @@ public sealed class GccArtifactExportService(
     }
 
     /// <summary>
-    /// Whether a deserialized body is actually a document.
-    ///
-    /// <para>
-    /// System.Text.Json does not enforce a record's non-nullable parameters, so an artifact that is
-    /// not a ContentDocument at all -- an image-prompt pack, a metadata artifact, a body stored as a
-    /// string -- deserializes into a ContentDocument with a null Lede and no sections. It passes a
-    /// null check on the document itself and then throws inside the renderer, which is the 500 the
-    /// export button returned (Jeff, 2026-09-23).
-    /// </para>
-    ///
-    /// <para>
-    /// Treated as unparseable, so it exports raw rather than failing the whole archive: one
-    /// artifact the operator has to look at beats no export at all.
-    /// </para>
-    /// </summary>
-    private static bool IsNotADocument(ContentDocument document) =>
-        document.Lede is null && (document.Sections is null || document.Sections.Count == 0);
-
-    /// <summary>
     /// The canonical URL for this artifact, matching what v1's export puts in the tag and what each
     /// JSON+LD builder puts in its "url" field. A mismatch between the two is the kind of thing
     /// search engines flag, which is why v1 derives both from the same base URL + department + slug.
@@ -133,7 +114,7 @@ public sealed class GccArtifactExportService(
     /// than emitted empty: a meta tag with no value is worse than no tag.
     /// </summary>
     private static Dictionary<string, string?> MetaFor(
-        (ContentDocument? Document, string? Title, string? MetaDescription, string? JsonLdSchema) parsed,
+        GccBodyEnvelope.Parsed parsed,
         string slug,
         string department,
         DateTime createdAtUtc) =>
@@ -228,36 +209,4 @@ public sealed class GccArtifactExportService(
         return slug.Length > 0 ? slug : fallback.ToString("N")[..8];
     }
 
-    /// <summary>
-    /// Accepts both shapes a generator returns: the envelope every long-form type produces now, and
-    /// a bare ContentDocument, which is what they returned before tonight and what older artifacts
-    /// still hold.
-    /// </summary>
-    private static (ContentDocument? Document, string? Title, string? MetaDescription, string? JsonLdSchema)
-        Parse(string bodyJson)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(bodyJson);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.Object)
-            {
-                return (
-                    body.Deserialize<ContentDocument>(Json),
-                    Str(root, "title"),
-                    Str(root, "metaDescription"),
-                    Str(root, "jsonLdSchema"));
-            }
-
-            return (root.Deserialize<ContentDocument>(Json), null, null, null);
-        }
-        catch (JsonException)
-        {
-            return (null, null, null, null);
-        }
-    }
-
-    private static string? Str(JsonElement root, string name) =>
-        root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 }
