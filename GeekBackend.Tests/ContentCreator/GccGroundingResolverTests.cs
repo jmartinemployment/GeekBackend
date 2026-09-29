@@ -16,6 +16,8 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccGroundingResolverTests
 {
+    private static readonly Guid SiteRun = Guid.NewGuid();
+
     private static GccCreateDto Create(Guid? projectId) => new(
         Id: Guid.NewGuid(),
         ClientId: Guid.NewGuid(),
@@ -41,7 +43,10 @@ public class GccGroundingResolverTests
         Description: null,
         Status: "active",
         SiteUrl: "https://acme.test",
-        ProjectSiteRunId: null,
+        // Every project has one: ProjectForm refuses to create one without an indexed site crawl,
+        // and generation refuses without it too -- the publisher's own pages are what stops a
+        // piece repeating what the site already says.
+        ProjectSiteRunId: SiteRun,
         Department: "marketing",
         PartnerUrls: partnerUrls,
         CompetitorUrls: [],

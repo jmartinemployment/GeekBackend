@@ -27,7 +27,13 @@ public sealed record GccResearchDocument(
     /// as null and round-trips unchanged.
     /// </para>
     /// </summary>
-    IReadOnlyList<GccQuoteablePage>? CompetitorQuoteables = null);
+    IReadOnlyList<GccQuoteablePage>? CompetitorQuoteables = null,
+    /// <summary>
+    /// Retrieved pages from the publisher's own site. A third list because the instruction attached
+    /// to them is a third one: partner evidence is cited, competitor evidence is never cited, and
+    /// the publisher's own pages are what this piece must not repeat.
+    /// </summary>
+    IReadOnlyList<GccQuoteablePage>? SiteQuoteables = null);
 
 /// <summary>
 /// A parsed Keyword (Google SERP) upload — organics + related searches only. PAA is intentionally

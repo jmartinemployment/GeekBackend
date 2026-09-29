@@ -24,8 +24,11 @@ public class GccGroundingRetrievalTests
     private const string PartnerUrl = "https://partner.test/pricing";
     private const string CompetitorUrl = "https://rival.test/services";
 
+    private const string SiteUrl = "https://acme.test/ap-guide";
+
     private static readonly Guid PartnerRun = Guid.NewGuid();
     private static readonly Guid CompetitorRun = Guid.NewGuid();
+    private static readonly Guid SiteRun = Guid.NewGuid();
 
     private static GccCreateDto Create(Guid? projectId, string type = "pillar") => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
@@ -37,7 +40,7 @@ public class GccGroundingRetrievalTests
     private static GccProjectDto Project(
         IReadOnlyList<string> partners, IReadOnlyList<string> competitors) => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), Name: "Acme", Code: null, Description: null,
-        Status: "active", SiteUrl: "https://acme.test", ProjectSiteRunId: null,
+        Status: "active", SiteUrl: "https://acme.test", ProjectSiteRunId: SiteRun,
         Department: "marketing", PartnerUrls: partners, CompetitorUrls: competitors,
         StartDate: new DateOnly(2026, 1, 1), DueDate: null, FinishedDate: null,
         EstimatedHours: null, Budget: null, BudgetCurrency: null,
@@ -79,13 +82,21 @@ public class GccGroundingRetrievalTests
             CancellationToken ct = default)
         {
             Queried.Add(crawlType ?? "(none)");
-            var isCompetitor = crawlType == CrawlTypes.Competitors;
-            var page = new GccQuoteablePage(
-                Url: isCompetitor ? CompetitorUrl : PartnerUrl,
-                Title: isCompetitor ? "Rival services" : "Partner pricing",
-                Headings: [new HeadingDto(2, isCompetitor ? "What we do" : "Plans")],
-                Paragraphs: [isCompetitor ? "We run AP projects end to end." : "Billed per document."],
-                RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk);
+            var page = crawlType switch
+            {
+                CrawlTypes.Competitors => new GccQuoteablePage(
+                    CompetitorUrl, "Rival services", [new HeadingDto(2, "What we do")],
+                    ["We run AP projects end to end."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+                CrawlTypes.ProjectSite => new GccQuoteablePage(
+                    SiteUrl, "Our AP guide", [new HeadingDto(2, "How AP automation works")],
+                    ["We published this last quarter."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+                _ => new GccQuoteablePage(
+                    PartnerUrl, "Partner pricing", [new HeadingDto(2, "Plans")],
+                    ["Billed per document."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            };
 
             return Task.FromResult<GeekCrawlerRagQueryResult?>(
                 new GeekCrawlerRagQueryResult { RunId = runId, Pages = [page] });
@@ -130,16 +141,61 @@ public class GccGroundingRetrievalTests
     [InlineData("pillar")]
     [InlineData("blog")]
     [InlineData("tool")]
-    public async Task EveryLongFormTypeRetrievesPartnerAndCompetitor(string type)
+    public async Task EveryLongFormTypeRetrievesAllThreeCrawlTypes(string type)
     {
+        // Three crawls are paid for and three have a purpose: the site so we do not repeat
+        // ourselves, partners so what we say about them is true, competitors so the piece is
+        // differentiated. Only one of the three was ever fetched, and only for one content type.
         var project = Project([PartnerUrl], [CompetitorUrl]);
         var rag = new CrawlTypeRag();
 
         var outcome = await Build(project, rag).ResolveAsync(Create(project.Id, type), type);
 
         Assert.False(outcome.Refused);
+        Assert.Contains(CrawlTypes.ProjectSite, rag.Queried);
         Assert.Contains(CrawlTypes.Partner, rag.Queried);
         Assert.Contains(CrawlTypes.Competitors, rag.Queried);
+    }
+
+    [Fact]
+    public async Task AiToolIsTheSameTypeAsToolAndGetsOneRowNotTwo()
+    {
+        // "aiTool" is the picker's spelling. Listing it as a second key was a second row for one
+        // type, which is the shape that lets two spellings of one thing drift apart.
+        Assert.Equal(GccGroundingResolver.RetrieveFor("tool"), GccGroundingResolver.RetrieveFor("aiTool"));
+        Assert.Equal(GccGroundingResolver.RequiredFor("tool"), GccGroundingResolver.RequiredFor("aiTool"));
+    }
+
+    [Fact]
+    public async Task OwnSitePagesLandInTheirOwnListAndTheBlockForbidsRepeatingThem()
+    {
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+
+        var outcome = await Build(project, new CrawlTypeRag())
+            .ResolveAsync(Create(project.Id), "pillar");
+
+        Assert.Equal(SiteUrl, Assert.Single(outcome.SitePages).Url);
+
+        var research = new GccResearchDocument(null, [], SiteQuoteables: outcome.SitePages);
+        var create = Create(Guid.NewGuid()) with { ResearchJson = GccResearchFetchService.Serialize(research) };
+        var block = GccGenerateService.BuildOwnSiteCoverageBlock(create);
+
+        Assert.Contains("do not write these again", block, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("We published this last quarter.", block, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AProjectWithNoSiteCrawlIsRefused()
+    {
+        // ProjectForm refuses to create a project without an indexed site crawl, so reaching here
+        // means the crawl was dropped or the project pre-dates that gate. A fault, not a thin draft.
+        var project = Project([PartnerUrl], [CompetitorUrl]) with { ProjectSiteRunId = null };
+
+        var outcome = await Build(project, new CrawlTypeRag())
+            .ResolveAsync(Create(project.Id), "pillar");
+
+        Assert.True(outcome.Refused);
+        Assert.Contains("project-site", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -157,19 +213,17 @@ public class GccGroundingRetrievalTests
     }
 
     [Fact]
-    public async Task APillarWithNoIndexedCompetitorCrawlIsNotRefused()
+    public async Task ADeclaredCompetitorUrlWithNoIndexedCrawlIsRefused()
     {
-        // Competitor evidence sharpens a pillar; it is not load-bearing the way partner evidence is
-        // for a tool page. A thinner pillar beats no pillar.
+        // Declared URLs are index-checked before a project may be saved, so an unindexed one at
+        // generate time is a dropped crawl, not a normal state to write around.
         var project = Project([PartnerUrl], [CompetitorUrl]);
         var rag = new CrawlTypeRag(competitorIndexed: false);
 
         var outcome = await Build(project, rag).ResolveAsync(Create(project.Id), "pillar");
 
-        Assert.False(outcome.Refused);
-        Assert.Single(outcome.Pages);
-        Assert.Empty(outcome.CompetitorPages);
-        Assert.Contains(outcome.Warnings, w => w.Contains("competitors", StringComparison.OrdinalIgnoreCase));
+        Assert.True(outcome.Refused);
+        Assert.Contains("competitors", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

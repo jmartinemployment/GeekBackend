@@ -36,7 +36,9 @@ public sealed class GccGenerationCoordinator
     /// </summary>
     private static GccCreateDto MergeRetrievedEvidence(GccCreateDto create, GccGroundingOutcome grounding)
     {
-        if (grounding.Pages.Count == 0 && grounding.CompetitorPages.Count == 0)
+        if (grounding.Pages.Count == 0
+            && grounding.CompetitorPages.Count == 0
+            && grounding.SitePages.Count == 0)
         {
             return create;
         }
@@ -48,10 +50,17 @@ public sealed class GccGenerationCoordinator
         // render them say opposite things about attribution.
         var quoteables = Merge(existing?.Quoteables, grounding.Pages);
         var competitors = Merge(existing?.CompetitorQuoteables, grounding.CompetitorPages);
+        var site = Merge(existing?.SiteQuoteables, grounding.SitePages);
 
         var merged = existing is null
-            ? new GccResearchDocument(null, quoteables, CompetitorQuoteables: competitors)
-            : existing with { Quoteables = quoteables, CompetitorQuoteables = competitors };
+            ? new GccResearchDocument(
+                null, quoteables, CompetitorQuoteables: competitors, SiteQuoteables: site)
+            : existing with
+            {
+                Quoteables = quoteables,
+                CompetitorQuoteables = competitors,
+                SiteQuoteables = site,
+            };
 
         return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };
     }

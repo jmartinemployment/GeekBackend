@@ -1841,7 +1841,12 @@ public class GccGenerateService
         // The tool page had no competitor evidence at all, while one of its six sections is
         // "how a buyer should judge this product -- fit, pricing, and the adjacent approaches they
         // are also weighing". It was writing that section with no idea what the alternatives say.
-        var toolCompetitorBlock = create is null ? string.Empty : BuildCompetitorResearchBlock(create);
+        var toolCompetitorBlock = create is null
+            ? string.Empty
+            : string.Join(
+                Environment.NewLine,
+                new[] { BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create) }
+                    .Where(b => b.Length > 0));
         var sections = await WriteToolBodyAsync(toolCompetitorBlock);
 
         // Every tool page carries a block quotation of the partner, in their own published words
@@ -3217,6 +3222,58 @@ public class GccGenerateService
         var competitorResearch = BuildCompetitorResearchBlock(create);
         if (competitorResearch.Length > 0)
             sb.AppendLine(competitorResearch);
+
+        var ownSite = BuildOwnSiteCoverageBlock(create);
+        if (ownSite.Length > 0)
+            sb.AppendLine(ownSite);
+
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// What this publisher has already published on this topic — so the piece does not say it again.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The third instruction, and the reason these are a third list. Partner evidence is cited,
+    /// competitor evidence is never cited, and the publisher's own pages are neither: they are the
+    /// ground already covered. Writing the same page twice splits its own ranking and gives a
+    /// returning reader nothing.
+    /// </para>
+    /// <para>
+    /// Distinct from <c>BuildPublisherSiteBlock</c>, which carries the home page — who this
+    /// publisher is, their framework, their figures, their offer — and is about staying consistent
+    /// with them. This is retrieved against the create's own topic and is about not repeating them.
+    /// </para>
+    /// </remarks>
+    internal static string BuildOwnSiteCoverageBlock(GccCreateDto create)
+    {
+        var research = GccResearchFetchService.Deserialize(create.ResearchJson);
+        var pages = research?.SiteQuoteables;
+        if (pages is not { Count: > 0 })
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("=== ALREADY PUBLISHED ON THIS SITE (do not write these again) ===");
+        sb.AppendLine("Pages this publisher has already published on this topic, retrieved from their");
+        sb.AppendLine("own crawl. They are here so this piece adds something rather than repeating it:");
+        sb.AppendLine("1. Do not restate what these already cover. Where the subject overlaps, go past");
+        sb.AppendLine("   where they stop -- the reader who found this one may have read those.");
+        sb.AppendLine("2. Reference them the way a writer references their own publication: name the");
+        sb.AppendLine("   thing and carry on. Never reprint a passage.");
+        sb.AppendLine("3. Never contradict them. Where they state this publisher's approach, figures or");
+        sb.AppendLine("   offer, those are the ones that hold.");
+        sb.AppendLine();
+
+        foreach (var page in pages.Take(MaxCompetitorPagesInPrompt))
+        {
+            sb.AppendLine($"[{page.Title}] ({page.Url})");
+            foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+                sb.AppendLine($"- H{h.Level}: {h.Text}");
+            foreach (var para in page.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
+                sb.AppendLine($"- {para}");
+            sb.AppendLine();
+        }
 
         return sb.ToString().TrimEnd();
     }
