@@ -3,6 +3,7 @@ using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
+using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 
 namespace GeekBackend.Tests.Workflow.PromptBuilders;
 
@@ -130,6 +131,52 @@ public class LedeEvidenceTests
 
         Assert.DoesNotContain("HOW TO USE THE EVIDENCE BELOW", withNothing, StringComparison.Ordinal);
         Assert.Equal(withNothing, withBlank);
+    }
+
+    private static string ToolLede(string? evidence) =>
+        Rendered(new ContentPromptBuilder().BuildArticleLedePrompt(
+            Context(),
+            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
+            evidenceBlock: evidence));
+
+    [Fact]
+    public void The_tool_opening_is_shown_the_retrieved_evidence()
+    {
+        // Tool reaches this builder through ToolPrompts.Lede. It used to call it directly from
+        // GccGenerateService, which both left ToolPrompts.Lede with no callers and gave the opening
+        // nothing to be true about.
+        var prompt = ToolLede(Evidence);
+
+        Assert.Contains("HOW TO USE THE EVIDENCE BELOW IN THE OPENING", prompt, StringComparison.Ordinal);
+        Assert.Contains("QUOTEABLE RESEARCH", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_tool_page_with_no_research_asks_for_the_opening_exactly_as_before()
+    {
+        Assert.Equal(ToolLede(null), ToolLede("  "));
+        Assert.DoesNotContain("HOW TO USE THE EVIDENCE BELOW", ToolLede(null), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_tool_body_is_shown_the_retrieved_evidence()
+    {
+        // BuildToolBodyPrompt has always appended this block; nothing ever passed one. Tool is the
+        // only type where a citeable blockquote is required, and the passages it would cite from
+        // were the ones not arriving.
+        var app = new SoftwareApplicationDescriptor("Partner Widget", "A widget.");
+        var outline = ToolPrompts.Outline(Context(), app.Name);
+        var prompt = Rendered(new ContentPromptBuilder().BuildToolBodyPrompt(
+            Context(),
+            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
+            app,
+            "partner-widget",
+            outline: outline,
+            fullOutline: outline,
+            evidenceBlock: Evidence));
+
+        Assert.Contains("QUOTEABLE RESEARCH", prompt, StringComparison.Ordinal);
+        Assert.Contains("https://zoneandco.test/pricing", prompt, StringComparison.Ordinal);
     }
 
     [Fact]

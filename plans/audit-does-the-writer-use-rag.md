@@ -322,38 +322,69 @@ a byte-identical lede prompt to the one it renders today; a test asserts the equ
 | `GccGenerateService.cs` | `ledeEvidence` set on both lede contexts |
 | `LedeEvidenceTests.cs` | +6 tests |
 
-### Found while doing Step 2 — three things, verified, not yet fixed
+### Found while doing Step 2 — **DONE 2026-09-29**, except one decision
 
-**1. The lede's heading is never provenance-checked.** `FindUnlicensedHeadings` is
-called on `bodySections` only, in both `GeneratePillarBodyAsync` and
-`GenerateBlogBodyAsync`; the lede is merged into the `ContentDocument` afterwards and
-never passed to the guard. So the one h2 the guard does not see is the first one on the
-page — while every body heading is checked with a hard refusal that discards the draft.
-Whether that is a gap to close or the correct scope (the lede's slot is assigned, so
-its tag would be `plan` and license trivially) is a decision, not a bug fix.
+**1. The tool body never received an evidence block. FIXED.**
+`GccGenerateService:1815` read `await WriteToolBodyAsync(toolOutlineCtx.EvidenceBlock)`, and
+`toolOutlineCtx` was constructed with `App`, `ToolSlug` and `ExtractedResearchJson` — never
+`EvidenceBlock`, and nothing assigned it afterwards. So `BuildToolBodyPrompt`'s `evidenceBlock`
+was null on every tool page ever generated, and the QUOTEABLE RESEARCH block never reached the
+one content type where a citeable blockquote is **required**.
 
-**2. The pillar lede prompt contradicts itself three ways about headings.** The system
-block says *"No heading of any kind: the title is the page's only headline."*
-`LedeJsonContract` gives the model nowhere to put one — `ledeType` and `paragraphs`,
-annotated *"no heading: it runs directly under the page title"*. The user block says
-*"Write the pillar's Lede (first H2) 1 of 6. It covers: {ledeHeading}. You write its
-heading."* One prompt, three answers. This is why I got it wrong above, and it is worth
-settling in the prompt rather than leaving the model to pick.
+Tool was not ungrounded — `ExtractedResearchJson` carries the partner extraction, and
+`HasSufficientPartnerData` refuses the page without it. What was missing is the retrieved half,
+the passages `GccGroundingResolver` merges into `ResearchJson`, which pillar and blog have had
+all along. `BuildToolBodyPrompt` appends the block unconditionally, with no provenance gate,
+because Tool runs `GccToolQuoteGuard` rather than the heading guard — so there was nothing to
+gate and nothing to change but the assignment.
 
-**3. The tool body never receives an evidence block at all.**
-`GccGenerateService:1815` reads `await WriteToolBodyAsync(toolOutlineCtx.EvidenceBlock)`,
-and `toolOutlineCtx` is constructed at `:1770` with `App`, `ToolSlug` and
-`ExtractedResearchJson` — never `EvidenceBlock`, and nothing assigns it afterwards. So
-`BuildToolBodyPrompt`'s `evidenceBlock` is always null on the live Create path, and the
-QUOTEABLE RESEARCH block never reaches the one content type where a citeable blockquote
-is *required*. Tool is not ungrounded — `ExtractedResearchJson` carries its partner
-extraction — but it is grounded through a different channel than pillar and blog, and
-the parameter that looks like its grounding is dead.
+**2. `ToolPrompts.Lede` had zero callers. FIXED.** The tool path called
+`_prompts.BuildArticleLedePrompt(context, pillarMeta)` directly — a type's own prompt decision
+made somewhere else, which is the exact defect `IContentTypePrompts` exists to remove ("the
+choice of which to call made in a switch elsewhere"). It now goes through
+`toolType.Lede(toolOutlineCtx with { Metadata = pillarMeta })`, which is also what gets the tool
+opening its evidence, since the context is what carries it. `BuildArticleLedePrompt` gained the
+same `evidenceBlock` parameter and the same framing as the other two openings.
 
-Related: **`ToolPrompts.Lede` has zero callers.** The tool path calls
-`_prompts.BuildArticleLedePrompt(context, pillarMeta)` directly at `:1793`, bypassing
-its own prompt set. That is precisely the "decision with no home" that
-`IContentTypePrompts` was created to eliminate, per its own docstring.
+**3. "The lede's heading is never provenance-checked" — withdrawn, it is not a gap.**
+`FindUnlicensedHeadings` does see only `bodySections`, and the lede is merged in afterwards. But
+the lede is a top-level section fulfilling an assigned outline slot, so its tag would be `plan`,
+and `GccHeadingProvenanceGuard:153` is `"plan" => true` — unconditional. Checking the lede would
+refuse nothing that is not already refused. Recorded here because the first version of this
+section listed it as a gap, and an unresolved "gap" in a plan is read as work outstanding.
+
+**4. The pillar lede prompt contradicts itself about whether the lede has a heading. OPEN —
+needs a decision, because it changes what ships.**
+
+One prompt, three answers:
+
+| where | what it says |
+|---|---|
+| system block | *"No heading of any kind: the title is the page's only headline."* |
+| `LedeJsonContract` | no `heading` key at all — *"the opening itself -- no heading"* |
+| user block | *"Write the pillar's Lede (first H2) 1 of 6. It covers: {ledeHeading}. **You write its heading.**"* |
+
+So whether a pillar ships with an `<h2>` on its opening comes down to whether the model
+volunteers a `heading` key the contract never asked for. `Normalize` keeps it if it is there
+(`Heading = section.Heading ?? string.Empty`) and `SectionHtmlRenderer.AppendSection` emits the
+tag whenever it is non-blank — while `ParseLedeAndIntroduction:186` explicitly *blanks* the
+introduction's heading and does nothing to the lede's.
+
+The two sides are each documented as deliberate, which is why this needs settling rather than
+guessing:
+
+- **No heading** is the later decision. The parser's own docstring says the lede *"asked for one
+  until 2026-09-23"*; the merge comment says *"Neither carries a heading now, so there is nothing
+  to compare and nothing to decide"*; the renderer says a lede *"arrives with a blank heading"*;
+  `AGENTS.md` says content starts at the first `Section`. On this reading, `"You write its
+  heading."` and `(first H2)` are stale lines still being obeyed, and Jeff's *"in this codebase
+  they do"* is a report of that leak, not an endorsement of it.
+- **Heading** is what `PillarPrompts` and `GccGenerateService` both assert in prose — *"Its lede
+  IS its first H2"* — what `lede with { Tag = "h2" }` sets up, and what the slot implies, since
+  `Sections[0]` is a `SectionSlot.Cover` the writer is meant to name.
+
+Either way the other two places must change to match. Not doing it in this pass: guessing here
+means changing the shape of every pillar and blog that ships.
 
 ### Step 3 — name the competitor path honestly
 

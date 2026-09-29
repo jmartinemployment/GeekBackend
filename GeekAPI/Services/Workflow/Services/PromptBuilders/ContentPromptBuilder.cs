@@ -32,7 +32,8 @@ public interface IContentPromptBuilder
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
         string? revisionNotes = null,
-        string? existingLedeHeading = null);
+        string? existingLedeHeading = null,
+        string? evidenceBlock = null);
 
     /// <summary>Produces the pillar's opening Lede H2 — the hook (12-type, audience×angle→heading/topic, tone) plus its real h3/h4 scoping.
     /// Replaces the tightly-coupled lede+Introduction pair; the lede IS the first H2.</summary>
@@ -1306,7 +1307,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
         string? revisionNotes = null,
-        string? existingLedeHeading = null)
+        string? existingLedeHeading = null,
+        string? evidenceBlock = null)
     {
         var system = new StringBuilder()
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
@@ -1325,6 +1327,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
+
+        // Same as the pillar and blog openings: the evidence is framed for an opening before it is
+        // shown, and only the research half is passed -- see BuildPillarLedePrompt.
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            system += Environment.NewLine + LedeEvidenceInstruction + Environment.NewLine + evidenceBlock;
+        }
 
         var ledeNotes = ScopeRevisionNotesForLede(revisionNotes, existingLedeHeading, metadata.SectionOutline);
         var revisionBlock = BuildRevisionNotesBlock(ledeNotes, sectionHeading: existingLedeHeading);

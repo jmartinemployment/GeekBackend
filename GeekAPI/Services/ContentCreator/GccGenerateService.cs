@@ -1767,8 +1767,26 @@ public class GccGenerateService
         // equal in word count to Pillar if not longer). It is read from ToolPrompts rather than
         // written out again here: this literal was the third copy of that list, sitting under a
         // comment saying it had to be kept in sync with a fourth copy inside BuildToolBodyPrompt.
+        // EvidenceBlock is set here, and that is new as of 2026-09-29. It was never assigned --
+        // App, ToolSlug and ExtractedResearchJson only -- and nothing assigned it afterwards, so
+        // `WriteToolBodyAsync(toolOutlineCtx.EvidenceBlock)` below passed null on every tool page
+        // ever generated. BuildToolBodyPrompt appends this block unconditionally (no provenance
+        // gate, because Tool runs GccToolQuoteGuard rather than the heading guard), so the
+        // QUOTEABLE RESEARCH block simply never reached the one content type where a citeable
+        // blockquote is required.
+        //
+        // Tool was not ungrounded -- ExtractedResearchJson carries the partner extraction, and
+        // HasSufficientPartnerData refuses the page without it. What was missing is the retrieved
+        // half: the passages GccGroundingResolver merged into ResearchJson, which pillar and blog
+        // have had all along. The research half only, for the reason BuildPillarLedePrompt gives;
+        // Tool resolves no competitor analyses at all, so there is no competitor block here to
+        // exclude.
+        //
+        // Empty research renders an empty string and the append is skipped, so a create with no
+        // retrieved passages builds the same prompt it built yesterday.
         var toolOutlineCtx = new ContentTypes.ContentTypePromptContext(
-            context, App: app, ToolSlug: slug, ExtractedResearchJson: extractedToolResearchJson);
+            context, App: app, ToolSlug: slug, ExtractedResearchJson: extractedToolResearchJson,
+            EvidenceBlock: create is null ? null : BuildResearchBlock(create));
         var pillarMeta = new ArticleMetadataDraft(
             Title: name,
             MetaDescription: Truncate((brief ?? name).Trim(), 160),
@@ -1790,7 +1808,15 @@ public class GccGenerateService
         // The hook is additive, the way the FAQ section is: all six outline sections survive. Tool
         // must equal or exceed Pillar in length, so a lede that consumed a section would push it
         // the wrong way.
-        var ledeResult = await llm.CompleteAsync(_prompts.BuildArticleLedePrompt(context, pillarMeta), ct);
+        //
+        // Reached through toolType.Lede, not by calling the builder here. This called
+        // _prompts.BuildArticleLedePrompt directly until 2026-09-29, which left ToolPrompts.Lede
+        // with zero callers -- a type's own prompt decision made somewhere else, which is the exact
+        // defect IContentTypePrompts exists to remove (see its docstring: "the choice of which to
+        // call made in a switch elsewhere"). Routing it through the type is also what gets the
+        // opening its evidence, since that is what carries EvidenceBlock.
+        var ledeResult = await llm.CompleteAsync(
+            toolType.Lede(toolOutlineCtx with { Metadata = pillarMeta }), ct);
         var (toolLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{name}' lede");
 
         // `brief` used to be passed positionally here, landing in the revisionNotes slot -- every
