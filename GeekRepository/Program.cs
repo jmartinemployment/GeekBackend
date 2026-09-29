@@ -91,13 +91,6 @@ builder.Services.AddDbContext<GeekRepository.Data.ContentCreatorV2DbContext>(opt
             "content_creator_v2"))
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
-builder.Services.AddDbContext<GeekRepository.Data.GeekCrawlerDbContext>(options => options
-    .UseNpgsql(connectionString, npgsql =>
-        npgsql.MigrationsHistoryTable(
-            "geek_crawler_ef_migrations_history",
-            "geek_crawler"))
-    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
-
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddExceptionHandler<GeekRepository.Infrastructure.DbUpdateConcurrencyExceptionHandler>();
@@ -113,7 +106,6 @@ await ApplyContentWriterV4MigrationsAsync(app, startupLogger);
 await ApplyContentWriterV2MigrationsAsync(app, startupLogger);
 await ApplyContentCreatorMigrationsAsync(app, startupLogger);
 await ApplyContentCreatorV2MigrationsAsync(app, startupLogger);
-await ApplyGeekCrawlerMigrationsAsync(app, startupLogger);
 await EnsureGeekCrawlerMongoIndexesAsync(app, startupLogger);
 await RewriteRetiredSiteAnalysisHistoryNamesAsync(app, startupLogger);
 await ApplySeoMigrationsAsync(app, startupLogger);
@@ -263,22 +255,6 @@ static async Task ApplyContentCreatorV2MigrationsAsync(WebApplication app, ILogg
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed applying Content Creator V2 EF migrations. Continuing startup.");
-    }
-}
-
-static async Task ApplyGeekCrawlerMigrationsAsync(WebApplication app, ILogger logger)
-{
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<GeekRepository.Data.GeekCrawlerDbContext>();
-    try
-    {
-        await db.Database.MigrateAsync();
-        logger.LogInformation("Geek-Crawler (geek_crawler schema) EF migrations applied successfully.");
-        await GeekRepository.Services.GeekCrawler.GeekCrawlerSeedKeyBackfill.ApplyAsync(db, logger);
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Failed applying Geek-Crawler EF migrations. Continuing startup.");
     }
 }
 

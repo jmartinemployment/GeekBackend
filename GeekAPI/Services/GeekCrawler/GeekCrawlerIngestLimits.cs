@@ -21,10 +21,10 @@ namespace GeekAPI.Services.GeekCrawler;
 /// <para>
 /// What actually bounds a links batch, stated because the previous justifications were wrong in
 /// both directions. It is <b>not</b> a Mongo BSON limit: links are separate documents, not one
-/// document, so the 16 MiB cap never applied. It is <b>not</b> a Postgres insert ceiling: the
-/// <c>geek_crawler</c> Postgres schema is deprecated and nothing writes to it — links go to Mongo
-/// via <c>MongoGeekCrawlerService</c>, and <c>GeekCrawlerDbContext</c>'s
-/// <c>DbSet&lt;GeekCrawlerLink&gt;</c> is retired scaffolding with no live caller. And it is
+/// document, so the 16 MiB cap never applied. It is <b>not</b> a Postgres insert ceiling: <b>crawling
+/// does not use Postgres at all</b> (Jeff, 2026-09-29 — a live Postgres use in the crawl path is a
+/// defect to fix on sight, not to document), and the EF layer that made this sentence necessary is
+/// gone. Links go to Mongo via <c>MongoGeekCrawlerService</c>. And it is
 /// <b>not</b> atomicity: <c>InsertLinksIgnoringDuplicatesAsync</c> loops <c>InsertOneAsync</c> per
 /// document and swallows duplicate-key errors individually, so a batch of any size is already N
 /// independent writes with no rollback.
