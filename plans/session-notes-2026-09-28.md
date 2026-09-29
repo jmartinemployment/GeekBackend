@@ -149,11 +149,20 @@ middle stage.
 1. **Re-index the 44 runs?** All, selectively, or fix the flush cap first. Nothing
    is queued, so now is the clean window for config or code changes.
 2. **Disable the cron** if you don't want all 44 indexing unattended.
-3. **`plans/fix-oversized-links-batch.md`** — do first. Project:
-   **Geek-Crawler-v2**. Live bug, safe to do now, recurs on any large site.
-4. **`plans/fix-superseded-purge-halt.md`** — later. Project: **GeekBackend** only.
-   Should a superseded run's purge failure mark a published run failed?
-5. **Finish the glossary cascade?** Four more files, two projects.
+3. ~~**The oversized links batch.**~~ **Done.** `MAX_LINKS_PER_BATCH` is 10,000 on
+   both sides, GeekAPI reads it from `GeekCrawlerIngestLimits` instead of a bare
+   `2000`, and the crawler enforces `MAX_BATCH_BODY_BYTES` as well as the count. The
+   plan file is deleted — it also carried the wrong premise that links go to Postgres.
+4. ~~**The superseded-run purge halt.**~~ **Done**, and settled the way that plan
+   suggested: the superseded run takes `AwaitingVectorPurge`, the published run stays
+   published, and it is reported on the response as
+   `supersededRunAwaitingVectorPurge`. Crawling still blocks for the owner until the
+   purge succeeds, so nothing is swallowed. Plan file deleted.
+5. ~~**Finish the glossary cascade.**~~ **Done 2026-09-29.** All four layers removed:
+   `HttpGlossaryRepository`'s three writes, `IGlossaryRepository`'s three signatures,
+   GeekRepository's POST/PUT/DELETE on `repo/content/glossary`, and
+   `GlossaryRepository`'s insert/update/delete SQL plus `InsertDefinitionsAsync`.
+   `GlossaryTermWriteRequest` went too — nothing referenced it.
 6. **The flush cap** — the only change that would actually move memory. Not yet
    written up.
 

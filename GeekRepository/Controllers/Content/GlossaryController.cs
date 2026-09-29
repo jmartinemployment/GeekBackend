@@ -44,48 +44,4 @@ public sealed class GlossaryController : ControllerBase
 
         return term is null ? NotFound() : Ok(term);
     }
-
-    [HttpPost]
-    public async Task<ActionResult<GlossaryTermDto>> Create(
-        [FromBody] GlossaryTermWriteRequest request,
-        CancellationToken ct = default)
-    {
-        GlossaryTermDto created = null!;
-
-        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
-        {
-            created = await _glossary.CreateAsync(request, ct);
-        }, ct);
-
-        return CreatedAtAction(nameof(GetBySlug), new { slug = created.Slug }, created);
-    }
-
-    [HttpPut("{slug}")]
-    public async Task<ActionResult<GlossaryTermDto>> Update(
-        string slug,
-        [FromBody] GlossaryTermWriteRequest request,
-        CancellationToken ct = default)
-    {
-        GlossaryTermDto? updated = null;
-
-        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
-        {
-            updated = await _glossary.UpdateAsync(slug, request, ct);
-        }, ct);
-
-        return updated is null ? NotFound() : Ok(updated);
-    }
-
-    [HttpDelete("{slug}")]
-    public async Task<IActionResult> Delete(string slug, CancellationToken ct = default)
-    {
-        var deleted = false;
-
-        await _unitOfWork.ExecuteInResilientTransactionAsync(async () =>
-        {
-            deleted = await _glossary.DeleteAsync(slug, ct);
-        }, ct);
-
-        return deleted ? NoContent() : NotFound();
-    }
 }

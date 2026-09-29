@@ -29,37 +29,4 @@ public sealed class HttpGlossaryRepository : IGlossaryRepository
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<GlossaryTermDto>(ct);
     }
-
-    public async Task<GlossaryTermDto> CreateAsync(
-        GlossaryTermWriteRequest request,
-        CancellationToken ct = default)
-    {
-        var response = await _http.PostAsJsonAsync("repo/content/glossary", request, ct);
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<GlossaryTermDto>(ct))!;
-    }
-
-    public async Task<GlossaryTermDto?> UpdateAsync(
-        string slug,
-        GlossaryTermWriteRequest request,
-        CancellationToken ct = default)
-    {
-        var response = await _http.PutAsJsonAsync(
-            $"repo/content/glossary/{Uri.EscapeDataString(slug)}",
-            request,
-            ct);
-        if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<GlossaryTermDto>(ct);
-    }
-
-    public async Task<bool> DeleteAsync(string slug, CancellationToken ct = default)
-    {
-        var response = await _http.DeleteAsync(
-            $"repo/content/glossary/{Uri.EscapeDataString(slug)}",
-            ct);
-        if (response.StatusCode == HttpStatusCode.NotFound) return false;
-        response.EnsureSuccessStatusCode();
-        return true;
-    }
 }
