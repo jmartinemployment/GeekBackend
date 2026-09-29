@@ -25,9 +25,18 @@
 
 DROP SCHEMA IF EXISTS geek_glossary CASCADE;
 
--- Deliberately NOT deleting the 0034-0039 rows from schema_migrations, even though their files
--- are gone. Those rows are now a guard: SqlMigrationRunner enumerates the .sql files on disk and
--- skips any name already recorded, so if one of those six files were ever restored from git it
--- would be skipped rather than recreating and reseeding the schema this script just dropped.
--- Removing the rows would remove that protection, and they are database bookkeeping rather than
--- anything a developer reads or greps.
+-- And the bookkeeping for the six deleted scripts. Jeff, 2026-09-29: "I SEE NO REASON TO RETAIN
+-- MIGRATIONS, FURTHER REMOVE ALL TRACES." I had kept these rows as a guard -- the runner skips a
+-- name it finds recorded, so a restored file would not re-run -- but that is protection against
+-- someone deliberately restoring a deleted file to rebuild a schema this script drops, which is
+-- not a scenario worth leaving a trace for. The rows go.
+
+DELETE FROM schema_migrations
+WHERE script_name IN (
+    '0034_geek_glossary_schema.sql',
+    '0035_seed_geek_glossary.sql',
+    '0036_add_glossary_speed_to_lead.sql',
+    '0037_glossary_definition_quality.sql',
+    '0038_add_glossary_lead_scoring.sql',
+    '0039_dedupe_glossary_definitions.sql'
+);
