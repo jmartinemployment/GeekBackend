@@ -32,8 +32,21 @@ namespace GeekBackend.Tests.ContentCreator;
 public class GccProjectsControllerIndexGateTests
 {
     private const string Site = "https://acme.test";
-    private const string Partner = "https://partner.test";
-    private const string Competitor = "https://rival.test";
+
+    /// <summary>Five of each, because five of each is the rule. Named so a test can single one out.</summary>
+    private static string[] Partners => [.. Enumerable.Range(1, 5).Select(i => $"https://partner{i}.test")];
+    private static string[] Competitors => [.. Enumerable.Range(1, 5).Select(i => $"https://rival{i}.test")];
+
+    private static string Partner => Partners[0];
+    private static string Competitor => Competitors[0];
+
+    /// <summary>Every declared URL indexed — the state a saveable project is in.</summary>
+    private static GeekCrawlerRagHostIndex[] AllIndexed =>
+        [.. new[] { Site }.Concat(Partners).Concat(Competitors).Select(Indexed)];
+
+    /// <summary>The same, with one URL swapped for a not-indexed answer.</summary>
+    private static GeekCrawlerRagHostIndex[] AllIndexedExcept(string url) =>
+        [.. AllIndexed.Where(r => !r.Url.Equals(url, StringComparison.OrdinalIgnoreCase)), NotIndexed(url)];
 
     private static readonly Guid SiteRun = Guid.NewGuid();
 
@@ -73,6 +86,31 @@ public class GccProjectsControllerIndexGateTests
         }
     }
 
+    /// <summary>
+    /// Answers the crawler repository with a run good enough to write from, so "indexed" and
+    /// "usable" only diverge where a test makes them.
+    /// </summary>
+    private sealed class UsableRunHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(UsableRunJson, Encoding.UTF8, "application/json"),
+            });
+
+        private const string UsableRunJson =
+            """
+            {"id":"33333333-3333-3333-3333-333333333333","ownerUserId":"operator-1",
+             "crawlType":"partner","status":"complete","seedUrlsJson":"[]","seedKey":null,
+             "hostProgressJson":null,"errorSummary":null,"createdAtUtc":"2026-09-01T00:00:00Z",
+             "startedAtUtc":"2026-09-01T00:00:00Z","completedAtUtc":"2026-09-01T01:00:00Z",
+             "contentReadyAt":"2026-09-01T01:00:00Z","crawlReportJson":null,"ragState":"indexed",
+             "ragChunksUpserted":400,"ragPagesEnglish":40,
+             "ragIndexedAtUtc":"2026-09-01T02:00:00Z"}
+            """;
+    }
+
     private static (GccProjectsController Controller, RecordingHandler Repo) Build(
         params GeekCrawlerRagHostIndex[] rows)
     {
@@ -81,11 +119,16 @@ public class GccProjectsControllerIndexGateTests
             new HttpClient(handler) { BaseAddress = new Uri("https://repo.test") },
             NullLogger<HttpGccRepository>.Instance);
 
+        var crawlerRepo = new HttpGeekCrawlerRepository(
+            new HttpClient(new UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
+            NullLogger<HttpGeekCrawlerRepository>.Instance);
+
         var controller = new GccProjectsController(
             repo,
             // The index fake already written for GccCompetitorAnalysisResolverTests -- one
             // implementation of IGeekCrawlerRagClient for the suite, not a second that can drift.
             new GccCompetitorAnalysisResolverTests.FakeRag(rows),
+            crawlerRepo,
             NullLogger<GccProjectsController>.Instance)
         {
             ControllerContext = new ControllerContext
@@ -136,9 +179,9 @@ public class GccProjectsControllerIndexGateTests
     [Fact]
     public async Task AnUnindexedCompetitorUrlIsRefusedAndNothingIsWritten()
     {
-        var (controller, repo) = Build(Indexed(Site), Indexed(Partner), NotIndexed(Competitor));
+        var (controller, repo) = Build(AllIndexedExcept(Competitor));
 
-        var result = await controller.Create(CreateRequest([Partner], [Competitor]), CancellationToken.None);
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains(Competitor, BodyOf(result), StringComparison.Ordinal);
@@ -151,9 +194,9 @@ public class GccProjectsControllerIndexGateTests
     {
         // Partner and competitor are one rule. A second implementation for competitors is how the
         // two came to differ everywhere else in this pipeline.
-        var (controller, repo) = Build(Indexed(Site), NotIndexed(Partner), Indexed(Competitor));
+        var (controller, repo) = Build(AllIndexedExcept(Partner));
 
-        var result = await controller.Create(CreateRequest([Partner], [Competitor]), CancellationToken.None);
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains(Partner, BodyOf(result), StringComparison.Ordinal);
@@ -163,31 +206,61 @@ public class GccProjectsControllerIndexGateTests
     [Fact]
     public async Task EveryUrlIndexedReachesTheRepository()
     {
-        var (controller, repo) = Build(Indexed(Site), Indexed(Partner), Indexed(Competitor));
+        var (controller, repo) = Build(AllIndexed);
 
-        await controller.Create(CreateRequest([Partner], [Competitor]), CancellationToken.None);
+        await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(1, repo.Calls);
     }
 
     [Fact]
-    public async Task EmptyPartnerAndCompetitorListsStillRequireTheSite()
+    public async Task FewerThanFivePartnersIsRefusedBeforeTheIndexIsAsked()
     {
-        // The site is not optional: a project with no crawled site has nothing to ground on, and it
-        // is checked by the same rule as the other two rather than a second one of its own.
-        var (controller, repo) = Build(Indexed(Site));
+        // The count costs nothing to check and the operator can act on it without waiting for a
+        // round trip. "You need five" is a different problem from "this one has no crawl", and the
+        // second is not worth reading until the first is solved.
+        var (controller, repo) = Build(AllIndexed);
 
-        await controller.Create(CreateRequest([], []), CancellationToken.None);
+        var result = await controller.Create(
+            CreateRequest([Partner], Competitors), CancellationToken.None);
 
-        Assert.Equal(1, repo.Calls);
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains("Partner URLs: 1 declared, 5 required", BodyOf(result), StringComparison.Ordinal);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task FewerThanFiveCompetitorsIsRefusedToo()
+    {
+        var (controller, repo) = Build(AllIndexed);
+
+        var result = await controller.Create(
+            CreateRequest(Partners, [Competitor]), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains("Competitor URLs: 1 declared, 5 required", BodyOf(result), StringComparison.Ordinal);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task EmptyListsAreRefused_NotWavedThrough()
+    {
+        // "An empty list blocks nothing" was the old rule and it is gone: a project with no partners
+        // has nothing to write a tool page from and nothing for a pillar to name.
+        var (controller, repo) = Build(AllIndexed);
+
+        var result = await controller.Create(CreateRequest([], []), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Equal(0, repo.Calls);
     }
 
     [Fact]
     public async Task AnUnindexedSiteUrlIsRefusedLikeAnyOtherDeclaredUrl()
     {
-        var (controller, repo) = Build(NotIndexed(Site), Indexed(Partner));
+        var (controller, repo) = Build(AllIndexedExcept(Site));
 
-        var result = await controller.Create(CreateRequest([Partner], []), CancellationToken.None);
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains(Site, BodyOf(result), StringComparison.Ordinal);
@@ -200,7 +273,7 @@ public class GccProjectsControllerIndexGateTests
         // The form has always blocked this. The API accepted it, and the project then refused at
         // generate time with "has no project-site crawl run" -- a failure the operator could do
         // nothing about by then.
-        var (controller, repo) = Build(Indexed(Site));
+        var (controller, repo) = Build(AllIndexed);
 
         var result = await controller.Create(
             CreateRequest([], []) with { SiteUrl = null }, CancellationToken.None);
@@ -212,7 +285,7 @@ public class GccProjectsControllerIndexGateTests
     [Fact]
     public async Task NoProjectSiteRunIdIsRefused()
     {
-        var (controller, repo) = Build(Indexed(Site));
+        var (controller, repo) = Build(AllIndexed);
 
         var result = await controller.Create(
             CreateRequest([], []) with { ProjectSiteRunId = null }, CancellationToken.None);
@@ -222,13 +295,29 @@ public class GccProjectsControllerIndexGateTests
     }
 
     [Fact]
-    public async Task AUrlWithNoAnswerIsNotIndexed()
+    public async Task AnUnreachableIndexRefusesRatherThanGuessing()
     {
-        // One question, one answer. A URL the index returned nothing for has no index behind it --
-        // never crawled, will not parse, or the index could not be asked. Same answer, same fix.
+        // No rows at all means the check did not run, which is not the same answer as "nothing is
+        // indexed" -- HostsIndexedAsync returns [] when disabled, on a non-2xx and on a throw. It
+        // still refuses: an answer never obtained is not evidence a crawl exists.
         var (controller, repo) = Build();
 
-        var result = await controller.Create(CreateRequest([Partner], []), CancellationToken.None);
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains("could not be reached", BodyOf(result), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task AUrlTheIndexDidNotAnswerForIsRefusedAndNamed()
+    {
+        // The index answered, but said nothing about this one. Same verdict as a red answer -- it
+        // cannot be written from -- and the operator is told which URL.
+        var (controller, repo) = Build(
+            [.. AllIndexed.Where(r => !r.Url.Equals(Partner, StringComparison.OrdinalIgnoreCase))]);
+
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains(Partner, BodyOf(result), StringComparison.Ordinal);
@@ -240,10 +329,10 @@ public class GccProjectsControllerIndexGateTests
     {
         // The route a form gate cannot cover: updateProject has no call site in the UI, so PUT is
         // reachable only by direct API call.
-        var (controller, repo) = Build(Indexed(Site), NotIndexed(Competitor));
+        var (controller, repo) = Build(AllIndexedExcept(Competitor));
 
         var result = await controller.Update(
-            Guid.NewGuid(), UpdateRequest([], [Competitor]), CancellationToken.None);
+            Guid.NewGuid(), UpdateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains(Competitor, BodyOf(result), StringComparison.Ordinal);
@@ -253,10 +342,10 @@ public class GccProjectsControllerIndexGateTests
     [Fact]
     public async Task UpdateWithEveryUrlIndexedReachesTheRepository()
     {
-        var (controller, repo) = Build(Indexed(Site), Indexed(Partner), Indexed(Competitor));
+        var (controller, repo) = Build(AllIndexed);
 
         await controller.Update(
-            Guid.NewGuid(), UpdateRequest([Partner], [Competitor]), CancellationToken.None);
+            Guid.NewGuid(), UpdateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(1, repo.Calls);
     }
@@ -267,7 +356,7 @@ public class GccProjectsControllerIndexGateTests
         var (controller, repo) = Build();
 
         var result = await controller.Update(
-            Guid.NewGuid(), UpdateRequest([Partner], []), CancellationToken.None);
+            Guid.NewGuid(), UpdateRequest(Partners, Competitors), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Equal(0, repo.Calls);

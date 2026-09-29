@@ -2,6 +2,8 @@ using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Auth;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Rag;
+using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreator;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.Rag;
@@ -17,15 +19,18 @@ public sealed class RagController : ControllerBase
     private readonly ICurrentUserContext _user;
     private readonly GccV2CreateLibraryWriter _generate;
     private readonly IGeekCrawlerRagClient _rag;
+    private readonly HttpGeekCrawlerRepository _crawlerRepo;
 
     public RagController(
         ICurrentUserContext user,
         GccV2CreateLibraryWriter generate,
-        IGeekCrawlerRagClient rag)
+        IGeekCrawlerRagClient rag,
+        HttpGeekCrawlerRepository crawlerRepo)
     {
         _user = user;
         _generate = generate;
         _rag = rag;
+        _crawlerRepo = crawlerRepo;
     }
 
     [HttpGet("health")]
@@ -87,7 +92,33 @@ public sealed class RagController : ControllerBase
                 new { error = "The index could not be reached, so no URL could be checked." });
         }
 
-        return Ok(new { results });
+        // Indexed is not usable. A crawl can complete having been blocked at its first page, or
+        // against a site that renders nothing without JavaScript, and still put a row in the index:
+        // that passes "does an index exist" and gives a writer nothing. The run records what
+        // actually landed, so the same answer carries it -- one question, one answer, and the form
+        // and the project gate read the same one rather than each deciding for itself.
+        var answers = new List<object>(results.Count);
+        foreach (var row in results)
+        {
+            GeekCrawlerRunDto? run = null;
+            if (row.Indexed && Guid.TryParse(row.RunId, out var runId))
+                run = await _crawlerRepo.GetRunAsync(runId, ct).ConfigureAwait(false);
+
+            var reason = GccDeclaredUrlEvidence.Unusable(row, run);
+            answers.Add(new
+            {
+                url = row.Url,
+                host = row.Host,
+                indexed = row.Indexed,
+                runId = row.RunId,
+                usable = reason is null,
+                reason,
+                pages = run?.RagPagesEnglish,
+                chunks = run?.RagChunksUpserted,
+            });
+        }
+
+        return Ok(new { results = answers });
     }
 
     public sealed record HostsIndexedRequest(IReadOnlyList<string>? Urls);

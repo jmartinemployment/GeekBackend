@@ -94,6 +94,21 @@ public sealed class GeekCrawlerService
             throw new InvalidOperationException("Invalid crawlType.");
         if (seeds.Count == 0)
             throw new InvalidOperationException("At least one seed URL is required.");
+        // One run, one URL. AGENTS.md has said "Run ID = one URL" since the slot model was written
+        // and nothing enforced it: ComputeSeedKey hashes the sorted *set*, so five partner URLs sent
+        // together became one run, one seedKey, and one RagChunksUpserted. That number then belongs
+        // to the batch and not to any host in it, which makes "does this partner have enough
+        // evidence to write from" unanswerable -- see GccDeclaredUrlEvidence, which reads exactly
+        // those per-run counts as per-host ones.
+        //
+        // MaxSeedsPerRequest stays as the outer bound it always was; this is the real rule.
+        if (seeds.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"One crawl covers one URL. {seeds.Count} were submitted — start one crawl each, so "
+                + "the pages and chunks a run reports describe that host rather than a batch.");
+        }
+
         if (seeds.Count > GeekCrawlerCaps.MaxSeedsPerRequest)
             throw new InvalidOperationException(
                 $"At most {GeekCrawlerCaps.MaxSeedsPerRequest} seed URLs are allowed per request.");

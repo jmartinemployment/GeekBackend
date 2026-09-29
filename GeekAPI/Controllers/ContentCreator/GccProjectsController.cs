@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using GeekApplication.Validation;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.ContentCreator;
 
 namespace GeekAPI.Controllers.ContentCreator;
 
@@ -31,15 +32,18 @@ public class GccProjectsController : ControllerBase
 {
     private readonly HttpGccRepository _repo;
     private readonly IGeekCrawlerRagClient _rag;
+    private readonly HttpGeekCrawlerRepository _crawlerRepo;
     private readonly ILogger<GccProjectsController> _logger;
 
     public GccProjectsController(
         HttpGccRepository repo,
         IGeekCrawlerRagClient rag,
+        HttpGeekCrawlerRepository crawlerRepo,
         ILogger<GccProjectsController> logger)
     {
         _repo = repo;
         _rag = rag;
+        _crawlerRepo = crawlerRepo;
         _logger = logger;
     }
 
@@ -73,45 +77,84 @@ public class GccProjectsController : ControllerBase
         IReadOnlyList<string>? competitorUrls,
         CancellationToken ct)
     {
-        // The project site is a declared URL like any other and is checked by the same rule. It was
-        // gated in the form only -- canSubmit required a run id the index had returned -- while this
-        // route accepted a project with no site URL, no run id, or a site with no crawl behind it.
-        // A boundary only the form enforces is not a boundary, and this one had the added twist of
-        // asking a different question (has a run id) than the same check asked of partners and
-        // competitors (is indexed).
-        if (string.IsNullOrWhiteSpace(siteUrl))
-            return BadRequest("siteUrl is required — a project with no site has nothing to ground on.");
+        var site = (siteUrl ?? string.Empty).Trim();
+        var partners = Clean(partnerUrls);
+        var competitors = Clean(competitorUrls);
 
-        if (projectSiteRunId is not { } runId || runId == Guid.Empty)
+        // Counts first, because they cost nothing and the operator can act on them without waiting
+        // for an index round trip.
+        var shortfalls = new[]
+        {
+            string.IsNullOrWhiteSpace(site)
+                ? $"Project site URL: 0 declared, {GccDeclaredUrlEvidence.RequiredSiteUrls} required."
+                : null,
+            GccDeclaredUrlEvidence.WrongCount(
+                "Partner URLs", partners.Count, GccDeclaredUrlEvidence.RequiredPartnerUrls),
+            GccDeclaredUrlEvidence.WrongCount(
+                "Competitor URLs", competitors.Count, GccDeclaredUrlEvidence.RequiredCompetitorUrls),
+        }.Where(m => m is not null).ToList();
+
+        if (shortfalls.Count > 0)
+            return BadRequest(string.Join(" ", shortfalls));
+
+        if (projectSiteRunId is not { } siteRun || siteRun == Guid.Empty)
         {
             return BadRequest(
                 "projectSiteRunId is required. It is the crawl this project's content is grounded "
                 + "on, and the index returns it alongside the answer about the site URL.");
         }
 
-        var declared = new[] { siteUrl }
-            .Concat(partnerUrls ?? [])
-            .Concat(competitorUrls ?? [])
+        // One test for all three lists. The site differs only in how many there may be.
+        var declared = new[] { site }.Concat(partners).Concat(competitors)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var rows = await _rag.HostsIndexedAsync(declared, ct);
+        if (rows.Count == 0)
+        {
+            _logger.LogWarning(
+                "Index unreachable while validating {Count} declared URL(s); refusing rather than guessing.",
+                declared.Count);
+            return BadRequest(
+                "The index could not be reached, so the declared URLs could not be checked. "
+                + "Nothing was saved — try again.");
+        }
+
+        var byUrl = rows.ToDictionary(r => r.Url, StringComparer.OrdinalIgnoreCase);
+        var unusable = new List<string>();
+        foreach (var url in declared)
+        {
+            if (!byUrl.TryGetValue(url, out var row))
+            {
+                unusable.Add($"{url} — the index returned no answer for it");
+                continue;
+            }
+
+            // Indexed is not usable. The run says what actually landed; nothing read it until now.
+            GeekCrawlerRunDto? run = null;
+            if (row.Indexed && Guid.TryParse(row.RunId, out var runId))
+                run = await _crawlerRepo.GetRunAsync(runId, ct);
+
+            if (GccDeclaredUrlEvidence.Unusable(row, run) is { } reason)
+                unusable.Add($"{url} — {reason}");
+        }
+
+        if (unusable.Count > 0)
+        {
+            return BadRequest(
+                "These URLs cannot be written from: " + string.Join("; ", unusable)
+                + ". Crawl and index each one, then save the project.");
+        }
+
+        return null;
+    }
+
+    private static List<string> Clean(IReadOnlyList<string>? urls) =>
+        (urls ?? [])
             .Where(u => !string.IsNullOrWhiteSpace(u))
             .Select(u => u.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        // An empty list blocks nothing, and asking about nothing is a call worth not making.
-        if (declared.Count == 0) return null;
-
-        var indexed = (await _rag.HostsIndexedAsync(declared, ct))
-            .Where(r => r.Indexed)
-            .Select(r => r.Url)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var uncrawled = declared.Where(u => !indexed.Contains(u)).ToList();
-        if (uncrawled.Count == 0) return null;
-
-        return BadRequest(
-            $"No indexed crawl exists for: {string.Join(", ", uncrawled)}. "
-            + "Crawl and index each one, then save the project.");
-    }
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<GccProjectDto>>> ListByClient(
