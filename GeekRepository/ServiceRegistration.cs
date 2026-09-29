@@ -72,8 +72,6 @@ public static class ServiceRegistration
         services.AddScoped<IGccTaskRepository, GccTaskRepository>();
         services.AddScoped<IGccDeliverableRepository, GccDeliverableRepository>();
 
-        services.AddGeekSeoData();
-
         var mongoConnectionString = Environment.GetEnvironmentVariable("MONGO_CRAWLER_URL")
             ?? "mongodb://localhost:27017";
         services.AddSingleton<IMongoGeekCrawlerService>(sp =>

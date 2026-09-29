@@ -1,6 +1,5 @@
 using DotNetEnv;
 using GeekRepository;
-using GeekSeo.Persistence.Data;
 using GeekRepository.Data;
 using GeekRepository.Auth;
 using GeekRepository.Extensions;
@@ -35,14 +34,18 @@ builder.Services.AddDbContext<AppDbContext>(options => options
     .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
-var seoConnectionString = NormalizeConnectionString(
-    Environment.GetEnvironmentVariable("GEEK_SEO_DATABASE_URL") ?? rawDatabaseUrl ?? string.Empty);
+// No SeoDbContext, and no GEEK_SEO_DATABASE_URL. Geek-SEO was never an authorized service
+// (Jeff, 2026-09-29) and remains on disk only as a source to copy from later, never to be
+// project-referenced or called from here -- the same "copy, never reuse" rule AGENTS.md already
+// applies to the content-writer repos. Its 27 controllers, 26 repositories, SeoDataRegistration
+// and the GeekSa2Read library went with it.
 
-builder.Services.AddDbContext<SeoDbContext>(options => options
-    .UseNpgsql(seoConnectionString, npgsql =>
-        npgsql.MigrationsHistoryTable(
-            SeoDbContextOptionsExtensions.MigrationsHistoryTableName,
-            SeoDbContextOptionsExtensions.SchemaName))
+// Google Tag Manager account store (geek_gtm). Its own product, its own schema -- it used to
+// borrow SeoDbContext and the geek_seo schema, which is why it broke when the unauthorized
+// Geek-SEO layer was deleted. No MigrationsHistoryTable: geek_gtm is created and maintained by
+// Migrations/Sql/0041_geek_gtm_schema.sql, the same way geek_blog is.
+builder.Services.AddDbContext<GeekRepository.Data.GtmDbContext>(options => options
+    .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
 // Standalone context for WebPost content — entirely separate from AppDbContext/geek_blog,
@@ -107,8 +110,6 @@ await ApplyContentWriterV2MigrationsAsync(app, startupLogger);
 await ApplyContentCreatorMigrationsAsync(app, startupLogger);
 await ApplyContentCreatorV2MigrationsAsync(app, startupLogger);
 await EnsureGeekCrawlerMongoIndexesAsync(app, startupLogger);
-await RewriteRetiredSiteAnalysisHistoryNamesAsync(app, startupLogger);
-await ApplySeoMigrationsAsync(app, startupLogger);
 
 app.UseExceptionHandler();
 app.Use(async (context, next) =>
@@ -272,110 +273,6 @@ static async Task EnsureGeekCrawlerMongoIndexesAsync(WebApplication app, ILogger
         // from Railway). Do not crash the whole repository — crawler routes will fail
         // loudly until Mongo recovers; everything else must stay up.
         logger.LogError(ex, "Failed ensuring Geek-Crawler Mongo indexes. Continuing startup.");
-    }
-}
-
-/// <summary>
-/// One-shot history rewrite so EF / SQL runner history rows match renamed sources.
-/// Retired keys are stored opaque (base64) so source text never retains the old product word.
-/// Idempotent: no-op when history already uses the new names.
-/// </summary>
-static async Task RewriteRetiredSiteAnalysisHistoryNamesAsync(WebApplication app, ILogger logger)
-{
-    var migrationUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-    if (string.IsNullOrWhiteSpace(migrationUrl))
-    {
-        logger.LogWarning("DATABASE_URL is not set; skipping site-analysis history rename.");
-        return;
-    }
-
-    static string Decode(string b64) =>
-        System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64));
-
-    var cs = NormalizeConnectionString(migrationUrl);
-    await using var conn = new NpgsqlConnection(cs);
-    await conn.OpenAsync();
-
-    (string OldB64, string NewId)[] efIds =
-    [
-        ("MjAyNjA2MDIxNzQ5NDZfQWRkTmljaGVBbmFseXNpcw==", "20260602174946_AddSiteAnalysis"),
-        ("MjAyNjA2MDIxOTMwMDBfQWRkTmljaGVQcm9maWxlQW5hbHlzaXNTdGVw", "20260602193000_AddSiteAnalysisProfileAnalysisStep"),
-        ("MjAyNjA2MDIxOTQ1MDBfQWRkTmljaGVQcm9maWxlUHJvZ3Jlc3NBdA==", "20260602194500_AddSiteAnalysisProfileProgressAt"),
-        ("MjAyNjA2MDYxMjAwMDBfQWRkTmljaGVQcm9maWxlQW5hbHlzaXNTdGVwTG9n", "20260606120000_AddSiteAnalysisProfileAnalysisStepLog"),
-        ("MjAyNjA2MDYyMDAwMDBfQWRkTmljaGVQcm9maWxlRnVzaW9uU25hcHNob3Q=", "20260606200000_AddSiteAnalysisProfileFusionSnapshot"),
-        ("MjAyNjA2MDcyMDUyNDhfQWRkTmljaGVTY2FsYWJsZVBlcnNpc3RlbmNl", "20260607205248_AddSiteAnalysisScalablePersistence"),
-        ("MjAyNjA2MTMyMTAxMzBfQWRkTmljaGVQcm9maWxlUGhhc2UxUmVsYXRpb25hbFN0ZXBUYWJsZXM=", "20260613210130_AddSiteAnalysisProfilePhase1RelationalStepTables"),
-        ("MjAyNjA2MTQxMTQzMDZfQWRkTmljaGVQcm9maWxlUGhhc2UyUmVsYXRpb25hbFN0ZXBUYWJsZXM=", "20260614114306_AddSiteAnalysisProfilePhase2RelationalStepTables"),
-        ("MjAyNjA4MDMwMDAwMDBfUmVuYW1lTmljaGVUb1NpdGVBbmFseXNpcw==", "20260803000000_RenameLegacySiteAnalysisCutover"),
-    ];
-
-    foreach (var (oldB64, newId) in efIds)
-    {
-        var oldId = Decode(oldB64);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE geek_seo."__EFSeoMigrationsHistory"
-            SET "MigrationId" = @newId
-            WHERE "MigrationId" = @oldId
-            """;
-        cmd.Parameters.AddWithValue("oldId", oldId);
-        cmd.Parameters.AddWithValue("newId", newId);
-        var n = await cmd.ExecuteNonQueryAsync();
-        if (n > 0)
-            logger.LogInformation("Rewrote EF migration history id → {NewId}", newId);
-    }
-
-    (string OldB64, string NewName)[] sqlScripts =
-    [
-        ("MDAwN19nZWVrX3Nlb19uaWNoZV9wcm9maWxlX2FuYWx5c2lzX2NvbHVtbnMuc3Fs", "0007_geek_seo_site_analysis_profile_analysis_columns.sql"),
-        ("MDAwOF9nZWVrX3Nlb19uaWNoZV9wcm9maWxlX2FuYWx5c2lzX3N0ZXBfbG9nLnNxbA==", "0008_geek_seo_site_analysis_profile_analysis_step_log.sql"),
-        ("MDAwOV9nZWVrX3Nlb19uaWNoZV9wcm9maWxlX2Z1c2lvbl9zbmFwc2hvdC5zcWw=", "0009_geek_seo_site_analysis_profile_fusion_snapshot.sql"),
-        ("MDAxMF9nZWVrX3Nlb19uaWNoZV9zY2FsYWJsZV9wZXJzaXN0ZW5jZS5zcWw=", "0010_geek_seo_site_analysis_scalable_persistence.sql"),
-        ("MDAzM19yZW5hbWVfbmljaGVfdG9fc2l0ZV9hbmFseXNpcy5zcWw=", "0033_site_analysis_legacy_cutover_noop.sql"),
-    ];
-
-    foreach (var (oldB64, newName) in sqlScripts)
-    {
-        var oldName = Decode(oldB64);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE schema_migrations
-            SET script_name = @newName
-            WHERE script_name = @oldName
-            """;
-        cmd.Parameters.AddWithValue("oldName", oldName);
-        cmd.Parameters.AddWithValue("newName", newName);
-        var n = await cmd.ExecuteNonQueryAsync();
-        if (n > 0)
-            logger.LogInformation("Rewrote SQL schema_migrations script → {NewName}", newName);
-    }
-}
-
-static async Task ApplySeoMigrationsAsync(WebApplication app, ILogger logger)
-{
-    var migrationUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-    if (string.IsNullOrWhiteSpace(migrationUrl))
-    {
-        logger.LogWarning("DATABASE_URL is not set; skipping Geek SEO schema migrations.");
-        return;
-    }
-
-    var optionsBuilder = new DbContextOptionsBuilder<SeoDbContext>();
-    optionsBuilder
-        .UseGeekSeoDatabaseMigrations(NormalizeConnectionString(migrationUrl))
-        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
-
-    await using var db = new SeoDbContext(optionsBuilder.Options);
-    try
-    {
-        await db.Database.MigrateAsync();
-        logger.LogInformation("Geek SEO (geek_seo) schema migrations applied successfully.");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Failed applying Geek SEO migrations.");
-        if (!app.Environment.IsDevelopment())
-            throw;
     }
 }
 

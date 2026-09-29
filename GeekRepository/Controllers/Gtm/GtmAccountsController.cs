@@ -1,14 +1,18 @@
-using GeekSeo.Application.Infrastructure;
-using GeekSeo.Persistence.Data;
-using GeekSeo.Persistence.Entities;
+using GeekRepository.Data;
+using GeekRepository.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace GeekRepository.Controllers.Gtm;
 
+/// <summary>
+/// Google refresh-token store for Geek-GTM-MCP, reached through GeekAPI's api/gtm/internal/*
+/// proxy. GTM is its own product: it shares no code with Geek-SEO, whose schema and credential
+/// helper this controller used to borrow before that layer was deleted on 2026-09-29.
+/// </summary>
 [ApiController]
 [Route("repo/gtm/accounts")]
-public sealed class GtmAccountsController(SeoDbContext db) : ControllerBase
+public sealed class GtmAccountsController(GtmDbContext db) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] Guid userId, CancellationToken ct)
@@ -49,22 +53,27 @@ public sealed class GtmAccountsController(SeoDbContext db) : ControllerBase
             return BadRequest("RefreshToken is required.");
 
         var normalizedKey = NormalizeAccountKey(accountKey);
-        var (cipher, iv, tag) = SeoCredentialProtector.Encrypt(body.RefreshToken.Trim());
+
+        // Fail closed: no key, no write. Storing the token unencrypted, or recording the row
+        // without it, would both be worse than returning nothing -- CLAUDE.md section 2.
+        var protectedToken = GtmCredentialProtector.Encrypt(body.RefreshToken.Trim());
+        if (protectedToken is not { } secret)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
 
         var existing = await db.GtmAccountConnections
             .FirstOrDefaultAsync(c => c.UserId == userId && c.AccountKey == normalizedKey, ct);
 
         if (existing is null)
         {
-            existing = new SeoGtmAccountConnection
+            existing = new GtmAccountConnection
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 AccountKey = normalizedKey,
                 GoogleEmail = string.IsNullOrWhiteSpace(body.GoogleEmail) ? null : body.GoogleEmail.Trim(),
-                EncryptedRefreshToken = cipher,
-                EncryptionIv = iv,
-                EncryptionTag = tag,
+                EncryptedRefreshToken = secret.Cipher,
+                EncryptionIv = secret.Iv,
+                EncryptionTag = secret.Tag,
                 ConnectedAt = DateTimeOffset.UtcNow,
             };
             db.GtmAccountConnections.Add(existing);
@@ -72,9 +81,9 @@ public sealed class GtmAccountsController(SeoDbContext db) : ControllerBase
         else
         {
             existing.GoogleEmail = string.IsNullOrWhiteSpace(body.GoogleEmail) ? existing.GoogleEmail : body.GoogleEmail.Trim();
-            existing.EncryptedRefreshToken = cipher;
-            existing.EncryptionIv = iv;
-            existing.EncryptionTag = tag;
+            existing.EncryptedRefreshToken = secret.Cipher;
+            existing.EncryptionIv = secret.Iv;
+            existing.EncryptionTag = secret.Tag;
             existing.ConnectedAt = DateTimeOffset.UtcNow;
         }
 
@@ -100,21 +109,21 @@ public sealed class GtmAccountsController(SeoDbContext db) : ControllerBase
         return NoContent();
     }
 
-    private Task<SeoGtmAccountConnection?> FindAsync(Guid userId, string accountKey, CancellationToken ct) =>
+    private Task<GtmAccountConnection?> FindAsync(Guid userId, string accountKey, CancellationToken ct) =>
         db.GtmAccountConnections.AsNoTracking()
             .FirstOrDefaultAsync(c => c.UserId == userId && c.AccountKey == NormalizeAccountKey(accountKey), ct);
 
     private static string NormalizeAccountKey(string accountKey) =>
         accountKey.Trim().ToLowerInvariant();
 
-    private static GtmAccountSummary ToSummary(SeoGtmAccountConnection row) => new()
+    private static GtmAccountSummary ToSummary(GtmAccountConnection row) => new()
     {
         AccountKey = row.AccountKey,
         GoogleEmail = row.GoogleEmail,
         ConnectedAt = row.ConnectedAt,
     };
 
-    private static GtmAccountDetail ToDetail(SeoGtmAccountConnection row) => new()
+    private static GtmAccountDetail ToDetail(GtmAccountConnection row) => new()
     {
         AccountKey = row.AccountKey,
         GoogleEmail = row.GoogleEmail,

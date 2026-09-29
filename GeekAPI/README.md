@@ -1,14 +1,17 @@
 # GeekAPI
 
-GeekAPI is the **platform API gateway** for Geek apps. It proxies **Geek SEO** data to GeekRepository (`/api/seo/internal/*`), exposes **public content** APIs, and health checks. It does **not** host login or legacy `/api/auth/*` (retired May 2026 — use **GeekOAuth**).
+GeekAPI is the **platform API gateway** for Geek apps. It proxies internal product data to GeekRepository, exposes **public content** APIs, and health checks. It does **not** host login or legacy `/api/auth/*` (retired May 2026 — use **GeekOAuth**).
 
 ## Routes (current)
 
 | Area | Path |
 |------|------|
-| SEO data pipe | `/api/seo/internal/*` → `repo/seo/*` on GeekRepository |
+| GTM data pipe | `/api/gtm/internal/*` → `repo/gtm/*` on GeekRepository |
 | Content (public read) | `/api/case-studies`, `/api/departments`, `/api/use-cases` |
 | Health | `/health`, `/hello` |
+
+`/api/seo/internal/*` still resolves, but its GeekRepository half was deleted on 2026-09-29 — every
+path under it now relays a bare 404. It is not a live pipe; see `AGENTS.md`.
 
 ## Retired (410 Gone)
 

@@ -1,6 +1,17 @@
-# Geek SEO database schema (`geek_seo`)
+# Geek SEO database schema (`geek_seo`) — RETIRED 2026-09-29
 
-GeekSeoBackend (`Geek-SEO/GeekSeoBackend`) has **no database connection**. Persistence flows:
+> **Nothing below is live.** Jeff, 2026-09-29: *"TECHNICALLY THE GEEK-SEO SERVICE WAS NEVER
+> AUTHORIZED"*. GeekRepository's 27 `repo/seo/*` controllers, its 26 repositories, `SeoDbContext`,
+> `SeoDataRegistration` and the `ApplySeoMigrationsAsync` startup hook are all deleted, along with
+> the `GeekSeo.Persistence` / `GeekSeo.Application` project references. The routes in the table
+> below do not exist; the startup log line this document tells you to wait for is never emitted;
+> and nothing in this repository creates or migrates the `geek_seo` schema any more.
+>
+> This file is kept only as a record of what the schema held on databases that still carry it. Do
+> not use it as a specification, and do not rebuild from it — see `AGENTS.md` § "What Postgres is
+> for". Left in place rather than deleted so the rows already in production have a description.
+
+GeekSeoBackend (`Geek-SEO/GeekSeoBackend`) has **no database connection**. Persistence flowed:
 
 **GeekSeoBackend** → **GeekAPI** `api/seo/internal/*` → **GeekRepository** `repo/seo/*` → PostgreSQL schema **`geek_seo`**.
 
