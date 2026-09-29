@@ -59,13 +59,9 @@ builder.Services.AddControllers()
     // Workflow controllers live in this assembly (GeekAPI.Controllers.Workflow). JSON options
     // keep string enums + camelCase for parity with the prior Workflow/content-writer contract
     // GeekContentCreator already consumes.
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-        options.JsonSerializerOptions.Converters.Add(new GeekAPI.Services.Workflow.Domain.Entities.TolerantNullableLedeTypeConverter());
-        options.JsonSerializerOptions.Converters.Add(new GeekAPI.Services.Workflow.Domain.Entities.StrictLedeTypeConverter());
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-    });
+    // GeekApiJsonOptions.Configure, not inline: a contract test that builds its own options
+    // proves only that its copy agrees with itself.
+    .AddJsonOptions(options => GeekAPI.GeekApiJsonOptions.Configure(options.JsonSerializerOptions));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, CurrentUserContext>();
 

@@ -115,6 +115,10 @@ public sealed class RagController : ControllerBase
                 reason,
                 pages = run?.RagPagesEnglish,
                 chunks = run?.RagChunksUpserted,
+                // crawl_runs has persisted this since aa7f3ee and nothing returned it -- the value
+                // was write-only. It is what tells "40 pages, the site is small" from "40 pages,
+                // 460 were error bodies", which is the question this endpoint is asked.
+                skippedUnusable = run?.RagPagesSkippedUnusable,
             });
         }
 

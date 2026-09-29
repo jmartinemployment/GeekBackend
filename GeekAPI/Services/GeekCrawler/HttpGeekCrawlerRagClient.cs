@@ -195,10 +195,25 @@ public sealed class GeekCrawlerRagIndexStatus
     public int PagesEnglish { get; init; }
     public int PagesSkippedLang { get; init; }
     public int PagesSkippedEmpty { get; init; }
+
+    /// <summary>
+    /// Pages the Library refused as not citable. Distinguishes "small site" from "gutted crawl":
+    /// pagesSeen 506 / pagesEnglish 46 means one thing at 0 and another at 460, and until
+    /// 2026-09-29 no field on this type carried the difference.
+    /// </summary>
+    public int PagesSkippedUnusable { get; init; }
+
     public int ChunksUpserted { get; init; }
     public string? Error { get; init; }
     public DateTimeOffset? StartedAtUtc { get; init; }
     public DateTimeOffset? FinishedAtUtc { get; init; }
+    public int Attempt { get; init; }
+    public string? Trigger { get; init; }
+    public int EmbeddingRateLimitRetries { get; init; }
+    public double EmbeddingWaitSeconds { get; init; }
+
+    /// <summary>Enqueue only: false when the claim was refused. Null when not applicable.</summary>
+    public bool? Accepted { get; init; }
 }
 
 public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
@@ -317,10 +332,16 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 PagesEnglish = dto.PagesEnglish,
                 PagesSkippedLang = dto.PagesSkippedLang,
                 PagesSkippedEmpty = dto.PagesSkippedEmpty,
+                PagesSkippedUnusable = dto.PagesSkippedUnusable,
                 ChunksUpserted = dto.ChunksUpserted,
                 Error = dto.Error,
                 StartedAtUtc = dto.StartedAtUtc,
                 FinishedAtUtc = dto.FinishedAtUtc,
+                Attempt = dto.Attempt,
+                Trigger = dto.Trigger,
+                EmbeddingRateLimitRetries = dto.EmbeddingRateLimitRetries,
+                EmbeddingWaitSeconds = dto.EmbeddingWaitSeconds,
+                Accepted = dto.Accepted,
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -443,10 +464,16 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 PagesEnglish = dto.PagesEnglish,
                 PagesSkippedLang = dto.PagesSkippedLang,
                 PagesSkippedEmpty = dto.PagesSkippedEmpty,
+                PagesSkippedUnusable = dto.PagesSkippedUnusable,
                 ChunksUpserted = dto.ChunksUpserted,
                 Error = dto.Error,
                 StartedAtUtc = dto.StartedAtUtc,
                 FinishedAtUtc = dto.FinishedAtUtc,
+                Attempt = dto.Attempt,
+                Trigger = dto.Trigger,
+                EmbeddingRateLimitRetries = dto.EmbeddingRateLimitRetries,
+                EmbeddingWaitSeconds = dto.EmbeddingWaitSeconds,
+                Accepted = dto.Accepted,
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1072,6 +1099,20 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? RunId { get; set; }
     }
 
+    /// <summary>
+    /// Geek-Crawler-Rag's IndexStatusResponse, as returned by GET /v1/index/{runId} and POST
+    /// /v1/index. Bound by name, so a field absent here is discarded by System.Text.Json with no
+    /// error and no log.
+    ///
+    /// This type declared 12 of the 18 fields the RAG sends until 2026-09-29, omitting exactly the
+    /// five that GeekCrawlerRagWebhookController also omitted -- PagesSkippedUnusable, Attempt,
+    /// Trigger, EmbeddingRateLimitRetries, EmbeddingWaitSeconds. aa7f3ee fixed the webhook and left
+    /// this, so the UI's reconnect read still could not account for a corpus gutted by error pages
+    /// while both benign skip counts rendered as zero.
+    ///
+    /// Contract: contracts/rag-index-status/webhook.v1.json, enforced for the webhook hop by
+    /// GeekBackend.Tests/GeekCrawler/RagIndexStatusWebhookContractTests.
+    /// </summary>
     private sealed class IndexStatusDto
     {
         public string? RunId { get; set; }
@@ -1082,10 +1123,33 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public int PagesEnglish { get; set; }
         public int PagesSkippedLang { get; set; }
         public int PagesSkippedEmpty { get; set; }
+
+        /// <summary>
+        /// Pages the Library refused as not citable: a 4xx/5xx body, robots-denied, a non-English
+        /// locale path, or a recorded fetch failure. The one skip reason that indicts the crawl
+        /// rather than the content, and the one that was dropped.
+        /// </summary>
+        public int PagesSkippedUnusable { get; set; }
+
         public int ChunksUpserted { get; set; }
         public string? Error { get; set; }
         public DateTimeOffset? StartedAtUtc { get; set; }
         public DateTimeOffset? FinishedAtUtc { get; set; }
+        public int Attempt { get; set; }
+        public string? Trigger { get; set; }
+        public int EmbeddingRateLimitRetries { get; set; }
+        public double EmbeddingWaitSeconds { get; set; }
+
+        /// <summary>
+        /// POST /v1/index only: false when the claim was REFUSED because the row is already
+        /// pending/running with a live lease. Nullable because GET /v1/index/{runId} does not send
+        /// it, and false there would read as "refused" rather than "not applicable".
+        ///
+        /// The RAG added this field specifically so a refused claim could be told from a fresh one
+        /// -- a refusal returns HTTP 200 carrying the stale row. Nothing here bound it, so GeekAPI
+        /// could not tell, which is the defect the field exists to prevent.
+        /// </summary>
+        public bool? Accepted { get; set; }
     }
 
     private sealed class QueryResponseDto

@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using GeekAPI;
 using GeekAPI.Controllers.GeekCrawler;
 
 namespace GeekBackend.Tests.GeekCrawler;
@@ -27,6 +28,8 @@ namespace GeekBackend.Tests.GeekCrawler;
 /// </summary>
 public sealed class RagIndexStatusWebhookContractTests
 {
+    private static readonly JsonSerializerOptions Policy = GeekApiJsonOptions.ForBinding();
+
     private static JsonElement Contract()
     {
         var path = FindContract();
@@ -40,12 +43,21 @@ public sealed class RagIndexStatusWebhookContractTests
     /// </summary>
     private static string FindContract()
     {
+        // Stops at the repository root. An unbounded walk would keep climbing past this repo,
+        // and the two copies of this file are meant to be able to differ -- that difference is
+        // what the cross-repo diff job checks -- so reading the wrong repo's copy would conflate
+        // the two artifacts the job exists to keep distinct.
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
         {
             var candidate = Path.Combine(
                 dir.FullName, "contracts", "rag-index-status", "webhook.v1.json");
             if (File.Exists(candidate)) return candidate;
+
+            var isRepoRoot = Directory.Exists(Path.Combine(dir.FullName, ".git"))
+                || dir.GetFiles("*.sln").Length > 0;
+            if (isRepoRoot) break;
+
             dir = dir.Parent;
         }
 
@@ -60,7 +72,10 @@ public sealed class RagIndexStatusWebhookContractTests
         typeof(RagIndexStatusWebhookRequest)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanWrite)
-            .Select(p => JsonNamingPolicy.CamelCase.ConvertName(p.Name))
+            // Read off the app's configured policy rather than assuming CamelCase, so changing
+            // it in one place cannot leave this test asserting the old names.
+            .Select(p => (Policy.PropertyNamingPolicy ?? JsonNamingPolicy.CamelCase)
+                .ConvertName(p.Name))
             .ToHashSet(StringComparer.Ordinal);
 
     private static HashSet<string> ContractFieldNames() =>
@@ -132,8 +147,12 @@ public sealed class RagIndexStatusWebhookContractTests
         }
         """;
 
+        // The app's options, not a copy of them. The previous copy set
+        // PropertyNameCaseInsensitive with no naming policy, so it matched runId, RunId and RUNID
+        // alike -- it could not detect a casing disagreement, which is the one mismatch class a
+        // name-bound contract exists to catch.
         var parsed = JsonSerializer.Deserialize<RagIndexStatusWebhookRequest>(
-            body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            body, GeekApiJsonOptions.ForBinding());
 
         Assert.NotNull(parsed);
         Assert.Equal(460, parsed!.PagesSkippedUnusable);

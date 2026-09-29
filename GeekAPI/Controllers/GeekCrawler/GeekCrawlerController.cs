@@ -187,10 +187,21 @@ public class GeekCrawlerController : ControllerBase
             pagesEnglish = status.PagesEnglish,
             pagesSkippedLang = status.PagesSkippedLang,
             pagesSkippedEmpty = status.PagesSkippedEmpty,
+            // The reconnect read has to agree with the SignalR frame, field for field. This
+            // projection is hand-written and so is the one in GeekCrawlerRagWebhookController, and
+            // until 2026-09-29 they disagreed: the webhook pushed pagesSkippedUnusable while this
+            // omitted it, so a page reload silently dropped the only number that distinguishes a
+            // small site from a crawl gutted by 4xx error bodies -- while both benign skip counts
+            // rendered as zero and accounted for nothing.
+            pagesSkippedUnusable = status.PagesSkippedUnusable,
             chunksUpserted = status.ChunksUpserted,
             error = status.Error,
             startedAtUtc = status.StartedAtUtc,
             finishedAtUtc = status.FinishedAtUtc,
+            attempt = status.Attempt,
+            trigger = status.Trigger,
+            embeddingRateLimitRetries = status.EmbeddingRateLimitRetries,
+            embeddingWaitSeconds = status.EmbeddingWaitSeconds,
         });
     }
 

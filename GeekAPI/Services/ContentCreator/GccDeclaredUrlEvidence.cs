@@ -88,8 +88,19 @@ public static class GccDeclaredUrlEvidence
         var chunks = run.RagChunksUpserted ?? 0;
         if (pages < MinIndexedPages || chunks < MinIndexedChunks)
         {
+            // The reject count is added to the MESSAGE, deliberately not to the decision. It
+            // answers the operator's next question -- why is the count this low -- and a crawl that
+            // threw away 460 error pages reads very differently from one that simply found 40.
+            // Making it a gate would change which runs are usable, which is a policy call and not
+            // this change; the threshold above is untouched.
+            var rejected = run.RagPagesSkippedUnusable ?? 0;
+            var because = rejected > 0
+                ? $" ({rejected} page(s) were rejected as not citable -- error pages, robots-denied, "
+                    + "or non-English locale paths)"
+                : "";
             return $"its crawl indexed {pages} page(s) and {chunks} chunk(s), below the "
-                + $"{MinIndexedPages} pages and {MinIndexedChunks} chunks a page can be written from";
+                + $"{MinIndexedPages} pages and {MinIndexedChunks} chunks a page can be written from"
+                + because;
         }
 
         return null;
