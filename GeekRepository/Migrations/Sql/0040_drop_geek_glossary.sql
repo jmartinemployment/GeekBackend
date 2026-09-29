@@ -1,0 +1,33 @@
+-- 0040: drop the Postgres glossary.
+--
+-- Jeff, 2026-09-29: "NO GLOSSARY DATA IS TO BE QUERIES, PUT, POSTED OR GET FROM POSTGRES",
+-- then "DROP AND DELETE POSTGRES GLOSSARY".
+--
+-- 48c9f0d removed every code path that could reach this schema -- both controllers,
+-- HttpGlossaryRepository, IGlossaryRepository, the DTOs, GlossaryRepository's Dapper SQL, the
+-- public-read middleware exemption, both DI registrations, and the 0034-0039 scripts that
+-- created and seeded it. That left the tables in place with nothing able to read them. This
+-- removes the tables and the rows.
+--
+-- The glossary's source of record is geekatyourspot/src/data/glossary/terms.ts, a file in the
+-- site repo. Its own src/lib/glossary.ts states why: "Editing a term is a code change and a
+-- deploy, not a database update." Nothing is lost here that is not held there.
+--
+-- CASCADE: term_definitions carries a foreign key to terms, and both carry indexes, so the
+-- schema cannot be dropped a table at a time in one statement. CASCADE drops what the schema
+-- contains and nothing outside it -- no other schema references geek_glossary.
+--
+-- IF EXISTS: 0034 created this schema and 0034 is deleted, so a database built from the current
+-- scripts never has it. This must be a no-op there rather than an error that halts startup --
+-- SqlMigrationRunner calls StopApplication() on a failed script.
+--
+-- citext stays. 0034 created the extension, but so do 0015 and 0022, and blog tables use it.
+
+DROP SCHEMA IF EXISTS geek_glossary CASCADE;
+
+-- Deliberately NOT deleting the 0034-0039 rows from schema_migrations, even though their files
+-- are gone. Those rows are now a guard: SqlMigrationRunner enumerates the .sql files on disk and
+-- skips any name already recorded, so if one of those six files were ever restored from git it
+-- would be skipped rather than recreating and reseeding the schema this script just dropped.
+-- Removing the rows would remove that protection, and they are database bookkeeping rather than
+-- anything a developer reads or greps.

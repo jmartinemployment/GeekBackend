@@ -60,8 +60,8 @@ public sealed record CodeParagraph(string Code, string? Language = null) : Parag
 /// <summary>One <c>term</c>/<c>definition</c> pair from a corpus definition list.</summary>
 public sealed record DefinitionItem(IReadOnlyList<Run> Term, IReadOnlyList<Run> Definition);
 
-/// <summary>Corpus <c>term</c> + <c>definition</c>, kept paired so a glossary survives retrieval
-/// as a glossary rather than collapsing into prose.</summary>
+/// <summary>Corpus <c>term</c> + <c>definition</c>, kept paired so a definition list survives
+/// retrieval as a definition list rather than collapsing into prose.</summary>
 public sealed record DefinitionParagraph(IReadOnlyList<DefinitionItem> Items) : Paragraph;
 
 public sealed record Section(

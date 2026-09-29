@@ -10,7 +10,7 @@ namespace GeekAPI.Services.ContentCreator;
 /// <para>This is the join the pipeline was missing. The crawler emits typed blocks
 /// (<c>Geek-Crawler-v2/src/crawl/extract-content.ts:418-425</c>) and RAG retrieval flattens them to
 /// a plaintext projection that discards every tag, href and heading marker by design. So a
-/// retrieved glossary arrived as prose and a retrieved code sample as a paragraph. Reading the
+/// retrieved definition list arrived as prose and a retrieved code sample as a paragraph. Reading the
 /// blocks directly keeps the boundary in the data, which is the same fix the crawler applied when
 /// it dropped Readability.</para>
 /// <c>SectionHtmlRenderer</c>.</para>
