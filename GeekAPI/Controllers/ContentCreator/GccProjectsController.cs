@@ -67,11 +67,30 @@ public class GccProjectsController : ControllerBase
     /// </para>
     /// </remarks>
     private async Task<ActionResult?> RefuseUncrawledUrlsAsync(
+        string? siteUrl,
+        Guid? projectSiteRunId,
         IReadOnlyList<string>? partnerUrls,
         IReadOnlyList<string>? competitorUrls,
         CancellationToken ct)
     {
-        var declared = (partnerUrls ?? [])
+        // The project site is a declared URL like any other and is checked by the same rule. It was
+        // gated in the form only -- canSubmit required a run id the index had returned -- while this
+        // route accepted a project with no site URL, no run id, or a site with no crawl behind it.
+        // A boundary only the form enforces is not a boundary, and this one had the added twist of
+        // asking a different question (has a run id) than the same check asked of partners and
+        // competitors (is indexed).
+        if (string.IsNullOrWhiteSpace(siteUrl))
+            return BadRequest("siteUrl is required — a project with no site has nothing to ground on.");
+
+        if (projectSiteRunId is not { } runId || runId == Guid.Empty)
+        {
+            return BadRequest(
+                "projectSiteRunId is required. It is the crawl this project's content is grounded "
+                + "on, and the index returns it alongside the answer about the site URL.");
+        }
+
+        var declared = new[] { siteUrl }
+            .Concat(partnerUrls ?? [])
             .Concat(competitorUrls ?? [])
             .Where(u => !string.IsNullOrWhiteSpace(u))
             .Select(u => u.Trim())
@@ -142,7 +161,9 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
-        if (await RefuseUncrawledUrlsAsync(request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
+        if (await RefuseUncrawledUrlsAsync(
+                request.SiteUrl, request.ProjectSiteRunId,
+                request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
             return refusal;
 
         var result = await _repo.CreateProjectAsync(
@@ -189,7 +210,9 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
-        if (await RefuseUncrawledUrlsAsync(request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
+        if (await RefuseUncrawledUrlsAsync(
+                request.SiteUrl, request.ProjectSiteRunId,
+                request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
             return refusal;
 
         var project = await _repo.UpdateProjectAsync(

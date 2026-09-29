@@ -31,8 +31,11 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccProjectsControllerIndexGateTests
 {
+    private const string Site = "https://acme.test";
     private const string Partner = "https://partner.test";
     private const string Competitor = "https://rival.test";
+
+    private static readonly Guid SiteRun = Guid.NewGuid();
 
     private static GeekCrawlerRagHostIndex Indexed(string url) =>
         new(url, new Uri(url).Host, true, Guid.NewGuid().ToString());
@@ -105,6 +108,8 @@ public class GccProjectsControllerIndexGateTests
             IdempotencyKey: Guid.NewGuid(),
             Name: "Q4 programme",
             StartDate: new DateOnly(2026, 10, 1),
+            SiteUrl: Site,
+            ProjectSiteRunId: SiteRun,
             PartnerUrls: partners,
             CompetitorUrls: competitors);
 
@@ -113,6 +118,8 @@ public class GccProjectsControllerIndexGateTests
         new(
             Name: "Q4 programme",
             StartDate: new DateOnly(2026, 10, 1),
+            SiteUrl: Site,
+            ProjectSiteRunId: SiteRun,
             PartnerUrls: partners,
             CompetitorUrls: competitors);
 
@@ -129,7 +136,7 @@ public class GccProjectsControllerIndexGateTests
     [Fact]
     public async Task AnUnindexedCompetitorUrlIsRefusedAndNothingIsWritten()
     {
-        var (controller, repo) = Build(Indexed(Partner), NotIndexed(Competitor));
+        var (controller, repo) = Build(Indexed(Site), Indexed(Partner), NotIndexed(Competitor));
 
         var result = await controller.Create(CreateRequest([Partner], [Competitor]), CancellationToken.None);
 
@@ -144,7 +151,7 @@ public class GccProjectsControllerIndexGateTests
     {
         // Partner and competitor are one rule. A second implementation for competitors is how the
         // two came to differ everywhere else in this pipeline.
-        var (controller, repo) = Build(NotIndexed(Partner), Indexed(Competitor));
+        var (controller, repo) = Build(Indexed(Site), NotIndexed(Partner), Indexed(Competitor));
 
         var result = await controller.Create(CreateRequest([Partner], [Competitor]), CancellationToken.None);
 
@@ -156,7 +163,7 @@ public class GccProjectsControllerIndexGateTests
     [Fact]
     public async Task EveryUrlIndexedReachesTheRepository()
     {
-        var (controller, repo) = Build(Indexed(Partner), Indexed(Competitor));
+        var (controller, repo) = Build(Indexed(Site), Indexed(Partner), Indexed(Competitor));
 
         await controller.Create(CreateRequest([Partner], [Competitor]), CancellationToken.None);
 
@@ -164,14 +171,54 @@ public class GccProjectsControllerIndexGateTests
     }
 
     [Fact]
-    public async Task EmptyListsBlockNothingAndAskNothing()
+    public async Task EmptyPartnerAndCompetitorListsStillRequireTheSite()
     {
-        // "an empty list blocks nothing" -- and a call worth not making is not made.
-        var (controller, repo) = Build();
+        // The site is not optional: a project with no crawled site has nothing to ground on, and it
+        // is checked by the same rule as the other two rather than a second one of its own.
+        var (controller, repo) = Build(Indexed(Site));
 
         await controller.Create(CreateRequest([], []), CancellationToken.None);
 
         Assert.Equal(1, repo.Calls);
+    }
+
+    [Fact]
+    public async Task AnUnindexedSiteUrlIsRefusedLikeAnyOtherDeclaredUrl()
+    {
+        var (controller, repo) = Build(NotIndexed(Site), Indexed(Partner));
+
+        var result = await controller.Create(CreateRequest([Partner], []), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains(Site, BodyOf(result), StringComparison.Ordinal);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task NoSiteUrlAtAllIsRefused()
+    {
+        // The form has always blocked this. The API accepted it, and the project then refused at
+        // generate time with "has no project-site crawl run" -- a failure the operator could do
+        // nothing about by then.
+        var (controller, repo) = Build(Indexed(Site));
+
+        var result = await controller.Create(
+            CreateRequest([], []) with { SiteUrl = null }, CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task NoProjectSiteRunIdIsRefused()
+    {
+        var (controller, repo) = Build(Indexed(Site));
+
+        var result = await controller.Create(
+            CreateRequest([], []) with { ProjectSiteRunId = null }, CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Equal(0, repo.Calls);
     }
 
     [Fact]
@@ -193,7 +240,7 @@ public class GccProjectsControllerIndexGateTests
     {
         // The route a form gate cannot cover: updateProject has no call site in the UI, so PUT is
         // reachable only by direct API call.
-        var (controller, repo) = Build(NotIndexed(Competitor));
+        var (controller, repo) = Build(Indexed(Site), NotIndexed(Competitor));
 
         var result = await controller.Update(
             Guid.NewGuid(), UpdateRequest([], [Competitor]), CancellationToken.None);
@@ -206,7 +253,7 @@ public class GccProjectsControllerIndexGateTests
     [Fact]
     public async Task UpdateWithEveryUrlIndexedReachesTheRepository()
     {
-        var (controller, repo) = Build(Indexed(Partner), Indexed(Competitor));
+        var (controller, repo) = Build(Indexed(Site), Indexed(Partner), Indexed(Competitor));
 
         await controller.Update(
             Guid.NewGuid(), UpdateRequest([Partner], [Competitor]), CancellationToken.None);
