@@ -156,6 +156,73 @@ public class GccGenerateServiceToolPageGroundingTests
                     RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
             ]));
 
+    private const string RivalText = "We run accounts payable projects end to end.";
+    private const string OwnSiteText = "We published our AP automation guide last quarter.";
+    private const string RivalUrl = "https://rival.test/services";
+
+    /// <summary>The same partner page, plus the two lists retrieval now also fills.</summary>
+    private static string ResearchJsonWithAllThreeCrawlTypes() =>
+        GccResearchFetchService.Serialize(new GccResearchDocument(
+            SerpIndex: null,
+            Quoteables:
+            [
+                new GccQuoteablePage(
+                    "https://partner.test/widget", "Partner Widget",
+                    [new HeadingDto(2, "Pricing")],
+                    ["Partner Widget starts at $19 per month, billed monthly."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ],
+            CompetitorQuoteables:
+            [
+                new GccQuoteablePage(
+                    RivalUrl, "Rival services", [new HeadingDto(2, "What we do")], [RivalText],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ],
+            SiteQuoteables:
+            [
+                new GccQuoteablePage(
+                    "https://acme.test/ap-guide", "Our AP guide",
+                    [new HeadingDto(2, "How AP automation works")], [OwnSiteText],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ]));
+
+    [Fact]
+    public async Task CompetitorAndOwnSiteEvidenceReachTheToolBodyPrompt()
+    {
+        // The tool page had no competitor evidence at all, while one of its six sections is "how a
+        // buyer should judge this product -- fit, pricing, and the adjacent approaches they are
+        // also weighing". Asserted on the rendered prompt, because a populated list is not proof
+        // the writer was shown anything.
+        var provider = new ScriptedProvider();
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+                "Slack", "Notifications", "API", "Slack integration")],
+        };
+        var service = Build(
+            provider, GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction));
+
+        await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithAllThreeCrawlTypes()));
+
+        var bodyPrompts = provider.Requests
+            .Where(r => r.JsonSchemaName == "sections")
+            .Select(r => string.Join("\n", r.Messages.Select(m => m.Content)))
+            .ToList();
+
+        Assert.NotEmpty(bodyPrompts);
+        Assert.All(bodyPrompts, p => Assert.Contains(RivalText, p, StringComparison.Ordinal));
+        Assert.All(bodyPrompts, p => Assert.Contains(OwnSiteText, p, StringComparison.Ordinal));
+        // A URL in the prompt is a URL that can end up on the page.
+        Assert.All(bodyPrompts, p => Assert.DoesNotContain(RivalUrl, p, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task WithNoCreateContextTheLegacyUngroundedPathStillWorks()
     {
