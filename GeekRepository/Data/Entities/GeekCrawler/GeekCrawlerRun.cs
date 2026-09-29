@@ -31,5 +31,16 @@ public class GeekCrawlerRun
     public string? RagState { get; set; }
     public int? RagChunksUpserted { get; set; }
     public int? RagPagesEnglish { get; set; }
+
+    /**
+     * Pages the Library refused as not citable. Persisted, not only pushed over SignalR,
+     * because the SignalR frame is live-only: nobody watching at the time means the number is
+     * gone, and it is the number that explains why a run's corpus is smaller than its page
+     * count. GccDeclaredUrlEvidence reads RagPagesEnglish to decide whether evidence landed
+     * and has no way to tell "40 pages, the site is small" from "40 pages, 460 were error
+     * pages" without it.
+     */
+    public int? RagPagesSkippedUnusable { get; set; }
+
     public DateTimeOffset? RagIndexedAtUtc { get; set; }
 }

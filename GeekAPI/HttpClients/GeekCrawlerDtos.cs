@@ -19,7 +19,12 @@ public record GeekCrawlerRunDto(
     string? RagState = null,
     int? RagChunksUpserted = null,
     int? RagPagesEnglish = null,
-    DateTimeOffset? RagIndexedAtUtc = null);
+    DateTimeOffset? RagIndexedAtUtc = null,
+    // Appended, not inserted beside RagPagesEnglish where it belongs by meaning: this record has
+    // positional callers, and inserting shifted every argument after it -- binding a
+    // DateTimeOffset? to an int? one position along. Production never constructs this record, it
+    // deserializes it by name, so position carries no meaning on the wire.
+    int? RagPagesSkippedUnusable = null);
 
 public record CreateGeekCrawlerRunCommand(
     string OwnerUserId,
@@ -41,6 +46,7 @@ public record PatchRagIndexStatusCommand(
     string? RagState,
     int? RagChunksUpserted,
     int? RagPagesEnglish,
+    int? RagPagesSkippedUnusable,
     DateTimeOffset? RagIndexedAtUtc);
 
 public record GeekCrawlerPageDto(

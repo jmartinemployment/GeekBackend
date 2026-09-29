@@ -41,20 +41,47 @@ public sealed class MongoGeekCrawlerRagIndexStatusTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Sets_all_four_fields_and_they_round_trip_through_GetRunByIdAsync()
+    public async Task Sets_all_five_fields_and_they_round_trip_through_GetRunByIdAsync()
     {
         var mongo = CreateMongo();
         var run = await SeedRunAsync(mongo);
         var finishedAt = DateTimeOffset.UtcNow;
 
-        await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 214, 46, finishedAt);
+        await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 214, 46, 460, finishedAt);
 
         var reloaded = await mongo.GetRunByIdAsync(run.Id);
         Assert.NotNull(reloaded);
         Assert.Equal("complete", reloaded!.RagState);
         Assert.Equal(214, reloaded.RagChunksUpserted);
         Assert.Equal(46, reloaded.RagPagesEnglish);
+        Assert.Equal(460, reloaded.RagPagesSkippedUnusable);
         Assert.Equal(finishedAt, reloaded.RagIndexedAtUtc);
+    }
+
+    /// <summary>
+    /// 46 English pages out of 506 is either a small site or a gutted crawl, and until
+    /// 2026-09-29 nothing persisted told them apart: the RAG sent pagesSkippedUnusable on every
+    /// webhook, GeekAPI's DTO did not bind it, and the SignalR frame that carried its two benign
+    /// siblings -- skippedLang, skippedEmpty, both 0 here -- was live-only anyway.
+    /// </summary>
+    [Fact]
+    public async Task The_unusable_count_distinguishes_a_small_site_from_a_gutted_crawl()
+    {
+        var mongo = CreateMongo();
+        var small = await SeedRunAsync(mongo);
+        var gutted = await SeedRunAsync(mongo);
+
+        await mongo.UpdateRagIndexStatusAsync(small.Id, "complete", 214, 46, 0, DateTimeOffset.UtcNow);
+        await mongo.UpdateRagIndexStatusAsync(gutted.Id, "complete", 214, 46, 460, DateTimeOffset.UtcNow);
+
+        var a = await mongo.GetRunByIdAsync(small.Id);
+        var b = await mongo.GetRunByIdAsync(gutted.Id);
+
+        // Identical on every other Rag field. Only the new one separates them.
+        Assert.Equal(a!.RagPagesEnglish, b!.RagPagesEnglish);
+        Assert.Equal(a.RagChunksUpserted, b.RagChunksUpserted);
+        Assert.Equal(0, a.RagPagesSkippedUnusable);
+        Assert.Equal(460, b.RagPagesSkippedUnusable);
     }
 
     [Fact]
@@ -69,6 +96,7 @@ public sealed class MongoGeekCrawlerRagIndexStatusTests : IAsyncLifetime
         Assert.Null(reloaded!.RagState);
         Assert.Null(reloaded.RagChunksUpserted);
         Assert.Null(reloaded.RagPagesEnglish);
+        Assert.Null(reloaded.RagPagesSkippedUnusable);
         Assert.Null(reloaded.RagIndexedAtUtc);
     }
 
@@ -83,7 +111,7 @@ public sealed class MongoGeekCrawlerRagIndexStatusTests : IAsyncLifetime
         // in-memory copy was captured first; UpdateRagIndexStatusAsync's $set must not.
         await mongo.UpdateRunAsync(run.Id, r => r.HostProgressJson = "{\"pagesSaved\":12}");
 
-        await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 30, 12, DateTimeOffset.UtcNow);
+        await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 30, 12, 3, DateTimeOffset.UtcNow);
 
         var reloaded = await mongo.GetRunByIdAsync(run.Id);
         Assert.NotNull(reloaded);
@@ -97,7 +125,7 @@ public sealed class MongoGeekCrawlerRagIndexStatusTests : IAsyncLifetime
         var mongo = CreateMongo();
         var run = await SeedRunAsync(mongo);
 
-        await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 30, 12, DateTimeOffset.UtcNow);
+        await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 30, 12, 3, DateTimeOffset.UtcNow);
         await mongo.UpdateRunAsync(run.Id, r => r.Status = "complete");
 
         var reloaded = await mongo.GetRunByIdAsync(run.Id);

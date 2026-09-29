@@ -53,6 +53,7 @@ public sealed class GeekCrawlerRagWebhookController : ControllerBase
                         RagState: body.State,
                         RagChunksUpserted: body.ChunksUpserted,
                         RagPagesEnglish: body.PagesEnglish,
+                        RagPagesSkippedUnusable: body.PagesSkippedUnusable,
                         RagIndexedAtUtc: body.FinishedAtUtc),
                     ct).ConfigureAwait(false);
             }
@@ -73,10 +74,15 @@ public sealed class GeekCrawlerRagWebhookController : ControllerBase
             pagesEnglish = body.PagesEnglish,
             pagesSkippedLang = body.PagesSkippedLang,
             pagesSkippedEmpty = body.PagesSkippedEmpty,
+            pagesSkippedUnusable = body.PagesSkippedUnusable,
             chunksUpserted = body.ChunksUpserted,
             error = body.Error,
             startedAtUtc = body.StartedAtUtc,
             finishedAtUtc = body.FinishedAtUtc,
+            attempt = body.Attempt,
+            trigger = body.Trigger,
+            embeddingRateLimitRetries = body.EmbeddingRateLimitRetries,
+            embeddingWaitSeconds = body.EmbeddingWaitSeconds,
         };
 
         try
@@ -103,9 +109,36 @@ public sealed class RagIndexStatusWebhookRequest
     public int PagesEnglish { get; set; }
     public int PagesSkippedLang { get; set; }
     public int PagesSkippedEmpty { get; set; }
+
+    /// <summary>
+    /// Pages the Library refused as not citable: a 4xx/5xx body, robots-denied, a non-English
+    /// locale path, or a recorded fetch failure. Sent since the reject gate shipped and bound
+    /// here since 2026-09-29 -- before that GeekAPI dropped it on the floor while binding both
+    /// benign siblings, so a run whose corpus was gutted by error pages was indistinguishable
+    /// from one that indexed cleanly: pagesSeen 500 / pagesEnglish 40 with skippedLang and
+    /// skippedEmpty both 0, and no field anywhere accounting for the other 460.
+    /// </summary>
+    public int PagesSkippedUnusable { get; set; }
+
     public int ChunksUpserted { get; set; }
     public string? Error { get; set; }
     public DateTimeOffset? StartedAtUtc { get; set; }
     public DateTimeOffset? FinishedAtUtc { get; set; }
+
+    /// <summary>
+    /// Job-level attempt number. Bound so it can be logged and surfaced, NOT used by the
+    /// out-of-order guard below, which still keys on FinishedAtUtc alone -- see the comment
+    /// there. Binding it does not change that decision.
+    /// </summary>
+    public int Attempt { get; set; }
+
+    /// <summary>What started the run: the scheduler, or a manual trigger.</summary>
+    public string? Trigger { get; set; }
+
+    /// <summary>Embedding throttle telemetry, for cost and headroom questions.</summary>
+    public int EmbeddingRateLimitRetries { get; set; }
+
+    public double EmbeddingWaitSeconds { get; set; }
+
     public string? EventType { get; set; }
 }

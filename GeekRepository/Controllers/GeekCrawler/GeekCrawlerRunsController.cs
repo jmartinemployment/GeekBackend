@@ -210,6 +210,7 @@ public class GeekCrawlerRunsController : ControllerBase
             command.RagState,
             command.RagChunksUpserted,
             command.RagPagesEnglish,
+            command.RagPagesSkippedUnusable,
             command.RagIndexedAtUtc,
             ct);
         return NoContent();
@@ -285,5 +286,6 @@ public class GeekCrawlerRunsController : ControllerBase
         string? RagState,
         int? RagChunksUpserted,
         int? RagPagesEnglish,
+        int? RagPagesSkippedUnusable,
         DateTimeOffset? RagIndexedAtUtc);
 }

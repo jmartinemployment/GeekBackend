@@ -388,7 +388,8 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
                 r.RagState,
                 r.RagChunksUpserted,
                 r.RagPagesEnglish,
-                r.RagIndexedAtUtc);
+                r.RagIndexedAtUtc,
+                r.RagPagesSkippedUnusable);
 
         private static GeekCrawlerPageDto ToDto(GeekCrawlerPage p) =>
             new(

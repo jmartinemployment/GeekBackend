@@ -97,7 +97,7 @@ public interface IMongoGeekCrawlerService
     Task UpdateRunAsync(Guid id, Action<GeekCrawlerRun> updateAction, CancellationToken ct = default);
 
     /// <summary>
-    /// Atomic $set of the four Rag* fields only -- never routes through UpdateRunAsync's
+    /// Atomic $set of the five Rag* fields only -- never routes through UpdateRunAsync's
     /// find-then-ReplaceOneAsync, which would clobber a concurrent crawl-progress write on the
     /// same document with a stale in-memory copy.
     /// </summary>
@@ -106,6 +106,7 @@ public interface IMongoGeekCrawlerService
         string? ragState,
         int? ragChunksUpserted,
         int? ragPagesEnglish,
+        int? ragPagesSkippedUnusable,
         DateTimeOffset? ragIndexedAtUtc,
         CancellationToken ct = default);
 
@@ -157,10 +158,22 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
     //
     // This is a legacy encoding to be removed, not a design. It has a cost outside C#: the Python
     // Library reads these collections directly, so StatusCode arrives as "404" and RobotsAllowed as
-    // "f", and mongo.py's `isinstance(status, int)` / `isinstance(robots, bool)` both yield None.
-    // Two page-rejection gates are therefore dead, and cleanup_unusable_pages.py's
-    // {"StatusCode": {"$gte": 400}} matches nothing -- a numeric query never compares against a
-    // string. Measured 2026-09-29: 4,144 of 4,144 crawl_pages rows hold StatusCode as a string.
+    // "f". Measured 2026-09-29: 4,144 of 4,144 crawl_pages rows hold StatusCode as a string, and
+    // all 4,144 hold RobotsAllowed as "t".
+    //
+    // That cost was paid once. Because Mongo brackets comparisons by BSON type, a numeric query
+    // never compares against a string: mongo.py's `isinstance(status, int)` /
+    // `isinstance(robots, bool)` were False for every real value, so two page-rejection gates were
+    // inert and cleanup_unusable_pages.py's {"StatusCode": {"$gte": 400}} matched nothing while
+    // reporting that indistinguishably from "there were none". A 404's body was chunked, embedded
+    // and quotable under a URL the server said it did not serve.
+    //
+    // Fixed on the reading side, 2026-09-29, and recorded here in the past tense on purpose -- a
+    // comment asserting a live defect is read as evidence the defect is live, which is how this
+    // file misled a reader once already. Geek-Crawler-Rag now coerces at the read boundary
+    // (mongo.py `_as_int` / `_as_bool`, which exclude bool from int because bool subclasses it) and
+    // its cleanup script matches by $convert and by string set. Both accept the native shape too,
+    // so removing this encoding will not invert the fix.
     //
     // The crawl store is Mongo end to end, enforced by
     // GeekBackend.Tests/PostgresIsOAuthOnlyTests. This string encoding is a legacy artefact of how
@@ -912,6 +925,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         string? ragState,
         int? ragChunksUpserted,
         int? ragPagesEnglish,
+        int? ragPagesSkippedUnusable,
         DateTimeOffset? ragIndexedAtUtc,
         CancellationToken ct = default)
     {
@@ -924,6 +938,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                 .Set(r => r.RagState, ragState)
                 .Set(r => r.RagChunksUpserted, ragChunksUpserted)
                 .Set(r => r.RagPagesEnglish, ragPagesEnglish)
+                .Set(r => r.RagPagesSkippedUnusable, ragPagesSkippedUnusable)
                 .Set(r => r.RagIndexedAtUtc, ragIndexedAtUtc);
             await collection.UpdateOneAsync(r => r.Id == runId, update, cancellationToken: ct);
         }
