@@ -167,10 +167,11 @@ public class GccPartnerUrlResearchTests
                 $"<p>Partner paragraph number {i} with enough characters to pass the length filter for extraction.</p>"));
         var html = $"<html><head><title>Big Partner Page</title></head><body><h1>Big Partner Page</h1>{paragraphs}</body></html>";
 
-        var upload = GccArticleHtmlExtractor.Extract("https://example.com/u", html);
         var partner = GccArticleHtmlExtractor.ExtractPartnerPage("https://example.com/p", html);
 
-        Assert.True(partner.Paragraphs.Count > upload.Paragraphs.Count);
+        // Against the cap itself, not against a capped sibling extract. The sibling was
+        // Extract(url, html), deleted 2026-09-29 with the upload path that called it; comparing to
+        // the constant states the property directly and needs no second overload to exist.
         Assert.True(partner.Paragraphs.Count > GccResearchCaps.MaxParagraphsPerPage);
         Assert.False(GccArticleHtmlExtractor.IsEmpty(partner));
     }

@@ -204,24 +204,20 @@ public class GccController : ControllerBase
         using (var reader = new StreamReader(file.OpenReadStream()))
             content = await reader.ReadToEndAsync(ct);
 
-        // PeopleAlsoAsk: parse questions and return for weeding — the operator curates which
-        // seed the brief (client persists selected into brief.paaQuestions). Not auto-dumped.
-        if (string.Equals(cat, "PeopleAlsoAsk", StringComparison.OrdinalIgnoreCase))
-        {
-            var questions = content
-                .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .Select(l => l.TrimStart('-', '*', '•', ' ').Trim())
-                .Where(l => l.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            return Ok(new { category = cat, fileName = file.FileName, questions });
-        }
-
         var sourceId = Guid.NewGuid().ToString("N");
         var existing = GccResearchFetchService.Deserialize(create.ResearchJson)
             ?? new GccResearchDocument(null, []);
 
-        if (string.Equals(cat, "KeywordResult", StringComparison.OrdinalIgnoreCase))
+        // One path, no dispatch. A saved Google SERP is the only upload this endpoint takes:
+        // PeopleAlsoAsk and the Wiki/.edu/.gov article path were removed on 2026-09-29 because the
+        // UI no longer offers either (Jeff), and both left worse than dead code behind them. The
+        // article path was the only producer of a quoteable with a non-http URL, which is what made
+        // BuildResearchBlock label evidence by origin -- and that condition mislabelled every
+        // partner page fetched by GccPartnerUrlResearchService as "operator-supplied", telling the
+        // model its real evidence was untrusted prose. Only the standalone PeopleAlsoAsk *upload
+        // category* went: SERP ingest still parses People-Also-Ask out of the saved SERP and the
+        // panel still persists the operator's selection into brief.paaQuestions, so the
+        // `paa:<question>` licensing channel and the FAQ section it gates are both live.
         {
             // Saved Google SERP page → GccSavedSerpParser. Never hard-fails: even a zero-organic
             // parse is persisted with its ParseWarning, so a partial save isn't lost.
@@ -251,33 +247,6 @@ public class GccController : ControllerBase
             }
         }
 
-        // Wiki/.edu/.gov: unchanged article path → quoteable (unlimited; no cap).
-        var page = GccArticleHtmlExtractor.Extract($"upload://{sourceId}/{file.FileName}", content);
-        if (GccArticleHtmlExtractor.IsEmpty(page))
-            return BadRequest(
-                "No article headings or paragraphs found. This upload expects saved article HTML (Wikipedia / .edu / .gov) with h1–h6 and <p> text.");
-
-        var quoteables = existing.Quoteables.ToList();
-        quoteables.Add(page);
-        var sources = (existing.Sources ?? []).ToList();
-        var src = new GccKeywordSource(
-            sourceId, file.FileName, cat, page.Headings.Count, page.Paragraphs.Count, 0);
-        sources.Add(src);
-
-        var json = GccResearchFetchService.Serialize(
-            existing with { Quoteables = quoteables, Sources = sources });
-        try
-        {
-            await _repo.UpdateBriefResearchAsync(
-                id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json), ct);
-            return Ok(new GccKeywordSourceDetail(
-                src.Id, src.FileName, src.Category, src.HeadingCount, src.ParagraphCount, src.QuestionCount, null));
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Persist uploaded keyword source failed");
-            return StatusCode(502, "Failed to persist uploaded research");
-        }
     }
 
     [HttpGet("creates/{id:guid}/keyword-sources")]
@@ -305,14 +274,15 @@ public class GccController : ControllerBase
         var doc = GccResearchFetchService.Deserialize(create.ResearchJson);
         if (doc is null) return NoContent();
 
-        var prefix = $"upload://{sourceId}/";
-        var quoteables = doc.Quoteables
-            .Where(q => !q.Url.StartsWith(prefix, StringComparison.Ordinal))
-            .ToList();
+        // Only the SERP page and its source row. Quoteables are not filtered here any more: this
+        // matched them on an uploaded-file URL prefix, and the path that produced such a URL was
+        // deleted 2026-09-29 along with the UI control that fed it. Quoteables now come from the
+        // crawl index and from fetched partner pages, neither of which this endpoint owns -- a
+        // retrieved passage is removed by re-grounding the create, not by deleting an upload.
         var serpPages = (doc.SerpPages ?? []).Where(p => p.Id != sourceId).ToList();
         var sources = (doc.Sources ?? []).Where(s => s.Id != sourceId).ToList();
         var json = GccResearchFetchService.Serialize(
-            doc with { Quoteables = quoteables, SerpPages = serpPages, Sources = sources });
+            doc with { SerpPages = serpPages, Sources = sources });
         await _repo.UpdateBriefResearchAsync(
             id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json), ct);
         return NoContent();
