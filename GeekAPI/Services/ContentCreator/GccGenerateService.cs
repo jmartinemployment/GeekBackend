@@ -2687,7 +2687,18 @@ public class GccGenerateService
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
             Keywords: [create.Topic.Trim()],
             SectionOutline: [.. pillarType.OutlineFor(outlineCtx).Select(sl => sl.Label)]);
-        var pillarPromptCtx = outlineCtx with { Metadata = metadata };
+        // The opening gets the retrieved evidence too. It did not until 2026-09-29: evidenceBlock
+        // was built here and handed only to the body, so the lede and introduction -- the most-read
+        // paragraphs on the page, and the ones that set every factual claim after them -- were
+        // written from brief text alone while the evidence sat in a local three lines above. The
+        // pillar lede prompt has always told the model "a number may appear only if it is in the
+        // supplied evidence or published by this publisher"; no evidence was supplied, so that rule
+        // could not be met or broken.
+        //
+        // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
+        // headings stay out of a prompt that states no provenance rules.
+        var ledeEvidence = BuildResearchBlock(create);
+        var pillarPromptCtx = outlineCtx with { Metadata = metadata, EvidenceBlock = ledeEvidence };
         var ledeResult = await llm.CompleteAsync(pillarType.Lede(pillarPromptCtx), ct);
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
         // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way
@@ -2970,7 +2981,19 @@ public class GccGenerateService
         var metadata = blogMeta with { MetaDescription = blogMetaDescription };
 
         var blogType = RequireType("blog");
-        var blogPromptCtx = new ContentTypes.ContentTypePromptContext(context, BlogMetadata: metadata);
+        // The opening gets the retrieved evidence too. It did not until 2026-09-29: evidenceBlock
+        // was built here and handed only to the body, so the lede and introduction -- the most-read
+        // paragraphs on the page, and the ones that set every factual claim after them -- were
+        // written from brief text alone while the evidence sat in a local three lines above. The
+        // pillar lede prompt has always told the model "a number may appear only if it is in the
+        // supplied evidence or published by this publisher"; no evidence was supplied, so that rule
+        // could not be met or broken.
+        //
+        // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
+        // headings stay out of a prompt that states no provenance rules.
+        var ledeEvidence = BuildResearchBlock(create);
+        var blogPromptCtx = new ContentTypes.ContentTypePromptContext(
+            context, BlogMetadata: metadata, EvidenceBlock: ledeEvidence);
         var ledeResult = await llm.CompleteAsync(blogType.Lede(blogPromptCtx), ct);
         // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
         // ParseLede. Reading it as a sections array failed every blog generation.

@@ -45,7 +45,8 @@ public interface IContentPromptBuilder
         IReadOnlyList<SectionSlot> fullOutline,
         bool isRegeneration,
         string? revisionNotes = null,
-        string? existingLedeHeading = null);
+        string? existingLedeHeading = null,
+        string? evidenceBlock = null);
 
     /// <summary>
     /// Small revise pass for meta description (and title only when notes explicitly demand it).
@@ -128,7 +129,8 @@ public interface IContentPromptBuilder
     /// </summary>
     ChatCompletionRequest BuildStandaloneBlogMetadataPrompt(ProjectGenerationContext context);
 
-    ChatCompletionRequest BuildStandaloneBlogLedePrompt(ProjectGenerationContext context, BlogMetadataDraft metadata);
+    ChatCompletionRequest BuildStandaloneBlogLedePrompt(
+        ProjectGenerationContext context, BlogMetadataDraft metadata, string? evidenceBlock = null);
 
     /// <param name="sectionBatch">The sections this call owns, when the body is written in
     /// batches. Null writes the whole planned outline in one response, which is what a blog short
@@ -857,6 +859,32 @@ public class ContentPromptBuilder : IContentPromptBuilder
             + "what they are being asked to do, the ending has failed.";
     }
 
+    /// <summary>
+    /// How the opening reads the retrieved evidence. Needed because the research block is written
+    /// for the body: its rule 5 says a tool with a "Target Entity Match" line "is named in the
+    /// piece and its claims are cited from those passages", which is right across a whole article
+    /// and wrong in three paragraphs -- handed the block unqualified, the lede would open by
+    /// listing every partner.
+    ///
+    /// <para>
+    /// The opening still needs the evidence, because it is where the page's factual claims are
+    /// set. The pillar lede prompt has said "a number may appear only if it is in the supplied
+    /// evidence or published by this publisher" since it was written, while no evidence was
+    /// supplied to it -- so the one rule that bounded its figures could not be satisfied or
+    /// broken. That is what this fixes: the constraint now has something to resolve against.
+    /// </para>
+    /// </summary>
+    private const string LedeEvidenceInstruction =
+        "HOW TO USE THE EVIDENCE BELOW IN THE OPENING: it is here so the opening is true, not so " +
+        "it gets covered. The opening names no partner or tool unless the brief's angle is about " +
+        "that one product -- the body names them, with citations, section by section. Do not open " +
+        "with a list of vendors, and do not attach a capability to one here. " +
+        "What the evidence is for: any figure, timeframe, cost, volume or limitation in these " +
+        "paragraphs must appear in a passage below, and the pain you open on must be a pain the " +
+        "passages actually describe -- not a generic one written to sound like the category. " +
+        "If the evidence does not support a number, write the sentence without one. An opening " +
+        "with no figures is finished; an opening with an invented figure is not.";
+
     private static readonly string LedeLengthInstruction =
         $"LENGTH: the opening runs {ContentLengthTargets.LedeRangeLabel} words across 3-4 paragraphs, " +
         $"and no paragraph in it is shorter than {ContentLengthTargets.LedeParagraphMinWords} words. " +
@@ -1326,7 +1354,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         IReadOnlyList<SectionSlot> fullOutline,
         bool isRegeneration,
         string? revisionNotes = null,
-        string? existingLedeHeading = null)
+        string? existingLedeHeading = null,
+        string? evidenceBlock = null)
     {
         var outlineContext = RenderOutline(fullOutline);
 
@@ -1367,6 +1396,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Always include both \"lede\" and \"introduction\" keys. Neither carries a heading — they are one continuous opening, and the introduction's paragraphs follow the lede's.")
             .AppendLine(LedeAndIntroductionJsonContract)
             .ToString();
+
+        // The opening is where the page's factual claims are set, so it is written against the
+        // same retrieved evidence the body gets -- see LedeEvidenceInstruction for why the framing
+        // comes first. Only the research half is passed in: BuildCompetitorHeadingBlock tells the
+        // model to tag a heading "competitor:<exact heading text>" and refers it to the provenance
+        // rules, and neither exists here -- the lede contract has no provenance field and this
+        // prompt states no provenance rules, so that block would cite instructions the model was
+        // never given.
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            system += Environment.NewLine + LedeEvidenceInstruction + Environment.NewLine + evidenceBlock;
+        }
 
         if (isRegeneration)
         {
@@ -2009,7 +2050,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             MaxOutputTokens: 1536);
     }
 
-    public ChatCompletionRequest BuildStandaloneBlogLedePrompt(ProjectGenerationContext context, BlogMetadataDraft metadata)
+    public ChatCompletionRequest BuildStandaloneBlogLedePrompt(
+        ProjectGenerationContext context, BlogMetadataDraft metadata, string? evidenceBlock = null)
     {
         var system = new StringBuilder()
             .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
@@ -2027,6 +2069,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeJsonContract)
             .ToString();
+
+        // The opening is where the page's factual claims are set, so it is written against the
+        // same retrieved evidence the body gets -- see LedeEvidenceInstruction for why the framing
+        // comes first. Only the research half is passed in: BuildCompetitorHeadingBlock tells the
+        // model to tag a heading "competitor:<exact heading text>" and refers it to the provenance
+        // rules, and neither exists here -- the lede contract has no provenance field and this
+        // prompt states no provenance rules, so that block would cite instructions the model was
+        // never given.
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            system += Environment.NewLine + LedeEvidenceInstruction + Environment.NewLine + evidenceBlock;
+        }
 
         var user = new StringBuilder()
             .AppendLine($"Target keyword: {context.TargetKeyword}")

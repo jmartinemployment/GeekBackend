@@ -275,16 +275,85 @@ is still refused.
 **Verification that it worked:** re-run create `e440ae46`. Those six headings
 should license.
 
-### Step 2 — ground the lede
+### Step 2 — ground the lede — **DONE 2026-09-29**
 
-Pass `evidenceBlock` into the lede/introduction prompt context in both
-`GeneratePillarBodyAsync` (`:2689`) and `GenerateBlogBodyAsync` (`:2971`).
+`BuildPillarLedePrompt` and `BuildStandaloneBlogLedePrompt` now take an
+`evidenceBlock`; `PillarPrompts.Lede` and `BlogPrompts.Lede` pass `ctx.EvidenceBlock`;
+`GeneratePillarBodyAsync` and `GenerateBlogBodyAsync` set it on the lede context.
+`ContentTypePromptContext.EvidenceBlock` already existed — the lede context simply
+never set it.
 
-Check the token budget before doing it: `PromptResearchTokenCeiling` exists in
-`HttpGeekCrawlerRagClient` for a reason, and the lede prompt plus full evidence may
-exceed what the lede model is given. If it does, pass a reduced slice rather than
-silently truncating — and say which slice, in a comment, so the next reader knows
-the lede sees less than the body.
+**The token budget question, answered: no slice is needed.** The block is bounded
+twice before it reaches any prompt — `PromptResearchTokenCeiling` (16,000) caps what
+retrieval puts into `ResearchJson` at all, and `GccResearchCaps` caps headings and
+paragraphs per page at render. It is then the *same* block the body prompt already
+carries, and the lede prompt's system text is shorter than the body's. If the body
+fits, the lede fits.
+
+**The research half only, and not for the reason I first gave.** I argued the
+competitor block should stay out because "the lede writes no headings". Jeff,
+2026-09-29: *"While you are correct normally lede paragraphs have no heading, in this
+codebase they do."* Correct, and verifiable — `SectionHtmlRenderer.AppendSection`
+emits the `<h2>` whenever `Section.Heading` is non-blank, the pillar lede is stored
+as `pillarLede with { Tag = "h2" }`, its slot is a `SectionSlot.Cover` the writer
+names, and the user block tells the model *"You write its heading."*
+
+The real reason the competitor block stays out is narrower and holds:
+`BuildCompetitorHeadingBlock` instructs the model to tag a heading
+`"competitor:<exact heading text>"` and refers it to "the provenance rules". The lede
+JSON contract has no provenance field and the lede prompt states no provenance rules,
+so that block would cite instructions the model was never given. A test pins it.
+
+**`LedeEvidenceInstruction` frames the block before showing it**, because the research
+block is written for the body: its rule 5 says a tool with a `Target Entity Match`
+line "is named in the piece and its claims are cited from those passages". True across
+a whole article, wrong in three paragraphs — handed the block unframed, the opening
+would answer it by listing every partner. The framing says the evidence is there to
+make the opening *true*, not to get covered: no partner names unless the angle is that
+one product, and no figure that no passage states.
+
+Licenses, never requires — same property as Step 1. A create with no research renders
+a byte-identical lede prompt to the one it renders today; a test asserts the equality.
+
+| file | change |
+|---|---|
+| `ContentPromptBuilder.cs` | `LedeEvidenceInstruction`, + param on both lede builders |
+| `PillarPrompts.cs` / `BlogPrompts.cs` | pass `ctx.EvidenceBlock` |
+| `GccGenerateService.cs` | `ledeEvidence` set on both lede contexts |
+| `LedeEvidenceTests.cs` | +6 tests |
+
+### Found while doing Step 2 — three things, verified, not yet fixed
+
+**1. The lede's heading is never provenance-checked.** `FindUnlicensedHeadings` is
+called on `bodySections` only, in both `GeneratePillarBodyAsync` and
+`GenerateBlogBodyAsync`; the lede is merged into the `ContentDocument` afterwards and
+never passed to the guard. So the one h2 the guard does not see is the first one on the
+page — while every body heading is checked with a hard refusal that discards the draft.
+Whether that is a gap to close or the correct scope (the lede's slot is assigned, so
+its tag would be `plan` and license trivially) is a decision, not a bug fix.
+
+**2. The pillar lede prompt contradicts itself three ways about headings.** The system
+block says *"No heading of any kind: the title is the page's only headline."*
+`LedeJsonContract` gives the model nowhere to put one — `ledeType` and `paragraphs`,
+annotated *"no heading: it runs directly under the page title"*. The user block says
+*"Write the pillar's Lede (first H2) 1 of 6. It covers: {ledeHeading}. You write its
+heading."* One prompt, three answers. This is why I got it wrong above, and it is worth
+settling in the prompt rather than leaving the model to pick.
+
+**3. The tool body never receives an evidence block at all.**
+`GccGenerateService:1815` reads `await WriteToolBodyAsync(toolOutlineCtx.EvidenceBlock)`,
+and `toolOutlineCtx` is constructed at `:1770` with `App`, `ToolSlug` and
+`ExtractedResearchJson` — never `EvidenceBlock`, and nothing assigns it afterwards. So
+`BuildToolBodyPrompt`'s `evidenceBlock` is always null on the live Create path, and the
+QUOTEABLE RESEARCH block never reaches the one content type where a citeable blockquote
+is *required*. Tool is not ungrounded — `ExtractedResearchJson` carries its partner
+extraction — but it is grounded through a different channel than pillar and blog, and
+the parameter that looks like its grounding is dead.
+
+Related: **`ToolPrompts.Lede` has zero callers.** The tool path calls
+`_prompts.BuildArticleLedePrompt(context, pillarMeta)` directly at `:1793`, bypassing
+its own prompt set. That is precisely the "decision with no home" that
+`IContentTypePrompts` was created to eliminate, per its own docstring.
 
 ### Step 3 — name the competitor path honestly
 

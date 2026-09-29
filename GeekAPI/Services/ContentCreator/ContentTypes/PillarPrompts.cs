@@ -53,7 +53,8 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
             ledeIndex: 0,
             totalSections: Sections.Length,
             fullOutline: Sections,
-            isRegeneration: false);
+            isRegeneration: false,
+            evidenceBlock: ctx.EvidenceBlock);
 
     /// <summary>Outline minus the lede slot: the lede already wrote Outline[0].</summary>
     public ChatCompletionRequest Body(ContentTypePromptContext ctx) =>
