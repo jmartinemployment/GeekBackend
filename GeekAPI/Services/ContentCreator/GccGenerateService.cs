@@ -1838,7 +1838,11 @@ public class GccGenerateService
                 $"Tool page '{name}'",
                 ct);
 
-        var sections = await WriteToolBodyAsync(toolOutlineCtx.EvidenceBlock);
+        // The tool page had no competitor evidence at all, while one of its six sections is
+        // "how a buyer should judge this product -- fit, pricing, and the adjacent approaches they
+        // are also weighing". It was writing that section with no idea what the alternatives say.
+        var toolCompetitorBlock = create is null ? string.Empty : BuildCompetitorResearchBlock(create);
+        var sections = await WriteToolBodyAsync(toolCompetitorBlock);
 
         // Every tool page carries a block quotation of the partner, in their own published words
         // (Jeff, 2026-09-26: "I want a blockquote in each tool"). The prompt asks for it; this is
@@ -1896,7 +1900,10 @@ public class GccGenerateService
         {
             _logger.LogInformation("Tool closing did not link the scheduler; retrying once with the omission named.");
             var toolCtaSections = await WriteToolBodyAsync(
-                Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
+                string.IsNullOrEmpty(toolCompetitorBlock)
+                    ? Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!)
+                    : $"{toolCompetitorBlock}{Environment.NewLine}"
+                      + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
             if (toolFaqSection is not null) toolCtaSections.Add(toolFaqSection);
             var retried = new ContentDocument(toolLede with { Tag = "h2" }, toolCtaSections);
             var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
@@ -3206,6 +3213,66 @@ public class GccGenerateService
         var competitorBlock = BuildCompetitorHeadingBlock(competitorAnalyses);
         if (competitorBlock.Length > 0)
             sb.AppendLine(competitorBlock);
+
+        var competitorResearch = BuildCompetitorResearchBlock(create);
+        if (competitorResearch.Length > 0)
+            sb.AppendLine(competitorResearch);
+
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Retrieved competitor prose, under rules that are the opposite of the partner block's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The partner block tells the model to attribute every claim and carry the source URL. Applied
+    /// to a rival that is exactly wrong: a page about our partner that links a competitor and cites
+    /// them by name has advertised for them. So this block is read-only evidence — know what they
+    /// claim, write something they have not, and never quote, cite or link them.
+    /// </para>
+    /// <para>
+    /// Wording follows <c>GccV2ContextAdapter</c>'s competitor branch, which had the fullest
+    /// version of these rules already written and never reached the live path.
+    /// </para>
+    /// <para>
+    /// Distinct from <see cref="BuildCompetitorHeadingBlock"/>, which carries heading *structure*
+    /// for gap awareness. This carries what the rival actually says. Both are useful and neither
+    /// substitutes for the other: an outline says a topic is covered, the prose says what the claim
+    /// is, and you cannot be differentiated from a claim you were never shown.
+    /// </para>
+    /// </remarks>
+    internal static string BuildCompetitorResearchBlock(GccCreateDto create)
+    {
+        var research = GccResearchFetchService.Deserialize(create.ResearchJson);
+        var pages = research?.CompetitorQuoteables;
+        if (pages is not { Count: > 0 })
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("=== COMPETITOR RESEARCH (read it; never quote, cite or link it) ===");
+        sb.AppendLine("Rival pages, retrieved from the crawl index. They are here so this piece can be");
+        sb.AppendLine("different from them, and for nothing else. The rules are the opposite of the");
+        sb.AppendLine("partner evidence above:");
+        sb.AppendLine("1. Never quote a competitor, never name one as a recommended tool, and never");
+        sb.AppendLine("   include a rival URL -- not as a citation, not as a link, not as a CTA.");
+        sb.AppendLine("2. Use it to find what they have not said, or have said thinly, and say that");
+        sb.AppendLine("   better. Covering what they cover, in their order, is the failure mode here.");
+        sb.AppendLine("3. Never repeat a competitor's claim as this publisher's own. Their numbers are");
+        sb.AppendLine("   theirs and unverified; a figure from here is not a figure you may write.");
+        sb.AppendLine("4. These pages were retrieved because they rank, not because they are good.");
+        sb.AppendLine("   Read them as what a reader has already seen, never as a standard to match.");
+        sb.AppendLine();
+
+        foreach (var page in pages.Take(MaxCompetitorPagesInPrompt))
+        {
+            sb.AppendLine($"[{page.Title}]");
+            foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+                sb.AppendLine($"- H{h.Level}: {h.Text}");
+            foreach (var para in page.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
+                sb.AppendLine($"- {para}");
+            sb.AppendLine();
+        }
 
         return sb.ToString().TrimEnd();
     }

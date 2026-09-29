@@ -21,15 +21,27 @@ public sealed record GccGroundingOutcome(
     IReadOnlyList<GccQuoteablePage> Pages,
     IReadOnlyList<string> Warnings,
     string? Refusal,
-    IReadOnlyList<GccGroundedPassage> Passages)
+    IReadOnlyList<GccGroundedPassage> Passages,
+    /// <summary>
+    /// Competitor pages, kept apart from <see cref="Pages"/> rather than tagged inside it.
+    ///
+    /// <para>
+    /// A rival is read, never cited. One list would put competitor prose under a header whose rules
+    /// say "name the source and include its URL where the claim appears", and would hand competitor
+    /// pages to the partner extractor and to the <c>SoftwareApplication.url</c> derivation, both of
+    /// which read the partner list wholesale. Two lists make every existing consumer correct by
+    /// construction; a tag would need each of them found and filtered.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<GccQuoteablePage> CompetitorPages)
 {
     public bool Refused => !string.IsNullOrWhiteSpace(Refusal);
 
     /// <summary>Evidence was required and is unavailable. The caller must not generate.</summary>
-    public static GccGroundingOutcome Refuse(string reason) => new([], [], reason, []);
+    public static GccGroundingOutcome Refuse(string reason) => new([], [], reason, [], []);
 
-    /// <summary>This content type declares no evidence requirement — nothing to resolve.</summary>
-    public static GccGroundingOutcome NotRequired() => new([], [], null, []);
+    /// <summary>Nothing to cite and nothing to retrieve for this content type.</summary>
+    public static GccGroundingOutcome NotRequired() => new([], [], null, [], []);
 }
 
 /// <summary>
@@ -66,22 +78,47 @@ public sealed class GccGroundingResolver(
 {
     /// <summary>
     /// What each content type must be able to cite before it may be written. A type absent from
-    /// this table declares no requirement and is never refused for missing evidence.
+    /// this table is never refused for missing evidence.
     /// </summary>
     /// <remarks>
-    /// Pillar/Blog/TechArticle removed 2026-09-22 (Jeff: "I told you to remove this from all
-    /// content types" -- citing/quoting a source was never a requirement of any content type; see
-    /// the citation-purpose-and-policy memory). Tool/aiTool stay: this table is not a redundant
-    /// second check on top of GenerateToolPageAsync's own HasSufficientPartnerData gate -- it's the
-    /// actual retrieval step (RAG query against the project's indexed partner crawl) that populates
-    /// create.ResearchJson.Quoteables in the first place. Removing it here would mean Tool never
-    /// receives any partner pages to extract from at all, not merely relax a duplicate check.
+    /// Pillar/Blog/TechArticle were removed 2026-09-22 (Jeff: "I told you to remove this from all
+    /// content types" — citing a source was never a requirement of any content type; see the
+    /// citation-purpose-and-policy memory). That was right as policy, and it had a consequence
+    /// nobody intended: this table was also the retrieval trigger, so removing a type from it
+    /// stopped that type fetching anything at all. Pillar and Blog spent a week obliged by
+    /// <c>GccRequiredToolMentions</c> to name every declared partner while being handed nothing
+    /// about any of them. The two questions are now two tables — see <see cref="RetrieveFor"/>.
     /// </remarks>
-    private static readonly Dictionary<string, string[]> RequiredCrawlTypes =
+    private static readonly Dictionary<string, string[]> MustCiteCrawlTypes =
         new(StringComparer.OrdinalIgnoreCase)
         {
             ["tool"] = [CrawlTypes.Partner],
             ["aitool"] = [CrawlTypes.Partner],
+        };
+
+    /// <summary>
+    /// What each content type goes and fetches before it is written, whether or not it must cite it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every long-form type retrieves both. Partner evidence is what makes a claim about a partner
+    /// true; competitor evidence is what makes a piece differentiated, which is the stated purpose
+    /// of crawling rivals at all. Neither is optional enrichment — the corpus is crawled, extracted,
+    /// ingested and vector-indexed for exactly this, and until now only Tool ever asked for any of
+    /// it, and nothing ever asked for a competitor.
+    /// </para>
+    /// <para>
+    /// Retrieval failure is a refusal only where <see cref="MustCiteCrawlTypes"/> says so. A pillar
+    /// whose competitor crawl is missing is a thinner pillar, not a draft that must not exist.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<string, string[]> RetrieveCrawlTypes =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["pillar"] = [CrawlTypes.Partner, CrawlTypes.Competitors],
+            ["blog"] = [CrawlTypes.Partner, CrawlTypes.Competitors],
+            ["tool"] = [CrawlTypes.Partner, CrawlTypes.Competitors],
+            ["aitool"] = [CrawlTypes.Partner, CrawlTypes.Competitors],
         };
 
     /// <summary>How many passages to retrieve per run. Matches the library writer's default.</summary>
@@ -95,31 +132,56 @@ public sealed class GccGroundingResolver(
     /// none. Exposed so the policy itself can be asserted without a repository or a RAG client.
     /// </summary>
     internal static IReadOnlyList<string> RequiredFor(string contentType) =>
-        RequiredCrawlTypes.TryGetValue(contentType, out var required) ? required : [];
+        MustCiteCrawlTypes.TryGetValue(contentType, out var required) ? required : [];
+
+    /// <summary>What <paramref name="contentType"/> fetches before it is written.</summary>
+    internal static IReadOnlyList<string> RetrieveFor(string contentType) =>
+        RetrieveCrawlTypes.TryGetValue(contentType, out var fetch) ? fetch : [];
 
     public async Task<GccGroundingOutcome> ResolveAsync(
         GccCreateDto create,
         string contentType,
         CancellationToken ct = default)
     {
-        var required = RequiredFor(contentType);
-        if (required.Count == 0)
+        var mustCite = RequiredFor(contentType);
+        var retrieveFor = RetrieveFor(contentType);
+        if (mustCite.Count == 0 && retrieveFor.Count == 0)
         {
             return GccGroundingOutcome.NotRequired();
         }
 
+        // Anything that must be cited is also fetched, whatever the retrieve table says -- the two
+        // tables answer different questions and must not be able to contradict each other.
+        var crawlTypes = mustCite.Concat(retrieveFor).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
         if (create.ProjectId is not Guid projectId || projectId == Guid.Empty)
         {
-            return GccGroundingOutcome.Refuse(
-                $"'{contentType}' must cite partner or competitor evidence, and this create belongs "
-                + "to no project. The project owns those URLs; attach the create to one and retry.");
+            if (mustCite.Count > 0)
+            {
+                return GccGroundingOutcome.Refuse(
+                    $"'{contentType}' must cite partner or competitor evidence, and this create belongs "
+                    + "to no project. The project owns those URLs; attach the create to one and retry.");
+            }
+
+            logger.LogInformation(
+                "Create {CreateId} ({ContentType}) belongs to no project, so there is nothing to "
+                + "retrieve. It cites nothing, so this is not a refusal.", create.Id, contentType);
+            return GccGroundingOutcome.NotRequired();
         }
 
         var project = await repo.GetProjectAsync(projectId, ct);
         if (project is null)
         {
-            return GccGroundingOutcome.Refuse(
-                $"'{contentType}' requires evidence from project {projectId}, which was not found.");
+            if (mustCite.Count > 0)
+            {
+                return GccGroundingOutcome.Refuse(
+                    $"'{contentType}' requires evidence from project {projectId}, which was not found.");
+            }
+
+            logger.LogWarning(
+                "Project {ProjectId} was not found, so create {CreateId} retrieves nothing.",
+                projectId, create.Id);
+            return GccGroundingOutcome.NotRequired();
         }
 
         // Host -> partner spelling for this project, built once. GccRequiredToolMentions owns the
@@ -132,12 +194,17 @@ public sealed class GccGroundingResolver(
         var anchorToolLookup = GccRequiredToolMentions.AnchorLookup(create.BriefJson, project.PartnerUrls);
 
         var retrieved = new List<GccQuoteablePage>();
+        var competitors = new List<GccQuoteablePage>();
         var passages = new List<GccGroundedPassage>();
         var warnings = new List<string>();
         var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var crawlType in required)
+        foreach (var crawlType in crawlTypes)
         {
+            // Whether this crawl type's absence refuses the draft or only thins it.
+            var cited = mustCite.Contains(crawlType, StringComparer.OrdinalIgnoreCase);
+            var isCompetitor = string.Equals(crawlType, CrawlTypes.Competitors, StringComparison.OrdinalIgnoreCase);
+
             var urls = crawlType switch
             {
                 CrawlTypes.Partner => project.PartnerUrls,
@@ -147,9 +214,15 @@ public sealed class GccGroundingResolver(
 
             if (urls.Count == 0)
             {
-                return GccGroundingOutcome.Refuse(
-                    $"'{contentType}' must cite {crawlType} evidence, and project '{project.Name}' "
-                    + $"has no {crawlType} URLs.");
+                if (cited)
+                {
+                    return GccGroundingOutcome.Refuse(
+                        $"'{contentType}' must cite {crawlType} evidence, and project '{project.Name}' "
+                        + $"has no {crawlType} URLs.");
+                }
+
+                warnings.Add($"Project '{project.Name}' declares no {crawlType} URLs.");
+                continue;
             }
 
             var indexed = await rag.HostsIndexedAsync(urls, ct);
@@ -162,10 +235,18 @@ public sealed class GccGroundingResolver(
 
             if (runIds.Count == 0)
             {
-                return GccGroundingOutcome.Refuse(
-                    $"'{contentType}' must cite {crawlType} evidence, but none of project "
-                    + $"'{project.Name}'s {urls.Count} {crawlType} URL(s) has an indexed crawl. "
-                    + "Crawl and index them, then retry.");
+                if (cited)
+                {
+                    return GccGroundingOutcome.Refuse(
+                        $"'{contentType}' must cite {crawlType} evidence, but none of project "
+                        + $"'{project.Name}'s {urls.Count} {crawlType} URL(s) has an indexed crawl. "
+                        + "Crawl and index them, then retry.");
+                }
+
+                warnings.Add(
+                    $"None of project '{project.Name}'s {urls.Count} {crawlType} URL(s) has an "
+                    + "indexed crawl, so none of that evidence reached this draft.");
+                continue;
             }
 
             foreach (var runId in runIds)
@@ -183,16 +264,28 @@ public sealed class GccGroundingResolver(
                 // query is not — it means this run had nothing relevant, which other runs may cover.
                 if (result is null)
                 {
-                    return GccGroundingOutcome.Refuse(
-                        $"The evidence library returned nothing for {crawlType} run {runId}. "
-                        + $"'{contentType}' cannot be grounded.");
+                    if (cited)
+                    {
+                        return GccGroundingOutcome.Refuse(
+                            $"The evidence library returned nothing for {crawlType} run {runId}. "
+                            + $"'{contentType}' cannot be grounded.");
+                    }
+
+                    warnings.Add($"The evidence library returned nothing for {crawlType} run {runId}.");
+                    continue;
                 }
 
                 if (result.Failed)
                 {
-                    return GccGroundingOutcome.Refuse(
-                        result.Error ?? result.Warning
-                        ?? $"The evidence library query failed for {crawlType} run {runId}.");
+                    var reason = result.Error ?? result.Warning
+                        ?? $"The evidence library query failed for {crawlType} run {runId}.";
+                    if (cited)
+                    {
+                        return GccGroundingOutcome.Refuse(reason);
+                    }
+
+                    warnings.Add(reason);
+                    continue;
                 }
 
                 if (!string.IsNullOrWhiteSpace(result.Warning))
@@ -203,30 +296,31 @@ public sealed class GccGroundingResolver(
                 var fresh = new List<GccQuoteablePage>();
                 foreach (var page in result.Pages)
                 {
-                    if (seenUrls.Add(page.Url))
-                    {
-                        retrieved.Add(page);
-                        fresh.Add(page);
-                    }
+                    if (!seenUrls.Add(page.Url)) continue;
+                    // Which list a page lands in is decided here, by the crawl type that was
+                    // queried, and nowhere else. It is the only point where that is known: the
+                    // query result does not carry it back and no field on the page records it.
+                    (isCompetitor ? competitors : retrieved).Add(page);
+                    fresh.Add(page);
                 }
 
                 passages.AddRange(await ReadTypedPassagesAsync(runId, fresh, ct));
             }
         }
 
-        if (retrieved.Count == 0)
+        if (mustCite.Count > 0 && retrieved.Count == 0)
         {
             return GccGroundingOutcome.Refuse(
-                $"'{contentType}' must cite {string.Join(" and ", required)} evidence. Every "
+                $"'{contentType}' must cite {string.Join(" and ", mustCite)} evidence. Every "
                 + "indexed run was queried and none returned a citable passage for this topic.");
         }
 
         logger.LogInformation(
-            "Grounding resolved for create {CreateId} ({ContentType}): {PageCount} pages, "
-            + "{PassageCount} typed passages, {WarningCount} warnings.",
-            create.Id, contentType, retrieved.Count, passages.Count, warnings.Count);
+            "Grounding resolved for create {CreateId} ({ContentType}): {PageCount} partner pages, "
+            + "{CompetitorCount} competitor pages, {PassageCount} typed passages, {WarningCount} warnings.",
+            create.Id, contentType, retrieved.Count, competitors.Count, passages.Count, warnings.Count);
 
-        return new GccGroundingOutcome(retrieved, warnings, null, passages);
+        return new GccGroundingOutcome(retrieved, warnings, null, passages, competitors);
     }
 
     /// <summary>

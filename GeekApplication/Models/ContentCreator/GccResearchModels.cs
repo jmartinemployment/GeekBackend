@@ -8,7 +8,26 @@ public sealed record GccResearchDocument(
     GccSerpIndex? SerpIndex,
     IReadOnlyList<GccQuoteablePage> Quoteables,
     IReadOnlyList<GccKeywordSource>? Sources = null,
-    IReadOnlyList<GccParsedSerpPage>? SerpPages = null);
+    IReadOnlyList<GccParsedSerpPage>? SerpPages = null,
+    /// <summary>
+    /// Retrieved competitor pages, kept apart from <see cref="Quoteables"/> rather than tagged
+    /// inside it.
+    ///
+    /// <para>
+    /// A rival is read, never cited. One list would render competitor prose under a header whose
+    /// rules say "name the source and include its URL where the claim appears", and would hand
+    /// competitor pages to the partner extractor and to the <c>SoftwareApplication.url</c>
+    /// derivation — both of which read <see cref="Quoteables"/> wholesale. A separate list leaves
+    /// every existing consumer correct by construction; a tag would need each one found and
+    /// filtered.
+    /// </para>
+    ///
+    /// <para>
+    /// Optional with a default, so research written before competitors were retrieved deserializes
+    /// as null and round-trips unchanged.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<GccQuoteablePage>? CompetitorQuoteables = null);
 
 /// <summary>
 /// A parsed Keyword (Google SERP) upload — organics + related searches only. PAA is intentionally

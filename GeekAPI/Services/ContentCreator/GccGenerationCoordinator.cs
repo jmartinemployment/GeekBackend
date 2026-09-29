@@ -36,28 +36,43 @@ public sealed class GccGenerationCoordinator
     /// </summary>
     private static GccCreateDto MergeRetrievedEvidence(GccCreateDto create, GccGroundingOutcome grounding)
     {
-        if (grounding.Pages.Count == 0)
+        if (grounding.Pages.Count == 0 && grounding.CompetitorPages.Count == 0)
         {
             return create;
         }
 
         var existing = GccResearchFetchService.Deserialize(create.ResearchJson);
-        var quoteables = existing?.Quoteables.ToList() ?? [];
-        var seen = new HashSet<string>(quoteables.Select(q => q.Url), StringComparer.OrdinalIgnoreCase);
 
-        foreach (var page in grounding.Pages)
+        // Two lists, merged the same way and never into each other. A partner page is evidence to
+        // cite; a competitor page is evidence to be different from, and the prompt blocks that
+        // render them say opposite things about attribution.
+        var quoteables = Merge(existing?.Quoteables, grounding.Pages);
+        var competitors = Merge(existing?.CompetitorQuoteables, grounding.CompetitorPages);
+
+        var merged = existing is null
+            ? new GccResearchDocument(null, quoteables, CompetitorQuoteables: competitors)
+            : existing with { Quoteables = quoteables, CompetitorQuoteables = competitors };
+
+        return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };
+    }
+
+    /// <summary>
+    /// Additive by URL: what an operator already uploaded outranks what retrieval found at the same
+    /// address, because the upload was a deliberate choice about this create.
+    /// </summary>
+    private static List<GccQuoteablePage> Merge(
+        IReadOnlyList<GccQuoteablePage>? existing, IReadOnlyList<GccQuoteablePage> retrieved)
+    {
+        var pages = existing?.ToList() ?? [];
+        var seen = new HashSet<string>(pages.Select(q => q.Url), StringComparer.OrdinalIgnoreCase);
+        foreach (var page in retrieved)
         {
             if (seen.Add(page.Url))
             {
-                quoteables.Add(page);
+                pages.Add(page);
             }
         }
-
-        var merged = existing is null
-            ? new GccResearchDocument(null, quoteables)
-            : existing with { Quoteables = quoteables };
-
-        return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };
+        return pages;
     }
 
     /// <summary>
