@@ -227,9 +227,18 @@ public sealed class GccGroundingResolver(
 
         foreach (var crawlType in crawlTypes)
         {
-            // Whether this crawl type's absence refuses the draft or only thins it.
-            var cited = mustCite.Contains(crawlType, StringComparer.OrdinalIgnoreCase);
-
+            // Binary, and the question is per URL: does an indexed crawl exist for it?
+            //
+            // Every declared partner and competitor URL is index-checked before a project may be
+            // saved, and the project site is a run id the form resolves from the index and refuses
+            // to create a project without. So reaching generation, the answer is already yes for
+            // everything declared. A no here is a dropped crawl or a project that pre-dates the
+            // gate -- a fault, and it stops.
+            //
+            // A type the project declares none of asks no question, so there is nothing to fail. An
+            // empty list is an empty list, here as at declare time. Whether a tool page with no
+            // partner may exist is a different question, asked and answered downstream by
+            // GenerateToolPageAsync's own partner-grounding refusal.
             var urls = crawlType switch
             {
                 CrawlTypes.Partner => project.PartnerUrls,
@@ -237,40 +246,21 @@ public sealed class GccGroundingResolver(
                 _ => [],
             };
 
-            // The project site is resolved by the run id the project already carries. It is the one
-            // crawl type that needs no host lookup: ProjectForm resolves that id from the index at
-            // declare time and refuses to create a project without it.
             List<Guid> runIds;
             if (string.Equals(crawlType, CrawlTypes.ProjectSite, StringComparison.OrdinalIgnoreCase))
             {
                 if (project.ProjectSiteRunId is not { } siteRun || siteRun == Guid.Empty)
                 {
-                    // Pre-dates the gate, or the crawl was dropped. Either way it is a fault, not a
-                    // state to write around.
                     return GccGroundingOutcome.Refuse(
-                        $"Project '{project.Name}' has no project-site crawl run. Its own pages are "
-                        + "what stops this piece repeating what the site already says. Crawl and "
-                        + "index the site, then retry.");
+                        $"Project '{project.Name}' has no project-site crawl run. Crawl and index "
+                        + "the site, then retry.");
                 }
 
                 runIds = [siteRun];
             }
             else
             {
-                if (urls.Count == 0)
-                {
-                    // A type this content type must cite is a different matter: a tool page with no
-                    // partner declared has no subject, not a thinner one.
-                    if (cited)
-                    {
-                        return GccGroundingOutcome.Refuse(
-                            $"'{contentType}' must cite {crawlType} evidence, and project "
-                            + $"'{project.Name}' has no {crawlType} URLs.");
-                    }
-
-                    // Otherwise not a fault -- an empty list blocks nothing, here as at declare time.
-                    continue;
-                }
+                if (urls.Count == 0) continue;
 
                 var indexed = await rag.HostsIndexedAsync(urls, ct);
                 runIds = indexed
@@ -282,9 +272,6 @@ public sealed class GccGroundingResolver(
 
                 if (runIds.Count == 0)
                 {
-                    // Declared URLs are index-checked before a project may be saved, so reaching
-                    // here means the crawl was dropped or the project pre-dates that gate. Not a
-                    // thin draft -- a fault, reported as one.
                     return GccGroundingOutcome.Refuse(
                         $"None of project '{project.Name}'s {urls.Count} {crawlType} URL(s) has an "
                         + "indexed crawl, though every declared URL is index-checked before a "
@@ -303,32 +290,21 @@ public sealed class GccGroundingResolver(
                     anchorToolLookup: anchorToolLookup,
                     ct: ct);
 
-                // A null client result and Failed are both failures. Empty Pages on a successful
-                // query is not — it means this run had nothing relevant, which other runs may cover.
+                // The library failing is the library failing, whatever the content type. Empty
+                // Pages on a successful query is not a failure -- that run had nothing relevant for
+                // this topic, which another run may cover.
                 if (result is null)
                 {
-                    if (cited)
-                    {
-                        return GccGroundingOutcome.Refuse(
-                            $"The evidence library returned nothing for {crawlType} run {runId}. "
-                            + $"'{contentType}' cannot be grounded.");
-                    }
-
-                    warnings.Add($"The evidence library returned nothing for {crawlType} run {runId}.");
-                    continue;
+                    return GccGroundingOutcome.Refuse(
+                        $"The evidence library returned nothing for {crawlType} run {runId}. "
+                        + $"'{contentType}' cannot be grounded.");
                 }
 
                 if (result.Failed)
                 {
-                    var reason = result.Error ?? result.Warning
-                        ?? $"The evidence library query failed for {crawlType} run {runId}.";
-                    if (cited)
-                    {
-                        return GccGroundingOutcome.Refuse(reason);
-                    }
-
-                    warnings.Add(reason);
-                    continue;
+                    return GccGroundingOutcome.Refuse(
+                        result.Error ?? result.Warning
+                        ?? $"The evidence library query failed for {crawlType} run {runId}.");
                 }
 
                 if (!string.IsNullOrWhiteSpace(result.Warning))

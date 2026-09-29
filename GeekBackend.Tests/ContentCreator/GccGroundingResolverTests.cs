@@ -167,14 +167,22 @@ public class GccGroundingResolverTests
     }
 
     [Fact]
-    public async Task AProjectWithNoPartnerUrlsIsRefused()
+    public async Task AProjectWithNoPartnerUrlsIsRefusedForATool()
     {
-        var resolver = Build(new FakeProjects(Project()), new FakeRag());
+        // Still refused, and now from one place instead of two. The per-URL loop asks one binary
+        // question -- does an indexed crawl exist for this declared URL? -- and a project that
+        // declares no partners asks it zero times. What refuses is the citation rule at the end:
+        // a tool must cite partner evidence and none was retrieved.
+        //
+        // It used to be refused twice, by two rules that could disagree about when.
+        var resolver = Build(
+            new FakeProjects(Project()),
+            new FakeRag(result: new GeekCrawlerRagQueryResult { RunId = SiteRun, Pages = [] }));
 
         var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
         Assert.True(outcome.Refused);
-        Assert.Contains("no partner URLs", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("must cite partner", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
