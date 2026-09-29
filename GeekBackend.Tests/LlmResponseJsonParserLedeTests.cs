@@ -36,10 +36,13 @@ public sealed class LlmResponseJsonParserLedeTests
         var (lede, ledeType, intro) = LlmResponseJsonParser.ParseLedeAndIntroduction(json, "pillar lede");
 
         Assert.Equal(LedeType.Question, ledeType);
-        // A lede has no headline of its own -- it runs directly under the page title. It carried
-        // one until 2026-09-23, rendered as an h2, so every page showed two headlines stacked.
-        Assert.Equal(string.Empty, lede.Heading);
+        // The lede keeps the heading the model wrote: it is this page's first H2. BuildLedeSection
+        // hardcoded string.Empty here between 2026-09-23 and 2026-09-29, which discarded a heading
+        // the prompt was asking for -- and which the revise path reads as the draft's Title.
+        Assert.Equal("Is Your Team Ready for AI?", lede.Heading);
         Assert.Single(lede.Paragraphs);
+        // The introduction is the lede continuing, so it carries none even though the model
+        // returned the same string. That half is unchanged.
         Assert.Equal(string.Empty, intro.Heading);
         Assert.Single(intro.Children);
     }
@@ -61,8 +64,10 @@ public sealed class LlmResponseJsonParserLedeTests
         var (lede, ledeType, intro) = LlmResponseJsonParser.ParseLedeAndIntroduction(json, "pillar lede");
 
         Assert.Equal(LedeType.Question, ledeType);
-        Assert.Equal(string.Empty, lede.Heading);
-        Assert.Equal(lede.Heading, intro.Heading);
+        // The lede keeps its own heading; the synthesized introduction is empty in every field,
+        // including the heading, so the merge downstream adds nothing.
+        Assert.Equal("Is Your Business Missing Opportunities?", lede.Heading);
+        Assert.Equal(string.Empty, intro.Heading);
         Assert.Empty(intro.Paragraphs);
         Assert.Empty(intro.Children);
     }

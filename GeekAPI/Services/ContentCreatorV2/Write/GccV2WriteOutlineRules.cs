@@ -19,8 +19,8 @@ internal static class GccV2WriteOutlineRules
     {
         // Unconditional. This used to merge only when the two headings matched, so whether a reader
         // got one opening or two came down to whether the model returned the same string twice.
-        // Neither carries a heading now -- a lede is the lead paragraph and runs under the page
-        // title -- so there is nothing to compare: the introduction is the lede continuing.
+        // The introduction carries no heading -- it is the lede continuing, not a second section --
+        // so there is nothing to compare. The lede keeps its own, which is this page's first H2.
         return lede with
         {
             Paragraphs = lede.Paragraphs.Concat(introduction.Paragraphs).ToList(),

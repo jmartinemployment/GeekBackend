@@ -131,10 +131,11 @@ public static class LlmResponseJsonParser
             try
             {
                 var parsed = JsonSerializer.Deserialize<LedeResponse>(candidate, SectionJsonOptions);
-                // Paragraphs, not a heading. The acceptance test here was a non-empty heading, the
-                // same check already corrected in ParseLedeAndIntroduction -- and missed in this
-                // sibling, so the blog and tool paths rejected every lede the moment the contract
-                // stopped asking for one. The model was complying exactly.
+                // Paragraphs are the acceptance test, not the heading. It was a non-empty heading
+                // here -- the same check already corrected in ParseLedeAndIntroduction and missed in
+                // this sibling -- so the blog and tool paths rejected every lede for the six days the
+                // contract had no heading key. The heading is kept when it is there (see
+                // BuildLedeSection) and is not required for the response to be a lede.
                 if (parsed is not null && parsed.Paragraphs is { Count: > 0 })
                 {
                     var ledeType = ParseLedeTypeStrict(parsed.LedeType, label);
@@ -170,9 +171,9 @@ public static class LlmResponseJsonParser
             try
             {
                 var parsed = JsonSerializer.Deserialize<LedeAndIntroductionResponse>(candidate, SectionJsonOptions);
-                // Paragraphs, not a heading, are what makes this a lede. The acceptance test was a
-                // non-empty heading until 2026-09-23 -- which would now reject every valid response,
-                // since the contract stopped asking for one.
+                // Paragraphs, not a heading, are what makes this a lede: an opening with a heading
+                // and no prose is not an opening. The acceptance test was a non-empty heading until
+                // 2026-09-23. The heading itself is kept when present -- see BuildLedeSection.
                 if (parsed?.Lede is not { } lede || lede.Paragraphs is not { Count: > 0 })
                 {
                     continue;
@@ -226,12 +227,28 @@ public static class LlmResponseJsonParser
     }
 
     /// <summary>
-    /// The lede as a heading-less opening. Empty heading is deliberate, not missing data: a lede
-    /// runs under the page title and has no headline of its own, and the renderers skip a blank
-    /// heading rather than emitting an empty tag.
+    /// The lede as this page's first H2. The heading is the model's own -- it used to be
+    /// <c>string.Empty</c>, hardcoded, which discarded a heading the prompt's user block was
+    /// explicitly asking for ("You write its heading.") and that <c>LedeResponse.Heading</c> had
+    /// already deserialized. Jeff, 2026-09-29: "While you are correct normally lede paragraphs have
+    /// no heading, in this codebase they do."
+    ///
+    /// <para>
+    /// Discarding it was not cosmetic. <c>GccGenerateService</c>'s revise path reads
+    /// <c>document.Lede.Heading</c> as the draft's <c>Title</c>, <c>MetaDescription</c> and
+    /// <c>Keywords</c>, and passes it as the topic to <c>BuildMinimalContext</c> -- so a revise of
+    /// any freshly generated draft was handed an empty title, an empty meta description and a
+    /// one-element keyword list containing the empty string.
+    /// </para>
+    ///
+    /// <para>
+    /// Still no fallback and no synthesis: if the model returns no heading the lede carries none,
+    /// and the renderers skip a blank heading rather than emitting an empty tag. What is removed is
+    /// the discard, not the tolerance.
+    /// </para>
     /// </summary>
     private static Section BuildLedeSection(LedeResponse lede) =>
-        Normalize(new Section("h2", string.Empty, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
+        Normalize(new Section("h2", lede.Heading, lede.Paragraphs ?? [], null, [], lede.ImagePrompt));
 
     private sealed record SectionsArrayResponse(List<Section>? Sections);
 

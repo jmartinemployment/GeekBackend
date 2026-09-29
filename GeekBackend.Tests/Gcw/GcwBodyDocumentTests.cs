@@ -88,14 +88,31 @@ public class GcwBodyDocumentTests
     }
 
     [Fact]
-    public void The_ledes_own_heading_is_not_counted_as_a_heading()
+    public void The_ledes_own_heading_is_counted_as_a_heading()
     {
-        // The lede has no heading on the page, so counting it would let a draft pass "keyword in a
-        // heading" on text no reader sees as one.
+        // Inverted 2026-09-29. This asserted the opposite, reasoning that the lede has no heading on
+        // the page -- true of a headingless lede, and the lede is not one (Jeff): it is the page's
+        // first H2 and SectionHtmlRenderer emits the tag. Excluding the heading most likely to carry
+        // the keyword made a draft fail "keyword in a heading" on text the reader does see as one.
         var text = GcwBodyDocument.Read(Envelope);
 
-        Assert.DoesNotContain("Opening", text.Headings);
+        Assert.Contains("Opening", text.Headings);
         Assert.Contains("Where the hours go", text.Headings);
+    }
+
+    [Fact]
+    public void A_lede_with_no_heading_contributes_none()
+    {
+        // No synthesis and no fallback: a lede the model returned without a heading adds nothing to
+        // the heading list, rather than borrowing the title or the first section's.
+        const string headingless = """
+        {"lede":{"tag":"h2","heading":"","paragraphs":[{"type":"text","runs":[{"text":"Opens."}]}],"href":null,"children":[]},
+         "sections":[{"tag":"h2","heading":"One","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}]}
+        """;
+
+        var text = GcwBodyDocument.Read(headingless);
+
+        Assert.Equal(["One"], text.Headings);
     }
 
     [Fact]

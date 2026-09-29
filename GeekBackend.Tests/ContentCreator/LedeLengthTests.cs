@@ -116,21 +116,45 @@ public class LedeLengthTests
 
     [Theory]
     [MemberData(nameof(EveryLedePrompt))]
-    public void NoLedePromptAsksForAHeading(string which)
+    public void EveryLedePromptAsksForAHeading(string which)
     {
-        // A lede is the lead paragraph. It runs under the page title and has no headline of its
-        // own -- it had one until 2026-09-23, rendered as an h2, so every page showed two headlines
-        // stacked and the slot a reader reads as the lede held a one-sentence summary instead.
+        // Inverted 2026-09-29. This asserted the opposite -- that no lede prompt asks for a heading
+        // -- which was the 2026-09-23 decision. Jeff: "While you are correct normally lede paragraphs
+        // have no heading, in this codebase they do." The lede is the page's first H2: PillarPrompts
+        // says "Its lede IS its first H2", GccGenerateService stores it as `lede with { Tag = "h2" }`,
+        // its outline slot is a SectionSlot.Cover the writer names, and the revise path reads
+        // document.Lede.Heading as the draft's Title.
+        //
+        // The prompt had been contradicting itself for six days: this contract asked for no heading
+        // while the pillar user block said "You write its heading." -- so whether a page shipped one
+        // came down to whether the model volunteered a key nobody asked for, and BuildLedeSection
+        // then threw it away regardless.
         var prompt = Prompt(Build(which));
 
-        // Scoped to the lede's own shape: nested h3 children legitimately do carry headings, so a
-        // blanket search for the word would fail on a correct contract.
+        // Scoped to the lede's own shape: nested h3 children carry headings too, so a blanket search
+        // proves nothing about the lede.
         var ledeShapeStart = prompt.IndexOf("\"ledeType\"", StringComparison.Ordinal);
         Assert.True(ledeShapeStart >= 0, "the lede contract is missing from the prompt entirely");
         var ledeShape = prompt[ledeShapeStart..Math.Min(ledeShapeStart + 600, prompt.Length)];
 
-        Assert.DoesNotContain("\"heading\"", ledeShape, StringComparison.Ordinal);
-        Assert.Contains("no heading", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"heading\"", ledeShape, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryLedePrompt))]
+    public void EveryLedePromptForbidsRestatingTheTitle(string which)
+    {
+        // The reason the heading was removed in 2026-09-23 rather than governed: the title prints
+        // immediately above it, so a heading restating the title sets one thought twice -- Jeff's
+        // "How Automated Data Entry & Processing Can Transform Your Business then Transform Your
+        // Business with Automated Data Entry & Processing seem redundant". Asking for the heading
+        // again without this rule brings that back.
+        var prompt = Prompt(Build(which));
+
+        Assert.Contains("must not restate the page title", prompt, StringComparison.Ordinal);
+        // And it is held to the same craft rules as every other heading on the page, so the opening
+        // is not the one place "Overview" survives.
+        Assert.Contains("HEADINGS: write them for this page and no other", prompt, StringComparison.Ordinal);
     }
 
     [Fact]

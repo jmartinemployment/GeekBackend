@@ -2819,8 +2819,9 @@ public class GccGenerateService
         // Always merged, never conditional. This used to compare the two headings and insert the
         // introduction as a separate first section when they differed -- so whether a reader got one
         // opening or two came down to whether the model happened to return matching strings. Jeff,
-        // 2026-09-23: "This just feels wrong". Neither carries a heading now, so there is nothing to
-        // compare and nothing to decide: the introduction is the lede continuing.
+        // 2026-09-23: "This just feels wrong". The introduction carries no heading, so there is
+        // nothing to compare and nothing to decide: it is the lede continuing, under the lede's own
+        // heading.
         lede = lede with
         {
             Paragraphs = [.. lede.Paragraphs, .. pillarIntroduction.Paragraphs],

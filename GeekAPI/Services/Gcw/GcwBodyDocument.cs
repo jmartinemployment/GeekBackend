@@ -67,9 +67,17 @@ public static class GcwBodyDocument
             if (document.ValueKind == JsonValueKind.Object
                 && document.TryGetProperty("lede", out var ledeEl))
             {
-                // A Section, not a string. Its own heading is deliberately left out of `headings`:
-                // the lede has no heading of its own on the page, so counting it as one would let a
-                // draft pass "keyword in a heading" on text no reader sees as a heading.
+                // A Section, not a string. Its heading counts as a heading, because it is one: the
+                // lede is the page's first H2 and SectionHtmlRenderer emits the tag. This excluded
+                // it until 2026-09-29, reasoning that "the lede has no heading of its own on the
+                // page, so counting it would let a draft pass 'keyword in a heading' on text no
+                // reader sees as a heading" -- true of a headingless lede, and the lede is not one
+                // (Jeff, 2026-09-29). With the premise inverted so is the failure: excluding the
+                // one heading most likely to carry the keyword made a draft fail that check on text
+                // the reader does see as a heading.
+                //
+                // A lede stored as a bare string, or returned without a heading, adds nothing --
+                // there is no heading to count, and none is synthesized.
                 var ledeParts = new List<string>();
                 if (ledeEl.ValueKind == JsonValueKind.String)
                 {
@@ -78,6 +86,13 @@ public static class GcwBodyDocument
                 else if (ledeEl.ValueKind == JsonValueKind.Object)
                 {
                     CollectParagraphs(ledeEl, ledeParts);
+                    if (ledeEl.TryGetProperty("heading", out var ledeHeading)
+                        && ledeHeading.ValueKind == JsonValueKind.String
+                        && ledeHeading.GetString() is { Length: > 0 } h
+                        && !string.IsNullOrWhiteSpace(h))
+                    {
+                        headings.Add(h);
+                    }
                 }
 
                 lede = string.Join(" ", ledeParts.Where(p => !string.IsNullOrWhiteSpace(p))).Trim();

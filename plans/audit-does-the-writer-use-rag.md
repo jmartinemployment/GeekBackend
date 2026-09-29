@@ -353,38 +353,60 @@ and `GccHeadingProvenanceGuard:153` is `"plan" => true` — unconditional. Check
 refuse nothing that is not already refused. Recorded here because the first version of this
 section listed it as a gap, and an unresolved "gap" in a plan is read as work outstanding.
 
-**4. The pillar lede prompt contradicts itself about whether the lede has a heading. OPEN —
-needs a decision, because it changes what ships.**
+**4. The lede's heading. FIXED — the lede has one, and now every place agrees.**
 
-One prompt, three answers:
+Jeff, 2026-09-29: *"While you are correct normally lede paragraphs have no heading, in this
+codebase they do."* I asked this twice, the second time after it had already been answered. It
+was answered.
 
-| where | what it says |
+What the codebase actually did: the lede was described three ways at once.
+
+| where | what it said |
 |---|---|
-| system block | *"No heading of any kind: the title is the page's only headline."* |
-| `LedeJsonContract` | no `heading` key at all — *"the opening itself -- no heading"* |
-| user block | *"Write the pillar's Lede (first H2) 1 of 6. It covers: {ledeHeading}. **You write its heading.**"* |
+| pillar system block | *"No heading of any kind: the title is the page's only headline."* |
+| `LedeJsonContract` | no `heading` key at all |
+| pillar user block | *"...(first H2)... **You write its heading.**"* |
+| `BuildLedeSection` | `new Section("h2", string.Empty, ...)` — **discarded it either way** |
 
-So whether a pillar ships with an `<h2>` on its opening comes down to whether the model
-volunteers a `heading` key the contract never asked for. `Normalize` keeps it if it is there
-(`Heading = section.Heading ?? string.Empty`) and `SectionHtmlRenderer.AppendSection` emits the
-tag whenever it is non-blank — while `ParseLedeAndIntroduction:186` explicitly *blanks* the
-introduction's heading and does nothing to the lede's.
+So the model was asked for a heading, given nowhere to put it, told not to write one, and had it
+thrown away if it wrote one anyway.
 
-The two sides are each documented as deliberate, which is why this needs settling rather than
-guessing:
+**That discard was not cosmetic.** `GccGenerateService:1403-1408` reads
+`document.Lede.Heading` as the revise path's `Title`, `MetaDescription` and `Keywords`, and passes
+it as the topic to `BuildMinimalContext`. With the heading hardcoded empty, every revise of a
+freshly generated draft was handed an empty title, an empty meta description, and a keyword list
+holding one empty string. That is the strongest evidence for which way this resolves: the
+codebase *depends* on the lede carrying a heading.
 
-- **No heading** is the later decision. The parser's own docstring says the lede *"asked for one
-  until 2026-09-23"*; the merge comment says *"Neither carries a heading now, so there is nothing
-  to compare and nothing to decide"*; the renderer says a lede *"arrives with a blank heading"*;
-  `AGENTS.md` says content starts at the first `Section`. On this reading, `"You write its
-  heading."` and `(first H2)` are stale lines still being obeyed, and Jeff's *"in this codebase
-  they do"* is a report of that leak, not an endorsement of it.
-- **Heading** is what `PillarPrompts` and `GccGenerateService` both assert in prose — *"Its lede
-  IS its first H2"* — what `lede with { Tag = "h2" }` sets up, and what the slot implies, since
-  `Sections[0]` is a `SectionSlot.Cover` the writer is meant to name.
+Now consistent:
 
-Either way the other two places must change to match. Not doing it in this pass: guessing here
-means changing the shape of every pillar and blog that ships.
+| file | change |
+|---|---|
+| `LlmResponseJsonParser.cs` | `BuildLedeSection` keeps `lede.Heading` instead of `string.Empty` |
+| `ContentPromptBuilder.cs` | `heading` key in `LedeJsonContract`; new `LedeHeadingInstruction`; the "No heading of any kind" line replaced; all four lede prompts state the heading rules |
+| `SectionHtmlRenderer.cs` | comment: the blank-heading skip is tolerance, not a claim the lede has none |
+| `GccGenerateService.cs` | the always-merge comment's reason corrected |
+| `GccV2WriteOutlineRules.cs` | same comment, same correction |
+| `GcwBodyDocument.cs` | the lede's heading now counts as a heading — see below |
+| 4 test files | two assertions inverted, three tests added |
+
+**Two tails worth naming, because both were behaviour, not comments.**
+
+`GcwBodyDocument` excluded the lede's heading from the list the "keyword in a heading" check
+scores, reasoning that *"the lede has no heading of its own on the page, so counting it as one
+would let a draft pass ... on text no reader sees as a heading."* Sound for a headingless lede.
+With the premise inverted the failure inverts too: excluding the heading most likely to carry the
+keyword made a draft **fail** that check on text the reader does see as a heading. It counts now,
+and a lede returned without a heading still contributes none — no synthesis, no borrowing.
+
+And the redundancy that got the heading removed in the first place is handled rather than
+reintroduced. The title prints immediately above the lede's heading, so a heading restating the
+title sets one thought twice — Jeff's *"How Automated Data Entry & Processing Can Transform Your
+Business then Transform Your Business with Automated Data Entry & Processing seem redundant"*.
+`LedeHeadingInstruction` names that failure with that example, and the lede's heading is now held
+to `HeadingCraftInstruction` like every other heading on the page, so the opening is not the one
+place `"Overview"` survives. Asking for the heading back without those rules would have shipped
+the original defect again.
 
 ### Step 3 — name the competitor path honestly
 

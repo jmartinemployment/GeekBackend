@@ -219,8 +219,10 @@ public static class SectionHtmlRenderer
 
     private static void AppendSection(HtmlDocument doc, HtmlNode parent, Section section)
     {
-        // A lede has no headline of its own -- it runs directly under the page title -- so it
-        // arrives with a blank heading and must not produce an empty <h2></h2>.
+        // A section with no heading -- an introduction, which is the lede continuing, or a lede the
+        // model returned without one -- must not produce an empty <h2></h2>. This is tolerance for
+        // a missing heading, not a statement that the lede has none: the lede is this page's first
+        // H2 and carries the heading the writer gave it.
         if (string.IsNullOrWhiteSpace(section.Heading))
         {
             AppendSectionBody(doc, parent, section);

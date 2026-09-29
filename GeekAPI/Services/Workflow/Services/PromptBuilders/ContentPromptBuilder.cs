@@ -894,29 +894,63 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "get. A three-sentence opening is not a short opening, it is an opening that has not started.";
 
     /// <summary>
-    /// The lede is the lead paragraph. It sits directly under the headline and has no headline of
-    /// its own -- which is why there is no "heading" here.
+    /// The lede carries a heading. It is this page's first H2 -- <c>PillarPrompts</c> says so
+    /// ("Its lede IS its first H2"), <c>GccGenerateService</c> stores it as
+    /// <c>lede with { Tag = "h2" }</c>, its outline slot is a <see cref="SectionSlot.Cover"/> the
+    /// writer names, and <c>SectionHtmlRenderer</c> emits the tag. Jeff, 2026-09-29: "While you are
+    /// correct normally lede paragraphs have no heading, in this codebase they do."
     ///
     /// <para>
-    /// It asked for one until 2026-09-23, and the lede was stored as a Section and rendered through
-    /// the same path as a body section, so every page carried two headlines stacked: the title, then
-    /// the lede's. That is the redundancy Jeff reported as "How Automated Data Entry &amp; Processing
-    /// Can Transform Your Business then Transform Your Business with Automated Data Entry &amp;
-    /// Processing seem redundant" -- which I treated as a wording problem and answered with an
-    /// instruction not to restate the title, when the lede should never have had a heading at all.
-    /// The twelve types are the tell: summary, anecdotal, narrative, question, startling statement
-    /// are kinds of opening <i>paragraph</i>. Nobody picks "anecdotal" for a section heading.
+    /// This contract had no "heading" key between 2026-09-23 and 2026-09-29, while the pillar
+    /// prompt's user block went on saying "You write its heading." -- so whether a page shipped an
+    /// h2 on its opening came down to whether the model volunteered a key nobody had asked it for.
+    /// Two of the three places that describe the lede said one thing and the third said the other.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why it was removed, and why that reason is handled here rather than by removing it
+    /// again.</b> The lede rendered through the same path as a body section, so a page could carry
+    /// two headlines stacked -- the redundancy Jeff reported as "How Automated Data Entry &amp;
+    /// Processing Can Transform Your Business then Transform Your Business with Automated Data Entry
+    /// &amp; Processing seem redundant". That is a real defect and it is specifically what
+    /// <see cref="LedeHeadingInstruction"/> addresses: the heading must not restate the title, and
+    /// it is held to the same craft rules as every other heading on the page. The alternative --
+    /// no heading at all -- also removes the page's first H2, which the outline counts on.
+    /// </para>
+    ///
+    /// <para>
+    /// The twelve <c>ledeType</c> values describe the opening <i>paragraphs</i>, not the heading.
+    /// Nobody picks "anecdotal" for a heading; the type shapes the prose under it.
     /// </para>
     /// </summary>
     private const string LedeJsonContract =
         "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", " +
-        "\"paragraphs\": [" + ParagraphJsonShape + ", ...] (the opening itself -- no heading: it runs directly under the page title)" +
+        "\"heading\": \"...\" (this page's first H2, in your own words -- see the heading rules; never a restatement of the title), " +
+        "\"paragraphs\": [" + ParagraphJsonShape + ", ...] (the opening itself, running under that heading)" +
         "}";
 
     /// <summary>
-    /// The introduction has no heading either. It is the opening continuing, not a first section --
-    /// it used to take the full section shape, heading included, which is how a pillar could end up
-    /// with the title, a lede headline and then a third headline before any body section.
+    /// The rules for the one heading the opening writes. Separate from
+    /// <see cref="HeadingCraftInstruction"/> because the opening's heading has a constraint no other
+    /// heading has: the page title sits immediately above it, so a heading that restates the title
+    /// prints the same sentence twice. That redundancy is why the heading was dropped from the
+    /// contract in 2026-09-23 rather than governed -- see <see cref="LedeJsonContract"/>.
+    /// </summary>
+    private const string LedeHeadingInstruction =
+        "THE OPENING'S HEADING: write one, and it is this page's first H2. " +
+        "It must not restate the page title. The title is printed immediately above it, so a heading " +
+        "that repeats the title's claim in different words prints the same sentence twice -- " +
+        "\"How Invoice Capture Can Transform Your Business\" above \"Transform Your Business with " +
+        "Invoice Capture\" is one thought, set twice, and the reader reads it as a mistake. " +
+        "The title names what the page is about; this heading names what the opening itself does -- " +
+        "the situation the reader is in, or the thing this page settles for them. " +
+        "It is not \"Overview\", \"Introduction\" or \"Lede\": those name the slot, not the content.";
+
+    /// <summary>
+    /// The introduction has no heading. Unlike the lede, which is this page's first H2, the
+    /// introduction is that opening continuing -- not a second section. It used to take the full
+    /// section shape, heading included, which is how a pillar could end up with the title, the
+    /// lede's heading and then a third headline before any body section.
     /// </summary>
     private const string IntroductionJsonContract =
         "{\"paragraphs\": [" + ParagraphJsonShape + ", ...] (continues the lede; no heading), " +
@@ -978,9 +1012,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
         // scene -- so this biases against it rather than banning it.
         sb.AppendLine();
         // The three lines that stood here told the model not to let the lede's heading restate the
-        // page title. The lede has no heading any more -- it is the lead paragraph, under the title
-        // -- so that was instruction about a slot that no longer exists, spending prompt space and
-        // describing a shape the contract contradicts.
+        // page title. They were removed on 2026-09-23 with the heading itself, then restored on
+        // 2026-09-29 with it -- as LedeHeadingInstruction, stated once next to the heading's other
+        // rules rather than buried in the lede-type guidance, which is about choosing the opening's
+        // twelve types and not about what its heading may say.
 
         sb.AppendLine("Choosing: \"summary\" is the weakest hook and the one most often reached for by default.");
         sb.AppendLine("Use it only when the brief's intent is transactional or navigational, or the reader");
@@ -1325,6 +1360,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
+            .AppendLine(LedeHeadingInstruction)
+            .AppendLine(HeadingCraftInstruction)
             .AppendLine(LedeJsonContract)
             .ToString();
 
@@ -1375,7 +1412,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + topic → 12 types); keep expert, consultative tone throughout.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine()
-            .AppendLine("Produce the pillar's opening — the lead paragraphs that run directly under the page title. No heading of any kind: the title is the page's only headline.")
+            .AppendLine("Produce the pillar's opening — its first H2 and the lead paragraphs under it.")
             .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("Do NOT start with \"How\" or a question unless ledeType is Question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
@@ -1402,7 +1439,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BuildIntroductionSectionGuidance(context))
             .AppendLine()
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
-            .AppendLine("Always include both \"lede\" and \"introduction\" keys. Neither carries a heading — they are one continuous opening, and the introduction's paragraphs follow the lede's.")
+            .AppendLine("Always include both \"lede\" and \"introduction\" keys. They are one continuous opening: the lede carries the heading, the introduction carries none, and its paragraphs follow the lede's under that same heading.")
+            .AppendLine(LedeHeadingInstruction)
+            .AppendLine(HeadingCraftInstruction)
             .AppendLine(LedeAndIntroductionJsonContract)
             .ToString();
 
@@ -1965,6 +2004,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
+            .AppendLine(LedeHeadingInstruction)
+            .AppendLine(HeadingCraftInstruction)
             .AppendLine(LedeJsonContract)
             .ToString();
 
@@ -2076,6 +2117,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
+            .AppendLine(LedeHeadingInstruction)
+            .AppendLine(HeadingCraftInstruction)
             .AppendLine(LedeJsonContract)
             .ToString();
 
