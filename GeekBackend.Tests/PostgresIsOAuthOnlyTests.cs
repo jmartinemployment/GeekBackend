@@ -132,6 +132,43 @@ public class PostgresIsOAuthOnlyTests
     }
 
     [Fact]
+    public void GeekAPI_cannot_reach_Postgres_at_all()
+    {
+        // Jeff, 2026-09-29: "Postgres is never called directly, all calls go throught Geek-API ->
+        // Geek-Repository -> Supabase", then "UNAUTHORIZED DIRECT CALLS TO SUPABASE ARE TO BE
+        // DELETED". GeekAPI had three of them, plus a shared library carrying two more: a Dapper
+        // SELECT against sa2.site_profiles behind api/seo/internal/site-profiles, and two services
+        // opening their own connections to LISTEN. It also held two Postgres credentials of its own,
+        // SITE_ANALYZER2_DATABASE_URL and GCC_V2_LISTEN_DATABASE_URL.
+        //
+        // This asserts on the PROJECT FILE rather than on source, because that is the level where
+        // the capability lives: with no Npgsql, no Dapper and no GeekSa2Read reference, code that
+        // opens a connection does not compile. A source-level ban can be worked around by a new
+        // file; this cannot be worked around without editing the csproj, which is the point.
+        var csproj = File.ReadAllText(Path.Combine(SolutionRoot, "GeekAPI", "GeekAPI.csproj"));
+
+        foreach (var forbidden in new[] { "Npgsql", "Dapper", "GeekSa2Read" })
+        {
+            Assert.False(
+                csproj.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+                $"GeekAPI.csproj references {forbidden}. GeekAPI is the gateway, not a data plane: "
+                + "every Postgres read and write goes GeekAPI -> GeekRepository -> Supabase. "
+                + "If you need data here, add a route in GeekRepository and call it over the "
+                + "existing named HttpClient(\"GeekRepository\").");
+        }
+
+        // And the two credentials it used to hold. GeekRepository may name its own; GeekAPI may not.
+        foreach (var rel in SourceFiles("*.cs").Where(r => r.StartsWith("GeekAPI/", StringComparison.Ordinal)))
+        {
+            var source = File.ReadAllText(Path.Combine(SolutionRoot, rel));
+            Assert.False(
+                source.Contains("SITE_ANALYZER2_DATABASE_URL", StringComparison.Ordinal)
+                || source.Contains("GCC_V2_LISTEN_DATABASE_URL", StringComparison.Ordinal),
+                $"{rel} names a Postgres connection string. GeekAPI holds no database credential.");
+        }
+    }
+
+    [Fact]
     public void RAG_generate_stays_removed()
     {
         // RAG is Library-only. Asserted here as well as in GccV2FallbackCorrectnessTests because

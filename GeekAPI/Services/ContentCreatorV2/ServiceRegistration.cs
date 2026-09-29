@@ -106,7 +106,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<GccV2ContextIngestionWake>();
         services.AddScoped<GccV2ContextIngestionNotifier>();
         services.AddHostedService<GccV2ContextIngestionWorker>();
-        services.AddHostedService<GccV2ContextIngestionListenService>();
         services.AddHostedService<GccV2ContextRetentionWorker>();
         services.AddSingleton<ContentModelPolicy>();
         services.AddSingleton<GccV2SkillAdminPolicy>();
@@ -166,7 +165,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddHostedService<GccV2FirstPartyAgentSeeder>();
         services.AddHostedService<GccV2AgentTestWorker>();
         services.AddHostedService<GccV2JobWorker>();
-        services.AddHostedService<GccV2JobListenService>();
 
         services.AddSignalR();
         services.AddSingleton<IUserIdProvider, GccV2SubUserIdProvider>();

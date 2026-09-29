@@ -6,7 +6,6 @@ using System.Threading.Channels;
 using GeekAPI.HttpClients;
 using GeekAPI.Controllers.ContentCreatorV2.Hubs;
 using Microsoft.AspNetCore.SignalR;
-using Npgsql;
 
 namespace GeekAPI.Services.ContentCreatorV2.Context;
 
@@ -328,58 +327,5 @@ public sealed class GccV2ContextIngestionWorker(
             1, new KeyValuePair<string, object?>("outcome", outcome));
         GccV2ContextMetrics.IngestionLatency.Record(
             Math.Max(0, (DateTimeOffset.UtcNow - job.CreatedAtUtc).TotalSeconds));
-    }
-}
-
-public sealed class GccV2ContextIngestionListenService(
-    GccV2ContextIngestionWake wake,
-    ILogger<GccV2ContextIngestionListenService> logger) : BackgroundService
-{
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        // GCC_V2_LISTEN_DATABASE_URL only — this connection issues nothing but LISTEN and is
-        // pointed at a role with CONNECT and no grants on content_creator. Falling back to
-        // DATABASE_URL meant that with the dedicated variable unset the worker connected with the
-        // privileged credentials instead, silently undoing the restriction. Unset means no
-        // cross-instance wake, not a connection as someone else.
-        var value = Environment.GetEnvironmentVariable("GCC_V2_LISTEN_DATABASE_URL");
-        if (string.IsNullOrWhiteSpace(value)) return;
-        var connectionString = Normalize(value);
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                await using var connection = new NpgsqlConnection(connectionString);
-                await connection.OpenAsync(stoppingToken);
-                connection.Notification += (_, e) =>
-                {
-                    if (Guid.TryParse(e.Payload, out var id)) wake.Wake(id);
-                };
-                await using var command = new NpgsqlCommand("LISTEN gcc_v2_context_ingestion;", connection);
-                await command.ExecuteNonQueryAsync(stoppingToken);
-                while (!stoppingToken.IsCancellationRequested) await connection.WaitAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Context ingestion LISTEN failed; reconnecting.");
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-            }
-        }
-    }
-
-    private static string Normalize(string raw)
-    {
-        if (!raw.Contains("://", StringComparison.Ordinal)) return raw.Trim();
-        var uri = new Uri(raw.Trim());
-        var user = uri.UserInfo.Split(':', 2);
-        return new NpgsqlConnectionStringBuilder
-        {
-            Host = uri.Host, Port = uri.Port > 0 ? uri.Port : 5432,
-            Username = Uri.UnescapeDataString(user[0]),
-            Password = user.Length > 1 ? Uri.UnescapeDataString(user[1]) : "",
-            Database = uri.AbsolutePath.Trim('/'),
-            SslMode = Npgsql.SslMode.Prefer,
-        }.ConnectionString;
     }
 }

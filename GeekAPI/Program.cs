@@ -14,12 +14,10 @@ using GeekAPI.Services;
 using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentWriterV3;
 using GeekAPI.Services.GeekCrawler;
-using GeekAPI.Services.SiteAnalyzer2;
 using GeekAPI.Services.Workflow.Hosting;
 using GeekAPI.Services.Workflow.Infrastructure;
 using GeekApplication.Interfaces;
 using GeekApplication.Interfaces.ContentWriterV3;
-using GeekSa2Read.DependencyInjection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
@@ -296,8 +294,6 @@ builder.Services.AddScoped<IPublishAdapter, WordPressPublishAdapter>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
 builder.Services.AddScoped<DepartmentContentService>();
-builder.Services.AddGeekSa2Read();
-builder.Services.AddScoped<SiteAnalyzer2SiteProfileReader>();
 
 // Workflow (GeekAPI-owned): persistence reuses the "GeekRepository" named HttpClient already
 // configured above (X-Repo-Key already attached). See GeekBackend/AGENTS.md § Service topology

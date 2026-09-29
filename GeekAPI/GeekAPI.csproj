@@ -7,12 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
     <PackageReference Include="DotNetEnv" Version="3.1.1" />
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Microsoft.Playwright" Version="1.51.0" />
-    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
@@ -27,7 +25,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GeekApplication\GeekApplication.csproj" />
-    <ProjectReference Include="..\GeekSa2Read\GeekSa2Read.csproj" />
   </ItemGroup>
 
   <ItemGroup>
