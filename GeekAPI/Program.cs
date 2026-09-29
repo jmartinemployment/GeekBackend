@@ -105,7 +105,6 @@ builder.Services.AddScoped<ICaseStudyRepository, HttpCaseStudyRepository>();
 builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();
 builder.Services.AddScoped<IUseCaseRepository, HttpUseCaseRepository>();
 builder.Services.AddScoped<IBlogRepository, HttpBlogRepository>();
-builder.Services.AddScoped<IGlossaryRepository, HttpGlossaryRepository>();
 builder.Services.AddScoped<IWebPostRepository, HttpWebPostRepository>();
 builder.Services.AddScoped<IAssetUploadService, NoOpAssetUploadService>();
 

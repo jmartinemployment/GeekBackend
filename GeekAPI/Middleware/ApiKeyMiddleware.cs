@@ -33,7 +33,7 @@ public class ApiKeyMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var normalizedPath = NormalizePath(context.Request.Path.Value);
-        if (PublicPaths.Contains(normalizedPath) || IsPublicBlogRead(context) || IsPublicGlossaryRead(context))
+        if (PublicPaths.Contains(normalizedPath) || IsPublicBlogRead(context))
         {
             await _next(context);
             return;
@@ -211,14 +211,6 @@ public class ApiKeyMiddleware
             identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId.ToString()));
             context.User = new ClaimsPrincipal(identity);
         }
-    }
-
-    private static bool IsPublicGlossaryRead(HttpContext context)
-    {
-        if (!HttpMethods.IsGet(context.Request.Method)) return false;
-        var path = NormalizePath(context.Request.Path.Value);
-        if (path.Equals("/api/glossary/terms", StringComparison.OrdinalIgnoreCase)) return true;
-        return path.StartsWith("/api/glossary/terms/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPublicBlogRead(HttpContext context)

@@ -59,25 +59,30 @@ scheduler, and the missing-collection purge fix. **Verified deployed.**
 | `f1517b9` | Lost-enqueue logging — had been stranded on a branch, never deployed |
 | `0eaabc8` | OpenAI stubbed in the contract tests |
 
-### Uncommitted
+### Glossary — removed entirely, 2026-09-29
 
-`GeekAPI/Controllers/GlossaryController.cs` — now read-only. Removed `Create`,
-`Update`, `Delete`, the private `TriggerRevalidationAsync`, and two constructor
-dependencies that existed only to serve it. Builds clean.
+Started as "make the controller read-only", finished as a full removal. Jeff:
+*"Glossary no longer uses Postgres"*, then *"remove all of glossary read, write,
+etc."*
 
-**The cut isn't finished.** Three layers are now unreachable:
+Gone: both GeekAPI controllers, `HttpGlossaryRepository`, `IGlossaryRepository`,
+the three DTOs, GeekRepository's `GlossaryController` and `GlossaryRepository`, the
+`IsPublicGlossaryRead` middleware exemption, both DI registrations, the six
+`Migrations/Sql/003*` glossary scripts, and `GeekRepository/Scripts/` (one orphaned
+copy of `0038`, run by nothing).
 
-- `GeekAPI/HttpClients/HttpGlossaryRepository.cs` — `CreateAsync`/`UpdateAsync`/`DeleteAsync`
-- `GeekApplication/Interfaces/IGlossaryRepository.cs` — the three write signatures
-- `GeekRepository/Controllers/Content/GlossaryController.cs` — POST/PUT/DELETE
-- `GeekRepository/Repositories/Glossary/GlossaryRepository.cs` — the three impls
+**I was wrong twice on the way here, both times by keeping things.** I kept the two
+GETs calling them *"the public read surface and the export path"* — there was no
+export path; I asserted one that does not exist. And I left `geek_glossary`'s SQL in
+place, so GeekRepository would have gone on creating and seeding a Postgres schema
+for a feature with no code.
 
-**Your brief was stale on one point:** the two GETs are *also* no longer called.
-`geekatyourspot/src/lib/glossary.ts` was unlinked from GeekAPI **today** and reads
-`src/data/glossary/terms.ts`, saying *"Editing a term is a code change and a
-deploy, not a database update."* That is why deleting the writes is right — the DB
-stopped being the source of record. I kept the GETs: they are the public read
-surface and the export path.
+`geekatyourspot/src/lib/glossary.ts` was unlinked from GeekAPI on 2026-09-28 and
+serves terms from `src/data/glossary/terms.ts`, saying *"Editing a term is a code
+change and a deploy, not a database update."* Deleting a glossary SQL file is safe
+because `SqlMigrationRunner` iterates the files on disk and skips names already in
+`schema_migrations` — a name recorded there with no file is not an error. `citext`,
+the one extension `0034` created, is also created by `0015` and `0022`.
 
 ### The retry (`d2eacec`), since it was the big one
 
@@ -158,11 +163,8 @@ middle stage.
    published, and it is reported on the response as
    `supersededRunAwaitingVectorPurge`. Crawling still blocks for the owner until the
    purge succeeds, so nothing is swallowed. Plan file deleted.
-5. ~~**Finish the glossary cascade.**~~ **Done 2026-09-29.** All four layers removed:
-   `HttpGlossaryRepository`'s three writes, `IGlossaryRepository`'s three signatures,
-   GeekRepository's POST/PUT/DELETE on `repo/content/glossary`, and
-   `GlossaryRepository`'s insert/update/delete SQL plus `InsertDefinitionsAsync`.
-   `GlossaryTermWriteRequest` went too — nothing referenced it.
+5. ~~**Finish the glossary cascade.**~~ **Done 2026-09-29 — and then the whole
+   feature went.** See the Glossary section above.
 6. **The flush cap** — the only change that would actually move memory. Not yet
    written up.
 
