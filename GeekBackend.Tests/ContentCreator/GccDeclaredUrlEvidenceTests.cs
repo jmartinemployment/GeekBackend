@@ -81,12 +81,30 @@ public class GccDeclaredUrlEvidenceTests
     }
 
     [Fact]
+    public void ABrochureSiteIsUnusable()
+    {
+        // Eight pages and eighty chunks is a real crawl of a small marketing site, and still not
+        // something a 3,000-word partner page can be paraphrased out of. The first floor here was
+        // 5 pages and 25 chunks, which passed this.
+        Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 8, chunks: 80)));
+    }
+
+    [Fact]
     public void TheFloorIsPagesAndChunksTogether()
     {
         // Plenty of chunks from one page is one page re-chunked, not a corpus.
-        Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 1, chunks: 400)));
-        // Plenty of pages that yielded almost nothing is a crawl that fetched and could not read.
-        Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 40, chunks: 3)));
+        Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 1, chunks: 4000)));
+        // Plenty of pages yielding almost nothing is a crawl that fetched a site rendering nothing
+        // without JavaScript: 40 pages at 2 chunks each is 40 nav shells.
+        Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 40, chunks: 80)));
+    }
+
+    [Fact]
+    public void TwentyFiveRealPagesIsUsable()
+    {
+        // At ~10 chunks per substantial page, this is what a genuine vendor or consultancy site
+        // looks like once crawled.
+        Assert.Null(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 25, chunks: 250)));
     }
 
     [Theory]

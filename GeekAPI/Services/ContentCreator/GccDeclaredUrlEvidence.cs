@@ -45,8 +45,27 @@ public static class GccDeclaredUrlEvidence
     /// A crawl below this produced a row and not a corpus — blocked at the first page, or a site
     /// that renders nothing without JavaScript. Both index; neither can be written from.
     /// </summary>
-    public const int MinIndexedPages = 5;
-    public const int MinIndexedChunks = 25;
+    /// <remarks>
+    /// <para>
+    /// Derived from the chunker rather than estimated. Geek-Crawler-Rag splits at 200-token children
+    /// with 40 overlap (stride 160) and 1,000-token parents (<c>config.py:69-76</c>), so a
+    /// substantial page of 1,200-1,500 words yields roughly 10-12 chunks and a thin one yields about
+    /// three.
+    /// </para>
+    /// <para>
+    /// 25 pages is a site rather than a brochure: a vendor's pricing, features, integrations, docs
+    /// and about, or a consultancy's services, case studies and a blog. 250 chunks is those pages
+    /// carrying prose — at ten a page it is what 25 real pages produce. Both, because they catch
+    /// different failures: few pages is a crawl that was blocked, while many pages and few chunks is
+    /// a crawl that fetched a site rendering nothing without JavaScript.
+    /// </para>
+    /// <para>
+    /// The first version of this was 5 and 25, which is two good pages — Jeff, 2026-09-29: "seems
+    /// like a very low bar". It was, and it was eyeballed rather than derived.
+    /// </para>
+    /// </remarks>
+    public const int MinIndexedPages = 25;
+    public const int MinIndexedChunks = 250;
 
     /// <summary>Why one declared URL cannot be used, or null when it can.</summary>
     public static string? Unusable(GeekCrawlerRagHostIndex row, GeekCrawlerRunDto? run)
