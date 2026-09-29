@@ -291,13 +291,22 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "\"plan\" (only for a heading that matches one you were explicitly assigned to write), " +
         "\"brief:<fieldName>\" (the brief field above it is drawn from), " +
         "\"paa:<question text>\" (the exact People Also Ask question above it answers), " +
-        "\"competitor:<heading text>\" (the exact competitor heading above it fills a gap on), or " +
+        "\"competitor:<heading text>\" (the exact competitor heading above it fills a gap on), " +
         // The must-mention block calls its subtopics compulsory and, until 2026-09-28, licensed
         // none of them -- so a heading written to obey it had no honest tag, and the nearest
         // available one ("brief:Subtopics the site already treats under it, ...") failed the guard
         // and refused the draft.
         "\"site:<subtopic text>\" (the exact subtopic from THIS SITE ALREADY COVERS THIS TOPIC that " +
-        "the section covers)";
+        "the section covers), or " +
+        // Added 2026-09-29. QUOTEABLE RESEARCH was in the prompt with nothing to license a heading
+        // built on it: a blog draft carrying one heading per partner tool -- exactly what the
+        // required-mentions block asks for -- was discarded on 2026-09-28 because the only tag it
+        // could reach ("site:") did not resolve. The model was being shown evidence and refused for
+        // structuring the page around it.
+        "\"evidence:<identifier>\" (a passage in QUOTEABLE RESEARCH that section is built on -- the " +
+        "identifier is that passage's \"Target Entity Match\" partner name, or its \"Section:\" " +
+        "title, or its page title, or its host; use the partner name where the passage carries one, " +
+        "because that is the spelling the rest of this prompt asks for)";
 
     private const string SectionJsonContractWithProvenance =
         "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +

@@ -13,12 +13,14 @@ public class GccHeadingProvenanceGuardTests
         IEnumerable<string>? fields = null,
         IEnumerable<string>? paa = null,
         IEnumerable<string>? competitor = null,
-        IEnumerable<string>? site = null) =>
+        IEnumerable<string>? site = null,
+        IEnumerable<string>? retrieved = null) =>
         new(
             new HashSet<string>(fields ?? [], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(paa ?? [], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(competitor ?? [], StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(site ?? [], StringComparer.OrdinalIgnoreCase));
+            new HashSet<string>(site ?? [], StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(retrieved ?? [], StringComparer.OrdinalIgnoreCase));
 
     [Fact]
     public void A_heading_covering_one_of_the_sites_own_subtopics_is_licensed()
@@ -202,5 +204,83 @@ public class GccHeadingProvenanceGuardTests
             [Sec("First", null), Sec("Second", "brief:nonexistent")], Evidence());
 
         Assert.Equal(2, violations.Count);
+    }
+}
+
+/// <summary>
+/// The `evidence:` channel, added 2026-09-29. It restores the only licensing route for what the
+/// Library retrieved -- `retrieval:&lt;url&gt;` was removed on 2026-09-22, leaving the guard with no
+/// way to license a heading built on a retrieved passage.
+///
+/// <para>
+/// The property that answers the original objection: this channel only ever lets a heading
+/// <em>pass</em>. An empty retrieved set licenses nothing and refuses nothing extra, so a create
+/// with no research behaves exactly as it did before the channel existed.
+/// </para>
+/// </summary>
+public class GccHeadingProvenanceRetrievedEvidenceTests
+{
+    private static Section Sec(string heading, string? provenance) =>
+        new("h2", heading, [], null, [], Provenance: provenance);
+
+    private static GccHeadingProvenanceEvidence Retrieved(params string[] retrieved) =>
+        new(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(retrieved, StringComparer.OrdinalIgnoreCase));
+
+    [Fact]
+    public void A_heading_built_on_a_retrieved_partner_is_licensed_by_its_name()
+    {
+        // The exact shape discarded on 2026-09-28: one heading per partner tool, which is what the
+        // required-mentions block asks for, with no tag that could license it.
+        var evidence = Retrieved("Melio", "Dext", "Lightyear");
+
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [
+                Sec("Melio: Simplify Payments", "evidence:Melio"),
+                Sec("Dext: Accurate Data Capture", "evidence:Dext"),
+            ],
+            evidence);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void A_heading_may_cite_the_section_the_passage_sat_under()
+    {
+        var evidence = Retrieved("Invoice capture", "tipalti.com");
+
+        Assert.Empty(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("How invoices arrive", "evidence:Invoice capture")], evidence));
+        Assert.Empty(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("What the vendor claims", "evidence:tipalti.com")], evidence));
+    }
+
+    [Fact]
+    public void A_tag_naming_evidence_that_was_not_retrieved_is_still_refused()
+    {
+        // The guard stays binary. Naming a partner the Library did not return is exactly the
+        // hallucination this stage exists to catch, and it must not become licensable just because
+        // the channel now exists.
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("Bill.com: Smart Approvals", "evidence:Bill.com")], Retrieved("Melio"));
+
+        var violation = Assert.Single(violations);
+        Assert.Contains("does not resolve to any available source", violation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_empty_retrieved_set_licenses_nothing_and_refuses_nothing_extra()
+    {
+        // The answer to why retrieval:<url> was removed: that rule made generation FAIL on missing
+        // research. This one cannot. With no research, an evidence: tag simply does not license --
+        // the same refusal an unknown brief field would get, and no new failure mode.
+        var violations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(
+            [Sec("Anything", "evidence:Anything")], Retrieved());
+
+        Assert.Single(violations);
     }
 }

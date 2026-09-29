@@ -288,7 +288,7 @@ public class GccGenerateService
 
     /// <summary>
     /// Everything <see cref="BuildBriefAndResearchBlock"/> renders beyond the Brief itself:
-    /// quoteable research (retrieved or operator-uploaded), uploaded Keyword SERP files, and the
+    /// quoteable research (retrieved from the crawl index), uploaded Keyword SERP files, and the
     /// SERP index. Split out so the pillar/blog live path -- which builds its own Brief-controls
     /// block separately via <c>BuildPillarContext</c>/<c>BuildBriefBodyGuidance</c> -- can pull in
     /// research without duplicating the Brief a second time. Stage 2: this was the retrieved
@@ -308,12 +308,11 @@ public class GccGenerateService
             //
             // The passages are no longer flat prose. A retrieved chunk arrives already carrying
             // where it sat on its page and what it linked to (HttpGeekCrawlerRagClient.RenderChunk),
-            // and the model cannot use structure nobody described to it. Only retrieved passages
-            // carry these lines; an operator upload is plain prose, which is why the per-page origin
-            // line below distinguishes the two rather than leaving the model to guess.
-            sb.AppendLine("How to read a passage. A retrieved passage may carry labelled lines above");
-            sb.AppendLine("or around its text; an operator-supplied passage is plain prose and carries");
-            sb.AppendLine("none of them. The labels are:");
+            // and the model cannot use structure nobody described to it. A passage extracted from a
+            // fetched partner page rather than retrieved from the index carries fewer of these
+            // lines, which is why each is described as optional rather than promised.
+            sb.AppendLine("How to read a passage. A passage may carry labelled lines above or around");
+            sb.AppendLine("its text. Not every passage carries every label. The labels are:");
             sb.AppendLine("  Section: <title>            the heading that passage sits under on its page.");
             sb.AppendLine("  Target Entity Match: <name> the partner tool that passage's own links point at.");
             sb.AppendLine("  Context: / Specific detail: the surrounding block, then the matched sentence.");
@@ -351,16 +350,20 @@ public class GccGenerateService
             sb.AppendLine("   governed by rules 1 and 4, and is named plainly with no claims attached");
             sb.AppendLine("   rather than given capabilities nothing here states.");
             sb.AppendLine();
-            // Uploaded research is unlimited — read every quoteable (per-page heading/paragraph
-            // trimming below still bounds prompt size).
+            // Every quoteable is read (per-page heading/paragraph trimming below still bounds
+            // prompt size).
             foreach (var q in research.Quoteables)
             {
-                // Provenance is stated so the model — and anyone reading the rendered prompt —
-                // can tell retrieved evidence from an operator upload.
-                var origin = string.Equals(q.RetrievalMode, GccQuoteablePage.RetrievalModeRagChunk, StringComparison.Ordinal)
-                    ? "retrieved from the crawl index"
-                    : "operator-supplied";
-                sb.AppendLine($"[{q.Title}] ({q.Url}) — {origin}");
+                // No origin condition. There used to be one, testing RetrievalMode == "rag_chunk"
+                // and labelling everything else "operator-supplied" -- but the only producer of an
+                // operator-supplied quoteable was the Wiki/.edu/.gov upload path, removed
+                // 2026-09-29 with the UI control that fed it. What the condition actually caught
+                // was a null RetrievalMode, which is what GccPartnerUrlResearchService leaves on a
+                // partner page it fetched and extracted. So real partner evidence was announced to
+                // the model as an operator upload -- which the lines above define as plain prose
+                // carrying none of the structure labels. Evidence was being discredited by a test
+                // for a case that no longer exists.
+                sb.AppendLine($"[{q.Title}] ({q.Url})");
                 foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
                     sb.AppendLine($"- H{h.Level}: {h.Text}");
                 foreach (var p in q.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
@@ -3331,8 +3334,50 @@ public class GccGenerateService
         var siteSubtopics = new HashSet<string>(
             GccMustMention.Subtopics(mustMentionBlock), StringComparer.OrdinalIgnoreCase);
 
+        // What the Library actually retrieved. Four identifiers per passage, because a heading may
+        // legitimately be about the partner, about the section the passage sat under, or about the
+        // page -- and the model should not have to guess which spelling the guard will accept.
+        //
+        // The partner name comes from GccRequiredToolMentions rather than from the host, because a
+        // host cannot know that "zoneandco" is written "Zone & Co". The brief's own tool rows decide
+        // the spelling, which is the same precedence the required-mentions block and the retrieved
+        // chunk labels already use -- so a heading tagged with the name the prompt asked for is the
+        // name the guard licenses.
+        var retrievedEvidence = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var retrievedResearch = GccResearchFetchService.Deserialize(create.ResearchJson);
+        if (retrievedResearch?.Quoteables is { Count: > 0 } quoteables)
+        {
+            var toolNames = GccRequiredToolMentions.AnchorLookup(create.BriefJson);
+            foreach (var page in quoteables)
+            {
+                if (!string.IsNullOrWhiteSpace(page.SectionTitle))
+                    retrievedEvidence.Add(page.SectionTitle.Trim());
+                if (!string.IsNullOrWhiteSpace(page.Title))
+                    retrievedEvidence.Add(page.Title.Trim());
+
+                var host = HostOfQuoteable(page.Url);
+                if (host.Length == 0) continue;
+                retrievedEvidence.Add(host);
+                if (toolNames.TryGetValue(host, out var partnerName) && partnerName.Length > 0)
+                    retrievedEvidence.Add(partnerName);
+            }
+        }
+
         return new GccHeadingProvenanceEvidence(
-            populatedBriefFields, paaQuestions, competitorHeadings, siteSubtopics);
+            populatedBriefFields, paaQuestions, competitorHeadings, siteSubtopics, retrievedEvidence);
+    }
+
+    /// <summary>
+    /// The registrable host of a quoteable's URL, lowercased and without a leading "www.". Empty
+    /// when the value is not an absolute http(s) URL, which is the only form a retrieved or fetched
+    /// passage carries.
+    /// </summary>
+    private static string HostOfQuoteable(string? url)
+    {
+        if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri)) return string.Empty;
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return string.Empty;
+        var host = uri.Host.ToLowerInvariant();
+        return host.StartsWith("www.", StringComparison.Ordinal) ? host[4..] : host;
     }
 
     private sealed record SectionImagePrompt(string Section, string Prompt);

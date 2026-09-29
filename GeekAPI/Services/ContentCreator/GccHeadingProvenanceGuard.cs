@@ -18,7 +18,37 @@ public sealed record GccHeadingProvenanceEvidence(
     /// licensed nothing, so a heading written to obey that instruction could not be tagged and the
     /// draft was refused for it.
     /// </summary>
-    IReadOnlySet<string> SiteSubtopics);
+    IReadOnlySet<string> SiteSubtopics,
+    /// <summary>
+    /// What the Library actually retrieved for this create: each passage's section title, its
+    /// page title, its host, and the partner spelling that host is written with.
+    ///
+    /// <para>
+    /// This replaces the <c>retrieval:&lt;url&gt;</c> rule removed on 2026-09-22, and the objection
+    /// that removed it is answered rather than ignored. That rule made generation *fail on missing
+    /// research*: it checked a heading's claimed source URL against a set that was optional,
+    /// operator-uploaded and often empty. Two things changed. The UI no longer supplies
+    /// operator-uploaded quoteables at all, so the set is retrieved evidence or nothing (Jeff,
+    /// 2026-09-29). And <c>GccGroundingResolver</c> now refuses a create outright when no indexed
+    /// run returns a citable passage, so an empty set cannot reach generation.
+    /// </para>
+    ///
+    /// <para>
+    /// It licenses; it never requires. An empty set licenses nothing and changes no outcome — it
+    /// adds a way for a heading to pass, never a new way for a draft to fail. That is the whole
+    /// difference from the rule that was removed.
+    /// </para>
+    ///
+    /// <para>
+    /// Why it has to exist: only Tool *requires* a citeable quote — for Blog and Pillar evidence is
+    /// nice-to-have. But heading provenance is enforced identically on all three, so a Blog draft
+    /// that voluntarily built structure on retrieved evidence was refused while one that ignored the
+    /// Library passed. On 2026-09-28 a blog draft was discarded carrying one heading per partner
+    /// tool -- Melio, Dext, Lightyear, Stampli, AvidXchange -- exactly what the required-mentions
+    /// block asks for, with no tag available that could license any of them.
+    /// </para>
+    /// </summary>
+    IReadOnlySet<string> RetrievedEvidence);
 
 /// <summary>
 /// Stage 2 (heading provenance). Every section a model invents beyond its assigned outline --
@@ -121,14 +151,17 @@ public static class GccHeadingProvenanceGuard
         return kind switch
         {
             "plan" => true,
-            // "retrieval:<url>" removed 2026-09-22 (Jeff, "remove this stupid rule"): it checked a
-            // heading's claimed source URL against create.ResearchJson's Quoteables -- an optional,
-            // operator-uploaded, often-empty set unrelated to whether the model actually
-            // hallucinated anything. That made it fail on missing research, not on bad output.
+            // "retrieval:<url>" was removed 2026-09-22 (Jeff, "remove this stupid rule") because it
+            // checked a heading's claimed source URL against an optional, operator-uploaded,
+            // often-empty set, and so failed on missing research rather than on bad output. The
+            // replacement below is keyed on what was retrieved rather than on a URL the model
+            // claims, and it cannot fail a draft -- see RetrievedEvidence for why that objection no
+            // longer applies.
             "brief" => value is { Length: > 0 } && evidence.PopulatedBriefFields.Contains(value),
             "paa" => value is { Length: > 0 } && evidence.PaaQuestions.Contains(value),
             "competitor" => value is { Length: > 0 } && evidence.CompetitorHeadings.Contains(value),
             "site" => value is { Length: > 0 } && evidence.SiteSubtopics.Contains(value),
+            "evidence" => value is { Length: > 0 } && evidence.RetrievedEvidence.Contains(value),
             _ => false,
         };
     }

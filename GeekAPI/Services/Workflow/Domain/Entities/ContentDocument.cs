@@ -76,7 +76,8 @@ public sealed record Section(
     [property: JsonIgnore]
     string? Id = null,
     /// <summary>Stage 2 (heading provenance). What licensed this section, in the model's own words
-    /// -- "plan", "brief:&lt;fieldName&gt;", "paa:&lt;question&gt;", or "competitor:&lt;heading&gt;".
+    /// -- "plan", "brief:&lt;fieldName&gt;", "competitor:&lt;heading&gt;", "site:&lt;subtopic&gt;",
+    /// "paa:&lt;question&gt;", or "evidence:&lt;partner|section|host&gt;".
     /// ("retrieval:&lt;url&gt;" removed 2026-09-22 -- checked a claimed source URL against an
     /// optional, often-empty research set, so it failed on missing research, not bad output.) The
     /// opposite of <see cref="Id"/>: this flows model -&gt; code,
