@@ -84,6 +84,6 @@ parallel suite. Add a case for the 5,779-link shape that failed.
 
 ## Sequencing
 
-This may touch `GeekCrawlerIngestController.cs` near line 664;
-`plans/fix-superseded-purge-halt.md` in GeekBackend touches the same file near
-146–372. Sequence them or expect a merge.
+Only the "raise the cap" option touches `GeekCrawlerIngestController.cs` (near
+line 664); `plans/fix-superseded-purge-halt.md` in this same directory touches that
+file near 146–372. If you chunk in the crawler instead, there is no overlap at all.

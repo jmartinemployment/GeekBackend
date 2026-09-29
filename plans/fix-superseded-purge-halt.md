@@ -39,10 +39,20 @@ and the sibling halts at :146, :152, :354, :365
 
 ## Root cause of the purge failures, for context
 
-They cluster on **24–25 September**, when the Qdrant collection was dropped and
-recreated. Deleting points for a run whose points no longer existed failed, and
-that halted crawling. So the trigger was environmental — but the **policy** that
-turned it into "failed" is still live and will do this again.
+They cluster on **24–25 September**, when `geek_crawler_chunks` was **dropped out
+from under a running API**. With no collection, every purge 500ed, and GeekAPI
+turned that into a 502 on the PATCH publishing a different, healthy run.
+
+Note what it was *not*: deleting points for a run whose points no longer existed
+already succeeded and still does — a Qdrant filter delete matching nothing is not
+an error. See the corrected section below; getting these two absences the wrong way
+round is what made the first version of this plan propose a fix that would have
+prevented none of them.
+
+The missing-collection case was fixed in `Geek-Crawler-Rag@b03e968`. The trigger
+was environmental and is now handled — but the **policy** that turned a purge
+failure into a failed published run is still live, and that is what this plan is
+about.
 
 ## The question to settle
 
@@ -67,14 +77,35 @@ that jobs reach `ready`/`failed`/`awaiting_*` and never `pending` forever), whil
 letting the published run be recorded as published. **Do not simply swallow the
 purge failure.**
 
-## Also consider the RAG side
+## The RAG side is already done -- and the diagnosis below was wrong
 
-Geek-Crawler-Rag exposes `DELETE /v1/index/runs/{run_id}`. Decide whether "there
-are no points for this run" should be a **success** (idempotent delete) rather
-than a failure. If it should, that alone would have prevented all twelve, and the
-fix belongs in `Geek-Crawler-Rag/src/geek_crawler_rag/app.py`'s
-`delete_run_index` and its store call. `tests/test_delete_run_index.py` covers
-that route today.
+**Corrected 2026-09-28.** This section used to say: decide whether "there are no
+points for this run" should be a success rather than a failure, and that fixing it
+"alone would have prevented all twelve". Both halves were wrong, and
+`Geek-Crawler-Rag@b03e968` (2026-09-28 13:52, *"stop one job, pause the feed, and
+stop lying about a purge"*) records why:
+
+> The plan blamed "no points for this run" -- that case already returns success and
+> did then, verified against the live collection, so fixing it would have prevented
+> none of them.
+
+Two absences look alike and are not, per `qdrant_store.delete_by_run_id`'s own
+docstring:
+
+| absence | behaviour |
+|---|---|
+| No points match the filter | **Already success.** A Qdrant filter delete matching nothing is not an error. Never needed fixing. |
+| **No collection at all** | **This is what raised.** `geek_crawler_chunks` was dropped out from under a running API on 2026-09-24, every purge 500ed, and GeekAPI turned that into a 502 on the PATCH publishing a *different*, healthy run. |
+
+`delete_by_run_id` now treats a missing collection as success -- with no vectors
+for the run, that is precisely the state the caller asked for. Everything that is
+not a missing collection still raises, because GeekAPI deletes the pages a run's
+vectors cite once this reports success.
+
+**So there is nothing to do in Geek-Crawler-Rag.** What remains is only the
+GeekBackend question above: whether a superseded run's purge failure should mark
+the current, published run failed. That question stands on its own -- the runs on
+24-25 September were mislabelled regardless of which absence caused the raise.
 
 ## Constraints
 
@@ -90,8 +121,9 @@ From `GeekBackend/AGENTS.md`:
 ## Sequencing
 
 This touches `GeekCrawlerIngestController.cs` near 146–372;
-`Geek-Crawler-v2/plans/fix-oversized-links-batch.md` may touch the same file near
-line 664. Sequence them or expect a merge.
+`plans/fix-oversized-links-batch.md` (in this same directory) may touch the same
+file near line 664 — only if that plan's "raise the cap" option is chosen over
+chunking. Sequence them or expect a merge.
 
 ## Do not deploy while indexing is active
 
