@@ -42,7 +42,6 @@ public static class SeoDataRegistration
         services.AddGeekSa2Read();
         services.AddScoped<SiteAnalyzerAnalysisRunReader>();
         services.AddScoped<IAnalysisRunRepository, SiteAnalyzerAnalysisRunRepository>();
-        services.AddScoped<ISiteAnalyzer2SiteProfileRepository, SiteAnalyzerSiteProfileRepository>();
         services.AddScoped<ContentWriterHandoffService>();
 
         services.AddScoped<IProjectService, ProjectService>();
