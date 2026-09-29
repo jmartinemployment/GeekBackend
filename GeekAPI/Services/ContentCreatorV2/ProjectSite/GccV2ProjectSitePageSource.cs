@@ -5,17 +5,22 @@ using GeekApplication.Models.GeekCrawler;
 namespace GeekAPI.Services.ContentCreatorV2.ProjectSite;
 
 /// <summary>
-/// Where project-site crawl pages are read from.
+/// Where project-site crawl pages are read from: the shared <c>geek_crawler</c> Mongo store, the
+/// same place every other crawl type lives. There is one implementation and no flag.
 ///
-/// Project-site pages currently live in Postgres (<c>content_creator_v2.gcc_v2_project_site_crawl_*</c>)
-/// while every other crawl type lives in the shared geek_crawler Mongo store. That split is the
-/// thing being removed: GeekAPI is a service layer and should not own a crawl corpus, least of all
-/// raw page HTML in a <c>text</c> column.
+/// <para>
+/// Until 2026-09-29 there were two, and the other one read a Postgres copy of the corpus that
+/// GeekAPI crawled and wrote itself — raw page HTML in a <c>text</c> column. Both the Postgres
+/// source and the in-process crawler behind it are gone, along with their tables. Railway Postgres
+/// is for OAuth state only; see <c>AGENTS.md</c> § "What Postgres is for".
+/// </para>
 ///
-/// This seam lets the read path move first, behind a flag, without touching a single consumer's
-/// logic. Both implementations return the existing <see cref="GccV2ProjectSiteCrawlPageDto"/> so
-/// GccV2SiteHierarchyFromCrawl, GccV2ProjectSiteGrounding and GccV2ProjectSitePageMapper — the pure
-/// functions that derive grounding — stay untouched.
+/// <para>
+/// The interface survives the removal because it kept the consumers out of it: the seam let the
+/// read path move without touching <c>GccV2SiteHierarchyFromCrawl</c>,
+/// <c>GccV2ProjectSiteGrounding</c> or <c>GccV2ProjectSitePageMapper</c> — the pure functions that
+/// derive grounding — and those are still untouched now that only Mongo remains.
+/// </para>
 /// </summary>
 public interface IGccV2ProjectSitePageSource
 {
@@ -28,26 +33,6 @@ public interface IGccV2ProjectSitePageSource
     Task<GccV2ProjectSiteCrawlRunDto?> GetRunAsync(Guid runId, CancellationToken ct);
 
     Task<GccV2ProjectSiteCrawlPageActivityDto?> GetPageActivityAsync(Guid runId, CancellationToken ct);
-}
-
-/// <summary>Reads from the Postgres project-site tables. The path being retired.</summary>
-public sealed class GccV2PostgresProjectSitePageSource(HttpGccV2Repository repo)
-    : IGccV2ProjectSitePageSource
-{
-    public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListPagesAsync(
-        Guid runId, int limit, int offset, CancellationToken ct) =>
-        repo.ListProjectSiteCrawlPagesAsync(runId, limit, offset, ct);
-
-    public Task<IReadOnlyList<GccV2ProjectSiteCrawlPageDto>> ListPagesBySeedsAsync(
-        Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct) =>
-        repo.ListProjectSiteCrawlPagesBySeedsAsync(runId, seedUrls, ct);
-
-    public Task<GccV2ProjectSiteCrawlRunDto?> GetRunAsync(Guid runId, CancellationToken ct) =>
-        repo.GetProjectSiteCrawlRunAsync(runId, ct);
-
-    public Task<GccV2ProjectSiteCrawlPageActivityDto?> GetPageActivityAsync(
-        Guid runId, CancellationToken ct) =>
-        repo.GetProjectSiteCrawlPageActivityAsync(runId, ct);
 }
 
 /// <summary>

@@ -38,7 +38,6 @@ public sealed class GccV2RealtimeHub : Hub
 
     public static string JobGroup(Guid jobId) => $"job:{jobId:D}";
 
-    public static string ProjectSiteRunGroup(Guid runId) => $"project-site:{runId:D}";
     public static string AgentTestGroup(Guid testRunId) => $"agent-test:{testRunId:D}";
     public static string TaskAgentRunGroup(Guid runId) => $"task-agent-run:{runId:D}";
     public static string ContextIngestionGroup(Guid ingestionJobId) => $"context-ingestion:{ingestionJobId:D}";
@@ -123,39 +122,6 @@ public sealed class GccV2RealtimeHub : Hub
 
     public Task LeaveTaskAgentRun(Guid runId) =>
         Groups.RemoveFromGroupAsync(Context.ConnectionId, TaskAgentRunGroup(runId));
-
-    public async Task JoinProjectSiteCrawl(Guid runId)
-    {
-        var userId = Context.User?.FindFirst("sub")?.Value
-            ?? Context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrWhiteSpace(userId))
-            throw new HubException("Unauthorized");
-
-        var run = await _repo.GetProjectSiteCrawlRunAsync(runId, Context.ConnectionAborted);
-        if (run is null)
-            throw new HubException("Run not found");
-
-        if (!string.Equals(run.OwnerUserId, userId, StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogWarning("User {UserId} denied JoinProjectSiteCrawl for {RunId}.", userId, runId);
-            throw new HubException("Forbidden");
-        }
-
-        await Groups.AddToGroupAsync(Context.ConnectionId, ProjectSiteRunGroup(runId));
-        await Clients.Caller.SendAsync(
-            "ProjectSiteCrawlEvent",
-            new
-            {
-                runId = run.Id,
-                siteUrl = run.SiteUrl,
-                status = run.Status,
-                errorSummary = run.ErrorSummary,
-            },
-            Context.ConnectionAborted);
-    }
-
-    public Task LeaveProjectSiteCrawl(Guid runId) =>
-        Groups.RemoveFromGroupAsync(Context.ConnectionId, ProjectSiteRunGroup(runId));
 
     public async Task JoinJob(Guid jobId, int lastSeq)
     {

@@ -32,9 +32,6 @@ public static class ContentCreatorV2ServiceRegistration
 {
     public static IServiceCollection AddContentCreatorV2(this IServiceCollection services, IConfiguration configuration)
     {
-        var projectSiteOptions = GccV2ProjectSiteCrawlOptions.FromConfiguration(configuration);
-        services.AddSingleton(projectSiteOptions);
-
         services.AddScoped(sp =>
         {
             var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
@@ -59,13 +56,6 @@ public static class ContentCreatorV2ServiceRegistration
         });
         services.AddScoped<IGccV2ProjectSitePageReader, GccV2ProjectSitePageReader>();
         services.AddScoped<GccV2GeekCrawlerResearchResolver>();
-        services.AddSingleton<GccV2ProjectSiteCrawlWake>();
-        services.AddSingleton<GccV2ProjectSiteCrawlRunCoordinator>();
-        services.AddScoped<GccV2ProjectSiteCrawlProgressNotifier>();
-        services.AddScoped<GccV2ProjectSiteBfsCrawler>();
-        services.AddScoped<GccV2ProjectSiteCrawlService>();
-        services.AddHostedService<GccV2ProjectSiteCrawlWorker>();
-        services.AddHostedService<GccV2ProjectSiteStallRecoveryHostedService>();
         services.AddScoped<GccV2BrandKitBuilder>();
         services.AddSingleton<GccV2PlaywrightBrowserHolder>();
         services.AddHostedService<GccV2PlaywrightStartupHostedService>();
@@ -128,19 +118,11 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2AgentExecutionFactory>();
         services.AddScoped<V1Restore.GccV2V1ProjectBridge>();
 
-        // Where project-site pages are read from. Postgres is the path being retired; Mongo is the
-        // shared geek_crawler store every other crawl type already uses. Flag-gated so the read path
-        // can move and be proven before GeekAPI stops writing Postgres at all.
-        services.AddScoped<ProjectSite.GccV2PostgresProjectSitePageSource>();
-        services.AddScoped<ProjectSite.GccV2MongoProjectSitePageSource>();
-        services.AddScoped<ProjectSite.IGccV2ProjectSitePageSource>(sp =>
-        {
-            var source = sp.GetRequiredService<IConfiguration>()
-                .GetValue("ContentCreatorV2:ProjectSitePageSource", "postgres");
-            return string.Equals(source, "mongo", StringComparison.OrdinalIgnoreCase)
-                ? sp.GetRequiredService<ProjectSite.GccV2MongoProjectSitePageSource>()
-                : sp.GetRequiredService<ProjectSite.GccV2PostgresProjectSitePageSource>();
-        });
+        // Project-site pages come from the shared geek_crawler Mongo store, where every
+        // crawl type lives. There is no second source and no flag selecting one: crawl data
+        // does not go in Postgres.
+        services.AddScoped<ProjectSite.IGccV2ProjectSitePageSource,
+            ProjectSite.GccV2MongoProjectSitePageSource>();
         services.AddScoped<V1Restore.GccV2V1PlanAdapter>();
         services.AddScoped<V1Restore.GccV2V1WriteAdapter>();
         services.AddScoped<GccV2SpecialistCoordinator>();
