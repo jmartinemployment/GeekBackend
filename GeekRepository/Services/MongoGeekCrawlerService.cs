@@ -143,20 +143,37 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
     private readonly IMongoDatabase _db;
     private readonly ILogger<MongoGeekCrawlerService> _logger;
 
-    // The collections were imported from a PostgreSQL CSV export, so every value is stored as a
-    // string: Guids as "d"-format text, booleans as Postgres "t"/"f", ints as digits, and
-    // timestamps as "yyyy-MM-dd HH:mm:ss.ffffff+00". The auto-generated ObjectId _id is ignored;
-    // the logical key lives in the separate "Id" string field. These class maps make reads and
-    // writes match that shape (the timestamp format is also what keeps string range filters and
-    // sorts ordering correctly).
+    // The members mapped below are stored as Mongo STRINGS rather than native BSON types: Guids as
+    // "d"-format text, booleans as "t"/"f", ints as digits, and timestamps as
+    // "yyyy-MM-dd HH:mm:ss.ffffff+00". The auto-generated ObjectId _id is ignored; the logical key
+    // lives in the separate "Id" string field. These class maps make reads and writes match that
+    // shape (the timestamp format is also what keeps string range filters and sorts ordering
+    // correctly).
+    //
+    // Not "every value" -- only what is mapped here. RagIndexedAtUtc, RagChunksUpserted and
+    // RagPagesEnglish are unmapped and land as native BSON, so crawl_runs holds both
+    // representations, including on ix_crawl_runs_seed_rag_status where RagIndexedAtUtc is a sort
+    // key beside string timestamps.
+    //
+    // This is a legacy encoding to be removed, not a design. It has a cost outside C#: the Python
+    // Library reads these collections directly, so StatusCode arrives as "404" and RobotsAllowed as
+    // "f", and mongo.py's `isinstance(status, int)` / `isinstance(robots, bool)` both yield None.
+    // Two page-rejection gates are therefore dead, and cleanup_unusable_pages.py's
+    // {"StatusCode": {"$gte": 400}} matches nothing -- a numeric query never compares against a
+    // string. Measured 2026-09-29: 4,144 of 4,144 crawl_pages rows hold StatusCode as a string.
+    //
+    // The crawl store is Mongo end to end, enforced by
+    // GeekBackend.Tests/PostgresIsOAuthOnlyTests. This string encoding is a legacy artefact of how
+    // the data was first loaded and says nothing about where it lives now; do not read it as
+    // evidence of another store.
     static MongoGeekCrawlerService()
     {
         var guid = new GuidSerializer(BsonType.String);
         var nullableGuid = new NullableSerializer<Guid>(guid);
-        var date = new PgTextDateTimeOffsetSerializer();
+        var date = new LegacyStringDateTimeOffsetSerializer();
         var nullableDate = new NullableSerializer<DateTimeOffset>(date);
-        var pgBool = new PgTextBooleanSerializer();
-        var pgInt = new PgTextInt32Serializer();
+        var textBool = new LegacyStringBooleanSerializer();
+        var textInt = new LegacyStringInt32Serializer();
 
         BsonClassMap.RegisterClassMap<GeekCrawlerRun>(cm =>
         {
@@ -167,7 +184,9 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             cm.MapMember(x => x.CreatedAtUtc).SetSerializer(date);
             cm.MapMember(x => x.StartedAtUtc).SetSerializer(nullableDate);
             cm.MapMember(x => x.CompletedAtUtc).SetSerializer(nullableDate);
-            // pg-text shape, so range filters and sorts keep ordering.
+            // Text shape for every timestamp above and this one, so range filters and sorts keep
+            // ordering. ContentReadyAt is queried as a range by the RAG scheduler, so it has to
+            // match the others.
             cm.MapMember(x => x.ContentReadyAt).SetSerializer(nullableDate);
         });
 
@@ -178,8 +197,8 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             cm.UnmapMember(x => x.Id);
             cm.MapMember(x => x.Id).SetElementName("Id").SetSerializer(guid);
             cm.MapMember(x => x.RunId).SetSerializer(guid);
-            cm.MapMember(x => x.StatusCode).SetSerializer(pgInt);
-            cm.MapMember(x => x.RobotsAllowed).SetSerializer(pgBool);
+            cm.MapMember(x => x.StatusCode).SetSerializer(textInt);
+            cm.MapMember(x => x.RobotsAllowed).SetSerializer(textBool);
             cm.MapMember(x => x.CrawledAtUtc).SetSerializer(date);
         });
 
@@ -191,7 +210,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             cm.MapMember(x => x.Id).SetElementName("Id").SetSerializer(guid);
             cm.MapMember(x => x.RunId).SetSerializer(guid);
             cm.MapMember(x => x.PageId).SetSerializer(guid);
-            cm.MapMember(x => x.IsSameOrigin).SetSerializer(pgBool);
+            cm.MapMember(x => x.IsSameOrigin).SetSerializer(textBool);
             cm.MapMember(x => x.DiscoveredAtUtc).SetSerializer(date);
         });
 
@@ -201,8 +220,8 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             cm.SetIgnoreExtraElements(true);
             cm.UnmapMember(x => x.Id);
             cm.MapMember(x => x.Id).SetElementName("Id").SetSerializer(guid);
-            cm.MapMember(x => x.IntervalHours).SetSerializer(pgInt);
-            cm.MapMember(x => x.Enabled).SetSerializer(pgBool);
+            cm.MapMember(x => x.IntervalHours).SetSerializer(textInt);
+            cm.MapMember(x => x.Enabled).SetSerializer(textBool);
             cm.MapMember(x => x.NextRunUtc).SetSerializer(date);
             cm.MapMember(x => x.LastStartedUtc).SetSerializer(nullableDate);
             cm.MapMember(x => x.LastRunId).SetSerializer(nullableGuid);
@@ -266,7 +285,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
 
     public async Task EnsureIndexesAsync(CancellationToken ct = default)
     {
-        // PG had ix_crawl_pages_run_id / run_url; Mongo import never recreated them.
+        // These two were never created on the collections, so the queries below would COLLSCAN.
         // Without these, pages/activity (count + max CrawledAtUtc) and resume scans COLLSCAN.
         var pages = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
         await pages.Indexes.CreateManyAsync(
@@ -1206,10 +1225,10 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
     }
 }
 
-/// <summary>Reads/writes timestamps in the PostgreSQL text format the data was imported with
-/// ("yyyy-MM-dd HH:mm:ss.ffffff+00"). Values are normalized to UTC so the string ordering stays
-/// consistent for range filters and sorts.</summary>
-internal sealed class PgTextDateTimeOffsetSerializer : SerializerBase<DateTimeOffset>
+/// <summary>Reads/writes timestamps as text ("yyyy-MM-dd HH:mm:ss.ffffff+00") rather than as a BSON
+/// date. Values are normalized to UTC so the string ordering stays consistent for range filters and
+/// sorts. A legacy encoding, kept only because the stored data is in this shape.</summary>
+internal sealed class LegacyStringDateTimeOffsetSerializer : SerializerBase<DateTimeOffset>
 {
     public override DateTimeOffset Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
     {
@@ -1226,8 +1245,10 @@ internal sealed class PgTextDateTimeOffsetSerializer : SerializerBase<DateTimeOf
         => context.Writer.WriteString(value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff+00", CultureInfo.InvariantCulture));
 }
 
-/// <summary>Reads/writes booleans as PostgreSQL "t"/"f" text.</summary>
-internal sealed class PgTextBooleanSerializer : SerializerBase<bool>
+/// <summary>Reads/writes booleans as "t"/"f" text rather than as a BSON boolean. A legacy encoding;
+/// note the Python Library reads these documents directly and its isinstance(value, bool) check
+/// cannot see a string, so a consumer-side gate on this field is silently inert.</summary>
+internal sealed class LegacyStringBooleanSerializer : SerializerBase<bool>
 {
     public override bool Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
     {
@@ -1245,7 +1266,7 @@ internal sealed class PgTextBooleanSerializer : SerializerBase<bool>
 }
 
 /// <summary>Reads/writes ints as digit strings, tolerating native numeric BSON values.</summary>
-internal sealed class PgTextInt32Serializer : SerializerBase<int>
+internal sealed class LegacyStringInt32Serializer : SerializerBase<int>
 {
     public override int Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
     {

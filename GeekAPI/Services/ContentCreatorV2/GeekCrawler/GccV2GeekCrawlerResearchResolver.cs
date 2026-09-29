@@ -24,8 +24,9 @@ public interface IGccV2ProjectSitePageReader
 }
 
 /// <summary>
-/// Reads through <see cref="ProjectSite.IGccV2ProjectSitePageSource"/> so the store can move from
-/// Postgres to the shared geek_crawler Mongo collection without touching this call path.
+/// Reads through <see cref="ProjectSite.IGccV2ProjectSitePageSource"/>, which resolves to the shared
+/// geek_crawler Mongo collection. The indirection is what let that move happen without touching this
+/// call path; it is done, and there is one implementation and no flag selecting a source.
 /// </summary>
 internal sealed class GccV2ProjectSitePageReader(ProjectSite.IGccV2ProjectSitePageSource source)
     : IGccV2ProjectSitePageReader
