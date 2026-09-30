@@ -18,6 +18,12 @@ internal static class GeekCrawlerEventMapper
             createdAtUtc = snapshot.CreatedAtUtc,
             startedAtUtc = snapshot.StartedAtUtc,
             completedAtUtc = snapshot.CompletedAtUtc,
+            // Carried so the UI can render "content ready: no" beside "status: complete". Without
+            // it the frame cannot show the field even as null, and a run that finished crawling but
+            // produced nothing indexable looks identical to a good one until the defect resurfaces
+            // much later as "its crawl extracted no content". ToSnapshot has always had it; the
+            // live frame was the only hole.
+            contentReadyAt = snapshot.ContentReadyAt,
             currentOrigin,
         };
     }

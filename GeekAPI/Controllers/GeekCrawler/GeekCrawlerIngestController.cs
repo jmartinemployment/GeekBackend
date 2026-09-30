@@ -327,6 +327,26 @@ public class GeekCrawlerIngestController : ControllerBase
 
                     return Conflict(reason);
                 }
+
+                // The converse of the contentReadyAt check above, and it has to sit here rather than
+                // with the other body validation: a zero-page run legitimately sends
+                // `complete` + `clearContentReadyAt`, and the block above is what turns that into a
+                // `failed` run and a 409 the crawler already handles. Refusing it earlier would
+                // leave the run sitting `external` instead.
+                //
+                // What reaches this line has pages stored. Such a run cannot claim completion while
+                // denying it is content-ready: a `complete` run with no ContentReadyAt is invisible
+                // to the Library forever, because mongo.find_smallest_content_ready_run filters on
+                // that field. It looks finished, is never indexed, and is never reported as
+                // unindexed -- the defect surfaces much later as "its crawl extracted no content".
+                if (request.ContentReadyAt is null || request.ClearContentReadyAt)
+                {
+                    return BadRequest(
+                        "status=complete requires contentReadyAt once pages are stored. A complete "
+                        + "run with no contentReadyAt is never indexed and never reported as "
+                        + "unindexed. Send status=failed with an errorSummary instead if the crawl "
+                        + "produced nothing usable.");
+                }
             }
 
             // Identify what this slot publishes today BEFORE committing, so the outgoing run is known

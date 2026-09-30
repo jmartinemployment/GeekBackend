@@ -173,15 +173,24 @@ public sealed class GeekCrawlerService
     {
         if (string.Equals(existing.Status, GeekCrawlerRunStatuses.External, StringComparison.OrdinalIgnoreCase))
         {
-            _coordinator.Cancel(existing.Id);
-            // External runs are never pending — force pending so the .NET worker can take over.
-            existing = await _repo.PatchRunAsync(
-                existing.Id,
-                new PatchGeekCrawlerRunCommand(Status: GeekCrawlerRunStatuses.Pending),
-                ct).ConfigureAwait(false);
-            _wake.Wake(existing.Id);
-            await PushRunAsync(existing, currentOrigin: null, ct).ConfigureAwait(false);
-            return existing;
+            // Refuse, rather than take the run over.
+            //
+            // This used to cancel the external crawl and force the run to `pending` so the in-process
+            // worker could claim it. That worker runs no extractor -- GeekCrawlerDtos.cs:83-86 says so
+            // -- and never stamps ContentReadyAt, which mongo.find_smallest_content_ready_run filters
+            // on. So re-starting a slot from the UI converted a good, indexable external run into one
+            // the Library can never see, and did it silently.
+            //
+            // `external` exists precisely to stop that: GeekCrawlerRunStatuses.cs:7 -- "Owned by an
+            // external crawler (Crawlee); ignored by GeekCrawlerWorker". The isolation was one-way,
+            // and this was the hole. Nothing is cancelled and nothing is patched here: a crawl may be
+            // in flight against this run right now, and the previous code cancelled that too.
+            throw new InvalidOperationException(
+                $"Run {existing.Id:D} is owned by the external crawler and cannot be re-started from "
+                + "here. Re-crawling it would discard its pages and produce a run with no extracted "
+                + "content that nothing can index. Start a new crawl with the external crawler "
+                + "instead: `npm run crawl -- --seed <url> --type <type>`, or POST to its loopback "
+                + "API on 127.0.0.1:8787.");
         }
 
         if (string.Equals(existing.Status, "running", StringComparison.OrdinalIgnoreCase)
@@ -393,20 +402,38 @@ public sealed class GeekCrawlerService
                 return;
             }
 
-            current = await _repo.PatchRunAsync(
-                runId,
-                new PatchGeekCrawlerRunCommand(
-                    Status: "complete",
-                    HostProgressJson: JsonSerializer.Serialize(hostProgress, JsonOpts),
-                    CompletedAtUtc: DateTimeOffset.UtcNow),
-                ct).ConfigureAwait(false);
-            await PushRunAsync(current, currentOrigin: null, ct).ConfigureAwait(false);
-            TriggerRagIndex(runId);
+            // This path cannot reach `complete`, and saying so here is the point.
+            //
+            // SameOriginBfsCrawler runs no extractor -- GeekCrawlerDtos.cs:83-86 says so outright --
+            // so GeekCrawlerPageBatchWriter leaves Title, Excerpt, ContentHtml and Blocks null, and
+            // nothing on this path ever stamps ContentReadyAt. Every ContentReadyAt write in GeekAPI
+            // is in GeekCrawlerIngestController, the external route. A run finishing here therefore
+            // had no corpus and no readiness stamp, yet read `complete`: it looked finished, was
+            // invisible to mongo.find_smallest_content_ready_run forever, and the defect surfaced
+            // much later as "its crawl extracted no content".
+            //
+            // The workers are configured to zero, which makes this unreachable rather than correct.
+            // A config flag is not an invariant -- GEEK_CRAWLER_WORKER_COUNT is one variable away
+            // from being back -- so the run is failed with the real reason instead of completed with
+            // a false one. Teaching this path to extract is not the alternative: that would put a
+            // second implementation of the corpus projection in C#, which CLAUDE.md 1a forbids by
+            // name.
+            const string noCorpusReason =
+                "This crawl ran in GeekAPI's in-process crawler, which runs no extractor: its pages "
+                + "carry no contentHtml and no blocks, and the run has no ContentReadyAt, so nothing "
+                + "can index it. Crawl with the external crawler instead — "
+                + "`npm run crawl -- --seed <url> --type <type>`, or POST to its loopback API on "
+                + "127.0.0.1:8787.";
 
-            _logger.LogInformation(
-                "Geek-Crawler run {RunId} complete for user {OwnerUserId}.",
+            await FailRunAsync(current, noCorpusReason, ct, hostProgress).ConfigureAwait(false);
+
+            _logger.LogError(
+                "Geek-Crawler run {RunId} for user {OwnerUserId} finished crawling in-process and "
+                + "was failed rather than completed: {Reason}",
                 runId,
-                current.OwnerUserId);
+                current.OwnerUserId,
+                noCorpusReason);
+            return;
         }
         catch (GeekCrawlerBudgetExceededException ex)
         {
@@ -564,9 +591,14 @@ public sealed class GeekCrawlerService
                 var status = await _rag.EnqueueIndexAsync(runId).ConfigureAwait(false);
                 if (status is null)
                 {
+                    // Not "content-ready". This line asserted a property of the run that this code
+                    // path cannot know and that was routinely false: the in-process crawler never
+                    // stamps ContentReadyAt, so a run reaching here from that path is unindexable
+                    // and the log said the opposite. A surviving claim is read as evidence.
                     _logger.LogWarning(
-                        "Geek-Crawler-Rag index enqueue did not take for {RunId}; "
-                        + "the run is crawled and content-ready but unindexed",
+                        "Geek-Crawler-Rag index enqueue did not take for {RunId}; the run is "
+                        + "crawled but unindexed. Check ContentReadyAt before concluding the RAG "
+                        + "is at fault -- a run with no extracted content is invisible to it.",
                         runId);
                 }
             }
