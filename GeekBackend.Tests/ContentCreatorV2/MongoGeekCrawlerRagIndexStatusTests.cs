@@ -40,6 +40,52 @@ public sealed class MongoGeekCrawlerRagIndexStatusTests : IAsyncLifetime
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// The write reports whether it did anything.
+    ///
+    /// <para>
+    /// There is no upsert on the <c>$set</c>, so a runId with no document matches nothing and raises
+    /// nothing. The webhook receiver answered <c>202 Accepted</c> for exactly that, telling the
+    /// Library its chunk and page counts had been recorded when they had been dropped — and those
+    /// three numbers are what the declared-URL evidence gate reads.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Reports_true_when_a_run_matched_and_false_when_none_did()
+    {
+        var mongo = CreateMongo();
+        var run = await SeedRunAsync(mongo);
+
+        Assert.True(
+            await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 214, 46, 460, DateTimeOffset.UtcNow),
+            "a run that exists must report the write as done");
+
+        Assert.False(
+            await mongo.UpdateRagIndexStatusAsync(
+                Guid.NewGuid(), "complete", 214, 46, 460, DateTimeOffset.UtcNow),
+            "a runId with no document wrote nothing and must not report otherwise");
+    }
+
+    /// <summary>
+    /// A purged run is the realistic way the false case arrives: the crawler deletes a failed run
+    /// from GeekAPI while the Library still holds an index job for it.
+    /// </summary>
+    [Fact]
+    public async Task Reports_false_once_the_run_is_gone()
+    {
+        var mongo = CreateMongo();
+        var run = await SeedRunAsync(mongo);
+
+        Assert.True(await mongo.UpdateRagIndexStatusAsync(
+            run.Id, "running", 100, 20, 0, null));
+
+        await mongo.DeleteRunAsync(run.Id);
+
+        Assert.False(
+            await mongo.UpdateRagIndexStatusAsync(run.Id, "complete", 214, 46, 460, DateTimeOffset.UtcNow),
+            "the run is gone, so the terminal status went nowhere and must be reported as such");
+    }
+
     [Fact]
     public async Task Sets_all_five_fields_and_they_round_trip_through_GetRunByIdAsync()
     {

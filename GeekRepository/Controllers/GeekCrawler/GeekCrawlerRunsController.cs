@@ -205,7 +205,7 @@ public class GeekCrawlerRunsController : ControllerBase
         [FromBody] PatchRagIndexStatusCommand command,
         CancellationToken ct)
     {
-        await _mongo.UpdateRagIndexStatusAsync(
+        var written = await _mongo.UpdateRagIndexStatusAsync(
             id,
             command.RagState,
             command.RagChunksUpserted,
@@ -213,6 +213,12 @@ public class GeekCrawlerRunsController : ControllerBase
             command.RagPagesSkippedUnusable,
             command.RagIndexedAtUtc,
             ct);
+
+        // NoContent regardless was a success report for a write that matched nothing. The $set has
+        // no upsert, so a run deleted between the caller's read and this patch silently discarded
+        // the status; GeekAPI's client calls EnsureSuccessStatusCode, so a 404 here is what makes
+        // that reach the sender instead of being invented as a 202.
+        if (!written) return NotFound();
         return NoContent();
     }
 

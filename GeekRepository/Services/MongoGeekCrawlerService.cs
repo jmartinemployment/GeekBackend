@@ -101,7 +101,13 @@ public interface IMongoGeekCrawlerService
     /// find-then-ReplaceOneAsync, which would clobber a concurrent crawl-progress write on the
     /// same document with a stale in-memory copy.
     /// </summary>
-    Task UpdateRagIndexStatusAsync(
+    /// <returns>
+    /// True when a run document matched. False means nothing was written: <c>UpdateOneAsync</c> has
+    /// no upsert, so a runId with no document matches nothing, throws nothing, and previously
+    /// returned as though the status had been recorded. The caller cannot distinguish a discarded
+    /// write from a completed one without this.
+    /// </returns>
+    Task<bool> UpdateRagIndexStatusAsync(
         Guid runId,
         string? ragState,
         int? ragChunksUpserted,
@@ -920,7 +926,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         }
     }
 
-    public async Task UpdateRagIndexStatusAsync(
+    public async Task<bool> UpdateRagIndexStatusAsync(
         Guid runId,
         string? ragState,
         int? ragChunksUpserted,
@@ -940,7 +946,14 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                 .Set(r => r.RagPagesEnglish, ragPagesEnglish)
                 .Set(r => r.RagPagesSkippedUnusable, ragPagesSkippedUnusable)
                 .Set(r => r.RagIndexedAtUtc, ragIndexedAtUtc);
-            await collection.UpdateOneAsync(r => r.Id == runId, update, cancellationToken: ct);
+            var result = await collection.UpdateOneAsync(
+                r => r.Id == runId, update, cancellationToken: ct);
+
+            // Reported, not assumed. There is no upsert here, so a runId with no document is a
+            // write that did nothing and raised nothing -- which the webhook receiver then
+            // answered 202 for, telling the Library its numbers had been recorded when they had
+            // been dropped. IsAcknowledged guards the same claim for an unacknowledged write.
+            return result.IsAcknowledged && result.MatchedCount > 0;
         }
         catch (Exception ex)
         {

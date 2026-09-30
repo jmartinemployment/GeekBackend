@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.GeekCrawler;
 using Microsoft.AspNetCore.Mvc;
@@ -38,12 +40,37 @@ public sealed class GeekCrawlerRagWebhookController : ControllerBase
             return BadRequest("runId must be a GUID");
 
         var run = await _repo.GetRunAsync(runId, ct).ConfigureAwait(false);
-        var ownerUserId = run?.OwnerUserId ?? "";
 
-        // Out-of-order/duplicate guard: the indexer retries at the job level (status.attempt), so
-        // more than one webhook call for the same runId is possible even without network retries.
-        // A stale delivery must never overwrite a newer, more-authoritative state.
-        if (run is null || run.RagIndexedAtUtc is null || body.FinishedAtUtc > run.RagIndexedAtUtc)
+        // There is nothing to record a status onto, and saying so is the point. The $set has no
+        // upsert, so this frame matched no document, raised nothing, and was answered 202 -- the
+        // sender was told its numbers had landed while they were dropped on the floor. A run
+        // legitimately disappears (the crawler purges a failed run from GeekAPI), and the Library
+        // holding a job for it needs to learn that rather than be reassured.
+        if (run is null)
+        {
+            _logger.LogWarning(
+                "RAG index status for unknown run {RunId} — nothing to persist it onto. The run was "
+                + "purged or never ingested; the Library still holds an index job for it.",
+                runId);
+            return NotFound($"No crawl run {runId:D}.");
+        }
+
+        var ownerUserId = run.OwnerUserId ?? "";
+
+        // Duplicate/replay guard, and only that.
+        //
+        // It compares FinishedAtUtc, which is null until a run reaches a terminal state, so for a
+        // mid-run progress frame it reduces to "RagIndexedAtUtc is null" -- true for the whole run --
+        // and every such frame persists in arrival order with no comparison made. That is sound only
+        // because nothing sends these concurrently: the indexer runs one job at a time and awaits
+        // each `notify()` before the next line, and the heartbeat task renews the Mongo lease without
+        // emitting frames, so a second frame for one run is not sent until the first has returned and
+        // cannot overtake it. `status_store.save` rejects a stale write on the sender's side as well.
+        //
+        // Do not restate this as out-of-order protection. It is not one for mid-run frames, and an
+        // ordering key (a sender-stamped sentAtUtc) is only worth adding if the sender ever emits
+        // frames in parallel -- at which point this comment is the thing that says so.
+        if (run.RagIndexedAtUtc is null || body.FinishedAtUtc > run.RagIndexedAtUtc)
         {
             try
             {
@@ -57,9 +84,23 @@ public sealed class GeekCrawlerRagWebhookController : ControllerBase
                         RagIndexedAtUtc: body.FinishedAtUtc),
                     ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning(ex, "Failed to persist RAG index status for {RunId}", runId);
+                // A swallowed persist failure returning 202 is plans/rules.md 3a verbatim: the one
+                // failure mode that loses these numbers was the one the sender could not learn
+                // about. It logs at Error and answers with a status, so notify()'s own error branch
+                // fires. Cancellation is excluded -- a disconnected client is not a failed write.
+                _logger.LogError(ex, "Failed to persist RAG index status for {RunId}", runId);
+
+                // A 404 out of GeekRepository means the run went between the read above and this
+                // patch; anything else is the hop itself failing. Neither is this run's fault and
+                // neither may be reported as accepted.
+                var notFound = ex is HttpRequestException { StatusCode: HttpStatusCode.NotFound };
+                return notFound
+                    ? NotFound($"Crawl run {runId:D} no longer exists; status was not recorded.")
+                    : StatusCode(
+                        StatusCodes.Status502BadGateway,
+                        $"Could not record RAG index status for {runId:D}. Nothing was written.");
             }
         }
 
@@ -68,7 +109,7 @@ public sealed class GeekCrawlerRagWebhookController : ControllerBase
             eventType = "rag_index",
             runId = runId.ToString("D"),
             state = body.State ?? "unknown",
-            crawlType = body.CrawlType ?? run?.CrawlType,
+            crawlType = body.CrawlType ?? run.CrawlType,
             mongoPageCount = body.MongoPageCount,
             pagesSeen = body.PagesSeen,
             pagesEnglish = body.PagesEnglish,
