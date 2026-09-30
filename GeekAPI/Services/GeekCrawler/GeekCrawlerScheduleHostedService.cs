@@ -93,6 +93,23 @@ public sealed class GeekCrawlerScheduleHostedService : BackgroundService
                     run.Id,
                     schedule.Id);
             }
+            catch (InProcessCrawlUnavailableException ex)
+            {
+                // A schedule that can never run must stop asking. GeekAPI no longer crawls, so this
+                // refusal is permanent and identical for every schedule -- leaving it enabled means
+                // one Error per interval forever with nothing anyone can do from here. Disabling it
+                // matches what the no-seeds case above already does, and it is logged at Error with
+                // the two working shapes named so the owner can move the schedule to the external
+                // crawler.
+                _logger.LogError(
+                    "Schedule {ScheduleId} disabled: {Reason}",
+                    schedule.Id,
+                    ex.Message);
+                await repo.PatchScheduleAsync(
+                    schedule.Id,
+                    new PatchGeekCrawlerScheduleCommand(Enabled: false),
+                    ct).ConfigureAwait(false);
+            }
             catch (Exception ex) when (HostedServiceScan.ShouldLogAndContinue(ex, ct))
             {
                 _logger.LogError(ex, "Failed to start scheduled crawl for schedule {ScheduleId}.", schedule.Id);

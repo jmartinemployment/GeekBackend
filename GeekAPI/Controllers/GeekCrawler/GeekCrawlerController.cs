@@ -105,6 +105,23 @@ public class GeekCrawlerController : ControllerBase
                 rejected = admission.Rejected,
             });
         }
+        catch (InProcessCrawlUnavailableException ex)
+        {
+            // 501, not 400: the request was well formed and the seeds were fine. The capability is
+            // gone, and a 400 would send the caller looking for a mistake in their own payload. This
+            // catch must precede the InvalidOperationException one below, which it derives from.
+            return StatusCode(StatusCodes.Status501NotImplemented, new
+            {
+                error = ex.Message,
+                workingShapes = new[]
+                {
+                    "npm run crawl -- --seed <url> --type <partner|competitors|local|project-site>",
+                    "POST http://127.0.0.1:8787/crawls  { \"seed\": \"<url>\", \"crawlType\": \"<type>\" }",
+                },
+                seedsAccepted = 0,
+                rejected = admission.Rejected,
+            });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);

@@ -121,6 +121,83 @@ public class UnindexableRunGuardTests
     }
 
     [Fact]
+    public void StartingACrawlIsRefusedOutright()
+    {
+        // Jeff chose refusal on 2026-09-30 over reserving an `external` run for the CLI to adopt.
+        // The refusal has to name the shapes that work, or the button just stops with no route out.
+        var ex = new InProcessCrawlUnavailableException();
+
+        // And that StartCrawlAsync is nothing but the throw: an expression body, so there is no path
+        // through it that creates a run, and the constructing service is not needed to prove it.
+        var source = ReadSource(Path.Combine(
+            "GeekAPI", "Services", "GeekCrawler", "GeekCrawlerService.cs"));
+        Assert.Matches(
+            @"public Task<GeekCrawlerRunDto> StartCrawlAsync\([^)]*\)\s*=>\s*throw new InProcessCrawlUnavailableException\(\);",
+            source);
+
+        Assert.Contains("GeekAPI does not crawl", ex.Message);
+        Assert.Contains("No run was created", ex.Message);
+        Assert.Contains("npm run crawl", ex.Message);
+        Assert.Contains("127.0.0.1:8787", ex.Message);
+    }
+
+    [Fact]
+    public void TheRefusalIsAnInvalidOperationSoExistingCallersStillCatchIt()
+    {
+        // GeekCrawlerController and the schedule service both already had catch blocks for
+        // InvalidOperationException. Deriving from it means the refusal cannot escape as a bare 500
+        // through a path this change did not touch.
+        Assert.IsAssignableFrom<InvalidOperationException>(new InProcessCrawlUnavailableException());
+    }
+
+    [Fact]
+    public void BothStartPathsGoThroughTheRefusal()
+    {
+        // Item 4 of the plan: a schedule must not be a back door to the crawler the UI can no longer
+        // reach. Both callers go through StartCrawlAsync, so one refusal covers both -- this pins
+        // that neither grew its own way in.
+        foreach (var relative in new[]
+        {
+            Path.Combine("GeekAPI", "Controllers", "GeekCrawler", "GeekCrawlerController.cs"),
+            Path.Combine("GeekAPI", "Services", "GeekCrawler", "GeekCrawlerScheduleHostedService.cs"),
+        })
+        {
+            var source = ReadSource(relative);
+            Assert.Contains("StartCrawlAsync", source);
+            Assert.DoesNotContain("_wake.Wake", source);
+            Assert.DoesNotContain("CreateRunAsync", source);
+        }
+    }
+
+    [Fact]
+    public void AScheduleThatCanNeverRunIsDisabled()
+    {
+        // Left enabled it logs one Error per interval forever with nothing anyone can do from here.
+        var source = ReadSource(Path.Combine(
+            "GeekAPI", "Services", "GeekCrawler", "GeekCrawlerScheduleHostedService.cs"));
+
+        Assert.Contains("catch (InProcessCrawlUnavailableException", source);
+        Assert.Contains("Enabled: false", source);
+    }
+
+    [Fact]
+    public void TheControllerAnswersNotImplementedRatherThanBadRequest()
+    {
+        // The request was well formed and the seeds were fine; the capability is gone. A 400 sends
+        // the caller looking for a mistake in their own payload.
+        var source = ReadSource(Path.Combine(
+            "GeekAPI", "Controllers", "GeekCrawler", "GeekCrawlerController.cs"));
+
+        var refusal = source.IndexOf("catch (InProcessCrawlUnavailableException", StringComparison.Ordinal);
+        var generic = source.IndexOf("catch (InvalidOperationException", StringComparison.Ordinal);
+        Assert.True(refusal >= 0, "the controller must catch the refusal specifically");
+        Assert.True(
+            refusal < generic,
+            "the specific catch must precede the InvalidOperationException it derives from");
+        Assert.Contains("Status501NotImplemented", source);
+    }
+
+    [Fact]
     public void TheEnqueueWarningNoLongerClaimsContentReady()
     {
         // The line read "the run is crawled and content-ready but unindexed" for runs that were

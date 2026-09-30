@@ -82,7 +82,39 @@ public sealed class GeekCrawlerService
         CancellationToken ct) =>
         await _repo.ListRunsForUserAsync(ownerUserId, crawlType, limit, ct).ConfigureAwait(false);
 
-    public async Task<GeekCrawlerRunDto> StartCrawlAsync(
+    /// <summary>
+    /// Refuses. GeekAPI does not crawl.
+    ///
+    /// <para>
+    /// Jeff chose refusal on 2026-09-30 over reserving an <c>external</c> run for the CLI to adopt:
+    /// that would invent a fourth intake shape while the start design is still open in
+    /// Geek-Crawler-v2's <c>move-crawl-reads-to-geekapi.md</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// Both callers pass through here — <c>GeekCrawlerController.StartCrawl</c> and
+    /// <c>GeekCrawlerScheduleHostedService</c> — so a schedule cannot be a back door to the crawler
+    /// the UI can no longer reach. Nothing is created on the way to refusing.
+    /// </para>
+    /// </summary>
+    public Task<GeekCrawlerRunDto> StartCrawlAsync(
+        string ownerUserId,
+        string crawlType,
+        IReadOnlyList<string> seeds,
+        CancellationToken ct) => throw new InProcessCrawlUnavailableException();
+
+    /// <summary>
+    /// What starting a crawl used to do, retained and called by nothing.
+    ///
+    /// <para>
+    /// Jeff's decision was to make the in-process crawler unreachable and <b>keep the code</b> — it
+    /// is large and some pieces are shared. It is kept here as a named, uncalled method rather than
+    /// as statements stranded after a <c>throw</c>, so nobody reads it as a live path. Deleting the
+    /// in-process crawler is separate work, tracked in
+    /// <c>Geek-Crawler-Rag/plans/fix-unindexable-crawls.md</c>.
+    /// </para>
+    /// </summary>
+    private async Task<GeekCrawlerRunDto> StartCrawlInProcessAsync(
         string ownerUserId,
         string crawlType,
         IReadOnlyList<string> seeds,
