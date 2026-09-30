@@ -312,8 +312,36 @@ app.Use(async (context, next) =>
     }
     catch (Exception ex)
     {
-        app.Logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
-        throw;
+        app.Logger.LogError(
+            ex,
+            "Unhandled exception for {Method} {Path} (traceId {TraceId})",
+            context.Request.Method,
+            context.Request.Path,
+            context.TraceIdentifier);
+
+        // Rethrowing left Kestrel to answer with an empty 500. Three crawls -- acumatica 752 pages,
+        // avalara 255, parseur 185 -- were purged on exactly that: the crawler recorded the whole of
+        // what it was told, "→ 500: ", and the only machine that still had the pages had nothing to
+        // act on. See UnhandledExceptionResponse. The request still fails and nothing is retried or
+        // substituted; it is only described.
+        if (context.Response.HasStarted)
+        {
+            // Headers are already on the wire, so the body cannot be replaced. Rethrow and let the
+            // connection abort -- writing a second status here would produce a response that is
+            // neither the handler's nor this one's.
+            throw;
+        }
+
+        var status = UnhandledExceptionResponse.StatusFor(ex);
+        context.Response.Clear();
+        context.Response.StatusCode = status;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync(
+            UnhandledExceptionResponse.BodyFor(
+                ex,
+                context.TraceIdentifier,
+                status,
+                includeDetail: !app.Environment.IsProduction()));
     }
 });
 
