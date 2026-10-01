@@ -166,6 +166,11 @@ public static class LlmResponseJsonParser
     {
         var cleaned = Clean(rawContent);
 
+        // What went wrong on the last candidate, so the refusal can say it. Without this the message
+        // was the first 200 characters and no reason -- and the first 200 characters of a lede look
+        // perfectly well formed, because the problem is always further in.
+        string? why = null;
+
         foreach (var candidate in CandidateJsonStrings(cleaned))
         {
             try
@@ -176,6 +181,9 @@ public static class LlmResponseJsonParser
                 // 2026-09-23. The heading itself is kept when present -- see BuildLedeSection.
                 if (parsed?.Lede is not { } lede || lede.Paragraphs is not { Count: > 0 })
                 {
+                    why = parsed?.Lede is null
+                        ? "the response carried no \"lede\" object"
+                        : "the \"lede\" object carried no paragraphs";
                     continue;
                 }
 
@@ -206,9 +214,10 @@ public static class LlmResponseJsonParser
                 ValidateContentHygiene(syntheticIntro, $"{label} (introduction)");
                 return (ledeSection, ledeType, syntheticIntro);
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
-                // Try the next repaired candidate.
+                // Try the next repaired candidate, keeping why this one failed.
+                why = $"JSON error: {ex.Message}";
             }
             catch (ContentGenerationException)
             {
@@ -216,14 +225,23 @@ public static class LlmResponseJsonParser
             }
         }
 
-        var trimmedEnd = cleaned.TrimEnd();
-        var isTruncated = cleaned.Length > 0 && !trimmedEnd.EndsWith('}') && !trimmedEnd.EndsWith(']');
-        var hint = isTruncated
-            ? " The response looks truncated — it may have hit the max output token limit."
+        // Judged on what the model actually returned, not on `cleaned`. CandidateJsonStrings repairs
+        // unbalanced JSON by closing it, so a response cut off mid-sentence can arrive here ending in
+        // "}" and read as complete -- which is how a truncation presented as "no reason given". The
+        // repaired candidate then parses into a lede with no paragraphs, and that is the shape this
+        // refusal was reporting without saying so.
+        var rawEnd = rawContent.TrimEnd();
+        var looksTruncated = rawEnd.Length > 0 && !rawEnd.EndsWith('}') && !rawEnd.EndsWith(']');
+        var hint = looksTruncated
+            ? " The response does not end with a closing brace, so it was cut off -- most likely the "
+              + "max output token limit."
             : string.Empty;
 
         throw new ContentGenerationException(
-            $"Model did not return a valid lede+introduction for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+            $"Model did not return a valid lede+introduction for {label}. "
+            + $"Reason: {why ?? "no candidate parsing was attempted"}. "
+            + $"Response was {rawContent.Length} chars. "
+            + $"First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
     }
 
     /// <summary>

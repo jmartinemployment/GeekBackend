@@ -2074,9 +2074,39 @@ public class GccGenerateService
                 + string.Join(", ", pillarToolsSections.Select(h => $"\"{h}\""))
                 + " — after a retry naming it. Tools belong in the prose of the sections they serve.");
 
+        // One retry, the same courtesy every other guard on this path gets. Re-tagging a heading or
+        // rewriting it is mechanical once the writer is told which values actually license one, and
+        // refusing on first sight threw away a whole generate over a tag.
+        if (provenanceViolations.Count > 0)
+        {
+            _logger.LogInformation(
+                "Pillar wrote {Count} unlicensed heading(s); retrying once with the licensable values named.",
+                provenanceViolations.Count);
+            var provenanceRetry = await WritePillarBodyAsync(
+                $"{pillarEvidence}{Environment.NewLine}"
+                + GccHeadingProvenanceGuard.RetryInstruction(provenanceViolations, evidence));
+            // A body with no sections has no unlicensed headings either, so "zero violations" is not
+            // on its own evidence that the retry worked -- it is also what an empty response looks
+            // like. Requiring sections stops an empty retry silently replacing a real body, which is
+            // the success-shaped empty result this codebase refuses everywhere else.
+            var retryViolations = provenanceRetry.Count == 0
+                ? provenanceViolations
+                : GccHeadingProvenanceGuard.FindUnlicensedHeadings(provenanceRetry, evidence);
+            if (provenanceRetry.Count > 0 && retryViolations.Count == 0)
+            {
+                bodySections = provenanceRetry;
+                provenanceViolations = [];
+            }
+            else
+            {
+                provenanceViolations = retryViolations;
+            }
+        }
+
         if (provenanceViolations.Count > 0)
             throw new InvalidOperationException(
-                $"Pillar body contains unlicensed headings: {string.Join("; ", provenanceViolations)}");
+                "Pillar body contains unlicensed headings after a retry naming the licensable values: "
+                + string.Join("; ", provenanceViolations));
 
         // Stage 8c: the brief's PAA questions were parsed (ExtractBriefFields) and then silently
         // dropped -- never fed to an FAQ section anywhere on this path. Not "cluster PAA again at
@@ -2359,9 +2389,39 @@ public class GccGenerateService
                 + string.Join(", ", blogToolsSections.Select(h => $"\"{h}\""))
                 + " — after a retry naming it. Tools belong in the prose of the sections they serve.");
 
+        // Same one retry as the pillar, and for the same reason: a model that tagged a heading
+        // "paa:How to implement AI in accounts payable?" -- a question that reads exactly like a real
+        // one and is not in this brief -- can fix that when told which values exist.
+        if (provenanceViolations.Count > 0)
+        {
+            _logger.LogInformation(
+                "Blog wrote {Count} unlicensed heading(s); retrying once with the licensable values named.",
+                provenanceViolations.Count);
+            var provenanceRetry = await WriteBlogBodyAsync(
+                $"{blogEvidence}{Environment.NewLine}"
+                + GccHeadingProvenanceGuard.RetryInstruction(provenanceViolations, evidence));
+            // A body with no sections has no unlicensed headings either, so "zero violations" is not
+            // on its own evidence that the retry worked -- it is also what an empty response looks
+            // like. Requiring sections stops an empty retry silently replacing a real body, which is
+            // the success-shaped empty result this codebase refuses everywhere else.
+            var retryViolations = provenanceRetry.Count == 0
+                ? provenanceViolations
+                : GccHeadingProvenanceGuard.FindUnlicensedHeadings(provenanceRetry, evidence);
+            if (provenanceRetry.Count > 0 && retryViolations.Count == 0)
+            {
+                bodySections = provenanceRetry;
+                provenanceViolations = [];
+            }
+            else
+            {
+                provenanceViolations = retryViolations;
+            }
+        }
+
         if (provenanceViolations.Count > 0)
             throw new InvalidOperationException(
-                $"Blog body contains unlicensed headings: {string.Join("; ", provenanceViolations)}");
+                "Blog body contains unlicensed headings after a retry naming the licensable values: "
+                + string.Join("; ", provenanceViolations));
 
         var document = new ContentDocument(blogLede with { Tag = "h2" }, bodySections);
         document = ContentGuardrail.Apply(document).Document;
