@@ -521,4 +521,36 @@ public class GccGenerateServiceToolPageGroundingTests
 
         Assert.Contains("Standalone image prompt requires topic and notes", ex.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task The_grounding_refusal_names_the_product_it_searched_for()
+    {
+        // Twice, with two different partner sets, five partners carrying 84-226 quotable spans each and
+        // 130+ features between them produced "1 of 22 payload categories populated". The refusal read
+        // as though the partners were thin. They were not: extraction is asked for one product by name,
+        // and on the Create path that name is create.Topic -- so a topic that is a keyword sends it
+        // looking for a product nobody sells.
+        //
+        // The refusal has to name that, or abundant evidence reads as missing evidence and the operator
+        // re-crawls partners that were never the problem.
+        var provider = new ScriptedProvider();
+        var partner = GccPartnerExtractionFakes.Scripted(
+            new FakeProviderFactory(provider), GccPartnerExtractionFakes.EmptyPageExtraction);
+        var service = Build(provider, partner);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateToolPageAsync(
+                "Accounts Payable: Automated Data Entry & Processing", "brief", "context", "marketing",
+                null, ContentGeneratorProvider.OpenAi, CancellationToken.None,
+                create: Create(ResearchJsonWithOnePartnerPage()), passages: PartnerPassages()));
+
+        Assert.Contains("Refused: Partner grounding required", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "searched", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "a product named \"Accounts Payable: Automated Data Entry & Processing\"",
+            ex.Message,
+            StringComparison.Ordinal);
+        Assert.Contains("keyword rather than one partner's product", ex.Message, StringComparison.Ordinal);
+    }
 }

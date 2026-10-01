@@ -960,6 +960,15 @@ public class GccGenerateService
             // "Generate validation/config failed". This refusal is deliberate and correct, so it
             // was being reported to the operator as "Service Unavailable", as though GeekAPI were
             // down (Jeff, 2026-09-22). Same prefix convention GccGroundingResolver's refusals get.
+            // Extraction is asked for one product by name, and on the Create path that name is
+            // create.Topic -- so a create whose topic is a keyword rather than a product sends the
+            // extractor looking for a product that does not exist, across partner sites that are full
+            // of material about real ones. Five partners with 84-226 quotable spans each and 130+
+            // features between them yielded 1 of 22 categories, twice, with different partner sets
+            // (Jeff's own per-partner counts, 2026-10-01). So the refusal names what it searched for:
+            // without that, abundant evidence reads as missing evidence and the operator re-crawls
+            // partners that were never the problem.
+            var searchedFor = string.IsNullOrWhiteSpace(name) ? "(no name)" : name.Trim();
             throw new InvalidOperationException(
                 // '{name}' is the tool page being written, not the source of the evidence -- the
                 // evidence comes from the project's partner sites. The old phrasing read as though
@@ -967,7 +976,10 @@ public class GccGenerateService
                 $"Refused: Partner grounding required. The tool page '{name}' must be grounded in "
                 + $"the project's partner evidence; indexed partner crawl data exists, but "
                 + $"extracting it yielded too little to write a full page ({coverage}). "
-                + $"Not generating a thinly-grounded page.");
+                + $"Extraction searched {partnerPages.Count} retrieved partner page(s) for a product "
+                + $"named \"{searchedFor}\" -- if that is a keyword rather than one partner's product, "
+                + "that is why the categories are empty, and no amount of partner crawling will fill "
+                + "them. Not generating a thinly-grounded page.");
         }
 
         var extractedToolResearchJson = groundedExtraction is null
