@@ -1,10 +1,12 @@
 using System.Text.Json;
+using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
+using GeekApplication.Models.GeekCrawler;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GeekBackend.Tests.ContentCreator;
@@ -38,15 +40,60 @@ public class GccAngleQuoteProbeTests
     private static GeekCrawlerRagQueryResult Retrieved(params GccQuoteablePage[] pages) =>
         new() { RunId = Run, Pages = pages };
 
+    /// <summary>
+    /// The crawl page behind a retrieved URL, carrying the same prose as a paragraph block.
+    ///
+    /// <para>
+    /// The probe cuts its candidates from the typed blocks, exactly as the tool page does, so a test
+    /// that supplied only retrieved page text would be exercising a source neither one reads. The
+    /// text is the same string either way — what the blocks add is the block boundary, which is why
+    /// a quotation stays whole instead of being sentence-split out of a flattened projection.
+    /// </para>
+    /// </summary>
+    private static GeekCrawlerPageDto Crawled(string paragraph) => new(
+        Id: Guid.NewGuid(),
+        RunId: Run,
+        Origin: PartnerUrl,
+        Url: PartnerUrl,
+        FinalUrl: PartnerUrl,
+        StatusCode: 200,
+        RobotsAllowed: true,
+        Html: null,
+        FailureReason: null,
+        CrawledAtUtc: DateTimeOffset.UtcNow,
+        Title: "CTI case study",
+        Excerpt: null,
+        ContentHtml: null,
+        Blocks: JsonSerializer.SerializeToElement(new[]
+        {
+            new Dictionary<string, string> { ["kind"] = "paragraph", ["text"] = paragraph },
+        }));
+
     private static GccAngleQuoteProbe Build(
         GeekCrawlerRagQueryResult? retrieved,
         GccAngleQuoteSelection? selection,
         bool providerAvailable = true,
-        Exception? selectorThrows = null) =>
+        Exception? selectorThrows = null,
+        bool blocksReadable = true) =>
         new(new FakeRag(retrieved),
+            new GccTypedPassageReader(new FakePages(
+                blocksReadable && retrieved?.Pages is { Count: > 0 }
+                    ? retrieved.Pages.Select(page => Crawled(page.Paragraphs[0])).ToList()
+                    : [])),
             new FakeGenerator(selection, selectorThrows),
             new FakeProviders(providerAvailable),
             NullLogger<GccAngleQuoteProbe>.Instance);
+
+    private sealed class FakePages(IReadOnlyList<GeekCrawlerPageDto> pages) : IGccCrawlPageReader
+    {
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+            Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
+            Task.FromResult(pages);
+
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
+            Guid runId, int limit = 100, int offset = 0, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
+    }
 
     [Fact]
     public async Task A_verbatim_span_answering_the_angle_is_accepted_and_cited_to_its_page()
@@ -116,6 +163,20 @@ public class GccAngleQuoteProbeTests
 
         Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
         Assert.False(finding.CanAnswer);
+    }
+
+    [Fact]
+    public async Task Pages_that_cannot_be_read_back_are_unavailable_not_a_verdict()
+    {
+        // Retrieval answered with pages; the crawl store could not produce their blocks. That is the
+        // store being unreadable, not this partner having nothing to say -- and the two must not
+        // read alike, or an operator re-crawls a partner whose evidence is fine.
+        var probe = Build(Retrieved(Page(Published)), null, blocksReadable: false);
+
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+
+        Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
+        Assert.Contains("could not be read back", finding.Reason!, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services;
@@ -163,6 +164,26 @@ public class GccGenerateServiceToolPageGroundingTests
                     RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
             ]));
 
+    /// <summary>
+    /// The partner page's typed blocks — where the quotation's candidate spans are cut from.
+    ///
+    /// <para>
+    /// The same prose as the retrieved page above, because it is the same page: the retrieved copy is
+    /// the prompt projection and this is the crawl page's blocks. The production path resolves both
+    /// and hands the blocks down, so a fixture that supplied only the first would leave the writer
+    /// with no span to quote and the page refused for not carrying a quotation.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<GccGroundedPassage> PartnerPassages() =>
+    [
+        new GccGroundedPassage("https://partner.test/widget", "Partner Widget",
+        [
+            new TextParagraph([new Run("Partner Widget starts at $19 per month, billed monthly.")]),
+            new TextParagraph([new Run(
+                "Partner Widget reduces setup time by half, and the vendor master maps itself.")]),
+        ]),
+    ];
+
     private const string RivalText = "We run accounts payable projects end to end.";
     private const string OwnSiteText = "We published our AP automation guide last quarter.";
     private const string RivalUrl = "https://rival.test/services";
@@ -219,7 +240,7 @@ public class GccGenerateServiceToolPageGroundingTests
         await service.GenerateToolPageAsync(
             "Partner Widget", "brief", "context", "marketing", null,
             ContentGeneratorProvider.OpenAi, CancellationToken.None,
-            create: Create(ResearchJsonWithAllThreeCrawlTypes()));
+            create: Create(ResearchJsonWithAllThreeCrawlTypes()), passages: PartnerPassages());
 
         var bodyPrompts = provider.Requests
             .Where(r => r.JsonSchemaName == "sections")
@@ -312,6 +333,45 @@ public class GccGenerateServiceToolPageGroundingTests
     }
 
     [Fact]
+    public async Task The_writer_is_shown_the_same_spans_the_quote_guard_will_check()
+    {
+        // One list, read by both. The live failure when they differed: the writer's instruction
+        // pointed at the extraction JSON while the guard checked the draft against spans cut from the
+        // retrieved pages, so a page that correctly wrote no quotation was refused for not using
+        // spans it had never been shown -- "28 quotable partner span(s) were supplied and none was
+        // used". The prompt builder renders the block; this is the wiring that fills it, and it is
+        // the half that was wrong.
+        var provider = new ScriptedProvider();
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+                "Slack", "Notifications", "API", "Slack integration")],
+        };
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
+        var service = Build(provider, partner);
+
+        await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithOnePartnerPage()), passages: PartnerPassages());
+
+        // Either role: the spans ride on the tool body's system message, beside the instruction
+        // that governs them, and this test is about the list reaching the model at all.
+        var prompt = provider.Requests
+            .SelectMany(r => r.Messages.Select(m => m.Content))
+            .FirstOrDefault(c => c.Contains("QUOTABLE SPANS", StringComparison.Ordinal));
+        Assert.NotNull(prompt);
+        // The span the passage carries, offered by number with its page as the cite -- so the model
+        // answers with the number and never retypes the sentence.
+        Assert.Contains("the vendor master maps itself", prompt, StringComparison.Ordinal);
+        Assert.Contains("[cite: https://partner.test/widget]", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RealExtractionDataGroundsTheBodyPromptAndTheJsonLd()
     {
         var provider = new ScriptedProvider();
@@ -333,7 +393,7 @@ public class GccGenerateServiceToolPageGroundingTests
         var result = await service.GenerateToolPageAsync(
             "Partner Widget", "brief", "context", "marketing", null,
             ContentGeneratorProvider.OpenAi, CancellationToken.None,
-            create: Create(ResearchJsonWithOnePartnerPage()));
+            create: Create(ResearchJsonWithOnePartnerPage()), passages: PartnerPassages());
 
         // The body prompt's own request (call 1, after the lede) actually carried the extraction,
         // not just that the call succeeded.
@@ -377,7 +437,7 @@ public class GccGenerateServiceToolPageGroundingTests
         var result = await service.GenerateToolPageAsync(
             "Partner Widget", "brief", "context", "marketing", null,
             ContentGeneratorProvider.OpenAi, CancellationToken.None,
-            create: Create(ResearchJsonWithOnePartnerPage()));
+            create: Create(ResearchJsonWithOnePartnerPage()), passages: PartnerPassages());
 
         // FAQ is a real, distinct call of its own -- carrying the verified answer for the model to
         // paraphrase, not a question it must answer from scratch -- and the resulting section

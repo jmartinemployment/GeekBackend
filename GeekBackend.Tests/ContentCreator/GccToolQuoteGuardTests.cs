@@ -21,9 +21,14 @@ public class GccToolQuoteGuardTests
     private const string OtherUrl = "https://tipalti.com/pricing";
     private const string Said = "We cut approval time from nine days to two, and nobody has looked back.";
 
-    /// <summary>The partner's published sentences as retrieved -- the guard's only source.</summary>
+    /// <summary>
+    /// The partner's published sentences as typed blocks -- the guard's only source, and the same
+    /// source the writer is shown.
+    /// </summary>
     private static IReadOnlyList<GccQuoteCandidate> Published(string sentence, string url) =>
-        GccQuoteCandidates.From([new GccQuoteablePage(url, "Customers", [], [sentence])]);
+        GccQuoteCandidates.From([
+            new GccGroundedPassage(url, "Customers", [new TextParagraph([new Run(sentence)])]),
+        ]);
 
     private static IReadOnlyList<GccQuoteCandidate> Published() => Published(Said, PartnerUrl);
 
@@ -146,11 +151,7 @@ public class GccToolQuoteGuardTests
         // The live refusal. tipalti.com carries 5,133 indexed chunks; its extraction produced
         // features and pricing but no testimonial and no citable, and the page was refused as
         // though the partner had published nothing quotable at all.
-        var candidates = GccQuoteCandidates.From([
-            new GccQuoteablePage(
-                PartnerUrl, "Customers", [],
-                ["We cut approval time from nine days to two, and nobody has looked back."]),
-        ]);
+        var candidates = Published();
 
         var sections = new[]
         {
@@ -165,11 +166,7 @@ public class GccToolQuoteGuardTests
     [Fact]
     public void With_candidates_available_the_refusal_says_they_went_unused()
     {
-        var candidates = GccQuoteCandidates.From([
-            new GccQuoteablePage(
-                PartnerUrl, "Customers", [],
-                ["We cut approval time from nine days to two, and nobody has looked back."]),
-        ]);
+        var candidates = Published();
 
         var violation = Assert.Single(
             GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], candidates));
@@ -193,11 +190,7 @@ public class GccToolQuoteGuardTests
     public void A_retrieved_span_cited_to_the_wrong_page_is_still_refused()
     {
         // Widening where candidates come from does not weaken what makes one valid.
-        var candidates = GccQuoteCandidates.From([
-            new GccQuoteablePage(
-                PartnerUrl, "Customers", [],
-                ["We cut approval time from nine days to two, and nobody has looked back."]),
-        ]);
+        var candidates = Published();
 
         var sections = new[]
         {

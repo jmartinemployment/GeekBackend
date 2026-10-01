@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.GeekCrawler;
@@ -125,16 +126,43 @@ public class GccGroundingRetrievalTests
 
     private sealed class NoPages : IGccCrawlPageReader
     {
+        // One paragraph block per requested seed. These tests are about which corpus a page lands
+        // in, and a tool must be able to quote a partner before it may be written -- a fake that
+        // answered nothing would refuse every tool case here for a reason none of them is about.
         public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
             Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>(
+                seedUrls.Select(url => Crawled(runId, url)).ToList());
+
+        private static GeekCrawlerPageDto Crawled(Guid runId, string url) => new(
+            Id: Guid.NewGuid(),
+            RunId: runId,
+            Origin: url,
+            Url: url,
+            FinalUrl: url,
+            StatusCode: 200,
+            RobotsAllowed: true,
+            Html: null,
+            FailureReason: null,
+            CrawledAtUtc: DateTimeOffset.UtcNow,
+            Title: "Page",
+            Excerpt: null,
+            ContentHtml: null,
+            Blocks: JsonSerializer.SerializeToElement(new[]
+            {
+                new Dictionary<string, string>
+                {
+                    ["kind"] = "paragraph",
+                    ["text"] = "Approval time fell from nine days to two across every department.",
+                },
+            }));
         public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
             Guid runId, int limit = 100, int offset = 0, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
     }
 
     private static GccGroundingResolver Build(GccProjectDto? project, IGeekCrawlerRagClient rag) =>
-        new(new FakeProjects(project), rag, new NoPages(),
+        new(new FakeProjects(project), rag, new GccTypedPassageReader(new NoPages()),
             NullLogger<GccGroundingResolver>.Instance);
 
     [Theory]
@@ -249,6 +277,30 @@ public class GccGroundingRetrievalTests
         Assert.Single(outcome.Pages);
         Assert.Single(outcome.CompetitorPages);
         Assert.Single(outcome.SitePages);
+    }
+
+    [Fact]
+    public async Task Only_the_partner_corpus_is_read_back_as_typed_blocks()
+    {
+        // The typed passages are the tool page's quote source, and a tool page must quote a partner:
+        // a competitor is read and never quoted, and the publisher's own pages are what the piece
+        // must not repeat. So the list carries partner pages only, decided by the crawl type that was
+        // queried rather than by whoever cuts the candidates remembering to filter -- the same reason
+        // CompetitorPages is its own list instead of a tag on Pages.
+        //
+        // It is also the cheaper half: the read behind this costs a repository round trip per run,
+        // and the competitor and project-site runs were paying it for a list nothing may quote from.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+
+        var outcome = await Build(project, new SameUrlEverywhereRag())
+            .ResolveAsync(Create(project.Id, "tool"), ["pillar", "blog", "tool"]);
+
+        Assert.False(outcome.Refused);
+        Assert.Single(outcome.Pages);
+        Assert.Single(outcome.CompetitorPages);
+        Assert.Single(outcome.SitePages);
+        // One page in three corpora, and exactly one passage: the partner read, and only that one.
+        Assert.Single(outcome.PartnerPassages);
     }
 
     [Fact]

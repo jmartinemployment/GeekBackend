@@ -21,7 +21,24 @@ public sealed record GccGroundingOutcome(
     IReadOnlyList<GccQuoteablePage> Pages,
     IReadOnlyList<string> Warnings,
     string? Refusal,
-    IReadOnlyList<GccGroundedPassage> Passages,
+    /// <summary>
+    /// The partner pages of <see cref="Pages"/> again, as typed blocks instead of flat prose.
+    ///
+    /// <para>
+    /// Partner only, by construction rather than by a filter at the far end. A tool page's block
+    /// quotation must cite a partner: a competitor is read and never quoted, and the publisher's own
+    /// pages are what the piece must not repeat. One list covering all three corpora would hand the
+    /// quote cutter spans it must refuse, and the only thing standing between a competitor's prose
+    /// and a blockquote attributing it would be a caller remembering to filter — the same reason
+    /// <see cref="CompetitorPages"/> is its own list rather than a tag on <see cref="Pages"/>.
+    /// </para>
+    /// <para>
+    /// So the other two corpora are not mapped at all, which is also the cheaper half: the read
+    /// behind this costs one repository round trip per run, and the project-site and competitor runs
+    /// were paying it for a list nothing could legitimately use.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<GccGroundedPassage> PartnerPassages,
     /// <summary>
     /// Competitor pages, kept apart from <see cref="Pages"/> rather than tagged inside it.
     ///
@@ -79,7 +96,7 @@ public sealed record GccGroundedPassage(
 public sealed class GccGroundingResolver(
     IGccProjectReader repo,
     IGeekCrawlerRagClient rag,
-    IGccCrawlPageReader pages,
+    GccTypedPassageReader typedPassages,
     ILogger<GccGroundingResolver> logger)
 {
     /// <summary>
@@ -149,8 +166,6 @@ public sealed class GccGroundingResolver(
     /// <summary>How many passages to retrieve per run. Matches the library writer's default.</summary>
     private const int TopK = 8;
 
-    /// <summary>The repository's by-seeds route accepts at most 32 URLs.</summary>
-    private const int MaxSeedsPerRead = 32;
 
     /// <summary>
     /// The evidence <paramref name="contentType"/> must be able to cite, or empty when it declares
@@ -404,7 +419,12 @@ public sealed class GccGroundingResolver(
                     fresh.Add(page);
                 }
 
-                passages.AddRange(await ReadTypedPassagesAsync(runId, fresh, ct));
+                // Partner only -- see PartnerPassages. The competitor and project-site runs skip
+                // this read entirely rather than mapping blocks no consumer may quote from.
+                if (string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase))
+                {
+                    passages.AddRange(await typedPassages.ReadAsync(runId, fresh, ct));
+                }
             }
         }
 
@@ -415,65 +435,37 @@ public sealed class GccGroundingResolver(
                 + "indexed run was queried and none returned a citable passage for this topic.");
         }
 
+        // A type that must cite a partner quotes from the typed blocks, not from the flat
+        // projection, so for that type the typed read is the evidence rather than a nicer shape for
+        // it. Empty here with partner pages present means the crawl pages behind them could not be
+        // read back or carried no mappable blocks -- the quote has no source, and the draft must
+        // stop now, under the reason that is actually true.
+        //
+        // This is the one case GccTypedPassageReader's empty result is not merely an enrichment
+        // missing, and it is right everywhere else: pillar and blog never quote, so for them the
+        // typed form stays an enrichment and its absence changes nothing. Without this,
+        // a repository outage reached the writer and came back as "the tool page does not carry a
+        // verifiable block quotation" -- a refusal that blames the model for an infrastructure
+        // failure and sends the operator to the prompt to fix it.
+        if (mustCite.Contains(CrawlTypes.Partner, StringComparer.OrdinalIgnoreCase)
+            && retrieved.Count > 0
+            && passages.Count == 0)
+        {
+            return GccGroundingOutcome.Refuse(
+                $"'{contentType}' must quote partner evidence, and none of the {retrieved.Count} "
+                + "retrieved partner page(s) could be read back as typed blocks. The pages are "
+                + "indexed but their crawl rows are unreadable or carry no blocks -- re-crawl them, "
+                + "then retry.");
+        }
+
         logger.LogInformation(
             "Grounding resolved for create {CreateId} ({ContentType}): {PageCount} partner, "
             + "{CompetitorCount} competitor, {SiteCount} own-site pages; {PassageCount} typed "
-            + "passages, {WarningCount} warnings.",
+            + "partner passages, {WarningCount} warnings.",
             create.Id, contentType, retrieved.Count, competitors.Count, sitePages.Count,
             passages.Count, warnings.Count);
 
         return new GccGroundingOutcome(retrieved, warnings, null, passages, competitors, sitePages);
-    }
-
-    /// <summary>
-    /// Reads the crawl pages behind the retrieved URLs and maps their blocks to typed paragraphs.
-    /// </summary>
-    /// <remarks>
-    /// Best-effort by design, and the one place in this resolver that is: the typed form is an
-    /// enrichment of evidence already proven present by the query above. Its absence must not turn
-    /// a grounded draft into a refusal — the refusals are for missing *evidence*, not missing
-    /// *shape*. A failure here is recorded as a warning and the flat passages still stand.
-    /// </remarks>
-    private async Task<IReadOnlyList<GccGroundedPassage>> ReadTypedPassagesAsync(
-        Guid runId,
-        IReadOnlyList<GccQuoteablePage> retrieved,
-        CancellationToken ct)
-    {
-        if (retrieved.Count == 0)
-        {
-            return [];
-        }
-
-        // The repository route caps seeds at 32.
-        var urls = retrieved.Select(page => page.Url).Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(MaxSeedsPerRead).ToList();
-        var crawled = await pages.ListPagesBySeedsAsync(runId, urls, ct);
-
-        var byUrl = new Dictionary<string, GeekCrawlerPageDto>(StringComparer.OrdinalIgnoreCase);
-        foreach (var page in crawled)
-        {
-            byUrl.TryAdd(page.Url, page);
-            if (!string.IsNullOrWhiteSpace(page.FinalUrl))
-            {
-                byUrl.TryAdd(page.FinalUrl, page);
-            }
-        }
-
-        var typed = new List<GccGroundedPassage>();
-        foreach (var page in retrieved)
-        {
-            if (!byUrl.TryGetValue(page.Url, out var crawledPage))
-            {
-                continue;
-            }
-
-            var content = GccCorpusBlockMapper.MapBlocks(crawledPage.Blocks, page.Url);
-            if (content.Count > 0)
-            {
-                typed.Add(new GccGroundedPassage(page.Url, page.Title, content));
-            }
-        }
-        return typed;
     }
 
     /// <summary>

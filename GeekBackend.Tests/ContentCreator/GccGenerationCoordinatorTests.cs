@@ -118,7 +118,7 @@ public class GccGenerationCoordinatorTests
         IReadOnlyList<GccQuoteablePage>? competitor = null,
         IReadOnlyList<GccQuoteablePage>? site = null)
     {
-        // Positional: Pages, Warnings, Refusal, Passages, CompetitorPages, SitePages.
+        // Positional: Pages, Warnings, Refusal, PartnerPassages, CompetitorPages, SitePages.
         var outcome = new GccGroundingOutcome(
             partner ?? [], [], null, [], competitor ?? [], site ?? []);
         var merged = GccGenerationCoordinator.MergeRetrievedEvidence(Create(existingJson), outcome);

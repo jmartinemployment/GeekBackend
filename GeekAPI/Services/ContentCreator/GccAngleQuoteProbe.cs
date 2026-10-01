@@ -41,6 +41,7 @@ namespace GeekAPI.Services.ContentCreator;
 /// </remarks>
 public sealed class GccAngleQuoteProbe(
     IGeekCrawlerRagClient rag,
+    GccTypedPassageReader typedPassages,
     IGccV2SchemaConstrainedGenerator generator,
     IContentProviderFactory providers,
     ILogger<GccAngleQuoteProbe> logger)
@@ -116,7 +117,30 @@ public sealed class GccAngleQuoteProbe(
                 partnerUrl, "the index could not be reached, so this partner was not checked");
         }
 
-        var candidates = GccQuoteCandidates.From(retrieved.Pages);
+        // Cut from the typed blocks, not from retrieved.Pages, because that is what the tool page
+        // does -- see this class's remarks. Retrieval's page text is the prompt projection, labels
+        // and all; the generate stopped reading it when the quote source became the blocks, so a
+        // probe still reading it would be answering a different question than the one it reports on.
+        var passages = await typedPassages
+            .ReadAsync(runId, retrieved.Pages, ct)
+            .ConfigureAwait(false);
+
+        // Pages retrieved but none readable back is the crawl store not answering, not this partner
+        // having nothing to say -- the Unavailable/NoAnswer distinction this class exists to keep.
+        // Sending an operator to re-crawl a partner whose evidence is fine is the failure mode.
+        if (retrieved.Pages.Count > 0 && passages.Count == 0)
+        {
+            logger.LogWarning(
+                "Angle quote probe read no typed blocks for {Host} run {RunId} behind "
+                + "{PageCount} retrieved page(s).",
+                host, runId, retrieved.Pages.Count);
+            return GccAngleQuoteFinding.Unavailable(
+                partnerUrl,
+                "this partner's crawled pages could not be read back, so the question could not "
+                    + "be asked");
+        }
+
+        var candidates = GccQuoteCandidates.From(passages);
         if (candidates.Count == 0)
         {
             return GccAngleQuoteFinding.NoAnswer(

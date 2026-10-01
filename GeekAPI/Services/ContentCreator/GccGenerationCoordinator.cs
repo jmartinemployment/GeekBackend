@@ -89,14 +89,21 @@ public sealed class GccGenerationCoordinator
     /// <summary>
     /// Resolves grounding evidence for every content type this generate will write, once, and
     /// merges it into the create -- refusing, never proceeding ungrounded, if the resolver says so.
+    ///
+    /// Returns the typed passages alongside the merged create because they do not fit in it. The
+    /// create carries research as JSON, which is where the prompt's quoteable block reads from; a
+    /// passage is a list of <c>Paragraph</c> records, so serializing it into that JSON would flatten
+    /// the block structure the typed path exists to preserve. The tool page's block quotation needs
+    /// the structure, so the passages travel beside the create rather than inside it.
     /// </summary>
-    private async Task<GccCreateDto> ResolveAndMergeGroundingAsync(
-        GccCreateDto create, IReadOnlyList<string> contentTypes, CancellationToken ct)
+    private async Task<(GccCreateDto Create, IReadOnlyList<GccGroundedPassage> PartnerPassages)>
+        ResolveAndMergeGroundingAsync(
+            GccCreateDto create, IReadOnlyList<string> contentTypes, CancellationToken ct)
     {
         var grounding = await _grounding.ResolveAsync(create, contentTypes, ct);
         if (grounding.Refused)
             throw new InvalidOperationException($"Refused: {grounding.Refusal}");
-        return MergeRetrievedEvidence(create, grounding);
+        return (MergeRetrievedEvidence(create, grounding), grounding.PartnerPassages);
     }
 
     /// <summary>Trimmed, de-duplicated, empty entries dropped. No default is ever substituted.</summary>
@@ -186,14 +193,16 @@ public sealed class GccGenerationCoordinator
             //
             // Before the fan-out rather than inside it, so a refusal costs nothing: the generate
             // stops before any paid model call instead of after two of three types have written.
-            create = await ResolveAndMergeGroundingAsync(create, requested, ct);
+            var resolved = await ResolveAndMergeGroundingAsync(create, requested, ct);
+            create = resolved.Create;
 
             var attempts = await Task.WhenAll(requested.Select(async type =>
             {
                 try
                 {
                     var generated = await GenerateOneAsync(
-                        repo, gen, create, section, provider, type, mustMentionBlock, ct);
+                        repo, gen, create, section, provider, type, mustMentionBlock,
+                        resolved.PartnerPassages, ct);
                     return (Type: type, Body: (string?)generated.BodyJson, Error: (string?)null);
                 }
                 catch (OperationCanceledException)
@@ -224,9 +233,11 @@ public sealed class GccGenerationCoordinator
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
-        create = await ResolveAndMergeGroundingAsync(create, requested, ct);
+        var resolvedSingle = await ResolveAndMergeGroundingAsync(create, requested, ct);
+        create = resolvedSingle.Create;
         var single = await GenerateOneAsync(
-            repo, gen, create, section, provider, requested[0], mustMentionBlock, ct);
+            repo, gen, create, section, provider, requested[0], mustMentionBlock,
+            resolvedSingle.PartnerPassages, ct);
         return await PersistOneAsync(repo, create, single.ContentType, single.BodyJson, onTypeOutcome, ct);
     }
 
@@ -237,7 +248,9 @@ public sealed class GccGenerationCoordinator
     ///
     /// Grounding is NOT resolved here any more. It is resolved once for the whole generate by the
     /// caller and the merged create handed down, because the evidence belongs to the create rather
-    /// than to the draft -- and every live type retrieves the same crawl types anyway.
+    /// than to the draft -- and every live type retrieves the same crawl types anyway. The typed
+    /// passages come down beside it for the same reason, and for the one in
+    /// ResolveAndMergeGroundingAsync's remarks: they cannot be carried inside the create.
     /// </summary>
     private async Task<(string ContentType, string BodyJson)> GenerateOneAsync(
         HttpGccRepository repo,
@@ -247,6 +260,7 @@ public sealed class GccGenerationCoordinator
         ContentGeneratorProvider provider,
         string requestedType,
         string? mustMentionBlock,
+        IReadOnlyList<GccGroundedPassage> passages,
         CancellationToken ct)
     {
         var contentType = requestedType.Trim().ToLowerInvariant();
@@ -309,7 +323,8 @@ public sealed class GccGenerationCoordinator
             // branch fires regardless of what the create was originally started as.
             case "aitool" or "tool":
                 bodyJson = await gen.GenerateStartingContentAsync(
-                    create with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock);
+                    create with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock,
+                    passages);
                 break;
 
             case "imageprompt":

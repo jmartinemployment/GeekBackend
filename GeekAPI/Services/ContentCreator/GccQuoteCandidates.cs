@@ -1,10 +1,10 @@
 using System.Text.RegularExpressions;
-using GeekApplication.Models.ContentCreator;
+using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// The spans a block quotation may be chosen from, cut out of retrieved partner pages.
+/// The spans a block quotation may be chosen from, cut out of a partner page's typed blocks.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,39 +40,51 @@ public static partial class GccQuoteCandidates
     public const int MaxCandidates = 40;
 
     /// <summary>
-    /// Every quotable span in these pages, numbered from 1 in the order they are presented.
+    /// Every quotable span in these typed passages, numbered from 1.
     /// </summary>
-    public static IReadOnlyList<GccQuoteCandidate> From(IReadOnlyList<GccQuoteablePage> pages)
+    /// <remarks>
+    /// <para>
+    /// <b>The only source.</b> A <see cref="GccGroundedPassage"/> carries the crawl page's blocks
+    /// mapped kind for kind, so a candidate is the page's own prose. There used to be a second
+    /// overload taking retrieved pages, whose text is <c>RenderChunk</c> output — a labelled blob
+    /// with <c>Section:</c> / <c>Context:</c> / <c>Specific detail:</c> interleaved, which had to be
+    /// stripped back off by pattern before anything could be cut out of it. It is gone, and so is the
+    /// stripper: two ways to find a quote is two answers to one question, and the brief-time probe
+    /// and the writer each read one of them.
+    /// </para>
+    /// <para>
+    /// A <see cref="QuoteParagraph"/> is taken whole rather than sentence-split: the crawler typed
+    /// it as a quotation because the page marked it as one, which is a stronger signal than any
+    /// shape test here, and splitting it would cut a quotation in half.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<GccQuoteCandidate> From(IReadOnlyList<GccGroundedPassage> passages)
     {
         var candidates = new List<GccQuoteCandidate>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var page in pages)
+        foreach (var passage in passages)
         {
-            if (string.IsNullOrWhiteSpace(page.Url)) continue;
-
-            // Boilerplate cannot be a quotation however well it reads. Licence text is the live
-            // example: "means (a) that the initial Contributor has attached the notice described in
-            // Exhibit B" is a complete, grammatical sentence on dext.com/licenses.
-            if (IsBoilerplatePath(page.Url)) continue;
+            if (string.IsNullOrWhiteSpace(passage.Url)) continue;
+            if (IsBoilerplatePath(passage.Url)) continue;
 
             var fromThisPage = 0;
-            foreach (var paragraph in page.Paragraphs)
+            foreach (var paragraph in passage.Content)
             {
-                foreach (var line in Lines(paragraph))
+                // A typed quotation is held to length only. The page marked it as a quotation, which
+                // outranks any shape test here -- rejecting it for not ending in a full stop is the
+                // over-filtering that hides the span that fits.
+                var declared = paragraph is QuoteParagraph;
+
+                foreach (var span in SpansOf(paragraph))
                 {
-                    foreach (var sentence in Sentences(line))
-                    {
-                        if (!IsQuotable(sentence)) continue;
-                        if (!seen.Add(sentence)) continue;
+                    if (declared ? !IsQuotableLength(span) : !IsQuotable(span)) continue;
+                    if (!seen.Add(span)) continue;
 
-                        candidates.Add(new GccQuoteCandidate(
-                            candidates.Count + 1, sentence, page.Url, page.Title));
+                    candidates.Add(new GccQuoteCandidate(
+                        candidates.Count + 1, span, passage.Url, passage.Title));
 
-                        if (++fromThisPage >= MaxPerPage) break;
-                    }
-
-                    if (fromThisPage >= MaxPerPage) break;
+                    if (++fromThisPage >= MaxPerPage) break;
                 }
 
                 if (fromThisPage >= MaxPerPage) break;
@@ -87,37 +99,37 @@ public static partial class GccQuoteCandidates
     }
 
     /// <summary>
-    /// The prose lines of a retrieved paragraph.
+    /// What may be quoted out of one typed paragraph.
     /// </summary>
     /// <remarks>
-    /// A retrieved "paragraph" is not prose: <c>HttpGeekCrawlerRagClient.RenderChunk</c> emits a
-    /// labelled blob — <c>Section:</c>, <c>Target Entity Match:</c>, <c>Context:</c>, <c>Specific
-    /// detail:</c>, <c>Linked from this section:</c> — so the labels and the anchor list have to
-    /// come off before anything is cut out of it, or a candidate reads "Section: Pricing".
+    /// Only prose and quotations. A list item is a fragment, a table row is cells joined for
+    /// reading, a code sample is not speech, and a definition is the page's own glossary — none of
+    /// them is something a partner said.
     /// </remarks>
-    private static IEnumerable<string> Lines(string? paragraph)
+    private static IEnumerable<string> SpansOf(Paragraph paragraph)
     {
-        if (string.IsNullOrWhiteSpace(paragraph)) yield break;
-
-        foreach (var raw in paragraph.Split('\n'))
+        switch (paragraph)
         {
-            var line = raw.Trim();
-            if (line.Length == 0) continue;
+            case QuoteParagraph quote:
+                // Whole, not split: the page marked this as a quotation.
+                var quoted = Flatten(quote.Runs);
+                if (quoted.Length > 0) yield return quoted;
+                break;
 
-            var label = LabelPrefix().Match(line);
-            if (label.Success)
-            {
-                // "Linked from this section: a, b, c" is an anchor list, not prose.
-                if (label.Groups[1].Value.Equals("Linked from this section", StringComparison.OrdinalIgnoreCase))
-                    continue;
+            case TextParagraph text:
+                foreach (var sentence in Sentences(Flatten(text.Runs)))
+                {
+                    yield return sentence;
+                }
 
-                line = line[label.Length..].Trim();
-                if (line.Length == 0) continue;
-            }
-
-            yield return line;
+                break;
         }
     }
+
+    private static string Flatten(IReadOnlyList<Run> runs) =>
+        string.Join(" ", runs.Select(r => r.Text).Where(t => !string.IsNullOrWhiteSpace(t)))
+            .Replace("  ", " ")
+            .Trim();
 
     /// <summary>Sentence-ish spans: terminal punctuation followed by space and a capital.</summary>
     private static IEnumerable<string> Sentences(string line)
@@ -145,6 +157,11 @@ public static partial class GccQuoteCandidates
     /// Shape only. Whether a span <i>answers the angle</i> is the selector's judgement, not this
     /// one — over-filtering here would hide the span that fits.
     /// </summary>
+    private static bool IsQuotableLength(string span) =>
+        span.Length is >= MinChars and <= MaxChars
+        && !span.Contains('|')
+        && !span.Contains('\u2022');
+
     private static bool IsQuotable(string sentence)
     {
         if (sentence.Length is < MinChars or > MaxChars) return false;
@@ -168,10 +185,6 @@ public static partial class GccQuoteCandidates
 
     private static bool IsBoilerplatePath(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var parsed) && BoilerplatePath().IsMatch(parsed.AbsolutePath);
-
-    [GeneratedRegex(@"^(Section|Target Entity Match|Context|Specific detail|Linked from this section):\s*",
-        RegexOptions.IgnoreCase)]
-    private static partial Regex LabelPrefix();
 
     /// <remarks>
     /// Two shapes, and the split is deliberate. Bare words are anchored to the start of a path

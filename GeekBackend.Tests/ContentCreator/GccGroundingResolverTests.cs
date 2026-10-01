@@ -144,7 +144,8 @@ public class GccGroundingResolverTests
         IGccProjectReader projects,
         IGeekCrawlerRagClient rag,
         IGccCrawlPageReader? pages = null) =>
-        new(projects, rag, pages ?? new FakePages(), NullLogger<GccGroundingResolver>.Instance);
+        new(projects, rag, new GccTypedPassageReader(pages ?? new FakePages()),
+            NullLogger<GccGroundingResolver>.Instance);
 
     private static GeekCrawlerPageDto CrawledPage(string url, string blocksJson) => new(
         Id: Guid.NewGuid(),
@@ -278,17 +279,41 @@ public class GccGroundingResolverTests
 
         var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
-        var passage = Assert.Single(outcome.Passages);
+        var passage = Assert.Single(outcome.PartnerPassages);
         var quote = Assert.IsType<QuoteParagraph>(passage.Content[0]);
         Assert.Equal("https://p.test/a", quote.Cite);
         Assert.IsType<CodeParagraph>(passage.Content[1]);
     }
 
     [Fact]
-    public async Task MissingBlocksDoNotTurnAGroundedDraftIntoARefusal()
+    public async Task MissingBlocksDoNotTurnATypeThatNeverQuotesIntoARefusal()
     {
-        // Typed shape is an enrichment of evidence already proven present. Refusals are for
-        // missing evidence, never for missing shape.
+        // For a type that does not quote, typed shape is an enrichment of evidence already proven
+        // present, and a refusal is for missing evidence rather than missing shape. A pillar is
+        // written from the retrieved prose either way.
+        var page = new GccQuoteablePage("https://p.test/a", "A", [], ["body"]);
+        var rag = new FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, Guid.NewGuid().ToString())],
+            result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [page], Failed = false });
+        var resolver = Build(new FakeProjects(Project("https://p.test")), rag, new FakePages());
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+
+        Assert.False(outcome.Refused);
+        Assert.Single(outcome.Pages);
+        Assert.Empty(outcome.PartnerPassages);
+    }
+
+    [Fact]
+    public async Task MissingBlocksRefuseATypeThatMustQuoteAPartner()
+    {
+        // The other half of the same rule, and the reason it is split by content type. A tool page's
+        // block quotation is cut from the typed blocks, so for a tool they are the evidence and not
+        // a nicer shape for it: pages retrieved but unreadable means the quote has no source.
+        //
+        // It refuses here rather than three model calls later, where it arrived as "the tool page
+        // does not carry a verifiable block quotation" -- the writer blamed for the crawl store
+        // being unreadable, and an operator sent to the prompt to fix it.
         var page = new GccQuoteablePage("https://p.test/a", "A", [], ["body"]);
         var rag = new FakeRag(
             hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, Guid.NewGuid().ToString())],
@@ -297,9 +322,10 @@ public class GccGroundingResolverTests
 
         var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 
-        Assert.False(outcome.Refused);
-        Assert.Single(outcome.Pages);
-        Assert.Empty(outcome.Passages);
+        Assert.True(outcome.Refused);
+        Assert.Contains("typed blocks", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+        // Named for what is actually wrong -- the pages are indexed, their blocks are not readable.
+        Assert.Contains("re-crawl", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -309,7 +335,9 @@ public class GccGroundingResolverTests
         var rag = new FakeRag(
             hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, Guid.NewGuid().ToString())],
             result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [page], Failed = false });
-        var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
+        var crawled = new FakePages([CrawledPage(
+            "https://p.test/a", """[{"kind":"paragraph","text":"Approvals fell from nine days to two."}]""")]);
+        var resolver = Build(new FakeProjects(Project("https://p.test")), rag, crawled);
 
         var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
 

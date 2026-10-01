@@ -1,4 +1,5 @@
 using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.ContentCreator.ContentTypes;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.Workflow.Domain.Enums;
@@ -130,9 +131,10 @@ public class ToolPageQuotationTests
         // it. It correctly wrote no quotation and the page was then refused for not using spans it
         // had never seen: "28 quotable partner span(s) were supplied and none was used".
         var candidates = GccQuoteCandidates.From([
-            new GccQuoteablePage(
-                "https://partner.test/customers", "Customers", [],
-                ["We cut approval time from nine days to two, and nobody has looked back."]),
+            new GccGroundedPassage(
+                "https://partner.test/customers", "Customers",
+                [new TextParagraph([new Run(
+                    "We cut approval time from nine days to two, and nobody has looked back.")])]),
         ]);
 
         var prompt = ToolPrompt(null, candidates);

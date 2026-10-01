@@ -1233,7 +1233,8 @@ public class GccGenerateService
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         CancellationToken ct,
-        string? mustMentionBlock = null)
+        string? mustMentionBlock = null,
+        IReadOnlyList<GccGroundedPassage>? passages = null)
     {
         ValidateSiteSectionGate(create.ProjectSiteRunId, section);
         ValidateBriefRequired(create);
@@ -1275,7 +1276,8 @@ public class GccGenerateService
                 relatedArticleUrl: null,
                 provider: provider,
                 ct: ct,
-                create: create);
+                create: create,
+                passages: passages);
             return JsonSerializer.Serialize(new
             {
                 title = tool.Name,
@@ -1644,7 +1646,8 @@ public class GccGenerateService
         ContentGeneratorProvider provider,
         CancellationToken ct,
         string? preferredSlug = null,
-        GccCreateDto? create = null)
+        GccCreateDto? create = null,
+        IReadOnlyList<GccGroundedPassage>? passages = null)
     {
         var llmType = ToLlm(provider);
         var llm = _cwProviders.Get(llmType);
@@ -1831,7 +1834,16 @@ public class GccGenerateService
         // ships.
         // Cut before the body is written, not after: the writer quotes from this list and the guard
         // checks the draft against it, so both must be looking at the same one.
-        var quoteCandidates = GccQuoteCandidates.From(partnerPages);
+        //
+        // From the typed passages, not the retrieved pages. A passage carries the crawl page's
+        // blocks mapped kind for kind, so a candidate is the page's own prose -- where
+        // GccQuoteablePage.Paragraphs is RenderChunk output with "Section:" / "Context:" /
+        // "Specific detail:" labels interleaved, which had to be stripped back off by guesswork. A
+        // block the crawler typed as a quotation is also taken whole rather than sentence-split.
+        //
+        // ReadTypedPassagesAsync already paid for these on every generate and nothing read them
+        // (GccGroundingOutcome.PartnerPassages had no consumer in the solution).
+        var quoteCandidates = GccQuoteCandidates.From(passages ?? []);
 
         Task<List<Section>> WriteToolBodyAsync(string? evidenceBlock) =>
             GenerateSectionsInBatchesAsync(
