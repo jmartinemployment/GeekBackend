@@ -843,19 +843,51 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// either and must refuse before it gets here, rather than reach this prompt and fabricate.
     /// </para>
     /// </summary>
-    private static string ToolQuotationInstruction(string productName) =>
+    /// <summary>
+    /// The one block quotation a tool page carries, and — the part this got wrong — what it has to be
+    /// <i>about</i>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The quote is the partner saying how their product solves the problem</b> — Jeff, 2026-10-01:
+    /// <i>"The quote the application is suppose to return is how Tool x solves problem y."</i> This said
+    /// only "the span that best supports a point the page actually makes", which is any sentence on the
+    /// partner's site, and the candidate list is already shape-filtered rather than
+    /// meaning-filtered — so the writer was choosing from forty arbitrary sentences with no stated
+    /// target. That is the same misunderstanding the probe's selector carried: it preferred a customer
+    /// testimonial, which is praise, not a solution.
+    /// </para>
+    /// <para>
+    /// The authoritative wording for this already existed and the writer never saw it:
+    /// <c>GccAngleQuoteQuestion</c>'s <c>problem_solution</c> spec asks for <i>"a major pain point of
+    /// the manual or status-quo way of handling {subject}, and how this partner's product resolves
+    /// it"</i>. A tool page is about one product and one keyword, so that requirement holds whatever
+    /// the brief's angle says — the angle changes which <i>kind</i> of answer is preferred, and the
+    /// create does not carry one yet.
+    /// </para>
+    /// </remarks>
+    private static string ToolQuotationInstruction(string productName, string targetKeyword) =>
         "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries exactly one block "
         + "quotation -- a paragraph of type \"quote\" -- and it is required. Take its words from the "
         + "quotable spans listed below, copied character for character, and set \"cite\" to the URL "
-        + "printed beside the span you chose. "
+        + "printed beside the span you chose.\n"
+        + "WHAT THE QUOTE MUST SAY: how " + productName + " solves the problem this page is about -- "
+        + "the pain of doing " + targetKeyword + " the manual or status-quo way, and what their product "
+        + "does about it. Choose the span that states a capability, a mechanism or a measured outcome "
+        + "against that problem.\n"
+        + "NOT a compliment and NOT a testimonial: \"we love it\", \"the team has been great\", "
+        + "\"best decision we made\" say nothing about the problem and do not qualify however warmly "
+        + "they read. A general description of the product with no problem attached does not qualify "
+        + "either. If no span in front of you says how the problem is solved, there is no quotation to "
+        + "write -- say so by writing none rather than stretching the nearest sentence to fill the "
+        + "slot.\n"
         + "Put it in the section whose point it supports, where the reader has just been told "
         + "something and the quote is " + productName + " saying it themselves -- not stacked at the "
         + "top, not left to the end as decoration. "
         + "What it may not be: a paraphrase tidied into quotation marks, a claim you are confident "
         + "they make, wording assembled from several places, or anything at all with a cite pointing "
-        + "somewhere the words did not come from. Choose the span that best supports a point the "
-        + "page actually makes; if a span is not in front of you verbatim, it is not quotable, and "
-        + "the draft is rejected rather than published with an invented one.";
+        + "somewhere the words did not come from. If a span is not in front of you verbatim, it is not "
+        + "quotable, and the draft is rejected rather than published with an invented one.";
 
     /// <summary>
     /// The spans the writer may quote -- the same list GccToolQuoteGuard will check the draft
@@ -2476,7 +2508,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"and never claim {context.PublisherName} builds the product's own features.")
             .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
                 "about a competing product is a sentence that has not done its job.")
-            .AppendLine(ToolQuotationInstruction(app.Name))
+            .AppendLine(ToolQuotationInstruction(app.Name, context.TargetKeyword))
             .AppendLine(quoteCandidates is { Count: > 0 } ? QuotableSpansBlock(quoteCandidates) : string.Empty)
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +

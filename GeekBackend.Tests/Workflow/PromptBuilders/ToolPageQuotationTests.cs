@@ -154,4 +154,39 @@ public class ToolPageQuotationTests
         // An empty "QUOTABLE SPANS:" header invites the writer to invent one to fill it.
         Assert.DoesNotContain("QUOTABLE SPANS --", ToolPrompt(null, []), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void The_writer_is_told_the_quote_must_say_how_the_tool_solves_the_problem()
+    {
+        // Jeff, 2026-10-01: "The quote the application is suppose to return is how Tool x solves
+        // problem y." The instruction said only "the span that best supports a point the page actually
+        // makes" -- which is any sentence on the partner's site. The candidate list is shape-filtered,
+        // not meaning-filtered, by design, so with no stated target the writer was choosing from forty
+        // arbitrary sentences. That is why a page could be refused with forty spans supplied.
+        var candidates = GccQuoteCandidates.From([
+            new GccGroundedPassage(
+                "https://partner.test/customers", "Customers",
+                [new TextParagraph([new Run(
+                    "Approval routing runs itself, so invoices clear in two days instead of nine.")])]),
+        ]);
+
+        var prompt = ToolPrompt(null, candidates);
+
+        Assert.Contains("how", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("solves the problem", prompt, StringComparison.Ordinal);
+        // The target is named, not implied: the page's own keyword is the problem.
+        Assert.Contains("manual or status-quo", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_compliment_is_named_as_not_qualifying()
+    {
+        // The failure mode this replaces preferred a testimonial outright. Praise reads like a great
+        // quote and says nothing about the problem, so the instruction has to refuse it by name rather
+        // than leave "best supports a point" to be read generously.
+        var prompt = ToolPrompt(null, []);
+
+        Assert.Contains("NOT a testimonial", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("best decision we made", prompt, StringComparison.Ordinal);
+    }
 }

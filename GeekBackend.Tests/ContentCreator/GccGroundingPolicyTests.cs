@@ -62,8 +62,14 @@ public class GccGroundingPolicyTests
     {
         var need = GccGroundingResolver.BuildNeed("AI implementation for SMBs", CrawlTypes.Partner);
 
-        Assert.Contains("partner tool research", need);
         Assert.Contains("AI implementation for SMBs", need);
+
+        // It asked for "partner tool research", which returns a pool of feature lists and marketing
+        // copy -- material about the product. What a tool page quotes is how the product solves the
+        // problem (Jeff, 2026-10-01), so the query asks for that instead. Retrieval decides what the
+        // candidate list can contain, which is why forty candidates could be supplied and none fit.
+        Assert.Contains("solves the problem", need, StringComparison.Ordinal);
+        Assert.Contains("status-quo pain", need, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -472,16 +472,38 @@ public sealed class GccGroundingResolver(
     /// The retrieval query. Mirrors <c>GccV2CreateLibraryWriter.BuildNeed</c> — that path never ran,
     /// but its intent is the specification.
     /// </summary>
+    /// <summary>
+    /// The retrieval query. What comes back is what a quotation can be chosen from, so this decides
+    /// whether the right span is in the pool at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It asked for "partner tool research; topic: X" — material about the product. The tool page needs
+    /// something narrower: <b>how the product solves the problem the keyword implies</b> (Jeff,
+    /// 2026-10-01). A pool retrieved on "tell me about this product" is mostly feature lists and
+    /// marketing copy, which is why forty candidates could be supplied and none of them fit.
+    /// </para>
+    /// <para>
+    /// Mirrors <c>GccAngleQuoteQuestion</c>'s <c>problem_solution</c> framing, which is the same
+    /// question the brief-time probe asks. The two should want the same material.
+    /// </para>
+    /// </remarks>
     internal static string BuildNeed(string topic, string crawlType)
     {
-        var role = crawlType == CrawlTypes.Competitors
-            ? "competitor differentiation research"
-            : "partner tool research";
-        var trimmed = topic.Trim();
-        if (trimmed.Length > 200)
+        if (crawlType == CrawlTypes.Competitors)
         {
-            trimmed = trimmed[..200];
+            return $"competitor differentiation research; topic: {Bounded(topic, 200)}";
         }
-        return $"{role}; topic: {trimmed}";
+
+        // The framing costs about a hundred characters, so the topic gets a tighter cap here than the
+        // competitor query's. A retrieval query that balloons stops being a query.
+        return $"how this product solves the problem of doing {Bounded(topic, 150)} manually: the "
+            + "status-quo pain, the capability that removes it, measured outcomes";
+    }
+
+    private static string Bounded(string topic, int max)
+    {
+        var trimmed = topic.Trim();
+        return trimmed.Length > max ? trimmed[..max] : trimmed;
     }
 }

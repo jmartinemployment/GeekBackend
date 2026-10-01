@@ -26,6 +26,14 @@ namespace GeekAPI.Services.ContentCreator;
 /// which is how the halves of this pipeline have drifted before.
 /// </para>
 /// <para>
+/// <b>What counts as an answer is the angle's business, not this class's.</b> Rule 2 of the prompt
+/// below used to say "prefer a customer or named third party speaking", which is a preference for
+/// testimonials — praise, not a solution — and it contradicted the <c>problem_solution</c> spec it was
+/// supposed to be asking about. Jeff, 2026-10-01: <i>"The quote the application is suppose to return is
+/// how Tool x solves problem y."</i> Only <c>case_study_data</c> wants a named customer, and its own
+/// spec says so, so the preference belongs in the spec and nowhere else.
+/// </para>
+/// <para>
 /// <b>The model selects a number.</b> Candidate spans are cut from the retrieved pages by
 /// <see cref="GccQuoteCandidates"/>, numbered, and the selector returns the number of the one that
 /// answers the angle. So the quotation is the system's own string and the cite is the page that
@@ -69,8 +77,11 @@ public sealed class GccAngleQuoteProbe(
         + "RULES:\n"
         + "1. Answer with the candidate's number. Do not write out the sentence, and do not edit, "
         + "shorten or combine candidates — the text is taken from the list, not from your reply.\n"
-        + "2. Prefer a customer or named third party speaking. The partner's own published claim is "
-        + "acceptable when no such candidate answers the angle.\n"
+        + "2. The angle above says what kind of answer counts -- follow it, not a house preference. "
+        + "For a problem-solution angle the quote states how the product solves the problem: a "
+        + "capability, a mechanism, or a measured outcome against it. A compliment is not an answer: "
+        + "\"we love it\", \"the team has been great\", \"best decision we made\" say nothing about "
+        + "the problem, and neither does a general product description with no problem attached.\n"
         + "3. A candidate that is merely true about the partner does not qualify. It has to answer "
         + "the angle's question.\n"
         + "4. If no candidate answers it, set hasQualifyingQuote to false and say why in whyItFits. "
