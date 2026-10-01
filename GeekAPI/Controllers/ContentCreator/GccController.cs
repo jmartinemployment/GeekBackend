@@ -50,6 +50,7 @@ public class GccController : ControllerBase
     private readonly ICurrentUserContext _user;
     private readonly HttpGeekCrawlerRepository _crawlerRepo;
     private readonly IGeekCrawlerRagClient _rag;
+    private readonly GccAngleQuoteProbe _angleQuote;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -67,6 +68,7 @@ public class GccController : ControllerBase
         ICurrentUserContext user,
         HttpGeekCrawlerRepository crawlerRepo,
         IGeekCrawlerRagClient rag,
+        GccAngleQuoteProbe angleQuote,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -83,6 +85,7 @@ public class GccController : ControllerBase
         _user = user;
         _crawlerRepo = crawlerRepo;
         _rag = rag;
+        _angleQuote = angleQuote;
         _logger = logger;
     }
 
@@ -1174,6 +1177,123 @@ public class GccController : ControllerBase
             reason = complete ? null : $"The crawl for this host is {run.Status}, not complete.",
         });
     }
+
+    /// <summary>
+    /// Whether each declared partner can answer the question this brief's Angle demands of the
+    /// block quotation — asked here, before Generate, rather than discovered after a paid draft.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The project form already validates these URLs, but it asks a volume question — indexed, with
+    /// enough pages and chunks — and volume is not fitness. A partner can carry nine thousand chunks
+    /// and still say nothing that answers <c>problem_solution</c> for this keyword. The Angle lives
+    /// on the brief, so this is the first point at which the real question exists to be asked.
+    /// </para>
+    /// <para>
+    /// Same shape as <c>project-site/readiness</c> above, and for the same stated reason: it runs
+    /// the retrieval and the selection that generation will run, so presence is not mistaken for
+    /// fitness and a partner that passes here cannot fail generation for want of a quote.
+    /// </para>
+    /// </remarks>
+    [HttpPost("brief/partner-quote-readiness")]
+    public async Task<IActionResult> PartnerQuoteReadiness(
+        [FromBody] PartnerQuoteReadinessRequest? request,
+        CancellationToken ct)
+    {
+        if (!_user.IsAuthenticated) return Unauthorized();
+
+        var topic = (request?.Topic ?? string.Empty).Trim();
+        if (topic.Length == 0)
+            return BadRequest(new { error = "topic is required — it is the subject of the question." });
+        if (request?.ProjectId is not { } projectId || projectId == Guid.Empty)
+            return BadRequest(new { error = "projectId is required — it owns the declared partners." });
+
+        // Read the partners from the project rather than taking them from the caller. The project's
+        // declared list is the one the content is obliged to name, and it is not the same set as the
+        // hosts that happen to be indexed as `partner` — a URL can be indexed under one crawl type
+        // and declared under another.
+        var project = await _repo.GetProjectAsync(projectId, ct);
+        if (project is null) return NotFound();
+
+        var urls = (project.PartnerUrls ?? [])
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (urls.Count == 0)
+        {
+            return BadRequest(new
+            {
+                error = "This project declares no partner URLs, so there is nothing to quote.",
+            });
+        }
+
+        // No angle, no question. Defaulting to one would validate every partner against a question
+        // the brief never asked, which is worse than refusing to answer.
+        var spec = GccAngleQuoteQuestion.For(request?.Angle, topic);
+        if (spec is null)
+        {
+            return BadRequest(new
+            {
+                error = "This brief has no recognised Angle for SEO, so there is no question for "
+                    + "the block quotation to answer. Set the angle, then check again.",
+            });
+        }
+
+        // The index is the one place that resolves a URL to the crawl behind it, and it is the same
+        // answer the project form reads. Asked once for all partners rather than once per probe.
+        var rows = await _rag.HostsIndexedAsync(urls, ct);
+        if (rows.Count == 0)
+        {
+            return StatusCode(
+                StatusCodes.Status502BadGateway,
+                new { error = "The index could not be reached, so no partner could be checked." });
+        }
+
+        var runByUrl = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            if (row.Indexed && Guid.TryParse(row.RunId, out var parsed))
+                runByUrl[row.Url] = parsed;
+        }
+
+        // Concurrently, for the same reason partner extraction runs its pages concurrently: each
+        // probe is an independent round trip, and ConcurrencyLimitingContentGenerationProvider
+        // already caps in-flight provider calls globally, so this rides that limit rather than
+        // introducing a second one. Results are read back in request order.
+        var findings = await Task.WhenAll(urls.Select(url =>
+            _angleQuote.ProbeAsync(
+                spec,
+                url,
+                runByUrl.TryGetValue(url, out var runId) ? runId : Guid.Empty,
+                ct)));
+
+        return Ok(new
+        {
+            angle = spec.Angle,
+            question = spec.Rule,
+            canAnswer = findings.Count(f => f.CanAnswer),
+            declared = urls.Count,
+            results = findings.Select(f => new
+            {
+                url = f.PartnerUrl,
+                canAnswer = f.CanAnswer,
+                outcome = f.Outcome.ToString().ToLowerInvariant(),
+                quote = f.QuoteText,
+                cite = f.CiteUrl,
+                reason = f.Reason,
+            }),
+        });
+    }
+
+    /// <param name="ProjectId">Owns the declared partner URLs the question is asked of.</param>
+    /// <param name="Topic">The target keyword — the subject the question is about.</param>
+    /// <param name="Angle">The brief's Angle for SEO, which decides which question is asked.</param>
+    public sealed record PartnerQuoteReadinessRequest(
+        Guid? ProjectId,
+        string? Topic,
+        string? Angle);
 
     /// <summary>
     /// Sections of the crawled project site whose heading matches the target keyword, ranked.

@@ -124,6 +124,9 @@ builder.Services.AddScoped<GeekAPI.HttpClients.IGccProjectReader>(sp =>
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGroundingResolver>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerationCoordinator>();
+// Asks the brief's Angle question of a partner's crawl. The same retrieval and selection the
+// tool page uses, run early so "can this partner answer it" is known before a draft is paid for.
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccAngleQuoteProbe>();
 // One prompt set per content type, resolved by registry -- see
 // content-creator-v2/plans/prompts-per-content-type.md. Pillar, Blog and Tool only for now.
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
