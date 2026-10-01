@@ -279,11 +279,15 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         {
             Heading = matched.MatchedHeading.Trim(),
             Level = matched.Level,
-            // Deliberately empty. The project-site crawl is read for structure -- heading levels, the
-            // anchors under a heading, what the site already covers -- and its paragraphs are not
-            // consumed anywhere: this piece is written from partner evidence, not from the operator's
-            // own prose, which it must not repeat.
-            Paragraphs = [],
+            // The section's own prose, which ResearchBriefBuilder.AppendAssignment renders into the
+            // brief under the heading. This was [] with a comment claiming paragraphs are consumed
+            // nowhere -- they are, by that builder, and the old tree projection supplied them, so the
+            // brief silently lost what the site already says under this heading. The data was on the
+            // crawl's blocks the whole time; MatchResult simply was not carrying it.
+            Paragraphs = matched.Paragraphs
+                .Select(paragraph => paragraph.Trim())
+                .Where(paragraph => paragraph.Length > 0)
+                .ToList(),
             Links = tools.Select(t => new ToolInfo { Name = t.Name, Href = t.Href }).ToList(),
             // The child headings as they stand. The old tree projection recursed with each child's own
             // links and paragraphs; the matcher reports children as headings, and the anchors under the

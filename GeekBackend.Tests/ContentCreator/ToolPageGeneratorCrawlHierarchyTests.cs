@@ -103,6 +103,14 @@ public class ToolPageGeneratorCrawlHierarchyTests
         Assert.Equal(2, hierarchy.Assignment.Level);
         Assert.Equal(3, hierarchy.Assignment.Links.Count);
         Assert.Contains("Lead capture", hierarchy.Assignment.Children.Select(c => c.Heading));
+
+        // The section's own prose, which ResearchBriefBuilder renders into the brief beneath the
+        // heading. It was [] on the first cut of this rewire, defended by a comment asserting nothing
+        // consumes it -- that builder does, and the path this replaced supplied it, so the brief had
+        // quietly stopped carrying what the site already says here.
+        Assert.Contains(
+            hierarchy.Assignment.Paragraphs,
+            paragraph => paragraph.Contains("chatbot tools we implement", StringComparison.Ordinal));
     }
 
     [Fact]

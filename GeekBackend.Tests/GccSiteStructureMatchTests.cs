@@ -89,15 +89,16 @@ public class GccSiteStructureMatchTests
     }
 
     [Fact]
-    public void A_vague_label_is_not_a_tool_however_well_its_context_explains_it()
+    public void A_vague_label_takes_its_name_from_the_url_rather_than_being_dropped()
     {
-        // This test used to assert the opposite: that "Learn more" stays a tool because the prose
-        // around it says what it is. That reasoning does not survive contact with the consumers --
-        // all three of them project { name, href } and drop Context, so the only thing "Learn more"
-        // ever reaches is a prompt or an operator, as the name of a product.
+        // "Learn more" pointing at a product page is a real tool the site labelled badly, and the href
+        // is its identity. This test asserted the opposite twice, in opposite directions: first that
+        // the link survives named "Learn more" because Context explains it -- which no consumer reads,
+        // all three projecting { name, href } -- and then, when the ported filter landed, that the link
+        // is dropped. Dropping it is the failure mode project-site crawls are warned about by name:
+        // tools silently stop being found, no error, fewer matches.
         //
-        // Context is still carried and still asserted above; what changed is that it cannot rescue a
-        // label that is not a product name.
+        // The slug is the site's own words, so nothing is invented.
         var page = new SiteStructurePage("https://example.com/services", [
             Node(2, "Automated Data Entry & Processing", [
                 Link("Learn more", "/tools/invoice-capture",
@@ -110,8 +111,53 @@ public class GccSiteStructureMatchTests
         var match = Assert.Single(
             GccSiteStructureMatch.MatchAll(Structure(page), ["Automated Data Entry & Processing"]));
 
+        Assert.Equal(2, match.RecommendedTools.Count);
         Assert.DoesNotContain(match.RecommendedTools, t => t.Name == "Learn more");
-        Assert.Contains(match.RecommendedTools, t => t.Name == "Document OCR");
+        var resolved = Assert.Single(match.RecommendedTools, t => t.Href == "/tools/invoice-capture");
+        Assert.Equal("Invoice Capture", resolved.Name);
+    }
+
+    [Theory]
+    // A CTA whose URL names a kind of page, not a product. There is no name to be had, so the link
+    // goes -- which is what separates it from "Learn more" over a product URL.
+    [InlineData("read our comprehensive guide", "/blog/guide")]
+    [InlineData("Learn more", "/insights")]
+    [InlineData("click here", "/")]
+    [InlineData("Find out more", "/news")]
+    public void A_vague_label_over_a_url_that_names_nothing_is_dropped(string label, string href)
+    {
+        var page = new SiteStructurePage("https://example.com/marketing", [
+            Node(2, "Smart Chatbots", [
+                Link(label, href),
+                Link("ManyChat", "/tools/many-chat"),
+                Link("Pipedrive", "/tools/pipedrive"),
+            ]),
+        ]);
+
+        var match = Assert.Single(GccSiteStructureMatch.MatchAll(Structure(page), ["Smart Chatbots"]));
+
+        Assert.Equal(2, match.RecommendedTools.Count);
+        Assert.DoesNotContain(match.RecommendedTools, t => t.Name.Contains("more", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void A_destination_label_is_never_redeemed_by_its_url()
+    {
+        // The other half of the split. "Privacy Policy" names what is at the far end, so no href makes
+        // it a product -- where a CTA names nothing and lets the URL answer.
+        // A real label is kept as-is, vague or not.
+        Assert.Equal("Privacy Policy", GccSiteStructureMatch.ResolveToolName("Privacy Policy", "/tools/x"));
+
+        // And it is refused however product-shaped its href looks.
+        Assert.False(GccSiteStructureMatch.IsLikelyToolLink("Privacy Policy", "/tools/privacy-policy"));
+
+        // A CTA over a chrome URL does resolve to a name -- "Privacy Policy 2024" -- because the slug
+        // is read before anything judges it. It is then refused on that name, so the two stages reach
+        // the same answer. Asserted end to end rather than on whichever function says no, which is
+        // what I got wrong writing this.
+        var resolved = GccSiteStructureMatch.ResolveToolName("Learn more", "/legal/privacy-policy-2024");
+        Assert.NotNull(resolved);
+        Assert.False(GccSiteStructureMatch.IsLikelyToolLink(resolved!, "/legal/privacy-policy-2024"));
     }
 
     [Theory]

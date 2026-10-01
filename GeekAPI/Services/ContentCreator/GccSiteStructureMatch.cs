@@ -36,7 +36,18 @@ public static partial class GccSiteStructureMatch
         IReadOnlyList<ToolRow> RecommendedTools,
         string MatchTopic,
         string? SourcePageUrl,
-        int Level);
+        int Level,
+        /// <summary>
+        /// The matched section's own prose, as the crawler's blocks recorded it.
+        ///
+        /// <para>
+        /// Surfaced for the same reason as <see cref="Level"/>: the structure held it and this record
+        /// dropped it, so the one consumer that renders it into a brief was handed an empty list. It is
+        /// what the site already says under this heading — the thing a new piece must cover without
+        /// repeating.
+        /// </para>
+        /// </summary>
+        IReadOnlyList<string> Paragraphs);
 
     /// <summary>
     /// Every match, ordered best-first. Nothing is deduplicated.
@@ -72,7 +83,8 @@ public static partial class GccSiteStructureMatch
                             HarvestTools(node),
                             path.Count,
                             TokenCount(Slugify(node.HeadingText)),
-                            node.Level),
+                            node.Level,
+                            node.Paragraphs),
                         topic,
                         page.PageUrl));
                 }
@@ -92,7 +104,8 @@ public static partial class GccSiteStructureMatch
                 f.Candidate.Tools,
                 f.Topic,
                 f.PageUrl,
-                f.Candidate.Level))
+                f.Candidate.Level,
+                f.Candidate.Paragraphs))
             .ToList();
     }
 
@@ -206,7 +219,8 @@ public static partial class GccSiteStructureMatch
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var link in links)
         {
-            var name = (link.Label ?? "").Replace('\n', ' ').Trim();
+            var name = ResolveToolName(link.Label, link.Href);
+            if (name is null) continue;
             if (!IsLikelyToolLink(name, link.Href)) continue;
             if (!seen.Add(name)) continue;
             var href = string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim();
@@ -215,6 +229,102 @@ public static partial class GccSiteStructureMatch
             rows.Add(new ToolRow(name, href, link.Context));
         }
         return rows;
+    }
+
+    /// <summary>
+    /// The product this anchor names, taking the name from the URL when the label does not carry one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A vague label is a naming problem, not evidence against the link.</b> <c>"Learn more"</c>
+    /// pointing at <c>/tools/invoice-capture</c> is a real tool that the site labelled badly, and the
+    /// href is its identity. Rejecting it outright — which this did until Jeff caught it — is the
+    /// failure mode project-site crawls are warned about by name: tools and partners silently stop
+    /// being found, no error, just fewer matches.
+    /// </para>
+    /// <para>
+    /// So a CTA label is replaced by the URL's own last segment rather than discarded. The slug is the
+    /// site's own words, not an invention, and nothing is guessed: if the segment is generic —
+    /// <c>guide</c>, <c>index</c>, <c>blog</c> — there is no name to be had and the link is dropped.
+    /// That is what separates <c>"Learn more"</c> → <c>/tools/invoice-capture</c> from
+    /// <c>"read our comprehensive guide"</c> → <c>/blog/guide</c>: one resolves to a product, the
+    /// other to a word that names nothing.
+    /// </para>
+    /// <para>
+    /// This is distinct from <see cref="LooksLikeSiteChrome"/>, which names a <i>destination</i>:
+    /// "Privacy Policy" and "Contact Us" say what is at the other end, and no href can make them a
+    /// product. A CTA says nothing about the destination, so the destination gets to answer.
+    /// </para>
+    /// </remarks>
+    internal static string? ResolveToolName(string? label, string? href)
+    {
+        var name = (label ?? "").Replace('\n', ' ').Trim();
+        if (name.Length > 0 && !IsVagueCallToAction(name)) return name;
+
+        var fromUrl = NameFromHref(href);
+        return fromUrl;
+    }
+
+    /// <summary>A label that could sit on any link on the site. It names no destination.</summary>
+    private static bool IsVagueCallToAction(string name)
+    {
+        var n = name.Trim().ToLowerInvariant();
+        ReadOnlySpan<string> needles =
+        [
+            "learn more", "read our", "read more", "click here", "find out more", "see more",
+            "view details", "more info", "get started",
+        ];
+        foreach (var needle in needles)
+        {
+            if (n.Contains(needle, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The product name carried by a URL's last path segment, or null when it carries none.
+    /// </summary>
+    private static string? NameFromHref(string? href)
+    {
+        if (string.IsNullOrWhiteSpace(href)) return null;
+
+        string path;
+        try
+        {
+            path = Uri.TryCreate(href, UriKind.Absolute, out var abs)
+                ? abs.AbsolutePath
+                : href.Split('?', 2)[0].Split('#', 2)[0];
+        }
+        catch (UriFormatException)
+        {
+            return null;
+        }
+
+        var segment = path.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+        if (segment is null) return null;
+
+        var dot = segment.LastIndexOf('.');
+        if (dot > 0) segment = segment[..dot];
+        segment = segment.Trim('-', '_', ' ');
+        if (segment.Length < 3) return null;
+
+        // Words that name a kind of page rather than a product. A slug of only these resolves to
+        // nothing, which is a cleaner answer than a tool called "Guide".
+        ReadOnlySpan<string> generic =
+        [
+            "guide", "index", "home", "blog", "news", "article", "post", "page", "default",
+            "overview", "more", "details", "resources", "insights", "case-study", "case-studies",
+        ];
+        foreach (var g in generic)
+        {
+            if (segment.Equals(g, StringComparison.OrdinalIgnoreCase)) return null;
+        }
+
+        var words = segment.Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return null;
+
+        return string.Join(' ', words.Select(w =>
+            w.Length == 1 ? w.ToUpperInvariant() : char.ToUpperInvariant(w[0]) + w[1..]));
     }
 
     /// <summary>
@@ -349,6 +459,13 @@ public static partial class GccSiteStructureMatch
     /// Whole-label equality was the defect: it caught <c>privacy</c> and missed
     /// <i>"Privacy Policy"</i>, caught <c>contact</c> and missed <i>"Contact Us"</i>. These are the
     /// needles the retired extractor matched, plus the exact labels this list already held.
+    ///
+    /// <para>
+    /// Every phrase here names a <b>destination</b>, so no href can redeem it. The retired extractor
+    /// also listed "learn more", "read our" and "click here", which do not: they name nothing, and a
+    /// link wearing one can still be a product. Those moved to
+    /// <see cref="IsVagueCallToAction"/>, where the URL answers instead of the label.
+    /// </para>
     /// </remarks>
     private static bool LooksLikeSiteChrome(string name)
     {
@@ -363,8 +480,8 @@ public static partial class GccSiteStructureMatch
         [
             "privacy policy", "terms of", "terms &", "cookie policy", "cookie settings",
             "call us", "contact us", "headquarters", "get your free",
-            "free assessment", "read our", "learn more", "sign up", "log in",
-            "subscribe", "book a", "schedule a", "click here", "about us", "careers",
+            "free assessment", "sign up", "log in",
+            "subscribe", "book a", "schedule a", "about us", "careers",
             "sitemap", "follow us", "all rights reserved",
         ];
         foreach (var needle in needles)
@@ -382,5 +499,6 @@ public static partial class GccSiteStructureMatch
         IReadOnlyList<ToolRow> Tools,
         int Depth,
         int HeadingTokens,
-        int Level);
+        int Level,
+        IReadOnlyList<string> Paragraphs);
 }
