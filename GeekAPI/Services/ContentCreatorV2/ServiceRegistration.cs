@@ -45,9 +45,9 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2JobEventWriter>();
         services.AddScoped<GccV2ImagePromptSpawnService>();
         services.AddScoped<GccV2ToolPagePromptBuilder>();
-        services.AddScoped<GccV2ToolResearchExtractor>();
         services.AddScoped<GccV2PartnerToolWriteService>();
         services.AddScoped<GccV2ToolOverviewWriteService>();
+        services.AddScoped<GccV2ToolResearchExtractor>();
         services.AddScoped<GccV2ToolPageSpawnService>();
         services.AddScoped<IGccV2GeekCrawlerReadRepository>(sp =>
         {

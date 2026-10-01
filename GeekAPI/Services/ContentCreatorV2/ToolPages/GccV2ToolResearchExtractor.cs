@@ -16,6 +16,46 @@ public sealed record GccV2ExtractedToolResearch(
     string Pricing,
     string SourceQuote = "");
 
+/// <summary>
+/// Serialization and verification helpers for the v2 tool pages' extracted partner research.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>It does not choose a quotation, 2026-10-01.</b> It used to, in four steps that were a second
+/// way to pick one: the first paragraph over forty characters; failing that, the longest paragraph,
+/// with the page <i>title</i> among the candidates; truncated at five hundred characters with an
+/// ellipsis appended, which edits a quotation and then presents it as verbatim; and failing all of
+/// that, the model's own retyped sentence, checked by substring. The methods are deleted and are
+/// deliberately not named, here or anywhere: a name in a comment is what the next reader greps.
+/// </para>
+/// <para>
+/// Its input was <c>GccQuoteablePage.Paragraphs</c>, which is <c>RenderChunk</c> output, so a
+/// paragraph here begins <c>Section:</c> or <c>Specific detail:</c>. With no stripper on this path,
+/// the first span long enough to pass could be a prompt label in a quote box attributed to a partner.
+/// </para>
+/// <para>
+/// <b>There is one way to choose a quotable span: <c>GccQuoteCandidates</c>, over a partner page's
+/// typed blocks.</b> The model answers with a candidate's number, so no quotation is ever retyped
+/// and nothing has to be matched back. What was removed here was reachable only from
+/// <c>GccV2WriteService.WriteAsync</c>, which has no live caller — the job worker routes writing to
+/// <c>V1Restore.GccV2V1WriteAdapter</c> — and from the <c>ExtractAsync</c> below.
+/// </para>
+/// <para>
+/// <b><c>ExtractAsync</c> no longer returns a <c>SourceQuote</c>, and no longer refuses without one.</b>
+/// Its job is the structured fields the tool brief slice needs — summary, features, use cases,
+/// positioning, pricing. The quotation was a bolt-on: it picked one before the model was even called
+/// and threw if that pick came back empty, so a partner page whose first long paragraph happened to be
+/// a prompt label decided whether extraction ran at all. The requirement that a partner tool page
+/// carry a block quotation is unchanged and enforced where the page is built —
+/// <c>RequireSourceAttributionHtml</c> refuses without one, and on the live path
+/// <c>GccToolQuoteGuard</c> checks the draft against the candidates the writer was shown.
+/// </para>
+/// <para>
+/// What stays is what live code reads: the serializers, <c>ExtractAsync</c>, <c>FormatPageText</c>,
+/// and the two verifiers. <c>IsVerbatimFromPage</c> and <c>StripWrappingQuotes</c> check and sanitise
+/// text someone else chose, which is the opposite job from producing it.
+/// </para>
+/// </remarks>
 public sealed class GccV2ToolResearchExtractor
 {
     private readonly GccV2ToolPagePromptBuilder _prompts;
@@ -44,14 +84,6 @@ public sealed class GccV2ToolResearchExtractor
             return EmptyResearch(toolName);
         }
 
-        var sourceQuote = page is null ? "" : PickVerbatimQuote(page);
-        if (string.IsNullOrWhiteSpace(sourceQuote))
-        {
-            throw new ContentGenerationException(
-                $"Partner tool research for {toolName} requires a strict verbatim quote from library text ({sourceUrl}). "
-                + "Softened best-paragraph quotes are forbidden for citeable extraction.");
-        }
-
         try
         {
             var fileName = string.IsNullOrWhiteSpace(sourceUrl) ? toolName : sourceUrl;
@@ -61,16 +93,20 @@ public sealed class GccV2ToolResearchExtractor
             return parsed with
             {
                 Name = string.IsNullOrWhiteSpace(parsed.Name) ? toolName : parsed.Name,
-                SourceQuote = ResolveSourceQuote(sourceQuote, parsed.SourceQuote, pageText),
+
+                // Blank, always. The model is asked for the structured fields and whatever it writes
+                // here is its own wording about the partner -- which is exactly what a quote box must
+                // never carry. A quotation comes from GccQuoteCandidates over the page's typed blocks,
+                // chosen by number, or the page refuses.
+                SourceQuote = "",
             };
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Tool research extraction failed for {Tool}; keeping verbatim quote only.", toolName);
-            return new GccV2ExtractedToolResearch(toolName, "", "", [], [], "", "", sourceQuote);
+            _logger.LogWarning(ex, "Tool research extraction failed for {Tool}.", toolName);
+            return EmptyResearch(toolName);
         }
     }
-
     public static string SerializeResearch(GccV2ExtractedToolResearch research) =>
         JsonSerializer.Serialize(research, new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
@@ -88,93 +124,6 @@ public sealed class GccV2ToolResearchExtractor
         }
     }
 
-    public static string BuildAttributionExcerpt(GccV2ExtractedToolResearch? research)
-    {
-        if (research is null) return "";
-        if (!string.IsNullOrWhiteSpace(research.SourceQuote)) return research.SourceQuote.Trim();
-        return "";
-    }
-
-    /// <summary>Picks a verbatim passage from crawled partner page paragraphs — not a paraphrase.</summary>
-    public static string PickVerbatimQuote(GccQuoteablePage page) => PickVerbatimQuote([page]);
-
-    public static string PickVerbatimQuote(string? sourceUrl, IReadOnlyList<GccQuoteablePage> partnerResearch)
-    {
-        var page = ResolvePage(sourceUrl, partnerResearch);
-        return page is null ? "" : PickVerbatimQuote(page);
-    }
-
-    public static string PickVerbatimQuote(IReadOnlyList<GccQuoteablePage> pages)
-    {
-        foreach (var page in pages)
-        {
-            foreach (var paragraph in page.Paragraphs)
-            {
-                var candidate = NormalizeQuoteCandidate(paragraph);
-                if (IsUsableQuote(candidate)) return candidate;
-            }
-        }
-
-        return "";
-    }
-
-    /// <summary>
-    /// Best-effort verbatim passage for <b>non-citeable display only</b>.
-    /// Citeable WRITE/VALIDATE must use <see cref="PickVerbatimQuote"/> / <see cref="ResolveAttributionQuote"/>.
-    /// </summary>
-    public static string PickBestVerbatimQuote(GccQuoteablePage page) => PickBestVerbatimQuote([page]);
-
-    /// <inheritdoc cref="PickBestVerbatimQuote(GccQuoteablePage)"/>
-    public static string PickBestVerbatimQuote(string? sourceUrl, IReadOnlyList<GccQuoteablePage> partnerResearch)
-    {
-        var page = ResolvePage(sourceUrl, partnerResearch);
-        return page is null ? "" : PickBestVerbatimQuote(page);
-    }
-
-    /// <inheritdoc cref="PickBestVerbatimQuote(GccQuoteablePage)"/>
-    public static string PickBestVerbatimQuote(IReadOnlyList<GccQuoteablePage> pages)
-    {
-        string? best = null;
-        var bestScore = 0;
-        foreach (var page in pages)
-        {
-            foreach (var raw in EnumerateQuoteCandidates(page))
-            {
-                var candidate = NormalizeQuoteCandidate(raw);
-                if (!IsMinimalVerbatimQuote(candidate)) continue;
-                if (candidate.Length > bestScore)
-                {
-                    bestScore = candidate.Length;
-                    best = candidate;
-                }
-            }
-        }
-
-        return best ?? "";
-    }
-
-    /// <summary>
-    /// Strict attribution quote for citeable partner pages — verified verbatim only (no soft best-paragraph).
-    /// </summary>
-    public static string ResolveAttributionQuote(
-        string? sourceUrl,
-        IReadOnlyList<GccQuoteablePage> partnerResearch,
-        string? storedQuote,
-        string? pageText)
-    {
-        var quote = PickVerbatimQuote(sourceUrl, partnerResearch);
-        if (!string.IsNullOrWhiteSpace(quote)) return quote;
-
-        if (!string.IsNullOrWhiteSpace(storedQuote) && !string.IsNullOrWhiteSpace(pageText))
-        {
-            var candidate = StripWrappingQuotes(storedQuote);
-            if (IsUsableQuote(candidate) && IsVerbatimFromPage(candidate, pageText))
-                return candidate;
-        }
-
-        return "";
-    }
-
     internal static string FormatPageText(GccQuoteablePage? page)
     {
         if (page is null) return "";
@@ -187,48 +136,11 @@ public sealed class GccV2ToolResearchExtractor
         return sb.ToString();
     }
 
-    internal static bool IsUsableQuote(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
-        return text.Length >= 40 && words >= 8 && words <= 120;
-    }
-
-    internal static bool IsMinimalVerbatimQuote(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
-        return text.Length >= 20 && words >= 4 && words <= 120;
-    }
-
-    internal static string ResolveSourceQuote(string pageQuote, string? llmQuote, string pageText)
-    {
-        if (IsUsableQuote(pageQuote)) return pageQuote;
-        if (IsMinimalVerbatimQuote(pageQuote)) return pageQuote;
-        var candidate = StripWrappingQuotes(llmQuote ?? "");
-        if (IsMinimalVerbatimQuote(candidate) && IsVerbatimFromPage(candidate, pageText)) return candidate;
-        return "";
-    }
-
     internal static bool IsVerbatimFromPage(string quote, string pageText)
     {
         if (string.IsNullOrWhiteSpace(quote) || string.IsNullOrWhiteSpace(pageText)) return false;
         return pageText.Contains(quote, StringComparison.OrdinalIgnoreCase)
                || pageText.Contains(StripWrappingQuotes(quote), StringComparison.OrdinalIgnoreCase);
-    }
-
-    internal static string NormalizeQuoteCandidate(string raw)
-    {
-        var text = raw.Trim();
-        if (text.Length > 500)
-        {
-            var cut = text[..500];
-            var lastPeriod = cut.LastIndexOf('.');
-            if (lastPeriod >= 80) text = cut[..(lastPeriod + 1)];
-            else text = cut.TrimEnd() + "…";
-        }
-
-        return StripWrappingQuotes(text);
     }
 
     internal static string StripWrappingQuotes(string text)
@@ -240,12 +152,6 @@ public sealed class GccV2ToolResearchExtractor
         }
 
         return t;
-    }
-
-    private static IEnumerable<string> EnumerateQuoteCandidates(GccQuoteablePage page)
-    {
-        if (!string.IsNullOrWhiteSpace(page.Title)) yield return page.Title;
-        foreach (var paragraph in page.Paragraphs) yield return paragraph;
     }
 
     private static GccV2ExtractedToolResearch EmptyResearch(string toolName) =>

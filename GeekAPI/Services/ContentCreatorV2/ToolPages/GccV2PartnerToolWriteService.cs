@@ -143,8 +143,7 @@ public sealed class GccV2PartnerToolWriteService
 
         var toolUrl = $"{wc.BaseContext.ToolBaseUrl.TrimEnd('/')}/{GccV2ToolSlugHelper.DefaultDepartment}/{slug}";
         var pillarArticleUrl = pillar?.CanonicalUrl ?? "";
-        var attributionQuote = await BuildAttributionQuoteAsync(
-            wc, toolName, sourceUrl, research, partnerResearchPages, ct);
+        var attributionQuote = BuildAttributionQuote(toolName, sourceUrl);
         tokens += attributionQuote.Tokens;
         var sourceAttributionHtml = RequireSourceAttributionHtml(sourceUrl, attributionQuote.Text, toolName);
 
@@ -222,61 +221,43 @@ public sealed class GccV2PartnerToolWriteService
         return html;
     }
 
-    private async Task<(string Text, int Tokens)> BuildAttributionQuoteAsync(
-        GccV2WriteContext wc,
-        string toolName,
-        string? sourceUrl,
-        GccV2ExtractedToolResearch? research,
-        IReadOnlyList<GccQuoteablePage> partnerResearchFromBrief,
-        CancellationToken ct)
+    /// <summary>
+    /// Refuses. This path has no quote source, and will not acquire a second one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It used to resolve one through <c>GccV2ToolResearchExtractor</c>, which took the first
+    /// paragraph of forty-plus characters out of <c>GccQuoteablePage.Paragraphs</c> — <c>RenderChunk</c>
+    /// output, so a paragraph there can begin <c>Section:</c> or <c>Specific detail:</c> — and failed
+    /// over to the model's own retyped quote, checked by substring. Both the selection and the
+    /// fallback are gone (2026-10-01), and the methods are not named because a name in a comment is
+    /// read as a live path.
+    /// </para>
+    /// <para>
+    /// A quotable span is chosen in exactly one place: <c>GccQuoteCandidates</c>, over a partner page's
+    /// typed blocks, with the model answering by candidate number so nothing is ever retyped. Reaching
+    /// it needs typed passages, which this path does not resolve — and wiring them in would be
+    /// building out <c>GccV2WriteService.WriteAsync</c>, which has no live caller (the job worker
+    /// routes writing to <c>V1Restore.GccV2V1WriteAdapter</c>) and whose fate is the open question in
+    /// <c>plans/grounding-resolved-once-per-generate.md</c>. So it refuses, naming the one source,
+    /// rather than keeping a worse one alive to avoid saying so.
+    /// </para>
+    /// <para>
+    /// The method is kept, not deleted, because the tool page's requirement is real: a partner tool
+    /// page carries a block quotation of the partner. What is removed is the second way of finding
+    /// one. If this path is ever brought back, this is where the typed passages arrive.
+    /// </para>
+    /// </remarks>
+    internal static (string Text, int Tokens) BuildAttributionQuote(string toolName, string? sourceUrl)
     {
         if (string.IsNullOrWhiteSpace(sourceUrl)) return ("", 0);
 
-        var partnerResearch = partnerResearchFromBrief.Count > 0
-            ? partnerResearchFromBrief
-            : await LoadPartnerResearchForCreateAsync(wc.Job.CreateId, ct);
-
-        var page = ResolvePartnerPage(sourceUrl, partnerResearch);
-        var pageText = GccV2ToolResearchExtractor.FormatPageText(page);
-        var quote = GccV2ToolResearchExtractor.ResolveAttributionQuote(
-            sourceUrl,
-            partnerResearch,
-            research?.SourceQuote,
-            pageText);
-
-        if (!string.IsNullOrWhiteSpace(quote))
-            return (quote, 0);
-
         throw new ContentGenerationException(
-            $"Partner tool page for {toolName.Trim()} requires a strict verbatim source blockquote from {sourceUrl}. "
-            + "Softened best-paragraph and LLM quote substitutes are forbidden for citeable attribution.");
+            $"Partner tool page for {toolName.Trim()} requires a verbatim source blockquote from "
+            + $"{sourceUrl}, and this path cannot choose one. Spans are cut by GccQuoteCandidates "
+            + "from the partner page's typed blocks, which this path does not resolve.");
     }
 
-    private async Task<IReadOnlyList<GccQuoteablePage>> LoadPartnerResearchForCreateAsync(Guid createId, CancellationToken ct)
-    {
-        var jobs = await _repo.ListJobsByCreateAsync(createId, ct);
-        foreach (var job in jobs)
-        {
-            var brief = await _repo.GetBriefAsync(job.BriefId, ct);
-            var pages = ParsePartnerResearchPages(brief?.RawBriefJson);
-            if (pages.Count > 0) return pages;
-        }
-
-        return [];
-    }
-
-    private static GccQuoteablePage? ResolvePartnerPage(string? sourceUrl, IReadOnlyList<GccQuoteablePage> pages)
-    {
-        if (pages.Count == 0) return null;
-        if (!string.IsNullOrWhiteSpace(sourceUrl))
-        {
-            var match = pages.FirstOrDefault(p =>
-                string.Equals(p.Url, sourceUrl, StringComparison.OrdinalIgnoreCase));
-            if (match is not null) return match;
-        }
-
-        return pages[0];
-    }
 
     private async Task<PillarSnapshot?> ResolvePillarAsync(Guid createId, CancellationToken ct)
     {

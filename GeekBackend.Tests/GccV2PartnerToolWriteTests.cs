@@ -6,6 +6,7 @@ using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using GeekApplication.Models.ContentCreator;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GeekBackend.Tests;
 
@@ -34,56 +35,98 @@ public sealed class GccV2PartnerToolWriteTests
         Assert.Equal("\u201CPipedrive is a sales CRM built for small teams.\u201D", formatted);
     }
 
+    /// <summary>
+    /// Extraction returns the structured fields and no quotation, 2026-10-01.
+    /// </summary>
+    /// <remarks>
+    /// Five tests here used to pin the opposite, each on one step of a second way to choose a
+    /// quotation: the first paragraph over 40 characters, the longest one with the page title in the
+    /// running, a 500-character truncation with an ellipsis appended, and a failover to the model's own
+    /// retyped sentence checked by substring. The input was <c>GccQuoteablePage.Paragraphs</c> —
+    /// <c>RenderChunk</c> output — so the span could be a prompt label in a quote box attributed to a
+    /// partner. The chain is gone; so are those tests, because what they pinned is the defect.
+    ///
+    /// <para>
+    /// A quotable span is chosen in one place: <c>GccQuoteCandidates</c>, over a partner page's typed
+    /// blocks, the model answering by candidate number.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void PickVerbatimQuote_selects_first_usable_paragraph()
+    public async Task Extraction_returns_the_structured_fields_and_never_a_quotation()
     {
+        var provider = new ExtractionProvider();
+        var extractor = new GccV2ToolResearchExtractor(
+            new GccV2ToolPagePromptBuilder(), NullLogger<GccV2ToolResearchExtractor>.Instance);
         var page = new GccQuoteablePage(
-            "https://pipedrive.com/crm",
-            "Pipedrive CRM",
-            [],
+            "https://pipedrive.com/crm", "Pipedrive CRM", [],
             [
-                "Short.",
+                "Section: Why Pipedrive",
                 "Pipedrive is a sales-focused CRM that helps small teams manage pipelines and close deals faster.",
             ]);
 
-        var quote = GccV2ToolResearchExtractor.PickVerbatimQuote(page);
-        Assert.Equal(
-            "Pipedrive is a sales-focused CRM that helps small teams manage pipelines and close deals faster.",
-            quote);
+        var research = await extractor.ExtractAsync(
+            provider, "Pipedrive", page.Url, [page], CancellationToken.None);
+
+        Assert.NotNull(research);
+        Assert.Equal("Sales CRM for small teams.", research!.Summary);
+        // The model answered with one, and it is dropped: whatever it writes here is its own wording
+        // about the partner, which is the one thing a quote box must never carry.
+        Assert.Equal("", research.SourceQuote);
     }
 
     [Fact]
-    public void PickBestVerbatimQuote_falls_back_to_shorter_verbatim_paragraph()
+    public async Task Extraction_no_longer_refuses_for_want_of_a_quotation()
     {
+        // It used to pick a quote before the model was called and throw if the pick came back empty,
+        // so a partner page whose paragraphs were all short decided whether extraction ran at all.
+        // The requirement that the page carry a blockquote is enforced where the page is built --
+        // RequireSourceAttributionHtml below -- not by refusing to read the partner's data.
+        var provider = new ExtractionProvider();
+        var extractor = new GccV2ToolResearchExtractor(
+            new GccV2ToolPagePromptBuilder(), NullLogger<GccV2ToolResearchExtractor>.Instance);
         var page = new GccQuoteablePage(
-            "https://pipedrive.com/crm",
-            "Pipedrive CRM",
-            [],
-            ["Pipedrive helps sales teams win today."]);
+            "https://pipedrive.com/crm", "Pipedrive CRM", [], ["Pipedrive helps sales teams win."]);
 
-        Assert.Equal("", GccV2ToolResearchExtractor.PickVerbatimQuote(page));
-        Assert.Equal(
-            "Pipedrive helps sales teams win today.",
-            GccV2ToolResearchExtractor.PickBestVerbatimQuote(page));
+        var research = await extractor.ExtractAsync(
+            provider, "Pipedrive", page.Url, [page], CancellationToken.None);
+
+        Assert.NotNull(research);
+        Assert.Equal("Sales CRM for small teams.", research!.Summary);
+    }
+
+    private sealed class ExtractionProvider : IContentGenerationProvider
+    {
+        public LlmProviderType ProviderType => LlmProviderType.OpenAi;
+
+        public Task<ChatCompletionResult> CompleteAsync(
+            ChatCompletionRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatCompletionResult(
+                """
+                {"name":"Pipedrive","summary":"Sales CRM for small teams.",
+                 "whatItDoes":"Manages pipelines.","features":["Pipelines"],"useCases":["Sales"],
+                 "positioning":"Small teams.","pricing":"From $14.","sourceQuote":"Pipedrive is the best CRM anywhere."}
+                """,
+                "fake", 0, 0));
     }
 
     [Fact]
-    public void ResolveAttributionQuote_is_strict_only_no_best_paragraph_soften()
+    public void The_partner_tool_write_path_refuses_rather_than_choose_a_quotation_its_own_way()
     {
-        var page = new GccQuoteablePage(
-            "https://pipedrive.com/crm",
-            "Pipedrive CRM",
-            [],
-            ["Pipedrive helps sales teams win today."]);
+        // It resolved one: first paragraph over 40 characters out of RenderChunk output, then a
+        // failover to the model's retyped sentence. Both gone. This path has no typed passages, so it
+        // has no quote source, and it says which one it would need instead of keeping a worse one.
+        var ex = Assert.Throws<ContentGenerationException>(() =>
+            GccV2PartnerToolWriteService.BuildAttributionQuote("Pipedrive", "https://pipedrive.com/crm"));
 
-        var quote = GccV2ToolResearchExtractor.ResolveAttributionQuote(
-            page.Url,
-            [page],
-            storedQuote: null,
-            pageText: GccV2ToolResearchExtractor.FormatPageText(page));
+        Assert.Contains("GccQuoteCandidates", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("typed blocks", ex.Message, StringComparison.Ordinal);
+    }
 
-        Assert.Equal("", quote);
-        Assert.Equal("", GccV2ToolResearchExtractor.PickVerbatimQuote(page));
+    [Fact]
+    public void No_source_url_asks_for_no_quotation_at_all()
+    {
+        // A tool page with no partner URL has nothing to attribute, which is not a failure.
+        Assert.Equal(("", 0), GccV2PartnerToolWriteService.BuildAttributionQuote("Pipedrive", null));
     }
 
     [Fact]
@@ -105,39 +148,6 @@ public sealed class GccV2PartnerToolWriteTests
         var ex = Assert.Throws<ContentGenerationException>(() =>
             GccV2PartnerToolWriteService.RequireSourceAttributionHtml(url, "", "Pipedrive"));
         Assert.Contains("verbatim source blockquote", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildAttributionExcerpt_returns_source_quote_only()
-    {
-        var research = new GccV2ExtractedToolResearch(
-            "BotPenguin",
-            "Paraphrased summary line.",
-            "Does chat automation.",
-            [],
-            [],
-            "",
-            "",
-            "BotPenguin helps teams automate chat on every channel.");
-        Assert.Equal(
-            "BotPenguin helps teams automate chat on every channel.",
-            GccV2ToolResearchExtractor.BuildAttributionExcerpt(research));
-    }
-
-    [Fact]
-    public void ResolveSourceQuote_prefers_crawled_quote_over_llm_paraphrase()
-    {
-        const string pageText =
-            "Pipedrive is a sales-focused CRM that helps small teams manage pipelines and close deals faster.";
-        var crawled = GccV2ToolResearchExtractor.PickVerbatimQuote(
-            new GccQuoteablePage("https://pipedrive.com", "CRM", [], [pageText]));
-
-        var resolved = GccV2ToolResearchExtractor.ResolveSourceQuote(
-            crawled,
-            "A CRM tool for managing sales pipelines.",
-            pageText);
-
-        Assert.Equal(crawled, resolved);
     }
 
     [Fact]

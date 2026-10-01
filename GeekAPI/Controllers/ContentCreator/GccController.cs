@@ -95,12 +95,6 @@ public class GccController : ControllerBase
         return Ok(list);
     }
 
-    /// <summary>
-    /// Site grounding older than this many days requires an explicit operator choice before Generate
-    /// proceeds — re-analyze now, or acknowledge stale grounding. Never silently proceed.
-    /// </summary>
-    public const int SiteAnalysisStaleAfterDays = 30;
-
     [HttpGet("creates/{id:guid}")]
     public async Task<ActionResult<object>> GetCreate(Guid id, CancellationToken ct)
     {
@@ -641,10 +635,14 @@ public class GccController : ControllerBase
     }
 
     /// <summary>
-    /// When the create's site analysis is older than <see cref="SiteAnalysisStaleAfterDays"/> and
-    /// the operator has not acknowledged stale grounding, returns a Conflict payload presenting
-    /// the choice. Null means Generate may proceed (no analysis, not stale, or acknowledged).
+    /// Returns null, always: Generate has no staleness gate, and has never had one that could fire.
     /// </summary>
+    /// <remarks>
+    /// A thirty-day threshold constant sat above this, documented as "requires an explicit operator
+    /// choice before Generate proceeds". Nothing read it. It is removed, because a declared policy
+    /// that no code enforces is read as enforced — the same defect as documenting a boundary as
+    /// fail-closed while it accepts the bad input.
+    /// </remarks>
     private async Task<object?> TryBuildStaleGroundingResponseAsync(
         GccCreateDto create,
         bool acknowledged,
