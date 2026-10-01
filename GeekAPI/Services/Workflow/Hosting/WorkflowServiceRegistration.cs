@@ -71,7 +71,6 @@ public static class WorkflowServiceRegistration
         services.AddScoped<ISoftwareApplicationSchemaBuilder, SoftwareApplicationSchemaBuilder>();
         services.AddScoped<IArticleSchemaBuilder, ArticleSchemaBuilder>();
         services.AddScoped<IBlogPostingSchemaBuilder, BlogPostingSchemaBuilder>();
-        services.AddScoped<WorkflowSeoBearerContext>();
         services.AddScoped<IToolPageGenerator, ToolPageGenerator>();
         services.AddScoped<IContentGenerationOrchestrator, ContentGenerationOrchestrator>();
         services.AddSingleton<ToolsGenerationJobStore>();

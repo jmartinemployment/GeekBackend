@@ -27,16 +27,16 @@ public sealed class ToolsGenerationJobRunner
         _logger = logger;
     }
 
-    public ToolsGenerationJob StartCrawlTools(Guid projectId, string? bearerToken)
+    public ToolsGenerationJob StartCrawlTools(Guid projectId)
     {
         var job = _jobs.Create(projectId, "tools", total: 0);
         Push(job);
-        _ = Task.Run(() => RunCrawlAsync(job.Id, projectId, bearerToken));
+        _ = Task.Run(() => RunCrawlAsync(job.Id, projectId));
         return job;
     }
 
     public ToolsGenerationJob StartToolsFromNames(
-        Guid projectId, IReadOnlyList<string> toolNames, string? brief, string? bearerToken)
+        Guid projectId, IReadOnlyList<string> toolNames, string? brief)
     {
         var names = toolNames
             .Where(n => !string.IsNullOrWhiteSpace(n))
@@ -45,23 +45,17 @@ public sealed class ToolsGenerationJobRunner
             .ToList();
         var job = _jobs.Create(projectId, "tools-from-names", total: names.Count + 1);
         Push(job);
-        _ = Task.Run(() => RunFromNamesAsync(job.Id, projectId, names, brief, bearerToken));
+        _ = Task.Run(() => RunFromNamesAsync(job.Id, projectId, names, brief));
         return job;
     }
 
-    private async Task RunCrawlAsync(Guid jobId, Guid projectId, string? bearerToken)
+    private async Task RunCrawlAsync(Guid jobId, Guid projectId)
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            scope.ServiceProvider.GetRequiredService<WorkflowSeoBearerContext>().BearerToken = bearerToken;
-            // #region agent log
             _logger.LogInformation(
-                "Tools crawl job {JobId} starting with bearerPresent={BearerPresent} for project {ProjectId}",
-                jobId,
-                !string.IsNullOrWhiteSpace(bearerToken),
-                projectId);
-            // #endregion
+                "Tools crawl job {JobId} starting for project {ProjectId}", jobId, projectId);
             var orchestrator = scope.ServiceProvider.GetRequiredService<IContentGenerationOrchestrator>();
             var result = await orchestrator.GenerateToolPagesAsync(
                 projectId,
@@ -86,12 +80,11 @@ public sealed class ToolsGenerationJobRunner
     }
 
     private async Task RunFromNamesAsync(
-        Guid jobId, Guid projectId, IReadOnlyList<string> names, string? brief, string? bearerToken)
+        Guid jobId, Guid projectId, IReadOnlyList<string> names, string? brief)
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            scope.ServiceProvider.GetRequiredService<WorkflowSeoBearerContext>().BearerToken = bearerToken;
             var orchestrator = scope.ServiceProvider.GetRequiredService<IContentGenerationOrchestrator>();
             var result = await orchestrator.GenerateToolPagesFromNamesAsync(
                 projectId,

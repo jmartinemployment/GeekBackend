@@ -55,24 +55,18 @@ public sealed class ToolPageGenerator : IToolPageGenerator
 
     private readonly ISoftwareApplicationSchemaBuilder _softwareApplicationSchemaBuilder;
     private readonly IContentPromptBuilder _promptBuilder;
-    private readonly HttpGeekSeoSiteAnalyzerClient _seo;
-    private readonly IHttpContextAccessor _httpContext;
-    private readonly WorkflowSeoBearerContext _seoBearer;
+    private readonly GccProjectSiteStructureReader _siteStructure;
     private readonly ILogger<ToolPageGenerator> _logger;
 
     public ToolPageGenerator(
         ISoftwareApplicationSchemaBuilder softwareApplicationSchemaBuilder,
         IContentPromptBuilder promptBuilder,
-        HttpGeekSeoSiteAnalyzerClient seo,
-        IHttpContextAccessor httpContext,
-        WorkflowSeoBearerContext seoBearer,
+        GccProjectSiteStructureReader siteStructure,
         ILogger<ToolPageGenerator> logger)
     {
         _softwareApplicationSchemaBuilder = softwareApplicationSchemaBuilder;
         _promptBuilder = promptBuilder;
-        _seo = seo;
-        _httpContext = httpContext;
-        _seoBearer = seoBearer;
+        _siteStructure = siteStructure;
         _logger = logger;
     }
 
@@ -207,67 +201,99 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         CancellationToken cancellationToken = default) =>
         (await ListCrawlHierarchyAsync(project, cancellationToken)).Tools;
 
+    /// <summary>
+    /// The site section this project's keyword matches, and the tools linked under it, from the crawl.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This asked Site Analyzer until 2026-10-01, and passed it the wrong kind of id:
+    /// <c>project.ProjectSiteRunId</c> is a Geek-Crawler-v2 run id and the tree route wanted a Site
+    /// Analyzer profile id — the local here was even named <c>profileId</c>. Site Analyzer no longer
+    /// exists and its routes were deleted, so the call could only fail; unlike the sibling defect in
+    /// <c>GccController</c>, which failed to null, this one <b>threw</b>. A project with a site run and
+    /// a keyword — a correctly configured project — therefore failed generation outright, while a
+    /// project with no run id returned empty and proceeded. Configuring the project was what broke it.
+    /// </para>
+    /// <para>
+    /// The same read the live <c>project-site/runs/{runId}/hierarchy-match</c> route does, through the
+    /// one reader both now share: blocks from the crawl, the structure built from them, v1's own
+    /// matcher over the result. Nothing crawls here.
+    /// </para>
+    /// <para>
+    /// <b>Empty is an answer, and it is not an exception.</b> No run id, no keyword, a run with no
+    /// pages, or nothing on the site matching the keyword each return an empty hierarchy — the project
+    /// writes without site structure, which is what it already did whenever the old call failed to
+    /// null. What is gone is throwing on an infrastructure failure that is now impossible to have.
+    /// </para>
+    /// </remarks>
     public async Task<CrawlHierarchy> ListCrawlHierarchyAsync(
         Project project,
         CancellationToken cancellationToken = default)
     {
-        if (project.ProjectSiteRunId is not Guid profileId || profileId == Guid.Empty)
+        if (project.ProjectSiteRunId is not Guid runId || runId == Guid.Empty)
             return new CrawlHierarchy([], null);
 
         var keyword = project.TargetKeyword?.Trim() ?? "";
         if (keyword.Length == 0)
             return new CrawlHierarchy([], null);
 
-        var bearer = BearerToken();
-        // #region agent log
-        _logger.LogInformation(
-            "ListCrawlTools bearerPresent={BearerPresent} httpContextPresent={HttpContextPresent} project={ProjectId}",
-            !string.IsNullOrWhiteSpace(bearer),
-            _httpContext.HttpContext is not null,
-            project.Id);
-        // #endregion
-        var result = await _seo.FindTreesByKeywordAsync(profileId, keyword, bearer, cancellationToken);
-        if (!result.Ok)
+        var structure = await _siteStructure.ReadAsync(runId, cancellationToken).ConfigureAwait(false);
+        if (structure is null)
         {
-            throw new ContentGenerationException(
-                result.Error ?? "Could not load crawl trees for this site analysis.");
+            _logger.LogInformation(
+                "Site structure: run {RunId} returned no pages, so project {ProjectId} writes without it.",
+                runId, project.Id);
+            return new CrawlHierarchy([], null);
         }
 
-        var trees = result.Value ?? [];
-        var tools = GccGenerateService.ExtractToolsFromTrees(
-                trees,
-                keyword,
-                project.HierarchySourcePageUrl,
-                project.HierarchyPath)
+        var matches = GccSiteStructureMatch.MatchAll(structure, [keyword]);
+
+        // The match with children is preferred over a bare heading match, the same choice the
+        // must-mention read makes: a section with subheadings is the one that describes the topic,
+        // where a lone matching heading is often a nav label or a card title.
+        var matched = matches.FirstOrDefault(m => m.ChildHeadings.Length > 0) ?? matches.FirstOrDefault();
+        if (matched is null)
+        {
+            _logger.LogInformation(
+                "Site structure: nothing on run {RunId} matches \"{Keyword}\" for project {ProjectId}.",
+                runId, keyword, project.Id);
+            return new CrawlHierarchy([], null);
+        }
+
+        // Named anchors under the matched heading. A tool without its href cites nothing, so an
+        // anchor with no href is not a tool here -- the same rule the old extraction applied.
+        var tools = matched.RecommendedTools
+            .Where(t => !string.IsNullOrWhiteSpace(t.Name))
+            .GroupBy(t => t.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Select(t => new GccGenerateService.CrawlTool(
+                t.Name.Trim(), string.IsNullOrWhiteSpace(t.Href) ? null : t.Href.Trim()))
             .ToList();
 
-        // #region agent log
-        var diag = GccGenerateService.DiagnoseToolExtraction(
-            trees, keyword, project.HierarchySourcePageUrl, project.HierarchyPath);
-        var linkyHeadings = GccGenerateService.ListHeadingsWithToolLinks(trees, max: 12);
-        var pageLinkTotal = GccGenerateService.CountAllToolLinks(trees);
         _logger.LogInformation(
-            "ExtractTools project={ProjectId} trees={TreeCount} matchedHeading={MatchedHeading} pageUrl={PageUrl} directChildren={DirectChildren} deeperHeadings={DeeperHeadings} headingsUnderMatch={HeadingCount} linksUnderMatch={LinkCount} tools={ToolCount} hierarchyPath={HierarchyPath} underMatchHeadings={UnderMatchHeadings} pageLinkTotal={PageLinkTotal} linkyHeadings={LinkyHeadings}",
-            project.Id,
-            trees.Count,
-            diag.MatchedHeading ?? "(null)",
-            diag.PageUrl ?? "(null)",
-            diag.DirectChildCount,
-            diag.DeeperHeadingCount,
-            diag.HeadingCount,
-            diag.LinkCount,
-            tools.Count,
-            project.HierarchyPath ?? "(null)",
-            string.Join(" | ", diag.Headings),
-            pageLinkTotal,
-            string.Join(" || ", linkyHeadings.Select(h => $"{h.Heading}:{h.LinkCount}")));
-        // #endregion
+            "Site structure: project {ProjectId} matched \"{Heading}\" (h{Level}, {Kind}) on {PageUrl} "
+            + "with {ChildCount} child heading(s) and {ToolCount} linked tool(s).",
+            project.Id, matched.MatchedHeading, matched.Level, matched.Kind,
+            matched.SourcePageUrl ?? "(no page url)", matched.ChildHeadings.Length, tools.Count);
 
-        var assignment = GccGenerateService.BuildAssignmentFromTrees(
-            trees,
-            keyword,
-            project.HierarchySourcePageUrl,
-            project.HierarchyPath);
+        var assignment = new HierarchyAssignment
+        {
+            Heading = matched.MatchedHeading.Trim(),
+            Level = matched.Level,
+            // Deliberately empty. The project-site crawl is read for structure -- heading levels, the
+            // anchors under a heading, what the site already covers -- and its paragraphs are not
+            // consumed anywhere: this piece is written from partner evidence, not from the operator's
+            // own prose, which it must not repeat.
+            Paragraphs = [],
+            Links = tools.Select(t => new ToolInfo { Name = t.Name, Href = t.Href }).ToList(),
+            // The child headings as they stand. The old tree projection recursed with each child's own
+            // links and paragraphs; the matcher reports children as headings, and the anchors under the
+            // matched section are already collected above rather than split across the subtree.
+            Children = matched.ChildHeadings
+                .Where(h => !string.IsNullOrWhiteSpace(h))
+                .Select(h => new HierarchyAssignment { Heading = h.Trim() })
+                .ToList(),
+        };
 
         return new CrawlHierarchy(tools, assignment);
     }
@@ -334,18 +360,6 @@ public sealed class ToolPageGenerator : IToolPageGenerator
         if (string.IsNullOrWhiteSpace(slug) || slug == "top-ai-tools-for")
             return "top-ai-tools-roundup";
         return slug;
-    }
-
-    private string? BearerToken()
-    {
-        if (!string.IsNullOrWhiteSpace(_seoBearer.BearerToken))
-            return _seoBearer.BearerToken.Trim();
-
-        var auth = _httpContext.HttpContext?.Request.Headers.Authorization.ToString();
-        if (string.IsNullOrWhiteSpace(auth)) return null;
-        return auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? auth["Bearer ".Length..].Trim()
-            : auth.Trim();
     }
 
     private async Task<GeneratedContent> GenerateOneToolAsync(

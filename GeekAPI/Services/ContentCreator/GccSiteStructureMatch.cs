@@ -22,6 +22,12 @@ public static class GccSiteStructureMatch
     /// </param>
     public sealed record ToolRow(string Name, string? Href, string Context);
 
+    /// <param name="Level">
+    /// The matched heading's own depth, h1-h6, as the crawler's block recorded it; 0 when the block
+    /// carried none. Surfaced because a consumer that shows the model this section has to say which
+    /// level it sits at — the structure held it all along and this record was dropping it, so the
+    /// one caller that needs it was writing 0 for every match.
+    /// </param>
     public sealed record MatchResult(
         string MatchedHeading,
         string[] Path,
@@ -29,7 +35,8 @@ public static class GccSiteStructureMatch
         string[] ChildHeadings,
         IReadOnlyList<ToolRow> RecommendedTools,
         string MatchTopic,
-        string? SourcePageUrl);
+        string? SourcePageUrl,
+        int Level);
 
     /// <summary>
     /// Every match, ordered best-first. Nothing is deduplicated.
@@ -64,7 +71,8 @@ public static class GccSiteStructureMatch
                             ChildHeadings(node),
                             HarvestTools(node),
                             path.Count,
-                            TokenCount(Slugify(node.HeadingText))),
+                            TokenCount(Slugify(node.HeadingText)),
+                            node.Level),
                         topic,
                         page.PageUrl));
                 }
@@ -83,7 +91,8 @@ public static class GccSiteStructureMatch
                 f.Candidate.ChildHeadings,
                 f.Candidate.Tools,
                 f.Topic,
-                f.PageUrl))
+                f.PageUrl,
+                f.Candidate.Level))
             .ToList();
     }
 
@@ -261,5 +270,6 @@ public static class GccSiteStructureMatch
         string[] ChildHeadings,
         IReadOnlyList<ToolRow> Tools,
         int Depth,
-        int HeadingTokens);
+        int HeadingTokens,
+        int Level);
 }

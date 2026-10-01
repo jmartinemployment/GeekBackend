@@ -50,6 +50,7 @@ public class GccController : ControllerBase
     private readonly HttpGeekCrawlerRepository _crawlerRepo;
     private readonly IGeekCrawlerRagClient _rag;
     private readonly GccAngleQuoteProbe _angleQuote;
+    private readonly GccProjectSiteStructureReader _siteStructure;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -67,6 +68,7 @@ public class GccController : ControllerBase
         HttpGeekCrawlerRepository crawlerRepo,
         IGeekCrawlerRagClient rag,
         GccAngleQuoteProbe angleQuote,
+        GccProjectSiteStructureReader siteStructure,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -83,6 +85,7 @@ public class GccController : ControllerBase
         _crawlerRepo = crawlerRepo;
         _rag = rag;
         _angleQuote = angleQuote;
+        _siteStructure = siteStructure;
         _logger = logger;
     }
 
@@ -599,26 +602,14 @@ public class GccController : ControllerBase
         if (string.IsNullOrWhiteSpace(create.Topic))
             return null;
 
-        var pages = new List<GeekCrawlerPageDto>();
-        var offset = 0;
-        const int batch = 50;
-        while (true)
-        {
-            var chunk = await _crawlerRepo.ListPageBlocksAsync(runId, batch, offset, ct).ConfigureAwait(false);
-            if (chunk.Count == 0) break;
-            pages.AddRange(chunk);
-            if (chunk.Count < batch) break;
-            offset += chunk.Count;
-        }
-
-        if (pages.Count == 0)
+        var structure = await _siteStructure.ReadAsync(runId, ct).ConfigureAwait(false);
+        if (structure is null)
         {
             _logger.LogInformation(
                 "Site structure: run {RunId} returned no pages, so this create generates without it.", runId);
             return null;
         }
 
-        var structure = GeekCrawlerSiteStructure.Build(runId, pages);
         var matches = GccSiteStructureMatch.MatchAll(structure, [create.Topic.Trim()]);
         var matched = matches.FirstOrDefault(m => m.ChildHeadings.Length > 0) ?? matches.FirstOrDefault();
         if (matched is null)
@@ -1294,20 +1285,8 @@ public class GccController : ControllerBase
         if (!string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase))
             return NotFound();
 
-        // Blocks only — never Html, for the same reason the site-structure read takes this path.
-        var pages = new List<GeekCrawlerPageDto>();
-        var offset = 0;
-        const int batch = 50;
-        while (true)
-        {
-            var chunk = await _crawlerRepo.ListPageBlocksAsync(runId, batch, offset, ct).ConfigureAwait(false);
-            if (chunk.Count == 0) break;
-            pages.AddRange(chunk);
-            if (chunk.Count < batch) break;
-            offset += chunk.Count;
-        }
-
-        var structure = GeekCrawlerSiteStructure.Build(runId, pages);
+        // Blocks only -- never Html -- through the one reader every site-structure read shares.
+        var structure = await _siteStructure.ReadAsync(runId, ct).ConfigureAwait(false);
         var matches = GccSiteStructureMatch.MatchAll(structure, [target]);
 
         return Ok(matches.Select(m => new

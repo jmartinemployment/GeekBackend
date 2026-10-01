@@ -113,6 +113,70 @@ public class GccSiteStructureMatchTests
     }
 
     [Fact]
+    public void A_sections_nav_and_cta_links_are_not_its_tool_list()
+    {
+        // Ported from the retired Site-Analyzer-shaped extractor, which pinned this against page trees.
+        // The chrome and the tools are both groups under the matched heading here -- three links of its
+        // own against five in its subheading -- so this exercises the ranking and not just the absence
+        // of a competitor: taking the first group instead of the largest returns the privacy link and
+        // the phone number as this section's tools.
+        //
+        // Which half does the work is worth knowing. The chrome list matches whole labels, so
+        // "Privacy Policy" and "Call Us (561) 526-3512" are not excluded by name at all -- they are
+        // out-ranked. A section whose nav block were larger than its tool list would still pick wrong.
+        var page = new SiteStructurePage("https://geekatyourspot.com/", [
+            Node(4, "Lead Capture Pipeline", [], [
+                Node(5, "Smart Chatbots for Marketing", [
+                    Link("Privacy Policy", "/privacy"),
+                    Link("Call Us (561) 526-3512", "tel:5615263512"),
+                    Link("Get Your Free AI Assessment", "/assessment"),
+                ], [
+                    Node(6, "Top AI Chatbot Tools", [
+                        Link("BotPenguin", "/tools/marketing/bot-penguin"),
+                        Link("ManyChat", "/tools/marketing/many-chat"),
+                        Link("Pipedrive", "/tools/marketing/pipedrive"),
+                        Link("CustomGPT", "/tools/marketing/custom-gpt"),
+                        Link("Get Chip Bot", "/tools/marketing/getchipbot"),
+                    ]),
+                ]),
+            ]),
+        ]);
+
+        var matches = GccSiteStructureMatch.MatchAll(Structure(page), ["Smart Chatbots for Marketing"]);
+
+        // Best-first, nothing deduplicated: the seed expands to "Smart Chatbots" as well, so the same
+        // heading matches twice and the exact match ranks first. That is the documented contract.
+        var match = matches[0];
+        Assert.Equal("exact-heading", match.Kind);
+        Assert.Equal(5, match.RecommendedTools.Count);
+        Assert.Contains(match.RecommendedTools, t => t.Name == "BotPenguin");
+        Assert.Contains(match.RecommendedTools, t => t.Name == "Get Chip Bot");
+        Assert.DoesNotContain(match.RecommendedTools, t => t.Name.Contains("Privacy", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(match.RecommendedTools, t => t.Name.Contains("Call Us", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void The_matched_heading_reports_its_own_depth()
+    {
+        // The structure carried the level and this record dropped it, so the one consumer that shows
+        // the model which level a section sits at was writing 0 for every match -- which that
+        // consumer's own renderer reads as "the node did not report one".
+        var page = new SiteStructurePage("https://example.com/marketing", [
+            Node(2, "Services", [], [
+                Node(4, "Smart Chatbots for Marketing", [
+                    Link("BotPenguin", "/tools/bot-penguin"),
+                    Link("ManyChat", "/tools/many-chat"),
+                ]),
+            ]),
+        ]);
+
+        var matches = GccSiteStructureMatch.MatchAll(Structure(page), ["Smart Chatbots for Marketing"]);
+
+        // The h4 the keyword names, not the h2 above it.
+        Assert.All(matches, m => Assert.Equal(4, m.Level));
+    }
+
+    [Fact]
     public void A_short_parent_heading_does_not_swallow_the_keyword()
     {
         // The containment trap: "Processing" must not match by being a substring.
