@@ -2724,7 +2724,8 @@ public class GccGenerateService
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
             await _knownTools.ResolveAsync(create, ct),
             create, section, mustMentionBlock, provider);
-        var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock);
+        var evidence = BuildProvenanceEvidence(
+            create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         // Prompts come from the type's own set, not from a switch over a flat builder -- see
         // content-creator-v2/plans/prompts-per-content-type.md.
@@ -3010,7 +3011,8 @@ public class GccGenerateService
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
             await _knownTools.ResolveAsync(create, ct),
             create, section, mustMentionBlock, provider);
-        var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock);
+        var evidence = BuildProvenanceEvidence(
+            create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
         // Metadata first, because everything downstream needs what it produces. The title has to
         // exist before the lede is written or the hook just restates it, and the section outline is
@@ -3477,7 +3479,8 @@ public class GccGenerateService
     private static GccHeadingProvenanceEvidence BuildProvenanceEvidence(
         GccCreateDto create,
         IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses,
-        string? mustMentionBlock)
+        string? mustMentionBlock,
+        IReadOnlyList<string>? partnerUrls = null)
     {
         var brief = ExtractBriefFields(create.BriefJson);
         var populatedBriefFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -3531,7 +3534,13 @@ public class GccGenerateService
         var retrievedResearch = GccResearchFetchService.Deserialize(create.ResearchJson);
         if (retrievedResearch?.Quoteables is { Count: > 0 } quoteables)
         {
-            var toolNames = GccRequiredToolMentions.AnchorLookup(create.BriefJson);
+            // partnerUrls as well as the brief, which GccGroundingResolver:219 already passes when
+            // it labels retrieved chunks with the same lookup. Omitting them here licensed a
+            // narrower set of partner spellings than the prompt uses: a partner declared on the
+            // project but absent from the brief's tool rows was labelled on its chunks and then
+            // refused when a heading cited it -- "evidence:Lightyear does not resolve to any
+            // available source" (2026-10-01).
+            var toolNames = GccRequiredToolMentions.AnchorLookup(create.BriefJson, partnerUrls);
             foreach (var page in quoteables)
             {
                 if (!string.IsNullOrWhiteSpace(page.SectionTitle))

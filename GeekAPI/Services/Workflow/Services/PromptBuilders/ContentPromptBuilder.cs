@@ -503,9 +503,15 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string HeadingProvenanceInstruction =
         "Every section you write, at every level including nested children, must be licensed by real " +
         "material above -- never invented from nothing. Tag each one with the \"provenance\" field the " +
-        "JSON shape requires, using the exact brief field name, PAA question, competitor heading, or " +
-        "site subtopic it is drawn from. A tag is the source's own text copied exactly, never a " +
-        "description of where you found it: \"site:Invoice capture\", not \"site:the subtopics list\". " +
+        "JSON shape requires, using the exact brief field name, PAA question, competitor heading, " +
+        "site subtopic, or retrieved source it is drawn from. A tag is the source's own text copied " +
+        "exactly, never a description of where you found it: \"site:Invoice capture\", not " +
+        "\"site:the subtopics list\". The five forms are \"plan:\" for a section you were assigned, " +
+        "\"brief:<field name>\" -- the field\u0027s name, not the line as printed, so \"brief:topic\" " +
+        "and never \"brief:Topic / keyword: ...\" -- \"paa:<question>\", \"competitor:<heading>\", " +
+        "\"site:<subtopic>\" with no trailing punctuation, and \"evidence:<source>\" for retrieved " +
+        "material, where <source> is the partner name, the page title, the section title or the host " +
+        "exactly as the retrieved passage gives it. " +
         "If a subsection cannot honestly be tagged this way, do not write it. " +
         "A \"competitor:\" tag names a gap that heading revealed, never a heading you may reuse: " +
         "writing the cited text as your own heading is rejected outright. Their outline tells you " +
