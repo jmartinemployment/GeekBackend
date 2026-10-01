@@ -123,5 +123,6 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
             lede: ctx.Lede,
             fullOutline: OutlineFor(ctx),
             batchIndex: ctx.SectionBatchIndex,
-            evidenceBlock: ctx.EvidenceBlock);
+            evidenceBlock: ctx.EvidenceBlock,
+            quoteCandidates: ctx.QuoteCandidates);
 }

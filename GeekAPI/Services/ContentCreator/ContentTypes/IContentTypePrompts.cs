@@ -69,6 +69,14 @@ public sealed record ContentTypePromptContext(
     SoftwareApplicationDescriptor? App = null,
     string? ToolSlug = null,
     string? ExtractedResearchJson = null,
+    /// <summary>
+    /// The spans a tool page may quote, which is the same list GccToolQuoteGuard checks the draft
+    /// against. Both have to read one list: the writer was shown the extraction JSON and told to
+    /// quote "a testimonial or an isolated claim" from it, so a partner whose extraction filed
+    /// nothing under those headings left it with nothing verbatim to use -- while the guard held
+    /// spans cut from the retrieved pages it had never seen.
+    /// </summary>
+    IReadOnlyList<GccQuoteCandidate>? QuoteCandidates = null,
     /// <summary>The opening already written for this page. The body prompts could not see it, so a
     /// page that opened as anecdote switched to reference voice at the first H2 (Jeff, 2026-09-23:
     /// "While it starts off nice with a story, it becomes dull and a chore to read

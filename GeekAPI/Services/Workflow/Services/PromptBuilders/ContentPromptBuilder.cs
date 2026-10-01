@@ -9,6 +9,8 @@ using GeekApplication.Models.ContentCreator;
 
 using GeekAPI.Services.ContentCreatorV2.ContentTypes;
 
+using GeekAPI.Services.ContentCreator;
+
 namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 
 public interface IContentPromptBuilder
@@ -155,7 +157,8 @@ public interface IContentPromptBuilder
         Section? lede = null,
         IReadOnlyList<SectionSlot>? fullOutline = null,
         int batchIndex = 0,
-        string? evidenceBlock = null);
+        string? evidenceBlock = null,
+        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null);
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
@@ -807,15 +810,41 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private static string ToolQuotationInstruction(string productName) =>
         "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries exactly one block "
         + "quotation -- a paragraph of type \"quote\" -- and it is required. Take its words from the "
-        + "partner evidence below, copied character for character, and set \"cite\" to the URL that "
-        + "evidence gives as their source. A testimonial or an isolated claim is what this is for. "
+        + "quotable spans listed below, copied character for character, and set \"cite\" to the URL "
+        + "printed beside the span you chose. "
         + "Put it in the section whose point it supports, where the reader has just been told "
         + "something and the quote is " + productName + " saying it themselves -- not stacked at the "
         + "top, not left to the end as decoration. "
         + "What it may not be: a paraphrase tidied into quotation marks, a claim you are confident "
         + "they make, wording assembled from several places, or anything at all with a cite pointing "
-        + "somewhere the words did not come from. If a span is not in front of you verbatim, it is "
-        + "not quotable, and the draft is rejected rather than published with an invented one.";
+        + "somewhere the words did not come from. Choose the span that best supports a point the "
+        + "page actually makes; if a span is not in front of you verbatim, it is not quotable, and "
+        + "the draft is rejected rather than published with an invented one.";
+
+    /// <summary>
+    /// The spans the writer may quote -- the same list GccToolQuoteGuard will check the draft
+    /// against.
+    /// </summary>
+    /// <remarks>
+    /// Shown because the guard and the writer have to be looking at one list. The instruction used
+    /// to say "take its words from the partner evidence below ... a testimonial or an isolated
+    /// claim", which pointed at the extraction JSON -- so a partner whose extraction filed nothing
+    /// under those two headings left the writer with nothing verbatim in front of it, and it
+    /// correctly wrote no quotation, while the guard held spans from the retrieved pages that the
+    /// writer never saw. The page was then refused for not using them (2026-10-01: "28 quotable
+    /// partner span(s) were supplied and none was used").
+    /// </remarks>
+    private static string QuotableSpansBlock(IReadOnlyList<GccQuoteCandidate> candidates)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("QUOTABLE SPANS -- the only wording this page may quote. Copy one exactly:");
+        foreach (var candidate in candidates)
+        {
+            sb.AppendLine($"- \"{candidate.Text}\"  [cite: {candidate.PageUrl}]");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
 
     /// <summary>
     /// The closing instruction for one call of a batched body: the real ask when this call owns the
@@ -2341,7 +2370,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         Section? lede = null,
         IReadOnlyList<SectionSlot>? fullOutline = null,
         int batchIndex = 0,
-        string? evidenceBlock = null)
+        string? evidenceBlock = null,
+        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null)
     {
         // One rendering of the outline, from the one definition. This block used to be three hand-
         // written prose lists inside this prompt -- the required section names, the per-section word
@@ -2409,6 +2439,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
                 "about a competing product is a sentence that has not done its job.")
             .AppendLine(ToolQuotationInstruction(app.Name))
+            .AppendLine(quoteCandidates is { Count: > 0 } ? QuotableSpansBlock(quoteCandidates) : string.Empty)
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +
                 "section is responsible for; you write its heading:")

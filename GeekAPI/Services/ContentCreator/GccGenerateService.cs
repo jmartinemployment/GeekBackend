@@ -1829,11 +1829,21 @@ public class GccGenerateService
         // The CTA retry below re-writes the body, so it batches too: a retry that asks for the whole
         // page in one response is the arithmetic cap batching removed, put back on the draft that
         // ships.
+        // Cut before the body is written, not after: the writer quotes from this list and the guard
+        // checks the draft against it, so both must be looking at the same one.
+        var quoteCandidates = GccQuoteCandidates.From(partnerPages);
+
         Task<List<Section>> WriteToolBodyAsync(string? evidenceBlock) =>
             GenerateSectionsInBatchesAsync(
                 llm,
                 toolType,
-                toolOutlineCtx with { Metadata = pillarMeta, Lede = toolLede, EvidenceBlock = evidenceBlock },
+                toolOutlineCtx with
+                {
+                    Metadata = pillarMeta,
+                    Lede = toolLede,
+                    EvidenceBlock = evidenceBlock,
+                    QuoteCandidates = quoteCandidates,
+                },
                 toolType.OutlineFor(toolOutlineCtx),
                 $"Tool page '{name}'",
                 ct);
@@ -1864,10 +1874,6 @@ public class GccGenerateService
         // draws. The legacy no-create path is already exempt from grounding entirely; it has no
         // partner evidence at all, so requiring a partner quote there would be requiring an
         // invented one. Where the page is grounded, it carries the quote.
-        // Candidates come from the retrieved partner pages, the same ones the page is grounded on,
-        // so the guard's pool is the partner's published wording rather than whichever two buckets
-        // the extractor happened to fill.
-        var quoteCandidates = GccQuoteCandidates.From(partnerPages);
         var quoteViolations = create is null
             ? []
             : Guardrail.GccToolQuoteGuard.FindViolations(sections, quoteCandidates);

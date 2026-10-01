@@ -1,4 +1,6 @@
+using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreator.ContentTypes;
+using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -44,7 +46,9 @@ public class ToolPageQuotationTests
         ImplementerPositioning: "an AI implementation partner",
         Provider: LlmProviderType.OpenAi);
 
-    private static string ToolPrompt(string? researchJson)
+    private static string ToolPrompt(
+        string? researchJson,
+        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null)
     {
         var context = Context();
         var app = new SoftwareApplicationDescriptor("Tipalti", "Payables automation.");
@@ -56,7 +60,8 @@ public class ToolPageQuotationTests
             ToolPrompts.Outline(context, app.Name),
             revisionNotes: null,
             extractedToolResearchJson: researchJson,
-            lede: null);
+            lede: null,
+            quoteCandidates: quoteCandidates);
         return string.Join("\n", request.Messages.Select(m => m.Content));
     }
 
@@ -75,7 +80,11 @@ public class ToolPageQuotationTests
         var system = ToolPrompt("""{"testimonials":[{"quoteText":"We cut approval time."}]}""");
 
         Assert.Contains("copied character for character", system, StringComparison.Ordinal);
-        Assert.Contains("the URL that evidence gives as their source", system, StringComparison.Ordinal);
+
+        // Was "the URL that evidence gives as their source", which pointed at the extraction's
+        // provenance. The cite now comes from the span's own printed URL, because the writer picks
+        // from the same list the guard checks against -- so the source of the cite moved with it.
+        Assert.Contains("the URL printed beside the span you chose", system, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -110,5 +119,37 @@ public class ToolPageQuotationTests
             Assert.Contains("QUOTE Tipalti ONCE, IN THEIR OWN WORDS", system, StringComparison.Ordinal);
             Assert.DoesNotContain("carries no block quotation", system, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void The_writer_is_shown_the_spans_it_may_quote()
+    {
+        // The guard and the writer have to read one list. The instruction used to point at the
+        // extraction JSON -- "a testimonial or an isolated claim" -- so a partner whose extraction
+        // filed nothing under those two headings left the writer with nothing verbatim in front of
+        // it. It correctly wrote no quotation and the page was then refused for not using spans it
+        // had never seen: "28 quotable partner span(s) were supplied and none was used".
+        var candidates = GccQuoteCandidates.From([
+            new GccQuoteablePage(
+                "https://partner.test/customers", "Customers", [],
+                ["We cut approval time from nine days to two, and nobody has looked back."]),
+        ]);
+
+        var prompt = ToolPrompt(null, candidates);
+
+        Assert.Contains("QUOTABLE SPANS", prompt, StringComparison.Ordinal);
+        Assert.Contains("nine days to two", prompt, StringComparison.Ordinal);
+        Assert.Contains("[cite: https://partner.test/customers]", prompt, StringComparison.Ordinal);
+
+        // The old wording pointed somewhere else and must not survive beside the list.
+        Assert.DoesNotContain("A testimonial or an isolated claim is what this is for",
+            prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void With_no_spans_the_list_is_absent_rather_than_empty()
+    {
+        // An empty "QUOTABLE SPANS:" header invites the writer to invent one to fill it.
+        Assert.DoesNotContain("QUOTABLE SPANS --", ToolPrompt(null, []), StringComparison.Ordinal);
     }
 }
