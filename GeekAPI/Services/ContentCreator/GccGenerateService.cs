@@ -1864,9 +1864,13 @@ public class GccGenerateService
         // draws. The legacy no-create path is already exempt from grounding entirely; it has no
         // partner evidence at all, so requiring a partner quote there would be requiring an
         // invented one. Where the page is grounded, it carries the quote.
+        // Candidates come from the retrieved partner pages, the same ones the page is grounded on,
+        // so the guard's pool is the partner's published wording rather than whichever two buckets
+        // the extractor happened to fill.
+        var quoteCandidates = GccQuoteCandidates.From(partnerPages);
         var quoteViolations = create is null
             ? []
-            : Guardrail.GccToolQuoteGuard.FindViolations(sections, groundedExtraction);
+            : Guardrail.GccToolQuoteGuard.FindViolations(sections, groundedExtraction, quoteCandidates);
         if (quoteViolations.Count > 0)
         {
             throw new InvalidOperationException(
@@ -1917,7 +1921,8 @@ public class GccGenerateService
             // the link and loses the quote is not a draft worth keeping. This check belongs to
             // this method only.
             if (retriedViolations.Count == 0
-                && Guardrail.GccToolQuoteGuard.FindViolations(toolCtaSections, groundedExtraction).Count == 0)
+                && Guardrail.GccToolQuoteGuard.FindViolations(
+                        toolCtaSections, groundedExtraction, quoteCandidates).Count == 0)
             {
                 document = retried;
                 sections = toolCtaSections;

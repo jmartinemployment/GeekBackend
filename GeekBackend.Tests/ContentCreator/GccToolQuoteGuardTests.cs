@@ -1,4 +1,5 @@
 using GeekApplication.Models.ContentCreator;
+using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreator.Guardrail;
 using GeekAPI.Services.Workflow.Domain.Entities;
 
@@ -136,7 +137,10 @@ public class GccToolQuoteGuardTests
             null);
 
         var only = Assert.Single(violations);
-        Assert.Contains("holds no quotable span", only, StringComparison.Ordinal);
+        // Was "holds no quotable span", a claim about the partner's whole evidence made after
+        // inspecting two of the extraction's twenty-two categories. It now names what it checked.
+        Assert.Contains("nothing retrieved", only, StringComparison.Ordinal);
+        Assert.Contains("testimonial or citable", only, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -148,5 +152,74 @@ public class GccToolQuoteGuardTests
             WithTestimonial(Said, PartnerUrl));
 
         Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void A_span_from_the_retrieved_pages_is_quotable_without_any_extraction()
+    {
+        // The live refusal. tipalti.com carries 5,133 indexed chunks; its extraction produced
+        // features and pricing but no testimonial and no citable, and the page was refused as
+        // though the partner had published nothing quotable at all.
+        var candidates = GccQuoteCandidates.From([
+            new GccQuoteablePage(
+                PartnerUrl, "Customers", [],
+                ["We cut approval time from nine days to two, and nobody has looked back."]),
+        ]);
+
+        var sections = new[]
+        {
+            SectionWith(Quote(
+                "We cut approval time from nine days to two, and nobody has looked back.",
+                PartnerUrl)),
+        };
+
+        Assert.Empty(GccToolQuoteGuard.FindViolations(sections, null, candidates));
+    }
+
+    [Fact]
+    public void With_candidates_available_the_refusal_says_they_went_unused()
+    {
+        var candidates = GccQuoteCandidates.From([
+            new GccQuoteablePage(
+                PartnerUrl, "Customers", [],
+                ["We cut approval time from nine days to two, and nobody has looked back."]),
+        ]);
+
+        var violation = Assert.Single(
+            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], null, candidates));
+
+        Assert.Contains("none was used", violation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void With_nothing_anywhere_the_refusal_names_what_was_checked()
+    {
+        // It used to assert "the partner evidence holds no quotable span", having inspected two of
+        // the extraction's twenty-two categories and nothing else.
+        var violation = Assert.Single(
+            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], null, []));
+
+        Assert.Contains("nothing retrieved", violation, StringComparison.Ordinal);
+        Assert.Contains("testimonial or citable", violation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_retrieved_span_cited_to_the_wrong_page_is_still_refused()
+    {
+        // Widening where candidates come from does not weaken what makes one valid.
+        var candidates = GccQuoteCandidates.From([
+            new GccQuoteablePage(
+                PartnerUrl, "Customers", [],
+                ["We cut approval time from nine days to two, and nobody has looked back."]),
+        ]);
+
+        var sections = new[]
+        {
+            SectionWith(Quote(
+                "We cut approval time from nine days to two, and nobody has looked back.",
+                OtherUrl)),
+        };
+
+        Assert.NotEmpty(GccToolQuoteGuard.FindViolations(sections, null, candidates));
     }
 }

@@ -23,11 +23,38 @@ public class GccToolsSectionGuardTests
 
     [Theory]
     [InlineData("Top Tools for Automated Data Entry & Processing")]
-    [InlineData("Choosing the Right AI Tools for Your Accounts Payable Needs")]
     [InlineData("The Best Tool for the Job")]
     public void A_tools_listing_h2_is_found(string heading)
     {
         Assert.Single(GccToolsSectionGuard.FindToolsSections([H2(heading)]));
+    }
+
+    [Fact]
+    public void An_advisory_heading_over_prose_is_not_a_listing()
+    {
+        // Changed deliberately 2026-10-01. "Choosing the Right AI Tools for Your Accounts Payable
+        // Needs" was asserted here as a listing, on the old rule that any h2 containing the word
+        // was one. Generate refused a real blog on it, and on "How AI Tools Simplify Your Accounts
+        // Payable Process" -- neither lists anything, and the retry could not rescue either,
+        // because every honest heading for that material contains the word. A guard whose retry
+        // cannot be satisfied is a trap, not a guard.
+        //
+        // Nothing is let through by this: if that heading really does carry a list of products,
+        // the structural test below still catches it.
+        Assert.Empty(GccToolsSectionGuard.FindToolsSections(
+            [H2("Choosing the Right AI Tools for Your Accounts Payable Needs")]));
+    }
+
+    [Fact]
+    public void The_same_advisory_heading_over_a_product_list_is_still_found()
+    {
+        var section = H2(
+            "Choosing the Right AI Tools for Your Accounts Payable Needs",
+            H3("Melio: Simplify Payments"),
+            H3("Dext: Accurate Data Capture"),
+            H3("Lightyear: Smart Invoice Processing"));
+
+        Assert.Single(GccToolsSectionGuard.FindToolsSections([section]));
     }
 
     [Fact]

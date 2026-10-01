@@ -1,4 +1,5 @@
 using GeekApplication.Models.ContentCreator;
+using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.ContentCreator.Guardrail;
@@ -41,7 +42,8 @@ public static class GccToolQuoteGuard
     /// </summary>
     public static IReadOnlyList<string> FindViolations(
         IReadOnlyList<Section> sections,
-        GccPartnerExtractionDocument? extraction)
+        GccPartnerExtractionDocument? extraction,
+        IReadOnlyList<GccQuoteCandidate>? candidates = null)
     {
         var quotes = new List<QuoteParagraph>();
         foreach (var section in sections)
@@ -49,12 +51,14 @@ public static class GccToolQuoteGuard
             CollectQuotes(section, quotes);
         }
 
-        var spans = QuotableSpans(extraction);
+        var spans = QuotableSpans(extraction, candidates);
 
         if (quotes.Count == 0)
         {
             return spans.Count == 0
-                ? ["The page carries no block quotation, and the partner evidence holds no quotable span to build one from."]
+                ? ["The page carries no block quotation, and nothing retrieved from the partner's "
+                    + "pages is shaped like one -- no complete sentence outside boilerplate, and no "
+                    + "testimonial or citable claim in the extraction."]
                 : [$"The page carries no block quotation. {spans.Count} quotable partner span(s) were supplied and none was used."];
         }
 
@@ -115,9 +119,23 @@ public static class GccToolQuoteGuard
     /// than a field extraction assembled. A citable contributes its verify span and its isolated
     /// claim, since the claim is the span for most of them.
     /// </summary>
-    private static List<QuotableSpan> QuotableSpans(GccPartnerExtractionDocument? extraction)
+    private static List<QuotableSpan> QuotableSpans(
+        GccPartnerExtractionDocument? extraction,
+        IReadOnlyList<GccQuoteCandidate>? candidates)
     {
         var spans = new List<QuotableSpan>();
+
+        // The retrieved pages themselves, which is where the partner's published wording actually
+        // is. This used to read two of the extraction's twenty-two categories and nothing else, so
+        // a partner whose pages yielded features and pricing but no testimonial was reported as
+        // having "no quotable span to build one from" -- a claim about the partner's evidence made
+        // after inspecting one derived document. tipalti.com carries 5,133 indexed chunks and was
+        // refused on exactly that.
+        foreach (var candidate in candidates ?? [])
+        {
+            spans.Add(new QuotableSpan(candidate.Text, candidate.PageUrl));
+        }
+
         if (extraction is null)
         {
             return spans;

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 
@@ -22,7 +23,7 @@ namespace GeekAPI.Services.ContentCreator.Guardrail;
 /// repeatedly.
 /// </para>
 /// </summary>
-public static class GccToolsSectionGuard
+public static partial class GccToolsSectionGuard
 {
     /// <summary>
     /// Every section in the tree whose heading is a tools listing, at any depth. Empty means the
@@ -44,7 +45,7 @@ public static class GccToolsSectionGuard
             // product-named subheading is ordinary writing.
             if (!string.IsNullOrWhiteSpace(section.Heading)
                 && string.Equals(section.Tag, "h2", StringComparison.OrdinalIgnoreCase)
-                && PillarSectionClassifier.IsToolsListingHeading(section.Heading))
+                && IsListing(section))
             {
                 found.Add(section.Heading);
             }
@@ -52,6 +53,75 @@ public static class GccToolsSectionGuard
             if (section.Children.Count > 0) Walk(section.Children, found);
         }
     }
+
+    /// <summary>
+    /// Whether this section's <i>job</i> is to list tools — which the heading alone cannot say.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This used to be <c>PillarSectionClassifier.IsToolsListingHeading</c>, which is
+    /// <c>t o o l s ?</c> — any h2 containing the word. That is not what this guard is for, and
+    /// it refused work it was never meant to touch: "How AI Tools Simplify Your Accounts Payable
+    /// Process" and "Choosing the Right AI Tool for Your Business Needs" are prose sections about
+    /// using tools, and both were rejected. The retry could not save them either, because any
+    /// honest heading for that material contains the word.
+    /// </para>
+    /// <para>
+    /// A listing announces itself two ways, and both are structural rather than lexical. The
+    /// heading enumerates — "Top 5 … Tools", "Best … Tools", "7 Tools to Consider". Or the section
+    /// is built as a list: three or more children, each a short product name rather than a
+    /// statement or a question. A section that does neither is prose that mentions tools, which is
+    /// exactly what the retry instruction asks the writer to produce.
+    /// </para>
+    /// <para>
+    /// The word is still required. Widening to "platform" and "solution" is what
+    /// <c>IsToolsListingHeading</c>'s own doc warns against — it flagged "Common Challenges and
+    /// Solutions" — and a guard that rejects a draft outright cannot afford that.
+    /// </para>
+    /// </remarks>
+    private static bool IsListing(Section section) =>
+        PillarSectionClassifier.IsToolsListingHeading(section.Heading)
+        && (Enumerates(section.Heading) || ReadsAsAList(section.Children));
+
+    /// <summary>A heading that promises a list: a count, a superlative, or a roundup.</summary>
+    private static bool Enumerates(string heading) =>
+        EnumerativeHeading().IsMatch(heading);
+
+    /// <summary>
+    /// Children that are product names rather than prose. Three, because two sub-sections under a
+    /// section about tools is ordinary structure; a list starts at three.
+    /// </summary>
+    private static bool ReadsAsAList(IReadOnlyList<Section> children)
+    {
+        if (children.Count < 3) return false;
+
+        var namelike = children.Count(c => IsProductName(c.Heading));
+        return namelike >= 3 && namelike * 2 >= children.Count;
+    }
+
+    /// <summary>
+    /// Short, not a question, and not a statement — "Tipalti", "Bill.com AP", "Stampli". A heading
+    /// that opens with how/why/what/when/should is the writer explaining something, whatever it is
+    /// named after.
+    /// </summary>
+    private static bool IsProductName(string? heading)
+    {
+        var text = (heading ?? string.Empty).Trim();
+        if (text.Length == 0 || text.EndsWith('?')) return false;
+        if (ProsePrefix().IsMatch(text)) return false;
+
+        return text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 5;
+    }
+
+    [GeneratedRegex(@"\b(top|best|leading|favou?rite)\b.*\btools?\b"
+        + @"|\b\d+\s+(\w+\s+){0,3}tools?\b"
+        + @"|\btools?\b[^.]*\b(compared|comparison|round-?up|shortlist|options|we recommend|to consider|ranked)\b",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex EnumerativeHeading();
+
+    [GeneratedRegex(@"^(how|why|what|when|where|should|can|do|does|is|are|choosing|picking|selecting|using)\b",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex ProsePrefix();
 
     /// <summary>What to tell the writer when it wrote one anyway.</summary>
     public static string RetryInstruction(IReadOnlyList<string> headings) =>
