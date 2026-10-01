@@ -75,14 +75,23 @@ public class GccProjectsControllerIndexGateTests
              "updatedAtUtc":"2026-10-01T00:00:00Z"}
             """;
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        /// <summary>
+        /// What was actually sent to be saved. "The gate let it through" and "the gate saved what
+        /// the operator typed" are different claims, and only the body can tell them apart.
+        /// </summary>
+        public string? LastBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Calls++;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            if (request.Content is not null)
+                LastBody = await request.Content.ReadAsStringAsync(cancellationToken);
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(SavedProjectJson, Encoding.UTF8, "application/json"),
-            });
+            };
         }
     }
 
@@ -322,6 +331,91 @@ public class GccProjectsControllerIndexGateTests
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains(Partner, BodyOf(result), StringComparison.Ordinal);
         Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task ASixthPartnerWithNoCrawlIsExcludedRatherThanBlockingTheProject()
+    {
+        // The defect this exists to stop. The floor was counted on declared URLs while a separate
+        // rule required every declared URL to be usable -- two rules over two different sets -- so
+        // a sixth partner with no crawl disabled a project that already had five good ones. An
+        // extra URL could only ever hurt.
+        string[] sixPartners = [.. Partners, "https://partner6.test"];
+        GeekCrawlerRagHostIndex[] rows = [.. AllIndexed, NotIndexed("https://partner6.test")];
+        var (controller, repo) = Build(rows);
+
+        var result = await controller.Create(
+            CreateRequest(sixPartners, Competitors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Equal(1, repo.Calls);
+    }
+
+    [Fact]
+    public async Task TheExcludedPartnerIsNotSavedWithTheProject()
+    {
+        // Excluding it is the point rather than a side effect: a declared partner obliges Pillar,
+        // Blog and Tool to name it (GccRequiredToolMentions), so saving one with no evidence behind
+        // it only defers the refusal to generate time, where the operator can do nothing about it.
+        string[] sixPartners = [.. Partners, "https://partner6.test"];
+        GeekCrawlerRagHostIndex[] rows = [.. AllIndexed, NotIndexed("https://partner6.test")];
+        var (controller, repo) = Build(rows);
+
+        await controller.Create(CreateRequest(sixPartners, Competitors), CancellationToken.None);
+
+        Assert.NotNull(repo.LastBody);
+        Assert.DoesNotContain("partner6.test", repo.LastBody!, StringComparison.Ordinal);
+        Assert.Contains("partner1.test", repo.LastBody!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheFloorIsMeasuredOnEvidenceSoFiveDeclaredWithOneBadIsStillRefused()
+    {
+        // The other half of the same rule, and the reason this is not simply a relaxation: five
+        // declared with one unusable is four with evidence, which is below the floor and refused.
+        var (controller, repo) = Build(AllIndexedExcept(Partner));
+
+        var result = await controller.Create(
+            CreateRequest(Partners, Competitors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains("4 of 5", BodyOf(result), StringComparison.Ordinal);
+        Assert.Contains(Partner, BodyOf(result), StringComparison.Ordinal);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task AnUnusableSiteIsRefusedAndNeverMerelyExcluded()
+    {
+        // There is exactly one site and the project is grounded on its run, so nothing else can
+        // stand in for it. Excluding it the way a sixth partner is excluded would save a project
+        // with no grounding at all.
+        string[] sixPartners = [.. Partners, "https://partner6.test"];
+        GeekCrawlerRagHostIndex[] rows =
+            [.. AllIndexedExcept(Site), NotIndexed("https://partner6.test")];
+        var (controller, repo) = Build(rows);
+
+        var result = await controller.Create(
+            CreateRequest(sixPartners, Competitors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains(Site, BodyOf(result), StringComparison.Ordinal);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task UpdateExcludesTheSameWay()
+    {
+        string[] sixPartners = [.. Partners, "https://partner6.test"];
+        GeekCrawlerRagHostIndex[] rows = [.. AllIndexed, NotIndexed("https://partner6.test")];
+        var (controller, repo) = Build(rows);
+
+        await controller.Update(
+            Guid.NewGuid(), UpdateRequest(sixPartners, Competitors), CancellationToken.None);
+
+        Assert.Equal(1, repo.Calls);
+        Assert.NotNull(repo.LastBody);
+        Assert.DoesNotContain("partner6.test", repo.LastBody!, StringComparison.Ordinal);
     }
 
     [Fact]

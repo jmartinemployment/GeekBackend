@@ -48,29 +48,50 @@ public class GccProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Every declared partner and competitor URL must already have an indexed crawl behind it.
-    /// Returns null when the project may be saved, or the refusal to return instead.
+    /// The declared URLs a project may be saved with: the refusal, or the usable subset to persist.
+    /// </summary>
+    private sealed record DeclaredUrls(
+        ActionResult? Refusal,
+        IReadOnlyList<string> PartnerUrls,
+        IReadOnlyList<string> CompetitorUrls)
+    {
+        public static DeclaredUrls Refused(ActionResult refusal) => new(refusal, [], []);
+
+        public static DeclaredUrls Resolved(
+            IReadOnlyList<string> partners, IReadOnlyList<string> competitors) =>
+            new(null, partners, competitors);
+    }
+
+    /// <summary>
+    /// Which declared URLs a project is saved with, or the refusal to return instead.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// One question, one answer: does an index exist for this URL? A URL with no answer -- because
-    /// it was never crawled, will not parse, or the index could not be asked -- has no index behind
-    /// it, and the operator does the same thing about each. That is why
-    /// <c>plans/validate-partner-competitor-urls.md</c> deleted the syntax layer too.
+    /// The floor is measured on URLs that have evidence, not on URLs that were typed. Declaring six
+    /// partners and finding one uncrawled used to disable the whole save, because the count rule
+    /// read the declared list while a separate rule required every declared URL to be usable --
+    /// two rules over two different sets, so an extra URL could only ever hurt. Five good partners
+    /// are five good partners whether a sixth was entered or not.
+    /// </para>
+    /// <para>
+    /// The unusable ones are excluded from what is saved rather than merely ignored, and that is
+    /// the point rather than a side effect. A declared partner obliges Pillar, Blog and Tool to
+    /// name it (<c>GccRequiredToolMentions</c>), so one with no evidence behind it buys a refusal
+    /// at generate time -- "a partner with no evidence gives the writer nothing to say about it" --
+    /// which by then the operator can do nothing about. Excluding it is what keeps that promise;
+    /// saving it and hoping is what broke it.
+    /// </para>
+    /// <para>
+    /// The site is not one of several. There is exactly one, the project is grounded on its run, and
+    /// nothing else can stand in for it, so an unusable site URL is a refusal and never an exclusion.
     /// </para>
     /// <para>
     /// Here rather than only in the form because <c>CLAUDE.md</c> §2 is explicit: a boundary is only
     /// fail-closed if code rejects the bad input. <c>PUT</c> takes the same URLs and its frontend
     /// caller has no call site in the UI, so it is reachable only by direct API call.
     /// </para>
-    /// <para>
-    /// A declared partner is what obliges Pillar, Blog and Tool to name it
-    /// (<c>GccRequiredToolMentions</c>), so declaring one with no crawl behind it buys a refusal at
-    /// generate time -- "a partner with no evidence gives the writer nothing to say about it" --
-    /// which by then the operator can do nothing about.
-    /// </para>
     /// </remarks>
-    private async Task<ActionResult?> RefuseUncrawledUrlsAsync(
+    private async Task<DeclaredUrls> ResolveDeclaredUrlsAsync(
         string? siteUrl,
         Guid? projectSiteRunId,
         IReadOnlyList<string>? partnerUrls,
@@ -81,8 +102,9 @@ public class GccProjectsController : ControllerBase
         var partners = Clean(partnerUrls);
         var competitors = Clean(competitorUrls);
 
-        // Counts first, because they cost nothing and the operator can act on them without waiting
-        // for an index round trip.
+        // Declared counts first, because they cost nothing and the operator can act on them without
+        // waiting for an index round trip. A list already shorter than the floor cannot reach it
+        // once the unusable are removed, so this stays a sound early answer rather than a guess.
         var shortfalls = new[]
         {
             string.IsNullOrWhiteSpace(site)
@@ -95,16 +117,16 @@ public class GccProjectsController : ControllerBase
         }.Where(m => m is not null).ToList();
 
         if (shortfalls.Count > 0)
-            return BadRequest(string.Join(" ", shortfalls));
+            return DeclaredUrls.Refused(BadRequest(string.Join(" ", shortfalls)));
 
         if (projectSiteRunId is not { } siteRun || siteRun == Guid.Empty)
         {
-            return BadRequest(
+            return DeclaredUrls.Refused(BadRequest(
                 "projectSiteRunId is required. It is the crawl this project's content is grounded "
-                + "on, and the index returns it alongside the answer about the site URL.");
+                + "on, and the index returns it alongside the answer about the site URL."));
         }
 
-        // One test for all three lists. The site differs only in how many there may be.
+        // One test for all three lists. The site differs only in what a failure means for it.
         var declared = new[] { site }.Concat(partners).Concat(competitors)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -115,18 +137,21 @@ public class GccProjectsController : ControllerBase
             _logger.LogWarning(
                 "Index unreachable while validating {Count} declared URL(s); refusing rather than guessing.",
                 declared.Count);
-            return BadRequest(
+            return DeclaredUrls.Refused(BadRequest(
                 "The index could not be reached, so the declared URLs could not be checked. "
-                + "Nothing was saved — try again.");
+                + "Nothing was saved — try again."));
         }
 
         var byUrl = rows.ToDictionary(r => r.Url, StringComparer.OrdinalIgnoreCase);
-        var unusable = new List<string>();
+
+        // Why each URL cannot be used, for the ones that cannot. Absence from this map is the
+        // definition of usable, so there is one answer per URL and no second notion of "fine".
+        var reasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var url in declared)
         {
             if (!byUrl.TryGetValue(url, out var row))
             {
-                unusable.Add($"{url} — the index returned no answer for it");
+                reasons[url] = "the index returned no answer for it";
                 continue;
             }
 
@@ -136,17 +161,55 @@ public class GccProjectsController : ControllerBase
                 run = await _crawlerRepo.GetRunAsync(runId, ct);
 
             if (GccDeclaredUrlEvidence.Unusable(row, run) is { } reason)
-                unusable.Add($"{url} — {reason}");
+                reasons[url] = reason;
         }
 
-        if (unusable.Count > 0)
+        if (reasons.TryGetValue(site, out var siteReason))
         {
-            return BadRequest(
-                "These URLs cannot be written from: " + string.Join("; ", unusable)
-                + ". Crawl and index each one, then save the project.");
+            return DeclaredUrls.Refused(BadRequest(
+                $"The project site URL cannot be written from: {site} — {siteReason}. "
+                + "It is the crawl this project is grounded on, so nothing else can stand in for it."));
         }
 
-        return null;
+        var usablePartners = partners.Where(u => !reasons.ContainsKey(u)).ToList();
+        var usableCompetitors = competitors.Where(u => !reasons.ContainsKey(u)).ToList();
+
+        var floors = new[]
+        {
+            Floor("Partner URLs", partners, usablePartners,
+                GccDeclaredUrlEvidence.RequiredPartnerUrls, reasons),
+            Floor("Competitor URLs", competitors, usableCompetitors,
+                GccDeclaredUrlEvidence.RequiredCompetitorUrls, reasons),
+        }.Where(m => m is not null).ToList();
+
+        if (floors.Count > 0)
+            return DeclaredUrls.Refused(BadRequest(string.Join(" ", floors)));
+
+        return DeclaredUrls.Resolved(usablePartners, usableCompetitors);
+    }
+
+    /// <summary>
+    /// The shortfall once the unusable are excluded, as the message the operator gets, or null when
+    /// the floor is met. The excluded URLs are named either way the operator needs them: here when
+    /// they cost the floor, and by exclusion from the saved project when they did not.
+    /// </summary>
+    private static string? Floor(
+        string label,
+        IReadOnlyList<string> declared,
+        IReadOnlyList<string> usable,
+        int required,
+        IReadOnlyDictionary<string, string> reasons)
+    {
+        if (usable.Count >= required) return null;
+
+        var excluded = declared
+            .Where(reasons.ContainsKey)
+            .Select(u => $"{u} — {reasons[u]}")
+            .ToList();
+
+        return $"{label}: {usable.Count} of {required} have usable crawl evidence. "
+            + $"These cannot be written from: {string.Join("; ", excluded)}. "
+            + "Crawl and index them, or declare others.";
     }
 
     private static List<string> Clean(IReadOnlyList<string>? urls) =>
@@ -204,9 +267,10 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
-        if (await RefuseUncrawledUrlsAsync(
-                request.SiteUrl, request.ProjectSiteRunId,
-                request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
+        var declared = await ResolveDeclaredUrlsAsync(
+            request.SiteUrl, request.ProjectSiteRunId,
+            request.PartnerUrls, request.CompetitorUrls, ct);
+        if (declared.Refusal is { } refusal)
             return refusal;
 
         var result = await _repo.CreateProjectAsync(
@@ -221,8 +285,8 @@ public class GccProjectsController : ControllerBase
                 request.SiteUrl,
                 request.ProjectSiteRunId,
                 request.Department,
-                request.PartnerUrls,
-                request.CompetitorUrls,
+                declared.PartnerUrls,
+                declared.CompetitorUrls,
                 request.DueDate,
                 request.EstimatedHours,
                 request.Budget,
@@ -253,9 +317,10 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
-        if (await RefuseUncrawledUrlsAsync(
-                request.SiteUrl, request.ProjectSiteRunId,
-                request.PartnerUrls, request.CompetitorUrls, ct) is { } refusal)
+        var declared = await ResolveDeclaredUrlsAsync(
+            request.SiteUrl, request.ProjectSiteRunId,
+            request.PartnerUrls, request.CompetitorUrls, ct);
+        if (declared.Refusal is { } refusal)
             return refusal;
 
         var project = await _repo.UpdateProjectAsync(
@@ -269,8 +334,8 @@ public class GccProjectsController : ControllerBase
                 request.SiteUrl,
                 request.ProjectSiteRunId,
                 request.Department,
-                request.PartnerUrls,
-                request.CompetitorUrls,
+                declared.PartnerUrls,
+                declared.CompetitorUrls,
                 request.DueDate,
                 request.EstimatedHours,
                 request.Budget,
