@@ -65,9 +65,21 @@ public class GccGroundingResolverTests
             Task.FromResult(project);
     }
 
+    /// <summary>
+    /// Answers for one crawl type and returns nothing for the others.
+    ///
+    /// <para>
+    /// It used to ignore <c>crawlType</c> and return the same page for all three, which cannot
+    /// happen: the project site, the partners and the competitors are three separately declared URL
+    /// sets, and the site run returns the publisher's own pages. That degenerate shape mattered once
+    /// dedupe became per crawl type (2026-10-01) — the one page arrived as own-site AND partner
+    /// evidence, and a test asserting a single passage failed on a state production cannot reach.
+    /// </para>
+    /// </summary>
     private sealed class FakeRag(
         IReadOnlyList<GeekCrawlerRagHostIndex>? hosts = null,
-        GeekCrawlerRagQueryResult? result = null) : IGeekCrawlerRagClient
+        GeekCrawlerRagQueryResult? result = null,
+        string? answersFor = CrawlTypes.Partner) : IGeekCrawlerRagClient
     {
         public bool IsEnabled => true;
 
@@ -87,7 +99,12 @@ public class GccGroundingResolverTests
             IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
             IReadOnlyDictionary<string, string>? anchorToolLookup = null,
             CancellationToken ct = default) =>
-            Task.FromResult(result);
+            Task.FromResult(
+                answersFor is null || string.Equals(crawlType, answersFor, StringComparison.OrdinalIgnoreCase)
+                    ? result
+                    : result is null
+                        ? null
+                        : new GeekCrawlerRagQueryResult { RunId = result.RunId, Pages = [] });
 
         public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
             IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>

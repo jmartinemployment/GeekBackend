@@ -227,17 +227,19 @@ public sealed class GccGroundingResolver(
         // Anything that must be cited is also fetched, whatever the retrieve table says -- the two
         // tables answer different questions and must not be able to contradict each other.
         //
-        // mustCite leads, and that is load-bearing rather than incidental. seenUrls is shared across
-        // crawl types, so the first type walked claims a URL present in two corpora -- and for a
-        // page the draft MUST cite, partner evidence outranks "something the site already covers".
-        // Reordering this to a fixed list demotes a shared partner URL to own-site evidence and a
-        // tool page then refuses for want of something it was handed.
+        // Order is fixed and owes nothing to mustCite, because order no longer decides anything:
+        // dedupe is per crawl type (see seenByCrawlType below), so a page lands in the list for the
+        // corpus it was retrieved from and nothing can move it.
         //
-        // What was wrong before was not the order but that it varied: mustCite is per content type,
-        // so tool walked Partner-first and pillar ProjectSite-first, and one URL landed in different
-        // lists depending on which draft was being written. Unioning mustCite across every type in
-        // this generate fixes that -- one order for all of them -- without flattening the
-        // precedence.
+        // This was mustCite.Concat(retrieveFor), which made the order per content type -- tool
+        // walked Partner-first, pillar ProjectSite-first -- and with a shared dedupe that meant one
+        // URL landed in different lists depending on which draft was being written. Unioning
+        // mustCite across the generate made it consistent and wrong in the other direction: pillar
+        // and blog inherited tool's Partner-first precedence, so a URL that is the publisher's own
+        // page became "partner evidence" for a pillar. Jeff, 2026-10-01: "Blog & Pillar describe
+        // solutions, Tool actually Blockquote cites, and project-site is n/a" -- the three lists
+        // carry three different instructions and a URL's role is decided by the corpus it came
+        // from, not by what is being written from it.
         var crawlTypes = mustCite.Concat(retrieveFor).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         if (create.ProjectId is not Guid projectId || projectId == Guid.Empty)
@@ -284,7 +286,12 @@ public sealed class GccGroundingResolver(
         var sitePages = new List<GccQuoteablePage>();
         var passages = new List<GccGroundedPassage>();
         var warnings = new List<string>();
-        var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Per crawl type, not across them. The same URL retrieved from two runs of one corpus is one
+        // page and is deduped; the same URL present in two different corpora is a declaration the
+        // operator made twice, and silently assigning it to whichever was walked first is how the
+        // role became order-dependent. Each list means something different -- cite / differentiate
+        // from / do not repeat -- so a page is in a list because of where it came from.
+        var seenByCrawlType = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var crawlType in crawlTypes)
         {
@@ -382,6 +389,12 @@ public sealed class GccGroundingResolver(
                     CrawlTypes.ProjectSite => sitePages,
                     _ => retrieved,
                 };
+
+                if (!seenByCrawlType.TryGetValue(crawlType, out var seenUrls))
+                {
+                    seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    seenByCrawlType[crawlType] = seenUrls;
+                }
 
                 var fresh = new List<GccQuoteablePage>();
                 foreach (var page in result.Pages)

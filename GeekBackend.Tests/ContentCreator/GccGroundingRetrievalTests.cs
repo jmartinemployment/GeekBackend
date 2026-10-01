@@ -157,6 +157,116 @@ public class GccGroundingRetrievalTests
         Assert.Contains(CrawlTypes.Competitors, rag.Queried);
     }
 
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task A_pages_list_follows_the_corpus_it_came_from_not_the_draft_being_written(string type)
+    {
+        // Jeff, 2026-10-01: "Blog & Pillar describe solutions, Tool actually Blockquote cites, and
+        // project-site is n/a". The three lists carry three different instructions -- cite,
+        // differentiate from, do not repeat -- so a page belongs to one because of where it was
+        // retrieved from, never because of what is being written.
+        //
+        // This was order-dependent twice over. crawlTypes used to be mustCite.Concat(retrieveFor),
+        // which is per content type, so tool walked Partner-first and pillar ProjectSite-first and
+        // a shared dedupe gave one URL different roles per draft. Unioning mustCite made it
+        // consistent and wrong the other way: pillar and blog inherited tool's Partner-first
+        // precedence, so the publisher's own page could arrive as partner evidence for a pillar.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+
+        var outcome = await Build(project, new CrawlTypeRag()).ResolveAsync(Create(project.Id, type), type);
+
+        Assert.False(outcome.Refused);
+        Assert.Equal(PartnerUrl, Assert.Single(outcome.Pages).Url);
+        Assert.Equal(CompetitorUrl, Assert.Single(outcome.CompetitorPages).Url);
+        Assert.Equal(SiteUrl, Assert.Single(outcome.SitePages).Url);
+    }
+
+    /// <summary>Returns the SAME url for every crawl type — an operator declaring one URL twice.</summary>
+    private sealed class SameUrlEverywhereRag : IGeekCrawlerRagClient
+    {
+        private const string Shared = "https://shared.test/a";
+
+        public bool IsEnabled => true;
+
+        public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
+            IReadOnlyList<string> urls, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerRagHostIndex>>(
+                [.. urls.Select(u => new GeekCrawlerRagHostIndex(u, "shared.test", true, Guid.NewGuid().ToString()))]);
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
+            bool? preferParent = null, bool? preferChild = null,
+            IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
+            CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
+            {
+                RunId = runId,
+                Pages = [new GccQuoteablePage(Shared, "Shared", [], ["Body."])],
+            });
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
+
+        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
+
+        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+            IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagTemplateIndexResult?>(null);
+
+        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+            string need, int topK = 5, string? channel = null,
+            IReadOnlyList<string>? entityTags = null, CancellationToken ct = default) =>
+            Task.FromResult<GeekCrawlerRagTemplateQueryResult?>(null);
+
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
+            string pageId, CancellationToken ct = default, string? runId = null) =>
+            Task.FromResult<GeekCrawlerRagPageText?>(null);
+
+        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new GeekCrawlerRagCapabilities());
+    }
+
+    [Fact]
+    public async Task One_url_in_two_corpora_appears_in_both_lists_rather_than_whichever_was_walked_first()
+    {
+        // Dedupe is per corpus, not across them. A URL returned by two crawl types was declared
+        // twice by the operator; suppressing it from the second list silently assigned it a role by
+        // walk order, which is how "partner evidence" and "already on our site" became a function of
+        // which draft was being written rather than of where the page came from.
+        //
+        // Both lists is the honest answer: the prompt blocks render it under both instructions, and
+        // the double declaration is visible instead of resolved behind the operator's back.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+
+        var outcome = await Build(project, new SameUrlEverywhereRag())
+            .ResolveAsync(Create(project.Id, "tool"), ["pillar", "blog", "tool"]);
+
+        Assert.False(outcome.Refused);
+        Assert.Single(outcome.Pages);
+        Assert.Single(outcome.CompetitorPages);
+        Assert.Single(outcome.SitePages);
+    }
+
+    [Fact]
+    public async Task Resolving_every_type_at_once_assigns_the_same_roles_as_resolving_one()
+    {
+        // The single resolve must not change what anything means. Same corpora, same lists.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+
+        var alone = await Build(project, new CrawlTypeRag())
+            .ResolveAsync(Create(project.Id, "pillar"), "pillar");
+        var together = await Build(project, new CrawlTypeRag())
+            .ResolveAsync(Create(project.Id, "pillar"), ["pillar", "blog", "tool"]);
+
+        Assert.Equal(alone.Pages.Select(p => p.Url), together.Pages.Select(p => p.Url));
+        Assert.Equal(alone.CompetitorPages.Select(p => p.Url), together.CompetitorPages.Select(p => p.Url));
+        Assert.Equal(alone.SitePages.Select(p => p.Url), together.SitePages.Select(p => p.Url));
+    }
+
     [Fact]
     public async Task ThreeContentTypesQueryTheCorpusOnce_NotThreeTimes()
     {
