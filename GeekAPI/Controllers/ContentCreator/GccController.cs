@@ -45,7 +45,6 @@ public class GccController : ControllerBase
     private readonly GccGenerationCoordinator _coordinator;
     private readonly GccGenerateJobRunner _generateRunner;
     private readonly GccArtifactExportService _export;
-    private readonly HttpGeekSeoSiteAnalyzerClient _seo;
     private readonly GccJobStore _jobs;
     private readonly ICurrentUserContext _user;
     private readonly HttpGeekCrawlerRepository _crawlerRepo;
@@ -63,7 +62,6 @@ public class GccController : ControllerBase
         GccGenerationCoordinator coordinator,
         GccGenerateJobRunner generateRunner,
         GccArtifactExportService export,
-        HttpGeekSeoSiteAnalyzerClient seo,
         GccJobStore jobs,
         ICurrentUserContext user,
         HttpGeekCrawlerRepository crawlerRepo,
@@ -80,7 +78,6 @@ public class GccController : ControllerBase
         _coordinator = coordinator;
         _generateRunner = generateRunner;
         _export = export;
-        _seo = seo;
         _jobs = jobs;
         _user = user;
         _crawlerRepo = crawlerRepo;
@@ -111,27 +108,15 @@ public class GccController : ControllerBase
         if (create is null) return NotFound();
         var artifacts = await _repo.ListArtifactsAsync(id, ct);
 
+        // Always null/false, and that is what they already were. These asked Site Analyzer, which no
+        // longer exists, with a crawl run id where it wanted a profile id -- see
+        // TryBuildStaleGroundingResponseAsync. The fields stay on the wire because the client reads
+        // them (content-creator-v2 gcc-api.ts:164-166, CreateDraftWorkspace.tsx:594-596); removing
+        // them would be a contract change dressed up as a cleanup, and the UI they feed has been
+        // unreachable for as long as the gate has been.
         DateTime? lastAnalyzedAtUtc = null;
         int? analysisAgeDays = null;
-        bool analysisStale = false;
-        if (create.ProjectSiteRunId is Guid crawlId && crawlId != Guid.Empty)
-        {
-            var bearer = GetBearerToken();
-            if (!string.IsNullOrWhiteSpace(bearer))
-            {
-                var statusResult = await _seo.GetSiteAnalysisStatusAsync(crawlId, bearer, ct);
-                if (statusResult.Ok && statusResult.Value is { } seoStatus && seoStatus.IsComplete)
-                {
-                    var at = (seoStatus.ProgressAt ?? seoStatus.CreatedAt)?.UtcDateTime;
-                    if (at is DateTime analyzedAt)
-                    {
-                        lastAnalyzedAtUtc = analyzedAt;
-                        analysisAgeDays = Math.Max(0, (int)(DateTime.UtcNow - analyzedAt).TotalDays);
-                        analysisStale = analysisAgeDays >= SiteAnalysisStaleAfterDays;
-                    }
-                }
-            }
-        }
+        const bool analysisStale = false;
 
         return Ok(new
         {
@@ -665,35 +650,23 @@ public class GccController : ControllerBase
         bool acknowledged,
         CancellationToken ct)
     {
-        if (acknowledged) return null;
-        if (create.ProjectSiteRunId is not Guid profileId || profileId == Guid.Empty)
-            return null;
-
-        var bearer = GetBearerToken();
-        if (string.IsNullOrWhiteSpace(bearer))
-            return null;
-
-        var statusResult = await _seo.GetSiteAnalysisStatusAsync(profileId, bearer, ct);
-        if (!statusResult.Ok || statusResult.Value is null || !statusResult.Value.IsComplete)
-            return null;
-
-        var at = (statusResult.Value.ProgressAt ?? statusResult.Value.CreatedAt)?.UtcDateTime;
-        if (at is null)
-            return null;
-        var ageDays = Math.Max(0, (int)(DateTime.UtcNow - at.Value).TotalDays);
-        if (ageDays < SiteAnalysisStaleAfterDays)
-            return null;
-
-        return new
-        {
-            error = "stale_site_analysis",
-            message =
-                $"This site's analysis is {ageDays} day(s) old — re-analyze now, or proceed with stale grounding?",
-            lastAnalyzedAtUtc = at,
-            analysisAgeDays = ageDays,
-            staleAfterDays = SiteAnalysisStaleAfterDays,
-            projectSiteRunId = profileId,
-        };
+        // There is no staleness check on this path, and there has not been one that could fire.
+        //
+        // This asked Site Analyzer, a service that no longer exists (Jeff, 2026-10-01), over a route
+        // the repo already records as deleted (:1301-1302, :604-608) -- and asked it with the wrong
+        // kind of id: create.ProjectSiteRunId is a Geek-Crawler-v2 run id (Entities.cs:32-37) and
+        // the parameter it was bound to was literally named profileId. The sibling method at
+        // :604-608 records that exact defect being found and fixed next door; this one was missed.
+        // Every failure mode returned null, which Generate reads as "proceed", so the gate was a
+        // doomed HTTP call on every Generate whose answer was discarded.
+        //
+        // Returning null unconditionally is therefore not a behaviour change: it is what every path
+        // through the old body did. The method stays rather than being inlined away, because
+        // "should evidence age gate generation" is a real question and this is where its answer
+        // belongs. The data to answer it exists on the crawl run -- ContentReadyAt and
+        // RagIndexedAtUtc -- and owes nothing to Site Analyzer.
+        await Task.CompletedTask;
+        return null;
     }
 
     private string? GetBearerToken()
