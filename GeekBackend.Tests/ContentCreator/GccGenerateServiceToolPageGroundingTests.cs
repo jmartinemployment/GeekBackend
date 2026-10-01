@@ -152,7 +152,14 @@ public class GccGenerateServiceToolPageGroundingTests
                     Url: "https://partner.test/widget",
                     Title: "Partner Widget",
                     Headings: [new HeadingDto(2, "Pricing")],
-                    Paragraphs: ["Partner Widget starts at $19 per month, billed monthly."],
+                    // The quote the fixture drafts has to be ON this page: the guard's candidates
+                    // come from the retrieved pages and nowhere else, so a page that does not carry
+                    // the sentence cannot support a quotation of it.
+                    Paragraphs:
+                    [
+                        "Partner Widget starts at $19 per month, billed monthly.",
+                        "Partner Widget reduces setup time by half, and the vendor master maps itself.",
+                    ],
                     RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
             ]));
 
@@ -169,7 +176,10 @@ public class GccGenerateServiceToolPageGroundingTests
                 new GccQuoteablePage(
                     "https://partner.test/widget", "Partner Widget",
                     [new HeadingDto(2, "Pricing")],
-                    ["Partner Widget starts at $19 per month, billed monthly."],
+                    [
+                        "Partner Widget starts at $19 per month, billed monthly.",
+                        "Partner Widget reduces setup time by half, and the vendor master maps itself.",
+                    ],
                     RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
             ],
             CompetitorQuoteables:

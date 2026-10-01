@@ -42,8 +42,7 @@ public static class GccToolQuoteGuard
     /// </summary>
     public static IReadOnlyList<string> FindViolations(
         IReadOnlyList<Section> sections,
-        GccPartnerExtractionDocument? extraction,
-        IReadOnlyList<GccQuoteCandidate>? candidates = null)
+        IReadOnlyList<GccQuoteCandidate>? candidates)
     {
         var quotes = new List<QuoteParagraph>();
         foreach (var section in sections)
@@ -51,14 +50,13 @@ public static class GccToolQuoteGuard
             CollectQuotes(section, quotes);
         }
 
-        var spans = QuotableSpans(extraction, candidates);
+        var spans = QuotableSpans(candidates);
 
         if (quotes.Count == 0)
         {
             return spans.Count == 0
                 ? ["The page carries no block quotation, and nothing retrieved from the partner's "
-                    + "pages is shaped like one -- no complete sentence outside boilerplate, and no "
-                    + "testimonial or citable claim in the extraction."]
+                    + "pages is shaped like one -- no complete sentence outside boilerplate."]
                 : [$"The page carries no block quotation. {spans.Count} quotable partner span(s) were supplied and none was used."];
         }
 
@@ -119,57 +117,23 @@ public static class GccToolQuoteGuard
     /// than a field extraction assembled. A citable contributes its verify span and its isolated
     /// claim, since the claim is the span for most of them.
     /// </summary>
-    private static List<QuotableSpan> QuotableSpans(
-        GccPartnerExtractionDocument? extraction,
-        IReadOnlyList<GccQuoteCandidate>? candidates)
-    {
-        var spans = new List<QuotableSpan>();
-
-        // The retrieved pages themselves, which is where the partner's published wording actually
-        // is. This used to read two of the extraction's twenty-two categories and nothing else, so
-        // a partner whose pages yielded features and pricing but no testimonial was reported as
-        // having "no quotable span to build one from" -- a claim about the partner's evidence made
-        // after inspecting one derived document. tipalti.com carries 5,133 indexed chunks and was
-        // refused on exactly that.
-        foreach (var candidate in candidates ?? [])
-        {
-            spans.Add(new QuotableSpan(candidate.Text, candidate.PageUrl));
-        }
-
-        if (extraction is null)
-        {
-            return spans;
-        }
-
-        foreach (var testimonial in extraction.Testimonials)
-        {
-            if (!string.IsNullOrWhiteSpace(testimonial.QuoteText)
-                && !string.IsNullOrWhiteSpace(testimonial.OriginProofUrl))
-            {
-                spans.Add(new QuotableSpan(testimonial.QuoteText, testimonial.OriginProofUrl));
-            }
-        }
-
-        foreach (var citable in extraction.Citables)
-        {
-            if (string.IsNullOrWhiteSpace(citable.OriginProofUrl))
-            {
-                continue;
-            }
-
-            if (!string.IsNullOrWhiteSpace(citable.Provenance.Quote))
-            {
-                spans.Add(new QuotableSpan(citable.Provenance.Quote!, citable.OriginProofUrl));
-            }
-
-            if (!string.IsNullOrWhiteSpace(citable.IsolatedClaim))
-            {
-                spans.Add(new QuotableSpan(citable.IsolatedClaim, citable.OriginProofUrl));
-            }
-        }
-
-        return spans;
-    }
+    /// <summary>
+    /// The spans a quotation may be matched against: the partner's own published sentences, as
+    /// retrieved.
+    /// </summary>
+    /// <remarks>
+    /// One source, deliberately. This read two of GccPartnerExtractionDocument's twenty-two
+    /// categories -- Testimonials and Citables -- and refused a page when the extraction model had
+    /// filed its findings under features and pricing instead. Adding the retrieved pages beside
+    /// those buckets fixed the refusal and left two derivations of "a quotable span" with different
+    /// rules, which is the drift this pipeline keeps paying for.
+    ///
+    /// The buckets were also the weaker of the two: a citable's span is
+    /// <c>Provenance.Quote ?? IsolatedClaim</c>, so its fallback is a field the extractor assembled
+    /// rather than wording the partner published -- the thing a quote box must never contain.
+    /// </remarks>
+    private static List<QuotableSpan> QuotableSpans(IReadOnlyList<GccQuoteCandidate>? candidates) =>
+        [.. (candidates ?? []).Select(c => new QuotableSpan(c.Text, c.PageUrl))];
 
     /// <summary>Whitespace only. Wording, punctuation and case-sensitivity of the match are the point.</summary>
     private static string Normalize(string value) =>

@@ -19,19 +19,13 @@ public class GccToolQuoteGuardTests
 {
     private const string PartnerUrl = "https://tipalti.com/customers";
     private const string OtherUrl = "https://tipalti.com/pricing";
-    private const string Said = "We cut approval time from nine days to two.";
+    private const string Said = "We cut approval time from nine days to two, and nobody has looked back.";
 
-    private static GccPartnerExtractionProvenance Prov(string? quote) =>
-        new(PartnerUrl, "partner", null, null, null, null, null, quote);
+    /// <summary>The partner's published sentences as retrieved -- the guard's only source.</summary>
+    private static IReadOnlyList<GccQuoteCandidate> Published(string sentence, string url) =>
+        GccQuoteCandidates.From([new GccQuoteablePage(url, "Customers", [], [sentence])]);
 
-    private static GccPartnerExtractionDocument Extraction(
-        IReadOnlyList<GccPartnerTestimonialAsset>? testimonials = null,
-        IReadOnlyList<GccPartnerCitableAsset>? citables = null) =>
-        new("test", citables ?? [], [], [], [], [], [], [], [], [], testimonials ?? [],
-            [], [], [], [], [], [], [], [], [], [], [], []);
-
-    private static GccPartnerExtractionDocument WithTestimonial(string quoteText, string url) =>
-        Extraction(testimonials: [new GccPartnerTestimonialAsset(quoteText, "A CFO", null, null, url, Prov(quoteText))]);
+    private static IReadOnlyList<GccQuoteCandidate> Published() => Published(Said, PartnerUrl);
 
     private static Section SectionWith(params Paragraph[] paragraphs) =>
         new("h2", "Key Capabilities", [.. paragraphs], null, []);
@@ -46,7 +40,7 @@ public class GccToolQuoteGuardTests
     {
         var violations = GccToolQuoteGuard.FindViolations(
             [SectionWith(Prose("Tipalti automates payables."))],
-            WithTestimonial(Said, PartnerUrl));
+            Published());
 
         var only = Assert.Single(violations);
         Assert.Contains("carries no block quotation", only, StringComparison.Ordinal);
@@ -59,7 +53,7 @@ public class GccToolQuoteGuardTests
     {
         var violations = GccToolQuoteGuard.FindViolations(
             [SectionWith(Prose("Approvals are the bottleneck."), Quote(Said, PartnerUrl))],
-            WithTestimonial(Said, PartnerUrl));
+            Published());
 
         Assert.Empty(violations);
     }
@@ -71,7 +65,7 @@ public class GccToolQuoteGuardTests
         // telling the reader where to go and check it.
         var violations = GccToolQuoteGuard.FindViolations(
             [SectionWith(Quote("Tipalti eliminates 80% of manual payables work.", PartnerUrl))],
-            WithTestimonial(Said, PartnerUrl));
+            Published());
 
         Assert.Contains(violations, v => v.Contains("not a verbatim span", StringComparison.Ordinal));
     }
@@ -81,7 +75,7 @@ public class GccToolQuoteGuardTests
     {
         var violations = GccToolQuoteGuard.FindViolations(
             [SectionWith(Quote("We cut approval time from nine days down to two days.", PartnerUrl))],
-            WithTestimonial(Said, PartnerUrl));
+            Published());
 
         Assert.Contains(violations, v => v.Contains("not a verbatim span", StringComparison.Ordinal));
     }
@@ -92,7 +86,7 @@ public class GccToolQuoteGuardTests
         // Not a near miss: it attributes the words to a page that does not carry them.
         var violations = GccToolQuoteGuard.FindViolations(
             [SectionWith(Quote(Said, OtherUrl))],
-            WithTestimonial(Said, PartnerUrl));
+            Published());
 
         var only = Assert.Single(violations);
         Assert.Contains("cites https://tipalti.com/pricing", only, StringComparison.Ordinal);
@@ -104,19 +98,11 @@ public class GccToolQuoteGuardTests
     {
         var violations = GccToolQuoteGuard.FindViolations(
             [SectionWith(Quote(Said, null))],
-            WithTestimonial(Said, PartnerUrl));
+            Published());
 
         Assert.Contains(violations, v => v.Contains("carries no cite", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void A_citables_verify_span_is_quotable_too()
-    {
-        const string claim = "Invoices post to the ledger without rekeying.";
-        var extraction = Extraction(citables: [new GccPartnerCitableAsset(claim, PartnerUrl, Prov(claim))]);
-
-        Assert.Empty(GccToolQuoteGuard.FindViolations([SectionWith(Quote(claim, PartnerUrl))], extraction));
-    }
 
     [Fact]
     public void A_quote_nested_in_a_child_section_is_found()
@@ -126,7 +112,7 @@ public class GccToolQuoteGuardTests
         var child = new Section("h3", "How approvals route", [Quote(Said, PartnerUrl)], null, []);
         var parent = new Section("h2", "How It Works", [Prose("Routing first.")], null, [child]);
 
-        Assert.Empty(GccToolQuoteGuard.FindViolations([parent], WithTestimonial(Said, PartnerUrl)));
+        Assert.Empty(GccToolQuoteGuard.FindViolations([parent], Published()));
     }
 
     [Fact]
@@ -140,7 +126,7 @@ public class GccToolQuoteGuardTests
         // Was "holds no quotable span", a claim about the partner's whole evidence made after
         // inspecting two of the extraction's twenty-two categories. It now names what it checked.
         Assert.Contains("nothing retrieved", only, StringComparison.Ordinal);
-        Assert.Contains("testimonial or citable", only, StringComparison.Ordinal);
+        
     }
 
     [Fact]
@@ -148,8 +134,8 @@ public class GccToolQuoteGuardTests
     {
         // Line wrapping in the model's JSON is not a change of wording.
         var violations = GccToolQuoteGuard.FindViolations(
-            [SectionWith(Quote("We cut approval time\n  from nine days to two.", PartnerUrl))],
-            WithTestimonial(Said, PartnerUrl));
+            [SectionWith(Quote("We cut approval time\n  from nine days to two, and nobody has looked back.", PartnerUrl))],
+            Published());
 
         Assert.Empty(violations);
     }
@@ -173,7 +159,7 @@ public class GccToolQuoteGuardTests
                 PartnerUrl)),
         };
 
-        Assert.Empty(GccToolQuoteGuard.FindViolations(sections, null, candidates));
+        Assert.Empty(GccToolQuoteGuard.FindViolations(sections, candidates));
     }
 
     [Fact]
@@ -186,7 +172,7 @@ public class GccToolQuoteGuardTests
         ]);
 
         var violation = Assert.Single(
-            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], null, candidates));
+            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], candidates));
 
         Assert.Contains("none was used", violation, StringComparison.Ordinal);
     }
@@ -197,10 +183,10 @@ public class GccToolQuoteGuardTests
         // It used to assert "the partner evidence holds no quotable span", having inspected two of
         // the extraction's twenty-two categories and nothing else.
         var violation = Assert.Single(
-            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], null, []));
+            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], []));
 
         Assert.Contains("nothing retrieved", violation, StringComparison.Ordinal);
-        Assert.Contains("testimonial or citable", violation, StringComparison.Ordinal);
+        
     }
 
     [Fact]
@@ -220,6 +206,6 @@ public class GccToolQuoteGuardTests
                 OtherUrl)),
         };
 
-        Assert.NotEmpty(GccToolQuoteGuard.FindViolations(sections, null, candidates));
+        Assert.NotEmpty(GccToolQuoteGuard.FindViolations(sections, candidates));
     }
 }

@@ -1870,7 +1870,7 @@ public class GccGenerateService
         var quoteCandidates = GccQuoteCandidates.From(partnerPages);
         var quoteViolations = create is null
             ? []
-            : Guardrail.GccToolQuoteGuard.FindViolations(sections, groundedExtraction, quoteCandidates);
+            : Guardrail.GccToolQuoteGuard.FindViolations(sections, quoteCandidates);
         if (quoteViolations.Count > 0)
         {
             throw new InvalidOperationException(
@@ -1921,8 +1921,7 @@ public class GccGenerateService
             // the link and loses the quote is not a draft worth keeping. This check belongs to
             // this method only.
             if (retriedViolations.Count == 0
-                && Guardrail.GccToolQuoteGuard.FindViolations(
-                        toolCtaSections, groundedExtraction, quoteCandidates).Count == 0)
+                && Guardrail.GccToolQuoteGuard.FindViolations(toolCtaSections, quoteCandidates).Count == 0)
             {
                 document = retried;
                 sections = toolCtaSections;
