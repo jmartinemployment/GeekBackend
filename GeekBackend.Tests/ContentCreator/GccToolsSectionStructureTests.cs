@@ -25,15 +25,28 @@ public class GccToolsSectionStructureTests
 
     [Theory]
     [InlineData("How AI Tools Simplify Your Accounts Payable Process")]
-    [InlineData("Choosing the Right AI Tool for Your Business Needs")]
     [InlineData("Why Your Current Tool Is Costing You Money")]
     [InlineData("Using Automation Tools Without Replacing Your ERP")]
     [InlineData("What Does an AP Tool Actually Do?")]
     public void Prose_about_tools_is_not_a_tools_section(string heading)
     {
-        // The live refusals. Prose that mentions tools is exactly what the retry instruction asks
-        // the writer to produce, so rejecting it leaves nowhere to go.
+        // Prose that mentions tools is exactly what the retry instruction asks the writer to
+        // produce, so rejecting it leaves nowhere to go. None of these is a shape
+        // NoToolsSectionInstruction names.
         Assert.Empty(Found(H2(heading)));
+    }
+
+    [Theory]
+    [InlineData("Choosing the Right AI Tool for Your Business Needs")]
+    [InlineData("Choosing the Right Tools")]
+    [InlineData("Picking the Best AP Tools for Your Team")]
+    public void A_selection_heading_is_refused_because_the_prompt_forbids_it(string heading)
+    {
+        // Not this guard's judgement. ContentPromptBuilder.NoToolsSectionInstruction tells the
+        // writer "not \"Choosing the Right Tools\"" by name, so the guard enforces it. A guard
+        // looser than its prompt lets through what the prompt forbids, which is how the two come
+        // to disagree about the same section.
+        Assert.Single(Found(H2(heading)));
     }
 
     [Theory]
@@ -110,11 +123,17 @@ public class GccToolsSectionStructureTests
     }
 
     [Fact]
-    public void Both_live_refusals_now_pass_together()
+    public void Of_the_two_live_refusals_only_the_one_the_prompt_names_is_kept()
     {
-        // The exact pair Generate refused on 2026-10-01.
-        Assert.Empty(Found(
+        // The exact pair Generate refused on 2026-10-01, and they are not the same case.
+        // "How AI Tools Simplify ..." is prose the writer was never told to avoid, so refusing it
+        // left nowhere to go. "Choosing the Right ..." is named in
+        // ContentPromptBuilder.NoToolsSectionInstruction -- the writer was told, and wrote it
+        // anyway, twice. The guard enforces the prompt's list and nothing beyond it.
+        var found = Found(
             H2("How AI Tools Simplify Your Accounts Payable Process"),
-            H2("Choosing the Right AI Tool for Your Business Needs")));
+            H2("Choosing the Right AI Tool for Your Business Needs"));
+
+        Assert.Equal(["Choosing the Right AI Tool for Your Business Needs"], found);
     }
 }

@@ -83,9 +83,19 @@ public static partial class GccToolsSectionGuard
         PillarSectionClassifier.IsToolsListingHeading(section.Heading)
         && (Enumerates(section.Heading) || ReadsAsAList(section.Children));
 
-    /// <summary>A heading that promises a list: a count, a superlative, or a roundup.</summary>
+    /// <summary>
+    /// A heading the writer was explicitly told not to write.
+    /// </summary>
+    /// <remarks>
+    /// These are not this guard's invention. <c>ContentPromptBuilder.NoToolsSectionInstruction</c>
+    /// names them to the writer: <i>"not \"Top Tools for ...\", not \"Choosing the Right Tools\",
+    /// not a heading per product with a product name in it"</i>. The guard enforces that list and
+    /// nothing beyond it — a guard stricter than its prompt refuses work the writer was never told
+    /// to avoid, and a guard looser than its prompt lets through what the prompt forbids. Both are
+    /// drift; the second is what this method was missing.
+    /// </remarks>
     private static bool Enumerates(string heading) =>
-        EnumerativeHeading().IsMatch(heading);
+        EnumerativeHeading().IsMatch(heading) || SelectionHeading().IsMatch(heading);
 
     /// <summary>
     /// Children that are product names rather than prose. Three, because two sub-sections under a
@@ -122,6 +132,11 @@ public static partial class GccToolsSectionGuard
     [GeneratedRegex(@"^(how|why|what|when|where|should|can|do|does|is|are|choosing|picking|selecting|using)\b",
         RegexOptions.IgnoreCase)]
     private static partial Regex ProsePrefix();
+
+    /// <summary>"Choosing the Right Tools", and the ways of saying it the prompt means.</summary>
+    [GeneratedRegex(@"\b(choos|pick|select|find)\w*\s+(the\s+)?(right|best|ideal)\b[^.]*\btools?\b",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex SelectionHeading();
 
     /// <summary>What to tell the writer when it wrote one anyway.</summary>
     public static string RetryInstruction(IReadOnlyList<string> headings) =>
