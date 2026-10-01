@@ -120,6 +120,69 @@ public static class GccRequiredToolMentions
     }
 
     /// <summary>
+    /// Partner name to the vendor's own home page — the manufacturer's URL, not ours.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For structured data. A <c>SoftwareApplication</c> node's <c>url</c> is where the product
+    /// lives, and ours is <c>mainEntityOfPage</c>; publishing our page as the product's url told
+    /// search engines "Tipalti is located at geekatyourspot.com" until 2026-09-23. That was fixed
+    /// by passing null, because the vendor's domain was not on a GeneratedContent row — which it
+    /// no longer has to be. The project declares its partner URLs, and those are the manufacturers'
+    /// domains.
+    /// </para>
+    /// <para>
+    /// Built here rather than at the caller for the reason <see cref="AnchorLookup"/> gives: the
+    /// precedence between a brief row's spelling and a host-derived name is already decided here,
+    /// and a caller that re-derived it would name one partner two ways the first time they
+    /// disagreed.
+    /// </para>
+    /// <para>
+    /// Keyed on the authoritative name, case-insensitively, so a caller holding a tool's name can
+    /// ask directly. The value is the scheme and host only: a partner URL may be a deep link to one
+    /// page, and a product's <c>url</c> is its home, not whichever page was declared.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> HomeUrlByName(
+        string? briefJson,
+        IReadOnlyList<string>? partnerUrls = null)
+    {
+        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var names = AnchorLookup(briefJson, partnerUrls);
+        if (names.Count == 0)
+        {
+            return byName;
+        }
+
+        // One pass over the declared URLs, matched to the name AnchorLookup settled on for that
+        // host. A host with no name, or a name already claimed, is skipped rather than guessed at:
+        // attaching the wrong vendor's domain to a product is worse than the omission this
+        // replaces.
+        foreach (var url in partnerUrls ?? [])
+        {
+            var host = HostOf(url);
+            if (host.Length == 0 || !names.TryGetValue(host, out var name)) continue;
+            if (byName.ContainsKey(name)) continue;
+            if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)) continue;
+
+            byName[name] = $"{uri.Scheme}://{uri.Host}";
+        }
+
+        foreach (var row in GccPartnerUrlResearchService.CollectPartnerToolRows(briefJson))
+        {
+            if (string.IsNullOrWhiteSpace(row.Name)) continue;
+            if (!Uri.TryCreate(row.Url?.Trim(), UriKind.Absolute, out var uri)) continue;
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) continue;
+
+            // Brief rows overwrite, same as AnchorLookup: a row carries both the URL and the
+            // operator's own spelling, which is the most authoritative pairing available.
+            byName[row.Name.Trim()] = $"{uri.Scheme}://{uri.Host}";
+        }
+
+        return byName;
+    }
+
+    /// <summary>
     /// The registrable host of a URL, lowercased and without a leading "www.". Empty when the value
     /// is not an absolute http(s) URL, which is the only form a partner URL is stored in.
     /// </summary>

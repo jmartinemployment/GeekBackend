@@ -1600,21 +1600,34 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         Project project,
         ProjectGenerationContext context)
     {
+        // The manufacturer's own domain, by partner name. Until 2026-09-23 our page was passed as
+        // the product's `url`, which published "Tipalti is located at geekatyourspot.com"; that was
+        // fixed by passing null, because the vendor's domain was not on a GeneratedContent row. It
+        // does not have to be: the project declares its partner URLs, and those are the
+        // manufacturers' domains (Jeff, 2026-10-01: "As you have access to a manufacturer's URLs,
+        // you should be using the correct URL versus null").
+        var homeUrls = GccRequiredToolMentions.HomeUrlByName(project.BriefJson, project.PartnerUrls);
+
         return project.GeneratedContents
             .Where(c => c.ContentType == GeneratedContentType.ToolPost)
             .Where(c => !IsToolRoundupSlug(c.Slug))
             .OrderBy(c => c.SourceAppOrder)
             .Select(c =>
             {
-                // Our page about the product, which is PageUrl -- not the product's own url.
-                // Passed as `url` until 2026-09-23, which published "Tipalti is located at
-                // geekatyourspot.com". The vendor's own domain is not on a GeneratedContent row, so
-                // it stays unset here rather than being guessed.
+                // Our page about the product, which is PageUrl -- a separate fact from where the
+                // product lives.
                 var pageUrl = $"{context.ToolBaseUrl.TrimEnd('/')}/{context.Department}/{c.Slug}";
+                var name = c.SourceAppName ?? c.Title;
+
+                // Matched on the name, and left unset when nothing matches. A wrong vendor domain
+                // attached to a product is a false claim about a real company -- worse than the
+                // omission this replaces -- so no fuzzy fallback.
+                var homeUrl = homeUrls.GetValueOrDefault(name);
+
                 return new SoftwareApplicationDescriptor(
-                    c.SourceAppName ?? c.Title,
+                    name,
                     string.IsNullOrWhiteSpace(c.MetaDescription) ? c.Summary : c.MetaDescription,
-                    Url: null,
+                    Url: homeUrl,
                     PageUrl: pageUrl);
             })
             .ToList();
