@@ -47,25 +47,42 @@ public static class GccDeclaredUrlEvidence
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Derived from the chunker rather than estimated. Geek-Crawler-Rag splits at 200-token children
-    /// with 40 overlap (stride 160) and 1,000-token parents (<c>config.py:69-76</c>), so a
-    /// substantial page of 1,200-1,500 words yields roughly 10-12 chunks and a thin one yields about
-    /// three.
+    /// Two different failures, so two rules, and only the first is an absolute count.
+    /// <see cref="MinIndexedPages"/> catches a crawl that was blocked: one page, or three.
+    /// <see cref="MinChunksPerPage"/> catches a crawl that fetched a site rendering nothing without
+    /// JavaScript — many pages, each a nav shell.
     /// </para>
     /// <para>
-    /// 25 pages is a site rather than a brochure: a vendor's pricing, features, integrations, docs
-    /// and about, or a consultancy's services, case studies and a blog. 250 chunks is those pages
-    /// carrying prose — at ten a page it is what 25 real pages produce. Both, because they catch
-    /// different failures: few pages is a crawl that was blocked, while many pages and few chunks is
-    /// a crawl that fetched a site rendering nothing without JavaScript.
+    /// The second rule is a ratio because site size is not the thing being measured. This was an
+    /// absolute 250 chunks, derived from "200-token children with 40 overlap and 1,000-token parents
+    /// (<c>config.py:69-76</c>), so a substantial page yields roughly 10-12 chunks". Both halves of
+    /// that are now wrong: parents are 500 tokens (<c>config.py:102</c>) and a parent point is
+    /// emitted only when it carries more than its child (Geek-Crawler-Rag <c>04310dd</c>). Measured
+    /// against the live index on 2026-10-01, three finished runs in <c>geek_crawler_chunks</c>:
+    /// </para>
+    /// <para>
+    /// lightyear.cloud 24 pages / 370 chunks = 15.4 · approvalmax 72 / 1,438 = 20.0 ·
+    /// ottimate 161 / 2,519 = 15.6. So 15-20 per page, not 10-12, which made 250 chunks reachable at
+    /// ~13-17 pages — the chunk floor went slack and the page floor did all the work. That is the
+    /// opposite of "both, because they catch different failures".
+    /// </para>
+    /// <para>
+    /// 25 pages also refused real sites. lightyear.cloud is a genuine vendor site carrying 370
+    /// chunks of prose and it was refused for being one page short; its counts were confirmed final
+    /// by re-reading them while the collection as a whole grew 62,343 → 105,737 points. Ten pages
+    /// still excludes a blocked crawl (1-3) and a brochure (5-8), and three chunks a page is a page
+    /// with almost no prose on it however large the site.
     /// </para>
     /// <para>
     /// The first version of this was 5 and 25, which is two good pages — Jeff, 2026-09-29: "seems
-    /// like a very low bar". It was, and it was eyeballed rather than derived.
+    /// like a very low bar". It was, and it was eyeballed rather than derived. These are measured;
+    /// if the chunker changes again, re-measure rather than re-reason from this paragraph.
     /// </para>
     /// </remarks>
-    public const int MinIndexedPages = 25;
-    public const int MinIndexedChunks = 250;
+    public const int MinIndexedPages = 10;
+
+    /// <summary>Chunks per indexed page, below which the pages carried no prose.</summary>
+    public const int MinChunksPerPage = 3;
 
     /// <summary>Why one declared URL cannot be used, or null when it can.</summary>
     public static string? Unusable(GeekCrawlerRagHostIndex row, GeekCrawlerRunDto? run)
@@ -86,20 +103,23 @@ public static class GccDeclaredUrlEvidence
         // not evidence, and a threshold is what separates the two.
         var pages = run.RagPagesEnglish ?? 0;
         var chunks = run.RagChunksUpserted ?? 0;
-        if (pages < MinIndexedPages || chunks < MinIndexedChunks)
+        // Multiplied rather than divided: pages can be zero, and the page floor is checked in the
+        // same expression, so a division here would be the one branch that could throw.
+        if (pages < MinIndexedPages || chunks < pages * MinChunksPerPage)
         {
             // The reject count is added to the MESSAGE, deliberately not to the decision. It
             // answers the operator's next question -- why is the count this low -- and a crawl that
             // threw away 460 error pages reads very differently from one that simply found 40.
-            // Making it a gate would change which runs are usable, which is a policy call and not
-            // this change; the threshold above is untouched.
+            // Making it a gate would change which runs are usable, which is a separate policy call
+            // from the recalibration above: that moved where the bar sits, this would add a bar.
             var rejected = run.RagPagesSkippedUnusable ?? 0;
             var because = rejected > 0
                 ? $" ({rejected} page(s) were rejected as not citable -- error pages, robots-denied, "
                     + "or non-English locale paths)"
                 : "";
             return $"its crawl indexed {pages} page(s) and {chunks} chunk(s), below the "
-                + $"{MinIndexedPages} pages and {MinIndexedChunks} chunks a page can be written from"
+                + $"{MinIndexedPages} pages and {MinChunksPerPage} chunks per page a page can be "
+                + "written from"
                 + because;
         }
 

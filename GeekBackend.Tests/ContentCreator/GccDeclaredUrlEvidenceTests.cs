@@ -85,7 +85,7 @@ public class GccDeclaredUrlEvidenceTests
     {
         // Eight pages and eighty chunks is a real crawl of a small marketing site, and still not
         // something a 3,000-word partner page can be paraphrased out of. The first floor here was
-        // 5 pages and 25 chunks, which passed this.
+        // 5 pages and 25 chunks, which passed this. Eight still fails the page floor at ten.
         Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 8, chunks: 80)));
     }
 
@@ -102,9 +102,44 @@ public class GccDeclaredUrlEvidenceTests
     [Fact]
     public void TwentyFiveRealPagesIsUsable()
     {
-        // At ~10 chunks per substantial page, this is what a genuine vendor or consultancy site
-        // looks like once crawled.
+        // What a genuine vendor or consultancy site looks like once crawled. Kept at the numbers it
+        // was written with, because the recalibration to 10 pages / 3 chunks per page must not move
+        // the verdict on a case that was already right.
         Assert.Null(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 25, chunks: 250)));
+    }
+
+    [Fact]
+    public void ARealSiteJustUnderTheOldPageFloorIsUsable()
+    {
+        // lightyear.cloud, read off the live index on 2026-10-01: 24 pages, 370 chunks, and its
+        // counts confirmed final while the collection as a whole grew 62,343 -> 105,737 points. The
+        // old floor of 25 pages refused a genuine vendor site for being one page short, which is
+        // what the recalibration exists to stop. This is the regression test for it.
+        Assert.Null(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 24, chunks: 370)));
+    }
+
+    [Fact]
+    public void ThinProseIsRefusedAtEverySiteSize()
+    {
+        // The reason the second rule is a ratio and not a count. At two chunks a page these are nav
+        // shells whether there are forty of them or four hundred; an absolute chunk floor passes the
+        // larger one purely for being large. 250 chunks would have admitted the second of these.
+        Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 40, chunks: 80)));
+        Assert.NotNull(GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 400, chunks: 800)));
+    }
+
+    [Fact]
+    public void TheRefusalNamesBothRules()
+    {
+        var reason = GccDeclaredUrlEvidence.Unusable(Row(), Run(pages: 40, chunks: 80));
+
+        Assert.NotNull(reason);
+        Assert.Contains("40 page(s) and 80 chunk(s)", reason!, StringComparison.Ordinal);
+        Assert.Contains(
+            $"{GccDeclaredUrlEvidence.MinIndexedPages} pages and "
+                + $"{GccDeclaredUrlEvidence.MinChunksPerPage} chunks per page",
+            reason!,
+            StringComparison.Ordinal);
     }
 
     [Theory]
