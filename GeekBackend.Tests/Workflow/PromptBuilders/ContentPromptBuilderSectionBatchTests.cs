@@ -256,6 +256,13 @@ public class ContentPromptBuilderSectionBatchTests
             Assert.Contains("TOOLS ARE THE SOLUTION", prompt, StringComparison.Ordinal);
             Assert.Contains("Angle for SEO identifies", prompt, StringComparison.Ordinal);
             Assert.Contains("has not been discussed", prompt, StringComparison.Ordinal);
+
+            // Jeff, 2026-10-01: "without any dedicated or repeatable format and/or section". A
+            // paragraph per tool is the banned shape with its headings removed -- five same-shaped
+            // blocks with the names swapped -- so the ban has to name it, not just ban headings.
+            Assert.Contains("NO DEDICATED OR REPEATABLE FORMAT", prompt, StringComparison.Ordinal);
+            Assert.Contains("not a paragraph per tool", prompt, StringComparison.Ordinal);
+            Assert.Contains("Do not quote", prompt, StringComparison.Ordinal);
         }
     }
 

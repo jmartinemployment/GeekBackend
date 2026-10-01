@@ -344,11 +344,23 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// </remarks>
     private const string ToolsAsSolutionInstruction =
         "TOOLS ARE THE SOLUTION: this page must discuss the partner tools as the answer to the "
-        + "problem its Angle for SEO identifies. On a Problem-Solution angle, that means naming the "
-        + "problem plainly and then showing how each tool resolves it -- what it does about that "
-        + "specific problem, for this keyword, not a general description of the product. Every "
-        + "declared partner tool is discussed on this basis, in the prose, each linked to its tool "
-        + "page. A tool mentioned without saying what it solves has not been discussed.";
+        + "problem its Angle for SEO identifies.\n"
+        + "- Express the problem in the reader's own terms first -- the workflow bottleneck the "
+        + "keyword implies -- then work through the solutions the tool or tools provide.\n"
+        + "- NO DEDICATED OR REPEATABLE FORMAT. Not a section for this, not a paragraph per tool, "
+        + "not the same sentence shape five times with the names swapped. Each tool appears where "
+        + "the argument reaches it, at the length that point deserves. A reader must not be able to "
+        + "see the template.\n"
+        + "- Write the mechanics, not the marketing. Translate what the evidence says the tool does "
+        + "into how it removes that specific friction, in your own editorial voice. Do not reuse "
+        + "vendor slogans, buzzwords or self-promotional phrasing from the source, and do not "
+        + "describe the product in general -- only what it does about this problem.\n"
+        + "- Do not quote. No blockquotes, no pull-quotes, no verbatim testimonial lines; this is "
+        + "analysis in your voice. Claims still come from the supplied evidence, not from what you "
+        + "already believe about these products.\n"
+        + "- Every declared partner tool is discussed on this basis and linked to its tool page at "
+        + "its first substantive mention. A tool named without saying what it solves has not been "
+        + "discussed.";
 
     private const string NoToolsSectionInstruction =
         "NO TOOLS SECTION: do not write a section that lists tools, whatever it is called -- not "
