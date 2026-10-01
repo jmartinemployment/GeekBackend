@@ -59,6 +59,9 @@ public class GccGroundingResolverTests
         CreatedAtUtc: DateTime.UtcNow,
         UpdatedAtUtc: DateTime.UtcNow);
 
+    /// <summary>The partner run a refusal has to name, fixed so the assertion can look for it.</summary>
+    private static readonly Guid PartnerRun = Guid.NewGuid();
+
     private sealed class FakeProjects(GccProjectDto? project) : IGccProjectReader
     {
         public Task<GccProjectDto?> GetProjectAsync(Guid id, CancellationToken ct = default) =>
@@ -326,6 +329,48 @@ public class GccGroundingResolverTests
         Assert.Contains("typed blocks", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
         // Named for what is actually wrong -- the pages are indexed, their blocks are not readable.
         Assert.Contains("re-crawl", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_library_failure_names_the_crawl_type_and_the_run_that_failed()
+    {
+        // The one risk hoisting the resolve out of the per-type fan-out introduced. A failure used to
+        // belong to one content type; now it fails the whole generate, so without the run id and the
+        // crawl type in the message an operator sees three dead drafts and no cause to act on.
+        var rag = new FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, PartnerRun.ToString())],
+            result: new GeekCrawlerRagQueryResult
+            {
+                RunId = PartnerRun,
+                Pages = [],
+                Failed = true,
+                Error = null,
+                Warning = null,
+            });
+        var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
+
+        Assert.True(outcome.Refused);
+        Assert.Contains(CrawlTypes.Partner, outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(PartnerRun.ToString(), outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task An_empty_library_answer_names_the_crawl_type_and_the_run_too()
+    {
+        // Null from the client is the library not answering at all, which reads differently from a
+        // failed result -- and has to carry the same two facts.
+        var rag = new FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, PartnerRun.ToString())],
+            result: null);
+        var resolver = Build(new FakeProjects(Project("https://p.test")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
+
+        Assert.True(outcome.Refused);
+        Assert.Contains(CrawlTypes.Partner, outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(PartnerRun.ToString(), outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
