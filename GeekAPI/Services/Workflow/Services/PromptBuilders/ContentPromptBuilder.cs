@@ -321,6 +321,35 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// (Jeff, 2026-09-28). Banning it at planning time and not at writing time bans it nowhere.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// What the tools are FOR, which the ban alone does not say.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Jeff, 2026-10-01: <i>"Pillar is required; same as Blog and all other long-form content
+    /// types, to discuss tools as a solution to the problem identified in the Angle for SEO
+    /// Problem-Solution"</i>.
+    /// </para>
+    /// <para>
+    /// <see cref="NoToolsSectionInstruction"/> says where the tools may not go and how they are
+    /// named. It says nothing about why they are on the page, so a writer could satisfy it by
+    /// mentioning each partner once in passing and linking it — the letter of the rule with none of
+    /// its point. The tools are the answer to the problem the angle identifies; that is the reason
+    /// they are mentioned at all.
+    /// </para>
+    /// <para>
+    /// Paired with the ban at both call sites deliberately. A prohibition without the obligation it
+    /// exists to protect is how "name each where it earns the mention" became a checklist item.
+    /// </para>
+    /// </remarks>
+    private const string ToolsAsSolutionInstruction =
+        "TOOLS ARE THE SOLUTION: this page must discuss the partner tools as the answer to the "
+        + "problem its Angle for SEO identifies. On a Problem-Solution angle, that means naming the "
+        + "problem plainly and then showing how each tool resolves it -- what it does about that "
+        + "specific problem, for this keyword, not a general description of the product. Every "
+        + "declared partner tool is discussed on this basis, in the prose, each linked to its tool "
+        + "page. A tool mentioned without saying what it solves has not been discussed.";
+
     private const string NoToolsSectionInstruction =
         "NO TOOLS SECTION: do not write a section that lists tools, whatever it is called -- not "
         + "\"Top Tools for ...\", not \"Choosing the Right Tools\", not a heading per product with a "
@@ -1546,6 +1575,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
+            .AppendLine(ToolsAsSolutionInstruction)
             // The lede wrote fullOutline[0], so the body's own sections are what remains.
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccV2LongFormTypes.Pillar,
@@ -2046,6 +2076,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
+            .AppendLine(ToolsAsSolutionInstruction)
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccV2LongFormTypes.Blog,
                 blogBatch.Count, blogOutline.Count, batchIndex == 0))

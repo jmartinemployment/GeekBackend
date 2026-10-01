@@ -239,4 +239,34 @@ public class ContentPromptBuilderSectionBatchTests
         Assert.Contains("CLOSING:", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("This call does not end the page", prompt, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Every_long_form_body_is_told_both_what_not_to_write_and_what_the_tools_are_for()
+    {
+        // Jeff, 2026-10-01: "Pillar is required; same as Blog and all other long-form content
+        // types, to discuss tools as a solution to the problem identified in the Angle for SEO
+        // Problem-Solution".
+        //
+        // The ban and the obligation are one rule and must travel together. NoToolsSectionInstruction
+        // alone says where tools may not go and how they are named, which a writer can satisfy by
+        // mentioning each partner once in passing -- the letter of it with none of its point.
+        foreach (var prompt in new[] { BlogBatch(0, "Where the hours go"), PillarBatch(0, "Where the hours go") })
+        {
+            Assert.Contains("NO TOOLS SECTION", prompt, StringComparison.Ordinal);
+            Assert.Contains("TOOLS ARE THE SOLUTION", prompt, StringComparison.Ordinal);
+            Assert.Contains("Angle for SEO identifies", prompt, StringComparison.Ordinal);
+            Assert.Contains("has not been discussed", prompt, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void A_tool_page_is_not_told_the_long_form_tools_rule()
+    {
+        // The rule is about long-form pages that must not become a tools listing. A tool page is
+        // about one product by definition, so both halves would be nonsense on it.
+        var prompt = ToolBatch(0, 0, 2);
+
+        Assert.DoesNotContain("NO TOOLS SECTION", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("TOOLS ARE THE SOLUTION", prompt, StringComparison.Ordinal);
+    }
 }
