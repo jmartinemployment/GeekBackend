@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace GeekAPI.Services.ContentCreator;
 
-/// <summary>v1 in-memory job store. Site Analyzer client lives in <see cref="GeekAPI.Services.GeekSeo"/>.</summary>
+/// <summary>v1 in-memory job store.</summary>
 public class GccJobStore
 {
     private readonly ConcurrentDictionary<Guid, GccJob> _jobs = new();

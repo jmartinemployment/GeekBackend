@@ -4,7 +4,6 @@ using GeekAPI.Services.Workflow.Services.PromptBuilders;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
-using GeekAPI.Services.GeekSeo;
 using GeekAPI.Services.ContentCreator;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;

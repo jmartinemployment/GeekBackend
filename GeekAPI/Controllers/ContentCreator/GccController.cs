@@ -17,7 +17,6 @@ using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
-using GeekAPI.Services.GeekSeo;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using Microsoft.AspNetCore.Authorization;

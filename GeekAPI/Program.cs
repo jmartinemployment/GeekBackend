@@ -246,16 +246,6 @@ builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Drive.GccV2Drive
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.SharePoint.GccV2SharePointGraphClient>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.SharePoint.GccV2SharePointOAuthStateStore>();
 
-var geekSeoUrl = (Environment.GetEnvironmentVariable("GEEK_SEO_API_URL") ?? "").Trim().TrimEnd('/');
-builder.Services.AddHttpClient<GeekAPI.Services.GeekSeo.HttpGeekSeoSiteAnalyzerClient>(client =>
-{
-    if (!string.IsNullOrWhiteSpace(geekSeoUrl))
-    {
-        client.BaseAddress = new Uri(geekSeoUrl + "/");
-        client.Timeout = TimeSpan.FromMinutes(2);
-    }
-});
-
 var geekCrawlerRagUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');
 var geekCrawlerRagApiKey = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_API_KEY") ?? "").Trim();
 builder.Services.AddHttpClient<GeekAPI.Services.GeekCrawler.IGeekCrawlerRagClient, GeekAPI.Services.GeekCrawler.HttpGeekCrawlerRagClient>(client =>

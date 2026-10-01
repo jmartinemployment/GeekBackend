@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreatorV2.Partner;
-using GeekAPI.Services.GeekSeo;
 using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.Services.ContentCreatorV2;
@@ -71,18 +70,6 @@ public static class GccV2SiteSection
         if (section.RelatedPages is null || section.RelatedPages.Count == 0)
             throw new InvalidOperationException(
                 "Generate requires non-empty relatedPages in site section context.");
-    }
-
-    public static IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> FlattenSections(
-        IEnumerable<HttpGeekSeoSiteAnalyzerClient.PageSectionDto> nodes)
-    {
-        foreach (var node in nodes)
-        {
-            yield return node;
-            if (node.Children is null) continue;
-            foreach (var child in FlattenSections(node.Children))
-                yield return child;
-        }
     }
 
     /// <summary>Legacy Site Analyzer gap picker — v1 only.</summary>
