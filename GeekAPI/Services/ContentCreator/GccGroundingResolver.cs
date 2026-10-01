@@ -163,13 +163,62 @@ public sealed class GccGroundingResolver(
     internal static IReadOnlyList<string> RetrieveFor(string contentType) =>
         RetrieveCrawlTypes.TryGetValue(Canonical(contentType), out var fetch) ? fetch : [];
 
-    public async Task<GccGroundingOutcome> ResolveAsync(
+    /// <summary>
+    /// One content type's grounding. Kept so a caller holding a single type reads naturally, and so
+    /// every existing test of the refusal semantics exercises the same code the multi-type path does.
+    /// </summary>
+    public Task<GccGroundingOutcome> ResolveAsync(
         GccCreateDto create,
         string contentType,
+        CancellationToken ct = default) =>
+        ResolveAsync(create, [contentType], ct);
+
+    /// <summary>
+    /// The grounding for every content type one Generate will write, resolved once.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Evidence is a property of the create, not of the draft being written from it. This used to
+    /// run once per requested content type inside the coordinator's fan-out, so a pillar+blog+tool
+    /// generate issued the same 21 vector queries three times and threw two of the answers away.
+    /// </para>
+    /// <para>
+    /// It was also a correctness defect, not only a cost one. <c>seenUrls</c> is shared across crawl
+    /// types, and the walk order used to be <c>mustCite.Concat(retrieveFor)</c> — which puts Partner
+    /// first for <c>tool</c> and ProjectSite first for everything else. A URL present in two corpora
+    /// therefore landed in a different list depending on which type was being written: partner
+    /// evidence for the tool page, own-site evidence for the pillar, from one create at one moment.
+    /// The order is now fixed and independent of <c>mustCite</c>, which is about refusal and has no
+    /// business deciding which list a shared URL falls into.
+    /// </para>
+    /// <para>
+    /// Refusal is unchanged in effect. A requested type that must cite evidence it cannot get still
+    /// refuses the generate — which is already what happened, because one failure fails all
+    /// (<c>GccGenerationCoordinator</c>, Jeff 2026-09-23: "do not incur changes on failures. One
+    /// failure fails all, for now"). What changes is that the message names the type that required
+    /// it rather than the type that happened to be running.
+    /// </para>
+    /// </remarks>
+    public async Task<GccGroundingOutcome> ResolveAsync(
+        GccCreateDto create,
+        IReadOnlyList<string> contentTypes,
         CancellationToken ct = default)
     {
-        var mustCite = RequiredFor(contentType);
-        var retrieveFor = RetrieveFor(contentType);
+        var mustCite = contentTypes
+            .SelectMany(RequiredFor)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var retrieveFor = contentTypes
+            .SelectMany(RetrieveFor)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // For messages: the type that actually imposed the citation requirement, so a refusal names
+        // "tool" rather than whichever type the loop was on.
+        var contentType = contentTypes.FirstOrDefault(t => RequiredFor(t).Count > 0)
+            ?? contentTypes.FirstOrDefault()
+            ?? string.Empty;
+
         if (mustCite.Count == 0 && retrieveFor.Count == 0)
         {
             return GccGroundingOutcome.NotRequired();
@@ -177,6 +226,18 @@ public sealed class GccGroundingResolver(
 
         // Anything that must be cited is also fetched, whatever the retrieve table says -- the two
         // tables answer different questions and must not be able to contradict each other.
+        //
+        // mustCite leads, and that is load-bearing rather than incidental. seenUrls is shared across
+        // crawl types, so the first type walked claims a URL present in two corpora -- and for a
+        // page the draft MUST cite, partner evidence outranks "something the site already covers".
+        // Reordering this to a fixed list demotes a shared partner URL to own-site evidence and a
+        // tool page then refuses for want of something it was handed.
+        //
+        // What was wrong before was not the order but that it varied: mustCite is per content type,
+        // so tool walked Partner-first and pillar ProjectSite-first, and one URL landed in different
+        // lists depending on which draft was being written. Unioning mustCite across every type in
+        // this generate fixes that -- one order for all of them -- without flattening the
+        // precedence.
         var crawlTypes = mustCite.Concat(retrieveFor).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         if (create.ProjectId is not Guid projectId || projectId == Guid.Empty)

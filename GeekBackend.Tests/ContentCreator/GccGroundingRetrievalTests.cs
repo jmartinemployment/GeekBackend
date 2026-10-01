@@ -158,6 +158,84 @@ public class GccGroundingRetrievalTests
     }
 
     [Fact]
+    public async Task ThreeContentTypesQueryTheCorpusOnce_NotThreeTimes()
+    {
+        // The defect this closes: grounding was resolved inside the per-type fan-out, so a
+        // pillar+blog+tool generate issued the same queries three times over the same runs and
+        // discarded two of the answers. On a real project -- 1 site, 10 partner, 10 competitor
+        // runs -- that is 63 vector queries where 21 are needed.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+
+        var one = new CrawlTypeRag();
+        await Build(project, one).ResolveAsync(Create(project.Id, "pillar"), "pillar");
+
+        var three = new CrawlTypeRag();
+        var outcome = await Build(project, three)
+            .ResolveAsync(Create(project.Id, "pillar"), ["pillar", "blog", "tool"]);
+
+        Assert.False(outcome.Refused);
+        Assert.Equal(one.Queried.Count, three.Queried.Count);
+    }
+
+    [Fact]
+    public async Task OneResolveStillCoversEveryCrawlTypeEveryRequestedTypeNeeds()
+    {
+        // Cheaper must not mean thinner. The union of what the three types retrieve is still all
+        // three crawl types, and tool's must-cite partner requirement survives the union.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+        var rag = new CrawlTypeRag();
+
+        var outcome = await Build(project, rag)
+            .ResolveAsync(Create(project.Id, "pillar"), ["pillar", "blog", "tool"]);
+
+        Assert.False(outcome.Refused);
+        Assert.Contains(CrawlTypes.ProjectSite, rag.Queried);
+        Assert.Contains(CrawlTypes.Partner, rag.Queried);
+        Assert.Contains(CrawlTypes.Competitors, rag.Queried);
+        Assert.NotEmpty(outcome.Pages);
+        Assert.NotEmpty(outcome.CompetitorPages);
+        Assert.NotEmpty(outcome.SitePages);
+    }
+
+    [Fact]
+    public async Task AMultiTypeGenerateIncludingToolStillRefusesWhenPartnerEvidenceIsMissing()
+    {
+        // tool's must-cite requirement is unioned in, so it refuses the whole generate rather than
+        // being silently dropped because pillar and blog would have been content without it. That
+        // is the existing contract: one failure fails all.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+        var rag = new CrawlTypeRag(partnerIndexed: false);
+
+        var outcome = await Build(project, rag)
+            .ResolveAsync(Create(project.Id, "pillar"), ["pillar", "blog", "tool"]);
+
+        Assert.True(outcome.Refused);
+    }
+
+    [Fact]
+    public async Task AMissingCrawlRefusesEveryTypeEvenOneThatCitesNothing()
+    {
+        // Pins what the code does, which is not what the code says. RetrieveCrawlTypes' own remark
+        // claims "Retrieval failure is a refusal only where MustCiteCrawlTypes says so. A pillar
+        // whose competitor crawl is missing is a thinner pillar, not a draft that must not exist."
+        // The refusal at GccGroundingResolver.cs:273-279 fires per crawl type whenever no indexed
+        // run is found, and never consults mustCite -- so pillar and blog, which must cite nothing,
+        // are refused for a missing partner crawl.
+        //
+        // Pre-existing and left alone deliberately: changing it is a policy call about when a
+        // draft may be thinner rather than refused, and this change set is about resolving the
+        // same evidence once. Recorded here so the next reader finds the contradiction pinned
+        // rather than trusts the remark.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+        var rag = new CrawlTypeRag(partnerIndexed: false);
+
+        var outcome = await Build(project, rag)
+            .ResolveAsync(Create(project.Id, "pillar"), ["pillar", "blog"]);
+
+        Assert.True(outcome.Refused);
+    }
+
+    [Fact]
     public async Task AiToolIsTheSameTypeAsToolAndGetsOneRowNotTwo()
     {
         // "aiTool" is the picker's spelling. Listing it as a second key was a second row for one

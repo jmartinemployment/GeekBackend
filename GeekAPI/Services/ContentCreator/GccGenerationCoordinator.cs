@@ -34,7 +34,9 @@ public sealed class GccGenerationCoordinator
     /// prompt block (<c>GccGenerateService.cs:169</c>) carries them. Operator-uploaded quoteables
     /// are kept and retrieved ones appended; neither silently replaces the other.
     /// </summary>
-    private static GccCreateDto MergeRetrievedEvidence(GccCreateDto create, GccGroundingOutcome grounding)
+    /// <remarks>internal so its contract can be asserted directly rather than through a copy of
+    /// itself in a test — a duplicated merge is two implementations of one rule.</remarks>
+    internal static GccCreateDto MergeRetrievedEvidence(GccCreateDto create, GccGroundingOutcome grounding)
     {
         if (grounding.Pages.Count == 0
             && grounding.CompetitorPages.Count == 0
@@ -85,14 +87,13 @@ public sealed class GccGenerationCoordinator
     }
 
     /// <summary>
-    /// Resolves grounding evidence for one content type and merges it into the create, refusing
-    /// (never proceeding ungrounded) if the resolver says so. Called once per type by
-    /// GenerateOneAsync, whether that's the only type requested or one of several.
+    /// Resolves grounding evidence for every content type this generate will write, once, and
+    /// merges it into the create -- refusing, never proceeding ungrounded, if the resolver says so.
     /// </summary>
     private async Task<GccCreateDto> ResolveAndMergeGroundingAsync(
-        GccCreateDto create, string contentType, CancellationToken ct)
+        GccCreateDto create, IReadOnlyList<string> contentTypes, CancellationToken ct)
     {
-        var grounding = await _grounding.ResolveAsync(create, contentType, ct);
+        var grounding = await _grounding.ResolveAsync(create, contentTypes, ct);
         if (grounding.Refused)
             throw new InvalidOperationException($"Refused: {grounding.Refusal}");
         return MergeRetrievedEvidence(create, grounding);
@@ -177,6 +178,16 @@ public sealed class GccGenerationCoordinator
             // Every failure is collected rather than the first one thrown, because Task.WhenAll
             // surfaces only whichever lost the race and discards the rest -- that is how Blog's
             // error vanished behind Pillar's. The refusal names every type that failed.
+            // Resolved ONCE for the whole generate, not per type. Evidence is a property of the
+            // create: every live content type retrieves the same three crawl types over the same
+            // runs (RetrieveCrawlTypes), so resolving per type issued the same 21 vector queries
+            // three times and discarded two of the answers. It also let one URL land in different
+            // lists for different drafts -- see ResolveAsync's remarks.
+            //
+            // Before the fan-out rather than inside it, so a refusal costs nothing: the generate
+            // stops before any paid model call instead of after two of three types have written.
+            create = await ResolveAndMergeGroundingAsync(create, requested, ct);
+
             var attempts = await Task.WhenAll(requested.Select(async type =>
             {
                 try
@@ -213,6 +224,7 @@ public sealed class GccGenerationCoordinator
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
+        create = await ResolveAndMergeGroundingAsync(create, requested, ct);
         var single = await GenerateOneAsync(
             repo, gen, create, section, provider, requested[0], mustMentionBlock, ct);
         return await PersistOneAsync(repo, create, single.ContentType, single.BodyJson, onTypeOutcome, ct);
@@ -220,10 +232,12 @@ public sealed class GccGenerationCoordinator
 
     /// <summary>
     /// Generates and persists exactly one content type, fully independently -- the single unit both
-    /// a single-select and a multi-select generate call use, once per requested type. Resolves its
-    /// own grounding (never reused across types, since different types can require different
-    /// evidence) and dispatches to that type's real generator; nothing here ever reads another
-    /// type's output as input.
+    /// a single-select and a multi-select generate call use, once per requested type. Dispatches to
+    /// that type's real generator; nothing here ever reads another type's output as input.
+    ///
+    /// Grounding is NOT resolved here any more. It is resolved once for the whole generate by the
+    /// caller and the merged create handed down, because the evidence belongs to the create rather
+    /// than to the draft -- and every live type retrieves the same crawl types anyway.
     /// </summary>
     private async Task<(string ContentType, string BodyJson)> GenerateOneAsync(
         HttpGccRepository repo,
@@ -240,11 +254,6 @@ public sealed class GccGenerationCoordinator
         // (CONTENT_TYPES' real values once the picker unified onto it, Jeff: "they should be
         // identical") each reach one case, the same normalization the disabled-type check uses.
         var normalizedType = new string(contentType.Where(char.IsLetter).ToArray());
-
-        // Grounding gate. Every grounding block downstream is conditional, so absent evidence used
-        // to drop out silently and generation continued — a draft that reads identically whether
-        // it was grounded or not. Required evidence is resolved here and its absence refuses.
-        create = await ResolveAndMergeGroundingAsync(create, contentType, ct);
 
         string bodyJson;
         switch (normalizedType)
