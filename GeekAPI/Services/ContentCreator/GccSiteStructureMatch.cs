@@ -14,7 +14,7 @@ namespace GeekAPI.Services.ContentCreator;
 /// least two tokens. Never plain containment — that is how a heading called "Marketing" swallows
 /// every keyword on the site.
 /// </summary>
-public static class GccSiteStructureMatch
+public static partial class GccSiteStructureMatch
 {
     /// <param name="Context">
     /// The text of the block the anchor appeared in. Not part of the anchor — the crawler records
@@ -207,8 +207,7 @@ public static class GccSiteStructureMatch
         foreach (var link in links)
         {
             var name = (link.Label ?? "").Replace('\n', ' ').Trim();
-            if (name.Length == 0 || name.Length >= 80) continue;
-            if (LooksLikeSiteChrome(name)) continue;
+            if (!IsLikelyToolLink(name, link.Href)) continue;
             if (!seen.Add(name)) continue;
             var href = string.IsNullOrWhiteSpace(link.Href) ? null : link.Href.Trim();
             // The prose the link sits in. "Learn more" says nothing on its own; the sentence
@@ -217,6 +216,93 @@ public static class GccSiteStructureMatch
         }
         return rows;
     }
+
+    /// <summary>
+    /// Is this anchor a product, or is it the furniture that sits beside one?
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Site chrome, CTAs, legal links and phone numbers sit under the same heading as real partners.
+    /// This test is the one the retired Site-Analyzer-shaped extractor carried, ported here on
+    /// 2026-10-01 when that code was deleted, because it is stronger than what this matcher had and
+    /// it was written against observed output: its note recorded <i>Privacy Policy</i>, <i>Call Us</i>
+    /// and <i>Free Assessment</i> being returned as tools.
+    /// </para>
+    /// <para>
+    /// What was here before matched ten whole labels — <c>home</c>, <c>about</c>, <c>privacy</c> and
+    /// the like — so <i>"Privacy Policy"</i> and <i>"Call Us (561) 526-3512"</i> passed it untouched.
+    /// They were excluded only when a larger group of real tools out-ranked them, which means a
+    /// section whose nav block was bigger than its tool row shipped a phone number as a tool. Group
+    /// ranking is a tie-break, not a filter, and it was doing a filter's job.
+    /// </para>
+    /// <para>
+    /// No preference for <c>/tools/</c> paths, deliberately: a partner's own product page is a tool
+    /// link and lives on their domain, so a path test would favour this site's pages over the
+    /// partners the page is about.
+    /// </para>
+    /// </remarks>
+    internal static bool IsLikelyToolLink(string name, string? href)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        name = name.Replace('\n', ' ').Trim();
+        if (name.Length == 0 || name.Length >= 80) return false;
+
+        if (LooksLikeSiteChrome(name)) return false;
+
+        // A phone number is never a product, and it reads as a plausible label until it is in a list
+        // of tools.
+        if (PhoneNumber().IsMatch(name)) return false;
+
+        if (!string.IsNullOrWhiteSpace(href))
+        {
+            var h = href.Trim();
+            // An in-page jump, a dial link, an email or a script handler cannot be a product page.
+            if (h.StartsWith('#')
+                || h.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)
+                || h.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
+                || h.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (LooksLikeSiteChromeHref(h)) return false;
+        }
+
+        // A product is named in a few words. A sentence, or anything quoted or questioning, is prose
+        // that happens to be linked -- "read our comprehensive guide: \"How Chatbots ...\"".
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (words.Length is < 1 or > 5) return false;
+        if (name.Contains('"') || name.Contains('\u201C') || name.Contains('?')) return false;
+
+        return true;
+    }
+
+    private static bool LooksLikeSiteChromeHref(string href)
+    {
+        string path;
+        try
+        {
+            path = Uri.TryCreate(href, UriKind.Absolute, out var abs)
+                ? abs.AbsolutePath
+                : href.Split('?', 2)[0];
+        }
+        catch (UriFormatException)
+        {
+            path = href;
+        }
+
+        ReadOnlySpan<string> needles =
+        [
+            "/privacy", "/terms", "/cookie", "/contact", "/about", "/login",
+            "/signup", "/sign-up", "/careers", "/sitemap", "/assessment",
+        ];
+        foreach (var n in needles)
+        {
+            if (path.Contains(n, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    [GeneratedRegex(@"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}")]
+    private static partial Regex PhoneNumber();
 
     private static string[] ChildHeadings(SiteStructureNode node) =>
         node.Children
@@ -256,11 +342,36 @@ public static class GccSiteStructureMatch
             ? 0
             : slug.Split('-', StringSplitOptions.RemoveEmptyEntries).Length;
 
+    /// <summary>
+    /// Phrases that are furniture wherever they appear, matched as substrings.
+    /// </summary>
+    /// <remarks>
+    /// Whole-label equality was the defect: it caught <c>privacy</c> and missed
+    /// <i>"Privacy Policy"</i>, caught <c>contact</c> and missed <i>"Contact Us"</i>. These are the
+    /// needles the retired extractor matched, plus the exact labels this list already held.
+    /// </remarks>
     private static bool LooksLikeSiteChrome(string name)
     {
         var n = name.Trim().ToLowerInvariant();
-        return n is "home" or "about" or "contact" or "login" or "sign in" or "sign up"
-            or "privacy" or "terms" or "menu" or "skip to content";
+        if (n is "home" or "about" or "contact" or "login" or "sign in" or "sign up"
+            or "privacy" or "terms" or "menu" or "skip to content")
+        {
+            return true;
+        }
+
+        ReadOnlySpan<string> needles =
+        [
+            "privacy policy", "terms of", "terms &", "cookie policy", "cookie settings",
+            "call us", "contact us", "headquarters", "get your free",
+            "free assessment", "read our", "learn more", "sign up", "log in",
+            "subscribe", "book a", "schedule a", "click here", "about us", "careers",
+            "sitemap", "follow us", "all rights reserved",
+        ];
+        foreach (var needle in needles)
+        {
+            if (n.Contains(needle, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     private sealed record MatchCandidate(

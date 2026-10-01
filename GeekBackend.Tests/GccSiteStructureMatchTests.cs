@@ -70,9 +70,34 @@ public class GccSiteStructureMatchTests
     [Fact]
     public void A_link_carries_the_prose_it_sits_in()
     {
-        // The crawler records an anchor as { label, href } and nothing more. A label like
-        // "Learn more" is useless to a writer on its own; the block it sits in is what says
-        // what the link is about, so it travels with the link.
+        // The crawler records an anchor as { label, href } and nothing more, so the block it sits in
+        // is the only thing that says what the link is about. It travels with the link.
+        var page = new SiteStructurePage("https://example.com/services", [
+            Node(2, "Automated Data Entry & Processing", [
+                Link("Invoice Capture", "/tools/invoice-capture",
+                    "Invoice capture reads totals and line items straight off a supplier PDF."),
+                Link("Document OCR", "/tools/document-ocr",
+                    "Document OCR turns scanned paperwork into searchable text."),
+            ]),
+        ]);
+
+        var match = Assert.Single(
+            GccSiteStructureMatch.MatchAll(Structure(page), ["Automated Data Entry & Processing"]));
+
+        var tool = Assert.Single(match.RecommendedTools, t => t.Name == "Invoice Capture");
+        Assert.Contains("supplier PDF", tool.Context);
+    }
+
+    [Fact]
+    public void A_vague_label_is_not_a_tool_however_well_its_context_explains_it()
+    {
+        // This test used to assert the opposite: that "Learn more" stays a tool because the prose
+        // around it says what it is. That reasoning does not survive contact with the consumers --
+        // all three of them project { name, href } and drop Context, so the only thing "Learn more"
+        // ever reaches is a prompt or an operator, as the name of a product.
+        //
+        // Context is still carried and still asserted above; what changed is that it cannot rescue a
+        // label that is not a product name.
         var page = new SiteStructurePage("https://example.com/services", [
             Node(2, "Automated Data Entry & Processing", [
                 Link("Learn more", "/tools/invoice-capture",
@@ -85,8 +110,67 @@ public class GccSiteStructureMatchTests
         var match = Assert.Single(
             GccSiteStructureMatch.MatchAll(Structure(page), ["Automated Data Entry & Processing"]));
 
-        var vague = Assert.Single(match.RecommendedTools, t => t.Name == "Learn more");
-        Assert.Contains("supplier PDF", vague.Context);
+        Assert.DoesNotContain(match.RecommendedTools, t => t.Name == "Learn more");
+        Assert.Contains(match.RecommendedTools, t => t.Name == "Document OCR");
+    }
+
+    [Theory]
+    // Observed in live output as "tools", which is what the ported filter was written against.
+    [InlineData("Privacy Policy", "/privacy")]
+    [InlineData("Call Us (561) 526-3512", "tel:5615263512")]
+    [InlineData("Get Your Free AI Assessment", "/assessment")]
+    [InlineData("Contact Us", "/contact")]
+    // A bare phone number, with no chrome phrase in it -- so this case exercises the number test and
+    // not the "call us" needle, which is what made the first version of this theory pass with the
+    // phone check deleted.
+    [InlineData("(561) 526-3512", "/offices")]
+    [InlineData("Subscribe", "/newsletter")]
+    // Prose that happens to be linked, not a product.
+    [InlineData("read our comprehensive guide on chatbots", "/blog/guide")]
+    [InlineData("How do chatbots qualify leads?", "/blog/leads")]
+    // Six words, no chrome phrase, no quote and no question mark -- the length test alone has to
+    // reject it, which nothing asserted while every long label here also tripped another clause.
+    [InlineData("Automate your accounts payable workflow today", "/services/ap")]
+    // Shapes that cannot be a product page whatever the label says.
+    [InlineData("BotPenguin", "#demo")]
+    [InlineData("BotPenguin", "mailto:sales@botpenguin.com")]
+    [InlineData("BotPenguin", "javascript:openModal()")]
+    public void Furniture_beside_a_tool_is_not_a_tool(string label, string href)
+    {
+        // Each of these sat under the matched heading alongside two real tools, and each used to be
+        // excluded only when a bigger group of real tools happened to out-rank its group. Ranking is
+        // a tie-break; this is the filter.
+        var page = new SiteStructurePage("https://example.com/marketing", [
+            Node(2, "Smart Chatbots", [
+                Link(label, href),
+                Link("ManyChat", "/tools/many-chat"),
+                Link("Pipedrive", "/tools/pipedrive"),
+            ]),
+        ]);
+
+        var match = Assert.Single(GccSiteStructureMatch.MatchAll(Structure(page), ["Smart Chatbots"]));
+
+        Assert.Equal(2, match.RecommendedTools.Count);
+        Assert.DoesNotContain(match.RecommendedTools, t => t.Name == label);
+    }
+
+    [Fact]
+    public void A_partner_product_page_on_the_partners_own_domain_is_still_a_tool()
+    {
+        // No preference for this site's /tools/ paths. A partner's product lives on the partner's
+        // domain, and the page is about the partner -- a path test would favour our own pages over
+        // the products the piece exists to discuss.
+        var page = new SiteStructurePage("https://example.com/marketing", [
+            Node(2, "Smart Chatbots", [
+                Link("BotPenguin", "https://botpenguin.com/pricing"),
+                Link("ManyChat", "https://manychat.com/"),
+            ]),
+        ]);
+
+        var match = Assert.Single(GccSiteStructureMatch.MatchAll(Structure(page), ["Smart Chatbots"]));
+
+        Assert.Equal(2, match.RecommendedTools.Count);
+        Assert.Contains(match.RecommendedTools, t => t.Href == "https://botpenguin.com/pricing");
     }
 
     [Fact]
