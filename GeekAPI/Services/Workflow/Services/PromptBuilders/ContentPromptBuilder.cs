@@ -365,6 +365,36 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "its first substantive mention. A tool named without saying what it solves has not been "
         + "discussed.";
 
+    /// <summary>
+    /// The same ban, said at the planning stage: an outline heading is what the body writer is then
+    /// handed as its assignment.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three outline prompts each carried their own wording — <i>"Do not include a Tools H2. Tool
+    /// names belong in body sentences, not as outline headings."</i> — which is narrower than the rule
+    /// the body prompt and <c>GccToolsSectionGuard</c> enforce. It does not cover <i>"Choosing the
+    /// Right Tools for Your Accounts Payable Needs"</i>, a heading the body instruction names
+    /// explicitly, so the metadata call planned exactly that and a live generate refused on it.
+    /// </para>
+    /// <para>
+    /// <b>That is the trap, not a slip.</b> The body writer receives a planned outline as assigned
+    /// slots, so it was told never to write a tools section while being handed one as its heading. It
+    /// followed the outline, which is the reasonable reading, and the retry re-wrote against the same
+    /// outline — so no retry could succeed. A guard whose retry cannot be satisfied is a trap, and
+    /// this is the second time that shape has been written here.
+    /// </para>
+    /// <para>
+    /// So the planning stage now carries the ban itself rather than a paraphrase of it. One rule, one
+    /// constant, three call sites that cannot disagree.
+    /// </para>
+    /// </remarks>
+    private const string NoToolsSectionOutlineInstruction =
+        NoToolsSectionInstruction
+        + "\nThis applies to the outline you are planning now: no sectionOutline heading may be a "
+        + "tools list, a tools-selection heading, or a product name. The body writer is handed these "
+        + "headings as its assignment and cannot decline one.";
+
     private const string NoToolsSectionInstruction =
         "NO TOOLS SECTION: do not write a section that lists tools, whatever it is called -- not "
         + "\"Top Tools for ...\", not \"Choosing the Right Tools\", not a heading per product with a "
@@ -1371,7 +1401,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             hierarchyOutlineInstruction +
             "Derive sectionOutline from keyword SERP and local pack headings (declarative topics like \"Benefits of X\", not questions). " +
             "Frame this as a use case showing how AI implementation services solve the client problem — not just generic background. " +
-            "Do not include a Tools H2. Tool names from the crawl belong in body sentences later, not as outline headings. " +
+            NoToolsSectionOutlineInstruction + " " +
             SeoOutlineInstruction(context.TargetKeyword) + " " +
             "With the exception of the Lede, article headings are never questions. People Also Ask questions from the brief are not outline headings. " +
             "Title must NOT be a question and must NOT start with \"How\" — use a definitive statement (e.g. \"AI Prospecting and Lead Intelligence: Implementation Guide\"). " +
@@ -1910,7 +1940,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("The blog title MUST be different from the pillar title — use a conversational hook, question, or numbered angle (e.g. \"3 Ways...\", \"Why...\"). Never copy the pillar title verbatim.")
             .AppendLine(SeoOutlineInstruction(context.TargetKeyword))
-            .AppendLine("Do not include a Tools H2. Tool names belong in body sentences, not as outline headings.")
+            .AppendLine(NoToolsSectionOutlineInstruction)
             .ToString();
 
         var user = new StringBuilder()
@@ -2020,8 +2050,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("This is a standalone deep-dive blog — there is no companion pillar article. Title should be a conversational hook, question, or numbered angle.")
             .AppendLine(SeoOutlineInstruction(context.TargetKeyword))
             // The ban lived only in the pillar's outline prompt, so nothing ever told a blog not to
-            // write one -- which is why "Choosing the Right AI Tools for ..." turned up on them.
-            .AppendLine("Do not include a Tools H2. Tool names belong in body sentences, not as outline headings.")
+            // write one -- which is why "Choosing the Right AI Tools for ..." turned up on them. It
+            // then carried a weaker paraphrase than the body prompt's, which is how "Choosing the
+            // Right Tools for Your Accounts Payable Needs" was planned and then refused.
+            .AppendLine(NoToolsSectionOutlineInstruction)
             .ToString();
 
         var user = new StringBuilder()

@@ -133,6 +133,8 @@ public static class ContentSectionJsonSchema
         // type with a custom converter). No generic tool can infer that converter's
         // {"type":"text","runs":[...]} / {"type":"list","ordered":bool,"items":[[...]]} wire shape
         // from the type alone, so it's supplied explicitly here, injected as the array's "items".
+        // The wire shape also includes {"type":"quote","runs":[...],"cite":...} -- see
+        // BuildParagraphUnionSchema for what it cost to leave that out.
         var t = context.TypeInfo.Type;
         var isParagraphList = t.IsGenericType
             && t.GetGenericArguments() is [var elemType]
@@ -181,6 +183,33 @@ public static class ContentSectionJsonSchema
         return node;
     }
 
+    /// <summary>
+    /// The paragraph shapes a response may contain. This is the contract the provider enforces, so a
+    /// shape missing here cannot be produced however firmly the prompt asks for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>quote</c> was missing until 2026-10-01, and that made the tool page impossible.</b>
+    /// <c>ParagraphJsonConverter</c> was taught to read a quote on 2026-09-23 — its own note records
+    /// why, that without it attribution came out as "According to &lt;partner&gt;" inline prose — but
+    /// this schema was not taught to permit one. So the reader accepted a shape the writer was
+    /// forbidden to emit.
+    /// </para>
+    /// <para>
+    /// The result was a requirement no legal output could satisfy. The tool body prompt asks for a
+    /// block quotation and lists the spans it may use; <c>GccToolQuoteGuard</c> then refuses the page
+    /// for not carrying one. On a real generate that produced
+    /// <i>"40 quotable partner span(s) were supplied and none was used"</i> — the model was shown the
+    /// list, told to quote from it, and had no way to return a quote. Every test passed throughout,
+    /// because a fake provider ignores the schema and the fixtures hand back <c>"type":"quote"</c>
+    /// directly.
+    /// </para>
+    /// <para>
+    /// Keep this union and that converter in step. They are one wire shape in two places, and the
+    /// failure is silent in the direction that matters: a shape the reader understands but the schema
+    /// omits does not error, it simply never arrives.
+    /// </para>
+    /// </remarks>
     private static JsonNode BuildParagraphUnionSchema() => new JsonObject
     {
         ["anyOf"] = new JsonArray
@@ -209,6 +238,28 @@ public static class ContentSectionJsonSchema
                     {
                         ["type"] = "array",
                         ["items"] = new JsonObject { ["type"] = "array", ["items"] = BuildRunSchema() },
+                    },
+                },
+            },
+            new JsonObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                // Every property listed, as strict mode requires. "cite" is the source URL and is a
+                // nullable string rather than an omitted one for the same reason -- expressed the way
+                // Run.href already is in this file.
+                ["required"] = new JsonArray { "type", "runs", "cite" },
+                ["properties"] = new JsonObject
+                {
+                    ["type"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray { "quote" } },
+                    ["runs"] = new JsonObject { ["type"] = "array", ["items"] = BuildRunSchema() },
+                    ["cite"] = new JsonObject
+                    {
+                        ["anyOf"] = new JsonArray
+                        {
+                            new JsonObject { ["type"] = "string" },
+                            new JsonObject { ["type"] = "null" },
+                        },
                     },
                 },
             },

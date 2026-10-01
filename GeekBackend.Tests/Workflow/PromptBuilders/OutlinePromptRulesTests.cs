@@ -96,7 +96,18 @@ public class OutlinePromptRulesTests
     [InlineData("blog")]
     public void Neither_outline_may_carry_a_tools_heading(string which)
     {
-        Assert.Contains("Do not include a Tools H2", Outline(which), StringComparison.Ordinal);
+        // This asserted "Do not include a Tools H2", which is what the outline prompts said and is
+        // narrower than the rule the body prompt and GccToolsSectionGuard enforce. It does not cover a
+        // selection-framing heading, so the metadata call planned "Choosing the Right Tools for Your
+        // Accounts Payable Needs" and a live generate refused on it -- with this test green, because it
+        // pinned the wording rather than the rule.
+        //
+        // The planning stage now carries the same constant the body prompt does.
+        var rendered = Outline(which);
+
+        Assert.Contains("NO TOOLS SECTION", rendered, StringComparison.Ordinal);
+        Assert.Contains("Choosing the Right Tools", rendered, StringComparison.Ordinal);
+        Assert.Contains("sectionOutline heading", rendered, StringComparison.Ordinal);
     }
 
     [Theory]
