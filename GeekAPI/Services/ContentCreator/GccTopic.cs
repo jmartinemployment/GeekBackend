@@ -32,8 +32,26 @@ public static class GccTopic
     }
 
     /// <summary>
-    /// Splits on the <b>first</b> colon only. A topic with no colon is all keyword.
+    /// Splits on the <b>first</b> colon. A topic with no usable split is all keyword.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The one parser.</b> <see cref="GccTargetKeyword.FromTopic"/> used to be a second
+    /// implementation and the two disagreed: it split on the <i>last</i> colon and carried two guards
+    /// this had neither of. <c>"Marketing: AI"</c> came back as the whole string from one and as
+    /// descriptor <c>"Marketing"</c> from the other.
+    /// </para>
+    /// <para>
+    /// Harmless while both answers only fed a score. Not harmless now the descriptor becomes a
+    /// published URL directory: two readers of one string would put the page at one path and rank it
+    /// for another. <c>FromTopic</c> now delegates here, so there is one answer.
+    /// </para>
+    /// <para>
+    /// The guards come from <c>FromTopic</c>, which had them for a reason worth keeping: a one-word
+    /// tail is far more likely a topic that happens to end in a colon than a one-word keyword, and
+    /// scoring a draft against <c>"AI"</c> would pass on anything.
+    /// </para>
+    /// </remarks>
     public static Parts Parse(string? topic)
     {
         var trimmed = (topic ?? string.Empty).Trim();
@@ -52,8 +70,18 @@ public static class GccTopic
             return new Parts(string.Empty, trimmed);
         }
 
+        // Too short, or a single token, and it is not a keyword. Two tokens is the floor this codebase
+        // uses everywhere else for calling something a keyword rather than a category -- see
+        // GccSiteStructureMatch, which refuses a single-token seed on the same grounds.
+        if (keyword.Length < 3) return new Parts(string.Empty, trimmed);
+        var tokens = keyword.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length < 2) return new Parts(string.Empty, trimmed);
+
         return new Parts(descriptor, keyword);
     }
+
+    /// <summary>The descriptor alone — what scopes the keyword, and what names its directory.</summary>
+    public static string DescriptorOf(string? topic) => Parse(topic).Descriptor;
 
     /// <summary>The SEO target alone — what belongs in a problem frame.</summary>
     public static string KeywordOf(string? topic) => Parse(topic).Keyword;

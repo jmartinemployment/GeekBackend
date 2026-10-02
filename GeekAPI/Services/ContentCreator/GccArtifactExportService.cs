@@ -65,7 +65,7 @@ public sealed class GccArtifactExportService(
                 SectionHtmlRenderer.RenderDocument(
                     title: title,
                     description: parsed.MetaDescription,
-                    canonicalUrl: CanonicalUrlFor(artifact.Type, department, slug),
+                    canonicalUrl: CanonicalUrlFor(artifact.Type, create, slug),
                     ogType: OgTypeFor(artifact.Type),
                     ogImage: _company.PublisherLogoUrl,
                     jsonLdSchema: parsed.JsonLdSchema,
@@ -90,12 +90,20 @@ public sealed class GccArtifactExportService(
     /// JSON+LD builder puts in its "url" field. A mismatch between the two is the kind of thing
     /// search engines flag, which is why v1 derives both from the same base URL + department + slug.
     /// </summary>
-    private string? CanonicalUrlFor(string? contentType, string department, string slug) =>
+    /// <remarks>
+    /// Built by <see cref="GccContentPath"/> rather than here, so the canonical tag and the JSON-LD
+    /// <c>url</c> for the same page cannot disagree — they were two hand-assembled strings before.
+    /// The create supplies the department and the descriptor directory;
+    /// <paramref name="department"/> is no longer read, because <c>GccContentPath.DepartmentFor</c>
+    /// derives a better one from the researched taxonomy path than the create's own column, which
+    /// nothing sets and which defaults to "marketing" for every live create.
+    /// </remarks>
+    private string? CanonicalUrlFor(string? contentType, GccCreateDto create, string slug) =>
         (contentType ?? "").Trim().ToLowerInvariant() switch
         {
-            "pillar" => $"{_company.ArticleBaseUrl.TrimEnd('/')}/{department}/{slug}",
-            "blog" => $"{_company.BlogBaseUrl.TrimEnd('/')}/{department}/{slug}",
-            "tool" or "aitool" => $"{_company.ToolBaseUrl.TrimEnd('/')}/{department}/{slug}",
+            "pillar" => GccContentPath.For(_company.ArticleBaseUrl, create, slug),
+            "blog" => GccContentPath.For(_company.BlogBaseUrl, create, slug),
+            "tool" or "aitool" => GccContentPath.For(_company.ToolBaseUrl, create, slug),
             _ => null,
         };
 

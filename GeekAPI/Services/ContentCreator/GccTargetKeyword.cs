@@ -30,21 +30,16 @@ public static class GccTargetKeyword
     /// empty or a single short word is ignored: "Marketing: AI" is more likely a topic ending in a
     /// colon than a one-word keyword, and scoring against "AI" would pass on any draft.
     /// </summary>
-    public static string FromTopic(string? topic)
-    {
-        var whole = (topic ?? string.Empty).Trim();
-        if (whole.Length == 0) return whole;
-
-        var idx = whole.LastIndexOf(':');
-        if (idx < 0 || idx == whole.Length - 1) return whole;
-
-        var tail = whole[(idx + 1)..].Trim();
-        if (tail.Length < 3) return whole;
-
-        // Two tokens is the floor everywhere else in this codebase for calling something a keyword
-        // rather than a category -- see GccSiteStructureMatch, which refuses a single-token seed for
-        // the same reason.
-        var tokens = tail.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        return tokens.Length >= 2 ? tail : whole;
-    }
+    /// <remarks>
+    /// Delegates to <see cref="GccTopic.Parse"/>, which is the one parser. This was a second
+    /// implementation until 2026-10-02 and the two disagreed — it split on the <b>last</b> colon while
+    /// <c>GccTopic.Parse</c> split on the <b>first</b>, and only this one carried the length and
+    /// token-count guards. Two readers of one string is the drift this codebase has been bitten by
+    /// repeatedly; it stopped being survivable once the descriptor became a published URL directory,
+    /// where disagreeing means filing a page at one path and ranking it for another.
+    ///
+    /// Kept as a named method rather than replaced at its call sites: "the keyword, for scoring" is a
+    /// question worth having a name, and both call sites read better for asking it.
+    /// </remarks>
+    public static string FromTopic(string? topic) => GccTopic.KeywordOf(topic);
 }

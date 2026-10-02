@@ -41,9 +41,21 @@ public class GccTargetKeywordTests
     }
 
     [Fact]
-    public void The_last_colon_wins_when_there_are_several()
+    public void The_first_colon_wins_when_there_are_several()
     {
-        Assert.Equal("Automated Data Entry", GccTargetKeyword.FromTopic("Accounting: AP: Automated Data Entry"));
+        // Reversed 2026-10-02, deliberately. This method split on the LAST colon while GccTopic.Parse
+        // split on the FIRST, and the two were separate implementations of one rule. The first-colon
+        // reading is the documented contract -- GccTopic's own class doc and content-creator-v2's
+        // AGENTS.md both state "split on the first colon" -- so this method was the deviation, and this
+        // test was pinning it.
+        //
+        // It stopped being survivable when the descriptor became a published URL directory
+        // (/tools/{department}/{descriptor}/{slug}): two readers of one string would file the page at one
+        // path and rank it for another. FromTopic now delegates to GccTopic.KeywordOf.
+        //
+        // So everything after the first colon is the keyword, colons included.
+        Assert.Equal("AP: Automated Data Entry", GccTargetKeyword.FromTopic("Accounting: AP: Automated Data Entry"));
+        Assert.Equal("Accounting", GccTopic.DescriptorOf("Accounting: AP: Automated Data Entry"));
     }
 
     [Theory]

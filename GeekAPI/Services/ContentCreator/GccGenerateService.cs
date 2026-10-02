@@ -1492,7 +1492,10 @@ public class GccGenerateService
             : metadata.MetaDescription;
         metadata = metadata with { MetaDescription = metaDescription };
 
-        var toolUrl = $"{_company.ToolBaseUrl.TrimEnd('/')}/{dept}/{slug}";
+        // {base}/{department}/{descriptor}/{slug} -- Jeff, 2026-10-02: /tools/accounting/accounts-payable.
+        // The descriptor directory is what stops one partner's pages colliding: the slug is the product
+        // name, so Dext for accounts payable and Dext for expense management were the same URL.
+        var toolUrl = GccContentPath.For(_company.ToolBaseUrl, create, slug);
         // Our page about the product. Distinct from app.Url, which is the product's own home.
         app = app with { PageUrl = toolUrl };
         var now = DateTime.UtcNow;
@@ -1503,7 +1506,7 @@ public class GccGenerateService
             context, name, metaDescription, toolUrl, pillarMeta.Keywords, document, now);
 
         var pillarUrl = string.IsNullOrWhiteSpace(relatedArticleUrl)
-            ? $"{_company.ArticleBaseUrl.TrimEnd('/')}/{dept}"
+            ? GccContentPath.DirectoryFor(_company.ArticleBaseUrl, create)
             : relatedArticleUrl;
 
         // Partner grounding: when extraction actually yielded data, emit the real partner-extraction
