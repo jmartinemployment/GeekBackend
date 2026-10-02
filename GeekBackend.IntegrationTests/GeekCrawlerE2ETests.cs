@@ -351,6 +351,16 @@ public sealed class GeekCrawlerE2ETests : IClassFixture<GeekApiTestFactory>
             });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
+        // 202 has to mean the five Rag* fields were written, not merely that the frame was
+        // received. Until GeekBackend 2123a1b the receiver swallowed a persist failure and answered
+        // Accepted anyway, and the repository stub had no route for
+        // PATCH runs/{id}/rag-index-status at all -- so the status assertion above passed for a
+        // write that never happened. Reading the stored run back is what makes 202 mean something.
+        var stored = _factory.Repository.Runs[runId];
+        Assert.Equal("complete", stored.RagState);
+        Assert.Equal(2, stored.RagChunksUpserted);
+        Assert.Equal(1, stored.RagPagesEnglish);
+
         var payload = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("rag_index", payload.GetProperty("eventType").GetString());
         Assert.Equal(runId.ToString("D"), payload.GetProperty("runId").GetString());

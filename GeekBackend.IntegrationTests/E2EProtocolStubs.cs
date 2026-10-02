@@ -419,6 +419,37 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
         if (request.Method == HttpMethod.Get && path == "repo/geek-crawler/links/activity")
             return new HttpResponseMessage(HttpStatusCode.NotFound);
 
+        // PATCH repo/geek-crawler/runs/{id}/rag-index-status
+        //
+        // Absent until 2026-10-02, and invisible until GeekBackend 2123a1b. Before that the webhook
+        // receiver wrapped its persist in catch { LogWarning } and returned Accepted regardless, so
+        // the unmatched path fell through to the 404 fallback, the exception was swallowed, and the
+        // contract test passed while the five Rag* fields were dropped on the floor. 2123a1b made a
+        // failed persist return 404 -- which is what turned a silent gap into a failing test.
+        //
+        // Mirrors GeekCrawlerRunsController.PatchRagIndexStatus exactly: 204 when a document
+        // matched, 404 when none did. 404 is the part under test; HttpGeekCrawlerRepository calls
+        // EnsureSuccessStatusCode, and that is how a status written onto nothing reaches the sender.
+        if (request.Method == HttpMethod.Patch && TryRagIndexStatusRunId(path, out var ragRunId))
+        {
+            if (!_runs.TryGetValue(ragRunId, out var target))
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            var patch = await request.Content!.ReadFromJsonAsync<PatchRagIndexStatusCommand>(
+                JsonOptions,
+                cancellationToken);
+            _runs[ragRunId] = target with
+            {
+                RagState = patch!.RagState ?? target.RagState,
+                RagChunksUpserted = patch.RagChunksUpserted ?? target.RagChunksUpserted,
+                RagPagesEnglish = patch.RagPagesEnglish ?? target.RagPagesEnglish,
+                RagPagesSkippedUnusable =
+                    patch.RagPagesSkippedUnusable ?? target.RagPagesSkippedUnusable,
+                RagIndexedAtUtc = patch.RagIndexedAtUtc ?? target.RagIndexedAtUtc,
+            };
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
+
         if (TryRunId(path, out var runId))
         {
             if (request.Method == HttpMethod.Get)
@@ -604,6 +635,19 @@ public sealed class InMemoryGeekRepositoryHandler : HttpMessageHandler
         }
 
         return values;
+    }
+
+    private static bool TryRagIndexStatusRunId(string path, out Guid runId)
+    {
+        const string prefix = "repo/geek-crawler/runs/";
+        const string suffix = "/rag-index-status";
+        runId = default;
+        if (!path.StartsWith(prefix, StringComparison.Ordinal)
+            || !path.EndsWith(suffix, StringComparison.Ordinal))
+            return false;
+
+        var middle = path[prefix.Length..^suffix.Length];
+        return Guid.TryParse(middle, out runId);
     }
 
     private static bool TryRunId(string path, out Guid runId)
