@@ -1679,7 +1679,20 @@ public class GccGenerateService
         return new ProjectGenerationContext(
             ProjectName: topic,
             ProjectUrl: _company.ArticleBaseUrl,
-            TargetKeyword: topic,
+            // The keyword half, not the whole topic -- and this is the one that produced a 0.00%
+            // density score. Every SEO instruction the writer gets interpolates TargetKeyword:
+            // SeoLedeInstruction asks for it in the lede, SeoOutlineInstruction and
+            // SeoBodyInstruction ask for it in exactly one H2. Handed the whole topic, the writer was
+            // being told to put "Accounts Payable: Automated Data Entry & Processing" verbatim into a
+            // heading and an opening sentence, which no readable prose does -- so it appeared nowhere
+            // and all three keyword checks failed on a draft that discussed the keyword throughout.
+            //
+            // GcwSeoAnalyzer has been scored against GccTargetKeyword.FromTopic since 2026-09-28. The
+            // prompt side was never moved with it, so the writer and the scorer disagreed about what
+            // the keyword even was. ProjectName and DetectedFocus deliberately keep the whole topic:
+            // the context half exists so the model knows the subject area, which is the entire reason
+            // the topic is written that way.
+            TargetKeyword: GccTargetKeyword.FromTopic(topic),
             Department: dept,
             SiteName: _company.PublisherName,
             DetectedTone: "Professional, consultative",
@@ -2023,8 +2036,8 @@ public class GccGenerateService
         string gapTopic) =>
         GccV2SiteSection.TryBuildSectionContext(analysisId, payload, gapTopic);
 
-    public static GcwSeoAnalyzer.SeoReport AnalyzeSeo(string bodyJson, string keyword) =>
-        GcwSeoAnalyzer.Analyze(bodyJson, keyword);
+    public static GcwSeoAnalyzer.SeoReport AnalyzeSeo(string bodyJson, string keyword, string? contentType) =>
+        GcwSeoAnalyzer.Analyze(bodyJson, keyword, contentType);
 
     public static GcwPolishAnalyzer.PolishReport AnalyzePolish(string bodyJson) =>
         GcwPolishAnalyzer.Analyze(bodyJson, Array.Empty<string>());

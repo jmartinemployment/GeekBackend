@@ -755,12 +755,20 @@ public class GccController : ControllerBase
     {
         var version = await _repo.GetVersionAsync(id, ct);
         if (version is null) return NotFound();
+
+        // The artifact's own type, not the caller's word for it and not a default. Length and section
+        // thresholds are per type (GccV2LongFormTypes.GetSeoLengthRules), and this route used to omit
+        // it -- so a 3,000-word pillar and a 3,000-word tool page were both graded against the blog's
+        // 1,800 and reported as passing on length.
+        var artifact = await _repo.GetArtifactAsync(version.ArtifactId, ct);
+        if (artifact is null) return NotFound();
+
         // A topic is context plus keyword -- "Accounts Payable: Automated Data Entry & Processing"
         // -- and the caller sends the whole thing. Scoring the whole thing asks whether the lede
         // contains both halves verbatim, which no readable sentence does, so keyword-in-lede and
         // keyword-in-heading failed on drafts that used the keyword correctly throughout.
         var report = GccGenerateService.AnalyzeSeo(
-            version.BodyDocumentJson, GccTargetKeyword.FromTopic(keyword));
+            version.BodyDocumentJson, GccTargetKeyword.FromTopic(keyword), artifact.Type);
         return Ok(report);
     }
 

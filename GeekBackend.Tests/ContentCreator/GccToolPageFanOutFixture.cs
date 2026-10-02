@@ -38,11 +38,25 @@ internal sealed record GccToolPageFanOutFixture(
         private int _extractions;
         private int _drafts;
 
+        private readonly List<string> _prompts = [];
+
         public int Extractions => Volatile.Read(ref _extractions);
         public int Drafts => Volatile.Read(ref _drafts);
 
+        /// <summary>Every prompt the provider was handed, so a test can assert what the writer was
+        /// actually told rather than inferring it from the output.</summary>
+        public IReadOnlyList<string> Prompts
+        {
+            get { lock (_prompts) return [.. _prompts]; }
+        }
+
         public void CountExtraction() => Interlocked.Increment(ref _extractions);
-        public void CountDraft() => Interlocked.Increment(ref _drafts);
+
+        public void CountDraft(string prompt)
+        {
+            Interlocked.Increment(ref _drafts);
+            lock (_prompts) _prompts.Add(prompt);
+        }
     }
 
     public static GccToolPageFanOutFixture WithPartners(params string[] partnerUrls) =>
@@ -189,7 +203,7 @@ internal sealed record GccToolPageFanOutFixture(
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
-            calls.CountDraft();
+            calls.CountDraft(string.Join("\n", request.Messages.Select(m => m.Content)));
             throw new ContentGenerationException("scripted provider failure");
         }
     }

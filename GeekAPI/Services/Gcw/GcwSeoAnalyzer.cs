@@ -25,9 +25,17 @@ public static class GcwSeoAnalyzer
         IReadOnlyList<SeoCheck> Checks,
         string ApplyFeedback);
 
-    public static SeoReport Analyze(string bodyDocumentJson, string targetKeyword) =>
-        Analyze(bodyDocumentJson, targetKeyword, contentType: null);
-
+    /// <summary>
+    /// Scores a draft against its target keyword and <b>its own content type's</b> thresholds.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="contentType"/> has no default on purpose. A two-argument overload used to pass
+    /// null, and null reaches <c>GccV2LongFormTypes.Normalize</c>, which returns <c>blog</c> — so a
+    /// pillar and a tool page, both with a 3,000-word floor, were silently graded against the blog's
+    /// 1,800 and reported as passing. The caller always knows the type: a Create artifact carries
+    /// <c>Type</c>, a Gcw asset carries <c>Type</c>. Requiring it is what stops the next caller
+    /// recreating the default (Jeff, 2026-10-02: the score "does not appear to be per Content Type").
+    /// </remarks>
     public static SeoReport Analyze(string bodyDocumentJson, string targetKeyword, string? contentType)
     {
         var keyword = (targetKeyword ?? "").Trim();
@@ -159,13 +167,23 @@ public static class GcwSeoAnalyzer
     private static bool ContainsPhrase(string haystack, string phrase) =>
         CountPhraseOccurrences(haystack, phrase) > 0;
 
+    /// <summary>
+    /// Counts the phrase, treating <c>&amp;</c> and <c>and</c> as the same word.
+    /// </summary>
+    /// <remarks>
+    /// A keyword of "Automated Data Entry &amp; Processing" is written "Automated Data Entry and
+    /// Processing" in any real heading or sentence, and an exact-substring match scored that at zero
+    /// occurrences. This is not loosening the check: it is the same phrase, and the alternative is a
+    /// writer told to put an ampersand in its prose to satisfy a matcher. Normalisation only, never
+    /// stemming or partial matching -- a draft that says "data entry" is still not using the keyword.
+    /// </remarks>
     private static int CountPhraseOccurrences(string haystack, string phrase)
     {
         if (string.IsNullOrWhiteSpace(haystack) || string.IsNullOrWhiteSpace(phrase))
             return 0;
 
-        var h = Regex.Replace(haystack.ToLowerInvariant(), @"\s+", " ").Trim();
-        var p = Regex.Replace(phrase.ToLowerInvariant(), @"\s+", " ").Trim();
+        var h = NormalizeForMatch(haystack);
+        var p = NormalizeForMatch(phrase);
         if (p.Length == 0) return 0;
 
         var count = 0;
@@ -176,5 +194,11 @@ public static class GcwSeoAnalyzer
             idx += p.Length;
         }
         return count;
+    }
+
+    private static string NormalizeForMatch(string value)
+    {
+        var lowered = value.ToLowerInvariant().Replace("&", " and ");
+        return Regex.Replace(lowered, @"\s+", " ").Trim();
     }
 }

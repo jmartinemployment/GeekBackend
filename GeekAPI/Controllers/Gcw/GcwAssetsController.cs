@@ -261,7 +261,7 @@ public class GcwAssetVersionsController : ControllerBase
 
         var campaign = await _repo.GetCampaignByIdAsync(asset.CampaignId, ct);
         var keyword = campaign?.Keyword ?? "";
-        var report = GcwSeoAnalyzer.Analyze(version.BodyDocumentJson ?? "", keyword);
+        var report = GcwSeoAnalyzer.Analyze(version.BodyDocumentJson ?? "", keyword, asset.Type);
         return Ok(report);
     }
 
