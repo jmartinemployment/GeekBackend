@@ -186,6 +186,17 @@ public static class GccRequiredToolMentions
     /// The registrable host of a URL, lowercased and without a leading "www.". Empty when the value
     /// is not an absolute http(s) URL, which is the only form a partner URL is stored in.
     /// </summary>
+    /// <summary>
+    /// The registrable host of a URL, lowercased and without a leading <c>www.</c> — the key this
+    /// file's lookups are built on, and the one way to bucket anything by partner.
+    /// </summary>
+    /// <remarks>
+    /// Public because the key has to be computed outside this class to be useful: a page can only be
+    /// matched to the partner that <see cref="AnchorLookup"/> named by computing the same key the
+    /// lookup was built with. It was private, and two copies of this normalization grew elsewhere.
+    /// </remarks>
+    public static string HostKeyOf(string? url) => HostOf(url);
+
     private static string HostOf(string? url)
     {
         if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri))

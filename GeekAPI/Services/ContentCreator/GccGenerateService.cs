@@ -473,13 +473,118 @@ public class GccGenerateService
         int DeeperHeadingCount,
         IReadOnlyList<string> Headings);
 
+    /// <summary>One partner's tool page, or the reason it could not be written.</summary>
+    public sealed record ToolPageOutcome(string ProductName, string? BodyJson, string? Refusal)
+    {
+        public bool Written => BodyJson is not null;
+    }
+
+    /// <summary>
+    /// A tool page per declared partner — the set-of-five path, and the priority (Jeff, 2026-10-02).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Each page is <i>that product × this keyword</i>, grounded only in that partner's own evidence.
+    /// Before this, one page was written with <c>create.Topic</c> as the product name over the pooled
+    /// research, so extraction searched every partner's pages for a product named after the keyword and
+    /// returned 1 of 22 payload categories twice, against partners carrying 84–226 quotable spans each.
+    /// </para>
+    /// <para>
+    /// <b>Each page stands alone</b> (Jeff, 2026-10-02). A partner with too little evidence refuses its
+    /// own page and that refusal is returned, not thrown — the others still ship. A deliberate exception
+    /// to "one failure fails all", scoped to this fan-out: otherwise one thin partner means a project can
+    /// never produce any tool page. The caller decides what to do when <i>every</i> partner refuses.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<ToolPageOutcome>> GenerateToolPagesPerPartnerAsync(
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        CancellationToken ct,
+        string? mustMentionBlock = null,
+        IReadOnlyList<GccGroundedPassage>? passages = null,
+        // One product instead of all of them. Same slicing, same grounding, same gate -- Jeff,
+        // 2026-10-02: five at once is the priority and single pages are also needed, so this is one
+        // method with two call shapes rather than a second path that can drift from this one.
+        string? onlyProduct = null)
+    {
+        var partnerUrls = await PartnerUrlsForAsync(create, ct);
+
+        IReadOnlyList<GccPartnerToolSlice> slices;
+        if (!string.IsNullOrWhiteSpace(onlyProduct))
+        {
+            var wanted = GccPartnerToolSlices.ForProduct(create, partnerUrls, passages ?? [], onlyProduct);
+            if (wanted is null)
+            {
+                // Named a product this project declares no partner for. Refusing by name beats writing
+                // an ungrounded page about it.
+                return [new ToolPageOutcome(
+                    onlyProduct.Trim(),
+                    null,
+                    $"Refused: '{onlyProduct.Trim()}' is not one of this project's declared partners, so "
+                    + "there is no crawl to ground a tool page on.")];
+            }
+
+            slices = [wanted];
+        }
+        else
+        {
+            slices = GccPartnerToolSlices.Build(create, partnerUrls, passages ?? []);
+        }
+
+        if (slices.Count == 0)
+        {
+            // No declared partners is not a thin page, it is a project that cannot have tool pages at
+            // all. Said once, here, rather than five identical refusals.
+            return [new ToolPageOutcome(
+                create.Topic,
+                null,
+                "Refused: this project declares no partner URLs, so there is no product for a tool page "
+                + "to be about. A tool page is about one partner's product.")];
+        }
+
+        var outcomes = new List<ToolPageOutcome>(slices.Count);
+        foreach (var slice in slices)
+        {
+            try
+            {
+                var body = await GenerateStartingContentAsync(
+                    slice.Narrow(create) with { StartingContentType = "tool" },
+                    section,
+                    provider,
+                    ct,
+                    mustMentionBlock,
+                    slice.Passages,
+                    toolName: slice.ProductName);
+                outcomes.Add(new ToolPageOutcome(slice.ProductName, body, null));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(
+                    "Tool page for {Product} ({Host}) was not written: {Reason}",
+                    slice.ProductName, slice.Host, ex.Message);
+                outcomes.Add(new ToolPageOutcome(slice.ProductName, null, ex.Message));
+            }
+        }
+
+        return outcomes;
+    }
+
     public async Task<string> GenerateStartingContentAsync(
         GccCreateDto create,
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         CancellationToken ct,
         string? mustMentionBlock = null,
-        IReadOnlyList<GccGroundedPassage>? passages = null)
+        IReadOnlyList<GccGroundedPassage>? passages = null,
+        // The product this page is about, when the caller knows it. Topic is the problem (GccTopic), so
+        // it cannot also be the subject -- that collapse is what sent extraction looking for a product
+        // named after the keyword. Null keeps the old behaviour for callers with no partner to name.
+        string? toolName = null)
     {
         ValidateSiteSectionGate(create.ProjectSiteRunId, section);
         ValidateBriefRequired(create);
@@ -514,7 +619,7 @@ public class GccGenerateService
             || string.Equals(create.StartingContentType, "tool", StringComparison.OrdinalIgnoreCase))
         {
             var tool = await GenerateToolPageAsync(
-                toolName: create.Topic,
+                toolName: string.IsNullOrWhiteSpace(toolName) ? create.Topic : toolName.Trim(),
                 brief: create.Notes,
                 sourceContext: $"{briefBlock}\n\n{BuildAudience(create, section)}",
                 department: string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department,
@@ -2894,13 +2999,12 @@ public class GccGenerateService
     /// when the value is not an absolute http(s) URL, which is the only form a retrieved or fetched
     /// passage carries.
     /// </summary>
-    private static string HostOfQuoteable(string? url)
-    {
-        if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri)) return string.Empty;
-        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return string.Empty;
-        var host = uri.Host.ToLowerInvariant();
-        return host.StartsWith("www.", StringComparison.Ordinal) ? host[4..] : host;
-    }
+    /// <summary>
+    /// The registrable host of a quoteable's URL. Delegates, rather than repeating the rule: this was a
+    /// second copy of <see cref="GccRequiredToolMentions.HostKeyOf"/>, and a page bucketed by a key that
+    /// drifts from the one the partner lookup was built with belongs to no partner.
+    /// </summary>
+    private static string HostOfQuoteable(string? url) => GccRequiredToolMentions.HostKeyOf(url);
 
     private sealed record SectionImagePrompt(string Section, string Prompt);
     private sealed record SectionImagePromptsResponse(List<SectionImagePrompt>? Prompts);

@@ -203,7 +203,7 @@ public sealed class GccGenerationCoordinator
                     var generated = await GenerateOneAsync(
                         repo, gen, create, section, provider, type, mustMentionBlock,
                         resolved.PartnerPassages, ct);
-                    return (Type: type, Body: (string?)generated.BodyJson, Error: (string?)null);
+                    return (Type: type, Outcome: (TypeOutcome?)generated, Error: (string?)null);
                 }
                 catch (OperationCanceledException)
                 {
@@ -213,7 +213,7 @@ public sealed class GccGenerationCoordinator
                 {
                     _logger.LogWarning(
                         ex, "Generate failed for type {ContentType} on create {CreateId}", type, create.Id);
-                    return (Type: type, Body: (string?)null, Error: (string?)ex.Message);
+                    return (Type: type, Outcome: (TypeOutcome?)null, Error: (string?)ex.Message);
                 }
             }));
 
@@ -223,13 +223,25 @@ public sealed class GccGenerationCoordinator
                     string.Join(" | ", failures.Select(f => $"{f.Type}: {f.Error}")));
 
             var created = new List<object>(attempts.Length);
+            var refusals = new List<string>();
             foreach (var attempt in attempts)
             {
-                created.Add(await PersistOneAsync(
-                    repo, create, attempt.Type, attempt.Body!, onTypeOutcome, ct));
+                foreach (var piece in attempt.Outcome!.Pieces)
+                {
+                    created.Add(await PersistOneAsync(repo, create, piece, onTypeOutcome, ct));
+                }
+
+                // Named, never swallowed: a partner whose page was not written is reported alongside the
+                // ones that were, so five declared partners and four pages is visible rather than
+                // something the operator has to count.
+                foreach (var partnerRefusal in attempt.Outcome.SoftFailures)
+                {
+                    refusals.Add(partnerRefusal);
+                    if (onTypeOutcome is not null) await onTypeOutcome(attempt.Type, null, partnerRefusal);
+                }
             }
 
-            return new { created };
+            return refusals.Count == 0 ? new { created } : new { created, refusals };
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
@@ -238,7 +250,23 @@ public sealed class GccGenerationCoordinator
         var single = await GenerateOneAsync(
             repo, gen, create, section, provider, requested[0], mustMentionBlock,
             resolvedSingle.PartnerPassages, ct);
-        return await PersistOneAsync(repo, create, single.ContentType, single.BodyJson, onTypeOutcome, ct);
+
+        var singleCreated = new List<object>(single.Pieces.Count);
+        foreach (var piece in single.Pieces)
+        {
+            singleCreated.Add(await PersistOneAsync(repo, create, piece, onTypeOutcome, ct));
+        }
+
+        foreach (var partnerRefusal in single.SoftFailures)
+        {
+            if (onTypeOutcome is not null) await onTypeOutcome(requested[0], null, partnerRefusal);
+        }
+
+        // One requested type can still be several artifacts -- tool is five. A bare object is returned
+        // when it is one, so the existing single-select contract is unchanged for every other type.
+        return single.Pieces.Count == 1 && single.SoftFailures.Count == 0
+            ? singleCreated[0]
+            : new { created = singleCreated, refusals = single.SoftFailures };
     }
 
     /// <summary>
@@ -252,7 +280,25 @@ public sealed class GccGenerationCoordinator
     /// passages come down beside it for the same reason, and for the one in
     /// ResolveAndMergeGroundingAsync's remarks: they cannot be carried inside the create.
     /// </summary>
-    private async Task<(string ContentType, string BodyJson)> GenerateOneAsync(
+    /// <summary>One artifact-to-be: a body, and the name the artifact carries.</summary>
+    /// <param name="ArtifactName">
+    /// The create's Topic for every type except tool, where it is the partner's product name — a tool
+    /// page is about one product, and five pages all named after the keyword would be indistinguishable.
+    /// </param>
+    private sealed record GeneratedPiece(string ContentType, string BodyJson, string ArtifactName);
+
+    /// <summary>
+    /// What one requested content type produced: usually one piece, five for tool.
+    /// </summary>
+    /// <param name="SoftFailures">
+    /// Per-partner refusals that must not fail the generate. Reported to the operator, named, while the
+    /// partners that did produce a page still persist — Jeff, 2026-10-02: each page stands alone. Empty
+    /// for every other type, which keeps "one failure fails all" intact across types.
+    /// </param>
+    private sealed record TypeOutcome(
+        IReadOnlyList<GeneratedPiece> Pieces, IReadOnlyList<string> SoftFailures);
+
+    private async Task<TypeOutcome> GenerateOneAsync(
         HttpGccRepository repo,
         GccGenerateService gen,
         GccCreateDto create,
@@ -322,10 +368,26 @@ public sealed class GccGenerationCoordinator
             // notes validation -- overriding StartingContentType guarantees the right internal
             // branch fires regardless of what the create was originally started as.
             case "aitool" or "tool":
-                bodyJson = await gen.GenerateStartingContentAsync(
-                    create with { StartingContentType = "tool" }, section, provider, ct, mustMentionBlock,
-                    passages);
-                break;
+            {
+                // One page per declared partner, each about that product. The set-of-five path.
+                var toolOutcomes = await gen.GenerateToolPagesPerPartnerAsync(
+                    create, section, provider, ct, mustMentionBlock, passages);
+
+                var written = toolOutcomes.Where(o => o.Written).ToList();
+                var refused = toolOutcomes.Where(o => !o.Written).ToList();
+
+                // Every partner refusing means the type produced nothing, which is a failure of the
+                // type like any other. Some refusing is the expected shape of a real project.
+                if (written.Count == 0)
+                {
+                    throw new InvalidOperationException(
+                        string.Join(" | ", refused.Select(o => $"{o.ProductName}: {o.Refusal}")));
+                }
+
+                return new TypeOutcome(
+                    [.. written.Select(o => new GeneratedPiece(contentType, o.BodyJson!, o.ProductName))],
+                    [.. refused.Select(o => $"{o.ProductName}: {o.Refusal}")]);
+            }
 
             case "imageprompt":
                 bodyJson = await gen.GenerateStartingContentAsync(
@@ -348,24 +410,31 @@ public sealed class GccGenerationCoordinator
         // failure in any requested type leaves no artifacts behind at all (Jeff, 2026-09-23: "do
         // not incur changes on failures. One failure fails all, for now."). Persisting per type as
         // it finished is what left one page on disk when two other types failed.
-        return (contentType, bodyJson);
+        return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, create.Topic)], []);
     }
 
     /// <summary>Writes one already-generated body as an artifact and its first version.</summary>
+    /// <summary>
+    /// One artifact and its first version.
+    /// </summary>
+    /// <remarks>
+    /// The artifact takes the piece's own name. It was always <c>create.Topic</c>, which was wrong even
+    /// for the single tool page — a tool page is about a product, not about the keyword — and would make
+    /// five partner pages indistinguishable in the artifact list.
+    /// </remarks>
     private static async Task<object> PersistOneAsync(
         HttpGccRepository repo,
         GccCreateDto create,
-        string contentType,
-        string bodyJson,
+        GeneratedPiece piece,
         Func<string, object?, string?, Task>? onTypeOutcome,
         CancellationToken ct)
     {
         var artifact = await repo.CreateArtifactAsync(
-            new CreateGccArtifactCommand(create.Id, contentType, create.Topic), ct);
+            new CreateGccArtifactCommand(create.Id, piece.ContentType, piece.ArtifactName), ct);
         var version = await repo.CreateVersionAsync(
-            new CreateGccArtifactVersionCommand(artifact.Id, bodyJson), ct);
+            new CreateGccArtifactVersionCommand(artifact.Id, piece.BodyJson), ct);
         var produced = new { artifact, version };
-        if (onTypeOutcome is not null) await onTypeOutcome(contentType, produced, null);
+        if (onTypeOutcome is not null) await onTypeOutcome(piece.ContentType, produced, null);
         return produced;
     }
 
