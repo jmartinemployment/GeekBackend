@@ -98,4 +98,14 @@ public sealed record ContentTypePromptContext(
     /// call -- the scorer wants at least one and the outline rules cap it at two, so asking every
     /// batch for one puts it in half the headings on the page.
     /// </summary>
-    int SectionBatchIndex = 0);
+    int SectionBatchIndex = 0,
+    /// <summary>
+    /// The operator's own framing of this niche's problem, resolved for this page's product —
+    /// <see cref="GeekAPI.Services.ContentCreator.GccNicheFramingReader.ForProduct"/>.
+    ///
+    /// Carried here rather than on <c>ProjectGenerationContext</c> because it is a Content Creator
+    /// concern: the brief holds it, the Create path resolves it, and the orchestrator's own tool path
+    /// has no brief to read it from. Null means the operator wrote none, and the opening slot then
+    /// carries no guidance — exactly as it did before this existed.
+    /// </summary>
+    GeekAPI.Services.ContentCreator.GccNicheFraming? NicheFraming = null);

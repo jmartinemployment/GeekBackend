@@ -1273,9 +1273,18 @@ public class GccGenerateService
         //
         // Empty research renders an empty string and the append is skipped, so a create with no
         // retrieved passages builds the same prompt it built yesterday.
+        // The operator's framing of this niche, narrowed to this product: its own override when one was
+        // written, otherwise the category's. Resolved here because this is the only point that has both
+        // the create's brief and the product's name -- which is what keys the override to a host.
+        var nicheFraming = create is null
+            ? null
+            : GccNicheFramingReader.ForProduct(
+                create.BriefJson, await PartnerUrlsForAsync(create, ct), name);
+
         var toolOutlineCtx = new ContentTypes.ContentTypePromptContext(
             context, App: app, ToolSlug: slug, ExtractedResearchJson: extractedToolResearchJson,
-            EvidenceBlock: create is null ? null : BuildResearchBlock(create));
+            EvidenceBlock: create is null ? null : BuildResearchBlock(create),
+            NicheFraming: nicheFraming);
         var pillarMeta = new ArticleMetadataDraft(
             Title: name,
             MetaDescription: Truncate((brief ?? name).Trim(), 160),

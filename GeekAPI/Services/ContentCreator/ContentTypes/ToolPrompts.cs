@@ -32,21 +32,28 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
     /// the obligation it sizes, not in a second list somewhere else that has to agree with this one.
     /// </summary>
     public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx) =>
-        Outline(ctx.Context, ctx.App?.Name);
+        Outline(ctx.Context, ctx.App?.Name, ctx.NicheFraming);
 
     /// <summary>
     /// The same definition, reachable without a prompt-set instance -- the orchestrator's own tool
     /// path (<c>ToolPageGenerator</c>) writes the identical page and must not carry a copy of this
     /// list or, worse, hand the tool body prompt the pillar's planned outline instead.
     /// </summary>
-    public static IReadOnlyList<SectionSlot> Outline(ProjectGenerationContext context, string? productName)
+    /// <param name="niche">
+    /// The operator's framing of the problem, when the brief carries one. Optional so the
+    /// orchestrator's tool path — which has no brief — keeps calling this unchanged.
+    /// </param>
+    public static IReadOnlyList<SectionSlot> Outline(
+        ProjectGenerationContext context,
+        string? productName,
+        GccNicheFraming? niche = null)
     {
         var product = productName is { Length: > 0 } n ? n : "this product";
         var publisher = context.PublisherName;
         var keyword = context.TargetKeyword;
         return
         [
-            Opening(context.ContentAngle, product, keyword),
+            Opening(context.ContentAngle, product, keyword, niche),
             SectionSlot.Cover(
                 $"what {product} actually does, stated as what it removes from the reader's week rather than as a feature list",
                 "600-850 words",
@@ -79,22 +86,39 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
     /// is a type of Lede." An overview is the summary hook -- it is the opening's job, and the
     /// opening is already written by the shared 12-type lede below.
     /// </summary>
-    private static SectionSlot Opening(string? angle, string product, string keyword) =>
-        (angle ?? string.Empty).Trim().ToLowerInvariant() switch
+    /// <remarks>
+    /// <paramref name="niche"/> fills this slot's <c>Guidance</c>, which was null until 2026-10-02 —
+    /// so the writer invented the problem, its cost and its failure modes on every page. The slot's
+    /// three clauses and the operator's three fields are the same three things; this is the operator
+    /// answering the question the slot already asked.
+    ///
+    /// It is attached to the opening on every angle, not only <c>problem_solution</c>. A comparative or
+    /// evidence-led page opens differently but is still about the same problem, and the framing says
+    /// what that problem is.
+    /// </remarks>
+    private static SectionSlot Opening(string? angle, string product, string keyword, GccNicheFraming? niche)
+    {
+        var guidance = niche?.ToGuidance();
+        return (angle ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "problem_solution" => SectionSlot.Cover(
                 $"the problem this reader has with {keyword} today, what it costs them, and where {product} breaks it",
-                "500-700 words"),
+                "500-700 words",
+                guidance),
             "comparative" => SectionSlot.Cover(
                 $"how {product} stands against the alternatives this reader is actually weighing for {keyword}",
-                "500-700 words"),
+                "500-700 words",
+                guidance),
             "case_study_data" => SectionSlot.Cover(
                 $"the evidence for {product} on {keyword} -- what the partner data actually shows, and what it does not",
-                "500-700 words"),
+                "500-700 words",
+                guidance),
             _ => SectionSlot.Cover(
                 $"what {product} is for, and where it fits in the work this reader is doing around {keyword}",
-                "500-700 words"),
+                "500-700 words",
+                guidance),
         };
+    }
 
     /// <summary>
     /// The shared 12-type hook, chosen against this brief's audience, angle, intent and tone --

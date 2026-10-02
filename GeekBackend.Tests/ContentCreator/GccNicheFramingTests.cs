@@ -1,0 +1,196 @@
+using GeekAPI.Services.ContentCreator;
+using Xunit;
+
+namespace GeekBackend.Tests.ContentCreator;
+
+/// <summary>
+/// The operator's framing of a niche, read off the brief and resolved per product.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The brief had no problem field, so on a <c>problem_solution</c> angle the writer invented the
+/// problem, its cost and its failure modes on every page while Jeff researched exactly those three
+/// things by hand and the answer was discarded.
+/// </para>
+/// <para>
+/// Two shapes have to work from one set of fields, because Jeff's own research arrives both ways:
+/// Perplexity repeated the three sections per tool, Claude desktop stated them once for the category
+/// and listed five tools beneath. Hence category-level with optional per-tool overrides.
+/// </para>
+/// </remarks>
+public class GccNicheFramingTests
+{
+    private static readonly string[] PartnerUrls =
+        ["https://dext.com", "https://bill.com", "https://melio.com"];
+
+    /// <summary>Desktop's shape: the framing stated once, no per-tool entries at all.</summary>
+    private const string CategoryOnlyBrief = """
+        {
+          "angle": "problem_solution",
+          "nicheFraming": {
+            "taxonomyPath": "Accounting -> Cash Flow Forecasting -> Accounts Receivable",
+            "coreProblem": "Revenue is booked when the invoice goes out, cash arrives whenever the customer gets round to paying.",
+            "painPoints": "Nobody owns collections.\nThey expect the accounting system to collect.\nThey make it hard to pay.",
+            "automationToPitch": "Invoice-to-cash on a schedule: reminders, payment links, reconciliation, a weekly collection forecast."
+          }
+        }
+        """;
+
+    /// <summary>Perplexity's shape: a category set plus a distinct frame for one tool.</summary>
+    private const string PerToolBrief = """
+        {
+          "angle": "problem_solution",
+          "nicheFraming": {
+            "taxonomyPath": ["Accounting","Cash Flow Forecasting","Accounts Receivable"],
+            "coreProblem": "Category level problem.",
+            "painPoints": "Category pain.",
+            "automationToPitch": "Category automation.",
+            "perTool": {
+              "bill.com": {
+                "coreProblem": "The SMB needs AR now and AP next.",
+                "painPoints": "Billing is triggered by a person remembering.\nTerms drift per customer.",
+                "automationToPitch": "One connected finance workflow from invoice through reconciliation."
+              }
+            }
+          }
+        }
+        """;
+
+    [Fact]
+    public void A_category_only_brief_frames_every_product()
+    {
+        // Desktop's arrangement. No per-tool entries, so all five pages share the category frame --
+        // which is correct: the operator judged one problem for the category, not five.
+        foreach (var product in new[] { "Dext", "Bill", "Melio" })
+        {
+            var framing = GccNicheFramingReader.ForProduct(CategoryOnlyBrief, PartnerUrls, product);
+
+            Assert.NotNull(framing);
+            Assert.Contains("Revenue is booked", framing!.CoreProblem, StringComparison.Ordinal);
+            Assert.Equal(3, framing.PainPoints.Count);
+        }
+    }
+
+    [Fact]
+    public void A_per_tool_override_wins_for_that_product_only()
+    {
+        var bill = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Bill");
+        var dext = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Dext");
+
+        Assert.Equal("The SMB needs AR now and AP next.", bill!.CoreProblem);
+        Assert.Equal(2, bill.PainPoints.Count);
+
+        // Dext has no entry, so it inherits rather than coming back empty.
+        Assert.Equal("Category level problem.", dext!.CoreProblem);
+    }
+
+    [Fact]
+    public void The_override_is_keyed_by_host_not_by_a_typed_name()
+    {
+        // The catch this exists to prevent. The fan-out buckets by host via
+        // GccRequiredToolMentions.HostKeyOf and names products via AnchorLookup, so a brief keyed off a
+        // free-typed product name must still resolve to the right slice -- "Bill" is the product name
+        // AnchorLookup derives for bill.com, and the override is keyed "bill.com".
+        var framing = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Bill");
+
+        Assert.Equal("The SMB needs AR now and AP next.", framing!.CoreProblem);
+    }
+
+    [Fact]
+    public void A_product_this_project_declares_no_partner_for_falls_back_to_the_category()
+    {
+        var framing = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Notion");
+
+        // Not null and not the override: an unknown product still gets the category's problem, because
+        // the problem is the category's regardless of which tool is being written about.
+        Assert.Equal("Category level problem.", framing!.CoreProblem);
+    }
+
+    [Fact]
+    public void An_override_opened_and_left_blank_inherits_rather_than_blanking_the_frame()
+    {
+        const string brief = """
+            {
+              "nicheFraming": {
+                "coreProblem": "Category level problem.",
+                "painPoints": "Category pain.",
+                "automationToPitch": "Category automation.",
+                "perTool": { "bill.com": { "coreProblem": "", "painPoints": "", "automationToPitch": "" } }
+              }
+            }
+            """;
+
+        var framing = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill");
+
+        // Handing the writer an empty frame is worse than handing it the category's -- it would have to
+        // invent around the hole, which is the behaviour this whole field exists to remove.
+        Assert.Equal("Category level problem.", framing!.CoreProblem);
+    }
+
+    [Fact]
+    public void No_framing_in_the_brief_is_null_not_an_empty_frame()
+    {
+        Assert.Null(GccNicheFramingReader.ForCategory("""{"angle":"problem_solution"}"""));
+        Assert.Null(GccNicheFramingReader.ForCategory(null));
+        Assert.Null(GccNicheFramingReader.ForCategory("not json at all"));
+        // All three present but blank is not framing.
+        Assert.Null(GccNicheFramingReader.ForCategory(
+            """{"nicheFraming":{"coreProblem":"  ","painPoints":"","automationToPitch":null}}"""));
+    }
+
+    [Theory]
+    [InlineData("Accounting -> Cash Flow Forecasting -> Accounts Receivable")]
+    [InlineData("Accounting > Cash Flow Forecasting > Accounts Receivable")]
+    [InlineData("Accounting › Cash Flow Forecasting › Accounts Receivable")]
+    public void The_taxonomy_path_reads_in_every_separator_the_research_uses(string path)
+    {
+        var brief =
+            "{\"nicheFraming\":{\"taxonomyPath\":\"" + path + "\",\"coreProblem\":\"x\"}}";
+
+        var parts = GccNicheFramingReader.TaxonomyPath(brief);
+
+        Assert.Equal(["Accounting", "Cash Flow Forecasting", "Accounts Receivable"], parts);
+    }
+
+    [Fact]
+    public void The_taxonomy_paths_first_level_is_a_department_slug()
+    {
+        // Jeff, 2026-10-02: the research template lines up with the departmental tool directory. This is
+        // what makes Department derivable instead of a field nobody sets -- every live create is
+        // "marketing" today, so accounting pages publish to /tools/marketing/.
+        var parts = GccNicheFramingReader.TaxonomyPath(CategoryOnlyBrief);
+
+        Assert.Equal("Accounting", parts[0]);
+        Assert.Contains(
+            parts[0].ToLowerInvariant(),
+            GeekAPI.Services.Workflow.Services.Departments.Slugs);
+    }
+
+    [Fact]
+    public void The_guidance_tells_the_writer_to_argue_from_it_and_never_cite_it()
+    {
+        // The one way this becomes a citation problem: a writer that cannot tell operator framing from
+        // retrieved evidence may attribute it to a source. The instruction travels with the payload
+        // rather than sitting in a separate prompt line that one call site could miss.
+        var guidance = GccNicheFramingReader.ForCategory(CategoryOnlyBrief)!.ToGuidance();
+
+        Assert.NotNull(guidance);
+        Assert.Contains("never cite it", guidance!, StringComparison.Ordinal);
+        Assert.Contains("not retrieved evidence", guidance, StringComparison.Ordinal);
+        Assert.Contains("Revenue is booked", guidance, StringComparison.Ordinal);
+        Assert.Contains("Nobody owns collections.", guidance, StringComparison.Ordinal);
+        Assert.Contains("Invoice-to-cash on a schedule", guidance, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Pain_points_read_from_lines_or_an_array()
+    {
+        var fromLines = GccNicheFramingReader.ForCategory(
+            """{"nicheFraming":{"coreProblem":"x","painPoints":"one\ntwo\n\nthree"}}""");
+        var fromArray = GccNicheFramingReader.ForCategory(
+            """{"nicheFraming":{"coreProblem":"x","painPoints":["one","two","three"]}}""");
+
+        Assert.Equal(["one", "two", "three"], fromLines!.PainPoints);
+        Assert.Equal(["one", "two", "three"], fromArray!.PainPoints);
+    }
+}

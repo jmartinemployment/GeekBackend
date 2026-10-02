@@ -75,11 +75,17 @@ internal sealed record GccToolPageFanOutFixture(
     /// drafting cost **vacuously true**: a mutation that ignores the pre-flight entirely leaves the counts
     /// unchanged. Found exactly that way — the first version of these tests passed under that mutation.
     /// </param>
+    /// <param name="briefJson">
+    /// Replaces <c>CompleteBriefJson</c> when supplied. Must still satisfy <c>ValidateBriefRequired</c>
+    /// if <paramref name="draftable"/> is set — a brief that fails validation refuses before drafting,
+    /// which silently makes any assertion about prompt contents vacuous.
+    /// </param>
     public static GccToolPageFanOutFixture Build(
         PartnerPageExtraction extraction,
         string[] partnerUrls,
         int pagesPerPartner,
-        bool draftable = false)
+        bool draftable = false,
+        string? briefJson = null)
     {
         var projectId = Guid.NewGuid();
         var project = new GccProjectDto(
@@ -142,7 +148,7 @@ internal sealed record GccToolPageFanOutFixture(
             Notes: "notes",
             ProjectSiteRunId: draftable ? Guid.NewGuid() : null,
             SiteSectionJson: null,
-            BriefJson: draftable ? CompleteBriefJson : null,
+            BriefJson: briefJson ?? (draftable ? CompleteBriefJson : null),
             ResearchJson: pagesPerPartner <= 0 ? null : ResearchFor(partnerUrls, pagesPerPartner),
             Status: "draft",
             CreatedAtUtc: DateTime.UtcNow,
@@ -194,16 +200,43 @@ internal sealed record GccToolPageFanOutFixture(
         return GccResearchFetchService.Serialize(new GccResearchDocument(null, pages));
     }
 
-    /// <summary>Fails every call, so every partner's page refuses for the same stated reason — and
-    /// counts, because "was drafting even reached" is the pre-flight's central assertion.</summary>
+    /// <summary>
+    /// Records every prompt, answers the first call with a valid lede, then fails.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Failing the very first call records only the <b>lede</b> prompt, because the tool path writes the
+    /// hook before the body (<c>GccGenerateService</c>: <i>"The hook is written before the body, so the
+    /// body can continue it"</i>). Anything asserting on the <i>body</i> prompt therefore has to let the
+    /// lede succeed first — otherwise the body prompt is never built and the assertion is vacuous.
+    /// </para>
+    /// <para>
+    /// The shape is what <c>LlmResponseJsonParser.ParseLede</c> accepts: a <c>ledeType</c> from the
+    /// strict taxonomy and at least one paragraph, which is the acceptance test rather than the heading.
+    /// Everything after the lede still fails, so no page is ever written — these fixtures are about which
+    /// prompts get built, not about output.
+    /// </para>
+    /// </remarks>
     private sealed class RefusingProvider(CallCounter calls) : IContentGenerationProvider
     {
+        private const string ValidLedeJson = """
+            {"ledeType":"summary","heading":"Opening",
+             "paragraphs":[{"type":"text","runs":[{"text":"A scripted opening paragraph that is long enough to pass hygiene checks without saying anything of substance."}]}]}
+            """;
+
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
 
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {
+            var isFirst = calls.Drafts == 0;
             calls.CountDraft(string.Join("\n", request.Messages.Select(m => m.Content)));
+
+            if (isFirst)
+            {
+                return Task.FromResult(new ChatCompletionResult(ValidLedeJson, "test-model", null, null));
+            }
+
             throw new ContentGenerationException("scripted provider failure");
         }
     }
