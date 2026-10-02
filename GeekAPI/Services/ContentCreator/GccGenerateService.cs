@@ -1449,65 +1449,6 @@ public class GccGenerateService
 
     /// <summary>Diagnostic for the refusal message -- names what was and wasn't found, so "reported
     /// failure" means an operator can see why, not just that grounding failed.</summary>
-    /// <summary>
-    /// Re-plans the outline once when it carries a tools-listing heading, then refuses.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Jeff, 2026-10-02: a pillar and a blog do not contain a tools section, period — the tools are
-    /// named in the solution prose, saying how each helps solve the problem the Angle identifies.
-    /// </para>
-    /// <para>
-    /// This had to move to plan time to stop recurring. The ban is in the body prompt and in the outline
-    /// prompts, and the body writer still produced the section, because it was handed the heading as its
-    /// assignment: the retry then re-wrote against the same outline and could not succeed. A writer
-    /// obeying a bad plan is not a prompt problem.
-    /// </para>
-    /// <para>
-    /// Refusing here costs one metadata call. Refusing after the body costs the whole page, and after a
-    /// body retry, twice that.
-    /// </para>
-    /// </remarks>
-    private async Task<List<string>> ReplanOutlineWithoutToolsSectionsAsync(
-        IContentGenerationProvider llm,
-        ChatCompletionRequest metadataPrompt,
-        IReadOnlyList<string> plannedOutline,
-        string label,
-        Func<string, IReadOnlyList<string>> outlineOfRetry,
-        CancellationToken ct)
-    {
-        var offending = Guardrail.GccToolsSectionGuard.FindToolsHeadings(plannedOutline);
-        if (offending.Count == 0) return [.. plannedOutline];
-
-        _logger.LogInformation(
-            "{Label}: the planned outline carried {Count} tools-listing heading(s) ({Headings}); re-planning once.",
-            label, offending.Count, string.Join(", ", offending));
-
-        var retryPrompt = metadataPrompt with
-        {
-            Messages = [
-                .. metadataPrompt.Messages,
-                new ChatMessage(
-                    ChatRole.User,
-                    Guardrail.GccToolsSectionGuard.OutlineRetryInstruction(offending)),
-            ],
-        };
-
-        var retried = await llm.CompleteAsync(retryPrompt, ct);
-        var retriedOutline = outlineOfRetry(retried.Content);
-        var stillOffending = Guardrail.GccToolsSectionGuard.FindToolsHeadings(retriedOutline);
-        if (stillOffending.Count == 0 && retriedOutline.Count > 0)
-        {
-            return [.. retriedOutline];
-        }
-
-        throw new InvalidOperationException(
-            $"Refused: the planned outline for the {label} carries a section whose job is to list tools — "
-            + string.Join(", ", (stillOffending.Count > 0 ? stillOffending : offending).Select(h => $"\"{h}\""))
-            + " — after a re-plan naming it. Tools are named in the prose of the sections they serve, "
-            + "never in a heading.");
-    }
-
     private static string DescribePartnerDataCoverage(GccPartnerExtractionDocument? extraction)
     {
         if (extraction is null) return "no extractable partner pages";
@@ -2399,23 +2340,8 @@ public class GccGenerateService
         // Title, standfirst, meta description and TechArticle JSON-LD. v1's orchestrator produced
         // all of it for a pillar; the Create reimplementation returned a bare document, leaving
         // BuildArticleMetadataPrompt and ArticleSchemaBuilder sitting here with no caller.
-        var pillarMetaPrompt = _prompts.BuildArticleMetadataPrompt(context);
-        var pillarMetaResult = await llm.CompleteAsync(pillarMetaPrompt, ct);
+        var pillarMetaResult = await llm.CompleteAsync(_prompts.BuildArticleMetadataPrompt(context), ct);
         var pillarMeta = LlmResponseJsonParser.Parse<ArticleMetadataDraft>(pillarMetaResult.Content, "pillar metadata");
-
-        // Before the body is written. Same reason as the blog: a planned heading is an assignment the
-        // writer cannot decline, so the ban has to apply to the plan.
-        pillarMeta = pillarMeta with
-        {
-            SectionOutline = await ReplanOutlineWithoutToolsSectionsAsync(
-                llm,
-                pillarMetaPrompt,
-                pillarMeta.SectionOutline ?? [],
-                "pillar",
-                content => LlmResponseJsonParser.Parse<ArticleMetadataDraft>(content, "pillar metadata re-plan")
-                    .SectionOutline ?? [],
-                ct),
-        };
         var pillarMetaDescription = pillarMeta.MetaDescription.Length > 160
             ? pillarMeta.MetaDescription[..160]
             : pillarMeta.MetaDescription;
@@ -2511,22 +2437,8 @@ public class GccGenerateService
         // how-to framing" and BlogSectionCountMin is 5. The model generated a real outline and it
         // was thrown away, which is why a blog came back at 791 words opening with "Overview"
         // (Jeff, 2026-09-23).
-        var blogMetaPrompt = _prompts.BuildStandaloneBlogMetadataPrompt(context);
-        var blogMetaResult = await llm.CompleteAsync(blogMetaPrompt, ct);
+        var blogMetaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
         var blogMeta = LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata");
-
-        // Before the body is written, not after: the writer is handed these headings as its assignment.
-        blogMeta = blogMeta with
-        {
-            SectionOutline = await ReplanOutlineWithoutToolsSectionsAsync(
-                llm,
-                blogMetaPrompt,
-                blogMeta.SectionOutline ?? [],
-                "blog",
-                content => LlmResponseJsonParser.Parse<BlogMetadataDraft>(content, "blog metadata re-plan")
-                    .SectionOutline ?? [],
-                ct),
-        };
         var blogMetaDescription = blogMeta.MetaDescription.Length > 160
             ? blogMeta.MetaDescription[..160]
             : blogMeta.MetaDescription;

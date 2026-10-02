@@ -58,12 +58,21 @@ public class ContentPromptBuilderSectionBatchTests
     private static List<string> BlogOutline() =>
         ["Where the hours go", "What changes first", "Mapping the data", "What to do next"];
 
+    /// <summary>
+    /// The blog's outline arrives as obligation slots, not as headings off the metadata (2026-10-02).
+    /// `Cover` rather than `Assigned`, because no live type hands the writer heading text any more --
+    /// SectionPlansAreOwnedByCodeTests is the assertion that keeps it so.
+    /// </summary>
+    private static List<SectionSlot> BlogSlots() =>
+        [.. BlogOutline().Select(c => SectionSlot.Cover(c))];
+
     private static string BlogBatch(int batchIndex, params string[] owned) =>
         Rendered(new ContentPromptBuilder().BuildStandaloneBlogBodyPrompt(
             Context(),
             new BlogMetadataDraft("Title", "Meta", ["ai"], BlogOutline()),
-            sectionBatch: [.. owned.Select(SectionSlot.Assigned)],
-            batchIndex: batchIndex));
+            sectionBatch: [.. owned.Select(c => SectionSlot.Cover(c))],
+            batchIndex: batchIndex,
+            fullOutline: BlogSlots()));
 
     private static string PillarBatch(int batchIndex, params string[] owned)
     {
@@ -96,9 +105,11 @@ public class ContentPromptBuilderSectionBatchTests
     {
         var prompt = BlogBatch(0, "Where the hours go", "What changes first");
 
-        Assert.Contains("Write ONLY these sections", prompt, StringComparison.Ordinal);
-        Assert.Contains("- Where the hours go", prompt, StringComparison.Ordinal);
-        Assert.Contains("- What changes first", prompt, StringComparison.Ordinal);
+        // Obligations, numbered, with the writer naming each heading -- the same render the pillar and tool
+        // bodies use. It was a bullet list of planned headings until 2026-10-02.
+        Assert.Contains("Write ONLY these 2 top-level (h2) sections", prompt, StringComparison.Ordinal);
+        Assert.Contains("1. Cover: Where the hours go", prompt, StringComparison.Ordinal);
+        Assert.Contains("2. Cover: What changes first", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -109,19 +120,26 @@ public class ContentPromptBuilderSectionBatchTests
         var prompt = BlogBatch(0, "Where the hours go", "What changes first");
 
         Assert.Contains("THE REST OF THIS POST, written by other calls", prompt, StringComparison.Ordinal);
-        Assert.Contains("- Mapping the data", prompt, StringComparison.Ordinal);
-        Assert.Contains("- What to do next", prompt, StringComparison.Ordinal);
+        // RenderOutline numbers the plan, as it does for the pillar and tool bodies.
+        Assert.Contains("Mapping the data", prompt, StringComparison.Ordinal);
+        Assert.Contains("What to do next", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void An_unbatched_blog_still_gets_its_whole_outline_as_advisory()
+    public void An_unbatched_blog_is_given_its_whole_outline_as_obligations()
     {
+        // This asserted "Advisory section outline" -- wording that described planned headings the model had
+        // itself invented and could "refine". There are none: the outline is obligations the writer names
+        // headings for, which is why a tools listing is no longer an answer it can give.
         var prompt = Rendered(new ContentPromptBuilder().BuildStandaloneBlogBodyPrompt(
-            Context(), new BlogMetadataDraft("Title", "Meta", ["ai"], BlogOutline())));
+            Context(),
+            new BlogMetadataDraft("Title", "Meta", ["ai"], BlogOutline()),
+            fullOutline: BlogSlots()));
 
-        Assert.Contains("Advisory section outline", prompt, StringComparison.Ordinal);
+        Assert.Contains("you write its heading", prompt, StringComparison.Ordinal);
+        Assert.Contains("Cover: Where the hours go", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Advisory", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("THE REST OF THIS POST", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Write ONLY these sections", prompt, StringComparison.Ordinal);
     }
 
     public static TheoryData<string> EveryBatchedType() => new() { "pillar", "blog", "tool" };

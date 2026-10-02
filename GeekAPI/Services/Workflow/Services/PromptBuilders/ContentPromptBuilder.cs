@@ -122,7 +122,8 @@ public interface IContentPromptBuilder
     ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
         bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null,
-        IReadOnlyList<SectionSlot>? sectionBatch = null, int batchIndex = 0);
+        IReadOnlyList<SectionSlot>? sectionBatch = null, int batchIndex = 0,
+        IReadOnlyList<SectionSlot>? fullOutline = null);
 
     ChatCompletionRequest BuildSocialPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string platform, string articleUrl);
     ChatCompletionRequest BuildColdOutreachPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string articleUrl);
@@ -2149,19 +2150,46 @@ public class ContentPromptBuilder : IContentPromptBuilder
             MaxOutputTokens: 2048);
     }
 
+    /// <summary>
+    /// Obligation slots as the body prompts present them: what the section must cover, its proportion, and
+    /// any guidance -- the writer supplies the heading.
+    /// </summary>
+    /// <remarks>
+    /// The shape the tool body (<c>:2450-2465</c>) and pillar body (<c>:1663-1670</c>) already use, pulled
+    /// out when the blog joined them rather than written a third time.
+    /// </remarks>
+    private static string RenderSlots(IReadOnlyList<SectionSlot> slots)
+    {
+        var sb = new StringBuilder();
+        for (var i = 0; i < slots.Count; i++)
+        {
+            var slot = slots[i];
+            sb.AppendLine(slot.WritesItsOwnHeading
+                ? $"{i + 1}. Cover: {slot.Covers}"
+                : $"{i + 1}. \"{slot.Heading}\"");
+            if (slot.Depth is { Length: > 0 })
+                sb.AppendLine($"   Roughly {slot.Depth} -- for proportion between sections, not a quota.");
+            if (slot.Guidance is { Length: > 0 })
+                sb.AppendLine($"   {slot.Guidance}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
     public ChatCompletionRequest BuildStandaloneBlogBodyPrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? revisionNotes = null,
         bool requireHeadingProvenance = false, string? evidenceBlock = null, Section? lede = null,
-        IReadOnlyList<SectionSlot>? sectionBatch = null, int batchIndex = 0)
+        IReadOnlyList<SectionSlot>? sectionBatch = null, int batchIndex = 0,
+        IReadOnlyList<SectionSlot>? fullOutline = null)
     {
-        // The planned outline is this post's own, written by the metadata call against its title and
-        // angle. `sectionBatch` is the slice of it this call owns; the whole plan still goes to the
-        // model as context, so a batch neither re-covers what another owns nor closes a page it
-        // cannot see continuing.
-        var blogOutline = metadata.SectionOutline ?? [];
-        var blogBatch = sectionBatch is { Count: > 0 }
-            ? [.. sectionBatch.Select(sl => sl.Label)]
-            : blogOutline;
+        // The outline is `BlogPrompts.OutlineFor`'s obligations, not headings off the metadata. It read
+        // metadata.SectionOutline until 2026-10-02, which is what let the model decide what the sections
+        // WERE -- and so let "Best Tools for X" be a valid answer that nothing upstream could prevent.
+        //
+        // `sectionBatch` is the slice this call owns; the whole plan still goes to the model as context, so
+        // a batch neither re-covers what another owns nor closes a page it cannot see continuing.
+        var blogOutline = fullOutline ?? sectionBatch ?? [];
+        var blogBatch = sectionBatch is { Count: > 0 } ? sectionBatch : blogOutline;
         var isBlogBatch = blogBatch.Count != blogOutline.Count;
 
         var briefBody = BuildBriefBodyGuidance(context);
@@ -2232,19 +2260,26 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine($"Blog meta description: {metadata.MetaDescription}")
             .AppendLine()
+            // Obligations, and the writer names each heading. Not "advisory H2s to refine" -- that wording
+            // described a planned heading the model had itself invented, and there are none now.
             .AppendLine(isBlogBatch
-                ? "Write ONLY these sections, in this order (prefer these H2s when they still fit, but refine any that reads as a reusable label rather than this page's own claim):"
-                : "Advisory section outline (prefer these H2s when they still fit, but refine any that reads as a reusable label rather than this page's own claim):")
-            .AppendLine(string.Join(Environment.NewLine, blogBatch.Select(h => $"- {h}")))
+                ? $"Write ONLY these {blogBatch.Count} top-level (h2) sections, in this order. Each entry says "
+                  + "what that section is responsible for; you write its heading:"
+                : $"Write {blogBatch.Count} top-level (h2) sections, in this order. Each entry says what that "
+                  + "section is responsible for; you write its heading:")
+            .AppendLine(RenderSlots(blogBatch))
             .AppendLine()
             .AppendLine(isBlogBatch
                 ? "THE REST OF THIS POST, written by other calls -- do not cover these, do not recap "
                   + "them, and do not write a conclusion for the post unless its closing section is "
                   + "listed above as yours:" + Environment.NewLine
-                  + string.Join(Environment.NewLine, blogOutline.Select(h => $"- {h}")) + Environment.NewLine
+                  + RenderOutline(blogOutline) + Environment.NewLine
                 : string.Empty)
             .AppendLine("Write the blog body sections. Name platforms from the research brief in running prose where they fit.")
-            .AppendLine(BatchClosingInstruction(context, blogBatch, blogOutline))
+            .AppendLine(BatchClosingInstruction(
+                context,
+                [.. blogBatch.Select(sl => sl.Label)],
+                [.. blogOutline.Select(sl => sl.Label)]))
             .ToString();
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
