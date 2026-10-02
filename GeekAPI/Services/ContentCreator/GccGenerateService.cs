@@ -2826,7 +2826,7 @@ public class GccGenerateService
     /// and <see cref="BuildProvenanceEvidence"/>'s lookup set (which only needs the bare text) --
     /// so the two can never see a different tree.</summary>
     private static void FlattenCompetitorHeadings(
-        IReadOnlyList<GeekAPI.Services.ContentCreatorV2.Hierarchy.GccV2HeadingNode> nodes,
+        IReadOnlyList<GeekAPI.Services.GeekCrawler.SiteStructureNode> nodes,
         List<(string Text, int Level)> into)
     {
         foreach (var node in nodes)

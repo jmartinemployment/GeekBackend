@@ -60,11 +60,11 @@ public class GccCompetitorAnalysisResolverTests
             Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
             Task.FromResult(pages ?? []);
 
-        // These fakes exist to exercise seed lookup. Whole-run paging belongs to the tool resolver,
-        // which has its own fake, so answering pages here would assert something this file does not.
+        // The resolver reads the whole run now, not the declared seed URLs -- the by-seeds answer above
+        // is no longer what it consumes.
         public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
             Guid runId, int limit = 100, int offset = 0, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
+            Task.FromResult(offset == 0 ? pages ?? [] : []);
     }
 
     internal sealed class FakeRag(IReadOnlyList<GeekCrawlerRagHostIndex>? hosts = null) : IGeekCrawlerRagClient
@@ -103,7 +103,33 @@ public class GccCompetitorAnalysisResolverTests
 
     internal static GccCompetitorAnalysisResolver Build(
         IGccProjectReader projects, IGccCrawlPageReader pages, IGeekCrawlerRagClient rag) =>
-        new(projects, pages, rag, new JsonLdParserService(), NullLogger<GccCompetitorAnalysisResolver>.Instance);
+        new(projects,
+            new GccProjectSiteStructureReader(pages),
+            rag,
+            NullLogger<GccCompetitorAnalysisResolver>.Instance);
+
+    /// <summary>A crawled page carrying typed blocks, as the crawler stores them. No Html.</summary>
+    internal static GeekCrawlerPageDto BlockPage(string url, params object[] blocks) => new(
+        Id: Guid.NewGuid(),
+        RunId: Guid.NewGuid(),
+        Origin: url,
+        Url: url,
+        FinalUrl: url,
+        StatusCode: 200,
+        RobotsAllowed: true,
+        Html: null,
+        FailureReason: null,
+        CrawledAtUtc: DateTimeOffset.UtcNow,
+        Title: "A page",
+        Excerpt: null,
+        ContentHtml: null,
+        Blocks: System.Text.Json.JsonSerializer.SerializeToElement(blocks));
+
+    internal static object Heading(int level, string text) =>
+        new Dictionary<string, object> { ["kind"] = "heading", ["level"] = level, ["text"] = text };
+
+    internal static object Paragraph(string text) =>
+        new Dictionary<string, object> { ["kind"] = "paragraph", ["text"] = text };
 
     [Fact]
     public async Task NoProjectYieldsNoAnalysis()
@@ -138,30 +164,31 @@ public class GccCompetitorAnalysisResolverTests
     }
 
     [Fact]
-    public async Task APageWithNoHtmlIsSkippedNotFailed()
+    public async Task APageWithNoHtmlStillContributesItsHeadings()
     {
+        // This asserted the opposite -- no Html meant the page was skipped. Html is not a validated ingest
+        // field, so that dropped pages whose structure was perfectly good. The structure comes from the
+        // crawl's typed blocks, which this page has.
         var rag = new FakeRag(hosts: [new GeekCrawlerRagHostIndex("https://c.test", "c.test", true, Guid.NewGuid().ToString())]);
-        var pages = new FakePages([CrawledPage("https://c.test/a", "")]);
+        var pages = new FakePages([BlockPage("https://c.test/a", Heading(2, "Pricing"), Paragraph("Text."))]);
         var resolver = Build(new FakeProjects(Project("https://c.test")), pages, rag);
 
         var result = await resolver.ResolveAsync(Guid.NewGuid());
 
-        Assert.Empty(result);
+        var page = Assert.Single(result);
+        Assert.Equal("Pricing", Assert.Single(page.Headings).HeadingText);
     }
 
     [Fact]
-    public async Task ExtractsTheHeadingTreeFromAPageWithRealHtml()
+    public async Task ExtractsTheHeadingTreeFromTheCrawlsBlocks()
     {
-        const string html = """
-            <html><body>
-              <h1>Pricing</h1>
-              <p>Overview text.</p>
-              <h2>Enterprise Plan</h2>
-              <p>Details for enterprise.</p>
-            </body></html>
-            """;
         var rag = new FakeRag(hosts: [new GeekCrawlerRagHostIndex("https://c.test", "c.test", true, Guid.NewGuid().ToString())]);
-        var pages = new FakePages([CrawledPage("https://c.test/pricing", html)]);
+        var pages = new FakePages([BlockPage(
+            "https://c.test/pricing",
+            Heading(1, "Pricing"),
+            Paragraph("Overview text."),
+            Heading(2, "Enterprise Plan"),
+            Paragraph("Details for enterprise."))]);
         var resolver = Build(new FakeProjects(Project("https://c.test")), pages, rag);
 
         var result = await resolver.ResolveAsync(Guid.NewGuid());
@@ -178,36 +205,27 @@ public class GccCompetitorAnalysisResolverTests
     }
 
     [Fact]
-    public async Task ExtractsDeclaredSchemaTypesFromAPageWithJsonLd()
+    public async Task Pages_beyond_the_declared_url_are_read_not_just_the_homepage()
     {
-        const string html = """
-            <html><body>
-              <h1>Widgets</h1>
-              <script type="application/ld+json">
-              {"@context":"https://schema.org","@type":"Product","name":"Widget Pro"}
-              </script>
-            </body></html>
-            """;
+        // The defect this closes. It asked by-seeds for the declared competitor URLs, matched by exact
+        // equality, so at most one page per competitor -- its homepage -- could come back. Five
+        // competitors carrying 1,777 crawled pages reached the prompt and the provenance guard as five
+        // homepage outlines, which is why the blog's competitor: tags resolved to nothing.
         var rag = new FakeRag(hosts: [new GeekCrawlerRagHostIndex("https://c.test", "c.test", true, Guid.NewGuid().ToString())]);
-        var pages = new FakePages([CrawledPage("https://c.test/widget", html)]);
+        var pages = new FakePages([
+            BlockPage("https://c.test/", Heading(1, "Home")),
+            BlockPage("https://c.test/blog/ap", Heading(2, "Overcoming Challenges in AP Automation")),
+            BlockPage("https://c.test/guides/entry", Heading(2, "How to Start Your AI Journey")),
+        ]);
         var resolver = Build(new FakeProjects(Project("https://c.test")), pages, rag);
 
         var result = await resolver.ResolveAsync(Guid.NewGuid());
 
-        var page = Assert.Single(result);
-        Assert.Contains("Product", page.DeclaredSchemaTypes);
+        Assert.Equal(3, result.Count);
+        var headings = result.SelectMany(p => p.Headings).Select(h => h.HeadingText).ToList();
+        Assert.Contains("Overcoming Challenges in AP Automation", headings);
+        Assert.Contains("How to Start Your AI Journey", headings);
     }
 
-    [Fact]
-    public async Task APageWithNoJsonLdHasEmptyDeclaredTypesNotAThrow()
-    {
-        const string html = "<html><body><h1>No schema here</h1></body></html>";
-        var rag = new FakeRag(hosts: [new GeekCrawlerRagHostIndex("https://c.test", "c.test", true, Guid.NewGuid().ToString())]);
-        var pages = new FakePages([CrawledPage("https://c.test/plain", html)]);
-        var resolver = Build(new FakeProjects(Project("https://c.test")), pages, rag);
 
-        var result = await resolver.ResolveAsync(Guid.NewGuid());
-
-        Assert.Empty(Assert.Single(result).DeclaredSchemaTypes);
-    }
 }

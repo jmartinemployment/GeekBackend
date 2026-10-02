@@ -198,17 +198,15 @@ public class GccGenerateServiceProvenanceTests
     [Fact]
     public async Task CompetitorHeadingReachesThePromptAndLicensesAMatchingTag()
     {
-        const string competitorHtml =
-            """
-            <html><body>
-              <h1>Pricing</h1>
-              <h2>Enterprise Rollout Timeline</h2>
-            </body></html>
-            """;
+        // Typed blocks, not Html: competitor structure is read from the crawl's blocks now, because Html
+        // is not a validated ingest field and the declared-URL read only ever saw homepages.
         var rag = new GccCompetitorAnalysisResolverTests.FakeRag(
             hosts: [new GeekCrawlerRagHostIndex("https://competitor.test", "competitor.test", true, Guid.NewGuid().ToString())]);
         var pages = new GccCompetitorAnalysisResolverTests.FakePages(
-            [GccCompetitorAnalysisResolverTests.CrawledPage("https://competitor.test/pricing", competitorHtml)]);
+            [GccCompetitorAnalysisResolverTests.BlockPage(
+                "https://competitor.test/pricing",
+                GccCompetitorAnalysisResolverTests.Heading(1, "Pricing"),
+                GccCompetitorAnalysisResolverTests.Heading(2, "Enterprise Rollout Timeline"))]);
         var project = GccCompetitorAnalysisResolverTests.Project("https://competitor.test");
         var resolver = GccCompetitorAnalysisResolverTests.Build(
             new GccCompetitorAnalysisResolverTests.FakeProjects(project), pages, rag);

@@ -7,14 +7,25 @@ using GeekApplication.Models.GeekCrawler;
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// One competitor page's real, extracted structure — a heading tree and the schema.org types the
-/// page itself declares. Not a citable quote (that's <see cref="GccGroundedPassage"/>); this is
-/// what a competitor page is <i>shaped like</i>, for outline and content-gap analysis.
+/// One competitor page's real, extracted structure — its heading tree. Not a citable quote (that is
+/// <see cref="GccGroundedPassage"/>); this is what a competitor page is <i>shaped like</i>, for outline
+/// and content-gap analysis.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The tree comes from the crawl's typed <c>blocks</c> (<see cref="SiteStructureNode"/>), not from a
+/// re-parse of raw <c>Html</c>. <c>Html</c> is not a validated ingest field, so requiring it dropped
+/// pages that had perfectly good structure — and the consumers only ever read heading text, level and
+/// children, which the block-derived node already carries.
+/// </para>
+/// <para>
+/// <c>DeclaredSchemaTypes</c> is gone with the HTML re-parse. It was computed from JSON-LD on every page
+/// and had no production consumer at all — only tests read it.
+/// </para>
+/// </remarks>
 public sealed record GccCompetitorPageAnalysis(
     string Url,
-    IReadOnlyList<GccV2HeadingNode> Headings,
-    IReadOnlyList<string> DeclaredSchemaTypes);
+    IReadOnlyList<SiteStructureNode> Headings);
 
 /// <summary>
 /// Stage 8a: competitor heading outlines and schema, from already-persisted <c>competitors</c>
@@ -35,13 +46,10 @@ public sealed record GccCompetitorPageAnalysis(
 /// </remarks>
 public sealed class GccCompetitorAnalysisResolver(
     IGccProjectReader projects,
-    IGccCrawlPageReader pages,
+    GccProjectSiteStructureReader siteStructure,
     IGeekCrawlerRagClient rag,
-    IJsonLdParserService jsonLdParser,
     ILogger<GccCompetitorAnalysisResolver> logger)
 {
-    /// <summary>The repository's by-seeds route accepts at most 32 URLs.</summary>
-    private const int MaxSeedsPerRead = 32;
 
     /// <summary>
     /// Analyzes every indexed competitor page for a project. Pages whose crawl was never indexed,
@@ -76,23 +84,31 @@ public sealed class GccCompetitorAnalysisResolver(
         var analyses = new List<GccCompetitorPageAnalysis>();
         foreach (var runId in runIds)
         {
-            var urls = project.CompetitorUrls.Take(MaxSeedsPerRead).ToList();
-            var crawledPages = await pages.ListPagesBySeedsAsync(runId, urls, ct);
-
-            foreach (var page in crawledPages)
+            // The whole run, paged, not the declared seed URLs.
+            //
+            // This asked by-seeds for project.CompetitorUrls -- the five declared homepages -- and the
+            // repository matches those by exact equality, so at most five of a run's pages could come
+            // back and in practice one: that competitor's homepage. Five competitors carrying 1,777
+            // crawled pages and 28,517 paragraphs reached the prompt and the provenance guard as five
+            // homepage outlines, whose headings are "Pricing" and "Book a demo". That is why the blog's
+            // competitor: tags resolved to nothing while the evidence was abundant.
+            //
+            // Declared URLs were never canonicalized either, while the crawler normalizes a homepage to
+            // authority + "/", so a declared "https://x.com" against a stored "https://x.com/" matched
+            // zero rows. Reading the run by id sidesteps that entirely rather than adding URL variants.
+            var structure = await siteStructure.ReadAsync(runId, ct).ConfigureAwait(false);
+            if (structure is null)
             {
-                if (string.IsNullOrWhiteSpace(page.Html))
-                {
-                    continue;
-                }
+                logger.LogInformation(
+                    "Competitor run {RunId} returned no pages with blocks; it contributes no structure.",
+                    runId);
+                continue;
+            }
 
-                var headings = GccV2HeadingTreeBuilder.Build(page.Html);
-                var jsonLdBlocks = GccJsonLdBlockExtractor.Extract(page.Html);
-                var declaredTypes = jsonLdBlocks.Count > 0
-                    ? jsonLdParser.DistinctDeclaredTypes(jsonLdBlocks)
-                    : [];
-
-                analyses.Add(new GccCompetitorPageAnalysis(page.Url, headings, declaredTypes));
+            foreach (var page in structure.Pages)
+            {
+                if (page.Roots.Count == 0) continue;
+                analyses.Add(new GccCompetitorPageAnalysis(page.PageUrl, page.Roots));
             }
         }
 
