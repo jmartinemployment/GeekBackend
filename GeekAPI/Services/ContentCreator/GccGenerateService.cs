@@ -1248,6 +1248,15 @@ public class GccGenerateService
         // draws. The legacy no-create path is already exempt from grounding entirely; it has no
         // partner evidence at all, so requiring a partner quote there would be requiring an
         // invented one. Where the page is grounded, it carries the quote.
+        // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a live run
+        // lost AvidXchange's page to a shortened span with an ellipsis added. Snapping restores the
+        // system's own string for anything that matches a candidate; the guard below still refuses
+        // anything that matches none.
+        if (create is not null)
+        {
+            sections = [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(sections, quoteCandidates)];
+        }
+
         var quoteViolations = create is null
             ? []
             : Guardrail.GccToolQuoteGuard.FindViolations(sections, quoteCandidates);

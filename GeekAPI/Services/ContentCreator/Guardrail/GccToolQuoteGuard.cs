@@ -63,7 +63,7 @@ public static class GccToolQuoteGuard
         var violations = new List<string>();
         foreach (var quote in quotes)
         {
-            var text = Normalize(string.Join(" ", quote.Runs.Select(r => r.Text)));
+            var text = Unquote(Normalize(string.Join(" ", quote.Runs.Select(r => r.Text))));
             if (text.Length == 0)
             {
                 violations.Add("A block quotation is empty.");
@@ -134,6 +134,104 @@ public static class GccToolQuoteGuard
     /// </remarks>
     private static List<QuotableSpan> QuotableSpans(IReadOnlyList<GccQuoteCandidate>? candidates) =>
         [.. (candidates ?? []).Select(c => new QuotableSpan(c.Text, c.PageUrl))];
+
+    /// <summary>
+    /// Replaces each block quotation's text with the exact candidate span it came from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The text was never supposed to be the model's to type.</b> Candidates are cut by
+    /// <c>GccQuoteCandidates</c> and listed for the writer to choose from; the writer copies one, and
+    /// copying is where drift enters. A live run refused AvidXchange's page on
+    /// <c>""We offer an end-to-end accounts payable automation solution…"</c> — the model had shortened a
+    /// real span and added an ellipsis, so it was no longer a verbatim substring of anything.
+    /// </para>
+    /// <para>
+    /// Snapping it back to the candidate is the design being enforced, not the guard being loosened. The
+    /// published words become the system's own string again — the one cut from the partner's typed blocks
+    /// — and <see cref="FindViolations"/> still refuses anything that matches no candidate at all. What
+    /// stops failing is a page losing to punctuation.
+    /// </para>
+    /// <para>
+    /// A draft quote matches when it is a span of a candidate once wrapping quote marks and a trailing
+    /// ellipsis are set aside. The cite is taken from the candidate too, so a correct quotation can no
+    /// longer carry the wrong source URL.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<Section> SnapQuotesToCandidates(
+        IReadOnlyList<Section> sections,
+        IReadOnlyList<GccQuoteCandidate>? candidates)
+    {
+        var spans = QuotableSpans(candidates);
+        if (spans.Count == 0) return sections;
+
+        return [.. sections.Select(section => SnapSection(section, spans))];
+    }
+
+    private static Section SnapSection(Section section, IReadOnlyList<QuotableSpan> spans) =>
+        section with
+        {
+            Paragraphs = [.. section.Paragraphs.Select(p => SnapParagraph(p, spans))],
+            Children = [.. section.Children.Select(child => SnapSection(child, spans))],
+        };
+
+    private static Paragraph SnapParagraph(Paragraph paragraph, IReadOnlyList<QuotableSpan> spans)
+    {
+        if (paragraph is not QuoteParagraph quote) return paragraph;
+
+        var drafted = Unquote(Normalize(string.Join(" ", quote.Runs.Select(r => r.Text))));
+        if (drafted.Length == 0) return paragraph;
+
+        var matched = spans.FirstOrDefault(s =>
+            Normalize(s.Text).Contains(drafted, StringComparison.OrdinalIgnoreCase));
+        if (matched is null) return paragraph;
+
+        // One run: the span is one string and splitting it across runs would invent emphasis the
+        // partner's page never had.
+        return new QuoteParagraph([new Run(matched.Text)], matched.OriginProofUrl);
+    }
+
+    /// <summary>
+    /// A drafted quote with its wrapping quote marks and any trailing ellipsis removed.
+    /// </summary>
+    /// <remarks>
+    /// Only the edges. Nothing inside is touched, so a quote that differs in the middle still fails to
+    /// match and is still refused — this strips the two things a model adds while copying, not the words.
+    /// </remarks>
+    private static string Unquote(string value)
+    {
+        var trimmed = value.Trim();
+        string previous;
+
+        // Until stable, because the two wrappers nest: "...nine days\u2026" ends in a quote mark, not in
+        // the ellipsis, so stripping in one fixed order leaves whichever came second behind.
+        do
+        {
+            previous = trimmed;
+
+            while (trimmed.Length > 0 && (trimmed[0] is '"' or '\u201C' or '\u2018' or '\''))
+            {
+                trimmed = trimmed[1..].TrimStart();
+            }
+
+            while (trimmed.Length > 0 && (trimmed[^1] is '"' or '\u201D' or '\u2019' or '\''))
+            {
+                trimmed = trimmed[..^1].TrimEnd();
+            }
+
+            if (trimmed.EndsWith('\u2026'))
+            {
+                trimmed = trimmed[..^1].TrimEnd();
+            }
+            else if (trimmed.EndsWith("...", StringComparison.Ordinal))
+            {
+                trimmed = trimmed[..^3].TrimEnd();
+            }
+        }
+        while (trimmed != previous && trimmed.Length > 0);
+
+        return trimmed;
+    }
 
     /// <summary>Whitespace only. Wording, punctuation and case-sensitivity of the match are the point.</summary>
     private static string Normalize(string value) =>

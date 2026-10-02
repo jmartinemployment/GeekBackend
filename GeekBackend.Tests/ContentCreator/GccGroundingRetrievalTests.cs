@@ -63,6 +63,9 @@ public class GccGroundingRetrievalTests
     {
         public List<string> Queried { get; } = [];
 
+        /// <summary>How deep each crawl type was asked to go. Partner and prose want different depths.</summary>
+        public List<(string CrawlType, int TopK)> Depths { get; } = [];
+
         public bool IsEnabled => true;
 
         public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
@@ -83,6 +86,7 @@ public class GccGroundingRetrievalTests
             CancellationToken ct = default)
         {
             Queried.Add(crawlType ?? "(none)");
+            Depths.Add((crawlType ?? "", topK));
             var page = crawlType switch
             {
                 CrawlTypes.Competitors => new GccQuoteablePage(
@@ -277,6 +281,27 @@ public class GccGroundingRetrievalTests
         Assert.Single(outcome.Pages);
         Assert.Single(outcome.CompetitorPages);
         Assert.Single(outcome.SitePages);
+    }
+
+    [Fact]
+    public async Task A_partner_run_is_retrieved_deeper_than_the_prose_corpora()
+    {
+        // Eight is right for prose and wrong for a product. A tool page is gated on 3 of 22 payload
+        // categories being populated, and eight topically-ranked pages cannot span 22 categories -- a
+        // live run gave Dext 2 of 22 from 6 pages and Bill, Melio and Stampli 1 of 22 from 5-7, against
+        // partners carrying 181-231 crawled pages.
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+        var rag = new CrawlTypeRag();
+
+        await Build(project, rag).ResolveAsync(Create(project.Id, "tool"), "tool");
+
+        var partner = Assert.Single(rag.Depths, d => d.CrawlType == CrawlTypes.Partner);
+        var site = Assert.Single(rag.Depths, d => d.CrawlType == CrawlTypes.ProjectSite);
+
+        Assert.True(partner.TopK > site.TopK, $"partner {partner.TopK} should exceed site {site.TopK}");
+        // 32 is where the next ceiling sits: GccTypedPassageReader reads at most 32 pages back per run,
+        // so retrieving more would hand the quote cutter spans with no typed blocks behind them.
+        Assert.Equal(32, partner.TopK);
     }
 
     [Fact]

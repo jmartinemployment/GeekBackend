@@ -166,6 +166,26 @@ public sealed class GccGroundingResolver(
     /// <summary>How many passages to retrieve per run. Matches the library writer's default.</summary>
     private const int TopK = 8;
 
+    /// <summary>
+    /// How many to retrieve from a <b>partner</b> run, which is a different question.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Eight is right for prose: pillar and blog want the passages that best answer one topical query.
+    /// A tool page wants a partner's <i>product surface</i> — features, pricing, integrations, FAQ, case
+    /// studies — and <c>GccV2PartnerExtractionService</c> gates a page on 3 of 22 payload categories
+    /// being populated. Eight topically-ranked pages cannot span 22 categories, and did not: a live run
+    /// gave Dext 2 of 22 from 6 pages, and Bill, Melio and Stampli 1 of 22 from 5–7, against partners
+    /// carrying 181–231 crawled pages with 33–55 features each (Jeff's counts, 2026-10-01).
+    /// </para>
+    /// <para>
+    /// 32 because that is where the next ceiling already sits: <c>GccTypedPassageReader</c> reads at most
+    /// 32 pages back per run (the repository's by-seeds route caps there), so retrieving more partner
+    /// pages than that would hand the quote cutter spans with no typed blocks behind them.
+    /// </para>
+    /// </remarks>
+    private const int PartnerTopK = 32;
+
 
     /// <summary>
     /// The evidence <paramref name="contentType"/> must be able to cite, or empty when it declares
@@ -369,7 +389,11 @@ public sealed class GccGroundingResolver(
                     need,
                     runId,
                     crawlType: crawlType,
-                    topK: TopK,
+                    // Partner runs feed a per-product extraction with a 22-category gate; the other
+                    // corpora feed prose. Different questions, different depth.
+                    topK: string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase)
+                        ? PartnerTopK
+                        : TopK,
                     anchorToolLookup: anchorToolLookup,
                     ct: ct);
 

@@ -201,4 +201,62 @@ public class GccToolQuoteGuardTests
 
         Assert.NotEmpty(GccToolQuoteGuard.FindViolations(sections, candidates));
     }
+
+    [Fact]
+    public void A_shortened_span_with_an_ellipsis_is_snapped_back_not_refused()
+    {
+        // The live failure: the model copied a real span, shortened it, and added an ellipsis --
+        // ""We offer an end-to-end accounts payable automation solution…" -- so it was no longer a
+        // verbatim substring of anything and the page was refused. The text was never the model's to
+        // type; snapping restores the candidate's own string.
+        var candidates = Published();
+        var sections = new[]
+        {
+            SectionWith(Quote("\u201CWe cut approval time from nine days\u2026\u201D", PartnerUrl)),
+        };
+
+        var snapped = GccToolQuoteGuard.SnapQuotesToCandidates(sections, candidates);
+
+        var quote = Assert.IsType<QuoteParagraph>(Assert.Single(snapped[0].Paragraphs));
+        Assert.Equal(Said, Assert.Single(quote.Runs).Text);
+        Assert.Equal(PartnerUrl, quote.Cite);
+        Assert.Empty(GccToolQuoteGuard.FindViolations(snapped, candidates));
+    }
+
+    [Fact]
+    public void Snapping_takes_the_cite_from_the_candidate_so_a_wrong_url_cannot_survive()
+    {
+        var candidates = Published();
+        var sections = new[] { SectionWith(Quote(Said, OtherUrl)) };
+
+        var snapped = GccToolQuoteGuard.SnapQuotesToCandidates(sections, candidates);
+
+        var quote = Assert.IsType<QuoteParagraph>(Assert.Single(snapped[0].Paragraphs));
+        Assert.Equal(PartnerUrl, quote.Cite);
+        Assert.Empty(GccToolQuoteGuard.FindViolations(snapped, candidates));
+    }
+
+    [Fact]
+    public void A_quote_that_differs_in_the_middle_is_not_snapped_and_is_still_refused()
+    {
+        // Only the edges are set aside. Invented wording inside matches no candidate, so it is left
+        // alone and the guard refuses it -- snapping is the design being enforced, not a repair.
+        var candidates = Published();
+        var sections = new[]
+        {
+            SectionWith(Quote("We cut approval time from ninety days to two, and nobody looked back.", PartnerUrl)),
+        };
+
+        var snapped = GccToolQuoteGuard.SnapQuotesToCandidates(sections, candidates);
+
+        Assert.NotEmpty(GccToolQuoteGuard.FindViolations(snapped, candidates));
+    }
+
+    [Fact]
+    public void With_no_candidates_nothing_is_snapped()
+    {
+        var sections = new[] { SectionWith(Quote(Said, PartnerUrl)) };
+
+        Assert.Same(sections, GccToolQuoteGuard.SnapQuotesToCandidates(sections, []));
+    }
 }
