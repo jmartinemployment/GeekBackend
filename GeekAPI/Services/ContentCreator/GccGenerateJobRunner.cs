@@ -75,7 +75,9 @@ public sealed class GccGenerateJobRunner
                 repo, gen, create, section, provider, outputTypes, mustMentionBlock,
                 CancellationToken.None,
                 onTypeOutcome: (contentType, produced, error) =>
-                    _notifier.PushTypeAsync(jobId, contentType, produced, error));
+                    _notifier.PushTypeAsync(jobId, contentType, produced, error),
+                onReadiness: (contentType, partners) =>
+                    _notifier.PushPreflightAsync(jobId, contentType, partners));
 
             _jobs.Complete(jobId, result);
             await PushJobAsync(jobId);

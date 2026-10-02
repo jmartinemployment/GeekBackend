@@ -150,11 +150,26 @@ public sealed class GccGenerationCoordinator
         IReadOnlyList<string>? outputTypes,
         string? mustMentionBlock,
         CancellationToken ct,
-        Func<string, object?, string?, Task>? onTypeOutcome = null)
+        Func<string, object?, string?, Task>? onTypeOutcome = null,
+        // The tool pre-flight's verdicts, pushed the moment they are known and before any tool page is
+        // drafted. Separate from onTypeOutcome because that callback's contract is terminal -- a type
+        // either produced an artifact or failed -- and a readiness report is neither.
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness = null)
     {
         var requested = NormalizeRequestedTypes(outputTypes);
         var refusal = ValidateRequestedTypes(requested);
         if (refusal is not null) throw new InvalidOperationException(refusal);
+
+        // Recorded as well as pushed. A hub event is live-only: an operator who reloads or reconnects
+        // after the push would have no way back to the pre-flight, which is the same shape of loss as
+        // a refusal that only ever reached a log. The job result carries it instead.
+        var preflight = new List<GccGenerateService.GccPartnerToolReadiness>();
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task> recordReadiness =
+            async (type, verdicts) =>
+            {
+                preflight.AddRange(verdicts);
+                if (onReadiness is not null) await onReadiness(type, verdicts);
+            };
 
         if (requested.Count > 1)
         {
@@ -202,7 +217,7 @@ public sealed class GccGenerationCoordinator
                 {
                     var generated = await GenerateOneAsync(
                         repo, gen, create, section, provider, type, mustMentionBlock,
-                        resolved.PartnerPassages, ct);
+                        resolved.PartnerPassages, ct, recordReadiness);
                     return (Type: type, Outcome: (TypeOutcome?)generated, Error: (string?)null);
                 }
                 catch (OperationCanceledException)
@@ -241,7 +256,7 @@ public sealed class GccGenerationCoordinator
                 }
             }
 
-            return refusals.Count == 0 ? new { created } : new { created, refusals };
+            return BuildGenerateResult(created, refusals, preflight);
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
@@ -249,7 +264,7 @@ public sealed class GccGenerationCoordinator
         create = resolvedSingle.Create;
         var single = await GenerateOneAsync(
             repo, gen, create, section, provider, requested[0], mustMentionBlock,
-            resolvedSingle.PartnerPassages, ct);
+            resolvedSingle.PartnerPassages, ct, recordReadiness);
 
         var singleCreated = new List<object>(single.Pieces.Count);
         foreach (var piece in single.Pieces)
@@ -264,10 +279,26 @@ public sealed class GccGenerationCoordinator
 
         // One requested type can still be several artifacts -- tool is five. A bare object is returned
         // when it is one, so the existing single-select contract is unchanged for every other type.
-        return single.Pieces.Count == 1 && single.SoftFailures.Count == 0
+        return single.Pieces.Count == 1 && single.SoftFailures.Count == 0 && preflight.Count == 0
             ? singleCreated[0]
-            : new { created = singleCreated, refusals = single.SoftFailures };
+            : BuildGenerateResult(singleCreated, single.SoftFailures, preflight);
     }
+
+    /// <summary>
+    /// The multi-artifact generate result: what was created, what was refused by name, and the
+    /// pre-flight that decided it. One builder for both call sites so the two cannot disagree about
+    /// the shape the frontend reads.
+    /// </summary>
+    /// <remarks>
+    /// <c>refusals</c> and <c>preflight</c> are always present, empty included. An absent field and an
+    /// empty one mean the same thing to a reader but need two code paths to handle, and the frontend
+    /// dropped the refusals entirely once already by having no field to put them in.
+    /// </remarks>
+    private static object BuildGenerateResult(
+        IReadOnlyList<object> created,
+        IReadOnlyList<string> refusals,
+        IReadOnlyList<GccGenerateService.GccPartnerToolReadiness> preflight) =>
+        new { created, refusals, preflight };
 
     /// <summary>
     /// Generates and persists exactly one content type, fully independently -- the single unit both
@@ -307,7 +338,8 @@ public sealed class GccGenerationCoordinator
         string requestedType,
         string? mustMentionBlock,
         IReadOnlyList<GccGroundedPassage> passages,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness = null)
     {
         var contentType = requestedType.Trim().ToLowerInvariant();
         // Strips hyphens/spaces so "tech-article"/"techArticle" and "email-cold-outreach"/"email"
@@ -371,7 +403,10 @@ public sealed class GccGenerationCoordinator
             {
                 // One page per declared partner, each about that product. The set-of-five path.
                 var toolOutcomes = await gen.GenerateToolPagesPerPartnerAsync(
-                    create, section, provider, ct, mustMentionBlock, passages);
+                    create, section, provider, ct, mustMentionBlock, passages,
+                    onReadiness: onReadiness is null
+                        ? null
+                        : verdicts => onReadiness(contentType, verdicts));
 
                 var written = toolOutcomes.Where(o => o.Written).ToList();
                 var refused = toolOutcomes.Where(o => !o.Written).ToList();

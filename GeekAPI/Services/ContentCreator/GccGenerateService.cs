@@ -480,6 +480,81 @@ public class GccGenerateService
     }
 
     /// <summary>
+    /// Whether one partner can ground a tool page — decided <i>before</i> a word is drafted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this is extraction and not a page count.</b> The gate is
+    /// <see cref="HasSufficientPartnerData"/>, which measures what extraction <i>found</i>: a capability
+    /// signal (features or citable claims) plus breadth across at least 3 of 22 payload categories. Page
+    /// and paragraph volume do not predict it — a partner with 231 pages and 3,516 prose paragraphs
+    /// fails if extraction pulled one feature and two integrations. So a cheap pre-flight over retrieval
+    /// counts would have passed all five partners and then produced three pages, which is a green light
+    /// that means nothing. The only thing that predicts this gate is running the gate.
+    /// </para>
+    /// <para>
+    /// <b>It is not extra cost.</b> Extraction already ran per partner inside drafting; this hoists it
+    /// ahead of drafting and carries the result forward in <see cref="Extraction"/>, so a partner that
+    /// passes is extracted once, not twice.
+    /// </para>
+    /// <para>
+    /// <b>A verdict, never a throw.</b> The same gate inside <see cref="GenerateToolPageAsync"/> refuses
+    /// by throwing, which means its reason is only reachable from a catch. A pre-flight has to be able to
+    /// report on five partners without any of them aborting the others, so this returns the finding.
+    /// </para>
+    /// </remarks>
+    /// <param name="Coverage">
+    /// The operator-facing reason, from <see cref="DescribePartnerDataCoverage"/> — which separates an
+    /// extraction <i>fault</i> ("the provider call threw") from a genuine data shortage. Both leave the
+    /// categories empty, so without that split a broken pipeline reads as a thin partner.
+    /// </param>
+    /// <param name="Extraction">
+    /// The extraction to draft from, present only when <paramref name="Ready"/>. Never serialized: it is
+    /// the full 22-category payload and this record goes to the operator over the hub.
+    /// </param>
+    public sealed record GccPartnerToolReadiness(
+        string ProductName,
+        string Host,
+        bool Ready,
+        string Coverage,
+        int PagesAttempted,
+        int PagesFailed,
+        int PopulatedCategories,
+        bool HasCapabilitySignal,
+        [property: JsonIgnore] GccPartnerExtractionDocument? Extraction = null);
+
+    /// <summary>
+    /// Runs extraction and the sufficiency gate for one partner and reports the finding, drafting
+    /// nothing. The pre-flight unit — <see cref="GenerateToolPagesPerPartnerAsync"/> calls it for every
+    /// slice before it writes anything, and it is callable on its own to answer "which partners are
+    /// ready" without starting a generate.
+    /// </summary>
+    public async Task<GccPartnerToolReadiness> AssessPartnerToolReadinessAsync(
+        GccPartnerToolSlice slice,
+        CancellationToken ct)
+    {
+        // No retrieved pages is a real finding, not a reason to skip the partner: it reports as
+        // "no extractable partner pages" rather than disappearing from the readiness list.
+        var extraction = slice.Pages.Count == 0
+            ? null
+            : await _partnerExtraction.ExtractFromPagesAsync(slice.Pages, [slice.ProductName], ct);
+
+        var ready = extraction is not null && HasSufficientPartnerData(extraction);
+
+        return new GccPartnerToolReadiness(
+            slice.ProductName,
+            slice.Host,
+            ready,
+            DescribePartnerDataCoverage(extraction),
+            extraction?.PagesAttempted ?? 0,
+            extraction?.PagesFailed ?? 0,
+            extraction is null ? 0 : CountPopulatedPartnerDataCategories(extraction),
+            extraction is not null
+                && (extraction.FeatureInventory.Count > 0 || extraction.Citables.Count > 0),
+            ready ? extraction : null);
+    }
+
+    /// <summary>
     /// A tool page per declared partner — the set-of-five path, and the priority (Jeff, 2026-10-02).
     /// </summary>
     /// <remarks>
@@ -506,7 +581,11 @@ public class GccGenerateService
         // One product instead of all of them. Same slicing, same grounding, same gate -- Jeff,
         // 2026-10-02: five at once is the priority and single pages are also needed, so this is one
         // method with two call shapes rather than a second path that can drift from this one.
-        string? onlyProduct = null)
+        string? onlyProduct = null,
+        // Invoked once, with every partner's verdict, after the pre-flight and BEFORE any drafting.
+        // The operator asked to be told before creation (Jeff, 2026-10-02), which is only possible
+        // between the two phases -- afterwards is a report, not a pre-flight.
+        Func<IReadOnlyList<GccPartnerToolReadiness>, Task>? onReadiness = null)
     {
         var partnerUrls = await PartnerUrlsForAsync(create, ct);
 
@@ -543,9 +622,42 @@ public class GccGenerateService
                 + "to be about. A tool page is about one partner's product.")];
         }
 
+        // Phase 1 -- pre-flight. Every partner is assessed before any partner is drafted, so the
+        // operator learns "three of five can be grounded" before the expensive half starts rather
+        // than by counting the artifacts afterwards.
+        var readiness = new List<GccPartnerToolReadiness>(slices.Count);
+        foreach (var slice in slices)
+        {
+            readiness.Add(await AssessPartnerToolReadinessAsync(slice, ct));
+        }
+
+        if (onReadiness is not null) await onReadiness(readiness);
+
+        foreach (var verdict in readiness.Where(r => !r.Ready))
+        {
+            _logger.LogInformation(
+                "Tool page pre-flight: {Product} ({Host}) cannot be grounded -- {Coverage}",
+                verdict.ProductName, verdict.Host, verdict.Coverage);
+        }
+
+        // Phase 2 -- draft only what passed, reusing phase 1's extraction so a ready partner is
+        // extracted once. A partner that failed the pre-flight is refused here by name, with the
+        // coverage finding verbatim: the reason is already known, so drafting it to discover the
+        // same refusal would be work with a known answer.
         var outcomes = new List<ToolPageOutcome>(slices.Count);
         foreach (var slice in slices)
         {
+            var verdict = readiness.First(r => string.Equals(r.Host, slice.Host, StringComparison.OrdinalIgnoreCase));
+            if (!verdict.Ready)
+            {
+                outcomes.Add(new ToolPageOutcome(
+                    slice.ProductName,
+                    null,
+                    $"Refused: a tool page about {slice.ProductName} cannot be grounded in "
+                    + $"{slice.Host}'s crawl -- {verdict.Coverage}."));
+                continue;
+            }
+
             try
             {
                 var body = await GenerateStartingContentAsync(
@@ -555,7 +667,8 @@ public class GccGenerateService
                     ct,
                     mustMentionBlock,
                     slice.Passages,
-                    toolName: slice.ProductName);
+                    toolName: slice.ProductName,
+                    partnerExtraction: verdict.Extraction);
                 outcomes.Add(new ToolPageOutcome(slice.ProductName, body, null));
             }
             catch (OperationCanceledException)
@@ -564,6 +677,8 @@ public class GccGenerateService
             }
             catch (Exception ex)
             {
+                // Still caught: passing the pre-flight means the page can be grounded, not that every
+                // later guard (quote verification, required mentions, provenance) will pass.
                 _logger.LogInformation(
                     "Tool page for {Product} ({Host}) was not written: {Reason}",
                     slice.ProductName, slice.Host, ex.Message);
@@ -584,7 +699,11 @@ public class GccGenerateService
         // The product this page is about, when the caller knows it. Topic is the problem (GccTopic), so
         // it cannot also be the subject -- that collapse is what sent extraction looking for a product
         // named after the keyword. Null keeps the old behaviour for callers with no partner to name.
-        string? toolName = null)
+        string? toolName = null,
+        // Extraction already run and already gated by the tool pre-flight. Passed down so a partner
+        // that passed readiness is not extracted a second time to draft it. Null means extract here,
+        // which is every non-tool type and every caller that did no pre-flight.
+        GccPartnerExtractionDocument? partnerExtraction = null)
     {
         ValidateSiteSectionGate(create.ProjectSiteRunId, section);
         ValidateBriefRequired(create);
@@ -627,7 +746,8 @@ public class GccGenerateService
                 provider: provider,
                 ct: ct,
                 create: create,
-                passages: passages);
+                passages: passages,
+                extraction: partnerExtraction);
             return JsonSerializer.Serialize(new
             {
                 title = tool.Name,
@@ -997,7 +1117,11 @@ public class GccGenerateService
         CancellationToken ct,
         string? preferredSlug = null,
         GccCreateDto? create = null,
-        IReadOnlyList<GccGroundedPassage>? passages = null)
+        IReadOnlyList<GccGroundedPassage>? passages = null,
+        // A pre-flight's extraction for this same product and these same pages. Supplied, it replaces
+        // the call below; the gate still runs on it, so a supplied document is verified here exactly
+        // as a freshly extracted one is and this stays fail-closed at the drafting site.
+        GccPartnerExtractionDocument? extraction = null)
     {
         var llmType = ToLlm(provider);
         var llm = _cwProviders.Get(llmType);
@@ -1035,9 +1159,9 @@ public class GccGenerateService
             app = app with { Url = partnerOrigins[0] };
         }
 
-        var partnerExtraction = partnerPages.Count == 0
+        var partnerExtraction = extraction ?? (partnerPages.Count == 0
             ? null
-            : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], ct);
+            : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], ct));
         var groundedExtraction = partnerExtraction is not null && HasSufficientPartnerData(partnerExtraction)
             ? partnerExtraction
             : null;

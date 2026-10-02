@@ -37,6 +37,33 @@ public sealed class GccGenerateNotifier
                     error,
                 },
                 ct);
+
+    /// <summary>
+    /// The tool pre-flight, pushed before any tool page is drafted: one row per declared partner saying
+    /// whether it can be grounded and why.
+    /// </summary>
+    /// <remarks>
+    /// Its own event rather than a <c>GccGenerateTypeEvent</c>, because that event's status is
+    /// <c>ready</c> or <c>failed</c> -- terminal, one per type -- and a pre-flight is neither. Sending it
+    /// as a type event would have reported five partners as five tool-type outcomes.
+    /// </remarks>
+    public Task PushPreflightAsync(
+        Guid jobId,
+        string contentType,
+        IReadOnlyList<GccGenerateService.GccPartnerToolReadiness> partners,
+        CancellationToken ct = default) =>
+        _hub.Clients.Group(WorkflowRealtimeHub.GccGenerateGroup(jobId))
+            .SendAsync(
+                "GccGeneratePreflightEvent",
+                new
+                {
+                    jobId,
+                    contentType,
+                    ready = partners.Count(p => p.Ready),
+                    total = partners.Count,
+                    partners,
+                },
+                ct);
 }
 
 internal static class GccGenerateEventMapper
