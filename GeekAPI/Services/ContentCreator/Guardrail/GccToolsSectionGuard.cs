@@ -36,6 +36,48 @@ public static partial class GccToolsSectionGuard
         return found;
     }
 
+    /// <summary>
+    /// The planned headings that are tools listings — checked before a word is written.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is where the rule had to move to stop recurring.</b> The guard only ever ran on the
+    /// written body, and the body writer receives a planned outline as <i>assigned slots</i>. So the
+    /// metadata call proposed "Choosing the Right AI Tools for Accounts Payable Automation", the writer
+    /// wrote the heading it was handed — the reasonable reading of an assignment — and the retry
+    /// re-wrote against the same outline, so no retry could ever succeed. Jeff, three times, most
+    /// recently 2026-10-02: a pillar and a blog do not contain a tools section, period.
+    /// </para>
+    /// <para>
+    /// No wording in the body prompt can fix that, because the writer is not disobeying: it is obeying
+    /// the outline. Catching it at plan time means the writer is never handed the heading, and the whole
+    /// check costs one metadata call rather than five body calls and a refusal.
+    /// </para>
+    /// <para>
+    /// Heading text only, so it works on an outline. <see cref="FindToolsSections"/> additionally
+    /// accepts a section whose <i>children</i> read as a product list — that shape cannot exist yet at
+    /// plan time, so it is not tested here and is still caught in the body.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> FindToolsHeadings(IEnumerable<string>? headings) =>
+        [.. (headings ?? []).Where(IsToolsListingHeadingText)];
+
+    /// <summary>Whether a heading on its own announces a tools listing.</summary>
+    public static bool IsToolsListingHeadingText(string? heading) =>
+        !string.IsNullOrWhiteSpace(heading)
+        && PillarSectionClassifier.IsToolsListingHeading(heading)
+        && Enumerates(heading);
+
+    /// <summary>What to tell the planner so the next outline does not carry one.</summary>
+    public static string OutlineRetryInstruction(IReadOnlyList<string> headings) =>
+        "THE OUTLINE YOU RETURNED IS REJECTED. These planned headings are tools listings, which this "
+        + "page must not contain: "
+        + string.Join(", ", headings.Select(h => $"\"{h}\""))
+        + ". Replace each one with a heading about the problem that section solves. The tools belong in "
+        + "the prose of those sections -- named where each earns the mention, saying what it does about "
+        + "that problem -- never in a heading and never as a section of their own. Return the whole "
+        + "metadata object again.";
+
     private static void Walk(IReadOnlyList<Section> sections, List<string> found)
     {
         foreach (var section in sections)
