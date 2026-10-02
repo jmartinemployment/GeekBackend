@@ -68,8 +68,8 @@ public class GccGroundingPolicyTests
         // copy -- material about the product. What a tool page quotes is how the product solves the
         // problem (Jeff, 2026-10-01), so the query asks for that instead. Retrieval decides what the
         // candidate list can contain, which is why forty candidates could be supplied and none fit.
-        Assert.Contains("solves the problem", need, StringComparison.Ordinal);
-        Assert.Contains("status-quo pain", need, StringComparison.Ordinal);
+        Assert.Contains("manual or status-quo way", need, StringComparison.Ordinal);
+        Assert.Contains("capability that removes it", need, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -106,5 +106,19 @@ public class GccGroundingPolicyTests
 
         Assert.False(outcome.Refused);
         Assert.Empty(outcome.Pages);
+    }
+
+    [Fact]
+    public void The_partner_need_never_contradicts_itself()
+    {
+        // Topic is "descriptor: keyword" and the keyword names the SOLUTION, so interpolating the whole
+        // string into a manual-pain frame produced "the problem of doing Accounts Payable: Automated Data
+        // Entry & Processing manually" -- automated, manually. A pinned regression: 0a6ec94 shipped it.
+        var need = GccGroundingResolver.BuildNeed(
+            "Accounts Payable: Automated Data Entry & Processing", CrawlTypes.Partner);
+
+        Assert.Contains("Automated Data Entry & Processing", need, StringComparison.Ordinal);
+        Assert.DoesNotContain("Accounts Payable", need, StringComparison.Ordinal);
+        Assert.DoesNotContain("Processing manually", need, StringComparison.Ordinal);
     }
 }

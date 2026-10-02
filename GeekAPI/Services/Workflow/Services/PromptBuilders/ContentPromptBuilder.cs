@@ -872,9 +872,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "quotable spans listed below, copied character for character, and set \"cite\" to the URL "
         + "printed beside the span you chose.\n"
         + "WHAT THE QUOTE MUST SAY: how " + productName + " solves the problem this page is about -- "
-        + "the pain of doing " + targetKeyword + " the manual or status-quo way, and what their product "
-        + "does about it. Choose the span that states a capability, a mechanism or a measured outcome "
-        + "against that problem.\n"
+        + "the pain of doing " + GeekAPI.Services.ContentCreator.GccTopic.KeywordOf(targetKeyword)
+        + " the manual or status-quo way, and what their product does about it. Choose the span that "
+        + "states a capability, a mechanism or a measured outcome against that problem.\n"
         + "NOT a compliment and NOT a testimonial: \"we love it\", \"the team has been great\", "
         + "\"best decision we made\" say nothing about the problem and do not qualify however warmly "
         + "they read. A general description of the product with no problem attached does not qualify "

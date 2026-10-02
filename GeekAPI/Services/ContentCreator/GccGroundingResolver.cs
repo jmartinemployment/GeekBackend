@@ -495,10 +495,21 @@ public sealed class GccGroundingResolver(
             return $"competitor differentiation research; topic: {Bounded(topic, 200)}";
         }
 
-        // The framing costs about a hundred characters, so the topic gets a tighter cap here than the
+        // The keyword as the SUBJECT, not inside a "doing X manually" frame.
+        //
+        // Two corrections in one line. Topic is "descriptor: keyword" (GccTopic), so the whole string was
+        // wrong -- it dragged "Accounts Payable" into the query. And the keyword names the SOLUTION
+        // ("Automated Data Entry & Processing"), so a manual-pain frame wrapped around it reads
+        // "...Automated Data Entry & Processing manually": the query contradicts itself and pulls the
+        // wrong passages. 0a6ec94 shipped that; splitting the descriptor off alone did not fix it.
+        //
+        // Naming the keyword as the subject and asking for the manual pain beside it says the real thing:
+        // this is the solution area, find what the status quo costs and what removes it.
+        //
+        // The framing costs about a hundred characters, so the keyword gets a tighter cap than the
         // competitor query's. A retrieval query that balloons stops being a query.
-        return $"how this product solves the problem of doing {Bounded(topic, 150)} manually: the "
-            + "status-quo pain, the capability that removes it, measured outcomes";
+        return $"{Bounded(GccTopic.KeywordOf(topic), 150)} -- the cost, delay and error rate of the "
+            + "manual or status-quo way, the capability that removes it, and measured outcomes";
     }
 
     private static string Bounded(string topic, int max)
