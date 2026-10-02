@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using GeekAPI.Services.Workflow.Services;
 
 namespace GeekAPI.Services.Workflow.Domain.Entities;
 
@@ -42,7 +43,22 @@ public sealed record Run(string Text, bool Bold = false, bool Italic = false, st
 /// <c>ContentCreatorV2/Publish/GccV2JsonLdBuilder</c>,
 /// <c>ContentCreatorV2/Carousel/GccV2LinkedInCarouselDocumentConverter</c>.</item>
 /// </list>
+///
+/// <para><b>The converter is declared here, not registered per call site.</b> This type is abstract,
+/// so <c>System.Text.Json</c> cannot deserialize it at all without
+/// <see cref="ParagraphJsonConverter"/> — it throws <c>NotSupportedException: Deserialization of
+/// interface or abstract types is not supported</c>. That is not a <c>JsonException</c>, so every
+/// <c>catch (JsonException)</c> guarding a document read lets it straight through as an unhandled
+/// 500.</para>
+///
+/// <para>It was registered by hand at eleven call sites instead, and the twelfth —
+/// <c>GccArtifactExportService</c>, whose options were a bare
+/// <c>new(JsonSerializerDefaults.Web)</c> — took down Export HTML the first time a create had real
+/// artifacts to export (2026-10-02). An attribute here cannot be forgotten by a new caller; a
+/// registration list can, and did. The explicit registrations still work and still win, since
+/// <c>options.Converters</c> takes precedence over an attribute.</para>
 /// </remarks>
+[JsonConverter(typeof(ParagraphJsonConverter))]
 public abstract record Paragraph;
 
 public sealed record TextParagraph(IReadOnlyList<Run> Runs) : Paragraph;
