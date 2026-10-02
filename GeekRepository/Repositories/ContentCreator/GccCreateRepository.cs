@@ -135,6 +135,11 @@ public class GccCreateRepository : IGccCreateRepository
             entity.BriefJson = string.IsNullOrWhiteSpace(command.BriefJson) ? null : command.BriefJson;
         if (command.ResearchJson is not null)
             entity.ResearchJson = string.IsNullOrWhiteSpace(command.ResearchJson) ? null : command.ResearchJson;
+        // Blank is ignored rather than written. Topic is required and load-bearing -- it is the SEO
+        // keyword source, the descriptor source and the artifact-naming fallback -- so clearing it would
+        // leave a create that cannot be scored or named. Null and blank both mean "leave it".
+        if (!string.IsNullOrWhiteSpace(command.Topic))
+            entity.Topic = command.Topic.Trim();
         entity.UpdatedAtUtc = DateTime.UtcNow;
 
         _db.GccCreates.Update(entity);

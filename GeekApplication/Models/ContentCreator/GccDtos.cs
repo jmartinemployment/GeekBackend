@@ -32,9 +32,24 @@ public sealed record CreateGccCreateCommand(
     string Department = "marketing",
     Guid? ProjectId = null);
 
+/// <param name="Topic">
+/// The create's topic — "descriptor: keyword" — when the operator has corrected it. Null leaves it
+/// alone, which is every existing caller.
+///
+/// It had no update path at all before 2026-10-02: <c>ContentBriefPanel</c> only sent the keyword at
+/// mint, inside <c>ensureCreateId</c>, which returns early once a create exists. So an operator editing
+/// the keyword afterwards changed a local input, saw it accepted, and persisted nothing.
+///
+/// Updated here rather than copied into <c>BriefJson</c> so there is one source of truth. Topic feeds
+/// <see cref="GeekAPI.Services.ContentCreator.GccTargetKeyword"/> (the SEO score),
+/// <c>GccTopic.Parse</c> (descriptor/keyword), the grounding query and artifact naming — a second copy
+/// in the brief would drift, and this codebase has twice been burned by two readers of one value
+/// disagreeing.
+/// </param>
 public sealed record UpdateGccCreateBriefResearchCommand(
     string? BriefJson,
-    string? ResearchJson);
+    string? ResearchJson,
+    string? Topic = null);
 
 public sealed record GccArtifactDto(
     Guid Id,

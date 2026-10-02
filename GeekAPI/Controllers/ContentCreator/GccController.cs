@@ -144,8 +144,8 @@ public class GccController : ControllerBase
         CancellationToken ct)
     {
         if (request is null) return BadRequest("Body required");
-        if (request.BriefJson is null && request.ResearchJson is null)
-            return BadRequest("briefJson and/or researchJson required");
+        if (request.BriefJson is null && request.ResearchJson is null && request.Topic is null)
+            return BadRequest("briefJson, researchJson and/or topic required");
 
         var existing = await _repo.GetCreateAsync(id, ct);
         if (existing is null) return NotFound();
@@ -154,7 +154,8 @@ public class GccController : ControllerBase
         {
             var updated = await _repo.UpdateBriefResearchAsync(
                 id,
-                new UpdateGccCreateBriefResearchCommand(request.BriefJson, request.ResearchJson),
+                new UpdateGccCreateBriefResearchCommand(
+                    request.BriefJson, request.ResearchJson, request.Topic),
                 ct);
             return Ok(updated);
         }
@@ -1952,7 +1953,11 @@ public class GccController : ControllerBase
         Guid? SourceArtifactId,
         string? Provider);
     public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null, bool Force = false);
-    public sealed record UpdateBriefResearchRequest(string? BriefJson, string? ResearchJson);
+    public sealed record UpdateBriefResearchRequest(
+        string? BriefJson,
+        string? ResearchJson,
+        /// <summary>The corrected topic, or null to leave it. See the command's own remarks.</summary>
+        string? Topic = null);
     public sealed record ParseSavedSerpRequest(string Content, string? TargetKeyword = null);
     public sealed record ProjectSiteReadinessRequest(string? ProjectUrl);
 
