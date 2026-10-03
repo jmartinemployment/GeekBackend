@@ -282,11 +282,9 @@ public class GccController : ControllerBase
         if (request.ClientId == Guid.Empty) return BadRequest("clientId required");
         if (string.IsNullOrWhiteSpace(request.StartingContentType)) return BadRequest("startingContentType required");
         if (string.IsNullOrWhiteSpace(request.Topic)) return BadRequest("topic required");
-        if (string.Equals(request.StartingContentType.Trim(), "imagePrompt", StringComparison.OrdinalIgnoreCase)
-            && string.IsNullOrWhiteSpace(request.Notes))
-        {
-            return BadRequest("Standalone image prompt requires topic and notes");
-        }
+        // Notes are optional on an image prompt: the brief is its context, and the frontend never
+        // sends notes. This check only ever fired for the "imagePrompt" spelling anyway -- the
+        // picker sends "image-prompt", which sailed past it and failed at generate instead.
         if (string.Equals(request.StartingContentType.Trim(), "aiTool", StringComparison.OrdinalIgnoreCase)
             && string.IsNullOrWhiteSpace(request.Notes))
         {
@@ -494,8 +492,10 @@ public class GccController : ControllerBase
         // gateway between the browser and here will wait. Railway's edge was cutting the request
         // off with "upstream error" before the catch blocks below could report anything at all.
         //
-        // Join the job on /hubs/workflow-realtime (JoinGccGenerate) for per-type events, or read
-        // GET jobs/{id} on a cold load. See plans/generate-async-signalr.md.
+        // Join the job on /hubs/workflow-realtime (JoinGccGenerate) for per-type events; the
+        // terminal "ready" event carries the aggregate as resultJson. There is no GET jobs/{id}
+        // route -- this comment used to name one, and nothing ever served it. See
+        // plans/generate-async-signalr.md.
         var job = _generateRunner.Start(
             create, section, provider, requested, mustMentionBlock, _user.UserId.ToString());
 

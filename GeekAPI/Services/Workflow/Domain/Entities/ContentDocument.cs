@@ -67,7 +67,14 @@ public sealed record ListParagraph(bool Ordered, IReadOnlyList<IReadOnlyList<Run
 
 /// <summary>Corpus <c>quote</c>. <paramref name="Cite"/> is the source URL when the quote came from
 /// a retrieved passage — the attribution half of "cite or quote Partners/Tools".</summary>
-public sealed record QuoteParagraph(IReadOnlyList<Run> Runs, string? Cite = null) : Paragraph;
+/// <param name="Candidate">
+/// The number of the quotable span this quotation was chosen from, when the writer was shown a
+/// numbered list (<c>GccQuoteCandidates</c>). Set, it is the whole answer: the words and the cite are
+/// read back from that list by <c>GccToolQuoteGuard.SnapQuotesToCandidates</c>, and whatever the
+/// model typed into <paramref name="Runs"/> is discarded. A resolved quotation carries null here --
+/// the number is a selector on the way in, not a fact about the page.
+/// </param>
+public sealed record QuoteParagraph(IReadOnlyList<Run> Runs, string? Cite = null, int? Candidate = null) : Paragraph;
 
 /// <summary>Corpus <c>code</c>. Held as raw text, never runs: bold/italic/href have no meaning
 /// inside a code block, and cliché cleaning must not rewrite it.</summary>

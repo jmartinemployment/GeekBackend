@@ -8,12 +8,36 @@ public class GccJobStore
 {
     private readonly ConcurrentDictionary<Guid, GccJob> _jobs = new();
 
+    /// <summary>
+    /// How long a finished job stays readable. The terminal hub event carries the result, and nothing
+    /// reads a job back afterwards except a late JoinGccGenerate from a reconnecting client, which
+    /// happens within minutes, not hours.
+    /// </summary>
+    private static readonly TimeSpan FinishedJobRetention = TimeSpan.FromHours(6);
+
     public GccJob Create(string kind, Guid createId, string ownerUserId)
     {
+        EvictFinished();
         var job = new GccJob(
             Guid.NewGuid(), kind, createId, ownerUserId, "running", null, null, DateTime.UtcNow, null);
         _jobs[job.Id] = job;
         return job;
+    }
+
+    /// <summary>
+    /// Finished jobs older than <see cref="FinishedJobRetention"/> are dropped. Complete() stores the
+    /// whole generate result -- every artifact body -- as ResultJson, and this dictionary is a
+    /// singleton that never evicted, so the process held every page it had ever generated until a
+    /// redeploy. Running jobs are never touched.
+    /// </summary>
+    private void EvictFinished()
+    {
+        var cutoff = DateTime.UtcNow - FinishedJobRetention;
+        foreach (var (id, job) in _jobs)
+        {
+            if (job.CompletedAtUtc is { } completed && completed < cutoff)
+                _jobs.TryRemove(id, out _);
+        }
     }
 
     public void Complete(Guid id, object? result) =>

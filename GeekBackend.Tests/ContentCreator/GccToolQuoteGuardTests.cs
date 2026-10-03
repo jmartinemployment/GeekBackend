@@ -164,6 +164,60 @@ public class GccToolQuoteGuardTests
     }
 
     [Fact]
+    public void A_quotation_chosen_by_number_is_resolved_to_that_candidates_words_and_page()
+    {
+        // The design GccQuoteCandidates documents: the model selects, it never transcribes. A
+        // retyped sentence lost Stampli's page on 2026-10-03; a number cannot be paraphrased.
+        var chosen = new QuoteParagraph([], null, Candidate: 1);
+
+        var snapped = GccToolQuoteGuard.SnapQuotesToCandidates([SectionWith(Prose("Approvals."), chosen)], Published());
+
+        var quote = Assert.Single(snapped.Single().Paragraphs.OfType<QuoteParagraph>());
+        Assert.Equal(Said, Assert.Single(quote.Runs).Text);
+        Assert.Equal(PartnerUrl, quote.Cite);
+        Assert.Null(quote.Candidate);
+        Assert.Empty(GccToolQuoteGuard.FindViolations(snapped, Published()));
+    }
+
+    [Fact]
+    public void A_number_wins_over_whatever_was_typed_beside_it()
+    {
+        // Typed text in a numbered quotation is discarded, so a model that both selects and
+        // "helpfully" paraphrases still ships the published words.
+        var chosen = new QuoteParagraph([new Run("We cut approvals to two days.")], "https://elsewhere.test", Candidate: 1);
+
+        var snapped = GccToolQuoteGuard.SnapQuotesToCandidates([SectionWith(chosen)], Published());
+
+        var quote = Assert.Single(snapped.Single().Paragraphs.OfType<QuoteParagraph>());
+        Assert.Equal(Said, Assert.Single(quote.Runs).Text);
+        Assert.Equal(PartnerUrl, quote.Cite);
+    }
+
+    [Fact]
+    public void A_number_that_names_no_listed_span_is_refused()
+    {
+        var violations = GccToolQuoteGuard.FindViolations(
+            [SectionWith(new QuoteParagraph([], null, Candidate: 7))],
+            Published());
+
+        var only = Assert.Single(violations);
+        Assert.Contains("names quotable span 7, but 1 were listed", only, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_unresolved_number_is_still_refused_after_snapping()
+    {
+        // Snap leaves an unknown number alone, and the guard then refuses it rather than reading
+        // the empty runs as an empty quotation.
+        var snapped = GccToolQuoteGuard.SnapQuotesToCandidates(
+            [SectionWith(new QuoteParagraph([], null, Candidate: 0))], Published());
+
+        Assert.Contains(
+            GccToolQuoteGuard.FindViolations(snapped, Published()),
+            v => v.Contains("names quotable span 0", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void With_candidates_available_the_refusal_says_they_went_unused()
     {
         var candidates = Published();

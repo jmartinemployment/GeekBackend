@@ -346,8 +346,7 @@ public class GccGenerateService
             sb.AppendLine("   field, never in the text. Both are on the bracketed line above the passage --");
             sb.AppendLine("   the page title first, then its URL in parentheses -- and every passage indented");
             sb.AppendLine("   beneath that line belongs to it. The page title is run text; the URL is that");
-            sb.AppendLine("   run's \"href\", or the \"cite\" of a quote paragraph when you reproduce wording");
-            sb.AppendLine("   verbatim. A URL typed into \"text\", or a bracketed link such as [title](url),");
+            sb.AppendLine("   run's \"href\". A URL typed into \"text\", or a bracketed link such as [title](url),");
             sb.AppendLine("   is refused and the section is not written. Never attribute a claim to a URL");
             sb.AppendLine("   you did not read it under.");
             sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
@@ -551,7 +550,12 @@ public class GccGenerateService
             ? null
             : await _partnerExtraction.ExtractFromPagesAsync(slice.Pages, [slice.ProductName], ct);
 
-        var ready = extraction is not null && HasSufficientPartnerData(extraction);
+        // A failed page is a fault, not a shortage, and partial extraction is failure (AGENTS.md).
+        // This read HasSufficientPartnerData alone, so a partner with 5 of 7 pages failed on a
+        // provider error and three categories filled from the other two was marked ready, drafted
+        // from the surviving subset, and -- because the row read ready -- shown without the
+        // coverage line that names the fault.
+        var ready = extraction is not null && extraction.PagesFailed == 0 && HasSufficientPartnerData(extraction);
 
         return new GccPartnerToolReadiness(
             slice.ProductName,
@@ -729,11 +733,16 @@ public class GccGenerateService
         if (string.Equals(create.StartingContentType, "imagePrompt", StringComparison.OrdinalIgnoreCase)
             || string.Equals(create.StartingContentType, "image-prompt", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.IsNullOrWhiteSpace(create.Topic) || string.IsNullOrWhiteSpace(create.Notes))
-                throw new InvalidOperationException("Standalone image prompt requires topic and notes.");
+            // Topic only. This also required Notes, which the frontend never sends (createGccCreate
+            // posts notes: null and collects none), so "Image prompt" -- an enabled picker option --
+            // failed every generate it was part of, and under one-fails-all took the pillar and
+            // blog beside it down too. The brief is already required by ValidateBriefRequired above
+            // and is the context an image prompt is written from; notes are read when present.
+            if (string.IsNullOrWhiteSpace(create.Topic))
+                throw new InvalidOperationException("Standalone image prompt requires a topic.");
             return await GenerateImagePromptJsonAsync(
                 create.Topic,
-                $"{briefBlock}\n\n{create.Notes}",
+                string.IsNullOrWhiteSpace(create.Notes) ? briefBlock : $"{briefBlock}\n\n{create.Notes}",
                 null,
                 provider,
                 ct);
@@ -802,7 +811,9 @@ public class GccGenerateService
         // particular to say, which is the whole of why these came back short (Jeff, 2026-09-23:
         // "The headings reflect why content word count is so drastically low").
         var metaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
-        var planned = LlmResponseJsonParser.Parse<BlogMetadataDraft>(metaResult.Content, "standalone blog metadata");
+        var planned = RequireCompleteMetadata(
+            LlmResponseJsonParser.Parse<BlogMetadataDraft>(metaResult.Content, "standalone blog metadata"),
+            "standalone blog metadata");
         var metadata = planned with
         {
             MetaDescription = Truncate(planned.MetaDescription, 160),
@@ -899,12 +910,21 @@ public class GccGenerateService
         // Both metadata shapes: Blog's prompts take BlogMetadataDraft and refuse the article shape,
         // which is a real per-type difference rather than something to convert away. Supplying only
         // one means revising that type throws instead of revising.
+        // The product, for a tool page. ToolPrompts.Body throws without App ("A tool page needs the
+        // product it is about"), and this built the context with neither App nor ToolSlug, so every
+        // Revise press on a tool artifact answered 400. The envelope's title is the product name --
+        // GenerateToolPageAsync writes `title = tool.Name` -- and the slug is derived the way the
+        // generate path derives it.
+        var isTool = string.Equals(typeSet?.Key, "tool", StringComparison.OrdinalIgnoreCase);
+        var productName = isTool ? (envelope.Title is { Length: > 0 } t ? t : document.Lede.Heading) : null;
         var promptCtx = new ContentTypes.ContentTypePromptContext(
             context,
             Metadata: metadata,
             BlogMetadata: new BlogMetadataDraft(
                 metadata.Title, metadata.MetaDescription, metadata.Keywords, metadata.SectionOutline),
-            Lede: document.Lede);
+            Lede: document.Lede,
+            App: productName is null ? null : new SoftwareApplicationDescriptor(productName, null),
+            ToolSlug: productName is null ? null : Slugify(productName));
         var request = typeSet is not null
             ? typeSet.Body(promptCtx with { RevisionNotes = fb })
             : _prompts.BuildStandaloneBlogBodyPrompt(
@@ -1175,7 +1195,11 @@ public class GccGenerateService
         var partnerExtraction = extraction ?? (partnerPages.Count == 0
             ? null
             : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], ct));
-        var groundedExtraction = partnerExtraction is not null && HasSufficientPartnerData(partnerExtraction)
+        // Same gate as the pre-flight: a failed page is a fault, and a page drafted from the
+        // pages that happened to survive is the middle state AGENTS.md forbids.
+        var groundedExtraction = partnerExtraction is not null
+            && partnerExtraction.PagesFailed == 0
+            && HasSufficientPartnerData(partnerExtraction)
             ? partnerExtraction
             : null;
 
@@ -1246,8 +1270,17 @@ public class GccGenerateService
         // fields; Tool passing none is exactly the second-class treatment that keeps recurring.
         var dept = string.IsNullOrWhiteSpace(department) ? "marketing" : department.Trim();
         var toolBrief = ExtractBriefFields(create?.BriefJson);
+        // The create's topic, not the product's name. This passed `name`, so BuildMinimalContext
+        // derived TargetKeyword from "Stampli" -- and every SEO instruction the writer gets
+        // interpolates TargetKeyword: the opening slot became "the problem this reader has with
+        // Stampli today", SeoBodyInstruction asked for "Stampli" in a heading, and the page was
+        // scored (GccController.Seo, GcwSeoAnalyzer) against the create's keyword, which it had
+        // never been told. 0.00% density on a page about exactly that keyword, 2026-10-03. The
+        // product is the page's subject and reaches the prompt as `app`; the keyword is the topic's.
+        // The legacy no-create path has only the name, and keeps it.
+        var toolTopic = create?.Topic is { Length: > 0 } createTopic ? createTopic : name;
         var context = BuildMinimalContext(
-            name,
+            toolTopic,
             string.Join("\n\n", paragraphs),
             llmType,
             dept,
@@ -1302,7 +1335,9 @@ public class GccGenerateService
         var pillarMeta = new ArticleMetadataDraft(
             Title: name,
             MetaDescription: Truncate((brief ?? name).Trim(), 160),
-            Keywords: [name],
+            Keywords: [.. new[] { name, context.TargetKeyword }
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Distinct(StringComparer.OrdinalIgnoreCase)],
             SectionOutline: [.. toolType.OutlineFor(toolOutlineCtx).Select(sl => sl.Label)]);
 
         // The hook is written before the body, so the body can continue it. It used to run after --
@@ -1449,6 +1484,9 @@ public class GccGenerateService
                     ? Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!)
                     : $"{toolCompetitorBlock}{Environment.NewLine}"
                       + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
+            // Resolved before it is judged, the same as the first draft: a retry that chose its
+            // quotation by number would otherwise be refused for carrying empty runs.
+            toolCtaSections = [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(toolCtaSections, quoteCandidates)];
             if (toolFaqSection is not null) toolCtaSections.Add(toolFaqSection);
             var retried = new ContentDocument(toolLede with { Tag = "h2" }, toolCtaSections);
             var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
@@ -1499,7 +1537,8 @@ public class GccGenerateService
         var metaResult = await llm.CompleteAsync(
             _prompts.BuildToolMetadataPrompt(context, pillarMeta, app, document),
             ct);
-        var metadata = LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata");
+        var metadata = RequireCompleteMetadata(
+            LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata"), "tool metadata");
 
         var metaDescription = metadata.MetaDescription.Length > 160
             ? metadata.MetaDescription[..160]
@@ -2519,16 +2558,17 @@ public class GccGenerateService
         // all of it for a pillar; the Create reimplementation returned a bare document, leaving
         // BuildArticleMetadataPrompt and ArticleSchemaBuilder sitting here with no caller.
         var pillarMetaResult = await llm.CompleteAsync(_prompts.BuildArticleMetadataPrompt(context), ct);
-        var pillarMeta = LlmResponseJsonParser.Parse<ArticleMetadataDraft>(pillarMetaResult.Content, "pillar metadata");
+        var pillarMeta = RequireCompleteMetadata(
+            LlmResponseJsonParser.Parse<ArticleMetadataDraft>(pillarMetaResult.Content, "pillar metadata"), "pillar metadata");
         var pillarMetaDescription = pillarMeta.MetaDescription.Length > 160
             ? pillarMeta.MetaDescription[..160]
             : pillarMeta.MetaDescription;
 
-        // {base}/{department}/{slug} -- the scheme the live site and v1's export both use
-        // (geekatyourspot.com/use-cases/marketing/<slug>). Written without the department first,
-        // which would have produced a canonical URL pointing at a page that does not exist.
-        var pillarDept = string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department.Trim();
-        var pillarUrl = $"{_company.ArticleBaseUrl.TrimEnd('/')}/{pillarDept}/{Slugify(pillarMeta.Title)}";
+        // GccContentPath, which is what GccArtifactExportService writes into the canonical tag for
+        // this same artifact. This hand-assembled {base}/{department}/{slug} and the export emits
+        // {base}/{department}/{descriptor}/{slug}, so the JSON-LD url and the canonical disagreed
+        // on every pillar with a descriptor -- the disagreement GccContentPath exists to prevent.
+        var pillarUrl = GccContentPath.For(_company.ArticleBaseUrl, create, Slugify(pillarMeta.Title));
         var pillarSchemaMeta = ContentMetadataFactory.For(
             context, pillarMeta.Title, pillarMetaDescription, pillarUrl, pillarMeta.Keywords, document);
 
@@ -2617,7 +2657,8 @@ public class GccGenerateService
         // was thrown away, which is why a blog came back at 791 words opening with "Overview"
         // (Jeff, 2026-09-23).
         var blogMetaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
-        var blogMeta = LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata");
+        var blogMeta = RequireCompleteMetadata(
+            LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata"), "blog metadata");
         var blogMetaDescription = blogMeta.MetaDescription.Length > 160
             ? blogMeta.MetaDescription[..160]
             : blogMeta.MetaDescription;
@@ -2774,10 +2815,14 @@ public class GccGenerateService
                     new ContentDocument(blogLede with { Tag = "h2" }, ctaRetrySections)).Document;
                 var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
                     retried, context.ConsultationAnchorHref);
-                // Only take the retry when it actually fixed the thing it was asked to fix -- a
-                // second draft that still has no link is not an improvement worth keeping, and it
-                // would also discard the required-tool mentions the first one had satisfied.
-                if (retriedViolations.Count == 0)
+                // Only take the retry when it fixed the thing it was asked to fix, and when it did
+                // not drop a partner the first draft had named -- the same two conditions the pillar
+                // retry applies. This checked only the first: the comment said the retry "would
+                // also discard the required-tool mentions the first one had satisfied" and then
+                // took it without looking, so a retry naming four of five partners was stored after
+                // the mentions gate above had already passed on five.
+                if (retriedViolations.Count == 0
+                    && GccRequiredToolMentions.Missing(retried, blogRequiredTools).Count == 0)
                 {
                     document = retried;
                     blogCtaViolations = retriedViolations;
@@ -2803,8 +2848,8 @@ public class GccGenerateService
         document = JsonSerializer.Deserialize<ContentDocument>(withPrompts, CwDocumentJson) ?? document;
 
         var blogNow = DateTime.UtcNow;
-        var blogDept = string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department.Trim();
-        var blogUrl = $"{_company.BlogBaseUrl.TrimEnd('/')}/{blogDept}/{Slugify(metadata.Title)}";
+        // GccContentPath, for the reason the pillar gives: the export's canonical is built there.
+        var blogUrl = GccContentPath.For(_company.BlogBaseUrl, create, Slugify(metadata.Title));
         var blogSchemaMeta = ContentMetadataFactory.For(
             context, metadata.Title, blogMetaDescription, blogUrl, metadata.Keywords, document, blogNow);
 
@@ -3061,7 +3106,7 @@ public class GccGenerateService
     /// missing whole sections of its own plan and call it finished.
     /// </para>
     /// </summary>
-    private static async Task<List<Section>> GenerateSectionsInBatchesAsync(
+    private async Task<List<Section>> GenerateSectionsInBatchesAsync(
         IContentGenerationProvider llm,
         ContentTypes.IContentTypePrompts type,
         ContentTypes.ContentTypePromptContext promptCtx,
@@ -3073,23 +3118,138 @@ public class GccGenerateService
         for (var i = 0; i < outline.Count; i += SectionsPerBatch)
         {
             var batch = outline.Skip(i).Take(SectionsPerBatch).ToList();
-            var result = await llm.CompleteAsync(
-                type.Body(promptCtx with { SectionBatch = batch, SectionBatchIndex = i / SectionsPerBatch }), ct);
-            var sections = LlmResponseJsonParser.ParseSections(
-                result.Content, $"{label} sections {i + 1}-{i + batch.Count}").ToList();
+            var batchLabel = $"{label} sections {i + 1}-{i + batch.Count}";
+            var batchCtx = promptCtx with { SectionBatch = batch, SectionBatchIndex = i / SectionsPerBatch };
+            var sections = await WriteBatchAsync(llm, type, batchCtx, batchLabel, outline.Count, ct);
 
-            if (sections.Count == 0)
+            // The floor the batch's own slots declare, when they declare one. The tool outline sizes
+            // every section ("600-850 words"); a batch that comes back under the sum of its lower
+            // figures has not written its share of the page, and the page then fails the length
+            // check the scorer applies -- 2,108 words against 3,000, 2026-10-03. One retry naming
+            // the shortfall, the way the scheduler-link retry names its omission; the longer of the
+            // two drafts is kept, and a page still short is reported rather than refused, because
+            // the SEO report is where the operator sees length and a refused generate shows nothing.
+            var floor = BatchFloorWords(batch);
+            if (floor > 0)
             {
-                throw new InvalidOperationException(
-                    $"{label}: sections {i + 1}-{i + batch.Count} of {outline.Count} came back empty. "
-                    + "The draft is not saved -- a page missing part of its own plan is not a short "
-                    + "page, it is an incomplete one.");
+                var words = ContentDocumentText.CountWords(sections);
+                if (words < floor)
+                {
+                    _logger.LogInformation(
+                        "{Batch} returned {Words} words against a {Floor}-word floor; retrying once with the shortfall named.",
+                        batchLabel, words, floor);
+                    var retryCtx = batchCtx with
+                    {
+                        EvidenceBlock = string.IsNullOrEmpty(batchCtx.EvidenceBlock)
+                            ? LengthShortfallInstruction(batch, words, floor)
+                            : $"{batchCtx.EvidenceBlock}{Environment.NewLine}{LengthShortfallInstruction(batch, words, floor)}",
+                    };
+                    var retried = await WriteBatchAsync(llm, type, retryCtx, batchLabel, outline.Count, ct);
+                    var retriedWords = ContentDocumentText.CountWords(retried);
+                    if (retriedWords > words)
+                    {
+                        sections = retried;
+                        words = retriedWords;
+                    }
+
+                    if (words < floor)
+                    {
+                        _logger.LogWarning(
+                            "{Batch} is {Words} words against a {Floor}-word floor after a retry naming the shortfall.",
+                            batchLabel, words, floor);
+                    }
+                }
             }
 
             written.AddRange(sections);
         }
 
         return written;
+    }
+
+    private static async Task<List<Section>> WriteBatchAsync(
+        IContentGenerationProvider llm,
+        ContentTypes.IContentTypePrompts type,
+        ContentTypes.ContentTypePromptContext batchCtx,
+        string batchLabel,
+        int outlineCount,
+        CancellationToken ct)
+    {
+        var result = await llm.CompleteAsync(type.Body(batchCtx), ct);
+        var sections = LlmResponseJsonParser.ParseSections(result.Content, batchLabel).ToList();
+
+        if (sections.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"{batchLabel} of {outlineCount} came back empty. "
+                + "The draft is not saved -- a page missing part of its own plan is not a short "
+                + "page, it is an incomplete one.");
+        }
+
+        return sections;
+    }
+
+    /// <summary>
+    /// A metadata draft with every required field present, or a refusal naming the one that is not.
+    /// </summary>
+    /// <remarks>
+    /// The metadata prompts carry no JSON schema, and System.Text.Json leaves a non-nullable record
+    /// member null when the response omits it. So a response without "metaDescription" reached
+    /// <c>.MetaDescription.Length</c> and the job failed with "NullReferenceException: Object
+    /// reference not set" -- pushed to the operator with no field named. Required means declared
+    /// non-nullable on the record; <c>Summary</c> and the like are <c>string?</c> and may be absent.
+    /// </remarks>
+    internal static T RequireCompleteMetadata<T>(T draft, string label) where T : class
+    {
+        var nullability = new System.Reflection.NullabilityInfoContext();
+        foreach (var property in typeof(T).GetProperties())
+        {
+            if (!property.CanRead || property.GetIndexParameters().Length > 0) continue;
+            if (nullability.Create(property).ReadState != System.Reflection.NullabilityState.NotNull) continue;
+
+            var value = property.GetValue(draft);
+            var missing = value is null || (value is string s && string.IsNullOrWhiteSpace(s));
+            if (missing)
+            {
+                throw new InvalidOperationException(
+                    $"{label} came back without \"{char.ToLowerInvariant(property.Name[0])}{property.Name[1..]}\". "
+                    + "The draft is not saved: a page whose metadata is missing a required field is not finished.");
+            }
+        }
+
+        return draft;
+    }
+
+    /// <summary>The leading figure of a slot's depth ("600-850 words" is 600), or 0 when it has none.</summary>
+    private static readonly Regex SlotDepthLowerBound = new(@"^\s*(\d[\d,]*)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The words a batch owes: the sum of its slots' lower figures. Zero when any slot in the
+    /// batch carries no depth, because a floor derived from half the slots would be a guess about
+    /// the other half.
+    /// </summary>
+    internal static int BatchFloorWords(IReadOnlyList<SectionSlot> batch)
+    {
+        var total = 0;
+        foreach (var slot in batch)
+        {
+            if (slot.Depth is not { Length: > 0 } depth) return 0;
+            var m = SlotDepthLowerBound.Match(depth);
+            if (!m.Success || !int.TryParse(m.Groups[1].Value.Replace(",", ""), out var lower) || lower <= 0) return 0;
+            total += lower;
+        }
+
+        return total;
+    }
+
+    private static string LengthShortfallInstruction(IReadOnlyList<SectionSlot> batch, int words, int floor)
+    {
+        var owed = string.Join("; ", batch.Select(s => $"\"{s.Label}\" {s.Depth}"));
+        return "=== LENGTH SHORTFALL -- WRITE THESE SECTIONS AGAIN ===" + Environment.NewLine
+            + $"The previous attempt at these sections returned {words:N0} words against the {floor:N0} they "
+            + $"owe ({owed}). Write them again at full depth. Do not pad and do not invent: go further into "
+            + "what the evidence supports -- the mechanism, the consequence for this reader, what deploying "
+            + "it involves -- until each section carries at least its lower figure.";
     }
 
     /// <summary>

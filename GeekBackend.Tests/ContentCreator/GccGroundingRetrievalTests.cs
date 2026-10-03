@@ -574,5 +574,54 @@ public class GccGroundingRetrievalTests
         Assert.Contains("run's \"href\"", block, StringComparison.Ordinal);
         Assert.Contains("[title](url)", block, StringComparison.Ordinal);
         Assert.DoesNotContain("include its URL where the claim appears", block, StringComparison.Ordinal);
+        // No quotation is licensed here: pillar and blog ban block quotes and run no quote guard,
+        // so a Rule 2 that offered "the cite of a quote paragraph" invited an unverified one.
+        Assert.DoesNotContain("quote paragraph", block, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("600-850 words", "550-750 words", 1150)]
+    [InlineData("1,200-1,500 words", "450-600 words", 1650)]
+    public void A_batch_owes_the_sum_of_its_slots_lower_figures(string first, string second, int expected)
+    {
+        var batch = new[]
+        {
+            GeekAPI.Services.Workflow.Services.PromptBuilders.SectionSlot.Cover("one", first),
+            GeekAPI.Services.Workflow.Services.PromptBuilders.SectionSlot.Cover("two", second),
+        };
+
+        Assert.Equal(expected, GccGenerateService.BatchFloorWords(batch));
+    }
+
+    [Fact]
+    public void A_batch_with_an_unsized_slot_owes_nothing_measurable()
+    {
+        // A floor derived from half the slots would be a guess about the other half.
+        var batch = new[]
+        {
+            GeekAPI.Services.Workflow.Services.PromptBuilders.SectionSlot.Cover("one", "600-850 words"),
+            GeekAPI.Services.Workflow.Services.PromptBuilders.SectionSlot.Cover("two"),
+        };
+
+        Assert.Equal(0, GccGenerateService.BatchFloorWords(batch));
+    }
+
+    [Fact]
+    public void Metadata_missing_a_required_field_is_refused_by_name()
+    {
+        var draft = new GeekAPI.Services.Workflow.DTOs.BlogMetadataDraft("Title", null!, ["kw"], ["One"]);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            GccGenerateService.RequireCompleteMetadata(draft, "blog metadata"));
+
+        Assert.Contains("without \"metaDescription\"", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Metadata_with_an_optional_field_absent_is_complete()
+    {
+        var draft = new GeekAPI.Services.Workflow.DTOs.BlogMetadataDraft("Title", "Meta", ["kw"], ["One"], Summary: null);
+
+        Assert.Same(draft, GccGenerateService.RequireCompleteMetadata(draft, "blog metadata"));
     }
 }

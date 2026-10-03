@@ -80,12 +80,12 @@ public class ToolPageQuotationTests
     {
         var system = ToolPrompt("""{"testimonials":[{"quoteText":"We cut approval time."}]}""");
 
-        Assert.Contains("copied character for character", system, StringComparison.Ordinal);
-
-        // Was "the URL that evidence gives as their source", which pointed at the extraction's
-        // provenance. The cite now comes from the span's own printed URL, because the writer picks
-        // from the same list the guard checks against -- so the source of the cite moved with it.
-        Assert.Contains("the URL printed beside the span you chose", system, StringComparison.Ordinal);
+        // Was "copied character for character" and "set cite to the URL printed beside the span
+        // you chose": the writer retyped the sentence and the guard had to find it again. The
+        // number is the answer now, and both the words and the cite are read back from the list.
+        Assert.Contains("answer with its number", system, StringComparison.Ordinal);
+        Assert.Contains("\"candidate\":<number>", system, StringComparison.Ordinal);
+        Assert.Contains("taken from the list by that number, not from your reply", system, StringComparison.Ordinal);
     }
 
     [Fact]

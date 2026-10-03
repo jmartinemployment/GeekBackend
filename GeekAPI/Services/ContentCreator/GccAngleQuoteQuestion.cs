@@ -36,7 +36,13 @@ public static class GccAngleQuoteQuestion
     /// <summary>The question for one angle, or null when the angle is absent or unrecognised.</summary>
     public static GccAngleQuoteSpec? For(string? angle, string? topic)
     {
-        var subject = (topic ?? string.Empty).Trim();
+        // The keyword, by the one parser. The brief panel sends the whole topic ("Accounts Payable:
+        // Automated Data Entry & Processing"), and this interpolated it as-is -- so the problem frame
+        // read "doing Accounts Payable: Automated Data Entry & Processing manually", the automated-
+        // manually query AGENTS.md records as a defect, while GccGroundingResolver's generate-time
+        // query split the keyword off. The probe and the writer were asking different questions of
+        // the same partner. A topic with no descriptor is all keyword and comes back unchanged.
+        var subject = GccTopic.KeywordOf(topic).Trim();
         if (subject.Length == 0) return null;
 
         return (angle ?? string.Empty).Trim().ToLowerInvariant() switch

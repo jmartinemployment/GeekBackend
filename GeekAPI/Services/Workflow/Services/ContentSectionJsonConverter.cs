@@ -28,6 +28,14 @@ public sealed class ParagraphJsonConverter : JsonConverter<Paragraph>
                     : [],
                 root.TryGetProperty("cite", out var cite) && cite.ValueKind == JsonValueKind.String
                     ? cite.GetString()
+                    : null,
+                // The selector. A number the model answers with instead of retyping the sentence --
+                // the design GccQuoteCandidates documents and the probe already runs. Not written
+                // back out: once resolved the quotation is the candidate's own text and cite.
+                root.TryGetProperty("candidate", out var candidate)
+                    && candidate.ValueKind == JsonValueKind.Number
+                    && candidate.TryGetInt32(out var candidateId)
+                    ? candidateId
                     : null),
             // Read as well as written because these round-trip: GccCorpusBlockMapper builds both from
             // retrieved corpus blocks, so without a case here a stored code block comes back as an

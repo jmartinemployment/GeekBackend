@@ -308,6 +308,7 @@ public static class LlmResponseJsonParser
         ListParagraph list => new ListParagraph(
             list.Ordered,
             (list.Items ?? []).Select(item => (IReadOnlyList<Run>)(item ?? []).Select(NormalizeRun).ToList()).ToList()),
+        QuoteParagraph quote => quote with { Runs = (quote.Runs ?? []).Select(NormalizeRun).ToList() },
         _ => paragraph,
     };
 
@@ -318,10 +319,15 @@ public static class LlmResponseJsonParser
         CheckText(section.Heading, label);
         foreach (var paragraph in section.Paragraphs)
         {
+            // Quote runs too. They were skipped (`_ => []`), so "[Source: Bill](https://...)" or
+            // "**bold**" inside a block quotation passed hygiene on every type -- and on pillar and
+            // blog no quote guard runs afterwards, so it would have rendered as literal brackets in
+            // a <blockquote>. A quotation is plain text like everything else the model returns.
             var runs = paragraph switch
             {
                 TextParagraph text => text.Runs,
                 ListParagraph list => list.Items.SelectMany(item => item).ToList(),
+                QuoteParagraph quote => quote.Runs,
                 _ => [],
             };
             foreach (var run in runs)
@@ -337,11 +343,12 @@ public static class LlmResponseJsonParser
 
     private static void CheckText(string text, string label)
     {
-        // Tool anchors are permitted via Run.Href or as escaped <a href="/tools/..."> literal per prompt — don't flag them as leaked markup.
-        if (text.Contains("<a href=\"/tools/", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
+        // There used to be an early return here for any text containing a literal
+        // `<a href="/tools/` -- "permitted ... per prompt". No live prompt asks for a literal anchor
+        // (a tool link is a run's href), and the exemption did not merely admit that one tag: it
+        // skipped every check below for the whole run, so a run carrying the anchor could also carry
+        // "[Source: x](url)" and "**bold**" and ship them all as literal text. The renderer encodes
+        // run text, so the "permitted" anchor would have been published as escaped markup anyway.
         // An image prompt written into the prose. The field was removed from the lede contract on
         // 2026-09-23 because the model kept answering it as a paragraph -- "Image prompt: A
         // conceptual image of a futuristic office..." sitting in the body of a published draft.

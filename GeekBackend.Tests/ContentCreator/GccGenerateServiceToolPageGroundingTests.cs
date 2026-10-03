@@ -70,7 +70,7 @@ public class GccGenerateServiceToolPageGroundingTests
     private const string ToolLedeJson =
         """{"ledeType":"directAddress","heading":"Reclaiming The Hours You Lose","paragraphs":[{"type":"text","runs":[{"text":"A hook paragraph that opens the page."}]}]}""";
 
-    private sealed class ScriptedProvider(bool includeFaq = false) : IContentGenerationProvider
+    private sealed class ScriptedProvider(bool includeFaq = false, bool quoteByNumber = false) : IContentGenerationProvider
     {
         private int bodyCalls;
 
@@ -91,11 +91,16 @@ public class GccGenerateServiceToolPageGroundingTests
             // JsonSchemaName is the exact discriminator: "sections" is a body batch and "section" is
             // the single FAQ section. Matching on prompt text alone put the body in the FAQ branch,
             // because the body prompt mentions the FAQ when explaining what its word target excludes.
+            // A length-shortfall retry re-asks for the batch it just wrote; answering it with the
+            // next script would hand sections 3-4 to the call that owns 1-2. Same batch, not
+            // counted, and no longer -- so the service keeps the first draft, as it should.
+            var isLengthRetry = asked.Contains("LENGTH SHORTFALL", StringComparison.Ordinal);
             var content = request.JsonSchemaName switch
             {
                 // One batch per body call. Returning the whole body each time gave the page three
                 // copies of itself, which the image-prompt count then caught.
-                "sections" => ToolBodyBatches[Math.Min(bodyCalls++, ToolBodyBatches.Length - 1)],
+                "sections" when isLengthRetry => Script(ToolBodyBatches[Math.Min(Math.Max(bodyCalls - 1, 0), ToolBodyBatches.Length - 1)]),
+                "sections" => Script(ToolBodyBatches[Math.Min(bodyCalls++, ToolBodyBatches.Length - 1)]),
                 "section" => includeFaq ? ToolFaqJson : ToolMetadataJson,
                 _ => Asked(asked, "ledeType") ? ToolLedeJson
                     : Asked(asked, "image-generation prompts") ? ToolImagePromptsJson
@@ -106,6 +111,16 @@ public class GccGenerateServiceToolPageGroundingTests
 
         private static bool Asked(string prompt, string marker) =>
             prompt.Contains(marker, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The scripted batch, with its quotation answered the way the prompt now asks when
+        /// the test wants that: by number, with nothing typed into it.</summary>
+        private string Script(string batch) =>
+            quoteByNumber
+                ? batch.Replace(
+                    """{"type":"quote","runs":[{"text":"reduces setup time by half"}],"cite":"https://partner.test/widget"}""",
+                    """{"type":"quote","candidate":1,"runs":[],"cite":null}""",
+                    StringComparison.Ordinal)
+                : batch;
     }
 
     private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
@@ -367,8 +382,75 @@ public class GccGenerateServiceToolPageGroundingTests
         Assert.NotNull(prompt);
         // The span the passage carries, offered by number with its page as the cite -- so the model
         // answers with the number and never retypes the sentence.
+        Assert.Contains("1. \"", prompt, StringComparison.Ordinal);
         Assert.Contains("the vendor master maps itself", prompt, StringComparison.Ordinal);
         Assert.Contains("[cite: https://partner.test/widget]", prompt, StringComparison.Ordinal);
+    }
+
+    private static GeekAPI.Services.ContentCreatorV2.Partner.PartnerPageExtraction GroundableExtraction() =>
+        GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+                "Slack", "Notifications", "API", "Slack integration")],
+        };
+
+    [Fact]
+    public async Task A_quotation_chosen_by_number_is_resolved_to_the_candidate_span_and_its_page()
+    {
+        // The Stampli refusal, 2026-10-03: the writer retyped a sentence and the guard, rightly,
+        // matched it to nothing. The number is the answer now, and the words are the system's own.
+        var provider = new ScriptedProvider(quoteByNumber: true);
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), GroundableExtraction());
+        var service = Build(provider, partner);
+
+        var result = await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithOnePartnerPage()), passages: PartnerPassages());
+
+        var quotes = result.Document.Sections
+            .SelectMany(s => s.Paragraphs)
+            .OfType<QuoteParagraph>()
+            .ToList();
+        var quote = Assert.Single(quotes);
+        Assert.Null(quote.Candidate);
+        // Candidate 1 is whatever GccQuoteCandidates cut first from these passages -- the page's own
+        // characters, read back by number, which is the whole point.
+        var first = GccQuoteCandidates.From(PartnerPassages())[0];
+        Assert.Equal(first.PageUrl, quote.Cite);
+        Assert.Equal(first.Text, Assert.Single(quote.Runs).Text);
+    }
+
+    [Fact]
+    public async Task The_tool_body_is_told_the_creates_keyword_not_the_product_name()
+    {
+        // The page scored 0.00% density on its own keyword because the writer had never been told
+        // it: the context was built from the product name, so every SEO instruction asked for
+        // "Partner Widget" in the lede and a heading, and the scorer asked for the keyword.
+        var provider = new ScriptedProvider();
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), GroundableExtraction());
+        var service = Build(provider, partner);
+        var create = Create(ResearchJsonWithOnePartnerPage()) with
+        {
+            Topic = "Accounts Payable: Automated Data Entry & Processing",
+        };
+
+        await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: create, passages: PartnerPassages());
+
+        var body = provider.Requests
+            .SelectMany(r => r.Messages.Select(m => m.Content))
+            .First(c => c.Contains("WHAT THIS PAGE IS", StringComparison.Ordinal));
+        Assert.Contains("facing \"Automated Data Entry & Processing\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("facing \"Partner Widget\"", body, StringComparison.Ordinal);
+        // The product is still the subject, named as itself.
+        Assert.Contains("Partner Widget is a PARTNER", body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -509,17 +591,19 @@ public class GccGenerateServiceToolPageGroundingTests
         string startingContentType)
     {
         // Same mismatch class as tool/aiTool: content-types.ts sends "image-prompt". Proven the
-        // same way -- the image-prompt branch's own precondition message ("requires topic and
-        // notes") only fires from inside that branch, never from the generic long-form path.
+        // same way -- the image-prompt branch's own precondition message ("requires a topic")
+        // only fires from inside that branch, never from the generic long-form path. Notes used to
+        // be the precondition this test leaned on; they are optional now, because the frontend
+        // never sends them and a required field nothing supplies is a type that cannot generate.
         var provider = new ScriptedProvider();
         var partner = GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider));
         var service = Build(provider, partner);
-        var create = DispatchCreate(startingContentType) with { Notes = null };
+        var create = DispatchCreate(startingContentType) with { Notes = null, Topic = "   " };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.GenerateStartingContentAsync(create, null, ContentGeneratorProvider.OpenAi, CancellationToken.None));
 
-        Assert.Contains("Standalone image prompt requires topic and notes", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Standalone image prompt requires a topic", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -63,6 +63,23 @@ public static class GccToolQuoteGuard
         var violations = new List<string>();
         foreach (var quote in quotes)
         {
+            // Chosen by number. The number is the whole answer -- the words and the cite are the
+            // candidate's, read back by SnapQuotesToCandidates -- so a quotation that names a
+            // listed span is verified by that alone, whatever the model typed beside it. A number
+            // that names nothing is a refusal, not a fall-through to the text: the writer claimed a
+            // span that was never offered.
+            if (quote.Candidate is { } id)
+            {
+                if (id < 1 || id > spans.Count)
+                {
+                    violations.Add(
+                        $"A block quotation names quotable span {id}, but {spans.Count} were listed. "
+                        + "A quote box takes its words from a listed span, by its number.");
+                }
+
+                continue;
+            }
+
             var text = Unquote(Normalize(string.Join(" ", quote.Runs.Select(r => r.Text))));
             if (text.Length == 0)
             {
@@ -178,6 +195,18 @@ public static class GccToolQuoteGuard
     private static Paragraph SnapParagraph(Paragraph paragraph, IReadOnlyList<QuotableSpan> spans)
     {
         if (paragraph is not QuoteParagraph quote) return paragraph;
+
+        // By number, which is the design: GccQuoteCandidates numbers the spans and says "the model
+        // selects; it never transcribes", and the brief-time probe has always read its answer back
+        // this way. The writer did not -- it was shown the same list unnumbered and asked to copy
+        // one "character for character", and copying is where Stampli's page was lost on
+        // 2026-10-03: a quotation that matched no candidate, refused as it should be, on a page
+        // whose evidence held the sentence it was reaching for. A number cannot be paraphrased.
+        if (quote.Candidate is { } id && id >= 1 && id <= spans.Count)
+        {
+            var chosen = spans[id - 1];
+            return new QuoteParagraph([new Run(chosen.Text)], chosen.OriginProofUrl);
+        }
 
         var drafted = Unquote(Normalize(string.Join(" ", quote.Runs.Select(r => r.Text))));
         if (drafted.Length == 0) return paragraph;

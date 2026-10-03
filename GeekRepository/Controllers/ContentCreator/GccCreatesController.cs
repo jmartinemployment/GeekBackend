@@ -90,8 +90,11 @@ public class GccCreatesController : ControllerBase
     {
         if (request is null)
             return BadRequest("Body required");
-        if (request.BriefJson is null && request.ResearchJson is null)
-            return BadRequest("briefJson and/or researchJson required");
+        // Topic too: GeekAPI accepts a topic-only PATCH ("briefJson, researchJson and/or topic
+        // required") and the repository applies a non-blank Topic, but this guard predated the field
+        // and turned that call into a 400 here, reported upstream as a 502.
+        if (request.BriefJson is null && request.ResearchJson is null && request.Topic is null)
+            return BadRequest("briefJson, researchJson and/or topic required");
 
         try
         {

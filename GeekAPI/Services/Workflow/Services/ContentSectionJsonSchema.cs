@@ -248,7 +248,7 @@ public static class ContentSectionJsonSchema
                 // Every property listed, as strict mode requires. "cite" is the source URL and is a
                 // nullable string rather than an omitted one for the same reason -- expressed the way
                 // Run.href already is in this file.
-                ["required"] = new JsonArray { "type", "runs", "cite" },
+                ["required"] = new JsonArray { "type", "runs", "cite", "candidate" },
                 ["properties"] = new JsonObject
                 {
                     ["type"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray { "quote" } },
@@ -258,6 +258,17 @@ public static class ContentSectionJsonSchema
                         ["anyOf"] = new JsonArray
                         {
                             new JsonObject { ["type"] = "string" },
+                            new JsonObject { ["type"] = "null" },
+                        },
+                    },
+                    // The number of a listed quotable span. Null on any page that lists none, which
+                    // is every type but Tool -- and on Tool it is the way a quotation is chosen,
+                    // so the words never pass through the model (GccQuoteCandidates).
+                    ["candidate"] = new JsonObject
+                    {
+                        ["anyOf"] = new JsonArray
+                        {
+                            new JsonObject { ["type"] = "integer" },
                             new JsonObject { ["type"] = "null" },
                         },
                     },

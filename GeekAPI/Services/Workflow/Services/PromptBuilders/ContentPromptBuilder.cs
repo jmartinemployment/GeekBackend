@@ -252,9 +252,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string ParagraphJsonShape =
         "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...]} " +
         "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[" + RunJsonShape + ", ...], ...]} " +
-        "OR {\"type\":\"quote\",\"runs\":[" + RunJsonShape + ", ...],\"cite\":string? (source URL)} " +
+        "OR {\"type\":\"quote\",\"candidate\":integer? (the number of a listed quotable span), \"runs\":[" + RunJsonShape + ", ...],\"cite\":string? (source URL)} " +
         "(a real block quotation, for wording worth reproducing verbatim with its source — " +
-        "never \"According to X, ...\" written as ordinary prose)";
+        "never \"According to X, ...\" written as ordinary prose. Where quotable spans are listed, " +
+        "set \"candidate\" to the span's number, leave \"runs\" empty and \"cite\" null: the words and " +
+        "the source are taken from the list by that number, never from your reply)";
 
     private const string SectionJsonContract =
         "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +
@@ -866,9 +868,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// </remarks>
     private static string ToolQuotationInstruction(string productName, string targetKeyword) =>
         "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries exactly one block "
-        + "quotation -- a paragraph of type \"quote\" -- and it is required. Take its words from the "
-        + "quotable spans listed below, copied character for character, and set \"cite\" to the URL "
-        + "printed beside the span you chose.\n"
+        + "quotation -- a paragraph of type \"quote\" -- and it is required. Choose it from the "
+        + "numbered QUOTABLE SPANS below and answer with its number: {\"type\":\"quote\","
+        + "\"candidate\":<number>,\"runs\":[],\"cite\":null}. Do not write the sentence out, and do "
+        + "not shorten, edit or combine spans -- the words and the cite are taken from the list by "
+        + "that number, not from your reply, so anything you type into the quotation is discarded "
+        + "and a number that is not on the list is refused.\n"
         + "WHAT THE QUOTE MUST SAY: how " + productName + " solves the problem this page is about -- "
         + "the pain of doing " + targetKeyword
         + " the manual or status-quo way, and what their product does about it. Choose the span that "
@@ -883,9 +888,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "something and the quote is " + productName + " saying it themselves -- not stacked at the "
         + "top, not left to the end as decoration. "
         + "What it may not be: a paraphrase tidied into quotation marks, a claim you are confident "
-        + "they make, wording assembled from several places, or anything at all with a cite pointing "
-        + "somewhere the words did not come from. If a span is not in front of you verbatim, it is not "
-        + "quotable, and the draft is rejected rather than published with an invented one.";
+        + "they make, wording assembled from several places, or a sentence of your own typed into a "
+        + "quote paragraph without a number. If no listed span says it, it is not quotable, and the "
+        + "draft is rejected rather than published with an invented one.";
 
     /// <summary>
     /// The spans the writer may quote -- the same list GccToolQuoteGuard will check the draft
@@ -903,10 +908,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private static string QuotableSpansBlock(IReadOnlyList<GccQuoteCandidate> candidates)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("QUOTABLE SPANS -- the only wording this page may quote. Copy one exactly:");
+        // Numbered, because the number is what the writer answers with. Unnumbered, the only way to
+        // choose one was to retype it, and a retyped sentence has to be found again -- which is the
+        // match that lost Stampli's page on 2026-10-03. The cite is printed so the writer can see
+        // where each span comes from; it is not something the writer supplies.
+        sb.AppendLine("QUOTABLE SPANS -- the only wording this page may quote, by number:");
         foreach (var candidate in candidates)
         {
-            sb.AppendLine($"- \"{candidate.Text}\"  [cite: {candidate.PageUrl}]");
+            sb.AppendLine($"{candidate.Id}. \"{candidate.Text}\"  [cite: {candidate.PageUrl}]");
         }
 
         return sb.ToString().TrimEnd();
@@ -2575,7 +2584,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 : $"{i + 1}. \"{slot.Heading}\"");
             if (slot.Depth is { Length: > 0 })
             {
-                sectionBlock.AppendLine($"   Roughly {slot.Depth} -- for proportion between sections, not a quota.");
+                sectionBlock.AppendLine($"   {slot.Depth}. The lower figure is owed; the range sizes this section against the others.");
             }
             if (slot.Guidance is { Length: > 0 })
             {
@@ -2646,19 +2655,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccV2LongFormTypes.Tool,
                 outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count), batchIndex == 0))
-            // Length is guidance for long form, never a quota. "Target at least N words, do not stop
-            // early" is padding pressure: on thin partner data the only way to satisfy it is filler,
-            // and filler on a partner page is worse than a short honest one. Jeff, 2026-09-23:
-            // "Quality is more important than an arbitrary word count" and "quality of the prose is
-            // more important than word count for each and every content type. Short forms rein word
-            // count" -- so the range informs depth here, while short-form types keep hard limits
-            // because brevity is the point of them.
-            .AppendLine($"Length guidance, not a quota: {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0} words is what full coverage of this product usually takes, and {ContentLengthTargets.ToolHardMaxWords:N0} is the ceiling. " +
-                "Treat it as a signal about depth, never a target to reach.")
-            .AppendLine("Write to the material you were given and stop when the section is genuinely covered. " +
-                "Never pad, never restate a point in new words to add length, never invent detail to fill a section. " +
-                "A shorter section that is entirely supported beats a longer one that is padded -- if the partner data " +
-                "does not support a section, say less.")
+            // One statement about length, and it agrees with the scorer. SeoBodyInstruction above
+            // says the floor "fails outright"; the two lines that followed it here said "not a
+            // quota ... never a target to reach ... say less", and a writer handed both took the
+            // permission: a 2,108-word tool page against a 3,000-word floor, 2026-10-03, failing the
+            // length check it had been told did not apply. Quality still beats count (Jeff,
+            // 2026-09-23), which is why padding and invention stay banned -- but the answer to thin
+            // evidence is depth on what the evidence does support, not a shorter page. Tool equals
+            // Pillar on every measure (Jeff, 2026-09-28), and Pillar's floor is a floor.
+            .AppendLine($"Length: {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0} words across the sections above, {ContentLengthTargets.ToolHardMaxWords:N0} at most. " +
+                "Each section's lower figure is owed, and a batch under its floor is written again.")
+            .AppendLine("Depth, never padding: do not restate a point in new words, do not invent a feature, figure or integration to fill a section. " +
+                $"When the evidence for a section is thin, go further into what it does support -- the mechanism, what it changes for this reader's week, what deploying it involves with {context.PublisherName} -- rather than closing the section short.")
             .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {outline.Count} substantial sections, not four.")
             .AppendLine($"This word target is for the {outline.Count} sections above only -- a separate FAQ section, when the tool has " +
                 "verified partner FAQ data, is generated afterward and is additional, not part of this budget.")
