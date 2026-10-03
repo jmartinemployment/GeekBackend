@@ -17,7 +17,6 @@ using GeekAPI.Services.ContentCreatorV2.Plan;
 using GeekAPI.Services.ContentCreatorV2.Publish;
 using GeekAPI.Services.ContentCreatorV2.ToolPages;
 using GeekAPI.Services.ContentCreatorV2.TaskAgents;
-using GeekAPI.Services.ContentCreatorV2.Transforms;
 using GeekAPI.Services.ContentCreatorV2.Validate;
 using GeekAPI.Services.ContentCreatorV2.Write;
 using Microsoft.AspNetCore.SignalR;
@@ -58,7 +57,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2GeekCrawlerResearchResolver>();
         services.AddScoped<GccV2BrandKitBuilder>();
         services.AddSingleton<GccV2PlaywrightBrowserHolder>();
-        services.AddHostedService<GccV2PlaywrightStartupHostedService>();
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<IGccV2RenderedHtmlSource, GccV2PlaywrightRenderedHtmlSource>();
         services.AddScoped<GccV2SiteHierarchyService>();
@@ -70,10 +68,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<Generation.IGccV2SchemaConstrainedGenerator, Generation.GccV2SchemaConstrainedGenerator>();
         services.AddScoped<Competitor.GccV2CompetitorExtractionService>();
         services.AddScoped<Partner.GccV2PartnerExtractionService>();
-        services.AddHostedService<GccV2DiagnosticTaskAgentSeeder>();
-        services.AddHostedService<GccV2ContentTaskAgentSeeder>();
-        services.AddHostedService<GccV2RoiTaskAgentSeeder>();
-        services.AddHostedService<GccV2TaskRunWorker>();
         services.AddSingleton<GccV2ContextManifestSigner>();
         services.AddScoped<GccV2ContextResolver>();
         services.AddHttpClient<IGccV2ContextObjectStore, GccV2S3ContextObjectStore>();
@@ -88,11 +82,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<IGccV2ContextConnector, GccV2DriveContextConnector>();
         services.AddSingleton<IGccV2ContextConnector, GccV2SharePointContextConnector>();
         services.AddSingleton<GccV2ContextConnectorRegistry>();
-        services.AddScoped<GccV2UrlKnowledgeService>();
-        services.AddScoped<GccV2UrlAttachmentService>();
-        services.AddScoped<GccV2GscKnowledgeService>();
-        services.AddScoped<GccV2DriveKnowledgeService>();
-        services.AddScoped<GccV2SharePointKnowledgeService>();
         services.AddSingleton<GccV2TrustedAssetSigner>();
         services.AddHttpClient<IGccV2KnowledgeIndexer, GccV2HttpKnowledgeIndexer>(client =>
         {
@@ -106,10 +95,8 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<GccV2ContextIngestionWake>();
         services.AddScoped<GccV2ContextIngestionNotifier>();
         services.AddHostedService<GccV2ContextIngestionWorker>();
-        services.AddHostedService<GccV2ContextRetentionWorker>();
         services.AddSingleton<ContentModelPolicy>();
         services.AddSingleton<GccV2SkillAdminPolicy>();
-        services.AddScoped<GccV2AgenticSkillsResolver>();
         services.AddSingleton<GccV2SkillSnapshotSigner>();
         services.AddScoped<GccV2SkillSnapshotRegistry>();
         services.AddSingleton<GccV2AgentTeamSigner>();
@@ -125,10 +112,8 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<V1Restore.GccV2V1PlanAdapter>();
         services.AddScoped<V1Restore.GccV2V1WriteAdapter>();
         services.AddScoped<GccV2SpecialistCoordinator>();
-        services.AddSingleton<GccV2AgentTestWake>();
         services.AddScoped<GccV2AgentTestProgressNotifier>();
         services.AddScoped<GccV2TaskAgentRunProgressNotifier>();
-        services.AddScoped<GccV2AgentRagSmokeExecutor>();
         services.AddScoped<GccV2GitHubSkillImporter>();
         services.AddHttpClient(nameof(GccV2GitHubSkillImporter), client =>
         {
@@ -146,24 +131,16 @@ public static class ContentCreatorV2ServiceRegistration
             });
         services.AddScoped<GccV2JobModelPolicyOverrideStore>();
         services.AddScoped<GccV2PlanService>();
-        services.AddScoped<GccV2ReviewAdapter>();
         services.AddScoped<GccV2GuardrailService>();
         services.AddScoped<GuardrailGateService>();
         services.AddScoped<GccV2RestructurePassService>();
         services.AddScoped<GccV2WriteService>();
         services.AddScoped<GccV2ValidateService>();
-        services.AddScoped<GccV2RepurposeTransformService>();
         services.AddScoped<GccV2LinkedInCarouselService>();
         services.AddScoped<GccV2LinkedInCarouselSpawnService>();
-        services.AddScoped<GccV2CmsPublishService>();
         services.AddScoped<GccV2JsonLdBuilder>();
         services.AddScoped<GccV2HtmlExportService>();
-        services.AddScoped<GccV2AiVisibilityService>();
         services.AddMemoryCache();
-        services.AddHostedService<GccV2StubConnectionStartupGuard>();
-        services.AddHostedService<GccV2FirstPartySkillSeeder>();
-        services.AddHostedService<GccV2FirstPartyAgentSeeder>();
-        services.AddHostedService<GccV2AgentTestWorker>();
         services.AddHostedService<GccV2JobWorker>();
 
         services.AddSignalR();
