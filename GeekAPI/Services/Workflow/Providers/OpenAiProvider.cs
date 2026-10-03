@@ -117,7 +117,7 @@ public class OpenAiProvider : IContentGenerationProvider
 
         return new ChatCompletionResult(
             Content: choice.Message.Content,
-            ModelUsed: parsed.Model ?? _options.Model,
+            ModelUsed: parsed.Model ?? model,
             PromptTokens: parsed.Usage?.PromptTokens,
             CompletionTokens: parsed.Usage?.CompletionTokens,
             CachedTokens: cachedTokens);

@@ -229,7 +229,7 @@ public class ClaudeContentGenerator : IContentGenerator
 
             var request = new
             {
-                model = _options.Model,
+                model = ProviderModelGuard.Require(_options.Model, "LlmProviders__Anthropic__Model"),
                 max_tokens = maxTokens,
                 messages = new[]
                 {

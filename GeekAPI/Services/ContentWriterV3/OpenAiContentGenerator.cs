@@ -230,7 +230,7 @@ public class OpenAiContentGenerator : IContentGenerator
 
         var request = new
         {
-            model = _options.Model,
+            model = ProviderModelGuard.Require(_options.Model, "LlmProviders__OpenAi__Model"),
             messages = new object[]
             {
                 new { role = "system", content = system },

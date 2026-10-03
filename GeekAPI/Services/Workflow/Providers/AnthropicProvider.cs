@@ -51,10 +51,14 @@ public class AnthropicProvider : IContentGenerationProvider
             .Select(m => new AnthropicMessage(m.RoleString, m.Content))
             .ToList();
 
+        // Resolved once. ModelUsed below reports what was SENT, and deriving it a second time is how
+        // the two come to disagree when a request carries its own Model.
+        var model = ProviderModelGuard.Require(
+            request.Model ?? _options.Model, "LlmProviders__Anthropic__Model");
+
         var payload = new AnthropicRequest
         {
-            Model = ProviderModelGuard.Require(
-                request.Model ?? _options.Model, "LlmProviders__Anthropic__Model"),
+            Model = model,
             System = string.IsNullOrEmpty(systemPrompt) ? null : systemPrompt,
             Messages = turnMessages,
             MaxTokens = request.MaxOutputTokens,
@@ -135,7 +139,7 @@ public class AnthropicProvider : IContentGenerationProvider
 
         return new ChatCompletionResult(
             Content: content,
-            ModelUsed: parsed.Model ?? _options.Model,
+            ModelUsed: parsed.Model ?? model,
             PromptTokens: parsed.Usage?.InputTokens,
             CompletionTokens: parsed.Usage?.OutputTokens);
     }
