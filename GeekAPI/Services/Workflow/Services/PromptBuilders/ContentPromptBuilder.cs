@@ -189,9 +189,6 @@ public interface IContentPromptBuilder
     /// <summary>Extract structured tool research from an uploaded HTML tool page (one call per upload).</summary>
     ChatCompletionRequest BuildToolResearchExtractionPrompt(string fileName, string htmlOrText);
 
-    ChatCompletionRequest BuildAdvertisingPrompt(
-        ProjectGenerationContext context, ArticleDraft sourceArticle, string articleUrl);
-
     ChatCompletionRequest BuildSummaryVariantsPrompt(
         ProjectGenerationContext context,
         string title,
@@ -2859,31 +2856,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: 0.1,
-            MaxOutputTokens: 2048);
-    }
-
-    public ChatCompletionRequest BuildAdvertisingPrompt(
-        ProjectGenerationContext context, ArticleDraft sourceArticle, string articleUrl)
-    {
-        var system = new StringBuilder()
-            .AppendLine("You write schema.org AdvertiserContentArticle body copy for B2B IT consulting.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine("Respond with ONLY JSON: {\"title\": string, \"bodyText\": string, \"metaDescription\": string}.")
-            .AppendLine("bodyText should be 180-320 words of sponsored/advertiser article prose grounded in the source — not a keyword-stuffed ad.")
-            .ToString();
-
-        var user = new StringBuilder()
-            .AppendLine($"Target keyword: {context.TargetKeyword}")
-            .AppendLine($"Source title: {sourceArticle.Title}")
-            .AppendLine($"Source URL: {articleUrl}")
-            .AppendLine($"Source meta: {sourceArticle.MetaDescription}")
-            .AppendLine("Source excerpt:")
-            .AppendLine(TruncateExcerpt(ContentDocumentText.Flatten(sourceArticle.Body), 2000))
-            .ToString();
-
-        return new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
-            Temperature: 0.5,
             MaxOutputTokens: 2048);
     }
 

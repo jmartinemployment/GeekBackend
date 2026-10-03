@@ -545,7 +545,6 @@ public class GccController : ControllerBase
         return File(zipStream.ToArray(), "application/zip", $"{id}-content-export.zip");
     }
 
-    [HttpGet("jobs/{id:guid}")]
     public ActionResult<object> GetJob(Guid id)
     {
         // Kept for older clients; generate is synchronous — no in-process job runner.
@@ -687,13 +686,6 @@ public class GccController : ControllerBase
             }
         }
         return names;
-    }
-
-    [HttpGet("artifacts")]
-    public async Task<ActionResult<IReadOnlyList<GccArtifactDto>>> ListArtifacts([FromQuery] Guid createId, CancellationToken ct)
-    {
-        if (createId == Guid.Empty) return BadRequest("createId required");
-        return Ok(await _repo.ListArtifactsAsync(createId, ct));
     }
 
     [HttpGet("versions")]
@@ -941,58 +933,6 @@ public class GccController : ControllerBase
         return Ok(new { created });
     }
 
-    [HttpPost("tools/generate")]
-    public async Task<ActionResult<object>> GenerateTools([FromBody] ToolGenerateRequest request, CancellationToken ct)
-    {
-        if (request is null || request.CreateId == Guid.Empty)
-            return BadRequest("createId required");
-
-        var names = (request.SelectedNames?.Count > 0 ? request.SelectedNames : request.ToolNames)
-            ?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).Distinct().ToList()
-            ?? new List<string>();
-        if (names.Count == 0)
-            return BadRequest("toolNames required (non-empty after trim)");
-
-        if (request.SourceArtifactId is null && string.IsNullOrWhiteSpace(request.Brief))
-            return BadRequest("brief required when no sourceArtifactId");
-
-        if (!TryParseProvider(request.Provider, out var provider, out var err))
-            return BadRequest(err);
-
-        var create = await _repo.GetCreateAsync(request.CreateId, ct);
-        if (create is null) return NotFound();
-
-        string? sourceContext = null;
-        if (request.SourceArtifactId is Guid sid)
-        {
-            var versions = await _repo.ListVersionsAsync(sid, ct);
-            sourceContext = versions.FirstOrDefault()?.BodyDocumentJson;
-        }
-
-        var created = new List<object>();
-        try
-        {
-            foreach (var name in names)
-            {
-                var (toolName, document, _, _) = await _gen.GenerateToolAsync(name, request.Brief, sourceContext, provider, ct, create);
-                var artifact = await _repo.CreateArtifactAsync(
-                    new CreateGccArtifactCommand(request.CreateId, "aiTool", toolName), ct);
-                var version = await _repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(
-                        artifact.Id,
-                        GccGenerateService.SerializeDocument(document)), ct);
-                created.Add(new { artifact, version });
-            }
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Tool generate failed");
-            return StatusCode(502, "LLM provider request failed");
-        }
-
-        return Ok(new { created });
-    }
-
     [HttpPost("image-prompts/generate")]
     public async Task<ActionResult<object>> GenerateImagePrompt([FromBody] ImagePromptRequest request, CancellationToken ct)
     {
@@ -1059,93 +999,6 @@ public class GccController : ControllerBase
 
         var parsed = GccSavedSerpParser.Parse(request.Content, request.TargetKeyword);
         return Ok(parsed);
-    }
-
-    /// <summary>
-    /// Whether a project site has crawl evidence a create can use — and, when it does, the Run ID
-    /// that holds it.
-    ///
-    /// Create is handed a Run ID, never a URL: the URL names a site, only a resolved run names the
-    /// crawl that was committed and indexed for it. This is the gate into the workflow.
-    ///
-    /// Deliberately not the host index check on /api/rag/hosts-indexed. That asks the vector store
-    /// whether a host has anything at all, which a crawl that fetched nothing can still satisfy.
-    /// This runs the same retrieval PLAN runs, so presence is not mistaken for fitness.
-    ///
-    /// The resolver lives under ContentCreatorV2/ and is called in-process. That is a shared engine,
-    /// not a v2 dependency — the surface this is served on is v1, and forking the resolver to make
-    /// it "v1" would duplicate the retrieval probe and guarantee the two drift apart.
-    /// </summary>
-    [HttpPost("project-site/readiness")]
-    public async Task<IActionResult> ProjectSiteReadiness(
-        [FromBody] ProjectSiteReadinessRequest? request,
-        CancellationToken ct)
-    {
-        if (!_user.IsAuthenticated) return Unauthorized();
-
-        var projectUrl = request?.ProjectUrl?.Trim();
-        if (string.IsNullOrWhiteSpace(projectUrl))
-            return BadRequest(new { error = "projectUrl required" });
-
-        // Two questions, answered in order, because they fail differently.
-        //
-        // First: does the index hold this host, and under which run? An empty result means the index
-        // could not be reached at all — not the same answer as "not indexed", and it must not read
-        // as one.
-        var indexed = await _rag.HostsIndexedAsync([projectUrl], ct).ConfigureAwait(false);
-        if (indexed.Count == 0)
-            return BadRequest(new { error = "The project URL could not be evaluated." });
-
-        var row = indexed[0];
-        if (!row.Indexed || string.IsNullOrWhiteSpace(row.RunId))
-        {
-            return Ok(new
-            {
-                seed = projectUrl,
-                ready = false,
-                runId = (string?)null,
-                indexState = "missing",
-                reason = "No crawl evidence is indexed for this host.",
-            });
-        }
-
-        // Second: is that run actually finished and owned by this user? An indexed host whose run is
-        // still crawling is not evidence a create can ground on.
-        if (!Guid.TryParse(row.RunId, out var runId))
-        {
-            return Ok(new
-            {
-                seed = projectUrl,
-                ready = false,
-                runId = (string?)null,
-                indexState = "unusable",
-                reason = "The index named a run id that cannot be read.",
-            });
-        }
-
-        var run = await _crawlerRepo.GetRunAsync(runId, ct).ConfigureAwait(false);
-        if (run is null
-            || !string.Equals(run.OwnerUserId, _user.UserId.ToString("D"), StringComparison.OrdinalIgnoreCase))
-        {
-            return Ok(new
-            {
-                seed = projectUrl,
-                ready = false,
-                runId = (string?)null,
-                indexState = "missing",
-                reason = "The indexed run is not available to this user.",
-            });
-        }
-
-        var complete = string.Equals(run.Status, "complete", StringComparison.OrdinalIgnoreCase);
-        return Ok(new
-        {
-            seed = projectUrl,
-            ready = complete,
-            runId = complete ? run.Id.ToString("D") : null,
-            indexState = run.RagState ?? run.Status,
-            reason = complete ? null : $"The crawl for this host is {run.Status}, not complete.",
-        });
     }
 
     /// <summary>
@@ -1265,18 +1118,6 @@ public class GccController : ControllerBase
         string? Topic,
         string? Angle);
 
-    /// <summary>
-    /// Sections of the crawled project site whose heading matches the target keyword, ranked.
-    ///
-    /// Replaces the retired site-analyzer/profiles/{id}/hierarchy-match, which 404s: Site Analyzer is
-    /// Geek-SEO's and was removed from this path. The hierarchy is derived from the crawl
-    /// Geek-Crawler already performed — nothing here crawls.
-    ///
-    /// Returns a bare array, ranked best-first, because the caller shows every match rather than
-    /// auto-selecting one: the same heading on several pages is a crawl finding the operator needs
-    /// to see, not a tie to break silently.
-    /// </summary>
-    [HttpGet("project-site/runs/{runId:guid}/hierarchy-match")]
     public async Task<IActionResult> ProjectSiteHierarchyMatch(
         Guid runId,
         [FromQuery] string? keyword,
@@ -1366,11 +1207,6 @@ public class GccController : ControllerBase
     }
 
 
-    /// <summary>
-    /// Content Creator addition on CWV2 projects: generate tool pages from human-supplied names + brief
-    /// using CWV2 tool prompts — does <b>not</b> require a pillar Tools section.
-    /// </summary>
-    [HttpPost("projects/{projectId:guid}/tools-from-names")]
     public async Task<IActionResult> GenerateToolsFromNames(
         Guid projectId,
         [FromBody] ToolsFromNamesRequest? request,
@@ -1496,11 +1332,6 @@ public class GccController : ControllerBase
         return Ok(set);
     }
 
-    /// <summary>
-    /// Plan §7 social/ads pack: one LLM call for chosen channel slots (counts), not one call per post.
-    /// Maps Facebook/LinkedIn variants onto CWV2 social rows; full pack JSON returned for other channels.
-    /// </summary>
-    [HttpPost("projects/{projectId:guid}/social-pack")]
     public async Task<IActionResult> GenerateSocialPack(
         Guid projectId,
         [FromBody] SocialPackRequest? request,
@@ -1645,10 +1476,6 @@ public class GccController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Names operators can pick for AI Tools — from pillar Tools section and existing tool drafts.
-    /// </summary>
-    [HttpGet("projects/{projectId:guid}/tool-name-candidates")]
     public async Task<IActionResult> ToolNameCandidates(Guid projectId, CancellationToken ct)
     {
         var project = await _projects.GetAsync(projectId, ct);
@@ -1693,8 +1520,6 @@ public class GccController : ControllerBase
         return Ok(new { names = names.Take(12).ToList() });
     }
 
-    /// <summary>Image-prompt rows on a CWV2 project (for Revise picker).</summary>
-    [HttpGet("projects/{projectId:guid}/image-prompt-rows")]
     public async Task<IActionResult> ImagePromptRows(Guid projectId, CancellationToken ct)
     {
         var project = await _projects.GetAsync(projectId, ct);
@@ -1718,11 +1543,6 @@ public class GccController : ControllerBase
         return Ok(new { rows });
     }
 
-    /// <summary>
-    /// Content Creator addition: operator Revise (Full/Section) on a CWV2 project draft.
-    /// New body replaces the selected GeneratedContent row (not a multi-turn chat).
-    /// </summary>
-    [HttpPost("projects/{projectId:guid}/revise")]
     public async Task<IActionResult> ReviseProjectContent(
         Guid projectId,
         [FromBody] ProjectReviseRequest? request,
@@ -1836,7 +1656,6 @@ public class GccController : ControllerBase
         }
     }
 
-    [HttpPost("projects/{projectId:guid}/content-approval")]
     public async Task<IActionResult> SetContentApproval(
         Guid projectId,
         [FromBody] ContentApprovalRequest? request,
@@ -1852,7 +1671,6 @@ public class GccController : ControllerBase
         return Ok(new { projectId, contentApprovedAtUtc = project.ContentApprovedAtUtc });
     }
 
-    [HttpGet("projects/{projectId:guid}/content-approval")]
     public async Task<IActionResult> GetContentApproval(Guid projectId, CancellationToken ct)
     {
         var project = await _projects.GetAsync(projectId, ct);
