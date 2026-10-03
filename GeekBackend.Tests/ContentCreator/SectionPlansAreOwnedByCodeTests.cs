@@ -35,7 +35,12 @@ public class SectionPlansAreOwnedByCodeTests
     private static ProjectGenerationContext Context(string? angle = "problem_solution") => new(
         ProjectName: "Acme",
         ProjectUrl: "https://acme.test",
-        TargetKeyword: "Accounts Payable: Automated Data Entry & Processing",
+        // The keyword, not the whole Topic -- see ProjectGenerationContext.TargetKeyword. The fixture
+        // used to carry "Accounts Payable: Automated Data Entry & Processing" and relied on BlogPrompts
+        // splitting it again, which is the double-split that made the keyword scorer and the outline
+        // disagree. A context never holds a Topic, so a fixture that holds one tests a state that cannot
+        // occur. The producer-side half is pinned end to end by WriterIsToldTheKeywordNotTheTopicTests.
+        TargetKeyword: "Automated Data Entry & Processing",
         Department: "accounting",
         SiteName: "Acme",
         DetectedTone: "Professional",
@@ -146,6 +151,8 @@ public class SectionPlansAreOwnedByCodeTests
         var covers = string.Join(" ", outline.Select(sl => sl.Covers));
 
         Assert.Contains("Automated Data Entry & Processing", covers, StringComparison.Ordinal);
+        // A guard against a descriptor being interpolated back in, not a test of the split: the context
+        // no longer carries one to split. The split itself is WriterIsToldTheKeywordNotTheTopicTests'.
         Assert.DoesNotContain("Accounts Payable:", covers, StringComparison.Ordinal);
         Assert.Contains("manual", covers, StringComparison.OrdinalIgnoreCase);
     }

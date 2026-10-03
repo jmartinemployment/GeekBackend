@@ -57,7 +57,9 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
     /// </remarks>
     public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx)
     {
-        var keyword = GccTopic.KeywordOf(ctx.Context.TargetKeyword);
+        // Already the keyword -- see ProjectGenerationContext.TargetKeyword. Re-splitting here made this
+        // a second reader that disagreed with the scorer on a multi-colon topic.
+        var keyword = ctx.Context.TargetKeyword;
 
         return
         [

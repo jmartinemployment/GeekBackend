@@ -1178,7 +1178,9 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         return new ProjectGenerationContext(
             ProjectName: project.Name,
             ProjectUrl: project.ProjectUrl,
-            TargetKeyword: project.TargetKeyword,
+            // Normalised here, as BuildMinimalContext does, so TargetKeyword means the same thing on
+            // both paths and no consumer has to guess. A project keyword without a colon is unchanged.
+            TargetKeyword: GeekAPI.Services.ContentCreator.GccTopic.KeywordOf(project.TargetKeyword),
             Department: project.Department,
             SiteName: siteName ?? project.Name,
             DetectedTone: string.Empty,
