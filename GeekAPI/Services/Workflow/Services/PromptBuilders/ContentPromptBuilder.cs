@@ -2770,9 +2770,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
             MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
 
-    /// <summary>See <see cref="IContentPromptBuilder.BuildToolFaqSectionPrompt"/>.</summary>
     /// <summary>
     /// The tool page's FAQ section, built from already-verified partner answers.
+    /// Interface contract: <see cref="IContentPromptBuilder.BuildToolFaqSectionPrompt"/>.
     /// </summary>
     /// <remarks>
     /// <b>Writing, not Utility</b> — and it was Utility until 2026-10-03, with the comment "structured,

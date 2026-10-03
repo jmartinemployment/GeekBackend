@@ -449,7 +449,6 @@ public sealed class GccGenerationCoordinator
         return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, create.Topic)], []);
     }
 
-    /// <summary>Writes one already-generated body as an artifact and its first version.</summary>
     /// <summary>
     /// One artifact and its first version.
     /// </summary>

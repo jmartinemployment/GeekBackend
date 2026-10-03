@@ -376,25 +376,6 @@ public static class GccNicheFramingReader
             : string.Empty;
 
     /// <summary>
-    /// One item per <b>paragraph</b> — blank-line separated — or an array.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Paragraphs, not lines. Jeff, 2026-10-03: <i>"the data I am inputting is a paragraph"</i> — and it
-    /// is: the research states each failure as a lead plus a paragraph explaining it, so splitting on
-    /// every newline turned one failure into four fragments, each too thin for the writer to argue from.
-    /// </para>
-    /// <para>
-    /// A single blank line is the separator, so a failure may run to as many sentences or wrapped lines
-    /// as it needs. Text with no blank line in it is therefore <b>one</b> item, which is the correct
-    /// reading of a single paragraph — and the one case where this differs from the old behaviour.
-    /// </para>
-    /// <para>
-    /// The array shape is still accepted, for a programmatic writer (a later paste-and-extract
-    /// acquisition) that already has the items separated.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// One item per <b>line</b>, or an array. The counterpart to <see cref="ReadParagraphs"/>, for data
     /// whose unit is a line rather than a paragraph.
     /// </summary>
@@ -430,6 +411,25 @@ public static class GccNicheFramingReader
         return lines;
     }
 
+    /// <summary>
+    /// One item per <b>paragraph</b> — blank-line separated — or an array.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Paragraphs, not lines. Jeff, 2026-10-03: <i>"the data I am inputting is a paragraph"</i> — and it
+    /// is: the research states each failure as a lead plus a paragraph explaining it, so splitting on
+    /// every newline turned one failure into four fragments, each too thin for the writer to argue from.
+    /// </para>
+    /// <para>
+    /// A single blank line is the separator, so a failure may run to as many sentences or wrapped lines
+    /// as it needs. Text with no blank line in it is therefore <b>one</b> item, which is the correct
+    /// reading of a single paragraph — and the one case where this differs from the old behaviour.
+    /// </para>
+    /// <para>
+    /// The array shape is still accepted, for a programmatic writer (a later paste-and-extract
+    /// acquisition) that already has the items separated.
+    /// </para>
+    /// </remarks>
     private static IReadOnlyList<string> ReadParagraphs(JsonElement obj, string name)
     {
         if (!TryGetPropertyIgnoreCase(obj, name, out var prop)) return [];

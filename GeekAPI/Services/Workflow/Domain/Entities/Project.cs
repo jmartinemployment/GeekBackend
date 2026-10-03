@@ -55,7 +55,6 @@ public class Project
     /// <summary>When true, skip LLM title generation for the pillar article and use TargetKeyword verbatim as the title.</summary>
     public bool UseExactKeywordAsTitle { get; set; }
 
-    /// <summary>Optional comma-separated desired headings that must appear in the pillar article outline.</summary>
     /// <summary>
     /// Sites this client sells or recommends, as the operator declared them.
     ///
