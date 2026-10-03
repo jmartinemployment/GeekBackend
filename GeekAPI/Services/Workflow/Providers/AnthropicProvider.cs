@@ -53,7 +53,8 @@ public class AnthropicProvider : IContentGenerationProvider
 
         var payload = new AnthropicRequest
         {
-            Model = request.Model ?? _options.Model,
+            Model = ProviderModelGuard.Require(
+                request.Model ?? _options.Model, "LlmProviders__Anthropic__Model"),
             System = string.IsNullOrEmpty(systemPrompt) ? null : systemPrompt,
             Messages = turnMessages,
             MaxTokens = request.MaxOutputTokens,

@@ -43,9 +43,13 @@ public class GroqProvider : IContentGenerationProvider
                 "Groq API key is not configured. Set GROQ_API_KEY (or LlmProviders__Groq__ApiKey).");
         }
 
-        var model = request.Model
-            ?? Environment.GetEnvironmentVariable("CONTENTWRITER__GROG__MODEL")
-            ?? _options.Model;
+        // The env var keeps its historical misspelling ("GROG") because it is what production is set to;
+        // renaming a live variable to fix a typo is an outage for no behaviour change.
+        var model = ProviderModelGuard.Require(
+            request.Model
+                ?? Environment.GetEnvironmentVariable("CONTENTWRITER__GROG__MODEL")
+                ?? _options.Model,
+            "LlmProviders__Groq__Model (or CONTENTWRITER__GROG__MODEL)");
 
         var payload = new OpenAiCompatibleRequest
         {

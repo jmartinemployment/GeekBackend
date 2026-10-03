@@ -41,7 +41,9 @@ public class OpenAiProvider : IContentGenerationProvider
                 "OpenAI API key is not configured. Set OPENAI_API_KEY (or LlmProviders__OpenAi__ApiKey).");
         }
 
-        var model = request.Model ?? _options.ResolveModel(request.TaskClass);
+        var model = ProviderModelGuard.Require(
+            request.Model ?? _options.ResolveModel(request.TaskClass),
+            $"LlmProviders__OpenAi__Model (or the {request.TaskClass} override)");
 
         // What was actually sent, when asked for. There has been no way to see the assembled prompt,
         // so every question about grounding -- did the site content arrive, did the partner evidence,

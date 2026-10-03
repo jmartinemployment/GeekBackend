@@ -32,9 +32,17 @@ public class OpenAiOptions
 
     /// <summary>
     /// The writing model -- prose a reader will read. Also the fallback for every other task class,
-    /// so leaving the two below unset keeps the previous single-model behaviour exactly.
+    /// so leaving the two below unset keeps single-model behaviour.
     /// </summary>
-    public string Model { get; set; } = "gpt-4o";
+    /// <remarks>
+    /// <b>No default on purpose</b> -- set <c>LlmProviders__OpenAi__Model</c>. A hardcoded model name
+    /// here is a model nobody chose: delete the variable and generation keeps working, silently billed
+    /// against whatever the last developer typed. <c>ContentProviderFactory</c> already refuses to
+    /// substitute a <i>provider</i> for exactly this reason -- "silently substituting one is how every
+    /// create ends up billed against a model nobody chose" -- and a model is the same decision one level
+    /// down. Empty is refused at call time by the provider, naming the variable to set.
+    /// </remarks>
+    public string Model { get; set; } = string.Empty;
 
     /// <summary>
     /// Structured extraction over crawled pages: <c>LlmProviders__OpenAi__ExtractionModel</c>.
@@ -67,7 +75,17 @@ public class AnthropicOptions
 {
     public string BaseUrl { get; set; } = "https://api.anthropic.com/v1/messages";
     public string ApiKey { get; set; } = string.Empty;
-    public string Model { get; set; } = "claude-sonnet-5";
+    /// <summary>
+    /// The model for every Anthropic call. There is no task-class split here and none is needed: the
+    /// extraction path resolves its provider through <c>GetDefault()</c>, so Anthropic only ever serves
+    /// writing (plus the three small utility prompts inside a writing flow).
+    /// </summary>
+    /// <remarks>
+    /// <b>No default on purpose</b> -- set <c>LlmProviders__Anthropic__Model</c>. Same reason as
+    /// <see cref="OpenAiOptions.Model"/>: a model id in source outlives the release it was current for,
+    /// and the failure mode is silent spend on a model nobody picked rather than an error.
+    /// </remarks>
+    public string Model { get; set; } = string.Empty;
     public string AnthropicVersion { get; set; } = "2023-06-01";
     public int TimeoutSeconds { get; set; } = 120;
 }
@@ -76,7 +94,11 @@ public class GroqOptions
 {
     public string BaseUrl { get; set; } = "https://api.groq.com/openai/v1/chat/completions";
     public string ApiKey { get; set; } = string.Empty;
-    // Groq retired llama-3.3-70b-versatile (2026-08-16); gpt-oss-120b is their recommended replacement.
-    public string Model { get; set; } = "openai/gpt-oss-120b";
+    /// <summary>
+    /// No default, as with the other two providers -- set <c>LlmProviders__Groq__Model</c>. This one
+    /// already demonstrated the cost of a hardcoded id: it carried a model Groq retired on 2026-08-16,
+    /// so the source said one thing and the API accepted another until somebody noticed.
+    /// </summary>
+    public string Model { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; } = 120;
 }

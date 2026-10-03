@@ -83,12 +83,15 @@ public class ClaudeGeneratorReadsItsConfigTests
     }
 
     [Fact]
-    public void The_pinned_model_id_is_gone_and_the_configured_default_is_current()
+    public void No_model_id_is_written_in_source_at_all()
     {
-        // claude-sonnet-4-5-20250929 was two minor versions behind AnthropicOptions.Model. The point of
-        // the fix is that there is now one value to keep current, so this pins which one it is.
-        Assert.DoesNotContain("claude-sonnet-4-5-20250929", Source(), StringComparison.Ordinal);
-        Assert.Equal("claude-sonnet-5", new AnthropicOptions().Model);
+        // Not the pinned one, and not a replacement for it either. Jeff, 2026-10-03: "I prefer using
+        // Railway variables versus hard coding" -- so AnthropicOptions.Model carries no default and this
+        // asserts the generator did not acquire one of its own on the way past.
+        var source = Source();
+
+        Assert.DoesNotContain("claude-", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(string.Empty, new AnthropicOptions().Model);
     }
 
     private static string Source()
