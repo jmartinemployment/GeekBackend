@@ -334,10 +334,22 @@ public class GccGenerateService
             sb.AppendLine("   and from one whose Target Entity Match or Section places it with that");
             sb.AppendLine("   product. A passage labelled for one tool does not support a claim about");
             sb.AppendLine("   another, however similar the products are.");
-            sb.AppendLine("2. Attribute it: name the source and include its URL where the claim appears.");
-            sb.AppendLine("   Both are on the bracketed line above the passage -- the page title first,");
-            sb.AppendLine("   then its URL in parentheses -- and every passage indented beneath that line");
-            sb.AppendLine("   belongs to it. Never attribute a claim to a URL you did not read it under.");
+            // The URL goes in a field, and the rule has to say so. Until 2026-10-03 this line read
+            // "name the source and include its URL where the claim appears" and stopped there. The
+            // run contract says text is plain and never markup, and offers "href" for a link -- but
+            // nothing joined the two, so a writer obeying this rule in the only way the sentence
+            // suggests typed "[Source: <title>](<url>)" into a run's text. LlmResponseJsonParser
+            // refused it as leaked markup, which is correct, and the tool page was not written. The
+            // prompt and the validator are one rule in two places; this names the field so they
+            // agree. (Tool page 'Bill', sections 5-6, Accounts Payable create.)
+            sb.AppendLine("2. Attribute it: name the source where the claim appears, and carry its URL in a");
+            sb.AppendLine("   field, never in the text. Both are on the bracketed line above the passage --");
+            sb.AppendLine("   the page title first, then its URL in parentheses -- and every passage indented");
+            sb.AppendLine("   beneath that line belongs to it. The page title is run text; the URL is that");
+            sb.AppendLine("   run's \"href\", or the \"cite\" of a quote paragraph when you reproduce wording");
+            sb.AppendLine("   verbatim. A URL typed into \"text\", or a bracketed link such as [title](url),");
+            sb.AppendLine("   is refused and the section is not written. Never attribute a claim to a URL");
+            sb.AppendLine("   you did not read it under.");
             sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
             sb.AppendLine("   price, integration or limitation that no passage states.");
             sb.AppendLine("4. If the evidence does not cover something, omit it. Do not fill the gap.");

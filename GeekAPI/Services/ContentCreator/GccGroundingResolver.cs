@@ -44,7 +44,7 @@ public sealed record GccGroundingOutcome(
     ///
     /// <para>
     /// A rival is read, never cited. One list would put competitor prose under a header whose rules
-    /// say "name the source and include its URL where the claim appears", and would hand competitor
+    /// say "name the source where the claim appears, and carry its URL", and would hand competitor
     /// pages to the partner extractor and to the <c>SoftwareApplication.url</c> derivation, both of
     /// which read the partner list wholesale. Two lists make every existing consumer correct by
     /// construction; a tag would need each of them found and filtered.

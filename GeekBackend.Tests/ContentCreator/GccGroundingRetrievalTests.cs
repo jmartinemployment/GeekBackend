@@ -553,4 +553,26 @@ public class GccGroundingRetrievalTests
         Assert.DoesNotContain("Rival services", partnerBlock, StringComparison.Ordinal);
         Assert.DoesNotContain(CompetitorUrl, partnerBlock, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Rule 2 of the research block has to name the field the URL goes in. It used to say only
+    /// "include its URL where the claim appears"; the run contract says text is plain, so a writer
+    /// following the rule typed "[Source: title](url)" into a run and LlmResponseJsonParser refused
+    /// the section (tool page 'Bill', sections 5-6, 2026-10-03). The prompt and the validator are one
+    /// rule in two places, and this pins the half that drifted.
+    /// </summary>
+    [Fact]
+    public void ThePartnerBlockPutsTheSourceUrlInAFieldNeverInTheText()
+    {
+        var research = new GccResearchDocument(
+            null,
+            [new GccQuoteablePage(PartnerUrl, "Partner pricing", [], ["Billed per document."])]);
+        var create = Create(Guid.NewGuid()) with { ResearchJson = GccResearchFetchService.Serialize(research) };
+
+        var block = GccGenerateService.BuildResearchBlock(create);
+
+        Assert.Contains("run's \"href\"", block, StringComparison.Ordinal);
+        Assert.Contains("[title](url)", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("include its URL where the claim appears", block, StringComparison.Ordinal);
+    }
 }
