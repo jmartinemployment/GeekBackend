@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace GeekAPI.Services.ContentCreator;
 
@@ -29,7 +30,9 @@ namespace GeekAPI.Services.ContentCreator;
 /// </para>
 /// </remarks>
 /// <param name="CoreProblem">The problem the reader has today, in the operator's words.</param>
-/// <param name="PainPoints">Where it goes wrong, one per point — the body's substance.</param>
+/// <param name="PainPoints">Where it goes wrong, one entry per failure — the body's substance. Each
+/// entry may be a full paragraph; the operator's research states a failure as a lead plus its
+/// explanation, and a fragment is not something a writer can argue from.</param>
 /// <param name="AutomationToPitch">What removes the problem, and the shape of the offer.</param>
 public sealed record GccNicheFraming(
     string CoreProblem,
@@ -94,7 +97,7 @@ public sealed record GccNicheFraming(
 ///   "nicheFraming": {
 ///     "taxonomyPath": "Accounting &gt; Cash Flow Forecasting &gt; Accounts Receivable",
 ///     "coreProblem": "...",
-///     "painPoints": "one per line",
+///     "painPoints": "one failure per paragraph, blank line between",
 ///     "automationToPitch": "...",
 ///     "perTool": { "bill.com": { "coreProblem": "...", "painPoints": "...", "automationToPitch": "..." } }
 ///   }
@@ -295,9 +298,24 @@ public static class GccNicheFramingReader
             : string.Empty;
 
     /// <summary>
-    /// One per line, or an array. The same two shapes <c>paaQuestions</c> accepts, for the same reason:
-    /// the panel stores a textarea, and an older or programmatic writer may have stored an array.
+    /// One item per <b>paragraph</b> — blank-line separated — or an array.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Paragraphs, not lines. Jeff, 2026-10-03: <i>"the data I am inputting is a paragraph"</i> — and it
+    /// is: the research states each failure as a lead plus a paragraph explaining it, so splitting on
+    /// every newline turned one failure into four fragments, each too thin for the writer to argue from.
+    /// </para>
+    /// <para>
+    /// A single blank line is the separator, so a failure may run to as many sentences or wrapped lines
+    /// as it needs. Text with no blank line in it is therefore <b>one</b> item, which is the correct
+    /// reading of a single paragraph — and the one case where this differs from the old behaviour.
+    /// </para>
+    /// <para>
+    /// The array shape is still accepted, for a programmatic writer (a later paste-and-extract
+    /// acquisition) that already has the items separated.
+    /// </para>
+    /// </remarks>
     private static IReadOnlyList<string> ReadLines(JsonElement obj, string name)
     {
         if (!TryGetPropertyIgnoreCase(obj, name, out var prop)) return [];
@@ -305,10 +323,16 @@ public static class GccNicheFramingReader
         var lines = new List<string>();
         if (prop.ValueKind == JsonValueKind.String)
         {
-            var raw = prop.GetString() ?? string.Empty;
-            foreach (var line in raw.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            var raw = (prop.GetString() ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+            foreach (var block in Regex.Split(raw, @"\n\s*\n"))
             {
-                if (line.Length > 0) lines.Add(line);
+                // Soft-wrapped lines inside one paragraph join into one sentence rather than staying
+                // broken: the writer is given prose to argue from, not a column of fragments.
+                var joined = string.Join(
+                    " ",
+                    block.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                var trimmed = joined.Trim();
+                if (trimmed.Length > 0) lines.Add(trimmed);
             }
         }
         else if (prop.ValueKind == JsonValueKind.Array)

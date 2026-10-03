@@ -30,7 +30,7 @@ public class GccNicheFramingTests
           "nicheFraming": {
             "taxonomyPath": "Accounting -> Cash Flow Forecasting -> Accounts Receivable",
             "coreProblem": "Revenue is booked when the invoice goes out, cash arrives whenever the customer gets round to paying.",
-            "painPoints": "Nobody owns collections.\nThey expect the accounting system to collect.\nThey make it hard to pay.",
+            "painPoints": "Nobody owns collections. Follow-ups depend on whoever has time that week.\n\nThey expect the accounting system to collect, and it does not chase.\n\nThey make it hard to pay, so the customer has a reason to wait.",
             "automationToPitch": "Invoice-to-cash on a schedule: reminders, payment links, reconciliation, a weekly collection forecast."
           }
         }
@@ -48,7 +48,7 @@ public class GccNicheFramingTests
             "perTool": {
               "bill.com": {
                 "coreProblem": "The SMB needs AR now and AP next.",
-                "painPoints": "Billing is triggered by a person remembering.\nTerms drift per customer.",
+                "painPoints": "Billing is triggered by a person remembering.\n\nTerms drift per customer.",
                 "automationToPitch": "One connected finance workflow from invoice through reconciliation."
               }
             }
@@ -183,14 +183,61 @@ public class GccNicheFramingTests
     }
 
     [Fact]
-    public void Pain_points_read_from_lines_or_an_array()
+    public void A_failure_is_a_paragraph_not_a_line()
     {
-        var fromLines = GccNicheFramingReader.ForCategory(
-            """{"nicheFraming":{"coreProblem":"x","painPoints":"one\ntwo\n\nthree"}}""");
-        var fromArray = GccNicheFramingReader.ForCategory(
+        // Jeff, 2026-10-03: "the data I am inputting is a paragraph" -- and it is. The research states
+        // each failure as a lead plus the paragraph explaining it, so splitting on every newline turned
+        // one failure into several fragments, none of them substantial enough to argue from.
+        var framing = GccNicheFramingReader.ForCategory(
+            """
+            {"nicheFraming":{"coreProblem":"x","painPoints":"Nobody owns collections. Follow-ups depend on whoever has time that week.\n\nThey expect the ledger to collect. It sends a reminder and nothing else."}}
+            """);
+
+        Assert.Equal(2, framing!.PainPoints.Count);
+        Assert.StartsWith("Nobody owns collections.", framing.PainPoints[0], StringComparison.Ordinal);
+        Assert.Contains("whoever has time that week", framing.PainPoints[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Soft_wrapped_lines_inside_one_paragraph_stay_one_failure()
+    {
+        // A textarea wraps, and an operator pasting from a document brings hard line breaks with it.
+        // Those are one failure, not three, and they are joined into prose rather than left as
+        // fragments -- the writer is given something to argue from.
+        var framing = GccNicheFramingReader.ForCategory(
+            """
+            {"nicheFraming":{"coreProblem":"x","painPoints":"Nobody owns collections.\nFollow-ups depend on whoever\nhas time that week."}}
+            """);
+
+        var only = Assert.Single(framing!.PainPoints);
+        Assert.Equal(
+            "Nobody owns collections. Follow-ups depend on whoever has time that week.",
+            only);
+    }
+
+    [Fact]
+    public void A_single_unbroken_paragraph_is_one_failure()
+    {
+        // Jeff's real Bill.com data, 2026-10-03: "They all do not come formatted in that way." The
+        // research states this one as a single paragraph with no list and no blank line, so the reader
+        // must take it whole. Under a line split this became three fragments, and the middle one
+        // ("That creates slow approvals, late fees...") means nothing on its own.
+        var framing = GccNicheFramingReader.ForCategory(
+            """
+            {"nicheFraming":{"coreProblem":"x","painPoints":"They treat approval as an email reply, a verbal instruction, or access to the company bank account. That creates slow approvals, late fees, duplicate payments, weak separation of duties, and no defensible approval history. The bookkeeper gets blamed for payment delays but has no authority to move invoices through the process."}}
+            """);
+
+        var only = Assert.Single(framing!.PainPoints);
+        Assert.StartsWith("They treat approval", only, StringComparison.Ordinal);
+        Assert.EndsWith("through the process.", only, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_array_is_still_accepted_one_entry_per_failure()
+    {
+        var framing = GccNicheFramingReader.ForCategory(
             """{"nicheFraming":{"coreProblem":"x","painPoints":["one","two","three"]}}""");
 
-        Assert.Equal(["one", "two", "three"], fromLines!.PainPoints);
-        Assert.Equal(["one", "two", "three"], fromArray!.PainPoints);
+        Assert.Equal(["one", "two", "three"], framing!.PainPoints);
     }
 }
