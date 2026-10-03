@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2;
@@ -243,7 +244,7 @@ public sealed class GccGenerationCoordinator
             {
                 foreach (var piece in attempt.Outcome!.Pieces)
                 {
-                    created.Add(await PersistOneAsync(repo, create, piece, onTypeOutcome, ct));
+                    created.Add(await PersistOneAsync(repo, create, piece, provider, onTypeOutcome, ct));
                 }
 
                 // Named, never swallowed: a partner whose page was not written is reported alongside the
@@ -269,7 +270,7 @@ public sealed class GccGenerationCoordinator
         var singleCreated = new List<object>(single.Pieces.Count);
         foreach (var piece in single.Pieces)
         {
-            singleCreated.Add(await PersistOneAsync(repo, create, piece, onTypeOutcome, ct));
+            singleCreated.Add(await PersistOneAsync(repo, create, piece, provider, onTypeOutcome, ct));
         }
 
         foreach (var partnerRefusal in single.SoftFailures)
@@ -461,17 +462,42 @@ public sealed class GccGenerationCoordinator
         HttpGccRepository repo,
         GccCreateDto create,
         GeneratedPiece piece,
+        ContentGeneratorProvider provider,
         Func<string, object?, string?, Task>? onTypeOutcome,
         CancellationToken ct)
     {
         var artifact = await repo.CreateArtifactAsync(
             new CreateGccArtifactCommand(create.Id, piece.ContentType, piece.ArtifactName), ct);
         var version = await repo.CreateVersionAsync(
-            new CreateGccArtifactVersionCommand(artifact.Id, piece.BodyJson), ct);
+            new CreateGccArtifactVersionCommand(artifact.Id, piece.BodyJson, ProvenanceJson(provider)), ct);
         var produced = new { artifact, version };
         if (onTypeOutcome is not null) await onTypeOutcome(piece.ContentType, produced, null);
         return produced;
     }
+
+    /// <summary>
+    /// Who wrote this version, stamped on the version itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Written here because this is the one place every generated piece becomes a version, so the stamp
+    /// cannot be missed by a content type that takes a different route to persistence.
+    /// </para>
+    /// <para>
+    /// In <c>MetadataJson</c> rather than as a column: <c>gcc_artifacts</c> lives in GeekRepository, so a
+    /// field there is a cross-service schema change, while <c>MetadataJson</c> already travels on this
+    /// command and was being passed as null.
+    /// </para>
+    /// <para>
+    /// The <b>provider</b>, not the model. <c>ChatCompletionResult.ModelUsed</c> carries the real id but is
+    /// only threaded through the dormant v2 writer, so claiming a model here would mean inventing one —
+    /// and a provider name in a field called model is exactly the confusion this avoids
+    /// (<c>GccController:1465</c> does that today). Provider is enough to tell two drafts apart while one
+    /// model is configured per provider; when that stops being true, this is where the model goes.
+    /// </para>
+    /// </remarks>
+    private static string ProvenanceJson(ContentGeneratorProvider provider) =>
+        JsonSerializer.Serialize(new { generatedByProvider = provider.ToString() });
 
     /// <summary>
     /// Attaches an <c>imagePrompt</c> field to a short-form body (email/social — a flat JSON
