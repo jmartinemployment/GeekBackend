@@ -1142,12 +1142,42 @@ public class GccController : ControllerBase
     }
 
 
-    private static bool TryParseProvider(string? raw, out ContentGeneratorProvider provider, out string? error)
+    /// <summary>
+    /// The provider the caller asked for, or a refusal naming what is valid.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Refuses rather than defaulting.</b> An absent provider used to become OpenAi silently, and
+    /// since 764b139 the version's metadata then records <c>"generatedByProvider":"OpenAi"</c> as
+    /// though it had been chosen -- a default substituted and then asserted as a fact. The frontend
+    /// sends it on every prose-writing call, so absence is a bug in a caller, not a case to absorb.
+    /// <c>.claude/CLAUDE.md</c> §2: "No Auto-Repair/Defaults".
+    /// </para>
+    /// <para>
+    /// <c>Enum.TryParse</c> alone is not enough: it accepts NUMERIC strings and returns true for values
+    /// outside the enum, so <c>provider: "7"</c> parsed successfully into an undefined
+    /// <see cref="ContentGeneratorProvider"/>, which <c>ToLlm</c> then mapped to OpenAi because its
+    /// test is <c>== Anthropic</c>. <see cref="Enum.IsDefined"/> is what closes that.
+    /// </para>
+    /// </remarks>
+    internal static bool TryParseProvider(string? raw, out ContentGeneratorProvider provider, out string? error)
     {
-        provider = ContentGeneratorProvider.OpenAi;
+        provider = default;
         error = null;
-        if (string.IsNullOrWhiteSpace(raw)) return true;
-        if (Enum.TryParse(raw, ignoreCase: true, out provider)) return true;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            error = "No provider was specified. Send one of: "
+                + string.Join(", ", Enum.GetNames<ContentGeneratorProvider>()) + ".";
+            return false;
+        }
+
+        if (Enum.TryParse(raw, ignoreCase: true, out provider)
+            && Enum.IsDefined(typeof(ContentGeneratorProvider), provider))
+        {
+            return true;
+        }
+
         error = $"Unknown provider '{raw}'. Valid: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.";
         return false;
     }

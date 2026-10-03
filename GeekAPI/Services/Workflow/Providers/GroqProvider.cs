@@ -43,13 +43,22 @@ public class GroqProvider : IContentGenerationProvider
                 "Groq API key is not configured. Set GROQ_API_KEY (or LlmProviders__Groq__ApiKey).");
         }
 
+        // Per step, not `??`. A variable that is SET but empty is non-null, so `??` short-circuits on
+        // it and the later candidates are never consulted -- an empty CONTENTWRITER__GROG__MODEL would
+        // shadow a correctly-set LlmProviders__Groq__Model, and the refusal would then name the one
+        // variable that is right. AGENTS.md: "Read env vars so `\"\"` counts as absent -- `??` passes an
+        // empty string through and has caused two production auth outages." The API-key chain ten lines
+        // above already does it this way; this one did not.
+        var model = request.Model;
+        if (string.IsNullOrWhiteSpace(model))
+            model = Environment.GetEnvironmentVariable("CONTENTWRITER__GROG__MODEL");
+        if (string.IsNullOrWhiteSpace(model))
+            model = _options.Model;
+
         // The env var keeps its historical misspelling ("GROG") because it is what production is set to;
         // renaming a live variable to fix a typo is an outage for no behaviour change.
-        var model = ProviderModelGuard.Require(
-            request.Model
-                ?? Environment.GetEnvironmentVariable("CONTENTWRITER__GROG__MODEL")
-                ?? _options.Model,
-            "LlmProviders__Groq__Model (or CONTENTWRITER__GROG__MODEL)");
+        model = ProviderModelGuard.Require(
+            model, "LlmProviders__Groq__Model (or CONTENTWRITER__GROG__MODEL)");
 
         var payload = new OpenAiCompatibleRequest
         {
