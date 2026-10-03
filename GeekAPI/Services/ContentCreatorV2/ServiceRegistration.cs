@@ -113,12 +113,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddScoped<GccV2SpecialistCoordinator>();
         services.AddScoped<GccV2AgentTestProgressNotifier>();
         services.AddScoped<GccV2TaskAgentRunProgressNotifier>();
-        services.AddScoped<GccV2GitHubSkillImporter>();
-        services.AddHttpClient(nameof(GccV2GitHubSkillImporter), client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("GeekContentCreator-SkillQuarantine/1.0");
-        });
         services.AddHttpClient<GccV2TaskAgentPageHydrator>(client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(GccPartnerResearchCaps.FetchTimeoutSeconds);
