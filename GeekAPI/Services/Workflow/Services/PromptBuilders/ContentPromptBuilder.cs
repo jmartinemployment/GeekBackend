@@ -1306,22 +1306,50 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 sb.AppendLine($"Length band: {context.LengthBand}");
             if (!string.IsNullOrWhiteSpace(context.WritingNotes))
                 sb.AppendLine($"Writing notes: {context.WritingNotes}");
-            sb.AppendLine("Lede guidance by angle:");
-            sb.AppendLine("  comparative → prefers question, startlingStatement, singleItem (stakes/contrast)");
-            sb.AppendLine("  problem_solution → prefers anecdotal, sceneSetting, directAddress, question (pain-first)");
-            sb.AppendLine("  case_study_data → prefers immediateIdentification, singleItem, quote, startlingStatement (evidence-first)");
-            sb.AppendLine("  ultimate_guide → prefers summary, delayedIdentification, directAddress (comprehensive framing)");
+            // Only this brief's row. It used to print all four, which put "problem_solution",
+            // "comparative", "case_study_data" and "ultimate_guide" into the prompt as bare tokens a
+            // line above "Pick ONE ledeType" -- and the model returned "problem_solution" AS the
+            // ledeType, which ParseLedeTypeStrict refused, failing the blog outright. Three of the four
+            // rows could never apply anyway: angle is a required brief field, so exactly one is live and
+            // the rest were noise that did nothing but offer a wrong answer.
+            var anglePreference = LedeTypesPreferredForAngle(context.ContentAngle);
+            if (anglePreference is not null)
+                sb.AppendLine($"For this brief's angle, prefer one of: {anglePreference}");
             sb.AppendLine("Lede guidance by audience:");
             sb.AppendLine("  affinity/in_market → more narrative/anecdotal room");
             sb.AppendLine("  detailed_demographics/your_data → more directAddress/question");
             sb.AppendLine("Lede guidance by intent/funnel:");
             sb.AppendLine("  informational → summary/narrative/sceneSetting; transactional/commercial_investigation → directAddress/question/singleItem; navigational → immediateIdentification");
-            sb.AppendLine("  awareness → anecdotal/narrative/sceneSetting; consideration → comparative/question; action → directAddress/singleItem");
+            sb.AppendLine("  awareness → anecdotal/narrative/sceneSetting; consideration → question/singleItem; action → directAddress/singleItem");
             sb.AppendLine("If audience notes conflict with segment, follow notes. Tone and E-E-A-T must be honored in lede voice.");
+            // Said explicitly because the guidance above reads "<brief value> -> <ledeTypes>" and the
+            // model answered with the left side. The 12 names are the only legal answers.
+            sb.AppendLine("The angle, audience, intent and funnel-stage names above are brief values, NOT "
+                + "ledeType values. NEVER return one of them as ledeType -- the only legal ledeType values "
+                + "are the 12 listed above.");
         }
         sb.Append("Pick ONE ledeType from the 12 that best fits this brief (audience + angle + intent/funnel/tone) + heading/topic.");
         return sb.ToString();
     }
+
+    /// <summary>
+    /// The lede types that suit one angle, or null when the angle is unrecognised.
+    /// </summary>
+    /// <remarks>
+    /// Returns the right-hand side only. The caller must not print the angle name beside it: the angle
+    /// reaching the model as a bare token next to the ledeType ask is what produced
+    /// <c>ledeType: "problem_solution"</c> and a refused blog. The angle is already stated once, in prose,
+    /// by <see cref="DescribeAngle"/>.
+    /// </remarks>
+    private static string? LedeTypesPreferredForAngle(string? angle) =>
+        (angle ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "comparative" => "question, startlingStatement, singleItem -- stakes and contrast",
+            "problem_solution" => "anecdotal, sceneSetting, directAddress, question -- pain first",
+            "case_study_data" => "immediateIdentification, singleItem, quote, startlingStatement -- evidence first",
+            "ultimate_guide" => "summary, delayedIdentification, directAddress -- comprehensive framing",
+            _ => null,
+        };
 
     private static string BuildBriefBodyGuidance(ProjectGenerationContext context)
     {
