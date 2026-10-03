@@ -38,6 +38,59 @@ public class RouteUniquenessTests
             + "mistake:\n  " + string.Join("\n  ", duplicates));
     }
 
+    /// <summary>
+    /// Every action carries an HTTP method attribute.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An action with no <c>[Http*]</c> on a controller with a class-level <c>[Route]</c> is not
+    /// unreachable -- it inherits the class route with <b>no method constraint</b>, so it answers every
+    /// verb on the controller's base path. Several of them do so at once, and ASP.NET resolves that
+    /// with <c>AmbiguousMatchException</c>: a 500 raised before authentication, on the base path, for
+    /// any request at all.
+    /// </para>
+    /// <para>
+    /// The uniqueness test above cannot see this. It enumerates routes <i>from</i>
+    /// <see cref="IActionHttpMethodProvider"/> attributes, so an action with no attribute contributes
+    /// no routes and collides with nothing. On 2026-10-03 nine such actions shipped to production and
+    /// the suite stayed green at 1,512 -- the attributes had been deleted and the method bodies left
+    /// behind. Absence is the one thing a check built on presence will not report.
+    /// </para>
+    /// <para>
+    /// SignalR hubs are excluded by construction: the walk is over <see cref="ControllerBase"/>, which
+    /// a <c>Hub</c> does not derive from. Anything genuinely not an endpoint should carry
+    /// <c>[NonAction]</c>, which is how ASP.NET itself is told the same thing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_action_declares_an_http_method()
+    {
+        var controllers = typeof(GeekAPI.Controllers.ContentCreator.GccController).Assembly
+            .GetTypes()
+            .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract);
+
+        var unrouted = new List<string>();
+        foreach (var controller in controllers)
+        {
+            foreach (var action in controller
+                         .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                         .Where(m => !m.IsSpecialName)
+                         .Where(m => m.GetCustomAttribute<NonActionAttribute>() is null))
+            {
+                if (!action.GetCustomAttributes().OfType<IActionHttpMethodProvider>().Any())
+                {
+                    unrouted.Add($"{controller.Name}.{action.Name}");
+                }
+            }
+        }
+
+        Assert.True(
+            unrouted.Count == 0,
+            "These actions carry no [Http*] attribute, so each answers every verb on its controller's "
+            + "base path and they resolve against each other as a 500 before authentication:\n  "
+            + string.Join("\n  ", unrouted));
+    }
+
     private sealed record Route(string Method, string Template, string Action);
 
     private static IEnumerable<Route> AllRoutes()
