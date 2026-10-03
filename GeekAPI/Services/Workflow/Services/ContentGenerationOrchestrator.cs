@@ -1504,7 +1504,12 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
                     _promptBuilder.BuildArticleSectionBatchPrompt(
                         context, metadata,
                         [.. chunk.Select(SectionSlot.Assigned)],
-                        [.. metadata.SectionOutline.Select(SectionSlot.Assigned)],
+                        // mainSections, not metadata.SectionOutline. The outline ends with the FAQ,
+                        // which this loop does not write -- BuildArticleFaqSectionPrompt does, and it
+                        // carries no closing. Passing the unstripped outline meant the batch's last
+                        // heading could never equal the outline's last, so OwnsTheClosing was false for
+                        // every call and no section was ever told to end the page.
+                        [.. mainSections.Select(SectionSlot.Assigned)],
                         isRegeneration, revisionNotes, lede: lede),
                     cancellationToken);
                 var batchSections = LlmResponseJsonParser.ParseSections(
@@ -1560,7 +1565,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
 
             var sectionResult = await provider.CompleteAsync(
                 _promptBuilder.BuildArticleSectionPrompt(
-                    context, metadata, heading, i, mainSections.Count, metadata.SectionOutline, isRegeneration, revisionNotes),
+                    context, metadata, heading, i, mainSections.Count, mainSections, isRegeneration, revisionNotes),
                 cancellationToken);
             var section = LlmResponseJsonParser.ParseSection(sectionResult.Content, "h2", $"TechnicalArticle section '{heading}'");
 

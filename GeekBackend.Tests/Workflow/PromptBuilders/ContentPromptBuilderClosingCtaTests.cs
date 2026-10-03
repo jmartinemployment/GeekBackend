@@ -273,6 +273,54 @@ public class ContentPromptBuilderClosingCtaTests
     }
 
     [Fact]
+    public void A_closing_still_reaches_the_page_when_the_outline_ends_with_the_FAQ()
+    {
+        // The shape ContentGenerationOrchestrator actually produces, and the one b5b4a6b's first test
+        // did not: metadata.SectionOutline ends with "People Also Ask" because the plan prompt requires
+        // it, while the section loop iterates mainSections with the FAQ stripped. Passing the UNSTRIPPED
+        // outline as fullOutline made batch[^1] != fullOutline[^1] for every call, so OwnsTheClosing was
+        // false everywhere and no section was told to end the page -- and BuildArticleFaqSectionPrompt
+        // carries no closing either. Gating a page's one closing on a list that includes a section the
+        // caller does not write removes the closing entirely.
+        var context = Context() with { DiagnosisQuestions = Diagnosis };
+        var metadata = new ArticleMetadataDraft(
+            "Title", "Meta", ["ai"], ["Overview", "Details", "People Also Ask"]);
+        var builder = new ContentPromptBuilder();
+        IReadOnlyList<string> mainSections = ["Overview", "Details"];
+
+        var last = SystemPrompt(builder.BuildArticleSectionPrompt(
+            context, metadata, sectionHeading: "Details", sectionIndex: 1,
+            totalSections: mainSections.Count, fullOutline: mainSections, isRegeneration: false));
+        var earlier = SystemPrompt(builder.BuildArticleSectionPrompt(
+            context, metadata, sectionHeading: "Overview", sectionIndex: 0,
+            totalSections: mainSections.Count, fullOutline: mainSections, isRegeneration: false));
+
+        Assert.Contains("CLOSING:", last, StringComparison.Ordinal);
+        Assert.Contains(Diagnosis[0], last, StringComparison.Ordinal);
+        Assert.DoesNotContain("CLOSING:", earlier, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_batch_ending_the_main_sections_owns_the_closing()
+    {
+        // Same mismatch on the batched path, where it predates b5b4a6b: the batch builder has always
+        // gated, so with the FAQ in fullOutline this path has never emitted a closing at all.
+        var context = Context() with { DiagnosisQuestions = Diagnosis };
+        var metadata = new ArticleMetadataDraft(
+            "Title", "Meta", ["ai"], ["Overview", "Details", "People Also Ask"]);
+        IReadOnlyList<SectionSlot> mainSlots =
+            [SectionSlot.Assigned("Overview"), SectionSlot.Assigned("Details")];
+
+        var prompt = SystemPrompt(new ContentPromptBuilder().BuildArticleSectionBatchPrompt(
+            context, metadata,
+            slots: [SectionSlot.Assigned("Details")],
+            fullOutline: mainSlots,
+            isRegeneration: false));
+
+        Assert.Contains("CLOSING:", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_supplied_set_is_the_whole_set_the_writer_may_use()
     {
         // Selecting among them is allowed -- a 450-word closing cannot carry eight questions and an ask.
