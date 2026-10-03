@@ -77,11 +77,17 @@ public class GccNicheFramingTests
         var bill = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Bill");
         var dext = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Dext");
 
+        // The Core Problem is replaced -- two core problems on one page is incoherent.
         Assert.Equal("The SMB needs AR now and AP next.", bill!.CoreProblem);
-        Assert.Equal(2, bill.PainPoints.Count);
+        // The pain points are ADDED to the category's, not substituted. Changed deliberately on
+        // 2026-10-03: this asserted 2 (the override's alone) when the override replaced the whole set.
+        // PerToolBrief carries one category pain point and two for Bill.
+        Assert.Equal(3, bill.PainPoints.Count);
+        Assert.Equal("Category pain.", bill.PainPoints[0]);
 
         // Dext has no entry, so it inherits rather than coming back empty.
         Assert.Equal("Category level problem.", dext!.CoreProblem);
+        Assert.Equal(["Category pain."], dext.PainPoints);
     }
 
     [Fact]
@@ -113,6 +119,76 @@ public class GccNicheFramingTests
         // The two it said nothing about are inherited, not blanked.
         Assert.Equal(2, bill.PainPoints.Count);
         Assert.Equal("Invoice-to-cash on a schedule.", bill.AutomationToPitch);
+    }
+
+    [Fact]
+    public void A_tools_pain_points_are_added_to_the_categorys_not_substituted_for_them()
+    {
+        // Settled by the research, 2026-10-03. One category query for "Accounts Payable: Automated
+        // Approval Workflows" returned fourteen pain points -- nine tabular failures plus five
+        // consequence paragraphs -- every one true of all five AP tools. A tool-specific failure is
+        // additional to those, never a replacement, so substituting would discard almost everything the
+        // operator gathered.
+        const string brief = """
+            {
+              "nicheFraming": {
+                "coreProblem": "Approval lives across email, paper and the ledger with no controlled path.",
+                "painPoints": "Approvals stuck with one person.\n\nConstant chasing and follow-up.\n\nNo single invoice-status view.",
+                "automationToPitch": "A controlled invoice-to-payment workflow.",
+                "perTool": {
+                  "bill.com": { "painPoints": "Approval thresholds are unclear above $5,000." }
+                }
+              }
+            }
+            """;
+
+        var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill");
+
+        Assert.Equal(4, bill!.PainPoints.Count);
+        // Category first, then the tool's: the shared problem is established before the slice.
+        Assert.Equal("Approvals stuck with one person.", bill.PainPoints[0]);
+        Assert.Equal("Approval thresholds are unclear above $5,000.", bill.PainPoints[3]);
+        // The single-statement fields still come from the category, which said something and the tool did not.
+        Assert.StartsWith("Approval lives across", bill.CoreProblem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_shared_failure_restated_in_an_override_is_not_argued_twice()
+    {
+        const string brief = """
+            {
+              "nicheFraming": {
+                "coreProblem": "x",
+                "painPoints": "Approvals stuck with one person.\n\nConstant chasing.",
+                "perTool": {
+                  "bill.com": { "painPoints": "Constant chasing.\n\nNo mobile approval." }
+                }
+              }
+            }
+            """;
+
+        var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill");
+
+        Assert.Equal(
+            ["Approvals stuck with one person.", "Constant chasing.", "No mobile approval."],
+            bill!.PainPoints);
+    }
+
+    [Fact]
+    public void Guidance_lists_the_pain_points_rather_than_running_them_together()
+    {
+        // Fourteen paragraphs joined on " | " is a wall of text the model parses before it can use any
+        // of it. Numbered, one per line.
+        var framing = GccNicheFramingReader.ForCategory(
+            """
+            {"nicheFraming":{"coreProblem":"x","painPoints":"First failure.\n\nSecond failure.\n\nThird failure."}}
+            """);
+
+        var guidance = framing!.ToGuidance()!;
+
+        Assert.DoesNotContain(" | ", guidance, StringComparison.Ordinal);
+        Assert.Contains("1. First failure.", guidance, StringComparison.Ordinal);
+        Assert.Contains("3. Third failure.", guidance, StringComparison.Ordinal);
     }
 
     [Fact]

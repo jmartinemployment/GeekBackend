@@ -71,9 +71,18 @@ public sealed record GccNicheFraming(
 
         if (PainPoints.Count > 0)
         {
+            // One per line, numbered. These were joined on " | ", which was fine for three terse points
+            // and unreadable for the fourteen a real category query returns -- nine tabular failures plus
+            // five consequence paragraphs, pipe-joined into a single wall of text the model has to parse
+            // before it can use any of it.
             sb.AppendLine();
-            sb.Append("Where it goes wrong -- cover these, in your own prose, not as a list: ");
-            sb.Append(string.Join(" | ", PainPoints));
+            sb.Append("Where it goes wrong. Cover these in your own prose, never as a list, and never ");
+            sb.Append("verbatim:");
+            for (var i = 0; i < PainPoints.Count; i++)
+            {
+                sb.AppendLine();
+                sb.Append(i + 1).Append(". ").Append(PainPoints[i]);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(AutomationToPitch))
@@ -232,16 +241,38 @@ public static class GccNicheFramingReader
     /// states one thing differently for one tool and loses the two they meant to keep. Jeff asked
     /// whether the backend combines these (2026-10-03); it did not, and it should.
     ///
-    /// A blank field in the override means "no opinion here", which is what an empty box means. Only
-    /// what was actually written wins.
+    /// <para>
+    /// <b>The two single-statement fields replace; the list field appends.</b> Two core problems on one
+    /// page is incoherent, so the tool's wins. Pain points are different in kind: the category's are by
+    /// definition true of every tool in the niche, so a tool-specific failure is <i>additional</i> rather
+    /// than a correction.
+    /// </para>
+    /// <para>
+    /// The research is what settled it. One category query returned fourteen pain points — nine in a
+    /// table, five as consequence paragraphs — every one of them true of all five AP tools. Replacing
+    /// that set with a single tool-specific line would discard almost everything the operator gathered.
+    /// </para>
+    /// <para>
+    /// Category first, then the tool's: the shared problem is established before the slice that is
+    /// particular to this product. Duplicates are dropped, since an operator restating a shared failure
+    /// inside an override means to emphasise it, not to have it argued twice.
+    /// </para>
     /// </remarks>
-    private static GccNicheFraming Merge(GccNicheFraming own, GccNicheFraming? category) =>
-        new(
+    private static GccNicheFraming Merge(GccNicheFraming own, GccNicheFraming? category)
+    {
+        var pains = new List<string>(category?.PainPoints ?? []);
+        foreach (var pain in own.PainPoints)
+        {
+            if (!pains.Contains(pain, StringComparer.OrdinalIgnoreCase)) pains.Add(pain);
+        }
+
+        return new GccNicheFraming(
             own.CoreProblem.Length > 0 ? own.CoreProblem : category?.CoreProblem ?? string.Empty,
-            own.PainPoints.Count > 0 ? own.PainPoints : category?.PainPoints ?? [],
+            pains,
             own.AutomationToPitch.Length > 0
                 ? own.AutomationToPitch
                 : category?.AutomationToPitch ?? string.Empty);
+    }
 
     /// <summary>
     /// The host whose override applies to <paramref name="productName"/>, or empty when the name
