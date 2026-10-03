@@ -59,7 +59,6 @@ public static class ContentCreatorV2ServiceRegistration
         services.AddSingleton<GccV2PlaywrightBrowserHolder>();
         services.AddScoped<GccV2PageFetcher>();
         services.AddScoped<IGccV2RenderedHtmlSource, GccV2PlaywrightRenderedHtmlSource>();
-        services.AddScoped<GccV2SiteHierarchyService>();
         services.AddScoped<GccV2ContextAdapter>();
         services.AddScoped<GccV2ProjectSiteKnowledgeService>();
         // Both extractors depend on this. It had zero callers before they were wired to it, so it
