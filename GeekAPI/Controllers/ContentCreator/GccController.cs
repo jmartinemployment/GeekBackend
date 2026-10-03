@@ -703,8 +703,15 @@ public class GccController : ControllerBase
                 provider,
                 ct,
                 artifact?.Type);
+            // Stamped, like the generate path. Without this the "Provided by" label vanishes on the
+            // first revise and never returns -- the workspace shows the highest version number, and
+            // that was the one with no provenance. The provider is already parsed above; the stamp is
+            // the same helper GccGenerationCoordinator uses, so the two paths cannot word it
+            // differently.
             var version = await _repo.CreateVersionAsync(
-                new CreateGccArtifactVersionCommand(current.ArtifactId, revised), ct);
+                new CreateGccArtifactVersionCommand(
+                    current.ArtifactId, revised, GccVersionProvenance.For(provider)),
+                ct);
             return Ok(version);
         }
         catch (InvalidOperationException ex)
