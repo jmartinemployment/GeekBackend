@@ -58,7 +58,16 @@ public class AnthropicProvider : IContentGenerationProvider
             System = string.IsNullOrEmpty(systemPrompt) ? null : systemPrompt,
             Messages = turnMessages,
             MaxTokens = request.MaxOutputTokens,
-            Temperature = request.Temperature,
+            // NOT sent. Anthropic's current models reject it outright --
+            // 400 invalid_request_error, "`temperature` is deprecated for this model" -- and that is
+            // a hard failure of every call, not a degraded one: on 2026-10-03 it took all four
+            // long-form types and every one of 108 partner extraction pages across five partners,
+            // which surfaced as "0 of 5 partners can be grounded" rather than as a provider fault.
+            //
+            // request.Temperature is honoured by OpenAI and Groq, which still take it. It is dropped
+            // here rather than conditioned on the model name: a name check is a second place to keep
+            // current, and the models that accept it are the ones being retired.
+            Temperature = null,
         };
 
         // Anthropic has no response_format/json_schema mode — structured output is done via forced
@@ -137,7 +146,11 @@ public class AnthropicProvider : IContentGenerationProvider
         [JsonPropertyName("system")] public string? System { get; set; }
         [JsonPropertyName("messages")] public List<AnthropicMessage> Messages { get; set; } = new();
         [JsonPropertyName("max_tokens")] public int MaxTokens { get; set; }
-        [JsonPropertyName("temperature")] public double Temperature { get; set; }
+        /// <summary>
+        /// Omitted when null, and it is always null today -- see the assignment site for why.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("temperature")] public double? Temperature { get; set; }
         [JsonPropertyName("tools")] public List<AnthropicTool>? Tools { get; set; }
         [JsonPropertyName("tool_choice")] public AnthropicToolChoice? ToolChoice { get; set; }
     }
