@@ -85,6 +85,37 @@ public class GccNicheFramingTests
     }
 
     [Fact]
+    public void A_partial_override_keeps_the_category_fields_it_did_not_touch()
+    {
+        // The question that found this: does the backend combine these? It has to, per field. Bill.com
+        // owns a distinct problem -- approval treated as an email reply -- while the category's pain
+        // points and automation still apply to it. Replacing the whole set discarded both.
+        const string brief = """
+            {
+              "nicheFraming": {
+                "coreProblem": "Cash arrives whenever the customer gets round to paying.",
+                "painPoints": "Nobody owns collections.\n\nThey make it hard to pay.",
+                "automationToPitch": "Invoice-to-cash on a schedule.",
+                "perTool": {
+                  "bill.com": {
+                    "coreProblem": "Approval is an email reply, a verbal instruction, or bank access.",
+                    "painPoints": "",
+                    "automationToPitch": ""
+                  }
+                }
+              }
+            }
+            """;
+
+        var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill");
+
+        Assert.StartsWith("Approval is an email reply", bill!.CoreProblem, StringComparison.Ordinal);
+        // The two it said nothing about are inherited, not blanked.
+        Assert.Equal(2, bill.PainPoints.Count);
+        Assert.Equal("Invoice-to-cash on a schedule.", bill.AutomationToPitch);
+    }
+
+    [Fact]
     public void The_override_is_keyed_by_host_not_by_a_typed_name()
     {
         // The catch this exists to prevent. The fan-out buckets by host via

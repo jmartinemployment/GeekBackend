@@ -177,7 +177,7 @@ public static class GccNicheFramingReader
             var own = ReadFraming(entry.Value);
             // An override that was opened and left blank is not an override. Inheriting the category
             // beats handing the writer an empty frame it would have to invent around anyway.
-            if (own is not null && own.HasAny) return own;
+            if (own is not null && own.HasAny) return Merge(own, category);
         }
 
         return category;
@@ -222,6 +222,26 @@ public static class GccNicheFramingReader
 
         return parts;
     }
+
+    /// <summary>
+    /// A per-tool override laid over the category set, <b>field by field</b>.
+    /// </summary>
+    /// <remarks>
+    /// Per field, not per set. The override used to replace the category wholesale, so filling only a
+    /// tool's Core Problem silently discarded the category's Pain Points and Automation — the operator
+    /// states one thing differently for one tool and loses the two they meant to keep. Jeff asked
+    /// whether the backend combines these (2026-10-03); it did not, and it should.
+    ///
+    /// A blank field in the override means "no opinion here", which is what an empty box means. Only
+    /// what was actually written wins.
+    /// </remarks>
+    private static GccNicheFraming Merge(GccNicheFraming own, GccNicheFraming? category) =>
+        new(
+            own.CoreProblem.Length > 0 ? own.CoreProblem : category?.CoreProblem ?? string.Empty,
+            own.PainPoints.Count > 0 ? own.PainPoints : category?.PainPoints ?? [],
+            own.AutomationToPitch.Length > 0
+                ? own.AutomationToPitch
+                : category?.AutomationToPitch ?? string.Empty);
 
     /// <summary>
     /// The host whose override applies to <paramref name="productName"/>, or empty when the name
