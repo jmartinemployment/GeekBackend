@@ -108,8 +108,14 @@ public class StrategyBriefsController : ControllerBase
     }
 
     /// <param name="Provider">"OpenAi" or "Anthropic" (case-insensitive). Defaults to OpenAi when
-    /// omitted — that's the provider with a working key configured as of this endpoint's initial
-    /// build; Anthropic requires ANTHROPIC_API_KEY to be set separately.</param>
+    /// omitted, which is the provider with a key configured in production today.
+    /// <para>
+    /// Anthropic needs <c>LlmProviders__Anthropic__ApiKey</c> (or <c>ANTHROPIC_API_KEY</c>), and refuses
+    /// by name when neither is set rather than sending an empty credential. This used to say
+    /// "ANTHROPIC_API_KEY ... set separately", which was true of the old generator and is the thing that
+    /// got fixed: it now reads <c>LlmProviders:Anthropic</c> like every other provider, so the key, model,
+    /// base URL and API version are configured in one place instead of two.
+    /// </para></param>
     public record GenerateDraftRequest(Guid AssetId, string? Provider = null);
 
     /// <summary>

@@ -1,33 +1,67 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Interfaces.ContentWriterV3;
+using Microsoft.Extensions.Options;
 
 namespace GeekAPI.Services.ContentWriterV3;
 
 /// <summary>
-/// Generates content using the Claude API via HTTP.
-/// Tracks token usage for billing and optimization.
+/// Generates content using the Claude API via HTTP. Tracks token usage for billing and optimization.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Reads <c>LlmProviders:Anthropic</c>, like every other provider in this process.</b> It used to
+/// hardcode the model, the URL and the API version, and read <c>ANTHROPIC_API_KEY</c> directly — so
+/// <c>AnthropicOptions.Model</c> configured one Anthropic path while this one silently used a model
+/// id pinned two minor versions behind it, and setting
+/// <c>LlmProviders__Anthropic__ApiKey</c> configured that path and not this one. Two values behind one
+/// name, decided by which code ran.
+/// </para>
+/// <para>
+/// Its OpenAI counterpart already did this and says why: <i>"rather than reading its own env var or
+/// duplicating key-resolution logic"</i> (<see cref="OpenAiContentGenerator"/>). This is that, for the
+/// provider that was missed.
+/// </para>
+/// <para>
+/// <b>The key is resolved per call and fails closed.</b> The constructor used to do
+/// <c>?? string.Empty</c> and set <c>x-api-key</c> from it, so an unconfigured process sent a request
+/// with an empty key and got an opaque 401 from Anthropic instead of saying what was wrong. Empty
+/// counts as absent here — the rule that exists because <c>??</c> on a config value has caused two
+/// production auth outages.
+/// </para>
+/// </remarks>
 public class ClaudeContentGenerator : IContentGenerator
 {
     private readonly HttpClient _httpClient;
-    private readonly string _apiKey;
+    private readonly AnthropicOptions _options;
     private readonly ILogger<ClaudeContentGenerator> _logger;
     private TokenUsage _lastUsage = new();
 
     public TokenUsage LastUsage => _lastUsage;
-    private const string ClaudeApiUrl = "https://api.anthropic.com/v1/messages";
-    private const string ClaudeModel = "claude-sonnet-4-5-20250929";
 
-    public ClaudeContentGenerator(ILogger<ClaudeContentGenerator> logger)
+    public ClaudeContentGenerator(
+        IHttpClientFactory httpClientFactory,
+        IOptions<LlmProvidersOptions> options,
+        ILogger<ClaudeContentGenerator> logger)
     {
+        _httpClient = httpClientFactory.CreateClient();
+        _options = options.Value.Anthropic;
         _logger = logger;
-        _apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
-
-        _httpClient = new HttpClient();
-        _httpClient.DefaultRequestHeaders.Add("x-api-key", _apiKey);
-        _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
     }
+
+    /// <summary>
+    /// The configured key, or null when none is set. Options first, then the environment variable the
+    /// older build documented — <see cref="AnthropicProvider"/> resolves it in that same order, and two
+    /// precedence rules for one credential is its own outage.
+    /// </summary>
+    private string? ResolveApiKey() =>
+        !string.IsNullOrWhiteSpace(_options.ApiKey)
+            ? _options.ApiKey
+            : Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") is { } env
+              && !string.IsNullOrWhiteSpace(env)
+                ? env
+                : null;
 
     public async Task<string> GenerateDraftAsync(
         string strategyBriefAngle,
@@ -183,9 +217,19 @@ public class ClaudeContentGenerator : IContentGenerator
         {
             _logger.LogInformation("Calling Claude API for content generation");
 
+            // Fails closed before the request is built: an empty key reaches Anthropic as a 401 that
+            // says nothing about configuration being the cause.
+            var apiKey = ResolveApiKey();
+            if (apiKey is null)
+            {
+                throw new InvalidOperationException(
+                    "Anthropic API key is not configured. Set LlmProviders__Anthropic__ApiKey (or "
+                    + "ANTHROPIC_API_KEY).");
+            }
+
             var request = new
             {
-                model = ClaudeModel,
+                model = _options.Model,
                 max_tokens = maxTokens,
                 messages = new[]
                 {
@@ -196,7 +240,16 @@ public class ClaudeContentGenerator : IContentGenerator
             var json = JsonSerializer.Serialize(request);
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(ClaudeApiUrl, content, ct);
+            // Per-request, not constructor defaults: the client comes from IHttpClientFactory and is
+            // pooled, so headers set on it once would outlive this call and leak across consumers.
+            using var message = new HttpRequestMessage(HttpMethod.Post, _options.BaseUrl)
+            {
+                Content = content,
+            };
+            message.Headers.Add("x-api-key", apiKey);
+            message.Headers.Add("anthropic-version", _options.AnthropicVersion);
+
+            var response = await _httpClient.SendAsync(message, ct);
             response.EnsureSuccessStatusCode();
 
             var responseText = await response.Content.ReadAsStringAsync(ct);
