@@ -782,7 +782,8 @@ public class GccGenerateService
             brief.CtaType,
             brief.CtaLabel,
             brief.LengthBand,
-            brief.WritingNotes);
+            brief.WritingNotes,
+            diagnosisQuestions: brief.DiagnosisQuestions);
         // The outline is planned for this post, not taken from a constant. The three headings that
         // used to sit here -- "Overview", "Key considerations", "Next steps" -- shipped on every
         // blog this path produced, and a section called "Key considerations" has nothing in
@@ -1250,7 +1251,8 @@ public class GccGenerateService
             toolBrief.CtaType,
             toolBrief.CtaLabel,
             toolBrief.LengthBand,
-            toolBrief.WritingNotes);
+            toolBrief.WritingNotes,
+            diagnosisQuestions: toolBrief.DiagnosisQuestions);
 
         // Equal to Pillar's outline in count and per-section depth (Jeff, 2026-09-22: Tool must be
         // equal in word count to Pillar if not longer). It is read from ToolPrompts rather than
@@ -1676,7 +1678,8 @@ public class GccGenerateService
         string? lengthBand = null,
         string? writingNotes = null,
         GccPublisherProfileResolver.PublisherProfile? publisherProfile = null,
-        IReadOnlyList<KnownCrawlTool>? knownTools = null)
+        IReadOnlyList<KnownCrawlTool>? knownTools = null,
+        IReadOnlyList<string>? diagnosisQuestions = null)
     {
         // The operator's own home page, when the project site has been crawled. CrawledHeadings was
         // [] and CrawledParagraphs held only the create's Notes, so the writer had never seen the
@@ -1742,7 +1745,8 @@ public class GccGenerateService
             WritingNotes: writingNotes,
             // Empty on every Create-path generate until 2026-09-27, which is why
             // AppendKnownToolsBrief never rendered and no draft ever linked a tool.
-            KnownCrawlTools: knownTools);
+            KnownCrawlTools: knownTools,
+            DiagnosisQuestions: diagnosisQuestions);
     }
 
     private static string Slugify(string value)
@@ -1957,6 +1961,10 @@ public class GccGenerateService
             var lengthBand = S("lengthBand");
             var writingNotes = S("writingNotes");
             IReadOnlyList<string>? paaQuestions = ParsePaaQuestions(root);
+            // Through the reader that owns the nicheFraming shape, not off `root`: it is the only place
+            // that knows these split per line while pain points split per paragraph.
+            var readQuestions = GccNicheFramingReader.DiagnosisQuestions(briefJson);
+            IReadOnlyList<string>? diagnosisQuestions = readQuestions.Count > 0 ? readQuestions : null;
             var segNotes = notes;
             return new BriefFields
             {
@@ -1974,6 +1982,7 @@ public class GccGenerateService
                 LengthBand = string.IsNullOrWhiteSpace(lengthBand) ? null : lengthBand.Trim(),
                 WritingNotes = string.IsNullOrWhiteSpace(writingNotes) ? null : writingNotes.Trim(),
                 PaaQuestions = paaQuestions,
+                DiagnosisQuestions = diagnosisQuestions,
             };
         }
         catch (JsonException)
@@ -1998,6 +2007,14 @@ public class GccGenerateService
         public string? LengthBand { get; init; }
         public string? WritingNotes { get; init; }
         public IReadOnlyList<string>? PaaQuestions { get; init; }
+
+        /// <summary>
+        /// The operator's practical client diagnosis -- discovery questions the closing hands the reader,
+        /// one per entry. Read here rather than at each call site so the three long-form paths cannot
+        /// diverge on whether the closing has material; that divergence is exactly how Tool ended up
+        /// passing none of the seventeen brief fields Pillar passed.
+        /// </summary>
+        public IReadOnlyList<string>? DiagnosisQuestions { get; init; }
     }
 
     public static string SerializeAnalysisPayload(SiteAnalysisStoredPayload payload) =>
@@ -2553,7 +2570,8 @@ public class GccGenerateService
             brief.LengthBand,
             brief.WritingNotes,
             publisherProfile,
-            knownTools);
+            knownTools,
+            brief.DiagnosisQuestions);
     }
 
     /// <summary>

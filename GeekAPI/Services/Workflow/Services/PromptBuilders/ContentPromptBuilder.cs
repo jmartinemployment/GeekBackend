@@ -873,7 +873,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "quotable spans listed below, copied character for character, and set \"cite\" to the URL "
         + "printed beside the span you chose.\n"
         + "WHAT THE QUOTE MUST SAY: how " + productName + " solves the problem this page is about -- "
-        + "the pain of doing " + GeekAPI.Services.ContentCreator.GccTopic.KeywordOf(targetKeyword)
+        + "the pain of doing " + targetKeyword
         + " the manual or status-quo way, and what their product does about it. Choose the span that "
         + "states a capability, a mechanism or a measured outcome against that problem.\n"
         + "NOT a compliment and NOT a testimonial: \"we love it\", \"the team has been great\", "
@@ -973,11 +973,61 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
         return "CLOSING: the last section ends by asking for " + ask + ". One ask, stated plainly, "
             + "addressed to the reader, naming who does what next. " + destination + " "
+            + ClientDiagnosisInstruction(context.DiagnosisQuestions)
             + "Do NOT end on a reflection -- \"it may be beneficial to explore\", \"consider how this "
             + "could apply\", \"these examples provide insight\", \"to understand the potential impact "
             + "further\". Those name no action and no actor; they are a piece trailing off, and they "
             + "are what every draft has closed on so far. If the reader finishes and does not know "
             + "what they are being asked to do, the ending has failed.";
+    }
+
+    /// <summary>
+    /// The practical client diagnosis: the operator's discovery questions, handed to the closing as the
+    /// substance of its ask. Empty string when the brief carries none, so the closing reads exactly as it
+    /// did before this existed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the closing needed material.</b> The instruction above has always demanded one plain ask
+    /// and banned the reflection endings every draft produced, while giving the writer nothing for the
+    /// ask to be about. A reader who has just been told five tools exist does not need to be told to
+    /// "consider their options"; they need to know what to look at in their own operation. These are the
+    /// questions the operator actually asks a prospect, so the ending can do that.
+    /// </para>
+    /// <para>
+    /// <b>Questions, not a form.</b> Rendered as the reader's own audit in the second person. A short
+    /// list is legitimate -- <c>ListParagraph</c> exists -- but a numbered questionnaire the page
+    /// administers is a different artifact, and the ask still has to close the section.
+    /// </para>
+    /// <para>
+    /// <b>The set is the set.</b> Selecting among them is allowed when the length band will not carry all
+    /// of them; inventing a further question is not. They are the operator's research, and a ninth
+    /// question the model composed is indistinguishable on the page from the eight that were verified.
+    /// </para>
+    /// </remarks>
+    private static string ClientDiagnosisInstruction(IReadOnlyList<string>? questions)
+    {
+        if (questions is not { Count: > 0 }) return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.Append("BEFORE that ask, the closing hands the reader a practical diagnosis: these questions, ");
+        sb.Append("put to their own operation in the second person, so the ask is what they do with the ");
+        sb.Append("answers. They are the publisher's own discovery questions -- not retrieved evidence, ");
+        sb.Append("so attribute them to nobody -- and they are the whole set available to you:");
+
+        foreach (var question in questions)
+        {
+            sb.AppendLine();
+            sb.Append("- ").Append(question.Trim());
+        }
+
+        sb.AppendLine();
+        sb.Append("Use them as written, or a subset of them if the length will not carry all. Do NOT ");
+        sb.Append("invent a question that is not in that list, do NOT pad toward a count, and do NOT ");
+        sb.Append("turn them into a form the page administers or a quiz with answers. A short list is ");
+        sb.Append("fine; so is working them into the prose. The ask still closes the section after them. ");
+
+        return sb.ToString();
     }
 
     /// <summary>

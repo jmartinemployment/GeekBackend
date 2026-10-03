@@ -347,4 +347,99 @@ public class GccNicheFramingTests
 
         Assert.Equal(["one", "two", "three"], framing!.PainPoints);
     }
+
+    // ----------------------------------------------------------------------------------------------
+    // The practical client diagnosis. One question per LINE -- the opposite of pain points, which split
+    // on blank lines. Two readers, because the two formats genuinely differ, and these tests are what
+    // keeps them from being collapsed into one by someone tidying up.
+    // ----------------------------------------------------------------------------------------------
+
+    /// <summary>Jeff's eight for Accounts Payable approval workflows, as he supplied them.</summary>
+    private const string DiagnosisBrief = """
+        {
+          "nicheFraming": {
+            "coreProblem": "Approvals happen in email.",
+            "diagnosisQuestions": "How many invoices per month require someone's approval?\nWho approves spending, and what happens when they are unavailable?\nHow long does an invoice wait for approval today?\nAre approval limits defined by amount, department or vendor?\nIs there an audit trail sufficient to answer who approved this payment and why?\nHow often does a duplicate or wrong-amount invoice reach payment?\nWho chases an approver who has not responded?\nWhat happens to an invoice when the approver leaves the company?"
+          }
+        }
+        """;
+
+    [Fact]
+    public void Eight_question_lines_are_eight_questions()
+    {
+        // The mutation that matters: point this at ReadParagraphs and the count becomes 1, because there
+        // is no blank line anywhere in the set. If that still passes, this test pins nothing.
+        var questions = GccNicheFramingReader.DiagnosisQuestions(DiagnosisBrief);
+
+        Assert.Equal(8, questions.Count);
+        Assert.Equal("How many invoices per month require someone's approval?", questions[0]);
+        Assert.Equal("What happens to an invoice when the approver leaves the company?", questions[7]);
+    }
+
+    [Fact]
+    public void Blank_lines_between_questions_are_skipped_not_treated_as_grouping()
+    {
+        // An operator pasting a researched set often leaves gaps. Reading those as structure would invent
+        // grouping the closing has no use for, and dropping an empty entry into the prompt would render
+        // as a bare "- ".
+        var questions = GccNicheFramingReader.DiagnosisQuestions(
+            """{"nicheFraming":{"diagnosisQuestions":"First?\n\n\nSecond?\n   \nThird?\n"}}""");
+
+        Assert.Equal(["First?", "Second?", "Third?"], questions);
+    }
+
+    [Fact]
+    public void The_two_readers_stay_distinct_in_both_directions()
+    {
+        // Asserted together, on one brief, because the failure is always a swap: whichever reader is
+        // reused for both, one of these two numbers is wrong. Eight lines of questions and one paragraph
+        // of failure, from the same nicheFraming object.
+        const string brief = """
+            {
+              "nicheFraming": {
+                "coreProblem": "x",
+                "painPoints": "They treat approval as an email reply. That creates slow approvals, late fees and no defensible approval history.",
+                "diagnosisQuestions": "One?\nTwo?\nThree?"
+              }
+            }
+            """;
+
+        Assert.Equal(3, GccNicheFramingReader.DiagnosisQuestions(brief).Count);
+        Assert.Single(GccNicheFramingReader.ForCategory(brief)!.PainPoints);
+    }
+
+    [Fact]
+    public void An_array_of_questions_is_accepted()
+    {
+        var questions = GccNicheFramingReader.DiagnosisQuestions(
+            """{"nicheFraming":{"diagnosisQuestions":["One?","Two?"]}}""");
+
+        Assert.Equal(["One?", "Two?"], questions);
+    }
+
+    [Fact]
+    public void No_diagnosis_reads_as_none_rather_than_failing()
+    {
+        // Silent and empty, per the no-exceptions rule: a brief without the field means the closing gets
+        // no material, which is what every closing had before this existed.
+        Assert.Empty(GccNicheFramingReader.DiagnosisQuestions(CategoryOnlyBrief));
+        Assert.Empty(GccNicheFramingReader.DiagnosisQuestions(null));
+        Assert.Empty(GccNicheFramingReader.DiagnosisQuestions("not json at all"));
+        Assert.Empty(GccNicheFramingReader.DiagnosisQuestions("""{"nicheFraming":{"diagnosisQuestions":"   "}}"""));
+    }
+
+    [Fact]
+    public void The_diagnosis_is_category_level_and_a_per_tool_entry_cannot_shadow_it()
+    {
+        // Category-level by construction: the reader looks at the framing root only. Every question is
+        // about the reader's own operation and none names a product, so there is nothing for a partner to
+        // override -- and a diagnosisQuestions written inside perTool is operator error that must not
+        // silently replace the real set.
+        var questions = GccNicheFramingReader.DiagnosisQuestions(
+            """
+            {"nicheFraming":{"diagnosisQuestions":"Category question?","perTool":{"bill.com":{"coreProblem":"y","diagnosisQuestions":"Tool question?"}}}}
+            """);
+
+        Assert.Equal(["Category question?"], questions);
+    }
 }

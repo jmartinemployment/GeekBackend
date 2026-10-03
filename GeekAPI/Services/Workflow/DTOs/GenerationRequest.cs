@@ -8,6 +8,16 @@ namespace GeekAPI.Services.Workflow.DTOs;
 public record ProjectGenerationContext(
     string ProjectName,
     string ProjectUrl,
+    /// <summary>
+    /// The keyword, already split out of a <c>"descriptor: keyword"</c> topic by
+    /// <c>GccTopic.KeywordOf</c>. <b>Never re-split by a consumer.</b>
+    ///
+    /// Both producers normalise it: <c>GccGenerateService.BuildMinimalContext</c> and
+    /// <c>ContentGenerationOrchestrator</c>. Two consumers used to re-split defensively, which was
+    /// correct while this carried the whole topic and became a second disagreeing reader the moment it
+    /// did not — a multi-colon topic then gave the blog and the tool quote instruction one keyword while
+    /// the SEO score measured another. One normalisation at the producer, trusted everywhere after.
+    /// </summary>
     string TargetKeyword,
     string Department,
     string SiteName,
@@ -64,7 +74,25 @@ public record ProjectGenerationContext(
     /// at all rather than inventing one.</summary>
     string? ConsultationAnchorHref = null,
     /// <summary>What that scheduler calls itself, used as the ask when the brief names no ctaType.</summary>
-    string? ConsultationCtaLabel = null);
+    string? ConsultationCtaLabel = null,
+    /// <summary>
+    /// The operator's practical client diagnosis: discovery questions the closing hands the reader to run
+    /// against their own operation, one per entry.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the closing's <i>material</i>. <c>ClosingCallToActionInstruction</c> has always demanded
+    /// one plain ask and banned trailing off, while supplying nothing for that ask to be about — so every
+    /// closing argued it from whatever the writer had left. These are what the operator actually asks a
+    /// prospect, so the ending can be a diagnostic the reader runs rather than a sentiment.
+    /// </para>
+    /// <para>
+    /// Not to be confused with <see cref="SerpPaaQuestions"/>, which is populated only from the v1
+    /// Workflow project entity and is null on every Create-path generate. This one is read from the
+    /// brief by <c>GccNicheFramingReader.DiagnosisQuestions</c>.
+    /// </para>
+    /// </remarks>
+    IReadOnlyList<string>? DiagnosisQuestions = null);
 
 /// <summary>Crawl tool name + optional source href. Generate-time only — not copied onto the project.</summary>
 public sealed record KnownCrawlTool(string Name, string? Href);

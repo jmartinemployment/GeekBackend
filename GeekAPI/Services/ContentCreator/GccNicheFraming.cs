@@ -233,6 +233,33 @@ public static class GccNicheFramingReader
     }
 
     /// <summary>
+    /// The operator's practical client diagnosis: a discovery question set the closing hands the reader
+    /// to run against their own operation. Empty when the brief carries none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Category-level, with no per-tool override, and that is a property of the data rather than a
+    /// simplification.</b> Jeff's set for AP approval workflows asks how many invoices need an approval,
+    /// who approves spending, and whether the audit trail can answer "who approved this payment and
+    /// why" — every question is about the reader's own process and none names a product. There is
+    /// nothing for a partner to override. So this reads from the framing root only, like
+    /// <see cref="TaxonomyPath"/>, and is deliberately not a field on <see cref="GccNicheFraming"/>,
+    /// which <see cref="ForProduct"/> resolves per product.
+    /// </para>
+    /// <para>
+    /// <b>One question per line — not the paragraph rule <see cref="ReadParagraphs"/> uses.</b> A failure
+    /// mode is a paragraph, which is why pain points split on blank lines; a discovery question is a
+    /// single line, and eight consecutive ones read through that rule collapse into one run-on entry.
+    /// The two formats differ, so the two readers differ.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> DiagnosisQuestions(string? briefJson)
+    {
+        var root = ReadRoot(briefJson);
+        return root is null ? [] : ReadQuestionLines(root.Value, "diagnosisQuestions");
+    }
+
+    /// <summary>
     /// A per-tool override laid over the category set, <b>field by field</b>.
     /// </summary>
     /// <remarks>
@@ -337,7 +364,7 @@ public static class GccNicheFramingReader
     {
         var core = ReadString(obj, "coreProblem");
         var automation = ReadString(obj, "automationToPitch");
-        var pains = ReadLines(obj, "painPoints");
+        var pains = ReadParagraphs(obj, "painPoints");
 
         if (core.Length == 0 && automation.Length == 0 && pains.Count == 0) return null;
         return new GccNicheFraming(core, pains, automation);
@@ -367,7 +394,43 @@ public static class GccNicheFramingReader
     /// acquisition) that already has the items separated.
     /// </para>
     /// </remarks>
-    private static IReadOnlyList<string> ReadLines(JsonElement obj, string name)
+    /// <summary>
+    /// One item per <b>line</b>, or an array. The counterpart to <see cref="ReadParagraphs"/>, for data
+    /// whose unit is a line rather than a paragraph.
+    /// </summary>
+    /// <remarks>
+    /// Blank lines separate nothing here, they are just skipped: an operator pasting a researched set
+    /// often leaves one between questions, and reading that as a grouping would invent structure the
+    /// closing has no use for.
+    /// </remarks>
+    private static IReadOnlyList<string> ReadQuestionLines(JsonElement obj, string name)
+    {
+        if (!TryGetPropertyIgnoreCase(obj, name, out var prop)) return [];
+
+        var lines = new List<string>();
+        if (prop.ValueKind == JsonValueKind.String)
+        {
+            var raw = (prop.GetString() ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+            foreach (var line in raw.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length > 0) lines.Add(trimmed);
+            }
+        }
+        else if (prop.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var el in prop.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.String) continue;
+                var trimmed = (el.GetString() ?? string.Empty).Trim();
+                if (trimmed.Length > 0) lines.Add(trimmed);
+            }
+        }
+
+        return lines;
+    }
+
+    private static IReadOnlyList<string> ReadParagraphs(JsonElement obj, string name)
     {
         if (!TryGetPropertyIgnoreCase(obj, name, out var prop)) return [];
 

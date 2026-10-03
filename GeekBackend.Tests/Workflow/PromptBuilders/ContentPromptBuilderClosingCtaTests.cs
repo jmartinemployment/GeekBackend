@@ -64,6 +64,19 @@ public class ContentPromptBuilderClosingCtaTests
             fullOutline: [SectionSlot.Assigned("Overview"), SectionSlot.Assigned("Details")],
             isRegeneration: false));
 
+    /// <summary>
+    /// A pillar batch that does NOT own the page's final section: the batch ends on "Overview" while the
+    /// outline ends on "Details". Needed because every other helper here owns its closing, so nothing
+    /// would catch an instruction that leaked into every batch of a batched page.
+    /// </summary>
+    private static string PillarBatchThatDoesNotCloseThePage(ProjectGenerationContext context) =>
+        SystemPrompt(new ContentPromptBuilder().BuildArticleSectionBatchPrompt(
+            context,
+            new ArticleMetadataDraft("Title", "Meta", ["ai"], ["Overview", "Details"]),
+            slots: [SectionSlot.Assigned("Overview")],
+            fullOutline: [SectionSlot.Assigned("Overview"), SectionSlot.Assigned("Details")],
+            isRegeneration: false));
+
     private static string SingleSectionPrompt(ProjectGenerationContext context) =>
         SystemPrompt(new ContentPromptBuilder().BuildArticleSectionPrompt(
             context,
@@ -167,5 +180,100 @@ public class ContentPromptBuilderClosingCtaTests
 
         Assert.Contains("worded as \"Schedule a Free Consultation\"", system, StringComparison.Ordinal);
         Assert.DoesNotContain("the one action this reader should take next", system, StringComparison.Ordinal);
+    }
+
+    // ----------------------------------------------------------------------------------------------
+    // The practical client diagnosis -- Jeff, 2026-10-03: "A useful discovery question set as the CTA."
+    //
+    // The instruction above had always demanded one plain ask and banned the reflection endings every
+    // draft produced, while supplying nothing for the ask to be ABOUT. These are the questions the
+    // operator actually asks a prospect, so the closing can be a diagnostic the reader runs.
+    // ----------------------------------------------------------------------------------------------
+
+    /// <summary>Three of Jeff's eight for AP approval workflows, verbatim.</summary>
+    private static readonly string[] Diagnosis =
+    [
+        "How many invoices per month require someone's approval?",
+        "Who approves spending, and what happens when they are unavailable?",
+        "Is there an audit trail sufficient to answer \"who approved this payment and why?\"",
+    ];
+
+    [Theory]
+    [MemberData(nameof(AllFourBodyPrompts))]
+    public void Every_body_prompt_hands_the_reader_the_operators_diagnosis(string which)
+    {
+        var system = Render(which, Context() with { DiagnosisQuestions = Diagnosis });
+
+        // Every question, verbatim. A reader that drops one is indistinguishable from an operator who
+        // never typed it.
+        foreach (var question in Diagnosis)
+        {
+            Assert.Contains(question, system, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("practical diagnosis", system, StringComparison.Ordinal);
+        // The questions are material for the ask, not a replacement for it.
+        Assert.Contains("CLOSING:", system, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllFourBodyPrompts))]
+    public void An_empty_diagnosis_leaves_the_closing_byte_identical(string which)
+    {
+        // This is additive on every path. A create that never touches the field must build the prompt it
+        // built yesterday -- and an empty list must behave as absence, since that is what the frontend
+        // sends for a textarea the operator opened and left alone.
+        var absent = Render(which, Context());
+        var empty = Render(which, Context() with { DiagnosisQuestions = [] });
+
+        Assert.Equal(absent, empty);
+        Assert.DoesNotContain("practical diagnosis", absent, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Only_the_batch_that_writes_the_last_section_gets_the_diagnosis()
+    {
+        // The questions inherit OwnsTheClosing rather than carrying their own gate. Without that, a
+        // batched pillar asks the reader the same eight questions in every batch -- the three-sign-offs
+        // failure the gate was built for, with eight questions attached to each one.
+        var context = Context() with { DiagnosisQuestions = Diagnosis };
+
+        var closes = PillarPrompt(context);
+        var doesNotClose = PillarBatchThatDoesNotCloseThePage(context);
+
+        Assert.Contains(Diagnosis[0], closes, StringComparison.Ordinal);
+        Assert.DoesNotContain(Diagnosis[0], doesNotClose, StringComparison.Ordinal);
+        Assert.Contains("This call does not end the page", doesNotClose, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_supplied_set_is_the_whole_set_the_writer_may_use()
+    {
+        // Selecting among them is allowed -- a 450-word closing cannot carry eight questions and an ask.
+        // Composing a ninth is not: on the page it is indistinguishable from the eight that were
+        // researched, which is the same reason framing is labelled "argue from it, never cite it".
+        var system = BlogPrompt(Context() with { DiagnosisQuestions = Diagnosis });
+
+        Assert.Contains("or a subset of them", system, StringComparison.Ordinal);
+        Assert.Contains("Do NOT invent a question that is not in that list", system, StringComparison.Ordinal);
+        Assert.Contains("form the page administers", system, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_diagnosis_does_not_replace_the_ask_or_its_destination()
+    {
+        // "as the CTA" means the questions are what the ask is about, not that they are the ask. A
+        // closing that ends on a question has asked for nothing.
+        var system = BlogPrompt(Context() with
+        {
+            CtaType = "book_appointment",
+            CtaLabel = "Book your assessment",
+            DiagnosisQuestions = Diagnosis,
+        });
+
+        Assert.Contains("asking for book_appointment", system, StringComparison.Ordinal);
+        Assert.Contains("worded as \"Book your assessment\"", system, StringComparison.Ordinal);
+        Assert.Contains($"href \"{Anchor}\"", system, StringComparison.Ordinal);
+        Assert.Contains("The ask still closes the section after them", system, StringComparison.Ordinal);
     }
 }
