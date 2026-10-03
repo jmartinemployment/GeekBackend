@@ -1919,7 +1919,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for this section. Do not write other sections.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
-            .AppendLine(ClosingCallToActionInstruction(context))
+            // The same decision the batch builder makes, made by the same code. This builder appended
+            // ClosingCallToActionInstruction unconditionally, so every section of a pillar was told to
+            // end the page -- survivable while the closing was one ask, and not once
+            // ClientDiagnosisInstruction joined it: six of seven sections were handed the operator's
+            // discovery questions and told to pose them.
+            //
+            // A single section IS a batch of one, so BatchClosingInstruction answers it as-is. Writing
+            // the gate out again here is what let the two drift in the first place; the rule is one
+            // rule and now has one implementation.
+            .AppendLine(BatchClosingInstruction(context, [sectionHeading], fullOutline))
             .ToString();
 
         var perCall = new StringBuilder();

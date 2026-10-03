@@ -469,35 +469,11 @@ public sealed class GccGenerationCoordinator
         var artifact = await repo.CreateArtifactAsync(
             new CreateGccArtifactCommand(create.Id, piece.ContentType, piece.ArtifactName), ct);
         var version = await repo.CreateVersionAsync(
-            new CreateGccArtifactVersionCommand(artifact.Id, piece.BodyJson, ProvenanceJson(provider)), ct);
+            new CreateGccArtifactVersionCommand(artifact.Id, piece.BodyJson, GccVersionProvenance.For(provider)), ct);
         var produced = new { artifact, version };
         if (onTypeOutcome is not null) await onTypeOutcome(piece.ContentType, produced, null);
         return produced;
     }
-
-    /// <summary>
-    /// Who wrote this version, stamped on the version itself.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Written here because this is the one place every generated piece becomes a version, so the stamp
-    /// cannot be missed by a content type that takes a different route to persistence.
-    /// </para>
-    /// <para>
-    /// In <c>MetadataJson</c> rather than as a column: <c>gcc_artifacts</c> lives in GeekRepository, so a
-    /// field there is a cross-service schema change, while <c>MetadataJson</c> already travels on this
-    /// command and was being passed as null.
-    /// </para>
-    /// <para>
-    /// The <b>provider</b>, not the model. <c>ChatCompletionResult.ModelUsed</c> carries the real id but is
-    /// only threaded through the dormant v2 writer, so claiming a model here would mean inventing one —
-    /// and a provider name in a field called model is exactly the confusion this avoids
-    /// (<c>GccController:1465</c> does that today). Provider is enough to tell two drafts apart while one
-    /// model is configured per provider; when that stops being true, this is where the model goes.
-    /// </para>
-    /// </remarks>
-    private static string ProvenanceJson(ContentGeneratorProvider provider) =>
-        JsonSerializer.Serialize(new { generatedByProvider = provider.ToString() });
 
     /// <summary>
     /// Attaches an <c>imagePrompt</c> field to a short-form body (email/social — a flat JSON

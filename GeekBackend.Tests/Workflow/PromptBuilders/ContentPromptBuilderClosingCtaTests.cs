@@ -247,6 +247,32 @@ public class ContentPromptBuilderClosingCtaTests
     }
 
     [Fact]
+    public void Only_the_final_single_section_call_gets_the_closing()
+    {
+        // BuildArticleSectionPrompt appended the closing unconditionally while the batch builder gated
+        // it behind OwnsTheClosing. That was survivable while the closing was one ask; once the
+        // diagnosis joined it, six of a pillar's seven sections were handed the operator's discovery
+        // questions and told to pose them. Code review, 2026-10-03.
+        var context = Context() with { DiagnosisQuestions = Diagnosis };
+        var metadata = new ArticleMetadataDraft("Title", "Meta", ["ai"], ["A", "B", "C"]);
+        var builder = new ContentPromptBuilder();
+
+        var middle = SystemPrompt(builder.BuildArticleSectionPrompt(
+            context, metadata, sectionHeading: "B", sectionIndex: 1, totalSections: 3,
+            fullOutline: ["A", "B", "C"], isRegeneration: false));
+        var last = SystemPrompt(builder.BuildArticleSectionPrompt(
+            context, metadata, sectionHeading: "C", sectionIndex: 2, totalSections: 3,
+            fullOutline: ["A", "B", "C"], isRegeneration: false));
+
+        Assert.DoesNotContain("CLOSING:", middle, StringComparison.Ordinal);
+        Assert.DoesNotContain(Diagnosis[0], middle, StringComparison.Ordinal);
+        Assert.Contains("This call does not end the page", middle, StringComparison.Ordinal);
+
+        Assert.Contains("CLOSING:", last, StringComparison.Ordinal);
+        Assert.Contains(Diagnosis[0], last, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_supplied_set_is_the_whole_set_the_writer_may_use()
     {
         // Selecting among them is allowed -- a 450-word closing cannot carry eight questions and an ask.
