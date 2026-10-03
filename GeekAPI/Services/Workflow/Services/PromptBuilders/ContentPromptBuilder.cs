@@ -2765,6 +2765,17 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     /// <summary>See <see cref="IContentPromptBuilder.BuildToolFaqSectionPrompt"/>.</summary>
+    /// <summary>
+    /// The tool page's FAQ section, built from already-verified partner answers.
+    /// </summary>
+    /// <remarks>
+    /// <b>Writing, not Utility</b> — and it was Utility until 2026-10-03, with the comment "structured,
+    /// short, no prose a reader reads". That last clause was simply wrong: this section ships on the tool
+    /// page under its own headings. Classed Utility it resolved to <c>UtilityModel</c>, so every tool
+    /// page's FAQ was written by the cheap model while the rest of the same page used the writing one —
+    /// a quality seam nobody chose, invisible in the output because both halves render identically.
+    /// Image prompts are genuinely utility work: nobody reads them. An answer under an H3 is the page.
+    /// </remarks>
     public ChatCompletionRequest BuildToolFaqSectionPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
@@ -2801,9 +2812,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionSchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
             Temperature: 0.3,
-            MaxOutputTokens: 4096,
-            // Utility: FAQ formatting from already-verified partner answers -- structured, short, no prose a reader reads.
-            TaskClass: LlmTaskClass.Utility));
+            MaxOutputTokens: 4096));
     }
 
     public ChatCompletionRequest BuildToolRoundupPrompt(
