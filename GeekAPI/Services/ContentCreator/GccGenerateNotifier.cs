@@ -87,14 +87,25 @@ public sealed class GccGenerateNotifier
 internal static class GccGenerateEventMapper
 {
     public static object Map(GccJob job) =>
-        new
-        {
-            jobId = job.Id,
-            createId = job.CreateId,
-            kind = job.Kind,
-            status = job.Status,
-            error = job.Error,
-            resultJson = job.ResultJson,
-            completedAtUtc = job.CompletedAtUtc,
-        };
+        job.ProjectId is Guid projectId
+            ? new
+            {
+                jobId = job.Id,
+                projectId,
+                kind = job.Kind,
+                status = job.Status,
+                error = job.Error,
+                resultJson = job.ResultJson,
+                completedAtUtc = job.CompletedAtUtc,
+            }
+            : new
+            {
+                jobId = job.Id,
+                createId = job.CreateId,
+                kind = job.Kind,
+                status = job.Status,
+                error = job.Error,
+                resultJson = job.ResultJson,
+                completedAtUtc = job.CompletedAtUtc,
+            };
 }

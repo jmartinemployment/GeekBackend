@@ -126,6 +126,7 @@ builder.Services.AddScoped<GeekAPI.HttpClients.IGccPartnerExtractionBank>(sp =>
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccTypedPassageReader>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccProjectSiteStructureReader>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccMustMentionBlockBuilder>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGroundingResolver>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerationCoordinator>();
 // Asks the brief's Angle question of a partner's crawl. The same retrieval and selection the
@@ -158,6 +159,9 @@ builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccKnownToolsResolver
 // this comment on it already calls "same shape... one GeekAPI instance only": in-memory job state
 // has to survive across requests within the process, so scoped or transient would silently lose it.
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
+// Project Generate runs are rows in GeekRepository (gcc_generate_jobs). On startup, every run still
+// marked running was running in a process that no longer exists, and is failed as such.
+builder.Services.AddHostedService<GeekAPI.Services.ContentCreator.GccInterruptedJobsOnStartup>();
 builder.Services.AddContentCreatorV2(builder.Configuration);
 builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Write.GccV2CreateLibraryWriter>();

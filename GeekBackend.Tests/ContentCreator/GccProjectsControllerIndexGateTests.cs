@@ -138,6 +138,9 @@ public class GccProjectsControllerIndexGateTests
             // implementation of IGeekCrawlerRagClient for the suite, not a second that can drift.
             new GccCompetitorAnalysisResolverTests.FakeRag(rows),
             crawlerRepo,
+            // Profile save reaches neither the generate runner nor the must-mention builder.
+            null!,
+            null!,
             NullLogger<GccProjectsController>.Instance)
         {
             ControllerContext = new ControllerContext

@@ -117,8 +117,8 @@ public sealed class GccProjectBriefRouteTests
         var repo = new HttpGccRepository(
             new HttpClient(stub) { BaseAddress = new Uri("http://repo.test/") },
             NullLogger<HttpGccRepository>.Instance);
-        // The brief route reaches neither the RAG client nor the crawler repository.
-        var controller = new ApiProjectsController(repo, null!, null!, NullLogger<ApiProjectsController>.Instance);
+        // The brief route reaches none of the RAG client, the crawler repository or the generate runner.
+        var controller = new ApiProjectsController(repo, null!, null!, null!, null!, NullLogger<ApiProjectsController>.Instance);
         var claims = sub is null ? Array.Empty<Claim>() : [new Claim("sub", sub)];
         controller.ControllerContext = new ControllerContext
         {

@@ -29,6 +29,19 @@ namespace GeekAPI.Services.ContentCreator;
 public static class GccVersionProvenance
 {
     /// <summary>The metadata a new version carries, as JSON.</summary>
-    public static string For(ContentGeneratorProvider provider) =>
-        JsonSerializer.Serialize(new { generatedByProvider = provider.ToString() });
+    /// <param name="briefRevision">The project brief revision the version was written from (J7), so the
+    /// workspace can say "generated from the brief saved at ...". Null on the create-keyed path, whose
+    /// brief has no revisions.</param>
+    public static string For(ContentGeneratorProvider provider, GccBriefRevisionStamp? briefRevision = null) =>
+        briefRevision is null
+            ? JsonSerializer.Serialize(new { generatedByProvider = provider.ToString() })
+            : JsonSerializer.Serialize(new
+            {
+                generatedByProvider = provider.ToString(),
+                briefRevisionId = briefRevision.Id,
+                briefRevisionSavedAtUtc = briefRevision.SavedAtUtc,
+            });
 }
+
+/// <summary>The brief revision a run read: its id and when it was saved.</summary>
+public sealed record GccBriefRevisionStamp(Guid Id, DateTime SavedAtUtc);

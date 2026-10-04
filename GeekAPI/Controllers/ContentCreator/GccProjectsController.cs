@@ -33,17 +33,23 @@ public class GccProjectsController : ControllerBase
     private readonly HttpGccRepository _repo;
     private readonly IGeekCrawlerRagClient _rag;
     private readonly HttpGeekCrawlerRepository _crawlerRepo;
+    private readonly GccGenerateJobRunner _generateRunner;
+    private readonly GccMustMentionBlockBuilder _mustMention;
     private readonly ILogger<GccProjectsController> _logger;
 
     public GccProjectsController(
         HttpGccRepository repo,
         IGeekCrawlerRagClient rag,
         HttpGeekCrawlerRepository crawlerRepo,
+        GccGenerateJobRunner generateRunner,
+        GccMustMentionBlockBuilder mustMention,
         ILogger<GccProjectsController> logger)
     {
         _repo = repo;
         _rag = rag;
         _crawlerRepo = crawlerRepo;
+        _generateRunner = generateRunner;
+        _mustMention = mustMention;
         _logger = logger;
     }
 
@@ -412,6 +418,135 @@ public class GccProjectsController : ControllerBase
             saved.Project.Topic));
     }
 
+    /// <summary>
+    /// Generate on the project (GA2): the output types are chosen per run, the brief and keyword are the
+    /// project's, and the run records the brief revision it read (J7). 202 with the job; progress on
+    /// the hub exactly as before (JoinGccGenerate, GccGenerateEvent / GccGenerateTypeEvent /
+    /// GccGeneratePreflightEvent).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Drafts are still stored under a create while drafts are keyed by create (P0): the project's
+    /// newest, or one GeekRepository mints in the same transaction as the run row. The browser never
+    /// sends, receives or sees that create's id.
+    /// </para>
+    /// <para>
+    /// The brief and keyword are the project's, read here. Research and the site section are read
+    /// from that create, because in P0 their only writers -- the keyword-source upload and the site
+    /// section pick -- still write there; GA3 moves those writers to the project, and these reads
+    /// with them. One source per field, never a project value with a create value behind it.
+    /// </para>
+    /// <para>
+    /// The brief carries no length band (J6): a lengthBand left in an older brief is dropped from what
+    /// the writer is given, so it cannot override each output type's own length target.
+    /// </para>
+    /// <para>
+    /// Refusals: 404 no project; 400 no keyword, an incomplete brief, a missing site crawl, a bad
+    /// provider or output type; 409 a run already running on the project, named; 409 the brief was
+    /// saved again after this request read it. Every refusal writes nothing.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:guid}/generate")]
+    public async Task<IActionResult> Generate(Guid id, [FromBody] GenerateRequest? request, CancellationToken ct)
+    {
+        var actor = CurrentSubject();
+        if (actor is null) return Unauthorized();
+        if (!Guid.TryParse(actor, out var ownerUserId))
+            return BadRequest("The token's subject is not a user id, so the run cannot be attributed.");
+
+        var project = await _repo.GetProjectAsync(id, ct);
+        if (project is null) return NotFound();
+        if (string.IsNullOrWhiteSpace(project.Topic))
+            return BadRequest("keyword required: save the brief with a keyword before generating.");
+
+        if (!GccController.TryParseProvider(request?.Provider, out var provider, out var providerError))
+            return BadRequest(providerError);
+
+        var requested = GccGenerationCoordinator.NormalizeRequestedTypes(request?.OutputTypes);
+        var typeRefusal = GccGenerationCoordinator.ValidateRequestedTypes(requested);
+        if (typeRefusal is not null) return BadRequest(typeRefusal);
+
+        var backing = await _repo.GetProjectBackingCreateAsync(id, ct);
+        var view = ProjectView(project, backing?.Id ?? Guid.Empty, ownerUserId, requested[0], backing);
+        var section = GccGenerateService.ParseSiteSection(view.SiteSectionJson);
+        try
+        {
+            GccGenerateService.ValidateSiteSectionGate(view.ProjectSiteRunId, section);
+            GccGenerateService.ValidateBriefRequired(view, requireLengthBand: false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
+        // Before the run row exists: the keyword and site run it reads are the project's, and anything
+        // that fails here must fail with nothing started.
+        var mustMentionBlock = await _mustMention.BuildAsync(view, ct);
+
+        var started = await _repo.StartGenerateJobAsync(
+            new StartGccGenerateJobCommand(
+                Guid.NewGuid(), id, backing?.Id, project.Version, ownerUserId, requested, provider.ToString()),
+            ct);
+        if (started.ProjectNotFound) return NotFound();
+        if (started.AlreadyRunning is { } running)
+            return Conflict(
+                $"A Generate is already running on this project (job {running.Id}, started "
+                + $"{running.StartedAtUtc:u} for {string.Join(", ", running.RequestedTypes)}). "
+                + "Nothing was started -- wait for it to finish.");
+        if (started.StaleBrief)
+            return Conflict("The brief was saved again after this page loaded it. Nothing was started -- "
+                + "reload and generate again, so the run uses the brief on screen.");
+        if (started.NoSavedBrief)
+            return BadRequest("brief required: save the brief before generating.");
+        if (started.CreateNotOnProject || started.Job is null)
+            return Conflict("The project's drafts changed while this run was being started. Nothing was "
+                + "started -- generate again.");
+
+        var row = started.Job;
+        var writeUnder = backing is not null && backing.Id == row.CreateId
+            ? view
+            : ProjectView(project, row.CreateId, ownerUserId, requested[0], backing: null);
+        var job = _generateRunner.StartForProject(
+            row, writeUnder, section, provider, requested, mustMentionBlock, actor);
+
+        return Accepted(new { jobId = job.Id, projectId = id, status = job.Status });
+    }
+
+    /// <summary>
+    /// The create the coordinator writes under, as it must see it: the project's brief (without a
+    /// length band) and keyword, the project's site run and grounding key, and the backing create's
+    /// research and site section. The starting content type is the first requested one -- what a
+    /// minted create is stamped with -- and every output type overrides it with its own anyway.
+    /// </summary>
+    internal static GccCreateDto ProjectView(
+        GccProjectDto project, Guid createId, Guid ownerUserId, string firstRequestedType, GccCreateDto? backing) =>
+        new(
+            createId,
+            project.ClientId,
+            backing?.OwnerUserId ?? ownerUserId,
+            firstRequestedType,
+            project.Topic!.Trim(),
+            backing?.Notes,
+            project.ProjectSiteRunId,
+            backing?.SiteSectionJson,
+            WithoutLengthBand(project.BriefJson),
+            backing?.ResearchJson,
+            backing?.Status ?? "draft",
+            backing?.CreatedAtUtc ?? project.CreatedAtUtc,
+            backing?.UpdatedAtUtc ?? project.UpdatedAtUtc,
+            string.IsNullOrWhiteSpace(project.Department) ? "marketing" : project.Department,
+            project.Id);
+
+    /// <summary>The brief as the writer gets it on the project path: no lengthBand (J6).</summary>
+    internal static string? WithoutLengthBand(string? briefJson)
+    {
+        if (string.IsNullOrWhiteSpace(briefJson)) return briefJson;
+        if (System.Text.Json.Nodes.JsonNode.Parse(briefJson) is not System.Text.Json.Nodes.JsonObject brief)
+            return briefJson;
+        if (!brief.Remove("lengthBand")) return briefJson;
+        return brief.ToJsonString();
+    }
+
     private static bool IsJson(string value)
     {
         try
@@ -703,4 +838,11 @@ public class GccProjectsController : ControllerBase
 
     /// <summary>The new version to send with the next save, and the revision this save wrote.</summary>
     public sealed record SaveBriefResponse(int Version, Guid RevisionId, DateTime SavedAtUtc, string? Topic);
+
+    /// <summary>What the browser sends to Generate. AcknowledgeStaleGrounding is accepted for the
+    /// contract's shape; Generate has no staleness gate that can fire (see GccController).</summary>
+    public sealed record GenerateRequest(
+        IReadOnlyList<string>? OutputTypes,
+        string? Provider,
+        bool AcknowledgeStaleGrounding = false);
 }

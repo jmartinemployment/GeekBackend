@@ -15,11 +15,15 @@ public class GccJobStore
     /// </summary>
     private static readonly TimeSpan FinishedJobRetention = TimeSpan.FromHours(6);
 
-    public GccJob Create(string kind, Guid createId, string ownerUserId)
+    /// <param name="id">The job's id when it already has one -- a project run's row id, so the hub, the
+    /// row and this entry are one job. Null mints one.</param>
+    /// <param name="projectId">Set on a project run: the event names the project, never the create.</param>
+    public GccJob Create(string kind, Guid createId, string ownerUserId, Guid? id = null, Guid? projectId = null)
     {
         EvictFinished();
         var job = new GccJob(
-            Guid.NewGuid(), kind, createId, ownerUserId, "running", null, null, DateTime.UtcNow, null);
+            id ?? Guid.NewGuid(), kind, createId, ownerUserId, "running", null, null, DateTime.UtcNow, null,
+            projectId);
         _jobs[job.Id] = job;
         return job;
     }
@@ -65,4 +69,7 @@ public sealed record GccJob(
     string? ResultJson,
     string? Error,
     DateTime CreatedAtUtc,
-    DateTime? CompletedAtUtc);
+    DateTime? CompletedAtUtc,
+    /// <summary>The project, on a project run. The create it writes under is then internal: the
+    /// browser addresses the project and never sees the create's id.</summary>
+    Guid? ProjectId = null);

@@ -152,7 +152,9 @@ public class GccGenerateService
     /// <summary>
     /// Generate reads persisted BriefJson from the create only — not client request bodies.
     /// </summary>
-    public static void ValidateBriefRequired(GccCreateDto create)
+    /// <param name="requireLengthBand">True on the create-keyed path. False on the project path, where
+    /// the brief carries no length band: length is each output type's own (J6).</param>
+    public static void ValidateBriefRequired(GccCreateDto create, bool requireLengthBand = true)
     {
         if (string.IsNullOrWhiteSpace(create.BriefJson))
             throw new InvalidOperationException("brief required");
@@ -192,7 +194,7 @@ public class GccGenerateService
             if (string.IsNullOrWhiteSpace(S(root, "toneOfVoice"))) missing.Add("toneOfVoice");
             if (!HasArrayItem(root, "eeatSignals")) missing.Add("eeatSignals");
         }
-        if (string.IsNullOrWhiteSpace(S(root, "lengthBand"))) missing.Add("lengthBand");
+        if (requireLengthBand && string.IsNullOrWhiteSpace(S(root, "lengthBand"))) missing.Add("lengthBand");
         if (missing.Count > 0)
             throw new InvalidOperationException($"brief required: missing {string.Join(", ", missing)}");
     }

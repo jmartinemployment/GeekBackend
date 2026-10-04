@@ -46,7 +46,29 @@ public sealed class GccGenerateJobRunner
     {
         var job = _jobs.Create("generate", create.Id, ownerUserId);
         _ = PushJobAsync(job.Id);
-        _ = Task.Run(() => RunAsync(job.Id, create, section, provider, outputTypes, mustMentionBlock));
+        _ = Task.Run(() => RunAsync(job.Id, create, section, provider, outputTypes, mustMentionBlock, row: null));
+        return job;
+    }
+
+    /// <summary>
+    /// Start a project run whose row GeekRepository has already written as running. The hub, the row
+    /// and the in-process entry share the row's id, every version written is stamped with the brief
+    /// revision the row recorded (J7), and the row is finished ready or failed with the job.
+    /// </summary>
+    /// <param name="view">The create the coordinator writes under, carrying the project's brief and
+    /// keyword -- see <c>GccProjectsController.Generate</c>.</param>
+    public GccJob StartForProject(
+        GccGenerateJobDto row,
+        GccCreateDto view,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        IReadOnlyList<string> outputTypes,
+        string? mustMentionBlock,
+        string ownerUserId)
+    {
+        var job = _jobs.Create("generate", row.CreateId, ownerUserId, row.Id, row.ProjectId);
+        _ = PushJobAsync(job.Id);
+        _ = Task.Run(() => RunAsync(job.Id, view, section, provider, outputTypes, mustMentionBlock, row));
         return job;
     }
 
@@ -56,14 +78,19 @@ public sealed class GccGenerateJobRunner
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         IReadOnlyList<string>? outputTypes,
-        string? mustMentionBlock)
+        string? mustMentionBlock,
+        GccGenerateJobDto? row)
     {
+        // A new scope, because the request's scoped services (repository, generate service,
+        // coordinator) are disposed the moment the 202 is written. Opened inside the try, so a scope
+        // that cannot be built fails the job rather than leaving it running.
+        IServiceScope? scope = null;
+        HttpGccRepository? repo = null;
+        var briefRevision = row is null ? null : new GccBriefRevisionStamp(row.BriefRevisionId, row.BriefRevisionSavedAtUtc);
         try
         {
-            // A new scope, because the request's scoped services (repository, generate service,
-            // coordinator) are disposed the moment the 202 is written.
-            using var scope = _scopeFactory.CreateScope();
-            var repo = scope.ServiceProvider.GetRequiredService<HttpGccRepository>();
+            scope = _scopeFactory.CreateScope();
+            repo = scope.ServiceProvider.GetRequiredService<HttpGccRepository>();
             var gen = scope.ServiceProvider.GetRequiredService<GccGenerateService>();
             var coordinator = scope.ServiceProvider.GetRequiredService<GccGenerationCoordinator>();
 
@@ -79,9 +106,12 @@ public sealed class GccGenerateJobRunner
                 onReadiness: (contentType, partners) =>
                     _notifier.PushPreflightAsync(jobId, contentType, partners),
                 onTypeWarning: (contentType, warning) =>
-                    _notifier.PushWarningAsync(jobId, contentType, warning));
+                    _notifier.PushWarningAsync(jobId, contentType, warning),
+                briefRevision: briefRevision);
 
             _jobs.Complete(jobId, result);
+            if (row is not null)
+                await RecordAsync(jobId, () => repo.CompleteGenerateJobAsync(jobId, _jobs.Get(jobId)!.ResultJson ?? "null"));
             await PushJobAsync(jobId);
         }
         catch (Exception ex)
@@ -89,8 +119,33 @@ public sealed class GccGenerateJobRunner
             // Recorded, pushed and visible. A background failure that only ever reached a log is
             // how a total extraction outage read as a partner-data shortage for two hours.
             _logger.LogError(ex, "Generate job {JobId} failed for create {CreateId}", jobId, create.Id);
-            _jobs.Fail(jobId, $"{ex.GetType().Name}: {ex.Message}");
+            var error = $"{ex.GetType().Name}: {ex.Message}";
+            _jobs.Fail(jobId, error);
+            if (row is not null && repo is not null)
+                await RecordAsync(jobId, () => repo.FailGenerateJobAsync(jobId, error));
             await PushJobAsync(jobId);
+        }
+        finally
+        {
+            scope?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Finish the project run's row. A row that cannot be written stays running until the next
+    /// startup fails it, and blocks a second Generate on the project by name meanwhile -- logged as an
+    /// error, visible, never a silent success.
+    /// </summary>
+    private async Task RecordAsync(Guid jobId, Func<Task<GccGenerateJobDto?>> write)
+    {
+        try
+        {
+            if (await write() is null)
+                _logger.LogError("Generate job {JobId} had no running row to finish", jobId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not record how generate job {JobId} ended; its row stays running", jobId);
         }
     }
 

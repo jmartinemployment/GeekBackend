@@ -203,7 +203,10 @@ public sealed class GccGenerationCoordinator
         // A piece that was written with a gap the operator should see: a partner it never named, a
         // closing without the scheduler link. The piece is saved either way; this says what it ships
         // with, by type, the moment it is saved. Neither an outcome (the piece exists) nor a refusal.
-        Func<string, string, Task>? onTypeWarning = null)
+        Func<string, string, Task>? onTypeWarning = null,
+        // The project brief revision this run read, stamped on every version it writes (J7). Null on
+        // the create-keyed path.
+        GccBriefRevisionStamp? briefRevision = null)
     {
         var requested = NormalizeRequestedTypes(outputTypes);
         var refusal = ValidateRequestedTypes(requested);
@@ -297,7 +300,7 @@ public sealed class GccGenerationCoordinator
             {
                 foreach (var piece in attempt.Outcome!.Pieces)
                 {
-                    created.Add(await PersistOneAsync(repo, create, piece, provider, onTypeOutcome, ct));
+                    created.Add(await PersistOneAsync(repo, create, piece, provider, briefRevision, onTypeOutcome, ct));
                     foreach (var warning in WarningsOf(piece.BodyJson))
                     {
                         warnings.Add($"{attempt.Type}: {warning}");
@@ -332,7 +335,7 @@ public sealed class GccGenerationCoordinator
         var singleCreated = new List<object>(single.Pieces.Count);
         foreach (var piece in single.Pieces)
         {
-            singleCreated.Add(await PersistOneAsync(repo, create, piece, provider, onTypeOutcome, ct));
+            singleCreated.Add(await PersistOneAsync(repo, create, piece, provider, briefRevision, onTypeOutcome, ct));
             foreach (var warning in WarningsOf(piece.BodyJson))
             {
                 singleWarnings.Add($"{requested[0]}: {warning}");
@@ -449,8 +452,11 @@ public sealed class GccGenerationCoordinator
         {
             case "pillar":
                 // Image prompts, metadata and JSON-LD all attach inside, as they do for Blog and
-                // Tool -- the method returns a finished envelope, not a bare document.
-                bodyJson = await gen.GeneratePillarBodyAsync(create, section, provider, mustMentionBlock, ct);
+                // Tool -- the method returns a finished envelope, not a bare document. The same
+                // StartingContentType override as every other branch: without it a create first
+                // started as "tool" told the pillar writer "Starting content type: tool".
+                bodyJson = await gen.GeneratePillarBodyAsync(
+                    create with { StartingContentType = "pillar" }, section, provider, mustMentionBlock, ct);
                 break;
 
             case "blog":
@@ -558,6 +564,7 @@ public sealed class GccGenerationCoordinator
         GccCreateDto create,
         GeneratedPiece piece,
         ContentGeneratorProvider provider,
+        GccBriefRevisionStamp? briefRevision,
         Func<string, object?, string?, Task>? onTypeOutcome,
         CancellationToken ct)
     {
@@ -565,7 +572,7 @@ public sealed class GccGenerationCoordinator
             new CreateGccArtifactCommand(create.Id, piece.ContentType, piece.ArtifactName), ct);
         var version = await repo.CreateVersionAsync(
             new CreateGccArtifactVersionCommand(
-                artifact.Id, piece.BodyJson, GccVersionProvenance.For(provider)),
+                artifact.Id, piece.BodyJson, GccVersionProvenance.For(provider, briefRevision)),
             ct);
         var produced = new { artifact, version };
         if (onTypeOutcome is not null) await onTypeOutcome(piece.ContentType, produced, null);

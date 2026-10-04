@@ -49,7 +49,7 @@ public class GccController : ControllerBase
     private readonly HttpGeekCrawlerRepository _crawlerRepo;
     private readonly IGeekCrawlerRagClient _rag;
     private readonly GccAngleQuoteProbe _angleQuote;
-    private readonly GccProjectSiteStructureReader _siteStructure;
+    private readonly GccMustMentionBlockBuilder _mustMention;
     private readonly ILogger<GccController> _logger;
 
     public GccController(
@@ -67,7 +67,7 @@ public class GccController : ControllerBase
         HttpGeekCrawlerRepository crawlerRepo,
         IGeekCrawlerRagClient rag,
         GccAngleQuoteProbe angleQuote,
-        GccProjectSiteStructureReader siteStructure,
+        GccMustMentionBlockBuilder mustMention,
         ILogger<GccController> logger)
     {
         _repo = repo;
@@ -84,7 +84,7 @@ public class GccController : ControllerBase
         _crawlerRepo = crawlerRepo;
         _rag = rag;
         _angleQuote = angleQuote;
-        _siteStructure = siteStructure;
+        _mustMention = mustMention;
         _logger = logger;
     }
 
@@ -502,7 +502,7 @@ public class GccController : ControllerBase
         if (staleGate is not null)
             return Conflict(staleGate);
 
-        var mustMentionBlock = await TryBuildMustMentionBlockAsync(create, ct);
+        var mustMentionBlock = await _mustMention.BuildAsync(create, ct);
 
         // The refusals that cost nothing to decide stay here, so a mistyped request is still a
         // fast 400 rather than a job the operator has to watch fail. Same method the coordinator
@@ -569,61 +569,6 @@ public class GccController : ControllerBase
         zipStream.Position = 0;
         return File(zipStream.ToArray(), "application/zip", $"{id}-content-export.zip");
     }
-    /// <summary>
-    /// Looks up this create's real "must mention" sub-topics from its analyzed site's persisted
-    /// page-section trees (see GccGenerateService.BuildMustMentionSubtopicsBlock). Returns null
-    /// (no injection, no failure) when there's no attached analysis, no bearer token, or no
-    /// deterministic slug match — a missing/uncertain match must never block Generate or inject
-    /// a guessed subtree.
-    /// </summary>
-    /// <summary>
-    /// The operator's own site structure around this create's topic -- the headings their site
-    /// already carries under it, so the piece covers what the site says it covers and can point at
-    /// pages that exist.
-    /// </summary>
-    /// <remarks>
-    /// This read the retired Site Analyzer until 2026-09-23, and passed it the wrong kind of id:
-    /// create.ProjectSiteRunId is a Geek-Crawler-v2 run id and GetPageSectionTreesAsync wants a
-    /// Site Analyzer profile id -- the local was even named profileId. Site Analyzer's routes were
-    /// deleted (582a171, 5072820), so the call could only fail, and it failed to null. Generation
-    /// then proceeded with no site structure at all, on every create, silently.
-    ///
-    /// The bearer check above it was a second silent null, and a worse one now that generate runs
-    /// as a background job where no bearer is captured.
-    ///
-    /// This is the same read the live project-site/runs/{runId}/hierarchy-match route does -- the
-    /// one the operator confirmed working before the panel was hidden. Blocks, never Html.
-    /// </remarks>
-    private async Task<string?> TryBuildMustMentionBlockAsync(GccCreateDto create, CancellationToken ct)
-    {
-        if (create.ProjectSiteRunId is not Guid runId || runId == Guid.Empty)
-            return null;
-        if (string.IsNullOrWhiteSpace(create.Topic))
-            return null;
-
-        var structure = await _siteStructure.ReadAsync(runId, ct).ConfigureAwait(false);
-        if (structure is null)
-        {
-            _logger.LogInformation(
-                "Site structure: run {RunId} returned no pages, so this create generates without it.", runId);
-            return null;
-        }
-
-        var matches = GccSiteStructureMatch.MatchAll(structure, [create.Topic.Trim()]);
-        var matched = matches.FirstOrDefault(m => m.ChildHeadings.Length > 0) ?? matches.FirstOrDefault();
-        if (matched is null)
-        {
-            _logger.LogInformation(
-                "Site structure: nothing on the site matches \"{Topic}\", so this create generates without it.",
-                create.Topic);
-            return null;
-        }
-
-        // Formatted by GccMustMention so the guard can read back the subtopics it names -- they
-        // are compulsory, and a heading covering one needs a source to be licensed against.
-        return GccMustMention.Format(matched.MatchedHeading, matched.SourcePageUrl, matched.ChildHeadings);
-    }
-
     /// <summary>
     /// Returns null, always: Generate has no staleness gate, and has never had one that could fire.
     /// </summary>
