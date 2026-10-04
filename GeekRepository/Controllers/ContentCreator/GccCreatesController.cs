@@ -96,15 +96,12 @@ public class GccCreatesController : ControllerBase
         if (request.BriefJson is null && request.ResearchJson is null && request.Topic is null)
             return BadRequest("briefJson, researchJson and/or topic required");
 
-        try
-        {
-            var create = await _repository.UpdateBriefResearchAsync(id, request, ct);
-            return Ok(create);
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
-        }
+        var result = await _repository.UpdateBriefResearchAsync(id, request, ct);
+        if (result.NotFound) return NotFound();
+        if (result.Stale)
+            return Conflict(
+                "The create changed after it was read. Nothing was written -- reload it and save again.");
+        return Ok(result.Create);
     }
 
     public record UpdateStatusRequest(string Status);

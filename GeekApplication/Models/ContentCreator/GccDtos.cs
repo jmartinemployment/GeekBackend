@@ -17,7 +17,11 @@ public sealed record GccCreateDto(
     string Department = "marketing",
     /// <summary>The project this create belongs to — the owner of the partner and competitor URLs
     /// grounding is resolved from. Null means partner/competitor evidence cannot be resolved.</summary>
-    Guid? ProjectId = null);
+    Guid? ProjectId = null,
+    /// <summary>The row version this copy was read at. Sent back as
+    /// <see cref="UpdateGccCreateBriefResearchCommand.ExpectedVersion"/>, so a write made from a stale
+    /// read is refused instead of overwriting what changed since.</summary>
+    uint Version = 0);
 
 public sealed record CreateGccCreateCommand(
     Guid ClientId,
@@ -49,7 +53,23 @@ public sealed record CreateGccCreateCommand(
 public sealed record UpdateGccCreateBriefResearchCommand(
     string? BriefJson,
     string? ResearchJson,
-    string? Topic = null);
+    string? Topic = null,
+    /// <summary>
+    /// The <see cref="GccCreateDto.Version"/> the caller read before deciding what to write. When
+    /// set, the write is refused if the row has changed since. Null checks only the repository's own
+    /// read-to-write window -- which is all a caller that never read the row can ask for.
+    /// </summary>
+    uint? ExpectedVersion = null);
+
+/// <summary>A brief/research write: the create as written, or why it was refused.</summary>
+/// <param name="Stale">True when the row changed after <c>ExpectedVersion</c> was read. Nothing was
+/// written; the caller re-reads and decides again.</param>
+public sealed record GccCreateUpdateResult(GccCreateDto? Create, bool NotFound, bool Stale)
+{
+    public static GccCreateUpdateResult Updated(GccCreateDto create) => new(create, false, false);
+    public static GccCreateUpdateResult Missing() => new(null, true, false);
+    public static GccCreateUpdateResult Conflict() => new(null, false, true);
+}
 
 /// <summary>
 /// A partner extraction that was paid for once and kept.

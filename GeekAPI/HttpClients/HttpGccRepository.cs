@@ -36,11 +36,32 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     public Task<GccCreateDto> CreateCreateAsync(CreateGccCreateCommand command, CancellationToken ct = default) =>
         PostAsync<GccCreateDto>("repo/content-creator/creates", command, ct);
 
-    public Task<GccCreateDto> UpdateBriefResearchAsync(
+    /// <summary>
+    /// Write a create's brief, research or topic. A 404 and a 409 are answers, not faults, so they
+    /// are read from the response rather than thrown by <c>EnsureSuccessStatusCode</c> -- the same
+    /// reason <see cref="LogTimeAsync"/> reads its conflict.
+    /// </summary>
+    public async Task<GccCreateUpdateResult> UpdateBriefResearchAsync(
         Guid id,
         UpdateGccCreateBriefResearchCommand command,
-        CancellationToken ct = default) =>
-        PatchAsync<GccCreateDto>($"repo/content-creator/creates/{id}/brief-research", command, ct);
+        CancellationToken ct = default)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(command, JsonOpts), Encoding.UTF8, "application/json");
+        var req = new HttpRequestMessage(HttpMethod.Patch, $"repo/content-creator/creates/{id}/brief-research")
+        {
+            Content = content,
+        };
+        var res = await _http.SendAsync(req, ct);
+
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return GccCreateUpdateResult.Missing();
+        if (res.StatusCode == System.Net.HttpStatusCode.Conflict) return GccCreateUpdateResult.Conflict();
+
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        var create = JsonSerializer.Deserialize<GccCreateDto>(json, JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response updating create {id}");
+        return GccCreateUpdateResult.Updated(create);
+    }
 
     /// <summary>
     /// Delete a create and everything beneath it. False when the repository had no such create,

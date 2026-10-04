@@ -144,20 +144,28 @@ public class GccController : ControllerBase
         CancellationToken ct)
     {
         if (request is null) return BadRequest("Body required");
-        if (request.BriefJson is null && request.ResearchJson is null && request.Topic is null)
-            return BadRequest("briefJson, researchJson and/or topic required");
+        if (request.BriefJson is null && request.Topic is null)
+            return BadRequest("briefJson and/or topic required");
 
         var existing = await _repo.GetCreateAsync(id, ct);
         if (existing is null) return NotFound();
 
         try
         {
-            var updated = await _repo.UpdateBriefResearchAsync(
+            // The brief and the topic only. research_json is written by the server's own research
+            // paths (the keyword-source upload and delete below), never from a request body: this
+            // route used to take a caller's researchJson and store it whole, so anything the brief
+            // panel held could replace the research generation grounds on.
+            var result = await _repo.UpdateBriefResearchAsync(
                 id,
                 new UpdateGccCreateBriefResearchCommand(
-                    request.BriefJson, request.ResearchJson, request.Topic),
+                    request.BriefJson, ResearchJson: null, request.Topic, request.ExpectedVersion),
                 ct);
-            return Ok(updated);
+            if (result.NotFound) return NotFound();
+            if (result.Stale)
+                return Conflict(
+                    "This create was changed after you loaded it. Nothing was saved -- reload and save again.");
+            return Ok(result.Create);
         }
         catch (HttpRequestException ex)
         {
@@ -220,8 +228,18 @@ public class GccController : ControllerBase
                 existing with { SerpPages = serpPages, Sources = sourcesList });
             try
             {
-                await _repo.UpdateBriefResearchAsync(
-                    id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: serpJson), ct);
+                // Against the version read above: this is a read-modify-write of the whole research
+                // document, so a second upload landing in between would otherwise be overwritten.
+                var written = await _repo.UpdateBriefResearchAsync(
+                    id,
+                    new UpdateGccCreateBriefResearchCommand(
+                        BriefJson: null, ResearchJson: serpJson, ExpectedVersion: create.Version),
+                    ct);
+                if (written.NotFound) return NotFound();
+                if (written.Stale)
+                    return Conflict(
+                        "The create's research changed while this file was being read. Nothing was "
+                        + "saved -- upload it again.");
                 return Ok(new GccKeywordSourceDetail(
                     srcMeta.Id, srcMeta.FileName, srcMeta.Category, 0, 0, 0, serpPage));
             }
@@ -268,8 +286,15 @@ public class GccController : ControllerBase
         var sources = (doc.Sources ?? []).Where(s => s.Id != sourceId).ToList();
         var json = GccResearchFetchService.Serialize(
             doc with { SerpPages = serpPages, Sources = sources });
-        await _repo.UpdateBriefResearchAsync(
-            id, new UpdateGccCreateBriefResearchCommand(BriefJson: null, ResearchJson: json), ct);
+        var written = await _repo.UpdateBriefResearchAsync(
+            id,
+            new UpdateGccCreateBriefResearchCommand(
+                BriefJson: null, ResearchJson: json, ExpectedVersion: create.Version),
+            ct);
+        if (written.NotFound) return NotFound();
+        if (written.Stale)
+            return Conflict(
+                "The create's research changed after it was read. Nothing was removed -- reload and retry.");
         return NoContent();
     }
 
@@ -1272,9 +1297,11 @@ public class GccController : ControllerBase
     public sealed record AnalyzeSiteRequest(string Domain, string? SeedTopic = null, bool Force = false);
     public sealed record UpdateBriefResearchRequest(
         string? BriefJson,
-        string? ResearchJson,
         /// <summary>The corrected topic, or null to leave it. See the command's own remarks.</summary>
-        string? Topic = null);
+        string? Topic = null,
+        /// <summary>The create's <c>version</c> as the caller loaded it. When sent, a save made from a
+        /// stale copy is refused with 409 rather than overwriting the newer brief.</summary>
+        uint? ExpectedVersion = null);
     public sealed record ParseSavedSerpRequest(string Content, string? TargetKeyword = null);
     public sealed record ProjectSiteReadinessRequest(string? ProjectUrl);
 

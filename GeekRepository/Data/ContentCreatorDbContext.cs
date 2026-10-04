@@ -53,6 +53,9 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(c => c.Status).IsRequired().HasMaxLength(32);
             entity.Property(c => c.CreatedAtUtc).IsRequired();
             entity.Property(c => c.UpdatedAtUtc).IsRequired();
+            // xmin, not a column: Npgsql maps a uint row version to the system column, so a stale
+            // write fails its WHERE and is refused rather than overwriting a newer brief or research.
+            entity.Property(c => c.Version).IsRowVersion();
             entity.HasIndex(c => c.ClientId).HasDatabaseName("ix_gcc_creates_client_id");
             entity.HasIndex(c => c.OwnerUserId).HasDatabaseName("ix_gcc_creates_owner_user_id");
         });

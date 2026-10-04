@@ -43,6 +43,16 @@ public class GccCreate
     public string Status { get; set; } = "draft"; // draft, generating, drafted, revising, approved, repurposed, archived
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+    /// <summary>
+    /// The row's version: Postgres's own <c>xmin</c>, which every write to the row changes.
+    /// </summary>
+    /// <remarks>
+    /// brief_json and research_json were replaced whole with no token, so the brief save and a
+    /// research write that loaded the row at the same moment each wrote back the other's stale copy
+    /// and the last one won. A system column rather than one this code increments: a counter is only
+    /// as good as every writer remembering to bump it, and xmin cannot be forgotten.
+    /// </remarks>
+    public uint Version { get; set; }
 }
 
 public class GccArtifact

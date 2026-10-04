@@ -123,13 +123,28 @@ public class GccCreateRepository : IGccCreateRepository
         return MapToDto(entity);
     }
 
-    public async Task<GccCreateDto> UpdateBriefResearchAsync(
+    /// <summary>
+    /// Write the brief, the research or the topic, refused rather than overwriting a newer row.
+    /// </summary>
+    /// <remarks>
+    /// Tracked, not <c>Update(entity)</c>: Update marks every column modified, so a brief-only write
+    /// rewrote research_json from whatever this request had loaded. Only the fields the command
+    /// carries are written now, and the row version (xmin) is checked in the UPDATE's WHERE -- against
+    /// the caller's <c>ExpectedVersion</c> when it sent one, otherwise against this request's own read.
+    /// </remarks>
+    public async Task<GccCreateUpdateResult> UpdateBriefResearchAsync(
         Guid id,
         UpdateGccCreateBriefResearchCommand command,
         CancellationToken ct = default)
     {
-        var entity = await _db.GccCreates.FirstOrDefaultAsync(c => c.Id == id, ct)
-            ?? throw new KeyNotFoundException($"GccCreate {id} not found");
+        var entity = await _db.GccCreates.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (entity is null) return GccCreateUpdateResult.Missing();
+
+        if (command.ExpectedVersion is uint expected)
+        {
+            if (expected != entity.Version) return GccCreateUpdateResult.Conflict();
+            _db.Entry(entity).Property(c => c.Version).OriginalValue = expected;
+        }
 
         if (command.BriefJson is not null)
             entity.BriefJson = string.IsNullOrWhiteSpace(command.BriefJson) ? null : command.BriefJson;
@@ -142,9 +157,17 @@ public class GccCreateRepository : IGccCreateRepository
             entity.Topic = command.Topic.Trim();
         entity.UpdatedAtUtc = DateTime.UtcNow;
 
-        _db.GccCreates.Update(entity);
-        await _db.SaveChangesAsync(ct);
-        return MapToDto(entity);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another write landed between this read and this save. Nothing was written.
+            return GccCreateUpdateResult.Conflict();
+        }
+
+        return GccCreateUpdateResult.Updated(MapToDto(entity));
     }
 
     private static GccCreateDto MapToDto(GccCreate entity) =>
@@ -163,5 +186,6 @@ public class GccCreateRepository : IGccCreateRepository
             entity.CreatedAtUtc,
             entity.UpdatedAtUtc,
             string.IsNullOrWhiteSpace(entity.Department) ? "marketing" : entity.Department,
-            entity.ProjectId);
+            entity.ProjectId,
+            entity.Version);
 }
