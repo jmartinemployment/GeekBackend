@@ -1386,23 +1386,13 @@ public class GccGenerateService
         // equal in word count to Pillar if not longer). It is read from ToolPrompts rather than
         // written out again here: this literal was the third copy of that list, sitting under a
         // comment saying it had to be kept in sync with a fourth copy inside BuildToolBodyPrompt.
-        // EvidenceBlock is set here, and that is new as of 2026-09-29. It was never assigned --
-        // App, ToolSlug and ExtractedResearchJson only -- and nothing assigned it afterwards, so
-        // `WriteToolBodyAsync(toolOutlineCtx.EvidenceBlock)` below passed null on every tool page
-        // ever generated. BuildToolBodyPrompt appends this block unconditionally (no provenance
-        // gate, because Tool runs GccToolQuoteGuard rather than the heading guard), so the
-        // QUOTEABLE RESEARCH block simply never reached the one content type where a citeable
-        // blockquote is required.
+        // EvidenceBlock carries the QUOTEABLE RESEARCH block: the passages GccGroundingResolver
+        // merged into ResearchJson. The lede reads it from this context, and WriteToolBodyAsync below
+        // keeps it and appends the competitor and own-site blocks after it, so the body sees all
+        // three. ExtractedResearchJson is the other half -- the partner extraction, which reaches
+        // the body as PARTNER DATA.
         //
-        // Tool was not ungrounded -- ExtractedResearchJson carries the partner extraction, and
-        // HasSufficientPartnerData refuses the page without it. What was missing is the retrieved
-        // half: the passages GccGroundingResolver merged into ResearchJson, which pillar and blog
-        // have had all along. The research half only, for the reason BuildPillarLedePrompt gives;
-        // Tool resolves no competitor analyses at all, so there is no competitor block here to
-        // exclude.
-        //
-        // Empty research renders an empty string and the append is skipped, so a create with no
-        // retrieved passages builds the same prompt it built yesterday.
+        // Empty research renders an empty string and the append is skipped.
         // The operator's framing of this niche, narrowed to this product: its own override when one was
         // written, otherwise the category's. Resolved here because this is the only point that has both
         // the create's brief and the product's name -- which is what keys the override to a host.
@@ -1472,7 +1462,12 @@ public class GccGenerateService
         // (GccGroundingOutcome.PartnerPassages had no consumer in the solution).
         var quoteCandidates = GccQuoteCandidates.From(passages ?? []);
 
-        Task<List<Section>> WriteToolBodyAsync(string? evidenceBlock) =>
+        // The body's evidence is the research block AND what the caller adds to it, never one in
+        // place of the other. This took a single `evidenceBlock` that replaced the context's, and
+        // both callers passed the competitor/own-site text -- so the QUOTEABLE RESEARCH block set
+        // on toolOutlineCtx reached the lede and was overwritten before every body call. The tool
+        // body, the one type that must quote a partner, was written without the retrieved passages.
+        Task<List<Section>> WriteToolBodyAsync(string? additionalBlock) =>
             GenerateSectionsInBatchesAsync(
                 llm,
                 toolType,
@@ -1480,7 +1475,10 @@ public class GccGenerateService
                 {
                     Metadata = pillarMeta,
                     Lede = toolLede,
-                    EvidenceBlock = evidenceBlock,
+                    EvidenceBlock = string.Join(
+                        Environment.NewLine,
+                        new[] { toolOutlineCtx.EvidenceBlock, additionalBlock }
+                            .Where(b => !string.IsNullOrWhiteSpace(b))),
                     QuoteCandidates = quoteCandidates,
                 },
                 toolType.OutlineFor(toolOutlineCtx),

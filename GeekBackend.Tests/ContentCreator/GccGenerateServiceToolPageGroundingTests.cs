@@ -386,6 +386,17 @@ public class GccGenerateServiceToolPageGroundingTests
         Assert.Contains("1. \"", prompt, StringComparison.Ordinal);
         Assert.Contains("the vendor master maps itself", prompt, StringComparison.Ordinal);
         Assert.Contains("[cite: https://partner.test/widget]", prompt, StringComparison.Ordinal);
+
+        // The spans and the passages they were cut from reach the same body call. The body used to
+        // be handed the competitor/own-site text in place of the research block, so the writer saw
+        // numbered spans with none of the retrieved prose around them.
+        var bodyRequests = provider.Requests.Where(r => r.JsonSchemaName == "sections").ToList();
+        Assert.NotEmpty(bodyRequests);
+        Assert.All(bodyRequests, r =>
+            Assert.Contains(
+                "=== QUOTEABLE RESEARCH",
+                string.Join("\n", r.Messages.Select(m => m.Content)),
+                StringComparison.Ordinal));
     }
 
     private static GeekAPI.Services.ContentCreatorV2.Partner.PartnerPageExtraction GroundableExtraction() =>
