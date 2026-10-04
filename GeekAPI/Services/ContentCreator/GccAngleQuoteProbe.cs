@@ -20,10 +20,15 @@ namespace GeekAPI.Services.ContentCreator;
 /// by which point the answer cost a paid draft and the operator could do nothing about it.
 /// </para>
 /// <para>
-/// <b>The probe that validates is the probe that writes.</b> Same retrieval, same candidates, same
-/// selection as the tool page will use, so a partner that validates cannot then fail generation for
-/// want of a quote. Two implementations of "find the quote" would be two answers to one question,
-/// which is how the halves of this pipeline have drifted before.
+/// <b>Advisory: this is not the generate path, and a pass here does not guarantee one there.</b>
+/// It shares the candidate cutter (<see cref="GccQuoteCandidates"/> over typed blocks) and nothing
+/// else. The probe queries one host at <see cref="TopK"/> 8 and has a model select a candidate
+/// against the angle; Generate queries the partner run unfiltered at <c>PartnerTopK</c> 32 through
+/// <c>GccGroundingResolver.BuildNeed</c>, the writer picks the quotation, and
+/// <c>GccToolQuoteGuard</c> checks that it is a candidate, not that it fits the angle. So a partner
+/// can pass here and be refused at generation, or the reverse. This said "the probe that validates is
+/// the probe that writes"; it was not, and the claim stood while the two drifted apart. A14 settled
+/// it this way rather than by making the probe the generate path (review, 2026-10-04).
 /// </para>
 /// <para>
 /// <b>What counts as an answer is the angle's business, not this class's.</b> Rule 2 of the prompt

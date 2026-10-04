@@ -995,9 +995,10 @@ public class GccController : ControllerBase
     /// on the brief, so this is the first point at which the real question exists to be asked.
     /// </para>
     /// <para>
-    /// Same shape as <c>project-site/readiness</c> above, and for the same stated reason: it runs
-    /// the retrieval and the selection that generation will run, so presence is not mistaken for
-    /// fitness and a partner that passes here cannot fail generation for want of a quote.
+    /// Same shape as <c>project-site/readiness</c> above. Advisory: it asks a narrower question than
+    /// generation does -- one host, eight pages, a model choosing against the angle -- so a partner
+    /// that passes here can still be refused at generation, and the reverse. See
+    /// <see cref="GccAngleQuoteProbe"/>'s remarks for exactly where the two differ.
     /// </para>
     /// </remarks>
     [HttpPost("brief/partner-quote-readiness")]
