@@ -342,7 +342,9 @@ public class GccProjectsController : ControllerBase
                 request.BudgetCurrency),
             ct);
 
-        return Ok(project);
+        if (project.NotFound) return NotFound();
+        if (project.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return Ok(project.Project);
     }
 
     [HttpPut("{id:guid}/status")]
@@ -367,7 +369,9 @@ public class GccProjectsController : ControllerBase
             new ChangeGccProjectStatusCommand(id, actor, request.Status, request.FinishedDate),
             ct);
 
-        return Ok(project);
+        if (project.NotFound) return NotFound();
+        if (project.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return Ok(project.Project);
     }
 
     /// <summary>
@@ -383,7 +387,9 @@ public class GccProjectsController : ControllerBase
         if (actor is null) return Unauthorized();
 
         var deleted = await _repo.DeleteProjectAsync(id, actor, ct);
-        return deleted ? NoContent() : NotFound();
+        if (deleted.NotFound) return NotFound();
+        if (deleted.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return NoContent();
     }
 
     /// <summary>

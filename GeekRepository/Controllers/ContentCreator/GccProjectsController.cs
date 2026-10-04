@@ -110,9 +110,10 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(command.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
-        var project = await _repository.UpdateAsync(command, ct);
-        if (project is null) return NotFound();
-        return Ok(project);
+        var written = await _repository.UpdateAsync(command, ct);
+        if (written.NotFound) return NotFound();
+        if (written.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return Ok(written.Project);
     }
 
     [HttpPut("{id:guid}/status")]
@@ -136,9 +137,10 @@ public class GccProjectsController : ControllerBase
         if (!finishing && command.FinishedDate is not null)
             return BadRequest("finishedDate is only set when status is finished.");
 
-        var project = await _repository.ChangeStatusAsync(command, ct);
-        if (project is null) return NotFound();
-        return Ok(project);
+        var written = await _repository.ChangeStatusAsync(command, ct);
+        if (written.NotFound) return NotFound();
+        if (written.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return Ok(written.Project);
     }
 
     /// <summary>
@@ -155,7 +157,9 @@ public class GccProjectsController : ControllerBase
             return BadRequest("actorUserId is required — every change is attributed.");
 
         var deleted = await _repository.DeleteAsync(id, actorUserId, ct);
-        return deleted ? NoContent() : NotFound();
+        if (deleted.NotFound) return NotFound();
+        if (deleted.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return NoContent();
     }
 
     /// <summary>

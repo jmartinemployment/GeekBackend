@@ -62,6 +62,29 @@ public class GccProject
     /// RESTRICT) — so this column, not a real DELETE, is what "delete a project" means here.
     /// </summary>
     public DateTime? DeletedAtUtc { get; set; }
+
+    /// <summary>
+    /// The project's brief: the operator's Content Brief JSON (intent, audience, angle, CTA, tone,
+    /// niche framing). A project is one keyword and one brief (decision J1), so it lives here, not on
+    /// a create. Written only by the brief route; the Profile form never touches it.
+    /// </summary>
+    public string? BriefJson { get; set; }
+
+    /// <summary>The project's keyword, in the "descriptor: keyword" form GccTopic reads.</summary>
+    public string? Topic { get; set; }
+
+    /// <summary>Research the server parsed for this project: SERP index, sources, retrieved passages.</summary>
+    public string? ResearchJson { get; set; }
+
+    /// <summary>The site section this project's content is written for.</summary>
+    public string? SiteSectionJson { get; set; }
+
+    /// <summary>
+    /// The row's version: Postgres's own <c>xmin</c>, which every write to the row changes. A write made
+    /// from a stale read is refused rather than overwriting what changed since: the Profile and the
+    /// brief are saved separately, to one row, from forms that can be open at the same time.
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 /// <summary>

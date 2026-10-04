@@ -153,7 +153,8 @@ public sealed class GccProjectRepositoryLogicTests
         var projects = new GccProjectRepository(db);
 
         var deleted = await projects.DeleteAsync(project.Id, Actor.ToString("D"), default);
-        Assert.True(deleted);
+        Assert.False(deleted.NotFound);
+        Assert.False(deleted.Stale);
 
         // Gone from every read this repository offers...
         Assert.Null(await projects.GetByIdAsync(project.Id, default));
@@ -167,10 +168,10 @@ public sealed class GccProjectRepositoryLogicTests
         Assert.Contains(log, l => l.EventType == GccProjectLogEventTypes.ProjectDeleted);
 
         // Deleted is deleted: a second delete, or a further write, finds nothing to act on.
-        Assert.False(await projects.DeleteAsync(project.Id, Actor.ToString("D"), default));
-        Assert.Null(await projects.ChangeStatusAsync(
+        Assert.True((await projects.DeleteAsync(project.Id, Actor.ToString("D"), default)).NotFound);
+        Assert.True((await projects.ChangeStatusAsync(
             new ChangeGccProjectStatusCommand(project.Id, Actor.ToString("D"), GccProjectStatuses.Active),
-            default));
+            default)).NotFound);
     }
 
     [Fact]

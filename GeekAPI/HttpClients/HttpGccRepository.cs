@@ -192,8 +192,13 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
         return GccProjectCreateResult.Created(project);
     }
 
-    public Task<GccProjectDto> UpdateProjectAsync(UpdateGccProjectCommand command, CancellationToken ct = default) =>
-        PutAsync<GccProjectDto>($"repo/content-creator/projects/{command.Id}", command, ct);
+    /// <summary>
+    /// Update a project's profile. A 404 and a 409 are answers -- the project is gone, or it changed
+    /// after it was read -- and are returned as such rather than thrown by EnsureSuccessStatusCode,
+    /// which turned a missing project into a 500.
+    /// </summary>
+    public Task<GccProjectWriteResult> UpdateProjectAsync(UpdateGccProjectCommand command, CancellationToken ct = default) =>
+        ProjectWriteAsync(HttpMethod.Put, $"repo/content-creator/projects/{command.Id}", command, ct);
 
     public Task<IReadOnlyList<GccTaskDto>> ListTasksAsync(Guid projectId, CancellationToken ct = default) =>
         GetListAsync<GccTaskDto>($"repo/content-creator/projects/{projectId}/tasks", ct);
@@ -282,17 +287,37 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
             command,
             ct);
 
-    public Task<GccProjectDto> ChangeProjectStatusAsync(
+    public Task<GccProjectWriteResult> ChangeProjectStatusAsync(
         ChangeGccProjectStatusCommand command,
         CancellationToken ct = default) =>
-        PutAsync<GccProjectDto>($"repo/content-creator/projects/{command.Id}/status", command, ct);
+        ProjectWriteAsync(HttpMethod.Put, $"repo/content-creator/projects/{command.Id}/status", command, ct);
 
     /// <summary>
-    /// Soft-delete a project. False when it does not exist or was already deleted — not an error to
-    /// the caller, since either way the goal state ("gone from every view") already holds.
+    /// Soft-delete a project. Not found when it does not exist or was already deleted -- not an error
+    /// to the caller, since either way the goal state ("gone from every view") already holds.
     /// </summary>
-    public Task<bool> DeleteProjectAsync(Guid id, string actorUserId, CancellationToken ct = default) =>
-        DeleteAsync($"repo/content-creator/projects/{id}?actorUserId={Uri.EscapeDataString(actorUserId)}", ct);
+    public Task<GccProjectWriteResult> DeleteProjectAsync(Guid id, string actorUserId, CancellationToken ct = default) =>
+        ProjectWriteAsync(
+            HttpMethod.Delete, $"repo/content-creator/projects/{id}?actorUserId={Uri.EscapeDataString(actorUserId)}", null, ct);
+
+    private async Task<GccProjectWriteResult> ProjectWriteAsync(
+        HttpMethod method, string path, object? body, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(method, path);
+        if (body is not null)
+            request.Content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.SendAsync(request, ct);
+
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return GccProjectWriteResult.Missing();
+        if (res.StatusCode == System.Net.HttpStatusCode.Conflict) return GccProjectWriteResult.Conflict();
+        res.EnsureSuccessStatusCode();
+        if (res.StatusCode == System.Net.HttpStatusCode.NoContent) return GccProjectWriteResult.Written(null);
+
+        var json = await res.Content.ReadAsStringAsync(ct);
+        var project = JsonSerializer.Deserialize<GccProjectDto>(json, JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+        return GccProjectWriteResult.Written(project);
+    }
 
     /// <summary>
     /// Delete one log entry, for real — not the project's soft delete above. False when it does not

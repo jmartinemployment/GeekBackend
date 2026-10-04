@@ -113,23 +113,27 @@ public interface IGccProjectRepository
     /// </summary>
     Task<GccProjectCreateResult> CreateAsync(CreateGccProjectCommand command, CancellationToken ct = default);
 
-    /// <summary>Update the profile and schedule. Null when the project does not exist.</summary>
-    Task<GccProjectDto?> UpdateAsync(UpdateGccProjectCommand command, CancellationToken ct = default);
+    /// <summary>
+    /// Update the profile and schedule -- those columns only; the brief is the brief route's. Not
+    /// found, or stale when the row changed between this write's read and its save.
+    /// </summary>
+    Task<GccProjectWriteResult> UpdateAsync(UpdateGccProjectCommand command, CancellationToken ct = default);
 
     /// <summary>
-    /// Move to a new status. Null when the project does not exist; the database refuses a finished
-    /// status without its date, and a date on any other status.
+    /// Move to a new status. Not found, or stale as for <see cref="UpdateAsync"/>; the database refuses
+    /// a finished status without its date, and a date on any other status.
     /// </summary>
-    Task<GccProjectDto?> ChangeStatusAsync(ChangeGccProjectStatusCommand command, CancellationToken ct = default);
+    Task<GccProjectWriteResult> ChangeStatusAsync(ChangeGccProjectStatusCommand command, CancellationToken ct = default);
 
     /// <summary>The project's log, oldest first. Empty only when the project does not exist.</summary>
     Task<IReadOnlyList<GccProjectLogEntryDto>> ListLogAsync(Guid projectId, CancellationToken ct = default);
 
     /// <summary>
-    /// Soft-delete: sets DeletedAtUtc and logs it, in one transaction. False when the project does
-    /// not exist or is already deleted. Never a real DELETE — see DeletedAtUtc on GccProject.
+    /// Soft-delete: sets DeletedAtUtc and logs it, in one transaction. Not found when the project
+    /// does not exist or is already deleted; stale as for <see cref="UpdateAsync"/>. Never a real
+    /// DELETE — see DeletedAtUtc on GccProject.
     /// </summary>
-    Task<bool> DeleteAsync(Guid id, string actorUserId, CancellationToken ct = default);
+    Task<GccProjectWriteResult> DeleteAsync(Guid id, string actorUserId, CancellationToken ct = default);
 
     /// <summary>
     /// Remove one log entry, for real — a genuine DELETE, not a soft one. False when the project or

@@ -127,13 +127,19 @@ public class GccProjectRepository : IGccProjectRepository
         }
     }
 
-    public async Task<GccProjectDto?> UpdateAsync(
+    /// <remarks>
+    /// The entity is tracked and never passed to <c>Update</c>, which marks every column modified: a
+    /// Profile save rewrote brief_json and research_json from whatever this request had loaded. Only
+    /// the columns set here are written. The row version (xmin) is in the UPDATE's WHERE, so a brief
+    /// save landing between this read and this save makes it affect nothing, and it is refused.
+    /// </remarks>
+    public async Task<GccProjectWriteResult> UpdateAsync(
         UpdateGccProjectCommand command,
         CancellationToken ct = default)
     {
         var entity = await _db.GccProjects
             .FirstOrDefaultAsync(p => p.Id == command.Id && p.DeletedAtUtc == null, ct);
-        if (entity is null) return null;
+        if (entity is null) return GccProjectWriteResult.Missing();
 
         var before = Snapshot(entity);
 
@@ -152,9 +158,6 @@ public class GccProjectRepository : IGccProjectRepository
         entity.BudgetCurrency = Normalize(command.BudgetCurrency)?.ToUpperInvariant();
         entity.UpdatedAtUtc = DateTime.UtcNow;
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
-
-        _db.GccProjects.Update(entity);
         _db.GccProjectLog.Add(new GccProjectLogEntry
         {
             ProjectId = entity.Id,
@@ -164,27 +167,43 @@ public class GccProjectRepository : IGccProjectRepository
             Payload = JsonSerializer.Serialize(new { before, after = Snapshot(entity) }),
         });
 
-        await _db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return MapToDto(entity);
+        return await SaveOrRefuseAsync(entity, ct);
     }
 
-    public async Task<GccProjectDto?> ChangeStatusAsync(
+    /// <summary>
+    /// The project and its log entry in one transaction, or nothing when the row changed since it was
+    /// read. Not retried: a second attempt would be writing over a change this request never saw.
+    /// </summary>
+    private async Task<GccProjectWriteResult> SaveOrRefuseAsync(GccProject entity, CancellationToken ct)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _db.ChangeTracker.Clear();
+            return GccProjectWriteResult.Conflict();
+        }
+
+        await transaction.CommitAsync(ct);
+        return GccProjectWriteResult.Written(MapToDto(entity));
+    }
+
+    public async Task<GccProjectWriteResult> ChangeStatusAsync(
         ChangeGccProjectStatusCommand command,
         CancellationToken ct = default)
     {
         var entity = await _db.GccProjects
             .FirstOrDefaultAsync(p => p.Id == command.Id && p.DeletedAtUtc == null, ct);
-        if (entity is null) return null;
+        if (entity is null) return GccProjectWriteResult.Missing();
 
         var from = entity.Status;
         entity.Status = command.Status;
         entity.FinishedDate = command.FinishedDate;
         entity.UpdatedAtUtc = DateTime.UtcNow;
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
-
-        _db.GccProjects.Update(entity);
         _db.GccProjectLog.Add(new GccProjectLogEntry
         {
             ProjectId = entity.Id,
@@ -199,28 +218,23 @@ public class GccProjectRepository : IGccProjectRepository
             }),
         });
 
-        await _db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return MapToDto(entity);
+        return await SaveOrRefuseAsync(entity, ct);
     }
 
     /// <summary>
     /// Soft-delete: DeletedAtUtc is set and a project_deleted entry is logged, in one transaction.
     /// The row and its whole log stay exactly as they were — nothing here is a real DELETE.
     /// </summary>
-    public async Task<bool> DeleteAsync(Guid id, string actorUserId, CancellationToken ct = default)
+    public async Task<GccProjectWriteResult> DeleteAsync(Guid id, string actorUserId, CancellationToken ct = default)
     {
         var entity = await _db.GccProjects
             .FirstOrDefaultAsync(p => p.Id == id && p.DeletedAtUtc == null, ct);
-        if (entity is null) return false;
+        if (entity is null) return GccProjectWriteResult.Missing();
 
         var now = DateTime.UtcNow;
         entity.DeletedAtUtc = now;
         entity.UpdatedAtUtc = now;
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
-
-        _db.GccProjects.Update(entity);
         _db.GccProjectLog.Add(new GccProjectLogEntry
         {
             ProjectId = entity.Id,
@@ -230,9 +244,8 @@ public class GccProjectRepository : IGccProjectRepository
             Payload = JsonSerializer.Serialize(new { name = entity.Name }),
         });
 
-        await _db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return true;
+        var written = await SaveOrRefuseAsync(entity, ct);
+        return written.Stale ? written : GccProjectWriteResult.Written(null);
     }
 
     /// <summary>
@@ -344,5 +357,10 @@ public class GccProjectRepository : IGccProjectRepository
             entity.Budget,
             entity.BudgetCurrency?.Trim(),
             entity.CreatedAtUtc,
-            entity.UpdatedAtUtc);
+            entity.UpdatedAtUtc,
+            entity.BriefJson,
+            entity.Topic,
+            entity.ResearchJson,
+            entity.SiteSectionJson,
+            entity.Version);
 }

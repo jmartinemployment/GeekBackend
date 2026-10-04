@@ -34,7 +34,34 @@ public sealed record GccProjectDto(
     decimal? Budget,
     string? BudgetCurrency,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    /// <summary>The project's Content Brief JSON. Null until the first brief save.</summary>
+    string? BriefJson = null,
+    /// <summary>The project's keyword, in the "descriptor: keyword" form.</summary>
+    string? Topic = null,
+    /// <summary>Research the server parsed for this project.</summary>
+    string? ResearchJson = null,
+    /// <summary>The site section this project's content is written for.</summary>
+    string? SiteSectionJson = null,
+    /// <summary>The row version this copy was read at. A brief save sends it back as its expected
+    /// version, so a save made from a stale read is refused instead of overwriting what changed.</summary>
+    uint Version = 0);
+
+/// <summary>
+/// A write to a project: the project as written, or why nothing was written.
+/// </summary>
+/// <param name="Stale">The row changed between the read this write was based on and the write itself.
+/// Nothing was written; the caller reloads and decides again.</param>
+public sealed record GccProjectWriteResult(GccProjectDto? Project, bool NotFound, bool Stale)
+{
+    public static GccProjectWriteResult Written(GccProjectDto? project) => new(project, false, false);
+    public static GccProjectWriteResult Missing() => new(null, true, false);
+    public static GccProjectWriteResult Conflict() => new(null, false, true);
+
+    /// <summary>The message a stale write is refused with, at every layer.</summary>
+    public const string StaleMessage =
+        "This project was changed after you loaded it. Nothing was saved -- reload it and save again.";
+}
 
 /// <summary>
 /// Create one project.
