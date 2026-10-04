@@ -70,6 +70,7 @@ public static class ServiceRegistration
         services.AddScoped<IGccSiteAnalysisRepository, GccSiteAnalysisRepository>();
         services.AddScoped<IGccClientRepository, GccClientRepository>();
         services.AddScoped<IGccProjectRepository, GccProjectRepository>();
+        services.AddScoped<IGccGenerateJobRepository, GccGenerateJobRepository>();
         services.AddScoped<IGccTaskRepository, GccTaskRepository>();
         services.AddScoped<IGccDeliverableRepository, GccDeliverableRepository>();
 

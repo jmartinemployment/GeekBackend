@@ -68,6 +68,10 @@ public class GccCreateRepository : IGccCreateRepository
             .ToListAsync(ct);
         _db.GccArtifacts.RemoveRange(artifacts);
 
+        // The generate runs that wrote under this create describe drafts deleted above.
+        var jobs = await _db.GccGenerateJobs.Where(j => j.CreateId == id).ToListAsync(ct);
+        _db.GccGenerateJobs.RemoveRange(jobs);
+
         _db.GccCreates.Remove(create);
 
         await _db.SaveChangesAsync(ct);
@@ -170,7 +174,7 @@ public class GccCreateRepository : IGccCreateRepository
         return GccCreateUpdateResult.Updated(MapToDto(entity));
     }
 
-    private static GccCreateDto MapToDto(GccCreate entity) =>
+    internal static GccCreateDto MapToDto(GccCreate entity) =>
         new(
             entity.Id,
             entity.ClientId,

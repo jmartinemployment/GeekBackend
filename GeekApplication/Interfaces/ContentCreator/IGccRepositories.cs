@@ -12,8 +12,9 @@ public interface IGccCreateRepository
     Task<GccCreateUpdateResult> UpdateBriefResearchAsync(Guid id, UpdateGccCreateBriefResearchCommand command, CancellationToken ct = default);
 
     /// <summary>
-    /// Delete a create and everything beneath it: artifacts, their versions, and the approval
-    /// events on those versions. Returns false when no such create exists.
+    /// Delete a create and everything beneath it: artifacts, their versions, the approval events on
+    /// those versions, and the generate runs that wrote under it. Returns false when no such create
+    /// exists.
     /// </summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 }
@@ -200,4 +201,31 @@ public interface IGccDeliverableRepository
 
     /// <summary>Null when the deliverable does not exist.</summary>
     Task<GccDeliverableDto?> ChangeStatusAsync(ChangeGccDeliverableStatusCommand command, CancellationToken ct = default);
+}
+
+/// <summary>Generate runs on a project. At most one running per project.</summary>
+public interface IGccGenerateJobRepository
+{
+    Task<GccGenerateJobDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>The create a project's drafts are stored under: its newest. Null when it has none.</summary>
+    Task<GccCreateDto?> GetBackingCreateAsync(Guid projectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Start a run: record it as running, with the newest brief revision, under the given create or a
+    /// create minted for the project when none is given. Refused, writing nothing, when the project is
+    /// missing, its brief has moved past <c>ExpectedBriefVersion</c>, its brief was never saved, or a
+    /// run is already running on it.
+    /// </summary>
+    Task<GccGenerateJobStartResult> StartAsync(StartGccGenerateJobCommand command, CancellationToken ct = default);
+
+    /// <summary>Null when the job does not exist or is no longer running: a run finishes once.</summary>
+    Task<GccGenerateJobDto?> CompleteAsync(Guid id, string resultJson, CancellationToken ct = default);
+
+    /// <summary>Null when the job does not exist or is no longer running.</summary>
+    Task<GccGenerateJobDto?> FailAsync(Guid id, string error, CancellationToken ct = default);
+
+    /// <summary>Fail every running job with <paramref name="error"/>. Called once when GeekAPI starts:
+    /// a job still running then was running in a process that no longer exists.</summary>
+    Task<int> FailInterruptedAsync(string error, CancellationToken ct = default);
 }

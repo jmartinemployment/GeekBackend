@@ -366,6 +366,52 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
         BankGccPartnerExtractionCommand command, CancellationToken ct = default) =>
         PostAsync<GccBankedPartnerExtractionDto>("repo/content-creator/partner-extractions", command, ct);
 
+    /// <summary>
+    /// The create a project's drafts are stored under, or null when it has none yet. Only a 404 means
+    /// none: anything else read as "none" would mint a second create for the project.
+    /// </summary>
+    public async Task<GccCreateDto?> GetProjectBackingCreateAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var res = await _http.GetAsync($"repo/content-creator/projects/{projectId}/backing-create", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<GccCreateDto>(json, JsonOpts);
+    }
+
+    /// <summary>Start a generate run on a project; a refusal comes back in the result, not as a fault.</summary>
+    public Task<GccGenerateJobStartResult> StartGenerateJobAsync(
+        StartGccGenerateJobCommand command, CancellationToken ct = default) =>
+        PostAsync<GccGenerateJobStartResult>("repo/content-creator/generate-jobs", command, ct);
+
+    /// <summary>Null when the job is gone or already finished.</summary>
+    public Task<GccGenerateJobDto?> CompleteGenerateJobAsync(Guid id, string resultJson, CancellationToken ct = default) =>
+        FinishGenerateJobAsync($"repo/content-creator/generate-jobs/{id}/complete", new CompleteGccGenerateJobCommand(resultJson), ct);
+
+    /// <summary>Null when the job is gone or already finished.</summary>
+    public Task<GccGenerateJobDto?> FailGenerateJobAsync(Guid id, string error, CancellationToken ct = default) =>
+        FinishGenerateJobAsync($"repo/content-creator/generate-jobs/{id}/fail", new FailGccGenerateJobCommand(error), ct);
+
+    /// <summary>Fail every running generate job. GeekAPI calls this once, at startup.</summary>
+    public async Task<int> FailInterruptedGenerateJobsAsync(string error, CancellationToken ct = default)
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new FailInterruptedGccGenerateJobsCommand(error), JsonOpts),
+            Encoding.UTF8, "application/json");
+        var res = await _http.PostAsync("repo/content-creator/generate-jobs/fail-interrupted", content, ct);
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<int>(await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+
+    private async Task<GccGenerateJobDto?> FinishGenerateJobAsync(string path, object body, CancellationToken ct)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PutAsync(path, content, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccGenerateJobDto>(await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         try

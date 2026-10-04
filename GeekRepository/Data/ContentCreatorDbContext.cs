@@ -21,6 +21,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccProject> GccProjects => Set<GccProject>();
     public virtual DbSet<GccProjectLogEntry> GccProjectLog => Set<GccProjectLogEntry>();
     public virtual DbSet<GccProjectRevision> GccProjectRevisions => Set<GccProjectRevision>();
+    public virtual DbSet<GccGenerateJob> GccGenerateJobs => Set<GccGenerateJob>();
     public virtual DbSet<GccTask> GccTasks => Set<GccTask>();
     public virtual DbSet<GccTimeEntry> GccTimeEntries => Set<GccTimeEntry>();
     public virtual DbSet<GccDeliverable> GccDeliverables => Set<GccDeliverable>();
@@ -350,6 +351,41 @@ public class ContentCreatorDbContext : DbContext
             entity.HasIndex(r => new { r.ProjectId, r.SavedAtUtc })
                 .IsDescending(false, true)
                 .HasDatabaseName("ix_gcc_project_revisions_project_id_saved_at");
+        });
+
+        modelBuilder.Entity<GccGenerateJob>(entity =>
+        {
+            entity.ToTable("gcc_generate_jobs", t =>
+            {
+                t.HasCheckConstraint("ck_gcc_generate_jobs_status", "status IN ('running', 'ready', 'failed')");
+            });
+            entity.HasKey(j => j.Id);
+            entity.Property(j => j.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(j => j.ProjectId).HasColumnName("project_id").IsRequired();
+            entity.Property(j => j.CreateId).HasColumnName("create_id").IsRequired();
+            entity.Property(j => j.BriefRevisionId).HasColumnName("brief_revision_id").IsRequired();
+            entity.Property(j => j.OwnerUserId).HasColumnName("owner_user_id").IsRequired().HasMaxLength(256);
+            entity.Property(j => j.RequestedTypes).HasColumnName("requested_types").IsRequired().HasColumnType("text[]");
+            entity.Property(j => j.Provider).HasColumnName("provider").IsRequired().HasMaxLength(32);
+            entity.Property(j => j.Status).HasColumnName("status").IsRequired().HasMaxLength(16);
+            entity.Property(j => j.ResultJson).HasColumnName("result_json").HasColumnType("text");
+            entity.Property(j => j.Error).HasColumnName("error").HasColumnType("text");
+            entity.Property(j => j.StartedAtUtc).HasColumnName("started_at").IsRequired();
+            entity.Property(j => j.FinishedAtUtc).HasColumnName("finished_at");
+
+            // Named, because two indexes over one column are one index to EF unless each has a name.
+            entity.HasIndex(j => j.ProjectId, "ix_gcc_generate_jobs_project_id");
+            // One running job per project, by constraint rather than by timing: two Generates on one
+            // project would both write drafts of the same pieces.
+            entity.HasIndex(j => j.ProjectId, "ux_gcc_generate_jobs_one_running_per_project")
+                .IsUnique()
+                .HasFilter("status = 'running'");
+
+            // RESTRICT like every content_creator key.
+            entity.HasOne<GccProject>().WithMany().HasForeignKey(j => j.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<GccCreate>().WithMany().HasForeignKey(j => j.CreateId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<GccProjectRevision>().WithMany().HasForeignKey(j => j.BriefRevisionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<GccTask>(entity =>

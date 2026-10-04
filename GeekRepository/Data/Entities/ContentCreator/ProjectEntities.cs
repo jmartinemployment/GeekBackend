@@ -271,3 +271,40 @@ public class GccProjectRevision
     public DateTime SavedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
+
+/// <summary>
+/// One Generate run on a project: what it was asked for, the brief revision it read, and how it ended.
+/// </summary>
+/// <remarks>
+/// A row, not process memory, so a redeploy cannot lose a run and a second Generate can be refused by
+/// constraint: at most one running job per project (a partial unique index). Status is running, ready
+/// or failed, and never running forever -- GeekAPI fails every running row once at startup, since a run
+/// lives inside the process a redeploy ends.
+///
+/// <see cref="CreateId"/> is the create the drafts are stored under while drafts are still keyed by
+/// create: the project's newest, or one minted when the project has none. The caller never sees it.
+/// </remarks>
+public class GccGenerateJob
+{
+    /// <summary>Minted by GeekAPI, which hands it to the caller and the hub before the row exists.</summary>
+    public Guid Id { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid CreateId { get; set; }
+
+    /// <summary>The brief revision this run was written from (decision J7).</summary>
+    public Guid BriefRevisionId { get; set; }
+
+    /// <summary>The token subject that started it.</summary>
+    public string OwnerUserId { get; set; } = string.Empty;
+
+    public List<string> RequestedTypes { get; set; } = [];
+    public string Provider { get; set; } = string.Empty;
+
+    /// <summary>running | ready | failed. The database carries the same list.</summary>
+    public string Status { get; set; } = "running";
+
+    public string? ResultJson { get; set; }
+    public string? Error { get; set; }
+    public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? FinishedAtUtc { get; set; }
+}

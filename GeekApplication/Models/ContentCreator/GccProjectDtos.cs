@@ -453,3 +453,68 @@ public sealed record GccDeliverableResult(GccDeliverableDto? Deliverable, string
     public static GccDeliverableResult Created(GccDeliverableDto deliverable) => new(deliverable, null);
     public static GccDeliverableResult Refused(string reason) => new(null, reason);
 }
+
+/// <summary>The statuses a generate run can have, and the only ones.</summary>
+public static class GccGenerateJobStatuses
+{
+    public const string Running = "running";
+    public const string Ready = "ready";
+    public const string Failed = "failed";
+}
+
+/// <summary>A Generate run on a project, as stored.</summary>
+/// <param name="CreateId">The create its drafts are stored under while drafts are keyed by create.
+/// Internal: never returned to a browser.</param>
+/// <param name="BriefRevisionId">The brief revision the run was written from (J7).</param>
+/// <param name="Status">running | ready | failed, and never running forever: a run a redeploy cut off is
+/// failed when GeekAPI starts.</param>
+public sealed record GccGenerateJobDto(
+    Guid Id,
+    Guid ProjectId,
+    Guid CreateId,
+    Guid BriefRevisionId,
+    DateTime BriefRevisionSavedAtUtc,
+    string OwnerUserId,
+    IReadOnlyList<string> RequestedTypes,
+    string Provider,
+    string Status,
+    string? ResultJson,
+    string? Error,
+    DateTime StartedAtUtc,
+    DateTime? FinishedAtUtc);
+
+/// <param name="Id">Minted by GeekAPI, which hands it to the caller and the hub.</param>
+/// <param name="CreateId">The project's backing create as GeekAPI read it, or null to mint one.</param>
+/// <param name="ExpectedBriefVersion">The brief version GeekAPI read and validated. A Save landing after
+/// that read refuses the start, so the revision recorded is always the brief the run was given.</param>
+public sealed record StartGccGenerateJobCommand(
+    Guid Id,
+    Guid ProjectId,
+    Guid? CreateId,
+    int ExpectedBriefVersion,
+    Guid OwnerUserId,
+    IReadOnlyList<string> RequestedTypes,
+    string Provider);
+
+/// <summary>A run started, or why not. Nothing is written when it was refused.</summary>
+public sealed record GccGenerateJobStartResult(
+    GccGenerateJobDto? Job,
+    GccGenerateJobDto? AlreadyRunning,
+    bool ProjectNotFound,
+    bool StaleBrief,
+    bool NoSavedBrief,
+    bool CreateNotOnProject)
+{
+    public static GccGenerateJobStartResult Started(GccGenerateJobDto job) => new(job, null, false, false, false, false);
+    public static GccGenerateJobStartResult Running(GccGenerateJobDto running) => new(null, running, false, false, false, false);
+    public static GccGenerateJobStartResult NotFound() => new(null, null, true, false, false, false);
+    public static GccGenerateJobStartResult Stale() => new(null, null, false, true, false, false);
+    public static GccGenerateJobStartResult NoBrief() => new(null, null, false, false, true, false);
+    public static GccGenerateJobStartResult ForeignCreate() => new(null, null, false, false, false, true);
+}
+
+public sealed record CompleteGccGenerateJobCommand(string ResultJson);
+
+public sealed record FailGccGenerateJobCommand(string Error);
+
+public sealed record FailInterruptedGccGenerateJobsCommand(string Error);
