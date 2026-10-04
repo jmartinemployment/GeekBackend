@@ -64,7 +64,6 @@ public class GccDraftGuardTests
     [Theory]
     [InlineData("https://competitor.test/pricing")]
     [InlineData("https://melio.test/a-page-nobody-retrieved")]
-    [InlineData("/relative/path")]
     public void A_link_outside_the_evidence_is_refused(string href)
     {
         var doc = Doc(Body("Choosing", Text("See the comparison.", href)));
@@ -81,11 +80,25 @@ public class GccDraftGuardTests
     [InlineData("https://geek.test/tools/accounting/melio")]
     [InlineData("https://www.geek.test/blog/ap")]
     [InlineData(Scheduler)]
+    // The known-tools brief hands the writer exactly these paths and requires the link
+    // (refused by host alone on 2026-10-04's Accounts Payable run).
+    [InlineData("/tools/marketing/ramp")]
+    [InlineData("/blog/accounts-payable")]
     public void A_link_to_the_evidence_the_publisher_or_the_scheduler_is_allowed(string href)
     {
         var doc = Doc(Body("Choosing", Text("See the source.", href)));
 
         Assert.DoesNotContain("links", Failed(GccDraftGuard.Pillar(doc, Inputs())));
+    }
+
+    [Theory]
+    [InlineData("//competitor.test/pricing")]
+    [InlineData("competitor.test/pricing")]
+    public void An_address_with_its_scheme_left_off_is_not_a_publisher_path(string href)
+    {
+        var doc = Doc(Body("Choosing", Text("See the source.", href)));
+
+        Assert.Contains("links", Failed(GccDraftGuard.Pillar(doc, Inputs())));
     }
 
     [Fact]

@@ -274,6 +274,12 @@ public static partial class GccDraftGuard
 
         if (inputs.AllowedLinkUrls.Contains(trimmed)) return true;
 
+        // A root-relative path is a page on the publisher's own site by construction -- the known-tools
+        // brief hands the writer exactly these, /tools/{department}/{slug}, and requires the link. Read
+        // by host alone, every one of them was refused (2026-10-04). "//host/..." is not a path: it is
+        // an absolute address with the scheme left off, and goes through the host check below.
+        if (trimmed.StartsWith('/') && !trimmed.StartsWith("//", StringComparison.Ordinal)) return true;
+
         var host = GccRequiredToolMentions.HostKeyOf(trimmed);
         return host.Length > 0 && inputs.PublisherHosts.Contains(host);
     }

@@ -867,6 +867,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// create does not carry one yet.
     /// </para>
     /// </remarks>
+    /// <summary>What every batch after the first is told: the page's one quotation is not its to write.</summary>
+    private static string ToolQuotationWrittenElsewhere(string productName) =>
+        "NO QUOTATION IN THIS PART: this page's one block quotation of " + productName + " is written by "
+        + "another call. Write no paragraph of type \"quote\" here. When a section needs what "
+        + productName + " says, put it in your own words and attribute it, with the page it comes from "
+        + "as that run's \"href\".";
+
     private static string ToolQuotationInstruction(string productName, string targetKeyword) =>
         "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries exactly one block "
         + "quotation -- a paragraph of type \"quote\" -- and it is required. Choose it from the "
@@ -2672,8 +2679,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"and never claim {context.PublisherName} builds the product's own features.")
             .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
                 "about a competing product is a sentence that has not done its job.")
-            .AppendLine(ToolQuotationInstruction(app.Name, context.TargetKeyword))
-            .AppendLine(quoteCandidates is { Count: > 0 } ? QuotableSpansBlock(quoteCandidates) : string.Empty)
+            // The page carries exactly one quotation, and a page written in batches is several calls:
+            // told the quotation is required, every batch wrote one, and the guard refused pages
+            // with two, three and four (2026-10-04). The first batch carries it; the rest are told
+            // it is written elsewhere and not handed the spans at all.
+            .AppendLine(batchIndex == 0
+                ? ToolQuotationInstruction(app.Name, context.TargetKeyword)
+                : ToolQuotationWrittenElsewhere(app.Name))
+            .AppendLine(batchIndex == 0 && quoteCandidates is { Count: > 0 }
+                ? QuotableSpansBlock(quoteCandidates)
+                : string.Empty)
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +
                 "section is responsible for; you write its heading:")

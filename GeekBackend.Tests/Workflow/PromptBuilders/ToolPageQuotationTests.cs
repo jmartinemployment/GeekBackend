@@ -49,7 +49,8 @@ public class ToolPageQuotationTests
 
     private static string ToolPrompt(
         string? researchJson,
-        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null)
+        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null,
+        int batchIndex = 0)
     {
         var context = Context();
         var app = new SoftwareApplicationDescriptor("Tipalti", "Payables automation.");
@@ -62,8 +63,29 @@ public class ToolPageQuotationTests
             revisionNotes: null,
             extractedToolResearchJson: researchJson,
             lede: null,
+            batchIndex: batchIndex,
             quoteCandidates: quoteCandidates);
         return string.Join("\n", request.Messages.Select(m => m.Content));
+    }
+
+    /// <summary>
+    /// A page written in batches is several calls, and the page carries one quotation: every batch told
+    /// it was required wrote one, and five tool pages were refused for carrying two to four
+    /// (2026-10-04). Only the first batch is asked, and only it is handed the spans.
+    /// </summary>
+    [Fact]
+    public void Only_the_first_batch_writes_the_quotation()
+    {
+        GccQuoteCandidate[] spans = [new(1, "Tipalti routes every invoice for approval automatically.", "https://tipalti.test/ap", "AP")];
+
+        var first = ToolPrompt(researchJson: null, spans, batchIndex: 0);
+        var later = ToolPrompt(researchJson: null, spans, batchIndex: 1);
+
+        Assert.Contains("this page carries exactly one block quotation", first, StringComparison.Ordinal);
+        Assert.Contains("QUOTABLE SPANS", first, StringComparison.Ordinal);
+        Assert.DoesNotContain("this page carries exactly one block quotation", later, StringComparison.Ordinal);
+        Assert.DoesNotContain("QUOTABLE SPANS", later, StringComparison.Ordinal);
+        Assert.Contains("is written by another call. Write no paragraph of type \"quote\" here.", later, StringComparison.Ordinal);
     }
 
     [Fact]
