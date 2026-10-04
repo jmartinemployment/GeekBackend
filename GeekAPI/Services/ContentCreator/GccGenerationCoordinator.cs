@@ -97,14 +97,58 @@ public sealed class GccGenerationCoordinator
     /// the block structure the typed path exists to preserve. The tool page's block quotation needs
     /// the structure, so the passages travel beside the create rather than inside it.
     /// </summary>
-    private async Task<(GccCreateDto Create, IReadOnlyList<GccGroundedPassage> PartnerPassages)>
+    private async Task<(GccCreateDto Create, IReadOnlyList<GccGroundedPassage> PartnerPassages, IReadOnlyList<string> Warnings, IReadOnlyList<string> PartnersWithoutPassages)>
         ResolveAndMergeGroundingAsync(
             GccCreateDto create, IReadOnlyList<string> contentTypes, CancellationToken ct)
     {
         var grounding = await _grounding.ResolveAsync(create, contentTypes, ct);
         if (grounding.Refused)
             throw new InvalidOperationException($"Refused: {grounding.Refusal}");
-        return (MergeRetrievedEvidence(create, grounding), grounding.PartnerPassages);
+        return (MergeRetrievedEvidence(create, grounding), grounding.PartnerPassages, grounding.Warnings,
+            grounding.PartnersWithoutPassages ?? []);
+    }
+
+    /// <summary>
+    /// The refusal a type takes for declared partners that returned no passage, or null.
+    /// </summary>
+    /// <remarks>
+    /// Pillar and blog name every declared partner, so a partner with no evidence refuses the type,
+    /// naming the partner, before any model call is paid for. Tool is not refused here: its fan-out
+    /// refuses that partner's page by name and writes the rest.
+    /// </remarks>
+    internal static string? PartnerEvidenceRefusal(string contentType, IReadOnlyList<string> partnersWithoutPassages)
+    {
+        var type = new string((contentType ?? string.Empty).Where(char.IsLetter).ToArray()).ToLowerInvariant();
+        if (partnersWithoutPassages.Count == 0 || type is not ("pillar" or "blog")) return null;
+
+        return $"Refused: the {type} must name every declared partner, and "
+            + string.Join(", ", partnersWithoutPassages)
+            + " returned no passage for this topic. Re-crawl that partner, or remove it from the project, then retry.";
+    }
+
+    /// <summary>The label a retrieval warning travels under. It is about the create's evidence, which
+    /// every requested type shares, so it is not attributed to any one of them.</summary>
+    internal const string GroundingWarningLabel = "grounding";
+
+    /// <summary>
+    /// The Library's own warnings for this generate's retrieval, recorded and pushed like a piece's.
+    /// </summary>
+    /// <remarks>
+    /// The resolver collected these and nothing read them: GccGroundingOutcome.Warnings had no
+    /// consumer, so a degraded retrieval produced a draft indistinguishable from a clean one. They go
+    /// where every other "saved, but with this" goes -- the result's <c>warnings</c> and the workspace
+    /// event -- before any piece is written, so they are seen even if a piece then fails.
+    /// </remarks>
+    internal static async Task RecordGroundingWarningsAsync(
+        IReadOnlyList<string> groundingWarnings,
+        List<string> into,
+        Func<string, string, Task>? onTypeWarning)
+    {
+        foreach (var warning in groundingWarnings)
+        {
+            into.Add($"{GroundingWarningLabel}: {warning}");
+            if (onTypeWarning is not null) await onTypeWarning(GroundingWarningLabel, warning);
+        }
     }
 
     /// <summary>Trimmed, de-duplicated, empty entries dropped. No default is ever substituted.</summary>
@@ -215,11 +259,15 @@ public sealed class GccGenerationCoordinator
             // stops before any paid model call instead of after two of three types have written.
             var resolved = await ResolveAndMergeGroundingAsync(create, requested, ct);
             create = resolved.Create;
+            var groundingWarnings = new List<string>();
+            await RecordGroundingWarningsAsync(resolved.Warnings, groundingWarnings, onTypeWarning);
 
             var attempts = await Task.WhenAll(requested.Select(async type =>
             {
                 try
                 {
+                    if (PartnerEvidenceRefusal(type, resolved.PartnersWithoutPassages) is { } evidenceRefusal)
+                        throw new InvalidOperationException(evidenceRefusal);
                     var generated = await GenerateOneAsync(
                         repo, gen, create, section, provider, type, mustMentionBlock,
                         resolved.PartnerPassages, ct, recordReadiness);
@@ -244,7 +292,7 @@ public sealed class GccGenerationCoordinator
 
             var created = new List<object>(attempts.Length);
             var refusals = new List<string>();
-            var warnings = new List<string>();
+            var warnings = new List<string>(groundingWarnings);
             foreach (var attempt in attempts)
             {
                 foreach (var piece in attempt.Outcome!.Pieces)
@@ -273,12 +321,15 @@ public sealed class GccGenerationCoordinator
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
         var resolvedSingle = await ResolveAndMergeGroundingAsync(create, requested, ct);
         create = resolvedSingle.Create;
+        var singleWarnings = new List<string>();
+        await RecordGroundingWarningsAsync(resolvedSingle.Warnings, singleWarnings, onTypeWarning);
+        if (PartnerEvidenceRefusal(requested[0], resolvedSingle.PartnersWithoutPassages) is { } singleRefusal)
+            throw new InvalidOperationException(singleRefusal);
         var single = await GenerateOneAsync(
             repo, gen, create, section, provider, requested[0], mustMentionBlock,
             resolvedSingle.PartnerPassages, ct, recordReadiness);
 
         var singleCreated = new List<object>(single.Pieces.Count);
-        var singleWarnings = new List<string>();
         foreach (var piece in single.Pieces)
         {
             singleCreated.Add(await PersistOneAsync(repo, create, piece, provider, onTypeOutcome, ct));
@@ -513,7 +564,9 @@ public sealed class GccGenerationCoordinator
         var artifact = await repo.CreateArtifactAsync(
             new CreateGccArtifactCommand(create.Id, piece.ContentType, piece.ArtifactName), ct);
         var version = await repo.CreateVersionAsync(
-            new CreateGccArtifactVersionCommand(artifact.Id, piece.BodyJson, GccVersionProvenance.For(provider)), ct);
+            new CreateGccArtifactVersionCommand(
+                artifact.Id, piece.BodyJson, GccVersionProvenance.For(provider)),
+            ct);
         var produced = new { artifact, version };
         if (onTypeOutcome is not null) await onTypeOutcome(piece.ContentType, produced, null);
         return produced;

@@ -56,7 +56,14 @@ public sealed record GccGroundingOutcome(
     /// attached to them is a third one. Partner evidence is cited, competitor evidence is never
     /// cited, and the publisher's own pages are neither — they are what this piece must not repeat.
     /// </summary>
-    IReadOnlyList<GccQuoteablePage> SitePages)
+    IReadOnlyList<GccQuoteablePage> SitePages,
+    /// <summary>
+    /// Declared partners whose indexed run returned no passage for this topic, as the operator spelled
+    /// them. Not a refusal here, because the outcome depends on the type: a pillar or blog obliged to
+    /// name every partner is refused for it (GccGenerationCoordinator), and a tool fan-out refuses only
+    /// that partner's page and writes the others.
+    /// </summary>
+    IReadOnlyList<string>? PartnersWithoutPassages = null)
 {
     public bool Refused => !string.IsNullOrWhiteSpace(Refusal);
 
@@ -327,6 +334,10 @@ public sealed class GccGroundingResolver(
         // role became order-dependent. Each list means something different -- cite / differentiate
         // from / do not repeat -- so a page is in a list because of where it came from.
         var seenByCrawlType = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var partnersWithoutPassages = new List<string>();
+        // Partner run -> the declared hosts it was indexed for, so a run that returns nothing can be
+        // refused under the partner's name rather than a run id the operator never sees.
+        var partnerHostsByRun = new Dictionary<Guid, List<string>>();
 
         foreach (var crawlType in crawlTypes)
         {
@@ -366,19 +377,58 @@ public sealed class GccGroundingResolver(
                 if (urls.Count == 0) continue;
 
                 var indexed = await rag.HostsIndexedAsync(urls, ct);
-                runIds = indexed
-                    .Where(host => host.Indexed)
-                    .Select(host => Guid.TryParse(host.RunId, out var id) ? id : Guid.Empty)
-                    .Where(id => id != Guid.Empty)
+
+                // An empty answer is the client's unreachable shape, not "nothing is indexed" -- the
+                // declare-time check reads it the same way. Named as an outage so the operator is not
+                // sent to re-crawl partners that are fine.
+                if (indexed.Count == 0)
+                {
+                    return GccGroundingOutcome.Refuse(
+                        $"The index could not be reached to check project '{project.Name}'s "
+                        + $"{urls.Count} {crawlType} URL(s). Nothing was generated -- retry.");
+                }
+
+                // Every declared URL, not "at least one". This refused only when all of them were
+                // unindexed, so one dropped partner crawl out of five was skipped without a word and
+                // the draft was written about four partners while the prompt named five -- against
+                // the comment above, which has always said a no here is a fault and it stops.
+                //
+                // A URL the index never answered for counts as unindexed: silence about a declared
+                // URL is not evidence that it is crawled.
+                var answered = indexed
+                    .Where(host => host.Indexed && Guid.TryParse(host.RunId, out var id) && id != Guid.Empty)
+                    .ToList();
+                var unindexed = urls
+                    .Where(url => !answered.Any(host => string.Equals(host.Url, url, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                if (unindexed.Count > 0)
+                {
+                    return GccGroundingOutcome.Refuse(
+                        $"{unindexed.Count} of project '{project.Name}'s {urls.Count} {crawlType} URL(s) "
+                        + $"has no indexed crawl: {string.Join(", ", unindexed)}. Every declared URL is "
+                        + "index-checked before a project is saved, so this is a dropped crawl. "
+                        + "Re-crawl and index it, then retry.");
+                }
+
+                runIds = answered
+                    .Select(host => Guid.Parse(host.RunId!))
                     .Distinct()
                     .ToList();
 
-                if (runIds.Count == 0)
+                if (string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase))
                 {
-                    return GccGroundingOutcome.Refuse(
-                        $"None of project '{project.Name}'s {urls.Count} {crawlType} URL(s) has an "
-                        + "indexed crawl, though every declared URL is index-checked before a "
-                        + "project is saved. Re-crawl and index them, then retry.");
+                    foreach (var host in answered)
+                    {
+                        var runId = Guid.Parse(host.RunId!);
+                        if (!partnerHostsByRun.TryGetValue(runId, out var hosts))
+                        {
+                            hosts = [];
+                            partnerHostsByRun[runId] = hosts;
+                        }
+
+                        var label = PartnerLabel(host, anchorToolLookup);
+                        if (!hosts.Contains(label, StringComparer.OrdinalIgnoreCase)) hosts.Add(label);
+                    }
                 }
             }
 
@@ -398,8 +448,7 @@ public sealed class GccGroundingResolver(
                     ct: ct);
 
                 // The library failing is the library failing, whatever the content type. Empty
-                // Pages on a successful query is not a failure -- that run had nothing relevant for
-                // this topic, which another run may cover.
+                // Pages on a successful query is a failure for a partner run only -- see below.
                 if (result is null)
                 {
                     return GccGroundingOutcome.Refuse(
@@ -416,7 +465,23 @@ public sealed class GccGroundingResolver(
 
                 if (!string.IsNullOrWhiteSpace(result.Warning))
                 {
-                    warnings.Add(result.Warning);
+                    warnings.Add($"{crawlType} run {runId}: {result.Warning}");
+                }
+
+                // Every declared partner must return evidence -- but what its absence refuses depends on
+                // the type, so it is recorded here and decided by the caller. Pillar and Blog are
+                // obliged by GccRequiredToolMentions to name every declared partner, so a partner with
+                // no passage is one the draft must write about from nothing: those types are refused,
+                // naming it. A tool fan-out writes one page per partner, and refuses that partner's
+                // page alone -- four pages and one named refusal, not none. Competitor and own-site
+                // runs keep the old rule: those corpora inform the piece, and another run may cover
+                // what this one did not.
+                if (string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase)
+                    && result.Pages.Count == 0)
+                {
+                    partnersWithoutPassages.Add(partnerHostsByRun.TryGetValue(runId, out var hosts)
+                        ? string.Join(", ", hosts)
+                        : $"run {runId}");
                 }
 
                 // Which list a page lands in is decided here, by the crawl type that was queried,
@@ -489,7 +554,8 @@ public sealed class GccGroundingResolver(
             create.Id, contentType, retrieved.Count, competitors.Count, sitePages.Count,
             passages.Count, warnings.Count);
 
-        return new GccGroundingOutcome(retrieved, warnings, null, passages, competitors, sitePages);
+        return new GccGroundingOutcome(
+            retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages);
     }
 
     /// <summary>
@@ -534,6 +600,21 @@ public sealed class GccGroundingResolver(
         // competitor query's. A retrieval query that balloons stops being a query.
         return $"{Bounded(GccTopic.KeywordOf(topic), 150)} -- the cost, delay and error rate of the "
             + "manual or status-quo way, the capability that removes it, and measured outcomes";
+    }
+
+    /// <summary>
+    /// The partner as the operator spelled it, with its host, so a refusal names something the
+    /// operator declared. The same lookup the retrieval labels chunks with -- one spelling per partner.
+    /// </summary>
+    private static string PartnerLabel(
+        GeekCrawlerRagHostIndex host, IReadOnlyDictionary<string, string> anchorToolLookup)
+    {
+        var hostName = string.IsNullOrWhiteSpace(host.Host) ? host.Url : host.Host;
+        return hostName is not null
+            && anchorToolLookup.TryGetValue(hostName, out var spelled)
+            && !string.IsNullOrWhiteSpace(spelled)
+            ? $"{spelled} ({hostName})"
+            : hostName ?? host.Url;
     }
 
     private static string Bounded(string topic, int max)

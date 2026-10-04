@@ -256,7 +256,7 @@ public class GccGroundingResolverTests
     [Fact]
     public async Task ASuccessfulQueryThatFoundNothingIsStillRefused()
     {
-        // Not an error, but nothing citable was retrieved, so the draft cannot be grounded.
+        // Not an error, but nothing citable was retrieved at all, so a tool page has no partner to quote.
         var rag = new FakeRag(
             hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, Guid.NewGuid().ToString())],
             result: new GeekCrawlerRagQueryResult { RunId = Guid.NewGuid(), Pages = [], Failed = false });
@@ -266,6 +266,163 @@ public class GccGroundingResolverTests
 
         Assert.True(outcome.Refused);
         Assert.Contains("citable passage", outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Answers per partner run: a run in <paramref name="emptyRuns"/> returns no pages, every other
+    /// partner run returns one page of its own. Competitor and own-site runs return nothing.
+    /// </summary>
+    private sealed class PerRunRag(
+        IReadOnlyList<GeekCrawlerRagHostIndex> hosts,
+        IReadOnlySet<Guid>? emptyRuns = null,
+        string? warning = null) : IGeekCrawlerRagClient
+    {
+        private readonly FakeRag _rest = new(hosts);
+
+        public bool IsEnabled => true;
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
+            _rest.EnqueueIndexAsync(runId, ct);
+
+        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default) =>
+            _rest.GetIndexStatusAsync(runId, ct);
+
+        public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
+            IReadOnlyList<string> urls, CancellationToken ct = default) =>
+            Task.FromResult(hosts);
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
+            bool? preferParent = null, bool? preferChild = null,
+            IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
+            CancellationToken ct = default)
+        {
+            var isPartner = string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase);
+            IReadOnlyList<GccQuoteablePage> pages = isPartner && !(emptyRuns?.Contains(runId) ?? false)
+                ? [new GccQuoteablePage($"https://run-{runId}.test/a", "A", [], ["body"])]
+                : [];
+            return Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
+            {
+                RunId = runId,
+                Pages = [.. pages],
+                Warning = isPartner ? warning : null,
+            });
+        }
+
+        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+            IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>
+            _rest.IndexTemplatesAsync(templates, ct);
+
+        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+            string need, int topK = 5, string? channel = null,
+            IReadOnlyList<string>? entityTags = null, CancellationToken ct = default) =>
+            _rest.QueryTemplatesAsync(need, topK, channel, entityTags, ct);
+
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
+            string pageId, CancellationToken ct = default, string? runId = null) =>
+            _rest.GetPageTextAsync(pageId, ct, runId);
+
+        public Task<JsonElement?> RunDiagnosticAsync(
+            string endpoint, object? payload = null, CancellationToken ct = default) =>
+            _rest.RunDiagnosticAsync(endpoint, payload, ct);
+
+        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
+            _rest.GetCapabilitiesAsync(ct);
+    }
+
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public async Task One_unindexed_partner_of_two_refuses_a_pillar_or_blog_naming_it(string type)
+    {
+        // The resolver refused only when EVERY declared URL was unindexed, so one dropped partner crawl
+        // out of five was skipped silently and the draft was asked to name a partner it had nothing on.
+        var rag = new PerRunRag(
+        [
+            new GeekCrawlerRagHostIndex("https://melio.test", "melio.test", true, Guid.NewGuid().ToString()),
+            new GeekCrawlerRagHostIndex("https://ramp.test", "ramp.test", false, null),
+        ]);
+        var resolver = Build(new FakeProjects(Project("https://melio.test", "https://ramp.test")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), type);
+
+        Assert.True(outcome.Refused);
+        Assert.Contains("https://ramp.test", outcome.Refusal!, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://melio.test", outcome.Refusal!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_declared_url_the_index_never_answered_for_counts_as_unindexed()
+    {
+        var rag = new PerRunRag(
+            [new GeekCrawlerRagHostIndex("https://melio.test", "melio.test", true, Guid.NewGuid().ToString())]);
+        var resolver = Build(new FakeProjects(Project("https://melio.test", "https://ramp.test")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+
+        Assert.True(outcome.Refused);
+        Assert.Contains("https://ramp.test", outcome.Refusal!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_unreachable_index_is_named_as_an_outage_not_a_dropped_crawl()
+    {
+        var rag = new PerRunRag([]);
+        var resolver = Build(new FakeProjects(Project("https://melio.test")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+
+        Assert.True(outcome.Refused);
+        Assert.Contains("could not be reached", outcome.Refusal!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Re-crawl", outcome.Refusal!, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task A_partner_that_returns_no_passage_is_reported_by_name_not_refused_here(string type)
+    {
+        // What it refuses depends on the type -- the pillar or blog, or only that partner's tool page --
+        // so the resolver names it and GccGenerationCoordinator.PartnerEvidenceRefusal decides.
+        var melioRun = Guid.NewGuid();
+        var rampRun = Guid.NewGuid();
+        var rag = new PerRunRag(
+        [
+            new GeekCrawlerRagHostIndex("https://melio.test", "melio.test", true, melioRun.ToString()),
+            new GeekCrawlerRagHostIndex("https://ramp.test", "ramp.test", true, rampRun.ToString()),
+        ], emptyRuns: new HashSet<Guid> { rampRun });
+        // The melio page's crawled blocks: a tool page quotes from typed blocks, and refuses when the
+        // retrieved pages cannot be read back as blocks -- a different refusal from the one tested here.
+        var crawled = new FakePages([CrawledPage(
+            $"https://run-{melioRun}.test/a", """[{"kind":"paragraph","text":"Melio pays bills from your bank."}]""")]);
+        var resolver = Build(new FakeProjects(Project("https://melio.test", "https://ramp.test")), rag, crawled);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), type);
+
+        Assert.False(outcome.Refused);
+        var partner = Assert.Single(outcome.PartnersWithoutPassages!);
+        Assert.Contains("ramp.test", partner, StringComparison.Ordinal);
+        Assert.Single(outcome.Pages);
+    }
+
+    [Fact]
+    public async Task Every_declared_partner_answering_is_not_refused_and_keeps_its_warnings()
+    {
+        var rag = new PerRunRag(
+        [
+            new GeekCrawlerRagHostIndex("https://melio.test", "melio.test", true, Guid.NewGuid().ToString()),
+            new GeekCrawlerRagHostIndex("https://ramp.test", "ramp.test", true, Guid.NewGuid().ToString()),
+        ], warning: "reranker unavailable; vector order used");
+        var resolver = Build(new FakeProjects(Project("https://melio.test", "https://ramp.test")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "pillar");
+
+        Assert.False(outcome.Refused);
+        Assert.Equal(2, outcome.Pages.Count);
+        Assert.Equal(2, outcome.Warnings.Count);
+        Assert.All(outcome.Warnings, w => Assert.Contains("reranker unavailable", w, StringComparison.Ordinal));
     }
 
     [Fact]

@@ -30,8 +30,10 @@ public sealed record GccHeadingProvenanceEvidence(
     /// research*: it checked a heading's claimed source URL against a set that was optional,
     /// operator-uploaded and often empty. Two things changed. The UI no longer supplies
     /// operator-uploaded quoteables at all, so the set is retrieved evidence or nothing (Jeff,
-    /// 2026-09-29). And <c>GccGroundingResolver</c> now refuses a create outright when no indexed
-    /// run returns a citable passage, so an empty set cannot reach generation.
+    /// 2026-09-29). And <c>GccGroundingResolver</c> refuses a create when any declared partner URL
+    /// has no indexed crawl or any declared partner's run returns no passage, so every declared
+    /// partner reaches generation with evidence. The set can still be empty: a project that declares
+    /// no partners retrieves none, and only Tool is refused for that (<c>MustCiteCrawlTypes</c>).
     /// </para>
     ///
     /// <para>

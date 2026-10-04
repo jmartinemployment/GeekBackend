@@ -176,4 +176,50 @@ public class GccGenerationCoordinatorTests
         Assert.Null(merged.ResearchJson);
         Assert.Same(create.Topic, merged.Topic);
     }
+
+    // ---- RecordGroundingWarningsAsync ---------------------------------------------------------
+
+    [Fact]
+    public async Task Retrieval_warnings_are_recorded_and_pushed_not_dropped()
+    {
+        // GccGroundingOutcome.Warnings had no consumer: the resolver collected the Library's warnings
+        // and the generate returned without them, so a degraded retrieval read as a clean one.
+        var recorded = new List<string>();
+        var pushed = new List<(string Type, string Warning)>();
+
+        await GccGenerationCoordinator.RecordGroundingWarningsAsync(
+            ["partner run 1: reranker unavailable"],
+            recorded,
+            (type, warning) =>
+            {
+                pushed.Add((type, warning));
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal(["grounding: partner run 1: reranker unavailable"], recorded);
+        Assert.Equal([("grounding", "partner run 1: reranker unavailable")], pushed);
+    }
+
+    // ---- PartnerEvidenceRefusal -----------------------------------------------------------------
+
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public void A_partner_with_no_passage_refuses_a_pillar_or_blog_naming_it(string type)
+    {
+        var refusal = GccGenerationCoordinator.PartnerEvidenceRefusal(type, ["Ramp (ramp.test)"]);
+
+        Assert.StartsWith("Refused:", refusal, StringComparison.Ordinal);
+        Assert.Contains("Ramp (ramp.test)", refusal!, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("tool")]
+    [InlineData("aiTool")]
+    public void A_tool_page_type_is_not_refused_its_fan_out_refuses_that_partner(string type) =>
+        Assert.Null(GccGenerationCoordinator.PartnerEvidenceRefusal(type, ["Ramp (ramp.test)"]));
+
+    [Fact]
+    public void Every_partner_answering_refuses_nothing() =>
+        Assert.Null(GccGenerationCoordinator.PartnerEvidenceRefusal("pillar", []));
 }
