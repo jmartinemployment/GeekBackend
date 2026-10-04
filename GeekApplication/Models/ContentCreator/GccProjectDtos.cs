@@ -45,7 +45,8 @@ public sealed record GccProjectDto(
     string? SiteSectionJson = null,
     /// <summary>The row version this copy was read at. A brief save sends it back as its expected
     /// version, so a save made from a stale read is refused instead of overwriting what changed.</summary>
-    uint Version = 0);
+    uint Version = 0,
+    DateTime? BriefSavedAtUtc = null);
 
 /// <summary>
 /// A write to a project: the project as written, or why nothing was written.
@@ -61,6 +62,48 @@ public sealed record GccProjectWriteResult(GccProjectDto? Project, bool NotFound
     /// <summary>The message a stale write is refused with, at every layer.</summary>
     public const string StaleMessage =
         "This project was changed after you loaded it. Nothing was saved -- reload it and save again.";
+}
+
+/// <summary>The kinds of brief revision, and the only kinds.</summary>
+public static class GccProjectRevisionKinds
+{
+    /// <summary>The operator pressed Save. The only kind a caller writes.</summary>
+    public const string Manual = "manual";
+
+    /// <summary>Copied from a create when the brief moved onto the project (GR3).</summary>
+    public const string Backfill = "backfill";
+
+    public static readonly IReadOnlyList<string> All = [Manual, Backfill];
+}
+
+/// <summary>Save a project's brief and keyword, as one revision.</summary>
+/// <param name="ExpectedVersion">The project version the editor read. A save made from an older read is
+/// refused, never written over the newer brief (decision J4).</param>
+/// <remarks>Sent only when the operator presses Save.</remarks>
+public sealed record SaveGccProjectBriefCommand(
+    Guid ProjectId,
+    string ActorUserId,
+    string? BriefJson,
+    string? Topic,
+    uint ExpectedVersion);
+
+public sealed record GccProjectRevisionDto(
+    Guid Id,
+    Guid ProjectId,
+    string Kind,
+    string? BriefJson,
+    string? Topic,
+    string SavedBy,
+    DateTime SavedAtUtc);
+
+/// <summary>A brief save: the project and the revision it wrote, or why nothing was written.</summary>
+public sealed record GccProjectBriefSaveResult(
+    GccProjectDto? Project, GccProjectRevisionDto? Revision, bool NotFound, bool Stale)
+{
+    public static GccProjectBriefSaveResult Saved(GccProjectDto project, GccProjectRevisionDto revision) =>
+        new(project, revision, false, false);
+    public static GccProjectBriefSaveResult Missing() => new(null, null, true, false);
+    public static GccProjectBriefSaveResult Conflict() => new(null, null, false, true);
 }
 
 /// <summary>

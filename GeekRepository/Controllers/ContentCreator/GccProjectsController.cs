@@ -144,6 +144,45 @@ public class GccProjectsController : ControllerBase
     }
 
     /// <summary>
+    /// Save the project's brief and keyword as one revision. 409 when the editor's read is older than
+    /// the row; nothing is written then. An incomplete brief is a valid save (decision J3); a body that
+    /// is not JSON at all is not a brief.
+    /// </summary>
+    [HttpPatch("{id:guid}/brief")]
+    public async Task<ActionResult<GccProjectBriefSaveResult>> SaveBrief(
+        Guid id,
+        [FromBody] SaveGccProjectBriefCommand command,
+        CancellationToken ct)
+    {
+        if (id != command.ProjectId)
+            return BadRequest("The id in the route and the body must match.");
+        if (string.IsNullOrWhiteSpace(command.ActorUserId))
+            return BadRequest("actorUserId is required — every change is attributed.");
+        if (command.Topic is { Length: > 1024 })
+            return BadRequest("topic is at most 1024 characters.");
+        if (command.BriefJson is not null && !IsJson(command.BriefJson))
+            return BadRequest("briefJson must be a JSON document.");
+
+        var saved = await _repository.SaveBriefAsync(command, ct);
+        if (saved.NotFound) return NotFound();
+        if (saved.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return Ok(saved);
+    }
+
+    private static bool IsJson(string value)
+    {
+        try
+        {
+            using var _ = System.Text.Json.JsonDocument.Parse(value);
+            return true;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Soft-delete. Never a real DELETE — see DeletedAtUtc on GccProject. False (404) covers both
     /// "never existed" and "already deleted"; a caller cannot tell those apart, and does not need to.
     /// </summary>

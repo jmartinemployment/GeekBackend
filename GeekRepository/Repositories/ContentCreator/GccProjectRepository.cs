@@ -27,7 +27,7 @@ public class GccProjectRepository : IGccProjectRepository
     {
         var entity = await _db.GccProjects
             .FirstOrDefaultAsync(p => p.Id == id && p.DeletedAtUtc == null, ct);
-        return entity is null ? null : MapToDto(entity);
+        return entity is null ? null : MapToDto(entity, await BriefSavedAtAsync(entity.Id, ct));
     }
 
     public async Task<IReadOnlyList<GccProjectDto>> ListByClientIdAsync(
@@ -39,8 +39,25 @@ public class GccProjectRepository : IGccProjectRepository
             .OrderByDescending(p => p.StartDate)
             .ThenByDescending(p => p.CreatedAtUtc)
             .ToListAsync(ct);
-        return entities.Select(MapToDto).ToList().AsReadOnly();
+
+        var ids = entities.Select(p => p.Id).ToList();
+        var savedAt = await _db.GccProjectRevisions
+            .Where(r => ids.Contains(r.ProjectId))
+            .GroupBy(r => r.ProjectId)
+            .Select(g => new { ProjectId = g.Key, SavedAtUtc = g.Max(r => r.SavedAtUtc) })
+            .ToDictionaryAsync(x => x.ProjectId, x => x.SavedAtUtc, ct);
+
+        return entities
+            .Select(p => MapToDto(p, savedAt.TryGetValue(p.Id, out var at) ? at : null))
+            .ToList()
+            .AsReadOnly();
     }
+
+    /// <summary>When the project's current brief was saved: its latest revision. Null before the first.</summary>
+    private async Task<DateTime?> BriefSavedAtAsync(Guid projectId, CancellationToken ct) =>
+        await _db.GccProjectRevisions
+            .Where(r => r.ProjectId == projectId)
+            .MaxAsync(r => (DateTime?)r.SavedAtUtc, ct);
 
     /// <summary>
     /// Create, or hand back what this idempotency key already created.
@@ -188,8 +205,79 @@ public class GccProjectRepository : IGccProjectRepository
         }
 
         await transaction.CommitAsync(ct);
-        return GccProjectWriteResult.Written(MapToDto(entity));
+        return GccProjectWriteResult.Written(MapToDto(entity, await BriefSavedAtAsync(entity.Id, ct)));
     }
+
+    /// <remarks>
+    /// The version the editor read is made the row's original version, so the UPDATE's WHERE carries
+    /// it: a save from an older read affects nothing and is refused, and so is one that loses the race
+    /// to another write between this read and this save. Checked before the write as well, so a stale
+    /// save does not reach the database at all.
+    ///
+    /// Only the brief columns change. The revision is added in the same SaveChanges, so the project's
+    /// brief and its latest revision are written together or not at all. Every save adds a row,
+    /// except one identical to the newest revision: that writes nothing and returns the newest, so a
+    /// Save that changes nothing stores nothing (J9). A blank topic leaves the keyword as it is.
+    /// </remarks>
+    public async Task<GccProjectBriefSaveResult> SaveBriefAsync(
+        SaveGccProjectBriefCommand command,
+        CancellationToken ct = default)
+    {
+        var entity = await _db.GccProjects
+            .FirstOrDefaultAsync(p => p.Id == command.ProjectId && p.DeletedAtUtc == null, ct);
+        if (entity is null) return GccProjectBriefSaveResult.Missing();
+        if (entity.Version != command.ExpectedVersion) return GccProjectBriefSaveResult.Conflict();
+
+        var topic = Normalize(command.Topic) ?? entity.Topic;
+        var newest = await _db.GccProjectRevisions
+            .Where(r => r.ProjectId == entity.Id)
+            .OrderByDescending(r => r.SavedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        if (newest is not null && newest.BriefJson == command.BriefJson && newest.Topic == topic)
+            return GccProjectBriefSaveResult.Saved(MapToDto(entity, newest.SavedAtUtc), MapRevision(newest));
+
+        _db.Entry(entity).Property(p => p.Version).OriginalValue = command.ExpectedVersion;
+
+        var now = DateTime.UtcNow;
+        entity.BriefJson = command.BriefJson;
+        entity.Topic = topic;
+        entity.UpdatedAtUtc = now;
+
+        var revision = new GccProjectRevision
+        {
+            ProjectId = entity.Id,
+            Kind = GccProjectRevisionKinds.Manual,
+            BriefJson = entity.BriefJson,
+            Topic = entity.Topic,
+            SavedBy = command.ActorUserId,
+            SavedAtUtc = now,
+        };
+        _db.GccProjectRevisions.Add(revision);
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _db.ChangeTracker.Clear();
+            return GccProjectBriefSaveResult.Conflict();
+        }
+
+        await transaction.CommitAsync(ct);
+        return GccProjectBriefSaveResult.Saved(MapToDto(entity, revision.SavedAtUtc), MapRevision(revision));
+    }
+
+    private static GccProjectRevisionDto MapRevision(GccProjectRevision revision) =>
+        new(
+            revision.Id,
+            revision.ProjectId,
+            revision.Kind,
+            revision.BriefJson,
+            revision.Topic,
+            revision.SavedBy,
+            revision.SavedAtUtc);
 
     public async Task<GccProjectWriteResult> ChangeStatusAsync(
         ChangeGccProjectStatusCommand command,
@@ -337,7 +425,7 @@ public class GccProjectRepository : IGccProjectRepository
                 .Where(u => u.Length > 0)
                 .ToList();
 
-    private static GccProjectDto MapToDto(GccProject entity) =>
+    private static GccProjectDto MapToDto(GccProject entity, DateTime? briefSavedAtUtc = null) =>
         new(
             entity.Id,
             entity.ClientId,
@@ -362,5 +450,6 @@ public class GccProjectRepository : IGccProjectRepository
             entity.Topic,
             entity.ResearchJson,
             entity.SiteSectionJson,
-            entity.Version);
+            entity.Version,
+            briefSavedAtUtc);
 }

@@ -20,6 +20,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccClient> GccClients => Set<GccClient>();
     public virtual DbSet<GccProject> GccProjects => Set<GccProject>();
     public virtual DbSet<GccProjectLogEntry> GccProjectLog => Set<GccProjectLogEntry>();
+    public virtual DbSet<GccProjectRevision> GccProjectRevisions => Set<GccProjectRevision>();
     public virtual DbSet<GccTask> GccTasks => Set<GccTask>();
     public virtual DbSet<GccTimeEntry> GccTimeEntries => Set<GccTimeEntry>();
     public virtual DbSet<GccDeliverable> GccDeliverables => Set<GccDeliverable>();
@@ -316,6 +317,35 @@ public class ContentCreatorDbContext : DbContext
 
             entity.HasIndex(e => new { e.ProjectId, e.OccurredAtUtc })
                 .HasDatabaseName("ix_gcc_project_log_project_id_occurred_at_utc");
+        });
+
+        modelBuilder.Entity<GccProjectRevision>(entity =>
+        {
+            entity.ToTable("gcc_project_revisions", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_gcc_project_revisions_kind",
+                    "kind IN ('manual', 'backfill')");
+            });
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Id).HasColumnName("id");
+            entity.Property(r => r.ProjectId).HasColumnName("project_id").IsRequired();
+            entity.Property(r => r.Kind).HasColumnName("kind").IsRequired().HasMaxLength(16);
+            entity.Property(r => r.BriefJson).HasColumnName("brief_json").HasColumnType("text");
+            entity.Property(r => r.Topic).HasColumnName("topic").HasMaxLength(1024);
+            entity.Property(r => r.SavedBy).HasColumnName("saved_by").IsRequired().HasMaxLength(256);
+            entity.Property(r => r.SavedAtUtc).HasColumnName("saved_at").IsRequired();
+
+            // RESTRICT like every content_creator key: a project with a brief history is not removable
+            // out from under it. Projects soft-delete, so nothing here ever needs to cascade.
+            entity.HasOne<GccProject>()
+                .WithMany()
+                .HasForeignKey(r => r.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(r => new { r.ProjectId, r.SavedAtUtc })
+                .IsDescending(false, true)
+                .HasDatabaseName("ix_gcc_project_revisions_project_id_saved_at");
         });
 
         modelBuilder.Entity<GccTask>(entity =>

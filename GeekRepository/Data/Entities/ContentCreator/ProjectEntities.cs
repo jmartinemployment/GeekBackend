@@ -239,3 +239,28 @@ public class GccDeliverable
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
+
+/// <summary>
+/// One saved state of a project's brief and keyword. Every save is kept (decision J5).
+/// </summary>
+/// <remarks>
+/// Written in the same SaveChanges as the project row it records, so the project's current brief and
+/// the latest revision cannot disagree. A row is never altered after it is written.
+/// </remarks>
+public class GccProjectRevision
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ProjectId { get; set; }
+
+    /// <summary>manual | backfill. The database carries the same list.</summary>
+    public string Kind { get; set; } = "manual";
+
+    public string? BriefJson { get; set; }
+    public string? Topic { get; set; }
+
+    /// <summary>The token subject of whoever saved it; for a backfill, the operator who ran it.</summary>
+    public string SavedBy { get; set; } = string.Empty;
+
+    public DateTime SavedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
