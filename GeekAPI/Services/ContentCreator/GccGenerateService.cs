@@ -1533,12 +1533,14 @@ public class GccGenerateService
         }
 
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
-        // Sourced only from real, already-verified partner FAQ pairs -- never invented and never
-        // re-derived the way Pillar's PAA-driven FAQ section has to answer from scratch.
+        // Sourced only from the partner FAQ pairs the extraction read off the partner's pages --
+        // never invented and never re-derived the way Pillar's PAA-driven FAQ section has to answer
+        // from scratch. The pairs are model-extracted and nothing checks them against the page text
+        // before this call; GccPartnerFaqAsset.VerifiedAnswer is a field name, not a verification.
         //
         // Held separately as well as appended, because the CTA retry below regenerates the body and
-        // would otherwise drop it -- it is answered from verified partner data, not written, so
-        // re-running the body has no bearing on it.
+        // would otherwise drop it -- it is answered from the partner's FAQ, not written from the
+        // body's evidence, so re-running the body has no bearing on it.
         Section? toolFaqSection = null;
         if (groundedExtraction is not null && groundedExtraction.FaqBank.Count > 0)
         {

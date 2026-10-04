@@ -522,7 +522,7 @@ public class GccGenerateServiceToolPageGroundingTests
             ContentGeneratorProvider.OpenAi, CancellationToken.None,
             create: Create(ResearchJsonWithOnePartnerPage()), passages: PartnerPassages());
 
-        // FAQ is a real, distinct call of its own -- carrying the verified answer for the model to
+        // FAQ is a real, distinct call of its own -- carrying the extracted answer for the model to
         // paraphrase, not a question it must answer from scratch -- and the resulting section
         // survives into the persisted document, beyond the body's own outline.
         var faqRequest = provider.Requests[2];

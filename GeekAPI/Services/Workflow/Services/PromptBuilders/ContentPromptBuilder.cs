@@ -163,9 +163,10 @@ public interface IContentPromptBuilder
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
-    /// for it. Sourced from real, already-verified partner FAQ pairs (never re-derived or invented
-    /// the way Pillar's PAA-driven FAQ has to be), so the model formats/paraphrases, it doesn't
-    /// answer from scratch.
+    /// for it. Sourced from the partner FAQ pairs the extraction read off the partner's pages (never
+    /// re-derived or invented the way Pillar's PAA-driven FAQ has to be), so the model
+    /// formats/paraphrases, it doesn't answer from scratch. The pairs are model-extracted and are
+    /// not checked against the page text before they reach this prompt.
     /// </summary>
     ChatCompletionRequest BuildToolFaqSectionPrompt(
         ProjectGenerationContext context,
@@ -2669,7 +2670,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"When the evidence for a section is thin, go further into what it does support -- the mechanism, what it changes for this reader's week, what deploying it involves with {context.PublisherName} -- rather than closing the section short.")
             .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {outline.Count} substantial sections, not four.")
             .AppendLine($"This word target is for the {outline.Count} sections above only -- a separate FAQ section, when the tool has " +
-                "verified partner FAQ data, is generated afterward and is additional, not part of this budget.")
+                "partner FAQ data, is generated afterward and is additional, not part of this budget.")
             .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent a feature, integration, or claim to fill space.")
             .AppendLine($"When persisted tool research is provided, treat it as the authoritative source — do not re-extract or contradict it.")
             .AppendLine($"Frame the implementation material as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
@@ -2779,7 +2780,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     /// <summary>
-    /// The tool page's FAQ section, built from already-verified partner answers.
+    /// The tool page's FAQ section, built from the partner answers the extraction read off the
+    /// partner's pages. Those answers are model-extracted and not checked against the page text, so
+    /// the prompt does not call them verified.
     /// Interface contract: <see cref="IContentPromptBuilder.BuildToolFaqSectionPrompt"/>.
     /// </summary>
     /// <remarks>
@@ -2799,7 +2802,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var faqBlock = string.Join(
             "\n\n",
             faqBank.Select((f, i) =>
-                $"  Q{i + 1}: {f.Question}\n  Verified answer: {f.VerifiedAnswer}\n  Source: {f.OriginProofUrl}"));
+                $"  Q{i + 1}: {f.Question}\n  Answer: {f.VerifiedAnswer}\n  Source: {f.OriginProofUrl}"));
 
         var system = new StringBuilder()
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
@@ -2810,16 +2813,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("This section's tag is \"h2\" and heading is exactly \"Frequently Asked Questions\". Each " +
                 "question is a child Section: tag \"h3\", heading is the question (verbatim or lightly tightened for " +
                 "clarity), paragraphs holds the answer.")
-            .AppendLine("Every answer below is already verified against the partner's own site -- paraphrase and " +
+            .AppendLine("Every answer below was taken from the partner's own site -- paraphrase and " +
                 $"tighten it into {context.PublisherName}'s ({context.ImplementerPositioning}) voice, but never change " +
-                "its factual content, add a claim not in the verified answer, or drop the substance to shorten it.")
+                "its factual content, add a claim not in the answer given, or drop the substance to shorten it.")
             .AppendLine("Use every question provided, in the order given, none invented and none skipped.")
             .ToString();
 
         var user = new StringBuilder()
             .AppendLine($"Tool name: {app.Name}")
             .AppendLine($"Pillar topic: {pillarMetadata.Title}")
-            .AppendLine("=== VERIFIED PARTNER FAQ (authoritative — paraphrase, do not re-derive) ===")
+            .AppendLine("=== PARTNER FAQ (from the partner's own pages — paraphrase, do not re-derive) ===")
             .AppendLine(faqBlock)
             .ToString();
 
