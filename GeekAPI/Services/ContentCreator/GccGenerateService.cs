@@ -489,7 +489,11 @@ public class GccGenerateService
         IReadOnlyList<string> Headings);
 
     /// <summary>One partner's tool page, or the reason it could not be written.</summary>
-    public sealed record ToolPageOutcome(string ProductName, string? BodyJson, string? Refusal)
+    /// <param name="Ledger">What this page was made from -- its calls, discarded drafts, candidates,
+    /// passages and pre-flight verdict -- for the version's evidence. Null for a page refused before
+    /// drafting.</param>
+    public sealed record ToolPageOutcome(
+        string ProductName, string? BodyJson, string? Refusal)
     {
         public bool Written => BodyJson is not null;
     }
@@ -1240,7 +1244,7 @@ public class GccGenerateService
         GccPartnerExtractionDocument? extraction = null)
     {
         var llmType = ToLlm(provider);
-        var llm = _cwProviders.Get(llmType);
+        var llm = GetLlm(provider);
 
         var name = toolName.Trim();
         var slug = string.IsNullOrWhiteSpace(preferredSlug) ? Slugify(name) : preferredSlug.Trim();
@@ -1387,7 +1391,7 @@ public class GccGenerateService
         // written out again here: this literal was the third copy of that list, sitting under a
         // comment saying it had to be kept in sync with a fourth copy inside BuildToolBodyPrompt.
         // EvidenceBlock carries the QUOTEABLE RESEARCH block: the passages GccGroundingResolver
-        // merged into ResearchJson. The lede reads it from this context, and WriteToolBodyAsync below
+        // merged into ResearchJson. The lede reads it from this context, and WriteToolDraftAsync below
         // keeps it and appends the competitor and own-site blocks after it, so the body sees all
         // three. ExtractedResearchJson is the other half -- the partner extraction, which reaches
         // the body as PARTNER DATA.
@@ -1446,7 +1450,7 @@ public class GccGenerateService
         // dropping it here removes a misleading duplicate, not the only copy.
         // In batches, same reason as the pillar: this page's own outline asks for 3,200-4,400 words
         // and a single response holds about 3,000 in this JSON.
-        // The CTA retry below re-writes the body, so it batches too: a retry that asks for the whole
+        // The guard's retry re-writes the body, so it batches too: a retry that asks for the whole
         // page in one response is the arithmetic cap batching removed, put back on the draft that
         // ships.
         // Cut before the body is written, not after: the writer quotes from this list and the guard
@@ -1462,29 +1466,11 @@ public class GccGenerateService
         // (GccGroundingOutcome.PartnerPassages had no consumer in the solution).
         var quoteCandidates = GccQuoteCandidates.From(passages ?? []);
 
-        // The body's evidence is the research block AND what the caller adds to it, never one in
-        // place of the other. This took a single `evidenceBlock` that replaced the context's, and
-        // both callers passed the competitor/own-site text -- so the QUOTEABLE RESEARCH block set
-        // on toolOutlineCtx reached the lede and was overwritten before every body call. The tool
-        // body, the one type that must quote a partner, was written without the retrieved passages.
-        Task<List<Section>> WriteToolBodyAsync(string? additionalBlock) =>
-            GenerateSectionsInBatchesAsync(
-                llm,
-                toolType,
-                toolOutlineCtx with
-                {
-                    Metadata = pillarMeta,
-                    Lede = toolLede,
-                    EvidenceBlock = string.Join(
-                        Environment.NewLine,
-                        new[] { toolOutlineCtx.EvidenceBlock, additionalBlock }
-                            .Where(b => !string.IsNullOrWhiteSpace(b))),
-                    QuoteCandidates = quoteCandidates,
-                },
-                toolType.OutlineFor(toolOutlineCtx),
-                $"Tool page '{name}'",
-                ct);
-
+        // The body's evidence is the research block AND the competitor/own-site blocks, never one in
+        // place of the other. The body writer took a single block that replaced the context's, and
+        // its callers passed the competitor/own-site text -- so the QUOTEABLE RESEARCH block set on
+        // toolOutlineCtx reached the lede and was overwritten before every body call. The tool body,
+        // the one type that must quote a partner, was written without the retrieved passages.
         // The tool page had no competitor evidence at all, while one of its six sections is
         // "how a buyer should judge this product -- fit, pricing, and the adjacent approaches they
         // are also weighing". It was writing that section with no idea what the alternatives say.
@@ -1494,41 +1480,6 @@ public class GccGenerateService
                 Environment.NewLine,
                 new[] { BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create) }
                     .Where(b => b.Length > 0));
-        var sections = await WriteToolBodyAsync(toolCompetitorBlock);
-
-        // Every tool page carries a block quotation of the partner, in their own published words
-        // (Jeff, 2026-09-26: "I want a blockquote in each tool"). The prompt asks for it; this is
-        // what makes it true. Without a check the model could return the page with no quote at all,
-        // or with one it wrote itself carrying a real company's URL on its cite -- ContentGuardrail
-        // passes quotes through untouched by design, and the renderer writes the cite straight onto
-        // the tag, so nothing further down would have looked.
-        //
-        // Refuse, never repair: a rewritten quote is still a quote nobody verified, and trimming one
-        // out would ship the page missing an element of the type. Same "Refused:" prefix the partner
-        // grounding gate uses, so GenerateAsync answers 400 rather than a 503 reading as an outage.
-        //
-        // Scoped to `create is not null`, the same boundary the partner-grounding refusal above
-        // draws. The legacy no-create path is already exempt from grounding entirely; it has no
-        // partner evidence at all, so requiring a partner quote there would be requiring an
-        // invented one. Where the page is grounded, it carries the quote.
-        // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a live run
-        // lost AvidXchange's page to a shortened span with an ellipsis added. Snapping restores the
-        // system's own string for anything that matches a candidate; the guard below still refuses
-        // anything that matches none.
-        if (create is not null)
-        {
-            sections = [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(sections, quoteCandidates)];
-        }
-
-        var quoteViolations = create is null
-            ? []
-            : Guardrail.GccToolQuoteGuard.FindViolations(sections, quoteCandidates);
-        if (quoteViolations.Count > 0)
-        {
-            throw new InvalidOperationException(
-                $"Refused: the tool page '{name}' does not carry a verifiable block quotation. "
-                + string.Join(" ", quoteViolations));
-        }
 
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
         // Sourced only from the partner FAQ pairs the extraction read off the partner's pages --
@@ -1536,90 +1487,89 @@ public class GccGenerateService
         // from scratch. The pairs are model-extracted and nothing checks them against the page text
         // before this call; GccPartnerFaqAsset.VerifiedAnswer is a field name, not a verification.
         //
-        // Held separately as well as appended, because the CTA retry below regenerates the body and
-        // would otherwise drop it -- it is answered from the partner's FAQ, not written from the
-        // body's evidence, so re-running the body has no bearing on it.
+        // Written once, after the first body draft, and carried onto the retry: it is answered from
+        // the partner's FAQ, not from the body's evidence, so re-writing the body has no bearing on
+        // it. The CTA retry used to rebuild the page from its own sections and re-append this by
+        // hand; now every draft the guard sees carries it.
         Section? toolFaqSection = null;
-        if (groundedExtraction is not null && groundedExtraction.FaqBank.Count > 0)
+        var toolFaqWritten = false;
+        async Task<Section?> ToolFaqAsync()
         {
+            if (toolFaqWritten) return toolFaqSection;
+            toolFaqWritten = true;
+            if (groundedExtraction is null || groundedExtraction.FaqBank.Count == 0) return null;
             var faqResult = await llm.CompleteAsync(
                 _prompts.BuildToolFaqSectionPrompt(context, pillarMeta, app, groundedExtraction.FaqBank),
                 ct);
             toolFaqSection = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section");
-            sections.Add(toolFaqSection);
+            return toolFaqSection;
         }
 
-        var document = new ContentDocument(toolLede with { Tag = "h2" }, sections);
-
-        // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
-        // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
-        // draft closing on "book a consultation with our team" as plain text ships, because a run
-        // with no href is ordinary prose and the renderer is right to draw it that way.
+        // Every tool page carries exactly one block quotation of the partner, in their own published
+        // words (Jeff, 2026-09-26: "I want a blockquote in each tool"). The prompt asks for it; the
+        // guard is what makes it true -- without a check the model could return the page with no
+        // quote at all, or with one it wrote itself carrying a real company's URL on its cite, and
+        // ContentGuardrail passes quotes through untouched by design.
         //
-        // One retry naming the omission before the refusal stands, matching pillar and blog. The
-        // retry regenerates the body only, so the FAQ section is put back onto it.
-        var toolCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
-        if (toolCtaViolations.Count > 0)
+        // Scoped to `create is not null` (no candidates, no quotation check), the same boundary the
+        // partner-grounding refusal above draws. The legacy no-create path has no partner evidence at
+        // all, so requiring a partner quote there would be requiring an invented one.
+        var toolGuardInputs = GuardInputsFor(
+            create,
+            context,
+            provenance: null,
+            requiredTools: [name],
+            evidenceText: string.Join(
+                Environment.NewLine,
+                toolOutlineCtx.EvidenceBlock ?? string.Empty,
+                toolCompetitorBlock,
+                brief ?? string.Empty),
+            quoteCandidates: create is null ? null : quoteCandidates,
+            extractionJson: extractedToolResearchJson);
+
+        async Task<GccDraft> WriteToolDraftAsync(string? retryInstructions)
         {
-            _logger.LogInformation("Tool closing did not link the scheduler; retrying once with the omission named.");
-            var toolCtaSections = await WriteToolBodyAsync(
-                string.IsNullOrEmpty(toolCompetitorBlock)
-                    ? Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!)
-                    : $"{toolCompetitorBlock}{Environment.NewLine}"
-                      + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
-            // Resolved before it is judged, the same as the first draft: a retry that chose its
-            // quotation by number would otherwise be refused for carrying empty runs.
-            toolCtaSections = [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(toolCtaSections, quoteCandidates)];
-            if (toolFaqSection is not null) toolCtaSections.Add(toolFaqSection);
-            var retried = new ContentDocument(toolLede with { Tag = "h2" }, toolCtaSections);
-            var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
-                retried, context.ConsultationAnchorHref);
-            // A tool page carries a block quotation and nothing else does, so a retry that fixes
-            // the link and loses the quote is not a draft worth keeping. This check belongs to
-            // this method only.
-            if (retriedViolations.Count == 0
-                && Guardrail.GccToolQuoteGuard.FindViolations(toolCtaSections, quoteCandidates).Count == 0)
-            {
-                document = retried;
-                sections = toolCtaSections;
-                toolCtaViolations = retriedViolations;
-            }
+            var shortfalls = new List<string>();
+            var written = await GenerateSectionsInBatchesAsync(
+                llm,
+                toolType,
+                toolOutlineCtx with
+                {
+                    Metadata = pillarMeta,
+                    Lede = toolLede,
+                    EvidenceBlock = string.Join(
+                        Environment.NewLine,
+                        new[] { toolOutlineCtx.EvidenceBlock, toolCompetitorBlock, retryInstructions }
+                            .Where(b => !string.IsNullOrWhiteSpace(b))),
+                    QuoteCandidates = quoteCandidates,
+                },
+                toolType.OutlineFor(toolOutlineCtx),
+                $"Tool page '{name}'",
+                ct,
+                shortfalls);
+
+            // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a
+            // live run lost AvidXchange's page to a shortened span with an ellipsis added. Snapping
+            // restores the system's own string for anything that matches a candidate; the guard still
+            // refuses anything that matches none. On the retry too, or a retry that chose its
+            // quotation by number would be refused for carrying empty runs.
+            List<Section> sections = create is null
+                ? written
+                : [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(written, quoteCandidates)];
+            if (await ToolFaqAsync() is { } faq) sections.Add(faq);
+            return new GccDraft(new ContentDocument(toolLede with { Tag = "h2" }, sections), shortfalls);
         }
 
-        // Reported, not refused. The scheduler href is a known constant that did not get attached to
-        // a sentence -- nothing is invented either way -- and a draft whose closing is unlinked is
-        // one the operator can see and fix, where a refused generate is nothing at all
-        // (Jeff, 2026-09-27: "It's a CTA? WTF?").
-        var toolWarnings = new List<string>();
-        if (toolCtaViolations.Count > 0)
-        {
-            _logger.LogWarning(
-                "The tool page {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
-                name, string.Join(" ", toolCtaViolations));
-            toolWarnings.Add(
-                $"The tool page '{name}' ships without a scheduler link, after a retry naming the omission. "
-                + string.Join(" ", toolCtaViolations));
-        }
+        var (document, toolWarnings) = await GuardedDraftAsync(
+            $"the tool page '{name}'",
+            WriteToolDraftAsync,
+            doc => Guardrail.GccDraftGuard.Tool(
+                doc, toolGuardInputs with { AppendedSections = toolFaqSection is null ? 0 : 1 }));
 
         // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
-        // plus an optional FAQ section) and this is the revenue-critical content type -- the one
-        // place this couldn't be left as a follow-up the way it briefly was. `section` is accepted
-        // but genuinely unused inside GenerateSectionImagePromptsAsync (checked directly), so null
-        // is correct here, not a gap.
-        var documentWithImagePrompts = await GenerateSectionImagePromptsAsync(
-            "tool", name, JsonSerializer.Serialize(document, CwDocumentJson), null, provider, ct);
-        document = JsonSerializer.Deserialize<ContentDocument>(documentWithImagePrompts, CwDocumentJson)
-            ?? throw new InvalidOperationException($"Could not re-read '{name}' after attaching image prompts.");
-
-        // The page's own subject has to appear in it. The prompt says "Name {app.Name} throughout,
-        // in every section" and nothing checked -- the same asymmetry that let a blog name two
-        // partners out of five while looking finished. One product here rather than five, but the
-        // failure is worse: a tool page that never names its tool is not a thin page, it is a
-        // category explainer wearing a product's title.
-        var toolMissing = GccRequiredToolMentions.Missing(document, [name]);
-        if (toolMissing.Count > 0)
-            throw new InvalidOperationException(
-                $"Tool page for '{name}' never names it. A page about a product must name the product.");
+        // plus an optional FAQ section) and this is the revenue-critical content type. `section` is
+        // accepted but unused inside GenerateSectionImagePromptsAsync, so null is correct here.
+        document = await WithSectionImagePromptsAsync("tool", name, document, null, provider, toolWarnings, ct);
 
         var wordCount = ContentDocumentText.CountWords(document);
 
@@ -1680,7 +1630,8 @@ public class GccGenerateService
         if (string.IsNullOrWhiteSpace(jsonLd))
             throw new InvalidOperationException($"CWV2 tool JSON-LD schema builder returned empty for '{name}'.");
 
-        return new ToolPageResult(name, slug, document, metadata, jsonLd, pillarUrl, wordCount, toolWarnings);
+        return new ToolPageResult(
+            name, slug, document, metadata, jsonLd, pillarUrl, wordCount, toolWarnings);
     }
 
     private static readonly JsonSerializerOptions PartnerExtractionJsonOpts = new(JsonSerializerDefaults.Web);
@@ -2437,13 +2388,13 @@ public class GccGenerateService
         // headings stay out of a prompt that states no provenance rules.
         var ledeEvidence = BuildResearchBlock(create);
         var pillarPromptCtx = outlineCtx with { Metadata = metadata, EvidenceBlock = ledeEvidence };
-        var ledeResult = await llm.CompleteAsync(pillarType.Lede(pillarPromptCtx), ct);
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
         // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way
         // ContentGenerationOrchestrator reads the same prompt. Reading it as a sections array threw
         // "Model did not return a valid sections array for pillar lede" on every single pillar
         // generation, while the model was in fact complying exactly (Jeff, 2026-09-23, whose error
         // carried a perfectly good directAddress hook that this then discarded).
+        var ledeResult = await llm.CompleteAsync(pillarType.Lede(pillarPromptCtx), ct);
         var (pillarLede, _, pillarIntroduction) =
             LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
 
@@ -2460,204 +2411,81 @@ public class GccGenerateService
         // SectionsPerBatch -- so asking for the whole page in one call capped it by arithmetic.
         var pillarOutline = pillarType.OutlineFor(outlineCtx);
 
-        // Every retry below re-writes the body, so every retry batches too. A retry that asks for
-        // the whole page in one response is exactly the arithmetic cap batching removed, put back
-        // at the point the page can least afford it -- the draft that ships.
-        Task<List<Section>> WritePillarBodyAsync(string evidenceBlock) =>
-            GenerateSectionsInBatchesAsync(
-                llm,
-                pillarType,
-                pillarPromptCtx with { EvidenceBlock = evidenceBlock, Lede = pillarLede },
-                [.. pillarOutline.Skip(1)],
-                "Pillar body",
-                ct);
-
-        var bodySections = await WritePillarBodyAsync(pillarEvidence);
-
-        // Stage 2: every heading the model invented beyond the assigned outline must be licensed
-        // by real material shown to it -- retrieval, the brief, curated PAA, or a competitor
-        // heading -- never invented from nothing. Fail closed, same as everywhere else in this
-        // codebase: a draft with an unlicensed heading is not persisted, not trimmed to the
-        // licensed subset.
-        var provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
-
-        // Before provenance: a tools section fails that check for the wrong-looking reason, because
-        // the model licenses it against a real "Top 5 ... Tools" heading on the site.
-        var pillarToolsSections = Guardrail.GccToolsSectionGuard.FindToolsSections(bodySections);
-        if (pillarToolsSections.Count > 0)
-        {
-            _logger.LogInformation(
-                "Pillar wrote a tools section ({Headings}); retrying once with it named.",
-                string.Join(", ", pillarToolsSections));
-            var retried = await WritePillarBodyAsync(
-                $"{pillarEvidence}{Environment.NewLine}"
-                + Guardrail.GccToolsSectionGuard.RetryInstruction(pillarToolsSections));
-            if (Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
-            {
-                bodySections = retried;
-                provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
-                pillarToolsSections = [];
-            }
-        }
-
-        if (pillarToolsSections.Count > 0)
-            throw new InvalidOperationException(
-                "Refused: the pillar carries a section whose job is to list tools — "
-                + string.Join(", ", pillarToolsSections.Select(h => $"\"{h}\""))
-                + " — after a retry naming it. Tools belong in the prose of the sections they serve.");
-
-        // One retry, the same courtesy every other guard on this path gets. Re-tagging a heading or
-        // rewriting it is mechanical once the writer is told which values actually license one, and
-        // refusing on first sight threw away a whole generate over a tag.
-        if (provenanceViolations.Count > 0)
-        {
-            _logger.LogInformation(
-                "Pillar wrote {Count} unlicensed heading(s); retrying once with the licensable values named.",
-                provenanceViolations.Count);
-            var provenanceRetry = await WritePillarBodyAsync(
-                $"{pillarEvidence}{Environment.NewLine}"
-                + GccHeadingProvenanceGuard.RetryInstruction(provenanceViolations, evidence));
-            // A body with no sections has no unlicensed headings either, so "zero violations" is not
-            // on its own evidence that the retry worked -- it is also what an empty response looks
-            // like. Requiring sections stops an empty retry silently replacing a real body, which is
-            // the success-shaped empty result this codebase refuses everywhere else.
-            var retryViolations = provenanceRetry.Count == 0
-                ? provenanceViolations
-                : GccHeadingProvenanceGuard.FindUnlicensedHeadings(provenanceRetry, evidence);
-            if (provenanceRetry.Count > 0 && retryViolations.Count == 0)
-            {
-                bodySections = provenanceRetry;
-                provenanceViolations = [];
-            }
-            else
-            {
-                provenanceViolations = retryViolations;
-            }
-        }
-
-        if (provenanceViolations.Count > 0)
-            throw new InvalidOperationException(
-                "Pillar body contains unlicensed headings after a retry naming the licensable values: "
-                + string.Join("; ", provenanceViolations));
-
-        // Stage 8c: the brief's PAA questions were parsed (ExtractBriefFields) and then silently
-        // dropped -- never fed to an FAQ section anywhere on this path. Not "cluster PAA again at
-        // generation time" (the questions are already operator-curated, by SerpIngestPanel's own
-        // selection UI, before they ever reach BriefJson); just stop discarding them.
+        // The retry re-writes the body, so it batches too. A retry that asks for the whole page in one
+        // response is exactly the arithmetic cap batching removed, put back at the point the page can
+        // least afford it -- the draft that ships.
+        // The People Also Ask section, written before the body and carried onto every draft of it.
+        // It was written after the provenance check and appended to bodySections, and the mentions
+        // and CTA retries then rebuilt the document from their own sections -- so a pillar that
+        // needed either retry shipped without its FAQ. It depends on the brief's questions, not on
+        // the body, so nothing a retry changes can change it.
+        //
+        // The brief's PAA questions were parsed (ExtractBriefFields) and then silently dropped --
+        // never fed to an FAQ section anywhere on this path -- until Stage 8c. Not "cluster PAA
+        // again at generation time" (the questions are already operator-curated, by SerpIngestPanel's
+        // own selection UI, before they ever reach BriefJson); just stop discarding them.
+        Section? pillarFaq = null;
         var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions;
         if (paaQuestions is { Count: > 0 })
         {
             var faqResult = await llm.CompleteAsync(
                 _prompts.BuildArticleFaqSectionPrompt(context, metadata, paaQuestions, isRegeneration: false),
                 ct);
-            bodySections.Add(LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", "pillar FAQ section"));
+            pillarFaq = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", "pillar FAQ section");
         }
 
-        // The lede IS the first H2. When the model gives the lede and the introduction the same
-        // heading, they are one section and storing both duplicates it -- same merge the
-        // orchestrator does for this prompt. Otherwise the introduction is a real section and leads
-        // the body, so the outline's first entry is not lost.
-        var lede = pillarLede with { Tag = "h2" };
+        // The lede IS the first H2, and the introduction is the lede continuing under its heading.
         // Always merged, never conditional. This used to compare the two headings and insert the
         // introduction as a separate first section when they differed -- so whether a reader got one
         // opening or two came down to whether the model happened to return matching strings. Jeff,
         // 2026-09-23: "This just feels wrong". The introduction carries no heading, so there is
-        // nothing to compare and nothing to decide: it is the lede continuing, under the lede's own
-        // heading.
+        // nothing to compare and nothing to decide.
+        var lede = pillarLede with { Tag = "h2" };
         lede = lede with
         {
             Paragraphs = [.. lede.Paragraphs, .. pillarIntroduction.Paragraphs],
             Children = [.. lede.Children, .. pillarIntroduction.Children],
         };
 
-        var document = new ContentDocument(lede, bodySections);
-        document = ContentGuardrail.Apply(document).Document;
+        var pillarGuardInputs = GuardInputsFor(
+            create,
+            context,
+            evidence,
+            requiredTools,
+            pillarEvidence,
+            appendedSections: pillarFaq is null ? 0 : 1);
 
-        // One retry naming what was left out, rather than discarding a finished draft over an
-        // omission the model would fix if told. Then the refusal stands -- asking repeatedly until
-        // the answer comes back right is how unsupported claims get written.
-        var pillarMissing = GccRequiredToolMentions.Missing(document, requiredTools);
-        if (pillarMissing.Count > 0)
+        // Every check, on the draft and on its one retry -- see GccDraftGuard. The FAQ is part of the
+        // document each time, so it is checked for links, figures and quotations like the body is, and
+        // no retry can lose it.
+        async Task<GccDraft> WritePillarDraftAsync(string? retryInstructions)
         {
-            _logger.LogInformation(
-                "Pillar omitted {Missing}; retrying once with the omission named.", string.Join(", ", pillarMissing));
-            var retrySections = await WritePillarBodyAsync(
-                $"{pillarEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(pillarMissing)}");
-            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(retrySections, evidence).Count == 0)
-            {
-                document = ContentGuardrail.Apply(new ContentDocument(lede, retrySections)).Document;
-                pillarMissing = GccRequiredToolMentions.Missing(document, requiredTools);
-            }
-        }
-
-        // Reported, not refused. This threw, and a 3,000-word pillar naming four of five partners was
-        // discarded with the money spent on it and nothing to show -- "pillar: Pillar names 4 of 5
-        // partner tools ... Missing: Ramp", 2026-10-04, and the blog beside it the same. The draft is
-        // the known-good output: the operator can see the gap and add the partner where it belongs,
-        // where a refused generate gives them nothing to work from. The gap travels with the draft
-        // (the envelope's `warnings`) and is pushed to the workspace by name, so it is never silent.
-        // Same reasoning the scheduler-link omission below has carried since 2026-09-27.
-        var pillarWarnings = new List<string>();
-        if (pillarMissing.Count > 0)
-        {
-            var gap = $"Pillar names {requiredTools.Count - pillarMissing.Count} of {requiredTools.Count} partner tools, "
-                + $"after a retry naming the omission. Missing: {string.Join(", ", pillarMissing)}. "
-                + "The draft is saved as written. Add the missing partner where it belongs, or check that it has an "
-                + "indexed crawl, since a partner with no evidence gives the writer nothing to say about it.";
-            _logger.LogWarning("{Gap}", gap);
-            pillarWarnings.Add(gap);
-        }
-
-        // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
-        // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
-        // draft closing on "book a consultation with our team" as plain text ships, because a run
-        // with no href is ordinary prose and the renderer is right to draw it that way.
-        //
-        // One retry naming the omission before the refusal stands, the same treatment the required
-        // partner mentions above get.
-        var pillarCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
-        if (pillarCtaViolations.Count > 0)
-        {
-            _logger.LogInformation("Pillar closing did not link the scheduler; retrying once with the omission named.");
-            var pillarCtaSections = await WritePillarBodyAsync(
-                $"{pillarEvidence}{Environment.NewLine}"
-                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
-            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(pillarCtaSections, evidence).Count == 0)
-            {
-                var retried = ContentGuardrail.Apply(new ContentDocument(lede, pillarCtaSections)).Document;
-                var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
-                    retried, context.ConsultationAnchorHref);
-                // Only take the retry when it fixed the thing it was asked to fix, and when it did
-                // not drop a partner the first draft had named -- trading one refusal for another is
-                // not progress.
-                if (retriedViolations.Count == 0
-                    && GccRequiredToolMentions.Missing(retried, requiredTools).Count == 0)
+            var shortfalls = new List<string>();
+            var sections = await GenerateSectionsInBatchesAsync(
+                llm,
+                pillarType,
+                pillarPromptCtx with
                 {
-                    document = retried;
-                    pillarCtaViolations = retriedViolations;
-                }
-            }
+                    EvidenceBlock = retryInstructions is null
+                        ? pillarEvidence
+                        : $"{pillarEvidence}{Environment.NewLine}{retryInstructions}",
+                    Lede = pillarLede,
+                },
+                [.. pillarOutline.Skip(1)],
+                "Pillar body",
+                ct,
+                shortfalls);
+            if (pillarFaq is not null) sections.Add(pillarFaq);
+            return new GccDraft(ContentGuardrail.Apply(new ContentDocument(lede, sections)).Document, shortfalls);
         }
 
-        // Reported, not refused. The scheduler href is a known constant that did not get attached to
-        // a sentence -- nothing is invented either way -- and a draft whose closing is unlinked is
-        // one the operator can see and fix, where a refused generate is nothing at all
-        // (Jeff, 2026-09-27: "It's a CTA? WTF?").
-        if (pillarCtaViolations.Count > 0)
-        {
-            _logger.LogWarning(
-                "The pillar {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
-                create.Topic, string.Join(" ", pillarCtaViolations));
-            pillarWarnings.Add(
-                "The pillar ships without a scheduler link, after a retry naming the omission. "
-                + string.Join(" ", pillarCtaViolations));
-        }
+        var (document, pillarWarnings) = await GuardedDraftAsync(
+            "the pillar", WritePillarDraftAsync, doc => Guardrail.GccDraftGuard.Pillar(doc, pillarGuardInputs));
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
-        var pillarWithPrompts = await GenerateSectionImagePromptsAsync(
-            "pillar", create.Topic, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct);
-        document = JsonSerializer.Deserialize<ContentDocument>(pillarWithPrompts, CwDocumentJson) ?? document;
+        document = await WithSectionImagePromptsAsync(
+            "pillar", create.Topic, document, section, provider, pillarWarnings, ct);
 
         // Title, standfirst, meta description and TechArticle JSON-LD. v1's orchestrator produced
         // all of it for a pillar; the Create reimplementation returned a bare document, leaving
@@ -2803,168 +2631,47 @@ public class GccGenerateService
         // in this JSON, so asking for the whole post in one call capped it by arithmetic -- 1,199
         // words and a 0.2% keyword density were the symptom (Jeff, 2026-09-28).
         //
-        // Every retry below re-writes the body, so every retry batches too.
+        // The retry re-writes the body, so it batches too.
         var blogOutline = blogType.OutlineFor(blogPromptCtx);
-        Task<List<Section>> WriteBlogBodyAsync(string evidenceBlock) =>
-            GenerateSectionsInBatchesAsync(
+        var blogGuardInputs = GuardInputsFor(
+            create,
+            context,
+            evidence,
+            blogRequiredTools,
+            blogEvidence);
+
+        // Every check, on the draft and on its one retry -- see GccDraftGuard.
+        async Task<GccDraft> WriteBlogDraftAsync(string? retryInstructions)
+        {
+            var shortfalls = new List<string>();
+            var sections = await GenerateSectionsInBatchesAsync(
                 llm,
                 blogType,
-                blogPromptCtx with { EvidenceBlock = evidenceBlock, Lede = blogLede },
+                blogPromptCtx with
+                {
+                    EvidenceBlock = retryInstructions is null
+                        ? blogEvidence
+                        : $"{blogEvidence}{Environment.NewLine}{retryInstructions}",
+                    Lede = blogLede,
+                },
                 blogOutline,
                 "Blog body",
-                ct);
-
-        List<Section> bodySections = await WriteBlogBodyAsync(blogEvidence);
-
-        var provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
-        // Before provenance, because a tools section fails provenance for the wrong-looking reason:
-        // the model tries to license it against a real "Top 5 ... Tools" heading on the site, and
-        // the refusal then talks about tags when the problem is the section. One retry naming it,
-        // then the refusal stands.
-        var blogToolsSections = Guardrail.GccToolsSectionGuard.FindToolsSections(bodySections);
-        if (blogToolsSections.Count > 0)
-        {
-            _logger.LogInformation(
-                "Blog wrote a tools section ({Headings}); retrying once with it named.",
-                string.Join(", ", blogToolsSections));
-            var retried = await WriteBlogBodyAsync(
-                $"{blogEvidence}{Environment.NewLine}"
-                + Guardrail.GccToolsSectionGuard.RetryInstruction(blogToolsSections));
-            if (Guardrail.GccToolsSectionGuard.FindToolsSections(retried).Count == 0)
-            {
-                bodySections = retried;
-                provenanceViolations = GccHeadingProvenanceGuard.FindUnlicensedHeadings(bodySections, evidence);
-                blogToolsSections = [];
-            }
+                ct,
+                shortfalls);
+            return new GccDraft(
+                ContentGuardrail.Apply(new ContentDocument(blogLede with { Tag = "h2" }, sections)).Document,
+                shortfalls);
         }
 
-        if (blogToolsSections.Count > 0)
-            throw new InvalidOperationException(
-                "Refused: the blog carries a section whose job is to list tools — "
-                + string.Join(", ", blogToolsSections.Select(h => $"\"{h}\""))
-                + " — after a retry naming it. Tools belong in the prose of the sections they serve.");
-
-        // Same one retry as the pillar, and for the same reason: a model that tagged a heading
-        // "paa:How to implement AI in accounts payable?" -- a question that reads exactly like a real
-        // one and is not in this brief -- can fix that when told which values exist.
-        if (provenanceViolations.Count > 0)
-        {
-            _logger.LogInformation(
-                "Blog wrote {Count} unlicensed heading(s); retrying once with the licensable values named.",
-                provenanceViolations.Count);
-            var provenanceRetry = await WriteBlogBodyAsync(
-                $"{blogEvidence}{Environment.NewLine}"
-                + GccHeadingProvenanceGuard.RetryInstruction(provenanceViolations, evidence));
-            // A body with no sections has no unlicensed headings either, so "zero violations" is not
-            // on its own evidence that the retry worked -- it is also what an empty response looks
-            // like. Requiring sections stops an empty retry silently replacing a real body, which is
-            // the success-shaped empty result this codebase refuses everywhere else.
-            var retryViolations = provenanceRetry.Count == 0
-                ? provenanceViolations
-                : GccHeadingProvenanceGuard.FindUnlicensedHeadings(provenanceRetry, evidence);
-            if (provenanceRetry.Count > 0 && retryViolations.Count == 0)
-            {
-                bodySections = provenanceRetry;
-                provenanceViolations = [];
-            }
-            else
-            {
-                provenanceViolations = retryViolations;
-            }
-        }
-
-        if (provenanceViolations.Count > 0)
-            throw new InvalidOperationException(
-                "Blog body contains unlicensed headings after a retry naming the licensable values: "
-                + string.Join("; ", provenanceViolations));
-
-        var document = new ContentDocument(blogLede with { Tag = "h2" }, bodySections);
-        document = ContentGuardrail.Apply(document).Document;
-
-        var blogMissing = GccRequiredToolMentions.Missing(document, blogRequiredTools);
-        if (blogMissing.Count > 0)
-        {
-            _logger.LogInformation(
-                "Blog omitted {Missing}; retrying once with the omission named.", string.Join(", ", blogMissing));
-            var blogRetrySections = await WriteBlogBodyAsync(
-                $"{blogEvidence}{Environment.NewLine}{GccRequiredToolMentions.RetryInstruction(blogMissing)}");
-            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(blogRetrySections, evidence).Count == 0)
-            {
-                document = ContentGuardrail.Apply(
-                    new ContentDocument(blogLede with { Tag = "h2" }, blogRetrySections)).Document;
-                blogMissing = GccRequiredToolMentions.Missing(document, blogRequiredTools);
-            }
-        }
-
-        // Reported, not refused -- see the pillar's note above; the blog threw the same day.
-        var blogWarnings = new List<string>();
-        if (blogMissing.Count > 0)
-        {
-            var gap = $"Blog names {blogRequiredTools.Count - blogMissing.Count} of {blogRequiredTools.Count} partner tools, "
-                + $"after a retry naming the omission. Missing: {string.Join(", ", blogMissing)}. "
-                + "The draft is saved as written. Add the missing partner where it belongs, or check that it has an "
-                + "indexed crawl, since a partner with no evidence gives the writer nothing to say about it.";
-            _logger.LogWarning("{Gap}", gap);
-            blogWarnings.Add(gap);
-        }
-
-        // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
-        // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
-        // draft closing on "book a consultation with our team" as plain text ships, because a run
-        // with no href is ordinary prose and the renderer is right to draw it that way.
-        //
-        // One retry naming the omission before the refusal stands, the same treatment the required
-        // partner mentions above get: the model does emit the run when told plainly, and discarding
-        // two thousand words over a missing href is waste.
-        var blogCtaViolations = Guardrail.GccClosingCtaGuard.FindViolations(document, context.ConsultationAnchorHref);
-        if (blogCtaViolations.Count > 0)
-        {
-            _logger.LogInformation("Blog closing did not link the scheduler; retrying once with the omission named.");
-            var ctaRetrySections = await WriteBlogBodyAsync(
-                $"{blogEvidence}{Environment.NewLine}"
-                + Guardrail.GccClosingCtaGuard.RetryInstruction(context.ConsultationAnchorHref!));
-            if (GccHeadingProvenanceGuard.FindUnlicensedHeadings(ctaRetrySections, evidence).Count == 0)
-            {
-                var retried = ContentGuardrail.Apply(
-                    new ContentDocument(blogLede with { Tag = "h2" }, ctaRetrySections)).Document;
-                var retriedViolations = Guardrail.GccClosingCtaGuard.FindViolations(
-                    retried, context.ConsultationAnchorHref);
-                // Only take the retry when it fixed the thing it was asked to fix, and when it did
-                // not drop a partner the first draft had named -- the same two conditions the pillar
-                // retry applies. This checked only the first: the comment said the retry "would
-                // also discard the required-tool mentions the first one had satisfied" and then
-                // took it without looking, so a retry naming four of five partners was stored after
-                // the mentions gate above had already passed on five.
-                if (retriedViolations.Count == 0
-                    && GccRequiredToolMentions.Missing(retried, blogRequiredTools).Count == 0)
-                {
-                    document = retried;
-                    blogCtaViolations = retriedViolations;
-                }
-            }
-        }
-
-        // Reported, not refused. The scheduler href is a known constant that did not get attached to
-        // a sentence -- nothing is invented either way -- and a draft whose closing is unlinked is
-        // one the operator can see and fix, where a refused generate is nothing at all
-        // (Jeff, 2026-09-27: "It's a CTA? WTF?").
-        if (blogCtaViolations.Count > 0)
-        {
-            _logger.LogWarning(
-                "The blog {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
-                create.Topic, string.Join(" ", blogCtaViolations));
-            blogWarnings.Add(
-                "The blog ships without a scheduler link, after a retry naming the omission. "
-                + string.Join(" ", blogCtaViolations));
-        }
+        var (document, blogWarnings) = await GuardedDraftAsync(
+            "the blog", WriteBlogDraftAsync, doc => Guardrail.GccDraftGuard.Blog(doc, blogGuardInputs));
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this
         // returned a bare ContentDocument -- it now returns the same envelope Tool does, so the
         // step has to happen before wrapping.
-        var withPrompts = await GenerateSectionImagePromptsAsync(
-            "blog", create.Topic, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct);
-        document = JsonSerializer.Deserialize<ContentDocument>(withPrompts, CwDocumentJson) ?? document;
+        document = await WithSectionImagePromptsAsync(
+            "blog", create.Topic, document, section, provider, blogWarnings, ct);
 
         var blogNow = DateTime.UtcNow;
         // GccContentPath, for the reason the pillar gives: the export's canonical is built there.
@@ -3226,13 +2933,165 @@ public class GccGenerateService
     /// missing whole sections of its own plan and call it finished.
     /// </para>
     /// </summary>
+    /// <summary>One written draft, and any batch that stayed short of its floor after its own retry.</summary>
+    internal sealed record GccDraft(ContentDocument Document, IReadOnlyList<string> Shortfalls);
+
+    /// <summary>
+    /// Write a draft, guard it, retry once with every finding named, keep the better of the two, and
+    /// refuse or ship with its gaps reported.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One retry, not one per check. Each guard used to carry its own retry and its own idea of what
+    /// that retry must preserve, so a pillar could pay for four extra drafts and still ship one that
+    /// passed fewer checks than the first -- see <see cref="Guardrail.GccDraftGuard"/>. The retry is
+    /// told everything that was wrong at once and judged by the same function the draft was.
+    /// </para>
+    /// <para>
+    /// Refusals throw with the "Refused:" prefix GenerateAsync answers as a 400. Gaps -- a partner
+    /// never named, a closing never linked, a batch still short of its floor -- are the draft's
+    /// warnings: saved, recorded with the version and pushed to the workspace by name.
+    /// </para>
+    /// </remarks>
+    private async Task<(ContentDocument Document, List<string> Warnings)> GuardedDraftAsync(
+        string label,
+        Func<string?, Task<GccDraft>> write,
+        Func<ContentDocument, Guardrail.GccGuardVerdict> guard)
+    {
+        var draft = await write(null);
+        var verdict = guard(draft.Document);
+        var retried = false;
+        if (!verdict.Clean)
+        {
+            _logger.LogInformation(
+                "{Label} failed {Checks}; retrying once with every finding named.",
+                label, string.Join(", ", verdict.FailedChecks));
+            var retry = await write(verdict.RetryInstructions);
+            var retryVerdict = guard(retry.Document);
+            retried = true;
+            if (Guardrail.GccGuardVerdict.RetryReplaces(verdict, retryVerdict))
+            {
+                draft = retry;
+                verdict = retryVerdict;
+            }
+        }
+
+        if (verdict.Refusals.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Refused: {label}, after a retry naming every finding. "
+                + string.Join(" ", verdict.Refusals.Select(f => f.Detail)));
+        }
+
+        var warnings = verdict.Gaps
+            .Select(g => retried ? $"{g.Detail} (after a retry naming it)" : g.Detail)
+            .Concat(draft.Shortfalls)
+            .ToList();
+        foreach (var warning in warnings)
+        {
+            _logger.LogWarning("{Label} ships with: {Warning}", label, warning);
+        }
+
+        return (draft.Document, warnings);
+    }
+
+    /// <summary>
+    /// What every guard on this create checks a draft against, built from what the writer was shown.
+    /// </summary>
+    /// <param name="evidenceText">The evidence block the body was written from. The brief, topic and notes
+    /// are added to it for the figure check -- the operator's own statements -- and nothing else: the
+    /// generation context and the outline carry instruction numbers (word floors, "600-850 words"), and
+    /// licensing a figure because the prompt said it licenses nothing (review, 2026-10-04).</param>
+    private Guardrail.GccGuardInputs GuardInputsFor(
+        GccCreateDto? create,
+        ProjectGenerationContext context,
+        GccHeadingProvenanceEvidence? provenance,
+        IReadOnlyList<string> requiredTools,
+        string? evidenceText,
+        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null,
+        int appendedSections = 0,
+        string? extractionJson = null)
+    {
+        var research = create is null ? null : GccResearchFetchService.Deserialize(create.ResearchJson);
+        var allowedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in (research?.Quoteables ?? []).Concat(research?.SiteQuoteables ?? []))
+        {
+            if (!string.IsNullOrWhiteSpace(page.Url)) allowedUrls.Add(page.Url.Trim());
+        }
+
+        var publisherHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var url in new[] { _company.ArticleBaseUrl, _company.BlogBaseUrl, _company.ToolBaseUrl, context.ProjectUrl }
+                     .Concat((research?.SiteQuoteables ?? []).Select(p => p.Url)))
+        {
+            var host = GccRequiredToolMentions.HostKeyOf(url);
+            if (host.Length > 0) publisherHosts.Add(host);
+        }
+
+        var numberEvidence = string.Join(
+            Environment.NewLine,
+            evidenceText ?? string.Empty,
+            extractionJson ?? string.Empty,
+            create?.BriefJson ?? string.Empty,
+            create?.Topic ?? string.Empty,
+            create?.Notes ?? string.Empty);
+
+        return new Guardrail.GccGuardInputs(
+            provenance,
+            requiredTools,
+            context.ConsultationAnchorHref,
+            allowedUrls,
+            publisherHosts,
+            numberEvidence,
+            quoteCandidates,
+            appendedSections);
+    }
+
+    /// <summary>
+    /// The document with its per-section image prompts, or the document as it was and a warning when
+    /// they could not be written.
+    /// </summary>
+    /// <remarks>
+    /// An image-prompt failure discarded a draft that had passed every guard, with the money spent on
+    /// it. The prompts are an aid for whoever makes the images, not part of the page; the draft is the
+    /// known-good output. Saved and reported, the way the partner gap and the scheduler link already are.
+    /// </remarks>
+    private async Task<ContentDocument> WithSectionImagePromptsAsync(
+        string contentType,
+        string title,
+        ContentDocument document,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        try
+        {
+            var withPrompts = await GenerateSectionImagePromptsAsync(
+                contentType, title, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct);
+            return JsonSerializer.Deserialize<ContentDocument>(withPrompts, CwDocumentJson) ?? document;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Image prompts failed for {ContentType} '{Title}'; the draft is saved without them.", contentType, title);
+            warnings.Add(
+                $"Image prompts were not written ({ex.Message}). The draft is saved without them; "
+                + "regenerate them before the images are made.");
+            return document;
+        }
+    }
+
     private async Task<List<Section>> GenerateSectionsInBatchesAsync(
         IContentGenerationProvider llm,
         ContentTypes.IContentTypePrompts type,
         ContentTypes.ContentTypePromptContext promptCtx,
         IReadOnlyList<SectionSlot> outline,
         string label,
-        CancellationToken ct)
+        CancellationToken ct,
+        List<string>? shortfalls = null)
     {
         var written = new List<Section>();
         for (var i = 0; i < outline.Count; i += SectionsPerBatch)
@@ -3274,9 +3133,14 @@ public class GccGenerateService
 
                     if (words < floor)
                     {
+                        // Reported, not only logged: the shortfall travels with the draft into its
+                        // warnings, so the operator sees it beside the version rather than in a log.
                         _logger.LogWarning(
                             "{Batch} is {Words} words against a {Floor}-word floor after a retry naming the shortfall.",
                             batchLabel, words, floor);
+                        shortfalls?.Add(
+                            $"{batchLabel} is {words:N0} words against a {floor:N0}-word floor, after a retry "
+                            + "naming the shortfall.");
                     }
                 }
             }

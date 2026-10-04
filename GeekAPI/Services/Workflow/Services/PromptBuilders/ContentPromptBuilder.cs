@@ -2558,6 +2558,41 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string ToolMetadataJsonContract =
         "{\"departmentListExcerpt\": string (1-2 sentences for tools hub cards), \"summary\": string (1-2 sentences, general-purpose blurb used on listings), \"mainSummary\": string (1-2 sentences, main-page summary), \"heroSummary\": string (1-2 sentences, blurb under tool page H1), \"homeSummary\": string (1-2 sentences, home-page feature card copy), \"blogSummary\": string (1-2 sentences, blog-listing teaser), \"toolPageExcerpt\": string (1-2 sentences for newspaper tool content column), \"advertisingSummary\": string (2-4 sentences, longer sponsored promotional copy — not an excerpt), \"metaDescription\": string (max 160 chars, SEO only, distinct from the other eight)}";
 
+    /// <summary>
+    /// The case-study rule for a tool body, stated against what the extraction holds.
+    /// </summary>
+    /// <remarks>
+    /// The extraction is serialized with web defaults, so its case studies are the <c>caseStudies</c>
+    /// array. Absent, empty or unreadable all mean the same thing to the writer -- there are none it may
+    /// report -- so each produces the rule that says so.
+    /// </remarks>
+    internal static string ToolCaseStudyRule(string? extractedToolResearchJson)
+    {
+        var count = 0;
+        if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(extractedToolResearchJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("caseStudies", out var studies)
+                    && studies.ValueKind == JsonValueKind.Array)
+                {
+                    count = studies.GetArrayLength();
+                }
+            }
+            catch (JsonException)
+            {
+                count = 0;
+            }
+        }
+
+        return count == 0
+            ? "CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. "
+            : $"CRITICAL: the only case studies you may report are the {count} in PARTNER DATA (caseStudies), each under its named client and "
+              + "with only the outcome and metric that entry states. No others -- not named ones, and not anonymous ones. ";
+    }
+
     public ChatCompletionRequest BuildToolBodyPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
@@ -2674,7 +2709,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent a feature, integration, or claim to fill space.")
             .AppendLine($"When persisted tool research is provided, treat it as the authoritative source — do not re-extract or contradict it.")
             .AppendLine($"Frame the implementation material as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
-            .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
+            // What the extraction actually holds, not a fixed sentence. This said "there is no
+            // case-study data available" on every tool page, while PARTNER DATA below carried the
+            // extraction's caseStudies -- one prompt contradicting itself, and the writer told to
+            // ignore the only customer evidence it had.
+            .AppendLine(ToolCaseStudyRule(extractedToolResearchJson) +
                 "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
                 "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
                 "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
