@@ -157,7 +157,8 @@ public class GccGenerateServiceToolPageGroundingTests
             NullLogger<GccPublisherProfileResolver>.Instance),
         new GccKnownToolsResolver(
             new GccCompetitorAnalysisResolverTests.FakePages(),
-            NullLogger<GccKnownToolsResolver>.Instance));
+            NullLogger<GccKnownToolsResolver>.Instance),
+        new GccToolPageFanOutFixture.FakeExtractionBank());
 
     private static string ResearchJsonWithOnePartnerPage() =>
         GccResearchFetchService.Serialize(new GccResearchDocument(

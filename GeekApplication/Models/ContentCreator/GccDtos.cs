@@ -51,6 +51,33 @@ public sealed record UpdateGccCreateBriefResearchCommand(
     string? ResearchJson,
     string? Topic = null);
 
+/// <summary>
+/// A partner extraction that was paid for once and kept.
+/// </summary>
+/// <remarks>
+/// Keyed by the partner's host and a digest of the exact pages it was extracted from, so the row is
+/// reused only while those pages are byte-for-byte what they were, and is shared by every create on
+/// the same partner. <paramref name="CreateId"/> is the create that paid for it, for traceability;
+/// it is not part of the key.
+/// </remarks>
+public sealed record GccBankedPartnerExtractionDto(
+    Guid Id,
+    string PartnerHost,
+    string PagesDigest,
+    Guid? CreateId,
+    string ProductName,
+    string ExtractionJson,
+    int PagesAttempted,
+    DateTime ExtractedAtUtc);
+
+public sealed record BankGccPartnerExtractionCommand(
+    string PartnerHost,
+    string PagesDigest,
+    Guid? CreateId,
+    string ProductName,
+    string ExtractionJson,
+    int PagesAttempted);
+
 public sealed record GccArtifactDto(
     Guid Id,
     Guid CreateId,

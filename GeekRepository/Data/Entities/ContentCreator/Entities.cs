@@ -75,6 +75,26 @@ public class GccArtifactVersion
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
+/// <summary>
+/// A partner extraction kept after it was paid for. See <c>plans/bank-extraction-and-legible-quote-guard.md</c>
+/// in content-creator-v2: ~108 model calls per five partners were recomputed on every generate, and
+/// on 2026-10-03 that was paid for four or five times, including runs that finished extraction and
+/// then died on a provider error.
+/// </summary>
+public class GccBankedPartnerExtraction
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string PartnerHost { get; set; } = string.Empty;
+    /// <summary>SHA-256 over the pages extracted, sorted by URL, with the product name and extractor version.</summary>
+    public string PagesDigest { get; set; } = string.Empty;
+    /// <summary>The create that paid for it. Traceability only; not part of the key.</summary>
+    public Guid? CreateId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string ExtractionJson { get; set; } = string.Empty;
+    public int PagesAttempted { get; set; }
+    public DateTime ExtractedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
 public class GccApprovalEvent
 {
     public Guid Id { get; set; } = Guid.NewGuid();

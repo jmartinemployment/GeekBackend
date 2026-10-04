@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -57,6 +58,7 @@ public class GccGenerateService
     private readonly IArticleSchemaBuilder _articleSchema;
     private readonly CompanyProfileOptions _company;
     private readonly ILogger<GccGenerateService> _logger;
+    private readonly IGccPartnerExtractionBank _extractionBank;
     private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
     private readonly GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService _partnerExtraction;
     private readonly IGccProjectReader _projects;
@@ -88,8 +90,10 @@ public class GccGenerateService
         GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction,
         IGccProjectReader projects,
         GccPublisherProfileResolver publisherProfile,
-        GccKnownToolsResolver knownTools)
+        GccKnownToolsResolver knownTools,
+        IGccPartnerExtractionBank extractionBank)
     {
+        _extractionBank = extractionBank;
         _prompts = prompts;
         _types = types;
         _cwProviders = cwProviders;
@@ -532,7 +536,11 @@ public class GccGenerateService
         int PagesFailed,
         int PopulatedCategories,
         bool HasCapabilitySignal,
-        [property: JsonIgnore] GccPartnerExtractionDocument? Extraction = null);
+        [property: JsonIgnore] GccPartnerExtractionDocument? Extraction = null,
+        /// <summary>True when the extraction was read from the bank rather than paid for on this
+        /// run. Said, never silent: a cache nobody can see is how a stale result becomes invisible.</summary>
+        bool Reused = false,
+        DateTime? BankedAtUtc = null);
 
     /// <summary>
     /// Runs extraction and the sufficiency gate for one partner and reports the finding, drafting
@@ -542,13 +550,54 @@ public class GccGenerateService
     /// </summary>
     public async Task<GccPartnerToolReadiness> AssessPartnerToolReadinessAsync(
         GccPartnerToolSlice slice,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? createId = null)
     {
         // No retrieved pages is a real finding, not a reason to skip the partner: it reports as
         // "no extractable partner pages" rather than disappearing from the readiness list.
-        var extraction = slice.Pages.Count == 0
-            ? null
-            : await _partnerExtraction.ExtractFromPagesAsync(slice.Pages, [slice.ProductName], ct);
+        GccPartnerExtractionDocument? extraction = null;
+        var reused = false;
+        DateTime? bankedAt = null;
+        if (slice.Pages.Count > 0)
+        {
+            // Read before paying. The extraction is ~21 concurrent model calls per partner and it
+            // was recomputed on every generate -- on 2026-10-03 four or five times, twice by runs
+            // that finished extracting and then died on a provider error with nothing kept. The
+            // bank is keyed by a digest of the exact pages, so it is reused only while they are
+            // what they were, and is shared by every create on the same partner.
+            var digest = PartnerPagesDigest(slice.ProductName, slice.Pages);
+            var banked = await _extractionBank.FindBankedAsync(slice.Host, digest, ct);
+            if (banked is not null)
+            {
+                extraction = JsonSerializer.Deserialize<GccPartnerExtractionDocument>(banked.ExtractionJson, PartnerExtractionJsonOpts)
+                    ?? throw new InvalidOperationException(
+                        $"The banked extraction for {slice.Host} ({digest}) is unreadable. It is not re-extracted "
+                        + "silently: a bank row that cannot be read is a defect to see, not a cache miss.");
+                reused = true;
+                bankedAt = banked.ExtractedAtUtc;
+            }
+            else
+            {
+                extraction = await _partnerExtraction.ExtractFromPagesAsync(slice.Pages, [slice.ProductName], ct);
+
+                // Successes only. A failed page is a fault -- a draining balance, a deprecated
+                // parameter -- and banking it would make a billing incident a permanent property
+                // of the partner. Banked per partner, not at the end, so a run that dies on the
+                // fourth partner keeps the first three.
+                if (extraction.PagesFailed == 0)
+                {
+                    await _extractionBank.BankAsync(
+                        new BankGccPartnerExtractionCommand(
+                            slice.Host,
+                            digest,
+                            createId,
+                            slice.ProductName,
+                            JsonSerializer.Serialize(extraction, PartnerExtractionJsonOpts),
+                            extraction.PagesAttempted),
+                        ct);
+                }
+            }
+        }
 
         // A failed page is a fault, not a shortage, and partial extraction is failure (AGENTS.md).
         // This read HasSufficientPartnerData alone, so a partner with 5 of 7 pages failed on a
@@ -557,17 +606,48 @@ public class GccGenerateService
         // coverage line that names the fault.
         var ready = extraction is not null && extraction.PagesFailed == 0 && HasSufficientPartnerData(extraction);
 
+        var coverage = reused
+            ? $"reused banked extraction from {bankedAt:yyyy-MM-dd HH:mm} UTC; {DescribePartnerDataCoverage(extraction)}"
+            : DescribePartnerDataCoverage(extraction);
+
         return new GccPartnerToolReadiness(
             slice.ProductName,
             slice.Host,
             ready,
-            DescribePartnerDataCoverage(extraction),
+            coverage,
             extraction?.PagesAttempted ?? 0,
             extraction?.PagesFailed ?? 0,
             extraction is null ? 0 : CountPopulatedPartnerDataCategories(extraction),
             extraction is not null
                 && (extraction.FeatureInventory.Count > 0 || extraction.Citables.Count > 0),
-            ready ? extraction : null);
+            ready ? extraction : null,
+            Reused: reused,
+            BankedAtUtc: bankedAt);
+    }
+
+    /// <summary>
+    /// The bank key for a partner's pages: SHA-256 over the pages sorted by URL, each contributing
+    /// its URL and paragraph text, with the product name and extractor version in front.
+    /// </summary>
+    /// <remarks>
+    /// Not the crawl run id: a re-crawl refills the same run id in place (AGENTS.md), so a run-id
+    /// stamp would match forever. Not the URL set: a re-crawl yields the same URLs with new text.
+    /// The product name is in because extraction is asked for one product by name and a renamed
+    /// partner is a different question; the extractor version is in so a schema change re-extracts.
+    /// </remarks>
+    internal static string PartnerPagesDigest(string productName, IReadOnlyList<GccQuoteablePage> pages)
+    {
+        var sb = new StringBuilder();
+        sb.Append("extractor:").Append(GccPartnerExtractionDocument.CurrentExtractorVersion).Append('\n');
+        sb.Append("product:").Append(productName.Trim()).Append('\n');
+        foreach (var page in pages.OrderBy(p => p.Url, StringComparer.Ordinal))
+        {
+            sb.Append(page.Url).Append('\n');
+            foreach (var paragraph in page.Paragraphs) sb.Append(paragraph).Append('\n');
+            sb.Append('\0');
+        }
+
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())));
     }
 
     /// <summary>
@@ -644,7 +724,7 @@ public class GccGenerateService
         var readiness = new List<GccPartnerToolReadiness>(slices.Count);
         foreach (var slice in slices)
         {
-            readiness.Add(await AssessPartnerToolReadinessAsync(slice, ct));
+            readiness.Add(await AssessPartnerToolReadinessAsync(slice, ct, create.Id));
         }
 
         if (onReadiness is not null) await onReadiness(readiness);
@@ -774,6 +854,7 @@ public class GccGenerateService
                 title = tool.Name,
                 metaDescription = tool.Metadata.MetaDescription,
                 summary = tool.Metadata.Summary,
+                warnings = tool.Warnings ?? [],
                 body = tool.Document,
                 jsonLdSchema = tool.JsonLdSchema,
             }, CwDocumentJson);
@@ -1138,7 +1219,9 @@ public class GccGenerateService
         ToolMetadataDraft Metadata,
         string JsonLdSchema,
         string? RelatedArticleUrl,
-        int WordCount);
+        int WordCount,
+        /// <summary>What the page ships with that the operator should see. Empty is the normal case.</summary>
+        IReadOnlyList<string>? Warnings = null);
 
     public async Task<ToolPageResult> GenerateToolPageAsync(
         string toolName,
@@ -1507,10 +1590,16 @@ public class GccGenerateService
         // a sentence -- nothing is invented either way -- and a draft whose closing is unlinked is
         // one the operator can see and fix, where a refused generate is nothing at all
         // (Jeff, 2026-09-27: "It's a CTA? WTF?").
+        var toolWarnings = new List<string>();
         if (toolCtaViolations.Count > 0)
+        {
             _logger.LogWarning(
                 "The tool page {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
                 name, string.Join(" ", toolCtaViolations));
+            toolWarnings.Add(
+                $"The tool page '{name}' ships without a scheduler link, after a retry naming the omission. "
+                + string.Join(" ", toolCtaViolations));
+        }
 
         // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type -- the one
@@ -1591,7 +1680,7 @@ public class GccGenerateService
         if (string.IsNullOrWhiteSpace(jsonLd))
             throw new InvalidOperationException($"CWV2 tool JSON-LD schema builder returned empty for '{name}'.");
 
-        return new ToolPageResult(name, slug, document, metadata, jsonLd, pillarUrl, wordCount);
+        return new ToolPageResult(name, slug, document, metadata, jsonLd, pillarUrl, wordCount, toolWarnings);
     }
 
     private static readonly JsonSerializerOptions PartnerExtractionJsonOpts = new(JsonSerializerDefaults.Web);
@@ -2501,12 +2590,23 @@ public class GccGenerateService
             }
         }
 
+        // Reported, not refused. This threw, and a 3,000-word pillar naming four of five partners was
+        // discarded with the money spent on it and nothing to show -- "pillar: Pillar names 4 of 5
+        // partner tools ... Missing: Ramp", 2026-10-04, and the blog beside it the same. The draft is
+        // the known-good output: the operator can see the gap and add the partner where it belongs,
+        // where a refused generate gives them nothing to work from. The gap travels with the draft
+        // (the envelope's `warnings`) and is pushed to the workspace by name, so it is never silent.
+        // Same reasoning the scheduler-link omission below has carried since 2026-09-27.
+        var pillarWarnings = new List<string>();
         if (pillarMissing.Count > 0)
-            throw new InvalidOperationException(
-                $"Pillar names {requiredTools.Count - pillarMissing.Count} of {requiredTools.Count} partner tools, "
+        {
+            var gap = $"Pillar names {requiredTools.Count - pillarMissing.Count} of {requiredTools.Count} partner tools, "
                 + $"after a retry naming the omission. Missing: {string.Join(", ", pillarMissing)}. "
-                + "Every declared partner must be named -- check that each has an indexed crawl, since a partner "
-                + "with no evidence gives the writer nothing to say about it.");
+                + "The draft is saved as written. Add the missing partner where it belongs, or check that it has an "
+                + "indexed crawl, since a partner with no evidence gives the writer nothing to say about it.";
+            _logger.LogWarning("{Gap}", gap);
+            pillarWarnings.Add(gap);
+        }
 
         // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
         // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
@@ -2544,9 +2644,14 @@ public class GccGenerateService
         // one the operator can see and fix, where a refused generate is nothing at all
         // (Jeff, 2026-09-27: "It's a CTA? WTF?").
         if (pillarCtaViolations.Count > 0)
+        {
             _logger.LogWarning(
                 "The pillar {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
                 create.Topic, string.Join(" ", pillarCtaViolations));
+            pillarWarnings.Add(
+                "The pillar ships without a scheduler link, after a retry naming the omission. "
+                + string.Join(" ", pillarCtaViolations));
+        }
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
@@ -2577,6 +2682,10 @@ public class GccGenerateService
             title = pillarMeta.Title,
             metaDescription = pillarMetaDescription,
             summary = pillarMeta.Summary,
+            // What the draft ships with that the operator should see: a partner it never named, a
+            // closing that never linked the scheduler. Read by GccGenerationCoordinator and pushed
+            // to the workspace; ignored by GccBodyEnvelope.Read, so revise and export are unaffected.
+            warnings = pillarWarnings,
             body = document,
             // No companion blog exists on this path, so there is nothing to cite as related -- an
             // invented URL would be a claim about a page that does not exist.
@@ -2787,12 +2896,17 @@ public class GccGenerateService
             }
         }
 
+        // Reported, not refused -- see the pillar's note above; the blog threw the same day.
+        var blogWarnings = new List<string>();
         if (blogMissing.Count > 0)
-            throw new InvalidOperationException(
-                $"Blog names {blogRequiredTools.Count - blogMissing.Count} of {blogRequiredTools.Count} partner tools, "
+        {
+            var gap = $"Blog names {blogRequiredTools.Count - blogMissing.Count} of {blogRequiredTools.Count} partner tools, "
                 + $"after a retry naming the omission. Missing: {string.Join(", ", blogMissing)}. "
-                + "Every declared partner must be named -- check that each has an indexed crawl, since a partner "
-                + "with no evidence gives the writer nothing to say about it.");
+                + "The draft is saved as written. Add the missing partner where it belongs, or check that it has an "
+                + "indexed crawl, since a partner with no evidence gives the writer nothing to say about it.";
+            _logger.LogWarning("{Gap}", gap);
+            blogWarnings.Add(gap);
+        }
 
         // The scheduler is on every page, so every page links it (Jeff, 2026-09-27: "CTA is on every
         // page and should be referenced"). The prompt asks; this is what makes it true. Without it a
@@ -2835,9 +2949,14 @@ public class GccGenerateService
         // one the operator can see and fix, where a refused generate is nothing at all
         // (Jeff, 2026-09-27: "It's a CTA? WTF?").
         if (blogCtaViolations.Count > 0)
+        {
             _logger.LogWarning(
                 "The blog {Name} ships without a scheduler link, after a retry naming the omission. {Detail}",
                 create.Topic, string.Join(" ", blogCtaViolations));
+            blogWarnings.Add(
+                "The blog ships without a scheduler link, after a retry naming the omission. "
+                + string.Join(" ", blogCtaViolations));
+        }
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this
@@ -2858,6 +2977,7 @@ public class GccGenerateService
             title = metadata.Title,
             metaDescription = blogMetaDescription,
             summary = metadata.Summary,
+            warnings = blogWarnings,
             body = document,
             // Empty, not the blog's own URL -- passing blogUrl made the BlogPosting cite itself.
             // Pillar and Blog are independent artifacts on this path, so there is no companion

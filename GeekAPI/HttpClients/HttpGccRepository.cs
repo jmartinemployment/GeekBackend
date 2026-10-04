@@ -4,7 +4,7 @@ using GeekApplication.Models.ContentCreator;
 
 namespace GeekAPI.HttpClients;
 
-public class HttpGccRepository : IGccProjectReader
+public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -285,6 +285,16 @@ public class HttpGccRepository : IGccProjectReader
         DeleteAsync(
             $"repo/content-creator/projects/{projectId}/log/{logEntryId}?actorUserId={Uri.EscapeDataString(actorUserId)}",
             ct);
+
+    public Task<GccBankedPartnerExtractionDto?> FindBankedAsync(
+        string partnerHost, string pagesDigest, CancellationToken ct = default) =>
+        GetAsync<GccBankedPartnerExtractionDto>(
+            $"repo/content-creator/partner-extractions/{Uri.EscapeDataString(partnerHost)}/{Uri.EscapeDataString(pagesDigest)}",
+            ct);
+
+    public Task<GccBankedPartnerExtractionDto> BankAsync(
+        BankGccPartnerExtractionCommand command, CancellationToken ct = default) =>
+        PostAsync<GccBankedPartnerExtractionDto>("repo/content-creator/partner-extractions", command, ct);
 
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
     {

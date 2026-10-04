@@ -77,7 +77,9 @@ public sealed class GccGenerateJobRunner
                 onTypeOutcome: (contentType, produced, error) =>
                     _notifier.PushTypeAsync(jobId, contentType, produced, error),
                 onReadiness: (contentType, partners) =>
-                    _notifier.PushPreflightAsync(jobId, contentType, partners));
+                    _notifier.PushPreflightAsync(jobId, contentType, partners),
+                onTypeWarning: (contentType, warning) =>
+                    _notifier.PushWarningAsync(jobId, contentType, warning));
 
             _jobs.Complete(jobId, result);
             await PushJobAsync(jobId);

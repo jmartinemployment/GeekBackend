@@ -155,7 +155,11 @@ public sealed class GccGenerationCoordinator
         // The tool pre-flight's verdicts, pushed the moment they are known and before any tool page is
         // drafted. Separate from onTypeOutcome because that callback's contract is terminal -- a type
         // either produced an artifact or failed -- and a readiness report is neither.
-        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness = null)
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness = null,
+        // A piece that was written with a gap the operator should see: a partner it never named, a
+        // closing without the scheduler link. The piece is saved either way; this says what it ships
+        // with, by type, the moment it is saved. Neither an outcome (the piece exists) nor a refusal.
+        Func<string, string, Task>? onTypeWarning = null)
     {
         var requested = NormalizeRequestedTypes(outputTypes);
         var refusal = ValidateRequestedTypes(requested);
@@ -240,11 +244,17 @@ public sealed class GccGenerationCoordinator
 
             var created = new List<object>(attempts.Length);
             var refusals = new List<string>();
+            var warnings = new List<string>();
             foreach (var attempt in attempts)
             {
                 foreach (var piece in attempt.Outcome!.Pieces)
                 {
                     created.Add(await PersistOneAsync(repo, create, piece, provider, onTypeOutcome, ct));
+                    foreach (var warning in WarningsOf(piece.BodyJson))
+                    {
+                        warnings.Add($"{attempt.Type}: {warning}");
+                        if (onTypeWarning is not null) await onTypeWarning(attempt.Type, warning);
+                    }
                 }
 
                 // Named, never swallowed: a partner whose page was not written is reported alongside the
@@ -257,7 +267,7 @@ public sealed class GccGenerationCoordinator
                 }
             }
 
-            return BuildGenerateResult(created, refusals, preflight);
+            return BuildGenerateResult(created, refusals, preflight, warnings);
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
@@ -268,9 +278,15 @@ public sealed class GccGenerationCoordinator
             resolvedSingle.PartnerPassages, ct, recordReadiness);
 
         var singleCreated = new List<object>(single.Pieces.Count);
+        var singleWarnings = new List<string>();
         foreach (var piece in single.Pieces)
         {
             singleCreated.Add(await PersistOneAsync(repo, create, piece, provider, onTypeOutcome, ct));
+            foreach (var warning in WarningsOf(piece.BodyJson))
+            {
+                singleWarnings.Add($"{requested[0]}: {warning}");
+                if (onTypeWarning is not null) await onTypeWarning(requested[0], warning);
+            }
         }
 
         foreach (var partnerRefusal in single.SoftFailures)
@@ -280,9 +296,37 @@ public sealed class GccGenerationCoordinator
 
         // One requested type can still be several artifacts -- tool is five. A bare object is returned
         // when it is one, so the existing single-select contract is unchanged for every other type.
-        return single.Pieces.Count == 1 && single.SoftFailures.Count == 0 && preflight.Count == 0
+        return single.Pieces.Count == 1 && single.SoftFailures.Count == 0 && preflight.Count == 0 && singleWarnings.Count == 0
             ? singleCreated[0]
-            : BuildGenerateResult(singleCreated, single.SoftFailures, preflight);
+            : BuildGenerateResult(singleCreated, single.SoftFailures, preflight, singleWarnings);
+    }
+
+    /// <summary>
+    /// The warnings a generator wrote into its envelope -- <c>{ ..., "warnings": [string, ...] }</c>
+    /// -- or none for a body that carries none, a bare document, or one that will not parse.
+    /// </summary>
+    internal static IReadOnlyList<string> WarningsOf(string? bodyJson)
+    {
+        if (string.IsNullOrWhiteSpace(bodyJson)) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(bodyJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("warnings", out var warnings)
+                || warnings.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return [.. warnings.EnumerateArray()
+                .Where(w => w.ValueKind == JsonValueKind.String)
+                .Select(w => w.GetString()!)
+                .Where(w => !string.IsNullOrWhiteSpace(w))];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     /// <summary>
@@ -298,8 +342,9 @@ public sealed class GccGenerationCoordinator
     private static object BuildGenerateResult(
         IReadOnlyList<object> created,
         IReadOnlyList<string> refusals,
-        IReadOnlyList<GccGenerateService.GccPartnerToolReadiness> preflight) =>
-        new { created, refusals, preflight };
+        IReadOnlyList<GccGenerateService.GccPartnerToolReadiness> preflight,
+        IReadOnlyList<string> warnings) =>
+        new { created, refusals, preflight, warnings };
 
     /// <summary>
     /// Generates and persists exactly one content type, fully independently -- the single unit both

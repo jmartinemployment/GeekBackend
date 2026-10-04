@@ -116,7 +116,8 @@ public class GccRetrievedEvidenceReachesThePromptTests
             NullLogger<GccPublisherProfileResolver>.Instance),
         new GccKnownToolsResolver(
             new GccCompetitorAnalysisResolverTests.FakePages(),
-            NullLogger<GccKnownToolsResolver>.Instance));
+            NullLogger<GccKnownToolsResolver>.Instance),
+        new GccToolPageFanOutFixture.FakeExtractionBank());
 
     private static async Task<CapturingProvider> GeneratePillar()
     {

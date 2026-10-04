@@ -18,6 +18,17 @@ public interface IGccCreateRepository
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 }
 
+/// <summary>
+/// The bank of partner extractions: one row per (partner host, pages digest).
+/// </summary>
+public interface IGccPartnerExtractionBankRepository
+{
+    Task<GccBankedPartnerExtractionDto?> FindAsync(string partnerHost, string pagesDigest, CancellationToken ct = default);
+
+    /// <summary>Insert, or replace the row already holding this host and digest.</summary>
+    Task<GccBankedPartnerExtractionDto> UpsertAsync(BankGccPartnerExtractionCommand command, CancellationToken ct = default);
+}
+
 public interface IGccArtifactRepository
 {
     Task<GccArtifactDto?> GetByIdAsync(Guid id, CancellationToken ct = default);

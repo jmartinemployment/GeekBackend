@@ -54,6 +54,57 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                     b.ToTable("gcc_approval_events", "content_creator");
                 });
 
+            modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccBankedPartnerExtraction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("create_id");
+
+                    b.Property<DateTime>("ExtractedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("extracted_at_utc");
+
+                    b.Property<string>("ExtractionJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("extraction_json");
+
+                    b.Property<string>("PagesDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("pages_digest");
+
+                    b.Property<int>("PagesAttempted")
+                        .HasColumnType("integer")
+                        .HasColumnName("pages_attempted");
+
+                    b.Property<string>("PartnerHost")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)")
+                        .HasColumnName("partner_host");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("product_name");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PartnerHost", "PagesDigest")
+                        .IsUnique()
+                        .HasDatabaseName("ux_gcc_partner_extractions_host_digest");
+
+                    b.ToTable("gcc_partner_extractions", "content_creator");
+                });
+
             modelBuilder.Entity("GeekRepository.Data.Entities.ContentCreator.GccArtifact", b =>
                 {
                     b.Property<Guid>("Id")

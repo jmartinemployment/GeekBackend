@@ -39,6 +39,24 @@ public sealed class GccGenerateNotifier
                 ct);
 
     /// <summary>
+    /// A piece that was saved with a gap the operator should see. Status "warning": the piece exists
+    /// (it is not "failed") and this is not its outcome (that was pushed as "ready" with the artifact).
+    /// </summary>
+    public Task PushWarningAsync(Guid jobId, string contentType, string warning, CancellationToken ct = default) =>
+        _hub.Clients.Group(WorkflowRealtimeHub.GccGenerateGroup(jobId))
+            .SendAsync(
+                "GccGenerateTypeEvent",
+                new
+                {
+                    jobId,
+                    contentType,
+                    status = "warning",
+                    artifact = (object?)null,
+                    error = warning,
+                },
+                ct);
+
+    /// <summary>
     /// The tool pre-flight, pushed before any tool page is drafted: one row per declared partner saying
     /// whether it can be grounded and why.
     /// </summary>

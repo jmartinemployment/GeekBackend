@@ -121,6 +121,8 @@ builder.Services.AddScoped(sp =>
 // The same scoped instance, seen through the narrow interface grounding depends on.
 builder.Services.AddScoped<GeekAPI.HttpClients.IGccProjectReader>(sp =>
     sp.GetRequiredService<GeekAPI.HttpClients.HttpGccRepository>());
+builder.Services.AddScoped<GeekAPI.HttpClients.IGccPartnerExtractionBank>(sp =>
+    sp.GetRequiredService<GeekAPI.HttpClients.HttpGccRepository>());
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccTypedPassageReader>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccProjectSiteStructureReader>();

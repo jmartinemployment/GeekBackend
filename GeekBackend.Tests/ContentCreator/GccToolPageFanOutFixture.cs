@@ -26,8 +26,36 @@ namespace GeekBackend.Tests.ContentCreator;
 internal sealed record GccToolPageFanOutFixture(
     GccGenerateService Service,
     GccCreateDto Create,
-    GccToolPageFanOutFixture.CallCounter Calls)
+    GccToolPageFanOutFixture.CallCounter Calls,
+    GccToolPageFanOutFixture.FakeExtractionBank Bank)
 {
+    /// <summary>
+    /// The extraction bank, in memory: one row per (host, digest), the way the repository keeps it.
+    /// Shared between fixtures to model a second run on overlapping partners.
+    /// </summary>
+    internal sealed class FakeExtractionBank : GeekAPI.HttpClients.IGccPartnerExtractionBank
+    {
+        private readonly Dictionary<(string Host, string Digest), GccBankedPartnerExtractionDto> _rows = [];
+
+        public int Count { get { lock (_rows) return _rows.Count; } }
+
+        public IReadOnlyList<GccBankedPartnerExtractionDto> Rows { get { lock (_rows) return [.. _rows.Values]; } }
+
+        public Task<GccBankedPartnerExtractionDto?> FindBankedAsync(string partnerHost, string pagesDigest, CancellationToken ct = default)
+        {
+            lock (_rows) return Task.FromResult(_rows.GetValueOrDefault((partnerHost, pagesDigest)));
+        }
+
+        public Task<GccBankedPartnerExtractionDto> BankAsync(BankGccPartnerExtractionCommand command, CancellationToken ct = default)
+        {
+            var row = new GccBankedPartnerExtractionDto(
+                Guid.NewGuid(), command.PartnerHost, command.PagesDigest, command.CreateId,
+                command.ProductName, command.ExtractionJson, command.PagesAttempted, DateTime.UtcNow);
+            lock (_rows) _rows[(command.PartnerHost, command.PagesDigest)] = row;
+            return Task.FromResult(row);
+        }
+    }
+
     /// <summary>
     /// How many times extraction and drafting were each reached. The pre-flight's whole claim is that a
     /// partner it refuses is never drafted, and that a partner it passes is extracted once rather than
@@ -85,7 +113,11 @@ internal sealed record GccToolPageFanOutFixture(
         string[] partnerUrls,
         int pagesPerPartner,
         bool draftable = false,
-        string? briefJson = null)
+        string? briefJson = null,
+        // A bank carried over from an earlier fixture: a second run on overlapping partners.
+        FakeExtractionBank? bank = null,
+        // Every extraction call throws, the way a draining balance or a deprecated parameter does.
+        bool extractionFails = false)
     {
         var projectId = Guid.NewGuid();
         var project = new GccProjectDto(
@@ -112,6 +144,7 @@ internal sealed record GccToolPageFanOutFixture(
         var projects = new GccCompetitorAnalysisResolverTests.FakeProjects(project);
         var calls = new CallCounter();
         var provider = new RefusingProvider(calls);
+        bank ??= new FakeExtractionBank();
 
         var service = new GccGenerateService(
             new ContentPromptBuilder(),
@@ -127,7 +160,9 @@ internal sealed record GccToolPageFanOutFixture(
                 new GccCompetitorAnalysisResolverTests.FakePages(),
                 new GccCompetitorAnalysisResolverTests.FakeRag()),
             new GccV2PartnerExtractionService(
-                new CountingSchemaConstrainedGenerator(extraction, calls),
+                extractionFails
+                    ? new FailingSchemaConstrainedGenerator(calls)
+                    : new CountingSchemaConstrainedGenerator(extraction, calls),
                 new FakeProviderFactory(provider),
                 NullLogger<GccV2PartnerExtractionService>.Instance),
             projects,
@@ -137,7 +172,8 @@ internal sealed record GccToolPageFanOutFixture(
                 NullLogger<GccPublisherProfileResolver>.Instance),
             new GccKnownToolsResolver(
                 new GccCompetitorAnalysisResolverTests.FakePages(),
-                NullLogger<GccKnownToolsResolver>.Instance));
+                NullLogger<GccKnownToolsResolver>.Instance),
+            bank);
 
         var create = new GccCreateDto(
             Id: Guid.NewGuid(),
@@ -156,7 +192,7 @@ internal sealed record GccToolPageFanOutFixture(
             Department: "accounting",
             ProjectId: projectId);
 
-        return new GccToolPageFanOutFixture(service, create, calls);
+        return new GccToolPageFanOutFixture(service, create, calls, bank);
     }
 
     /// <summary>
@@ -259,6 +295,18 @@ internal sealed record GccToolPageFanOutFixture(
             var completion = new GccV2SchemaConstrainedCompletion<PartnerPageExtraction>(
                 result, "test-model", null, null);
             return Task.FromResult((GccV2SchemaConstrainedCompletion<T>)(object)completion);
+        }
+    }
+
+    private sealed class FailingSchemaConstrainedGenerator(CallCounter calls) : IGccV2SchemaConstrainedGenerator
+    {
+        public Task<GccV2SchemaConstrainedCompletion<T>> CompleteAsync<T>(
+            GccV2SchemaConstrainedRequest request, IContentGenerationProvider provider,
+            System.Text.Json.JsonSerializerOptions? deserializeOptions, CancellationToken ct)
+            where T : notnull
+        {
+            calls.CountExtraction();
+            throw new ContentGenerationException("scripted extraction failure: 429 insufficient credits");
         }
     }
 

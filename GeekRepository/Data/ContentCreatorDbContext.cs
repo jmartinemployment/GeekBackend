@@ -14,6 +14,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccArtifact> GccArtifacts => Set<GccArtifact>();
     public virtual DbSet<GccArtifactVersion> GccArtifactVersions => Set<GccArtifactVersion>();
     public virtual DbSet<GccApprovalEvent> GccApprovalEvents => Set<GccApprovalEvent>();
+    public virtual DbSet<GccBankedPartnerExtraction> GccPartnerExtractions => Set<GccBankedPartnerExtraction>();
     public virtual DbSet<GccSiteAnalysis> GccSiteAnalyses => Set<GccSiteAnalysis>();
     public virtual DbSet<GccSiteFinding> GccSiteFindings => Set<GccSiteFinding>();
     public virtual DbSet<GccClient> GccClients => Set<GccClient>();
@@ -80,6 +81,25 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(v => v.RowVersion).IsConcurrencyToken();
             entity.Property(v => v.CreatedAtUtc).IsRequired();
             entity.HasIndex(v => v.ArtifactId).HasDatabaseName("ix_gcc_artifact_versions_artifact_id");
+        });
+
+        modelBuilder.Entity<GccBankedPartnerExtraction>(entity =>
+        {
+            entity.ToTable("gcc_partner_extractions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.PartnerHost).IsRequired().HasMaxLength(253).HasColumnName("partner_host");
+            entity.Property(e => e.PagesDigest).IsRequired().HasMaxLength(64).HasColumnName("pages_digest");
+            entity.Property(e => e.CreateId).HasColumnName("create_id");
+            entity.Property(e => e.ProductName).IsRequired().HasMaxLength(256).HasColumnName("product_name");
+            entity.Property(e => e.ExtractionJson).IsRequired().HasColumnType("text").HasColumnName("extraction_json");
+            entity.Property(e => e.PagesAttempted).IsRequired().HasColumnName("pages_attempted");
+            entity.Property(e => e.ExtractedAtUtc).IsRequired().HasColumnName("extracted_at_utc");
+            // One row per host and digest, by constraint rather than by timing: two generates
+            // banking the same partner at once collide here and the second read wins the row.
+            entity.HasIndex(e => new { e.PartnerHost, e.PagesDigest })
+                .IsUnique()
+                .HasDatabaseName("ux_gcc_partner_extractions_host_digest");
         });
 
         modelBuilder.Entity<GccApprovalEvent>(entity =>

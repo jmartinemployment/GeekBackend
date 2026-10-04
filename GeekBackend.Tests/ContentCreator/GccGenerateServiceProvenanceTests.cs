@@ -107,7 +107,8 @@ public class GccGenerateServiceProvenanceTests
             NullLogger<GccPublisherProfileResolver>.Instance),
         new GccKnownToolsResolver(
             new GccCompetitorAnalysisResolverTests.FakePages(),
-            NullLogger<GccKnownToolsResolver>.Instance));
+            NullLogger<GccKnownToolsResolver>.Instance),
+        new GccToolPageFanOutFixture.FakeExtractionBank());
 
     private static GccCompetitorAnalysisResolver NoCompetitorData() =>
         GccCompetitorAnalysisResolverTests.Build(

@@ -618,6 +618,22 @@ public class GccGroundingRetrievalTests
     }
 
     [Fact]
+    public void The_warnings_a_generator_wrote_into_its_envelope_are_read_back_by_name()
+    {
+        // A pillar naming four of five partners is saved with the gap recorded, not refused; this is
+        // how the gap reaches the workspace.
+        var envelope = """{"title":"T","warnings":["Pillar names 4 of 5 partner tools. Missing: Ramp.",""],"body":{"lede":null,"sections":[]}}""";
+
+        var warnings = GccGenerationCoordinator.WarningsOf(envelope);
+
+        var only = Assert.Single(warnings);
+        Assert.StartsWith("Pillar names 4 of 5", only, StringComparison.Ordinal);
+        Assert.Empty(GccGenerationCoordinator.WarningsOf("""{"title":"T","body":{}}"""));
+        Assert.Empty(GccGenerationCoordinator.WarningsOf("""{"lede":null,"sections":[]}"""));
+        Assert.Empty(GccGenerationCoordinator.WarningsOf("not json"));
+    }
+
+    [Fact]
     public void Metadata_with_an_optional_field_absent_is_complete()
     {
         var draft = new GeekAPI.Services.Workflow.DTOs.BlogMetadataDraft("Title", "Meta", ["kw"], ["One"], Summary: null);

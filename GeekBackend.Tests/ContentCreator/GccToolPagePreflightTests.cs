@@ -133,6 +133,124 @@ public class GccToolPagePreflightTests
         Assert.NotNull(verdict.Extraction);
     }
 
+    private static GccPartnerToolSlice SliceOf(GccToolPageFanOutFixture fixtures, string host, string product) =>
+        new(
+            host,
+            product,
+            [.. GccResearchFetchService.Deserialize(fixtures.Create.ResearchJson)!.Quoteables
+                .Where(p => new Uri(p.Url).Host == host)],
+            []);
+
+    [Fact]
+    public async Task The_same_pages_assessed_again_reuse_the_bank_and_make_no_extraction_call()
+    {
+        // The cost claim behind the bank: ~108 model calls per five partners were paid for on every
+        // generate, four or five times on 2026-10-03, twice by runs that then died on a provider error.
+        var fixtures = GccToolPageFanOutFixture.Build(GroundablePage, ["https://dext.com"], pagesPerPartner: 2);
+
+        var first = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+        var paid = fixtures.Calls.Extractions;
+        Assert.True(paid > 0);
+        Assert.False(first.Reused);
+        Assert.Equal(1, fixtures.Bank.Count);
+
+        var second = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+
+        Assert.Equal(paid, fixtures.Calls.Extractions);
+        Assert.True(second.Reused);
+        Assert.NotNull(second.BankedAtUtc);
+        Assert.True(second.Ready);
+        Assert.NotNull(second.Extraction);
+        // Said, never silent: the readiness line names the reuse.
+        Assert.StartsWith("reused banked extraction from", second.Coverage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_changed_paragraph_on_one_page_re_extracts()
+    {
+        // The stamp is the content, not the run id or the URL set: a re-crawl refills the same run
+        // id in place and yields the same URLs with new text, and both must miss the bank.
+        var fixtures = GccToolPageFanOutFixture.Build(GroundablePage, ["https://dext.com"], pagesPerPartner: 2);
+        var slice = SliceOf(fixtures, "dext.com", "Dext");
+        await fixtures.Service.AssessPartnerToolReadinessAsync(slice, CancellationToken.None);
+        var paid = fixtures.Calls.Extractions;
+
+        var edited = slice with
+        {
+            Pages = [.. slice.Pages.Select((p, i) => i == 0
+                ? p with { Paragraphs = ["The product now also matches purchase orders to invoices."] }
+                : p)],
+        };
+        var verdict = await fixtures.Service.AssessPartnerToolReadinessAsync(edited, CancellationToken.None);
+
+        Assert.True(fixtures.Calls.Extractions > paid);
+        Assert.False(verdict.Reused);
+        Assert.Equal(2, fixtures.Bank.Count);
+    }
+
+    [Fact]
+    public async Task A_second_run_on_overlapping_partners_pays_only_for_the_new_one()
+    {
+        // Jeff, 2026-10-04: "A new run may [have] different partners/competitors but there is
+        // overlap." Keyed by host and digest rather than by create, the overlap is free.
+        var firstRun = GccToolPageFanOutFixture.Build(
+            GroundablePage, ["https://dext.com", "https://bill.com"], pagesPerPartner: 2);
+        await firstRun.Service.AssessPartnerToolReadinessAsync(SliceOf(firstRun, "dext.com", "Dext"), CancellationToken.None);
+        await firstRun.Service.AssessPartnerToolReadinessAsync(SliceOf(firstRun, "bill.com", "Bill"), CancellationToken.None);
+        Assert.Equal(2, firstRun.Bank.Count);
+
+        var secondRun = GccToolPageFanOutFixture.Build(
+            GroundablePage, ["https://bill.com", "https://melio.com"], pagesPerPartner: 2, bank: firstRun.Bank);
+        var bill = await secondRun.Service.AssessPartnerToolReadinessAsync(SliceOf(secondRun, "bill.com", "Bill"), CancellationToken.None);
+        var paidBeforeMelio = secondRun.Calls.Extractions;
+        var melio = await secondRun.Service.AssessPartnerToolReadinessAsync(SliceOf(secondRun, "melio.com", "Melio"), CancellationToken.None);
+
+        Assert.True(bill.Reused);
+        Assert.Equal(0, paidBeforeMelio);
+        Assert.False(melio.Reused);
+        Assert.True(secondRun.Calls.Extractions > 0);
+        Assert.Equal(3, firstRun.Bank.Count);
+    }
+
+    [Fact]
+    public async Task A_partner_whose_pages_failed_extraction_is_not_banked()
+    {
+        // Successes only. The failures of 2026-10-03 were a draining balance; freezing them in would
+        // make a billing incident a permanent property of the partner.
+        var fixtures = GccToolPageFanOutFixture.Build(
+            GroundablePage, ["https://dext.com"], pagesPerPartner: 2, extractionFails: true);
+
+        var verdict = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+
+        Assert.False(verdict.Ready);
+        Assert.Equal(2, verdict.PagesFailed);
+        Assert.False(verdict.Reused);
+        Assert.Equal(0, fixtures.Bank.Count);
+
+        // And it is attempted again next time, not remembered as empty.
+        var paid = fixtures.Calls.Extractions;
+        await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+        Assert.True(fixtures.Calls.Extractions > paid);
+    }
+
+    [Fact]
+    public void The_digest_is_the_pages_content_and_the_product_not_their_order()
+    {
+        var a = new GccQuoteablePage("https://dext.com/a", "A", [], ["Alpha."]);
+        var b = new GccQuoteablePage("https://dext.com/b", "B", [], ["Beta."]);
+
+        Assert.Equal(
+            GccGenerateService.PartnerPagesDigest("Dext", [a, b]),
+            GccGenerateService.PartnerPagesDigest("Dext", [b, a]));
+        Assert.NotEqual(
+            GccGenerateService.PartnerPagesDigest("Dext", [a, b]),
+            GccGenerateService.PartnerPagesDigest("Dext", [a, b with { Paragraphs = ["Beta, revised."] }]));
+        // Extraction is asked for one product by name, so a renamed partner is a different question.
+        Assert.NotEqual(
+            GccGenerateService.PartnerPagesDigest("Dext", [a, b]),
+            GccGenerateService.PartnerPagesDigest("Dext Prepare", [a, b]));
+    }
+
     [Fact]
     public async Task A_partner_with_no_retrieved_pages_reports_rather_than_disappearing()
     {
