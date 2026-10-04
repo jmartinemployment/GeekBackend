@@ -209,10 +209,10 @@ public class GccProjectRepository : IGccProjectRepository
     }
 
     /// <remarks>
-    /// The version the editor read is made the row's original version, so the UPDATE's WHERE carries
-    /// it: a save from an older read affects nothing and is refused, and so is one that loses the race
-    /// to another write between this read and this save. Checked before the write as well, so a stale
-    /// save does not reach the database at all.
+    /// The brief version the editor read is made brief_version's original value, so the UPDATE's WHERE
+    /// carries it: a save from an older read affects nothing and is refused, and so is one that loses
+    /// the race to another brief save between this read and this save. Checked before the write as
+    /// well, so a stale save does not reach the database at all. A write that saves increments it.
     ///
     /// Only the brief columns change. The revision is added in the same SaveChanges, so the project's
     /// brief and its latest revision are written together or not at all. Every save adds a row,
@@ -226,7 +226,7 @@ public class GccProjectRepository : IGccProjectRepository
         var entity = await _db.GccProjects
             .FirstOrDefaultAsync(p => p.Id == command.ProjectId && p.DeletedAtUtc == null, ct);
         if (entity is null) return GccProjectBriefSaveResult.Missing();
-        if (entity.Version != command.ExpectedVersion) return GccProjectBriefSaveResult.Conflict();
+        if (entity.BriefVersion != command.ExpectedVersion) return GccProjectBriefSaveResult.Conflict();
 
         var topic = Normalize(command.Topic) ?? entity.Topic;
         var newest = await _db.GccProjectRevisions
@@ -236,9 +236,10 @@ public class GccProjectRepository : IGccProjectRepository
         if (newest is not null && newest.BriefJson == command.BriefJson && newest.Topic == topic)
             return GccProjectBriefSaveResult.Saved(MapToDto(entity, newest.SavedAtUtc), MapRevision(newest));
 
-        _db.Entry(entity).Property(p => p.Version).OriginalValue = command.ExpectedVersion;
+        _db.Entry(entity).Property(p => p.BriefVersion).OriginalValue = command.ExpectedVersion;
 
         var now = DateTime.UtcNow;
+        entity.BriefVersion = command.ExpectedVersion + 1;
         entity.BriefJson = command.BriefJson;
         entity.Topic = topic;
         entity.UpdatedAtUtc = now;
@@ -450,6 +451,6 @@ public class GccProjectRepository : IGccProjectRepository
             entity.Topic,
             entity.ResearchJson,
             entity.SiteSectionJson,
-            entity.Version,
+            entity.BriefVersion,
             briefSavedAtUtc);
 }

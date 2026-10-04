@@ -127,8 +127,8 @@ public interface IGccProjectRepository
 
     /// <summary>
     /// Save the project's brief and keyword, and the revision that records it, in one write. Only the
-    /// brief columns change. Refused as stale when <c>ExpectedVersion</c> is not the row's version or
-    /// the row changes before the write lands. An incomplete brief saves (decision J3); a blank topic
+    /// brief columns change. Refused as stale when <c>ExpectedVersion</c> is not the brief's version or
+    /// the brief is saved again before the write lands. An incomplete brief saves (decision J3); a blank topic
     /// leaves the keyword as it is; a save identical to the newest revision writes nothing.
     /// </summary>
     Task<GccProjectBriefSaveResult> SaveBriefAsync(SaveGccProjectBriefCommand command, CancellationToken ct = default);

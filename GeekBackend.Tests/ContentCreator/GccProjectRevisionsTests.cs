@@ -24,7 +24,7 @@ namespace GeekBackend.Tests.ContentCreator;
 public sealed class GccProjectRevisionsTests
 {
     private const string Jeff = "11111111-1111-1111-1111-111111111111";
-    private const uint SeededVersion = 7;
+    private const int SeededVersion = 7;
 
     [Fact]
     public void The_revisions_table_allows_only_manual_and_backfill_and_restricts_the_project_key()
@@ -126,6 +126,81 @@ public sealed class GccProjectRevisionsTests
     }
 
     [Fact]
+    public void The_brief_version_is_its_own_column_and_a_concurrency_token()
+    {
+        using var context = new ContentCreatorDbContext(
+            new DbContextOptionsBuilder<ContentCreatorDbContext>()
+                .UseNpgsql("Host=model.invalid;Database=model_only;Username=none;Password=none")
+                .Options);
+
+        var briefVersion = context.Model.FindEntityType(typeof(GccProject))!
+            .FindProperty(nameof(GccProject.BriefVersion))!;
+
+        Assert.Equal("brief_version", briefVersion.GetColumnName());
+        Assert.True(briefVersion.IsConcurrencyToken);
+        Assert.False(briefVersion.IsNullable);
+    }
+
+    [Fact]
+    public async Task Each_save_that_writes_moves_the_version_on_by_one_and_an_identical_one_does_not()
+    {
+        var options = Options();
+        var project = await Seed(options);
+
+        var first = await Save(options, project.Id, """{"step":1}""", "AP");
+        var same = await Save(options, project.Id, """{"step":1}""", "AP");
+        var second = await Save(options, project.Id, """{"step":2}""", "AP");
+
+        Assert.Equal(SeededVersion + 1, first.Project!.Version);
+        Assert.Equal(SeededVersion + 1, same.Project!.Version);
+        Assert.Equal(SeededVersion + 2, second.Project!.Version);
+    }
+
+    [Fact]
+    public async Task A_profile_save_does_not_make_an_open_brief_stale()
+    {
+        var options = Options();
+        var project = await Seed(options);
+        int read;
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            read = (await new GccProjectRepository(db).GetByIdAsync(project.Id))!.Version;
+        }
+
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var renamed = await new GccProjectRepository(db).UpdateAsync(new UpdateGccProjectCommand(
+                project.Id, Jeff, "Renamed", project.StartDate, PartnerUrls: [], CompetitorUrls: []));
+            Assert.False(renamed.Stale);
+            Assert.Equal(read, renamed.Project!.Version);
+        }
+
+        var saved = await Save(options, project.Id, """{"after":"profile"}""", "AP", expectedVersion: read);
+
+        Assert.False(saved.Stale);
+        Assert.Equal("Renamed", (await ReadProject(options, project.Id)).Name);
+    }
+
+    [Fact]
+    public async Task A_second_save_from_the_same_read_is_refused()
+    {
+        var options = Options();
+        var project = await Seed(options);
+        await Save(options, project.Id, """{"tab":"one"}""", "AP", expectedVersion: SeededVersion);
+
+        var other = await Save(options, project.Id, """{"tab":"two"}""", "AP", expectedVersion: SeededVersion);
+
+        Assert.True(other.Stale);
+        Assert.Equal("""{"tab":"one"}""", (await ReadProject(options, project.Id)).BriefJson);
+    }
+
+    private static async Task<GccProject> ReadProject(DbContextOptions<ContentCreatorDbContext> options, Guid id)
+    {
+        await using var db = new ContentCreatorDbContext(options);
+        return await db.GccProjects.SingleAsync(p => p.Id == id);
+    }
+
+    [Fact]
     public async Task An_identical_save_from_an_older_read_is_still_refused()
     {
         var options = Options();
@@ -206,12 +281,15 @@ public sealed class GccProjectRevisionsTests
         Guid projectId,
         string? brief,
         string? topic,
-        uint expectedVersion = SeededVersion)
+        int? expectedVersion = null)
     {
-        // A fresh context per save, as each request has.
+        // A fresh context per save, as each request has. Unless a test says otherwise, the editor read
+        // the brief's current version -- the version a page holds after its last Save.
         await using var db = new ContentCreatorDbContext(options);
+        var read = expectedVersion
+            ?? await db.GccProjects.Where(p => p.Id == projectId).Select(p => p.BriefVersion).FirstOrDefaultAsync();
         return await new GccProjectRepository(db).SaveBriefAsync(
-            new SaveGccProjectBriefCommand(projectId, Jeff, brief, topic, expectedVersion));
+            new SaveGccProjectBriefCommand(projectId, Jeff, brief, topic, read));
     }
 
     private static async Task<GccProject> Seed(
@@ -233,7 +311,7 @@ public sealed class GccProjectRevisionsTests
             PartnerUrls = [],
             CompetitorUrls = [],
             BriefJson = brief,
-            Version = SeededVersion,
+            BriefVersion = SeededVersion,
             DeletedAtUtc = deleted ? DateTime.UtcNow : null,
         };
         db.AddRange(client, project);

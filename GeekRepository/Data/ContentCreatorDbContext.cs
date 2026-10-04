@@ -267,6 +267,10 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(p => p.Topic).HasColumnName("topic").HasMaxLength(1024);
             entity.Property(p => p.ResearchJson).HasColumnName("research_json").HasColumnType("text");
             entity.Property(p => p.SiteSectionJson).HasColumnName("site_section_json").HasColumnType("text");
+            // A counter, not xmin: the brief editor's token must not move when the Profile is saved.
+            // A concurrency token, so the brief save's UPDATE names the version the editor read.
+            entity.Property(p => p.BriefVersion).HasColumnName("brief_version").IsRequired()
+                .HasDefaultValue(0).IsConcurrencyToken();
             // xmin, not a column: the same token D1 put on gcc_creates. Every UPDATE of this row names
             // the version it read, so a write from a stale read affects no row and is refused.
             entity.Property(p => p.Version).IsRowVersion();

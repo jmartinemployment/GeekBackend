@@ -80,9 +80,16 @@ public class GccProject
     public string? SiteSectionJson { get; set; }
 
     /// <summary>
-    /// The row's version: Postgres's own <c>xmin</c>, which every write to the row changes. A write made
-    /// from a stale read is refused rather than overwriting what changed since: the Profile and the
-    /// brief are saved separately, to one row, from forms that can be open at the same time.
+    /// The brief's version: 0 until the first Save, then one more on every Save that writes. The brief
+    /// editor sends back the value it read, and a Save from an older read is refused. A Profile save
+    /// does not change it, so editing the Profile never makes an open brief stale.
+    /// </summary>
+    public int BriefVersion { get; set; }
+
+    /// <summary>
+    /// The row's version: Postgres's own <c>xmin</c>, which every write to the row changes. Internal to
+    /// one request -- a write whose row changed between its read and its save is refused, never
+    /// retried. No client sees or sends it; the brief editor's token is <see cref="BriefVersion"/>.
     /// </summary>
     public uint Version { get; set; }
 }

@@ -43,9 +43,10 @@ public sealed record GccProjectDto(
     string? ResearchJson = null,
     /// <summary>The site section this project's content is written for.</summary>
     string? SiteSectionJson = null,
-    /// <summary>The row version this copy was read at. A brief save sends it back as its expected
-    /// version, so a save made from a stale read is refused instead of overwriting what changed.</summary>
-    uint Version = 0,
+    /// <summary>The brief's version this copy was read at (brief_version). A brief save sends it back as
+    /// its expected version, so a save made from a stale read is refused instead of overwriting what
+    /// changed. A Profile save does not move it.</summary>
+    int Version = 0,
     DateTime? BriefSavedAtUtc = null);
 
 /// <summary>
@@ -77,7 +78,7 @@ public static class GccProjectRevisionKinds
 }
 
 /// <summary>Save a project's brief and keyword, as one revision.</summary>
-/// <param name="ExpectedVersion">The project version the editor read. A save made from an older read is
+/// <param name="ExpectedVersion">The brief version the editor read. A save made from an older read is
 /// refused, never written over the newer brief (decision J4).</param>
 /// <remarks>Sent only when the operator presses Save.</remarks>
 public sealed record SaveGccProjectBriefCommand(
@@ -85,7 +86,7 @@ public sealed record SaveGccProjectBriefCommand(
     string ActorUserId,
     string? BriefJson,
     string? Topic,
-    uint ExpectedVersion);
+    int ExpectedVersion);
 
 public sealed record GccProjectRevisionDto(
     Guid Id,

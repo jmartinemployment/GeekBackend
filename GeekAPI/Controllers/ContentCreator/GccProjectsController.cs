@@ -382,9 +382,8 @@ public class GccProjectsController : ControllerBase
     /// revision writes nothing and returns that revision.
     /// </summary>
     /// <remarks>
-    /// The version is the project row's, so a Profile save in another tab also makes the editor's read
-    /// stale. That is refused, never overwritten -- the safe side of the trade, at the cost of one
-    /// reload.
+    /// The version is the brief's own counter (brief_version), not the row's: a Profile save in another
+    /// tab does not make an open brief stale. Only another brief Save does.
     /// </remarks>
     [HttpPatch("{id:guid}/brief")]
     public async Task<ActionResult<SaveBriefResponse>> SaveBrief(
@@ -700,8 +699,8 @@ public class GccProjectsController : ControllerBase
     public sealed record ChangeProjectStatusRequest(string Status, DateOnly? FinishedDate = null);
 
     /// <summary>What the brief editor sends. The actor comes from the token.</summary>
-    public sealed record SaveBriefRequest(string? BriefJson, string? Topic, uint ExpectedVersion);
+    public sealed record SaveBriefRequest(string? BriefJson, string? Topic, int ExpectedVersion);
 
     /// <summary>The new version to send with the next save, and the revision this save wrote.</summary>
-    public sealed record SaveBriefResponse(uint Version, Guid RevisionId, DateTime SavedAtUtc, string? Topic);
+    public sealed record SaveBriefResponse(int Version, Guid RevisionId, DateTime SavedAtUtc, string? Topic);
 }

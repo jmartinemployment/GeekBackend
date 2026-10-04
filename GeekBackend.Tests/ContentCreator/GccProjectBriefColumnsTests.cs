@@ -105,7 +105,7 @@ public sealed class GccProjectBriefColumnsTests
 
         Assert.Equal("""{"angle":"problem_solution"}""", read!.BriefJson);
         Assert.Equal("AP: Approvals", read.Topic);
-        Assert.Equal(project.Version, read.Version);
+        Assert.Equal(project.BriefVersion, read.Version);
     }
 
     private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler
@@ -150,6 +150,7 @@ public sealed class GccProjectBriefColumnsTests
             BriefJson = brief,
             Topic = topic,
             Version = 7,
+            BriefVersion = 3,
         };
         db.AddRange(client, project);
         await db.SaveChangesAsync();

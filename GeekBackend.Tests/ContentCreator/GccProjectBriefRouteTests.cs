@@ -66,7 +66,7 @@ public sealed class GccProjectBriefRouteTests
         Assert.Equal(new ApiProjectsController.SaveBriefResponse(124, revisionId, savedAt, "AP: Approvals"), ok.Value);
         using var sent = JsonDocument.Parse(Assert.Single(stub.Sent));
         Assert.Equal(Sub, sent.RootElement.GetProperty("actorUserId").GetString());
-        Assert.Equal(123u, sent.RootElement.GetProperty("expectedVersion").GetUInt32());
+        Assert.Equal(123, sent.RootElement.GetProperty("expectedVersion").GetInt32());
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public sealed class GccProjectBriefRouteTests
         return controller;
     }
 
-    private static GccProjectDto Project(Guid id, uint version, string topic) =>
+    private static GccProjectDto Project(Guid id, int version, string topic) =>
         new(id, Guid.NewGuid(), "Q4", null, null, GccProjectStatuses.Planned, null, null, null, [], [],
             DateOnly.FromDateTime(DateTime.UtcNow), null, null, null, null, null, DateTime.UtcNow, DateTime.UtcNow,
             "{}", topic, null, null, version);
