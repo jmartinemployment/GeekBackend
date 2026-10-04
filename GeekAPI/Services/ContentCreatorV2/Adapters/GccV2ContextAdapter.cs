@@ -173,7 +173,7 @@ public sealed class GccV2ContextAdapter
     }
 
     /// <summary>
-    /// Operator-supplied affiliate perks. These are negotiated with the vendor and appear nowhere on
+    /// Operator-supplied partner perks. These are negotiated with the vendor and appear nowhere on
     /// their site, so no crawl can reach them and no quote can verify them. They are rendered in
     /// their own block, explicitly labelled operator-asserted, so they are never laundered into the
     /// library-grounded partner payloads above.
@@ -345,11 +345,9 @@ public sealed class GccV2ContextAdapter
             || extraction.TechnicalConstraints.Count > 0
             || extraction.UseCasePlaybooks.Count > 0
             || extraction.Categories.Count > 0
-            || extraction.FreshnessLog.Count > 0
             || extraction.BattlecardSlices.Count > 0
             || extraction.DemoBeats.Count > 0
-            || extraction.ComplianceSnippets.Count > 0
-            || extraction.AffiliateDisclosures.Count > 0;
+            || extraction.ComplianceSnippets.Count > 0;
         if (!hasAny) return;
 
         parts.Add(
@@ -438,23 +436,12 @@ public sealed class GccV2ContextAdapter
             parts.Add($"- Playbook: {u.JobToBeDone} → {string.Join(" | ", u.CitedStepsOrFeatures.Take(3))}");
         foreach (var c in extraction.Categories.Take(4))
             parts.Add($"- Category: {c.PrimaryCategory} vs={c.VsCategoryLabel ?? "n/a"}");
-        foreach (var f in extraction.FreshnessLog.Take(4))
-            parts.Add($"- Freshness [{f.ChangeKind}]: {f.ChangeSummary} asOf={f.StatedAsOf ?? "n/a"}");
         foreach (var b in extraction.BattlecardSlices.Take(4))
             parts.Add($"- Battlecard: win={b.WinTheme} | landmine={b.Landmine} | {b.CoachingLine}");
         foreach (var d in extraction.DemoBeats.Take(6))
             parts.Add($"- Demo beat: {d.BeatTitle} — {d.BeatClaim}");
         foreach (var c in extraction.ComplianceSnippets.Take(4))
             parts.Add($"- Compliance [{c.TermKind}]: {c.TermText}");
-        // JurisdictionOrPolicy had no consumer at all: disclosure text existed but nothing bound it to
-        // a disclosure regime. On the revenue-generating path that is the compliance-shaped hole.
-        foreach (var a in extraction.AffiliateDisclosures.Take(3))
-        {
-            parts.Add($"- Affiliate disclosure: {a.DisclosureText}"
-                + (string.IsNullOrWhiteSpace(a.JurisdictionOrPolicy)
-                    ? " (no jurisdiction or policy stated on the source — do not assert one)"
-                    : $" [regime: {a.JurisdictionOrPolicy}]"));
-        }
     }
 
     private static string? MergeWritingNotes(string? briefNotes, string partnerNotes)
@@ -1074,7 +1061,7 @@ public sealed class GccV2ContextAdapter
     }
 
     /// <param name="Perk">
-    /// Operator-asserted affiliate perk. Negotiated with the vendor and published nowhere on their
+    /// Operator-asserted partner perk. Negotiated with the vendor and published nowhere on their
     /// site, so it can never be crawled or quote-verified. It is rendered in its own block, labelled
     /// operator-supplied, so the model cannot present it as library-grounded evidence.
     /// </param>

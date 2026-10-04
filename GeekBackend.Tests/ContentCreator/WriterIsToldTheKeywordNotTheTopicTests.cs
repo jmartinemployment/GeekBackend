@@ -42,8 +42,8 @@ public class WriterIsToldTheKeywordNotTheTopicTests
         CaseStudies: null, Testimonials: null, Awards: null,
         FeatureInventory: [new PartnerFeatureItem("Invoice data capture", "automation", null, null)],
         TechnicalConstraints: null, OfferCtas: null, Disqualifiers: null, UseCasePlaybooks: null,
-        Categories: null, Freshness: null, BattlecardSlices: null, DemoBeats: null,
-        ComplianceSnippets: null, AffiliateDisclosures: null);
+        Categories: null, BattlecardSlices: null, DemoBeats: null,
+        ComplianceSnippets: null);
 
     /// <summary>
     /// The long-form path, where the create's Topic <i>is</i> the keyword source.

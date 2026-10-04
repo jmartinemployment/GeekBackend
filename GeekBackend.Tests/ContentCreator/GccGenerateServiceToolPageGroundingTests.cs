@@ -343,7 +343,7 @@ public class GccGenerateServiceToolPageGroundingTests
 
         // "Reported failure" -- the message names what was and wasn't found, not just that it failed.
         Assert.Contains("Partner grounding required", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("1 of 22 payload categories populated", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("1 of 20 payload categories populated", ex.Message, StringComparison.Ordinal);
         Assert.Contains("core capability signal", ex.Message, StringComparison.Ordinal);
         Assert.Contains("missing", ex.Message, StringComparison.Ordinal);
     }

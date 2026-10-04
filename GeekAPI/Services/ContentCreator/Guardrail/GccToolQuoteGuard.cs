@@ -139,9 +139,9 @@ public static class GccToolQuoteGuard
     /// retrieved.
     /// </summary>
     /// <remarks>
-    /// One source, deliberately. This read two of GccPartnerExtractionDocument's twenty-two
-    /// categories -- Testimonials and Citables -- and refused a page when the extraction model had
-    /// filed its findings under features and pricing instead. Adding the retrieved pages beside
+    /// One source, deliberately. This read two of GccPartnerExtractionDocument's categories --
+    /// Testimonials and Citables -- and refused a page when the extraction model had filed its
+    /// findings under features and pricing instead. Adding the retrieved pages beside
     /// those buckets fixed the refusal and left two derivations of "a quotable span" with different
     /// rules, which is the drift this pipeline keeps paying for.
     ///

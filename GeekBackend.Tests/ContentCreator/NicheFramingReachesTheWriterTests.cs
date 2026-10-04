@@ -48,8 +48,8 @@ public class NicheFramingReachesTheWriterTests
         CaseStudies: null, Testimonials: null, Awards: null,
         FeatureInventory: [new PartnerFeatureItem("Invoice data capture", "automation", null, null)],
         TechnicalConstraints: null, OfferCtas: null, Disqualifiers: null, UseCasePlaybooks: null,
-        Categories: null, Freshness: null, BattlecardSlices: null, DemoBeats: null,
-        ComplianceSnippets: null, AffiliateDisclosures: null);
+        Categories: null, BattlecardSlices: null, DemoBeats: null,
+        ComplianceSnippets: null);
 
     private static async Task<string> ToolPromptsAsync(string? briefJson)
     {
@@ -99,7 +99,7 @@ public class NicheFramingReachesTheWriterTests
     }
 
     [Fact]
-    public async Task No_affiliate_or_commission_vocabulary_can_reach_a_prompt()
+    public async Task No_partner_program_or_commission_vocabulary_can_reach_a_prompt()
     {
         // Jeff, 2026-10-02: "Partner program text has no place in my output." There is no field for it,
         // so this is a guard against one being added later and wired in by reflex. A brief that tries to

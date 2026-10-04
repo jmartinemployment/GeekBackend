@@ -197,7 +197,7 @@ public static class GccV2PartnerUrlResearchService
     }
 
     /// <param name="Perk">
-    /// Operator-asserted affiliate perk (discount code, extended trial, bonus). Negotiated with the
+    /// Operator-asserted partner perk (discount code, extended trial, bonus). Negotiated with the
     /// vendor and published nowhere on their site, so it can never be crawled or verified — it is
     /// carried separately from library-grounded partner payloads and must always be labelled as
     /// operator-supplied, never presented as verified evidence.

@@ -22,7 +22,7 @@ public sealed class GccV2PartnerExtractionServiceTests
         Assert.Empty(doc.FeatureInventory);
         Assert.Empty(doc.TechnicalConstraints);
         Assert.Empty(doc.BattlecardSlices);
-        Assert.Empty(doc.AffiliateDisclosures);
+        Assert.Empty(doc.ComplianceSnippets);
     }
 
     /// <summary>

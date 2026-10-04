@@ -52,7 +52,7 @@ internal static class GccPartnerExtractionFakes
     /// <summary>All-null <see cref="PartnerPageExtraction"/> -- extraction ran, found nothing.</summary>
     internal static readonly PartnerPageExtraction EmptyPageExtraction = new(
         null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-        null, null, null, null, null, null, null);
+        null, null, null, null, null);
 
     internal static GccV2PartnerExtractionService Scripted(
         IContentProviderFactory providers, PartnerPageExtraction result) =>

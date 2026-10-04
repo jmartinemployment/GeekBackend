@@ -8,7 +8,7 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekAPI.Services.ContentCreatorV2.Partner;
 
 /// <summary>
-/// Partner extraction — a third-party SaaS product promoted for affiliate revenue.
+/// Partner extraction — a third-party product the firm implements for its clients.
 ///
 /// Replaces a 983-line regex extractor (36 <c>[GeneratedRegex]</c> methods, 123 references). Regex can
 /// find a price string; it cannot identify "the three things this tool does better than anyone else",
@@ -31,7 +31,7 @@ public sealed class GccV2PartnerExtractionService(
 {
     /// <summary>Sent as response_format.json_schema.name. OpenAI rejects anything outside
     /// [a-zA-Z0-9_-] with a 400, so this must not pick up the dotted ".v4" version style.</summary>
-    public const string ProviderSchemaName = "partner-extraction-v4";
+    public const string ProviderSchemaName = "partner-extraction-v5";
 
     private static readonly JsonSerializerOptions JsonOpts =
         new(JsonSerializerDefaults.Web)
@@ -49,7 +49,7 @@ public sealed class GccV2PartnerExtractionService(
     private const string SystemPrompt = """
         You extract structured product intelligence about a PARTNER from one crawled web page.
 
-        A partner is a third-party SaaS product that the operator promotes for affiliate revenue. It is
+        A partner is a third-party SaaS product that the firm implements for its clients. It is
         schema.org SoftwareApplication. Subscription pricing, seat caps, feature matrices, integrations,
         API limits and billing cycles are all valid here.
 
@@ -76,13 +76,11 @@ public sealed class GccV2PartnerExtractionService(
           seat_cap, other. Give limitValue/limitUnit only when a number is published.
         - pricing: unitCostAmount/unitCostBasis only for genuine per-unit charges ("$15 per seat",
           "$0.02 per credit"), never for a flat tier price.
-        - affiliateDisclosures: capture the disclosure text and, when the page names one, the
-          jurisdiction or policy regime it cites (for example "FTC 16 CFR Part 255", "EU P2B").
         """;
 
     public static GccPartnerExtractionDocument EmptyDocument() =>
         new(GccPartnerExtractionDocument.CurrentExtractorVersion,
-            [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+            [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []);
 
     /// <summary>
     /// Extract partner payloads from crawled partner pages. Returns an empty document when nothing
@@ -123,11 +121,9 @@ public sealed class GccV2PartnerExtractionService(
         var disqualifiers = new List<GccPartnerDisqualifierAsset>();
         var playbooks = new List<GccPartnerUseCasePlaybookAsset>();
         var categories = new List<GccPartnerCategoryAsset>();
-        var freshness = new List<GccPartnerFreshnessAsset>();
         var battlecards = new List<GccPartnerBattlecardSliceAsset>();
         var demoBeats = new List<GccPartnerDemoBeatAsset>();
         var compliance = new List<GccPartnerComplianceSnippetAsset>();
-        var disclosures = new List<GccPartnerAffiliateDisclosureAsset>();
 
         var schema = GccV2AdHocJsonSchema.For<PartnerPageExtraction>(JsonOpts);
 
@@ -296,13 +292,6 @@ public sealed class GccV2PartnerExtractionService(
                 categories.Add(new GccPartnerCategoryAsset(c.PrimaryCategory, c.VsCategoryLabel, Prov(c.Quote)));
             }
 
-            foreach (var f in x.Freshness ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(f.ChangeSummary)) continue;
-                freshness.Add(new GccPartnerFreshnessAsset(
-                    f.ChangeKind ?? "update", f.ChangeSummary, f.StatedAsOf, page.Url, Prov(f.Quote)));
-            }
-
             foreach (var b in x.BattlecardSlices ?? [])
             {
                 if (string.IsNullOrWhiteSpace(b.WinTheme)) continue;
@@ -323,14 +312,6 @@ public sealed class GccV2PartnerExtractionService(
                 if (string.IsNullOrWhiteSpace(c.TermText)) continue;
                 compliance.Add(new GccPartnerComplianceSnippetAsset(
                     c.TermKind ?? "unstated", c.TermText, page.Url, Prov(c.Quote ?? c.TermText)));
-            }
-
-            foreach (var d in x.AffiliateDisclosures ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(d.DisclosureText)) continue;
-                disclosures.Add(new GccPartnerAffiliateDisclosureAsset(
-                    d.DisclosureText, d.JurisdictionOrPolicy, page.Url,
-                    Prov(d.Quote ?? d.DisclosureText)));
             }
         }
 
@@ -353,11 +334,9 @@ public sealed class GccV2PartnerExtractionService(
             Dedupe(disqualifiers, a => a.LimitDetail),
             Dedupe(playbooks, a => a.JobToBeDone),
             Dedupe(categories, a => a.PrimaryCategory),
-            Dedupe(freshness, a => a.ChangeSummary),
             Dedupe(battlecards, a => a.WinTheme),
             Dedupe(demoBeats, a => a.BeatTitle),
             Dedupe(compliance, a => a.TermKind + "|" + a.TermText),
-            Dedupe(disclosures, a => a.DisclosureText),
             PagesAttempted: pages.Count,
             PagesFailed: failedPages,
             FirstFailure: firstFailure);
@@ -497,11 +476,9 @@ internal sealed record PartnerPageExtraction(
     List<PartnerDisqualifierItem>? Disqualifiers,
     List<PartnerPlaybookItem>? UseCasePlaybooks,
     List<PartnerCategoryItem>? Categories,
-    List<PartnerFreshnessItem>? Freshness,
     List<PartnerBattlecardItem>? BattlecardSlices,
     List<PartnerDemoBeatItem>? DemoBeats,
-    List<PartnerComplianceItem>? ComplianceSnippets,
-    List<PartnerDisclosureItem>? AffiliateDisclosures);
+    List<PartnerComplianceItem>? ComplianceSnippets);
 
 internal sealed record PartnerCitableItem(string IsolatedClaim, string? Quote);
 internal sealed record PartnerAdItem(string MarketingHook, string? PainPointTrigger, string? CtaWrapper, string? Quote);
@@ -520,8 +497,6 @@ internal sealed record PartnerOfferCtaItem(string CtaLabel, string DestinationUr
 internal sealed record PartnerDisqualifierItem(string? LimitType, string LimitDetail, string? Quote);
 internal sealed record PartnerPlaybookItem(string JobToBeDone, List<string>? CitedStepsOrFeatures, string? Quote);
 internal sealed record PartnerCategoryItem(string PrimaryCategory, string? VsCategoryLabel, string? Quote);
-internal sealed record PartnerFreshnessItem(string? ChangeKind, string ChangeSummary, string? StatedAsOf, string? Quote);
 internal sealed record PartnerBattlecardItem(string WinTheme, string? Landmine, string? CoachingLine, string? Quote);
 internal sealed record PartnerDemoBeatItem(string BeatTitle, string BeatClaim, string? Quote);
 internal sealed record PartnerComplianceItem(string? TermKind, string TermText, string? Quote);
-internal sealed record PartnerDisclosureItem(string DisclosureText, string? JurisdictionOrPolicy, string? Quote);

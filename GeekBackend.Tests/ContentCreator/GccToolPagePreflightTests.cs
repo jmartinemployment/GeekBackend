@@ -14,7 +14,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// <remarks>
 /// <para>
 /// <b>What these pin, and why it is not a page count.</b> The gate is extraction output — a capability
-/// signal plus breadth across at least 3 of 22 categories — so a pre-flight built on retrieval volume
+/// signal plus breadth across at least 3 of 20 categories — so a pre-flight built on retrieval volume
 /// would pass a partner the gate then refuses. <see cref="A_partner_with_pages_but_no_extractable_payload_is_not_ready"/>
 /// is that case directly: pages present, extraction empty, not ready.
 /// </para>
@@ -26,7 +26,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </remarks>
 public class GccToolPagePreflightTests
 {
-    /// <summary>Features + integrations + FAQs: a capability signal and 3 of 22 categories, the gate's
+    /// <summary>Features + integrations + FAQs: a capability signal and 3 of 20 categories, the gate's
     /// exact bar. One item less in any of the three and this partner is not ready.</summary>
     private static readonly PartnerPageExtraction GroundablePage = new(
         Citables: null,
@@ -46,11 +46,9 @@ public class GccToolPagePreflightTests
         Disqualifiers: null,
         UseCasePlaybooks: null,
         Categories: null,
-        Freshness: null,
         BattlecardSlices: null,
         DemoBeats: null,
-        ComplianceSnippets: null,
-        AffiliateDisclosures: null);
+        ComplianceSnippets: null);
 
     [Fact]
     public async Task Readiness_is_reported_for_every_declared_partner_before_anything_is_drafted()
@@ -109,7 +107,7 @@ public class GccToolPagePreflightTests
         // The fault/shortage split, which is the whole value of the message: these pages extracted
         // cleanly and still yielded nothing, so this is a thin partner and not a provider outage.
         Assert.Contains("extracted cleanly", verdict.Coverage, StringComparison.Ordinal);
-        Assert.Contains("0 of 22 payload categories", verdict.Coverage, StringComparison.Ordinal);
+        Assert.Contains("0 of 20 payload categories", verdict.Coverage, StringComparison.Ordinal);
     }
 
     [Fact]

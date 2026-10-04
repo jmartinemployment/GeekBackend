@@ -3,7 +3,7 @@ using GeekAPI.Services.ContentCreatorV2.Partner;
 namespace GeekBackend.Tests.ContentCreatorV2;
 
 /// <summary>
-/// Affiliate perks are negotiated with the vendor and published nowhere on their site, so they can
+/// Partner perks are negotiated with the vendor and published nowhere on their site, so they can
 /// never be crawled or quote-verified. They must travel as operator-asserted input and must never be
 /// mixed into the library-grounded partner payloads.
 /// </summary>
@@ -55,25 +55,50 @@ public sealed class GccV2PartnerPerkTests
             .ToList();
 
         Assert.DoesNotContain("Perks", properties);
-        Assert.DoesNotContain("AffiliatePerks", properties);
     }
 }
 
 /// <summary>
-/// Affiliate disclosure must bind to a jurisdiction/policy regime when the source states one.
-/// The field previously existed with zero consumers anywhere in the codebase.
+/// The extraction carries what a partner's product does, not the economics of promoting it, and not a
+/// change log nobody reads (Jeff, 2026-10-04, D6: drop both categories outright).
 /// </summary>
-public sealed class GccV2AffiliateDisclosureTests
+/// <remarks>
+/// The disclosure category was the extraction's half of the partner-program framing -- a partner
+/// "promoted for revenue", with a disclosure regime to capture -- and the freshness category was
+/// counted by the tool page gate while no prompt read it, so it could help pass a gate without
+/// grounding a sentence. Matched by substring so a renamed copy of either fails here too.
+/// </remarks>
+public sealed class GccV2PartnerExtractionDroppedCategoriesTests
 {
-    [Fact]
-    public void Disclosure_asset_carries_a_jurisdiction_or_policy()
+    [Theory]
+    [InlineData("Disclosure")]
+    [InlineData("Freshness")]
+    public void The_extraction_has_no_such_category(string category)
     {
-        var fields = typeof(GeekApplication.Models.ContentCreator.GccPartnerAffiliateDisclosureAsset)
+        var documentProperties = typeof(GeekApplication.Models.ContentCreator.GccPartnerExtractionDocument)
             .GetProperties()
-            .Select(p => p.Name)
-            .ToList();
+            .Select(p => p.Name);
+        var assetTypes = typeof(GeekApplication.Models.ContentCreator.GccPartnerExtractionDocument).Assembly
+            .GetTypes()
+            .Where(t => t.Namespace == "GeekApplication.Models.ContentCreator"
+                && t.Name.StartsWith("GccPartner", StringComparison.Ordinal))
+            .Select(t => t.Name);
 
-        Assert.Contains("DisclosureText", fields);
-        Assert.Contains("JurisdictionOrPolicy", fields);
+        Assert.DoesNotContain(documentProperties, n => n.Contains(category, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(assetTypes, n => n.Contains(category, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void The_extraction_prompt_asks_for_neither_category()
+    {
+        var schema = GeekAPI.Services.ContentCreatorV2.Generation.GccV2AdHocJsonSchema
+            .For<PartnerPageExtraction>(new System.Text.Json.JsonSerializerOptions(
+                System.Text.Json.JsonSerializerDefaults.Web)
+            {
+                TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
+            });
+
+        Assert.DoesNotContain("disclosure", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("freshness", schema, StringComparison.OrdinalIgnoreCase);
     }
 }

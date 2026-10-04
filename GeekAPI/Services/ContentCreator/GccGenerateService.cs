@@ -505,7 +505,7 @@ public class GccGenerateService
     /// <para>
     /// <b>Why this is extraction and not a page count.</b> The gate is
     /// <see cref="HasSufficientPartnerData"/>, which measures what extraction <i>found</i>: a capability
-    /// signal (features or citable claims) plus breadth across at least 3 of 22 payload categories. Page
+    /// signal (features or citable claims) plus breadth across at least 3 of the payload categories. Page
     /// and paragraph volume do not predict it — a partner with 231 pages and 3,516 prose paragraphs
     /// fails if extraction pulled one feature and two integrations. So a cheap pre-flight over retrieval
     /// counts would have passed all five partners and then produced three pages, which is a green light
@@ -529,7 +529,7 @@ public class GccGenerateService
     /// </param>
     /// <param name="Extraction">
     /// The extraction to draft from, present only when <paramref name="Ready"/>. Never serialized: it is
-    /// the full 22-category payload and this record goes to the operator over the hub.
+    /// the full extraction payload and this record goes to the operator over the hub.
     /// </param>
     public sealed record GccPartnerToolReadiness(
         string ProductName,
@@ -1646,11 +1646,16 @@ public class GccGenerateService
     /// rigor Pillar/Blog get from GccHeadingProvenanceGuard, not less (Jeff, 2026-09-22).
     /// Requires a real signal of what the product actually does -- FeatureInventory ("the
     /// definitive list of what the product does" per the extraction system prompt) or at least one
-    /// isolated factual claim via Citables -- AND breadth across at least 3 of the 22 payload
-    /// categories, so sections beyond Key Capabilities have something real to draw from too.</summary>
+    /// isolated factual claim via Citables -- AND breadth across at least 3 of the
+    /// <see cref="PartnerDataCategoryCount"/> payload categories, so sections beyond Key Capabilities have something real to draw from too.</summary>
     private static bool HasSufficientPartnerData(GccPartnerExtractionDocument extraction) =>
         (extraction.FeatureInventory.Count > 0 || extraction.Citables.Count > 0)
         && CountPopulatedPartnerDataCategories(extraction) >= 3;
+
+    /// <summary>How many categories <see cref="CountPopulatedPartnerDataCategories"/> counts across.
+    /// Twenty since 2026-10-04, when freshness and disclosures left the schema; the refusal prints it
+    /// rather than a literal, so the message cannot keep naming a count the document no longer has.</summary>
+    internal const int PartnerDataCategoryCount = 20;
 
     private static int CountPopulatedPartnerDataCategories(GccPartnerExtractionDocument extraction) =>
         (extraction.Citables.Count > 0 ? 1 : 0)
@@ -1670,11 +1675,9 @@ public class GccGenerateService
         + (extraction.Disqualifiers.Count > 0 ? 1 : 0)
         + (extraction.UseCasePlaybooks.Count > 0 ? 1 : 0)
         + (extraction.Categories.Count > 0 ? 1 : 0)
-        + (extraction.FreshnessLog.Count > 0 ? 1 : 0)
         + (extraction.BattlecardSlices.Count > 0 ? 1 : 0)
         + (extraction.DemoBeats.Count > 0 ? 1 : 0)
-        + (extraction.ComplianceSnippets.Count > 0 ? 1 : 0)
-        + (extraction.AffiliateDisclosures.Count > 0 ? 1 : 0);
+        + (extraction.ComplianceSnippets.Count > 0 ? 1 : 0);
 
     /// <summary>Diagnostic for the refusal message -- names what was and wasn't found, so "reported
     /// failure" means an operator can see why, not just that grounding failed.</summary>
@@ -1694,7 +1697,7 @@ public class GccGenerateService
             : $"{extraction.PagesAttempted} page(s) extracted cleanly; ";
 
         return attempt
-            + $"{populated} of 22 payload categories populated (need at least 3), "
+            + $"{populated} of {PartnerDataCategoryCount} payload categories populated (need at least 3), "
             + $"core capability signal (features or citable claims) {(hasCapabilitySignal ? "present" : "missing")}";
     }
 

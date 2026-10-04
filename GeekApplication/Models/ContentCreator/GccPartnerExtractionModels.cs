@@ -26,11 +26,9 @@ public sealed record GccPartnerExtractionDocument(
     IReadOnlyList<GccPartnerDisqualifierAsset> Disqualifiers,
     IReadOnlyList<GccPartnerUseCasePlaybookAsset> UseCasePlaybooks,
     IReadOnlyList<GccPartnerCategoryAsset> Categories,
-    IReadOnlyList<GccPartnerFreshnessAsset> FreshnessLog,
     IReadOnlyList<GccPartnerBattlecardSliceAsset> BattlecardSlices,
     IReadOnlyList<GccPartnerDemoBeatAsset> DemoBeats,
     IReadOnlyList<GccPartnerComplianceSnippetAsset> ComplianceSnippets,
-    IReadOnlyList<GccPartnerAffiliateDisclosureAsset> AffiliateDisclosures,
     /// <summary>
     /// How many pages extraction was handed, and how many of those failed outright (the provider
     /// call threw and the page was skipped).
@@ -47,10 +45,14 @@ public sealed record GccPartnerExtractionDocument(
     /// fault happened; only the provider's own message says what the fault was.</summary>
     string? FirstFailure = null)
 {
-    // Kept in lockstep with GccV2PartnerExtractionService.ProviderSchemaName ("partner-extraction-v4")
+    // Kept in lockstep with GccV2PartnerExtractionService.ProviderSchemaName ("partner-extraction-v5")
     // -- was "v3" while the provider schema had already moved to v4, an unnoticed drift caught during
     // a 2026-09-22 audit against the restored partner-extraction-complete.md spec.
-    public const string CurrentExtractorVersion = "gcc-partner-extraction.v4";
+    //
+    // v5 (2026-10-04): the freshness and disclosure categories left the schema. The version is part
+    // of the bank digest (GccGenerateService), so every row banked under v4 re-extracts rather than
+    // being read back with categories the writer no longer has.
+    public const string CurrentExtractorVersion = "gcc-partner-extraction.v5";
     public const string CrawlTypePartner = "partner";
     public const string CrawlTypeCompetitors = "competitors";
 }
@@ -214,13 +216,6 @@ public sealed record GccPartnerCategoryAsset(
     string? VsCategoryLabel,
     GccPartnerExtractionProvenance Provenance);
 
-public sealed record GccPartnerFreshnessAsset(
-    string ChangeKind,
-    string ChangeSummary,
-    string? StatedAsOf,
-    string OriginProofUrl,
-    GccPartnerExtractionProvenance Provenance);
-
 public sealed record GccPartnerBattlecardSliceAsset(
     string WinTheme,
     string Landmine,
@@ -236,17 +231,5 @@ public sealed record GccPartnerDemoBeatAsset(
 public sealed record GccPartnerComplianceSnippetAsset(
     string TermKind,
     string TermText,
-    string OriginProofUrl,
-    GccPartnerExtractionProvenance Provenance);
-
-/// <summary>
-/// Affiliate/reseller disclosure — <see cref="JurisdictionOrPolicy"/> is a real business requirement
-/// for this operator's affiliate model (FTC/consumer-protection disclosure regimes vary by
-/// jurisdiction), so it is kept even though nothing reads it yet; PLAN/WRITE wiring for it is
-/// tracked as follow-up, not dropped as dead weight.
-/// </summary>
-public sealed record GccPartnerAffiliateDisclosureAsset(
-    string DisclosureText,
-    string? JurisdictionOrPolicy,
     string OriginProofUrl,
     GccPartnerExtractionProvenance Provenance);

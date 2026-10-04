@@ -180,8 +180,8 @@ public sealed class GccGroundingResolver(
     /// <para>
     /// Eight is right for prose: pillar and blog want the passages that best answer one topical query.
     /// A tool page wants a partner's <i>product surface</i> — features, pricing, integrations, FAQ, case
-    /// studies — and <c>GccV2PartnerExtractionService</c> gates a page on 3 of 22 payload categories
-    /// being populated. Eight topically-ranked pages cannot span 22 categories, and did not: a live run
+    /// studies — and <c>GccGenerateService</c> gates a page on 3 of its payload categories being
+    /// populated. Eight topically-ranked pages cannot span them, and did not: a live run
     /// gave Dext 2 of 22 from 6 pages, and Bill, Melio and Stampli 1 of 22 from 5–7, against partners
     /// carrying 181–231 crawled pages with 33–55 features each (Jeff's counts, 2026-10-01).
     /// </para>
@@ -439,7 +439,7 @@ public sealed class GccGroundingResolver(
                     need,
                     runId,
                     crawlType: crawlType,
-                    // Partner runs feed a per-product extraction with a 22-category gate; the other
+                    // Partner runs feed a per-product extraction with a category-breadth gate; the other
                     // corpora feed prose. Different questions, different depth.
                     topK: string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase)
                         ? PartnerTopK
