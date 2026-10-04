@@ -162,6 +162,13 @@ public sealed class RagIndexStatusWebhookRequest
     public int PagesSkippedUnusable { get; set; }
 
     public int ChunksUpserted { get; set; }
+
+    /// <summary>
+    /// Chunks the Library did not write because an earlier page of the same run carried the
+    /// exact text. Bound so it is not discarded on arrival; not persisted to crawl_runs.
+    /// </summary>
+    public int ChunksSkippedRepeat { get; set; }
+
     public string? Error { get; set; }
     public DateTimeOffset? StartedAtUtc { get; set; }
     public DateTimeOffset? FinishedAtUtc { get; set; }
