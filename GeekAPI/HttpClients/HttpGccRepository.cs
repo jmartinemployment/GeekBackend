@@ -293,6 +293,30 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
         ProjectWriteAsync(HttpMethod.Put, $"repo/content-creator/projects/{command.Id}/status", command, ct);
 
     /// <summary>
+    /// Save the project's brief as one revision. Not found and stale are answers, like the other
+    /// project writes: a 409 here is an editor holding an old read, not a fault.
+    /// </summary>
+    public async Task<GccProjectBriefSaveResult> SaveProjectBriefAsync(
+        SaveGccProjectBriefCommand command,
+        CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator/projects/{command.ProjectId}/brief";
+        var request = new HttpRequestMessage(HttpMethod.Patch, path)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(command, JsonOpts), Encoding.UTF8, "application/json"),
+        };
+        var res = await _http.SendAsync(request, ct);
+
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return GccProjectBriefSaveResult.Missing();
+        if (res.StatusCode == System.Net.HttpStatusCode.Conflict) return GccProjectBriefSaveResult.Conflict();
+        res.EnsureSuccessStatusCode();
+
+        var json = await res.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<GccProjectBriefSaveResult>(json, JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    /// <summary>
     /// Soft-delete a project. Not found when it does not exist or was already deleted -- not an error
     /// to the caller, since either way the goal state ("gone from every view") already holds.
     /// </summary>

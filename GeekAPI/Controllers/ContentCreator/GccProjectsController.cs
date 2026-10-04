@@ -375,6 +375,58 @@ public class GccProjectsController : ControllerBase
     }
 
     /// <summary>
+    /// Save the project's brief and keyword as one revision (GA1). The brief editor sends back the
+    /// <c>version</c> it read; a save from an older read is refused 409 and nothing is written, so a
+    /// stale tab can never overwrite a newer brief. Called only when Save is pressed. An incomplete
+    /// brief saves (J3); a blank topic leaves the keyword as it is; a save identical to the newest
+    /// revision writes nothing and returns that revision.
+    /// </summary>
+    /// <remarks>
+    /// The version is the project row's, so a Profile save in another tab also makes the editor's read
+    /// stale. That is refused, never overwritten -- the safe side of the trade, at the cost of one
+    /// reload.
+    /// </remarks>
+    [HttpPatch("{id:guid}/brief")]
+    public async Task<ActionResult<SaveBriefResponse>> SaveBrief(
+        Guid id,
+        [FromBody] SaveBriefRequest request,
+        CancellationToken ct)
+    {
+        var actor = CurrentSubject();
+        if (actor is null) return Unauthorized();
+
+        if (request.Topic is { Length: > 1024 })
+            return BadRequest("topic is at most 1024 characters.");
+        if (request.BriefJson is not null && !IsJson(request.BriefJson))
+            return BadRequest("briefJson must be a JSON document.");
+
+        var saved = await _repo.SaveProjectBriefAsync(
+            new SaveGccProjectBriefCommand(id, actor, request.BriefJson, request.Topic, request.ExpectedVersion),
+            ct);
+
+        if (saved.NotFound) return NotFound();
+        if (saved.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return Ok(new SaveBriefResponse(
+            saved.Project!.Version,
+            saved.Revision!.Id,
+            saved.Revision.SavedAtUtc,
+            saved.Project.Topic));
+    }
+
+    private static bool IsJson(string value)
+    {
+        try
+        {
+            using var _ = System.Text.Json.JsonDocument.Parse(value);
+            return true;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Delete a project. This is a soft delete — the row and its whole log survive underneath — but
     /// it disappears from every list and can no longer be fetched, exactly as a delete should look
     /// from here. A real, permanent DELETE is not reachable: every project carries a project_created
@@ -646,4 +698,10 @@ public class GccProjectsController : ControllerBase
         string? BudgetCurrency = null);
 
     public sealed record ChangeProjectStatusRequest(string Status, DateOnly? FinishedDate = null);
+
+    /// <summary>What the brief editor sends. The actor comes from the token.</summary>
+    public sealed record SaveBriefRequest(string? BriefJson, string? Topic, uint ExpectedVersion);
+
+    /// <summary>The new version to send with the next save, and the revision this save wrote.</summary>
+    public sealed record SaveBriefResponse(uint Version, Guid RevisionId, DateTime SavedAtUtc, string? Topic);
 }
