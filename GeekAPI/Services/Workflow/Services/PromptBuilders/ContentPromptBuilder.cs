@@ -1009,22 +1009,31 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     /// <summary>
-    /// The practical client diagnosis: the operator's discovery questions, handed to the closing as the
-    /// substance of its ask. Empty string when the brief carries none, so the closing reads exactly as it
+    /// The operator's questions for the appointment: the closing asks the reader to book, and to answer
+    /// these when booking. Empty string when the brief carries none, so the closing reads exactly as it
     /// did before this existed.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why the closing needed material.</b> The instruction above has always demanded one plain ask
-    /// and banned the reflection endings every draft produced, while giving the writer nothing for the
-    /// ask to be about. A reader who has just been told five tools exist does not need to be told to
-    /// "consider their options"; they need to know what to look at in their own operation. These are the
-    /// questions the operator actually asks a prospect, so the ending can do that.
+    /// <b>Answered when booking, not a test of whether to book</b> (Jeff, 2026-10-05: "It was meant answer
+    /// these questions when booking your appointment"). This told the writer to hand the reader a
+    /// "practical diagnosis ... put to their own operation ... so the ask is what they do with the
+    /// answers", and the writer did exactly that: "consider asking yourself these questions", then "If
+    /// these questions highlight inefficiencies or risks in your current process, it may be time to book".
+    /// That makes the appointment conditional on a self-audit the reader grades, and the questions a
+    /// quiz. They are what the operator asks a new client, and the reader brings the answers to the
+    /// booking.
     /// </para>
     /// <para>
-    /// <b>Questions, not a form.</b> Rendered as the reader's own audit in the second person. A short
-    /// list is legitimate -- <c>ListParagraph</c> exists -- but a numbered questionnaire the page
-    /// administers is a different artifact, and the ask still has to close the section.
+    /// <b>Why the closing needed material.</b> The instruction above has always demanded one plain ask
+    /// and banned the reflection endings every draft produced, while giving the writer nothing for the
+    /// ask to be about. These are the questions the operator actually asks a prospect, so the ending has
+    /// something concrete to ask for.
+    /// </para>
+    /// <para>
+    /// <b>Questions, not a form.</b> A short list is legitimate -- <c>ListParagraph</c> exists -- but a
+    /// numbered questionnaire the page administers is a different artifact, and the ask still has to
+    /// close the section.
     /// </para>
     /// <para>
     /// <b>The set is the set.</b> Selecting among them is allowed when the length band will not carry all
@@ -1037,10 +1046,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
         if (questions is not { Count: > 0 }) return string.Empty;
 
         var sb = new StringBuilder();
-        sb.Append("BEFORE that ask, the closing hands the reader a practical diagnosis: these questions, ");
-        sb.Append("put to their own operation in the second person, so the ask is what they do with the ");
-        sb.Append("answers. They are the publisher's own discovery questions -- not retrieved evidence, ");
-        sb.Append("so attribute them to nobody -- and they are the whole set available to you:");
+        sb.Append("WITH that ask go the publisher's questions for the appointment. The reader answers ");
+        sb.Append("them when they book: say so in plain words -- book the appointment, and answer these ");
+        sb.Append("questions when booking -- and give the questions. They are what the publisher asks a ");
+        sb.Append("new client, not a test the reader takes to decide whether to book, so the ask never ");
+        sb.Append("depends on them: never \"if these questions highlight a problem\", never \"if any of ");
+        sb.Append("these sound familiar\", never \"ask yourself\". They are the publisher's own questions ");
+        sb.Append("-- not retrieved evidence, so attribute them to nobody -- and they are the whole set ");
+        sb.Append("available to you:");
 
         foreach (var question in questions)
         {
@@ -1050,9 +1063,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
         sb.AppendLine();
         sb.Append("Use them as written, or a subset of them if the length will not carry all. Do NOT ");
-        sb.Append("invent a question that is not in that list, do NOT pad toward a count, and do NOT ");
-        sb.Append("turn them into a form the page administers or a quiz with answers. A short list is ");
-        sb.Append("fine; so is working them into the prose. The ask still closes the section after them. ");
+        sb.Append("invent a question that is not in that list, do NOT pad toward a count, do NOT answer ");
+        sb.Append("them for the reader, and do NOT turn them into a form the page administers or a quiz. ");
+        sb.Append("A short list is fine; so is working them into the prose. The ask, with its link, still ");
+        sb.Append("closes the section after them. ");
 
         return sb.ToString();
     }

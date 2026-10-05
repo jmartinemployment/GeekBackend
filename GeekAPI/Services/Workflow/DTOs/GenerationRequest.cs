@@ -76,15 +76,16 @@ public record ProjectGenerationContext(
     /// <summary>What that scheduler calls itself, used as the ask when the brief names no ctaType.</summary>
     string? ConsultationCtaLabel = null,
     /// <summary>
-    /// The operator's practical client diagnosis: discovery questions the closing hands the reader to run
-    /// against their own operation, one per entry.
+    /// The operator's questions for the appointment: the closing asks the reader to book and to answer
+    /// these when booking, one per entry.
     /// </summary>
     /// <remarks>
     /// <para>
     /// This is the closing's <i>material</i>. <c>ClosingCallToActionInstruction</c> has always demanded
     /// one plain ask and banned trailing off, while supplying nothing for that ask to be about — so every
     /// closing argued it from whatever the writer had left. These are what the operator actually asks a
-    /// prospect, so the ending can be a diagnostic the reader runs rather than a sentiment.
+    /// prospect, so the ending asks for something concrete -- the appointment, and these answered when
+    /// it is booked -- rather than a sentiment.
     /// </para>
     /// <para>
     /// Not to be confused with <see cref="SerpPaaQuestions"/>, which is populated only from the v1

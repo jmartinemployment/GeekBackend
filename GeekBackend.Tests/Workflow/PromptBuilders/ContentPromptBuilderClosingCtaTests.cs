@@ -183,12 +183,22 @@ public class ContentPromptBuilderClosingCtaTests
     }
 
     // ----------------------------------------------------------------------------------------------
-    // The practical client diagnosis -- Jeff, 2026-10-03: "A useful discovery question set as the CTA."
+    // The operator's questions for the appointment -- Jeff, 2026-10-03: "A useful discovery question
+    // set as the CTA."
     //
     // The instruction above had always demanded one plain ask and banned the reflection endings every
     // draft produced, while supplying nothing for the ask to be ABOUT. These are the questions the
-    // operator actually asks a prospect, so the closing can be a diagnostic the reader runs.
+    // operator actually asks a prospect.
+    //
+    // They are answered when the reader books (Jeff, 2026-10-05: "It was meant answer these questions
+    // when booking your appointment"). The first version of this told the writer to hand the reader a
+    // "practical diagnosis" to run on their own operation, and the pillar and the blog both closed on
+    // "ask yourself these questions ... If these questions highlight inefficiencies or risks in your
+    // current process, it may be time to book" -- a self-audit the appointment was made to depend on.
     // ----------------------------------------------------------------------------------------------
+
+    /// <summary>The words that open the questions block, and appear nowhere else in a closing.</summary>
+    private const string QuestionsMarker = "the publisher's questions for the appointment";
 
     /// <summary>Three of Jeff's eight for AP approval workflows, verbatim.</summary>
     private static readonly string[] Diagnosis =
@@ -211,9 +221,26 @@ public class ContentPromptBuilderClosingCtaTests
             Assert.Contains(question, system, StringComparison.Ordinal);
         }
 
-        Assert.Contains("practical diagnosis", system, StringComparison.Ordinal);
+        Assert.Contains(QuestionsMarker, system, StringComparison.Ordinal);
         // The questions are material for the ask, not a replacement for it.
         Assert.Contains("CLOSING:", system, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllFourBodyPrompts))]
+    public void The_reader_answers_the_questions_when_booking_and_the_ask_never_depends_on_them(string which)
+    {
+        var system = Render(which, Context() with { DiagnosisQuestions = Diagnosis });
+
+        Assert.Contains("answer these questions when booking", system, StringComparison.Ordinal);
+        Assert.Contains("the ask never depends on them", system, StringComparison.Ordinal);
+        // The two endings the drafts of 2026-10-05 wrote, named so they are not written again.
+        Assert.Contains("never \"if these questions highlight a problem\"", system, StringComparison.Ordinal);
+        Assert.Contains("never \"ask yourself\"", system, StringComparison.Ordinal);
+        // What the instruction used to say, and the writer did.
+        Assert.DoesNotContain("practical diagnosis", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("put to their own operation", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("what they do with the answers", system, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -227,7 +254,7 @@ public class ContentPromptBuilderClosingCtaTests
         var empty = Render(which, Context() with { DiagnosisQuestions = [] });
 
         Assert.Equal(absent, empty);
-        Assert.DoesNotContain("practical diagnosis", absent, StringComparison.Ordinal);
+        Assert.DoesNotContain(QuestionsMarker, absent, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -348,6 +375,6 @@ public class ContentPromptBuilderClosingCtaTests
         Assert.Contains("asking for book_appointment", system, StringComparison.Ordinal);
         Assert.Contains("worded as \"Book your assessment\"", system, StringComparison.Ordinal);
         Assert.Contains($"href \"{Anchor}\"", system, StringComparison.Ordinal);
-        Assert.Contains("The ask still closes the section after them", system, StringComparison.Ordinal);
+        Assert.Contains("The ask, with its link, still closes the section after them", system, StringComparison.Ordinal);
     }
 }

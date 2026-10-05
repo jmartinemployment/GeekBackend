@@ -2125,8 +2125,8 @@ public class GccGenerateService
         public IReadOnlyList<string>? PaaQuestions { get; init; }
 
         /// <summary>
-        /// The operator's practical client diagnosis -- discovery questions the closing hands the reader,
-        /// one per entry. Read here rather than at each call site so the three long-form paths cannot
+        /// The operator's questions for the appointment -- the closing asks the reader to answer them
+        /// when booking -- one per entry. Read here rather than at each call site so the three long-form paths cannot
         /// diverge on whether the closing has material; that divergence is exactly how Tool ended up
         /// passing none of the seventeen brief fields Pillar passed.
         /// </summary>

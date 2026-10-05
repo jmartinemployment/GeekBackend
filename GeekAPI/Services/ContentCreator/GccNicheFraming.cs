@@ -233,8 +233,8 @@ public static class GccNicheFramingReader
     }
 
     /// <summary>
-    /// The operator's practical client diagnosis: a discovery question set the closing hands the reader
-    /// to run against their own operation. Empty when the brief carries none.
+    /// The operator's questions for the appointment: the closing asks the reader to book and to answer
+    /// these when booking. Empty when the brief carries none.
     /// </summary>
     /// <remarks>
     /// <para>
