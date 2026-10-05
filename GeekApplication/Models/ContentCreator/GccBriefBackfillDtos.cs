@@ -64,6 +64,19 @@ public sealed record GccBriefBackfillUnassignedCreate(
     DateTime UpdatedAtUtc,
     int Artifacts);
 
+/// <summary>
+/// One project's brief copied onto it from its create, or why nothing was copied.
+/// </summary>
+/// <param name="Refusal">Why not, as a sentence. Null when it was copied. Nothing is written on a refusal.</param>
+public sealed record GccBriefCopyResult(
+    GccProjectDto? Project, GccProjectRevisionDto? Revision, bool NotFound, string? Refusal)
+{
+    public static GccBriefCopyResult Copied(GccProjectDto project, GccProjectRevisionDto revision) =>
+        new(project, revision, false, null);
+    public static GccBriefCopyResult Missing() => new(null, null, true, null);
+    public static GccBriefCopyResult Refused(string why) => new(null, null, false, why);
+}
+
 public static class GccBriefBackfillRoles
 {
     public const string Current = "current";

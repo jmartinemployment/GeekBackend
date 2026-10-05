@@ -150,9 +150,103 @@ public sealed class GccBriefBackfillReportTests
         // ApiKeyMiddleware requires X-API-Key on /api/{x}/internal/*.
         Assert.Equal("api/geek-content-creator/internal", route);
         Assert.Equal("brief-backfill/report", action);
-        Assert.DoesNotContain(
-            typeof(GccInternalController).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
-            m => m.GetCustomAttributes().Any(a => a is HttpPostAttribute or HttpPutAttribute or HttpPatchAttribute or HttpDeleteAttribute));
+        // The one thing under this controller that writes: the copy for a single named project.
+        var writes = typeof(GccInternalController)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttributes().Any(a => a is HttpPostAttribute or HttpPutAttribute or HttpPatchAttribute or HttpDeleteAttribute))
+            .Select(m => m.Name);
+        Assert.Equal([nameof(GccInternalController.CopyBriefOntoProject)], writes);
+    }
+
+    /// <summary>
+    /// The copy for one project: the one unambiguous case -- no brief of its own, exactly one create,
+    /// which carries a brief -- and a refusal that writes nothing for every other.
+    /// </summary>
+    [Fact]
+    public async Task One_projects_brief_is_copied_onto_it_as_a_backfill_revision_and_its_create_is_left_alone()
+    {
+        var options = Options();
+        var project = await AddProject(options, "test");
+        var create = await AddCreate(
+            options, project, "Accounts Payable: Automated Approval Workflows", Day, brief: """{"angle":"problem_solution"}""", artifacts: 7);
+
+        var result = await Copy(options, project.Id);
+
+        Assert.Null(result.Refusal);
+        Assert.Equal("""{"angle":"problem_solution"}""", result.Project!.BriefJson);
+        Assert.Equal("Accounts Payable: Automated Approval Workflows", result.Project.Topic);
+        Assert.Equal(1, result.Project.Version);
+        Assert.Equal(GccProjectRevisionKinds.Backfill, result.Revision!.Kind);
+        // The revision is the create's brief as its owner last saved it.
+        Assert.Equal(create.UpdatedAtUtc, result.Revision.SavedAtUtc);
+        Assert.Equal(Owner.ToString(), result.Revision.SavedBy);
+
+        await using var verify = new ContentCreatorDbContext(options);
+        var stored = await verify.GccProjects.SingleAsync();
+        Assert.Equal(result.Project.BriefJson, stored.BriefJson);
+        Assert.Equal("test", stored.Name);
+        Assert.Single(await verify.GccProjectRevisions.ToListAsync());
+        var untouched = await verify.GccCreates.SingleAsync();
+        Assert.Equal("""{"angle":"problem_solution"}""", untouched.BriefJson);
+        Assert.Equal(project.Id, untouched.ProjectId);
+        Assert.Equal(7, await verify.GccArtifacts.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_second_copy_is_refused_and_so_is_a_project_with_its_own_brief()
+    {
+        var options = Options();
+        var project = await AddProject(options, "test");
+        await AddCreate(options, project, "AP", Day, brief: "{}");
+        var own = await AddProject(options, "Has its own", ownBrief: true);
+        await AddCreate(options, own, "AP", Day, brief: """{"would":"overwrite"}""");
+
+        await Copy(options, project.Id);
+        var again = await Copy(options, project.Id);
+        var overOwn = await Copy(options, own.Id);
+
+        Assert.Contains("already has a brief of its own", again.Refusal);
+        Assert.Contains("already has a brief of its own", overOwn.Refusal);
+        await using var verify = new ContentCreatorDbContext(options);
+        Assert.Equal("""{"angle":"own"}""", (await verify.GccProjects.SingleAsync(p => p.Id == own.Id)).BriefJson);
+        Assert.Equal(2, await verify.GccProjectRevisions.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_project_with_several_creates_none_or_one_without_a_brief_is_refused_and_nothing_is_written()
+    {
+        var options = Options();
+        var several = await AddProject(options, "Several");
+        await AddCreate(options, several, "AP: One", Day, brief: "{}");
+        await AddCreate(options, several, "AP: Two", Day.AddDays(1), brief: "{}");
+        var none = await AddProject(options, "None");
+        var blank = await AddProject(options, "Blank");
+        await AddCreate(options, blank, "AP", Day, brief: null);
+
+        Assert.Contains("has 2 creates", (await Copy(options, several.Id)).Refusal);
+        Assert.Contains("has 0 creates", (await Copy(options, none.Id)).Refusal);
+        Assert.Contains("has no brief to copy", (await Copy(options, blank.Id)).Refusal);
+
+        await using var verify = new ContentCreatorDbContext(options);
+        Assert.All(await verify.GccProjects.ToListAsync(), p => Assert.Null(p.BriefJson));
+        Assert.Empty(await verify.GccProjectRevisions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_deleted_or_unknown_project_is_not_found()
+    {
+        var options = Options();
+        var gone = await AddProject(options, "Gone", deleted: true);
+        await AddCreate(options, gone, "AP", Day, brief: "{}");
+
+        Assert.True((await Copy(options, gone.Id)).NotFound);
+        Assert.True((await Copy(options, Guid.NewGuid())).NotFound);
+    }
+
+    private static async Task<GccBriefCopyResult> Copy(DbContextOptions<ContentCreatorDbContext> options, Guid projectId)
+    {
+        await using var db = new ContentCreatorDbContext(options);
+        return await new GccBriefBackfillRepository(db).CopyOntoProjectAsync(projectId);
     }
 
     private static async Task<GccBriefBackfillReport> Report(DbContextOptions<ContentCreatorDbContext> options)
@@ -234,5 +328,6 @@ public sealed class GccBriefBackfillReportTests
     private static DbContextOptions<ContentCreatorDbContext> Options() =>
         new DbContextOptionsBuilder<ContentCreatorDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
 }

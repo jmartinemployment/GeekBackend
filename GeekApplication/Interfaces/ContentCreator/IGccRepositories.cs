@@ -230,9 +230,16 @@ public interface IGccGenerateJobRepository
     Task<int> FailInterruptedAsync(string error, CancellationToken ct = default);
 }
 
-/// <summary>The brief backfill (GR3). Report only: nothing here writes.</summary>
+/// <summary>The brief backfill (GR3): its report, and the copy for one project at a time.</summary>
 public interface IGccBriefBackfillRepository
 {
     /// <summary>What the backfill would do, read from the database and changing nothing.</summary>
     Task<GccBriefBackfillReport> GetReportAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Copy one project's brief, keyword, research and site section onto it from its one create, and
+    /// record it as a <c>backfill</c> revision carrying that create's date and author. Refused, writing
+    /// nothing, unless the project has no brief of its own and exactly one create, which carries a brief.
+    /// </summary>
+    Task<GccBriefCopyResult> CopyOntoProjectAsync(Guid projectId, CancellationToken ct = default);
 }

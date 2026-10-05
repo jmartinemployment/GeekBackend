@@ -376,6 +376,17 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
             ?? throw new InvalidOperationException($"Empty response from {path}");
     }
 
+    /// <summary>Copy one project's brief onto it from its one create. Null when the project does not exist.</summary>
+    public async Task<GccBriefCopyResult?> CopyBriefOntoProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator/brief-backfill/projects/{projectId}";
+        var res = await _http.PostAsync(path, content: null, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccBriefCopyResult>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
     /// <summary>
     /// The create a project's drafts are stored under, or null when it has none yet. Only a 404 means
     /// none: anything else read as "none" would mint a second create for the project.

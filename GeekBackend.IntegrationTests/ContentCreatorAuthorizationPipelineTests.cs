@@ -81,6 +81,23 @@ public sealed class ContentCreatorAuthorizationPipelineTests(GeekApiTestFactory 
         Assert.Equal(HttpStatusCode.Unauthorized, bearerOnly.StatusCode);
     }
 
+    /// <summary>The one-project brief copy writes, so the same holds for it: no internal key, no copy.</summary>
+    [Fact]
+    public async Task The_brief_copy_is_refused_without_the_internal_key()
+    {
+        var path = $"/api/geek-content-creator/internal/brief-backfill/projects/{SomeProjectId:D}";
+        using var anonymous = factory.CreateClient();
+        using var browser = factory.CreateClient();
+        browser.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", GeekApiTestFactory.IssueTestToken(GeekApiTestFactory.OwnerUserId, "content-creator.manage"));
+
+        using var noKey = await anonymous.PostAsync(path, content: null);
+        using var bearerOnly = await browser.PostAsync(path, content: null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, noKey.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, bearerOnly.StatusCode);
+    }
+
     [Theory]
     [MemberData(nameof(ProtectedRequests))]
     public async Task No_token_is_refused(HttpMethod method, string path)

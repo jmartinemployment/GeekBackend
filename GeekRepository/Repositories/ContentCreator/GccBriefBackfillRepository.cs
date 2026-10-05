@@ -6,9 +6,14 @@ using Microsoft.EntityFrameworkCore;
 namespace GeekRepository.Repositories.ContentCreator;
 
 /// <summary>
-/// The dry run of the brief backfill (GR3): what would be copied onto each project, and what the plan
-/// leaves undecided. Every query is no-tracking and nothing is saved.
+/// The brief backfill (GR3): the report of what every project holds, and the copy for one project.
 /// </summary>
+/// <remarks>
+/// The report reads only. It showed one project worth copying -- one keyword, one brief (Jeff,
+/// 2026-10-05: "hardly worth the trouble") -- so there is no backfill of everything, and none of the
+/// decisions one would need about deleted projects, mixed keywords and creates with no project.
+/// <see cref="CopyOntoProjectAsync"/> does the one unambiguous case and refuses every other.
+/// </remarks>
 public class GccBriefBackfillRepository : IGccBriefBackfillRepository
 {
     private readonly ContentCreatorDbContext _db;
@@ -121,5 +126,90 @@ public class GccBriefBackfillRepository : IGccBriefBackfillRepository
             Revisions: revisionsByProject.Values.Sum(v => v.Count));
 
         return new GccBriefBackfillReport(DateTime.UtcNow, counts, reported, unassigned);
+    }
+
+    /// <remarks>
+    /// The create is not changed and not deleted: it still holds the project's drafts, and it is what
+    /// the create-keyed page reads until that page is retired.
+    ///
+    /// The revision is the create's brief as its owner last saved it, so it carries the create's
+    /// updated-at and owner rather than the moment and identity of whoever ran the copy.
+    /// </remarks>
+    public async Task<GccBriefCopyResult> CopyOntoProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var project = await _db.GccProjects
+            .FirstOrDefaultAsync(p => p.Id == projectId && p.DeletedAtUtc == null, ct);
+        if (project is null) return GccBriefCopyResult.Missing();
+
+        if (!string.IsNullOrWhiteSpace(project.BriefJson)
+            || project.BriefVersion != 0
+            || await _db.GccProjectRevisions.AnyAsync(r => r.ProjectId == projectId, ct))
+        {
+            return GccBriefCopyResult.Refused(
+                $"Project \"{project.Name}\" already has a brief of its own. Nothing was copied over it.");
+        }
+
+        var creates = await _db.GccCreates.AsNoTracking().Where(c => c.ProjectId == projectId).ToListAsync(ct);
+        if (creates.Count != 1)
+        {
+            return GccBriefCopyResult.Refused(
+                $"Project \"{project.Name}\" has {creates.Count} creates. This copies a project that has "
+                + "exactly one, where there is nothing to choose between.");
+        }
+
+        var create = creates[0];
+        if (string.IsNullOrWhiteSpace(create.BriefJson))
+        {
+            return GccBriefCopyResult.Refused(
+                $"Project \"{project.Name}\"'s create (\"{create.Topic}\") has no brief to copy.");
+        }
+
+        var topic = string.IsNullOrWhiteSpace(create.Topic) ? null : create.Topic.Trim();
+        project.BriefJson = create.BriefJson;
+        project.Topic = topic;
+        project.ResearchJson = create.ResearchJson;
+        project.SiteSectionJson = create.SiteSectionJson;
+        project.BriefVersion = 1;
+        project.UpdatedAtUtc = DateTime.UtcNow;
+
+        var revision = new Data.Entities.ContentCreator.GccProjectRevision
+        {
+            ProjectId = project.Id,
+            Kind = GccProjectRevisionKinds.Backfill,
+            BriefJson = create.BriefJson,
+            Topic = topic,
+            SavedBy = create.OwnerUserId.ToString(),
+            SavedAtUtc = create.UpdatedAtUtc,
+        };
+        _db.GccProjectRevisions.Add(revision);
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // The project changed between the read above and this write -- a brief saved on it, most
+            // likely. Nothing of the copy was written.
+            _db.ChangeTracker.Clear();
+            return GccBriefCopyResult.Refused(
+                $"Project \"{project.Name}\" changed while its brief was being copied. Nothing was copied.");
+        }
+
+        await transaction.CommitAsync(ct);
+
+        return GccBriefCopyResult.Copied(
+            new GccProjectDto(
+                project.Id, project.ClientId, project.Name, project.Code, project.Description, project.Status,
+                project.SiteUrl, project.ProjectSiteRunId, project.Department,
+                project.PartnerUrls.AsReadOnly(), project.CompetitorUrls.AsReadOnly(),
+                project.StartDate, project.DueDate, project.FinishedDate, project.EstimatedHours, project.Budget,
+                project.BudgetCurrency?.Trim(), project.CreatedAtUtc, project.UpdatedAtUtc,
+                project.BriefJson, project.Topic, project.ResearchJson, project.SiteSectionJson,
+                project.BriefVersion, revision.SavedAtUtc),
+            new GccProjectRevisionDto(
+                revision.Id, revision.ProjectId, revision.Kind, revision.BriefJson, revision.Topic,
+                revision.SavedBy, revision.SavedAtUtc));
     }
 }
