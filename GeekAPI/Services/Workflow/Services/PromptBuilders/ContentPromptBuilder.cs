@@ -701,7 +701,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "MONEY IS IN US DOLLARS ONLY: state a price or any amount of money only in US dollars, written " +
         "with a $ sign. When the evidence gives an amount in another currency (AUD, A$, GBP, £, EUR, € " +
         "and so on), do not state that amount at all -- never convert it, and never keep the number and " +
-        "drop the currency. Say the vendor publishes its pricing and leave the figure out.";
+        "drop the currency. Say the vendor publishes its pricing and leave the figure out. A block " +
+        "quotation is the one exception: it is reproduced exactly as published, currency included.";
 
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +

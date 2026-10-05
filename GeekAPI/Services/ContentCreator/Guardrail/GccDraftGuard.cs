@@ -323,6 +323,11 @@ public static partial class GccDraftGuard
     /// amount written in another currency; and a dollar amount the evidence gives only in another
     /// currency -- the foreign price with its currency dropped, which reads as US dollars and is not.
     /// </summary>
+    /// <remarks>
+    /// A block quotation is exempt (Jeff, 2026-10-05: "Use of other currencies is acceptable in
+    /// Blockquotes"). It is the partner's own published sentence, reproduced exactly; changing or
+    /// refusing its currency would be editing a quotation.
+    /// </remarks>
     private static void AddCurrencyFindings(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
     {
         var evidence = GccCurrencyGrammar.Find(inputs.NumberEvidence);
@@ -333,7 +338,7 @@ public static partial class GccDraftGuard
             .ToDictionary(g => g.Key, g => g.First().Currency, StringComparer.Ordinal);
 
         var wrong = new List<string>();
-        foreach (var (text, _) in Paragraphs(document))
+        foreach (var (text, _) in Paragraphs(document, includeQuotations: false))
         {
             foreach (var money in GccCurrencyGrammar.Find(text))
             {
@@ -416,7 +421,10 @@ public static partial class GccDraftGuard
     /// ranges of runs that carry a link. Headings are not here: a heading is not a claim (see
     /// <see cref="GccFigureGrammar"/>).
     /// </summary>
-    private static IEnumerable<(string Text, IReadOnlyList<(int Start, int End)> Cites)> Paragraphs(ContentDocument document)
+    /// <param name="includeQuotations">False leaves block quotations out: they are someone else's
+    /// published words, reproduced as written.</param>
+    private static IEnumerable<(string Text, IReadOnlyList<(int Start, int End)> Cites)> Paragraphs(
+        ContentDocument document, bool includeQuotations = true)
     {
         static (string, IReadOnlyList<(int, int)>) Join(IEnumerable<Run> runs)
         {
@@ -441,6 +449,8 @@ public static partial class GccDraftGuard
                     foreach (var item in list.Items) yield return Join(item);
                     continue;
                 }
+
+                if (paragraph is QuoteParagraph && !includeQuotations) continue;
 
                 var joined = Join(Runs(paragraph));
                 if (joined.Item1.Length > 0) yield return joined;

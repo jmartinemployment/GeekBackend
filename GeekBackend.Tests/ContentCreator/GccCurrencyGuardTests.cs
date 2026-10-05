@@ -102,6 +102,27 @@ public sealed class GccCurrencyGuardTests
         Assert.Null(Currency(sentence, evidence));
     }
 
+    /// <summary>Jeff, 2026-10-05: "Use of other currencies is acceptable in Blockquotes".</summary>
+    [Fact]
+    public void A_block_quotation_keeps_the_currency_it_was_published_in()
+    {
+        var quoted = new ContentDocument(
+            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
+            [
+                new Section("h2", "In their words",
+                    [
+                        new TextParagraph([new Run("ApprovalMax describes its entry plan this way.")]),
+                        new QuoteParagraph([new Run("Standard starts at A$39 per month.")], Cite: "https://approvalmax.test/pricing"),
+                    ],
+                    null, [], Provenance: "plan"),
+                new Section("h2", "What to do next", [new TextParagraph([new Run("Book a free consultation.", Href: Scheduler)])], null, [], Provenance: "plan"),
+            ]);
+
+        var verdict = GccDraftGuard.Tool(quoted, Inputs("Standard starts at A$39 per month."));
+
+        Assert.DoesNotContain("currency", verdict.FailedChecks);
+    }
+
     [Fact]
     public void The_same_check_runs_on_a_blog_and_a_tool_page()
     {
