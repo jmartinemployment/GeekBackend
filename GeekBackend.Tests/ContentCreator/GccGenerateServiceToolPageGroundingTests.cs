@@ -91,10 +91,10 @@ public class GccGenerateServiceToolPageGroundingTests
             // JsonSchemaName is the exact discriminator: "sections" is a body batch and "section" is
             // the single FAQ section. Matching on prompt text alone put the body in the FAQ branch,
             // because the body prompt mentions the FAQ when explaining what its word target excludes.
-            // A length-shortfall retry re-asks for the batch it just wrote; answering it with the
-            // next script would hand sections 3-4 to the call that owns 1-2. Same batch, not
-            // counted, and no longer -- so the service keeps the first draft, as it should.
-            var isLengthRetry = asked.Contains("LENGTH SHORTFALL", StringComparison.Ordinal);
+            // A shortfall retry re-asks for the batch it just wrote; answering it with the next
+            // script would hand sections 3-4 to the call that owns 1-2. Same batch, not counted,
+            // and no better -- so the service keeps the first draft, as it should.
+            var isLengthRetry = asked.Contains("=== SHORTFALL", StringComparison.Ordinal);
             var content = request.JsonSchemaName switch
             {
                 // One batch per body call. Returning the whole body each time gave the page three

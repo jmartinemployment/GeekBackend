@@ -3182,6 +3182,8 @@ public class GccGenerateService
         List<string>? shortfalls = null)
     {
         var written = new List<Section>();
+        // The keyword the page is scored against: the one its prompts name and the SEO report counts.
+        var keyword = promptCtx.Context.TargetKeyword;
         for (var i = 0; i < outline.Count; i += SectionsPerBatch)
         {
             var batch = outline.Skip(i).Take(SectionsPerBatch).ToList();
@@ -3189,47 +3191,56 @@ public class GccGenerateService
             var batchCtx = promptCtx with { SectionBatch = batch, SectionBatchIndex = i / SectionsPerBatch };
             var sections = await WriteBatchAsync(llm, type, batchCtx, batchLabel, outline.Count, ct);
 
-            // The floor the batch's own slots declare, when they declare one. The tool outline sizes
-            // every section ("600-850 words"); a batch that comes back under the sum of its lower
-            // figures has not written its share of the page, and the page then fails the length
-            // check the scorer applies -- 2,108 words against 3,000, 2026-10-03. One retry naming
-            // the shortfall, the way the scheduler-link retry names its omission; the longer of the
-            // two drafts is kept, and a page still short is reported rather than refused, because
-            // the SEO report is where the operator sees length and a refused generate shows nothing.
-            var floor = BatchFloorWords(batch);
-            if (floor > 0)
+            // What the batch owes of its page, measured the moment it comes back: its words, its share
+            // of the keyword, and -- for the batch that carries it -- the keyword's heading.
+            //
+            // Length came first: the tool outline sizes every section ("600-850 words"), and a batch
+            // under the sum of its lower figures has not written its share -- 2,108 words against
+            // 3,000, 2026-10-03. The keyword's count and heading join it because the writer was told
+            // both and held to neither: every draft of 2026-10-05 scored 40 on the page's own SEO
+            // report, failing "keyword in a heading" and "keyword density", and the only place that
+            // said so was a report the operator opened afterwards (Jeff: "these SEO hints should
+            // already be applied to all content types").
+            //
+            // One retry naming every shortfall, the way the scheduler-link retry names its omission.
+            // The attempt with fewer shortfalls is kept, the longer of the two when they tie, and
+            // whatever is still owed is reported rather than refused: the page is saved and says what
+            // it is short of.
+            var keywordMentionsOwed = string.IsNullOrWhiteSpace(keyword)
+                ? 0
+                : ContentPromptBuilder.SeoKeywordMentionsFor(type.Key, batch.Count, outline.Count);
+            // The first batch carries the page's keyword heading: the same rule every body prompt
+            // hands SeoBodyInstruction (batchIndex == 0).
+            var owesKeywordHeading = i == 0;
+            var owed = BatchShortfalls(sections, batch, batchLabel, keyword, keywordMentionsOwed, owesKeywordHeading);
+            if (owed.Count > 0)
             {
-                var words = ContentDocumentText.CountWords(sections);
-                if (words < floor)
+                _logger.LogInformation(
+                    "{Batch} came back short ({Shortfalls}); retrying once with every shortfall named.",
+                    batchLabel, string.Join("; ", owed.Select(o => o.Report)));
+                var instruction = ShortfallInstruction(owed);
+                var retryCtx = batchCtx with
                 {
-                    _logger.LogInformation(
-                        "{Batch} returned {Words} words against a {Floor}-word floor; retrying once with the shortfall named.",
-                        batchLabel, words, floor);
-                    var retryCtx = batchCtx with
-                    {
-                        EvidenceBlock = string.IsNullOrEmpty(batchCtx.EvidenceBlock)
-                            ? LengthShortfallInstruction(batch, words, floor)
-                            : $"{batchCtx.EvidenceBlock}{Environment.NewLine}{LengthShortfallInstruction(batch, words, floor)}",
-                    };
-                    var retried = await WriteBatchAsync(llm, type, retryCtx, batchLabel, outline.Count, ct);
-                    var retriedWords = ContentDocumentText.CountWords(retried);
-                    if (retriedWords > words)
-                    {
-                        sections = retried;
-                        words = retriedWords;
-                    }
+                    EvidenceBlock = string.IsNullOrEmpty(batchCtx.EvidenceBlock)
+                        ? instruction
+                        : $"{batchCtx.EvidenceBlock}{Environment.NewLine}{instruction}",
+                };
+                var retried = await WriteBatchAsync(llm, type, retryCtx, batchLabel, outline.Count, ct);
+                var retriedOwed = BatchShortfalls(retried, batch, batchLabel, keyword, keywordMentionsOwed, owesKeywordHeading);
+                if (retriedOwed.Count < owed.Count
+                    || (retriedOwed.Count == owed.Count
+                        && ContentDocumentText.CountWords(retried) > ContentDocumentText.CountWords(sections)))
+                {
+                    sections = retried;
+                    owed = retriedOwed;
+                }
 
-                    if (words < floor)
-                    {
-                        // Reported, not only logged: the shortfall travels with the draft into its
-                        // warnings, so the operator sees it beside the version rather than in a log.
-                        _logger.LogWarning(
-                            "{Batch} is {Words} words against a {Floor}-word floor after a retry naming the shortfall.",
-                            batchLabel, words, floor);
-                        shortfalls?.Add(
-                            $"{batchLabel} is {words:N0} words against a {floor:N0}-word floor, after a retry "
-                            + "naming the shortfall.");
-                    }
+                foreach (var shortfall in owed)
+                {
+                    // Reported, not only logged: the shortfall travels with the draft into its
+                    // warnings, so the operator sees it beside the version rather than in a log.
+                    _logger.LogWarning("{Shortfall} after a retry naming the shortfall.", shortfall.Report);
+                    shortfalls?.Add($"{shortfall.Report}, after a retry naming the shortfall.");
                 }
             }
 
@@ -3314,15 +3325,81 @@ public class GccGenerateService
         return total;
     }
 
-    private static string LengthShortfallInstruction(IReadOnlyList<SectionSlot> batch, int words, int floor)
+    /// <summary>One thing a batch owes its page that an attempt at it did not deliver.</summary>
+    /// <param name="Report">What the operator is told, as the start of a sentence.</param>
+    /// <param name="Instruction">What the writer is told when the batch is written again.</param>
+    internal sealed record BatchShortfall(string Report, string Instruction);
+
+    /// <summary>
+    /// What an attempt at a batch is short of: words against the floor its slots declare, the keyword
+    /// against the batch's share of the page's count, and the keyword's heading when this batch
+    /// carries it.
+    /// </summary>
+    /// <remarks>
+    /// Counted by the scorer's own reader and phrase counter (<see cref="Gcw.GcwBodyDocument"/>,
+    /// <see cref="Gcw.GcwSeoAnalyzer"/>), over the batch's sections as a document: the same text,
+    /// the same headings and the same match the SEO report will use on the finished page. A second
+    /// way of counting here is how a batch would pass this and the page still fail that.
+    /// </remarks>
+    internal static IReadOnlyList<BatchShortfall> BatchShortfalls(
+        IReadOnlyList<Section> sections,
+        IReadOnlyList<SectionSlot> batch,
+        string batchLabel,
+        string? keyword,
+        int keywordMentionsOwed,
+        bool owesKeywordHeading)
     {
-        var owed = string.Join("; ", batch.Select(s => $"\"{s.Label}\" {s.Depth}"));
-        return "=== LENGTH SHORTFALL -- WRITE THESE SECTIONS AGAIN ===" + Environment.NewLine
-            + $"The previous attempt at these sections returned {words:N0} words against the {floor:N0} they "
-            + $"owe ({owed}). Write them again at full depth. Do not pad and do not invent: go further into "
-            + "what the evidence supports -- the mechanism, the consequence for this reader, what deploying "
-            + "it involves -- until each section carries at least its lower figure.";
+        var found = new List<BatchShortfall>();
+
+        var floor = BatchFloorWords(batch);
+        var words = ContentDocumentText.CountWords(sections);
+        if (floor > 0 && words < floor)
+        {
+            var slots = string.Join("; ", batch.Select(s => $"\"{s.Label}\" {s.Depth}"));
+            found.Add(new BatchShortfall(
+                $"{batchLabel} is {words:N0} words against a {floor:N0}-word floor",
+                $"LENGTH: the previous attempt at these sections returned {words:N0} words against the {floor:N0} "
+                + $"they owe ({slots}). Write them at full depth. Do not pad and do not invent: go further into "
+                + "what the evidence supports -- the mechanism, the consequence for this reader, what deploying "
+                + "it involves -- until each section carries at least its lower figure."));
+        }
+
+        if (string.IsNullOrWhiteSpace(keyword)) return found;
+
+        var phrase = keyword.Trim();
+        var read = Gcw.GcwBodyDocument.Read(JsonSerializer.Serialize(
+            new ContentDocument(new Section("h2", string.Empty, [], null, []), sections), CwDocumentJson));
+
+        var mentions = Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(read.PlainText, phrase);
+        if (mentions < keywordMentionsOwed)
+        {
+            found.Add(new BatchShortfall(
+                $"{batchLabel} uses \"{phrase}\" {mentions} time(s) against the {keywordMentionsOwed} it owes",
+                $"KEYWORD: the previous attempt used the exact phrase \"{phrase}\" {mentions} time(s) in these "
+                + $"sections against the {keywordMentionsOwed} they owe. Use that phrase, word for word, at least "
+                + $"{keywordMentionsOwed} times across them -- about once every 200 words, never twice in a "
+                + "paragraph. A shortened or reworded form of it is not counted."));
+        }
+
+        if (owesKeywordHeading
+            && !read.Headings.Any(h => Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(h, phrase) > 0))
+        {
+            found.Add(new BatchShortfall(
+                $"{batchLabel} has no heading containing \"{phrase}\"",
+                $"HEADING: none of the previous attempt's headings contains \"{phrase}\". Exactly one of these "
+                + "sections' headings carries that phrase, word for word -- written as a heading a reader would "
+                + "search for, not as a label."));
+        }
+
+        return found;
     }
+
+    /// <summary>What a batch is told when it is written again: every shortfall, at once.</summary>
+    internal static string ShortfallInstruction(IReadOnlyList<BatchShortfall> owed) =>
+        "=== SHORTFALL -- WRITE THESE SECTIONS AGAIN ===" + Environment.NewLine
+        + "The previous attempt at these sections came back short of what they owe the page. Write them "
+        + "again, and this time deliver each of these:" + Environment.NewLine
+        + string.Join(Environment.NewLine, owed.Select(o => "- " + o.Instruction));
 
     /// <summary>
     /// Stage 2: the concrete evidence set this specific generation call had available -- the same

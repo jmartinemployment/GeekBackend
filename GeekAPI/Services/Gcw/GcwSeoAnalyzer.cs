@@ -177,7 +177,7 @@ public static class GcwSeoAnalyzer
     /// writer told to put an ampersand in its prose to satisfy a matcher. Normalisation only, never
     /// stemming or partial matching -- a draft that says "data entry" is still not using the keyword.
     /// </remarks>
-    private static int CountPhraseOccurrences(string haystack, string phrase)
+    internal static int CountPhraseOccurrences(string haystack, string phrase)
     {
         if (string.IsNullOrWhiteSpace(haystack) || string.IsNullOrWhiteSpace(phrase))
             return 0;

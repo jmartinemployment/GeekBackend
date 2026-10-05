@@ -206,7 +206,33 @@ public class ContentPromptBuilderSectionBatchTests
         // three times the mentions in the same number of words.
         var prompt = FirstBatch(type);
 
-        Assert.Contains("times across the finished page, so about", prompt, StringComparison.Ordinal);
+        Assert.Contains("times across the finished page, so at least", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_batch_is_told_the_keyword_count_it_is_then_held_to()
+    {
+        // The number in the prompt and the number the returned batch is counted against are one
+        // function's answer. Two figures is a batch told six and retried for having seven owed.
+        var total = ToolPrompts.Outline(Context(), "Partner Widget").Count;
+        var owed = ContentPromptBuilder.SeoKeywordMentionsFor("tool", 2, total);
+
+        var prompt = ToolBatch(batchIndex: 0, skip: 0, take: 2);
+
+        Assert.Contains($"so at least {owed} in your sections", prompt, StringComparison.Ordinal);
+        Assert.Contains("It is counted as that phrase, word for word", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("natural variants", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_pillar_batch_has_a_word_floor_like_a_blog_or_tool_batch()
+    {
+        // The pillar's slots declared no depth, so a pillar batch had no floor: nothing was retried
+        // and nothing reported, and the 2:32 PM pillar of 2026-10-05 was 2,006 words against 3,000.
+        var outline = new PillarPrompts(new ContentPromptBuilder()).OutlineFor(new ContentTypePromptContext(Context()));
+
+        Assert.All(outline, slot => Assert.Equal("500-700 words", slot.Depth));
+        Assert.Equal(1_000, GeekAPI.Services.ContentCreator.GccGenerateService.BatchFloorWords([.. outline.Skip(1).Take(2)]));
     }
 
     [Theory]
@@ -216,7 +242,7 @@ public class ContentPromptBuilderSectionBatchTests
         // The scorer wants at least one H2 carrying the keyword and the outline rules cap it at
         // two, so asking every batch for one puts it in half the headings on a six-section page.
         Assert.Contains(
-            $"at least one H2 contains \"{Context().TargetKeyword}\"",
+            $"at least one H2 contains the exact phrase \"{Context().TargetKeyword}\"",
             FirstBatch(type),
             StringComparison.Ordinal);
         Assert.Contains(

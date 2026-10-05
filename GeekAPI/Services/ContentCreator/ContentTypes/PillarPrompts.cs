@@ -16,23 +16,38 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     /// When it is the right call" -- so every pillar page this tool has ever produced carried the
     /// same six headings regardless of subject, and "Overview" opened all of them.
     ///
-    /// The coverage does not change page to page; the headings must. Depth is stated per slot only
-    /// where the sections are genuinely uneven, which for a pillar they are not.
+    /// The coverage does not change page to page; the headings must.
+    ///
+    /// Every slot declares the same depth, because a pillar's sections are even. It used to declare
+    /// none, on the reasoning that depth is only worth stating where sections differ -- but the slot's
+    /// lower figure is also what a batch is held to when it comes back
+    /// (<c>GccGenerateService.BatchFloorWords</c>), so a pillar had no floor at all: the 2:32 PM pillar
+    /// of 2026-10-05 was 2,006 words against 3,000 with nothing retried and nothing reported, while
+    /// the blog and tool pages beside it were each told and each listed.
     /// </summary>
+    private static readonly string SectionDepth =
+        $"{ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words";
+
     private static readonly SectionSlot[] Sections =
     [
         SectionSlot.Cover(
-            "the opening: what this reader is dealing with, told concretely, and what this page settles for them"),
+            "the opening: what this reader is dealing with, told concretely, and what this page settles for them",
+            SectionDepth),
         SectionSlot.Cover(
-            "what is actually going wrong in this work today and what the status quo costs -- hours, errors, delay, risk, and who absorbs them"),
+            "what is actually going wrong in this work today and what the status quo costs -- hours, errors, delay, risk, and who absorbs them",
+            SectionDepth),
         SectionSlot.Cover(
-            "how the approach works end to end: the mechanics, in the order they happen, specific enough that a reader could describe it back"),
+            "how the approach works end to end: the mechanics, in the order they happen, specific enough that a reader could describe it back",
+            SectionDepth),
         SectionSlot.Cover(
-            "what separates an implementation that holds up from one that stalls -- the decisions that are made early and cannot be unmade"),
+            "what separates an implementation that holds up from one that stalls -- the decisions that are made early and cannot be unmade",
+            SectionDepth),
         SectionSlot.Cover(
-            "what rolling this out actually involves in a real environment: sequence, data, integration, the people whose work changes"),
+            "what rolling this out actually involves in a real environment: sequence, data, integration, the people whose work changes",
+            SectionDepth),
         SectionSlot.Cover(
-            "when this is the right call and when it is not, what the reader should do next, and what they should be able to expect"),
+            "when this is the right call and when it is not, what the reader should do next, and what they should be able to expect",
+            SectionDepth),
     ];
 
     public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx) => Sections;

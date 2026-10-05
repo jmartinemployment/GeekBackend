@@ -53,14 +53,21 @@ public class GccGenerateServiceProvenanceTests
             Requests.Add(request);
             var asked = string.Join("\n", request.Messages.Select(m => m.Content));
 
+            // A shortfall retry re-asks for the batch it was just given -- these scripted sections are
+            // a sentence long, so every one of them is short of its floor and its keyword share.
+            // It is answered with that same batch and not counted: answering it with the next script
+            // would hand the second batch's sections to the call that owns the first.
+            var isShortfallRetry = asked.Contains("=== SHORTFALL", StringComparison.Ordinal);
             var content = request.JsonSchemaName == "sections"
-                ? bodyCalls < body.Length ? body[bodyCalls++] : ScriptedBody.PlannedBatch(bodyCalls++)
+                ? Served(isShortfallRetry ? Math.Max(bodyCalls - 1, 0) : bodyCalls++)
                 : asked.Contains("ledeType", StringComparison.OrdinalIgnoreCase) ? lede
                 : asked.Contains("image-generation prompts", StringComparison.OrdinalIgnoreCase) ? imagePrompts
                 : metadata;
 
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
+
+        private string Served(int batch) => batch < body.Length ? body[batch] : ScriptedBody.PlannedBatch(batch);
     }
 
     private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory

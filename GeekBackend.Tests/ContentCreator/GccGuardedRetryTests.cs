@@ -110,6 +110,65 @@ public class GccGuardedRetryTests
         }
     }
 
+    /// <summary>
+    /// A writer whose first attempt at every batch is a sentence long with neither the keyword nor a
+    /// heading that carries it, and whose second attempt -- the one the shortfall retry asks for --
+    /// has both. Still short on words either way: a scripted section is not five hundred words.
+    /// </summary>
+    private sealed class KeywordOnRetryProvider : IContentGenerationProvider
+    {
+        private int _batches;
+
+        public LlmProviderType ProviderType => LlmProviderType.OpenAi;
+
+        /// <summary>Each retry's prompt, in the order the batches were written.</summary>
+        public List<string> ShortfallPrompts { get; } = [];
+
+        public Task<ChatCompletionResult> CompleteAsync(
+            ChatCompletionRequest request, CancellationToken cancellationToken = default)
+        {
+            var asked = string.Join("\n", request.Messages.Select(m => m.Content));
+            var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+
+            string content;
+            if (request.JsonSchemaName == "sections")
+            {
+                var isShortfallRetry = asked.Contains("=== SHORTFALL", StringComparison.Ordinal);
+                if (isShortfallRetry) ShortfallPrompts.Add(asked);
+                var letter = (char)('A' + (isShortfallRetry ? Math.Max(_batches - 1, 0) : _batches++));
+                content = isShortfallRetry ? WithTheKeyword(letter) : WithoutTheKeyword(letter);
+            }
+            else if (system.Contains("image-generation prompts", StringComparison.Ordinal))
+            {
+                content = ScriptedBody.ImagePrompts();
+            }
+            else if (system.Contains("sectionOutline", StringComparison.Ordinal))
+            {
+                content = ArticleMetadataJson;
+            }
+            else
+            {
+                content = LedeAndIntroJson;
+            }
+
+            return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
+        }
+
+        private static string WithoutTheKeyword(char letter) =>
+            $$"""
+            {"sections":[{"tag":"h2","heading":"Planned section {{letter}}","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[],"provenance":"plan"}]}
+            """;
+
+        private static string WithTheKeyword(char letter)
+        {
+            var mentions = string.Join(",", Enumerable.Range(0, 8).Select(_ =>
+                """{"type":"text","runs":[{"text":"AI implementation moves this work earlier in the month."}]}"""));
+            return $$"""
+                {"sections":[{"tag":"h2","heading":"What AI implementation changes in part {{letter}}","paragraphs":[{{mentions}},{"type":"text","runs":[{"text":"Book a free consultation.","href":"{{Scheduler}}"}]}],"href":null,"children":[],"provenance":"plan"}]}
+                """;
+        }
+    }
+
     private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
     {
         public IContentGenerationProvider Get(LlmProviderType providerType) => provider;
@@ -172,6 +231,36 @@ public class GccGuardedRetryTests
         Assert.DoesNotContain("9137", bodyText, StringComparison.Ordinal);
         Assert.Contains(warnings, w => w.Contains("scheduler link", StringComparison.Ordinal));
         Assert.False(string.IsNullOrEmpty(check));
+    }
+
+    [Fact]
+    public async Task A_batch_short_of_the_keyword_is_written_again_and_the_better_attempt_is_kept()
+    {
+        // Every draft of 2026-10-05 scored 40 on its own SEO report: the keyword in no heading and at
+        // a fifth of one percent. The writer had been told both and was held to neither. A batch is now
+        // measured when it comes back, and one that is short is written again with each shortfall named.
+        var provider = new KeywordOnRetryProvider();
+        var service = Build(provider);
+
+        var envelope = await service.GeneratePillarBodyAsync(
+            Create(), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+        var (body, warnings) = Read(envelope);
+        var bodyText = body.GetRawText();
+
+        // The second attempt is the one on the page, for every batch.
+        Assert.Contains("What AI implementation changes in part A", bodyText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Planned section", bodyText, StringComparison.Ordinal);
+
+        // The first batch was told all three things it owed; a later one is not asked for the heading.
+        Assert.Contains("- LENGTH:", provider.ShortfallPrompts[0], StringComparison.Ordinal);
+        Assert.Contains("- KEYWORD: the previous attempt used the exact phrase \"AI implementation\" 0 time(s)", provider.ShortfallPrompts[0], StringComparison.Ordinal);
+        Assert.Contains("- HEADING:", provider.ShortfallPrompts[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("- HEADING:", provider.ShortfallPrompts[1], StringComparison.Ordinal);
+
+        // What the kept attempt is still short of is said, and what it now delivers is not.
+        Assert.Contains(warnings, w => w.Contains("word floor, after a retry naming the shortfall", StringComparison.Ordinal));
+        Assert.DoesNotContain(warnings, w => w.Contains("has no heading containing", StringComparison.Ordinal));
+        Assert.DoesNotContain(warnings, w => w.Contains("uses \"AI implementation\"", StringComparison.Ordinal));
     }
 
     [Fact]
