@@ -97,51 +97,49 @@ public sealed class GccProjectRepositoryLogicTests
         Assert.Null(result.Entry.Currency);
     }
 
+    /// <summary>
+    /// A deliverable is a name and a due date on the project, and nothing is attached to it (Jeff,
+    /// 2026-10-04: "Creates, it is project"). It used to be a create, one per deliverable.
+    /// </summary>
     [Fact]
-    public async Task A_deliverable_whose_create_belongs_to_another_client_is_refused()
-    {
-        await using var db = Db();
-        var thisClient = await SeedClient(db, rate: 100m, currency: "USD");
-        var otherClient = await SeedClient(db, rate: 100m, currency: "USD", name: "Other Co");
-        var project = await SeedProject(db, thisClient.Id);
-        var otherClientsCreate = await SeedCreate(db, otherClient.Id);
-        var deliverables = new GccDeliverableRepository(db);
-
-        var result = await deliverables.CreateAsync(
-            new CreateGccDeliverableCommand(project.Id, otherClientsCreate.Id, "Pillar article", Actor.ToString("D")),
-            default);
-
-        Assert.Null(result.Deliverable);
-        Assert.NotNull(result.Reason);
-        Assert.Contains("different client", result.Reason);
-        Assert.Empty(db.GccDeliverables);
-    }
-
-    [Fact]
-    public async Task A_deliverable_whose_create_belongs_to_the_same_client_is_recorded()
+    public async Task A_deliverable_is_a_name_and_a_due_date_on_the_project()
     {
         await using var db = Db();
         var client = await SeedClient(db, rate: 100m, currency: "USD");
         var project = await SeedProject(db, client.Id);
-        var create = await SeedCreate(db, client.Id);
+        var deliverables = new GccDeliverableRepository(db);
+        var due = new DateOnly(2026, 10, 31);
+
+        var first = await deliverables.CreateAsync(
+            new CreateGccDeliverableCommand(project.Id, " Pillar page and five tool pages ", Actor.ToString("D"), due),
+            default);
+        var second = await deliverables.CreateAsync(
+            new CreateGccDeliverableCommand(project.Id, "Blog post", Actor.ToString("D")),
+            default);
+
+        Assert.Null(first.Reason);
+        Assert.Equal("Pillar page and five tool pages", first.Deliverable!.Name);
+        Assert.Equal(due, first.Deliverable.DueDate);
+        Assert.Null(first.Deliverable.Type);
+        Assert.Null(second.Reason);
+        var stored = await db.GccDeliverables.OrderBy(d => d.Name).ToListAsync();
+        Assert.Equal(2, stored.Count);
+        Assert.All(stored, d => Assert.Null(d.CreateId));
+    }
+
+    [Fact]
+    public async Task A_deliverable_on_a_project_that_does_not_exist_is_refused()
+    {
+        await using var db = Db();
         var deliverables = new GccDeliverableRepository(db);
 
         var result = await deliverables.CreateAsync(
-            new CreateGccDeliverableCommand(project.Id, create.Id, "Pillar article", Actor.ToString("D")),
+            new CreateGccDeliverableCommand(Guid.NewGuid(), "Pillar page", Actor.ToString("D")),
             default);
 
-        Assert.Null(result.Reason);
-        Assert.NotNull(result.Deliverable);
-        Assert.Equal(create.Id, result.Deliverable!.CreateId);
-
-        // One create, one deliverable — a second attempt to attach the same create is refused
-        // rather than producing a second row for it.
-        var second = await deliverables.CreateAsync(
-            new CreateGccDeliverableCommand(project.Id, create.Id, "Pillar article, take two", Actor.ToString("D")),
-            default);
-        Assert.Null(second.Deliverable);
-        Assert.NotNull(second.Reason);
-        Assert.Single(db.GccDeliverables);
+        Assert.Null(result.Deliverable);
+        Assert.Contains("does not exist", result.Reason);
+        Assert.Empty(db.GccDeliverables);
     }
 
     [Fact]

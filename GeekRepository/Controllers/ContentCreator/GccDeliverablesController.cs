@@ -28,8 +28,7 @@ public class GccDeliverablesController : ControllerBase
     /// Record a deliverable.
     /// </summary>
     /// <remarks>
-    /// A refusal is 409 with its reason: the create belongs to another client, or it is already a
-    /// deliverable somewhere. Both are decisions the operator has to make, not faults.
+    /// A refusal is 409 with its reason: the project does not exist.
     /// </remarks>
     [HttpPost]
     public async Task<ActionResult<GccDeliverableDto>> Create(
@@ -39,8 +38,6 @@ public class GccDeliverablesController : ControllerBase
     {
         if (projectId != command.ProjectId)
             return BadRequest("The project id in the route and the body must match.");
-        if (command.CreateId == Guid.Empty)
-            return BadRequest("createId is required — a deliverable is a create.");
         if (string.IsNullOrWhiteSpace(command.Name))
             return BadRequest("name is required.");
         if (string.IsNullOrWhiteSpace(command.ActorUserId))

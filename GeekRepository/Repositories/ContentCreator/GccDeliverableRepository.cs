@@ -42,34 +42,11 @@ public class GccDeliverableRepository : IGccDeliverableRepository
         var project = await _db.GccProjects.FirstOrDefaultAsync(p => p.Id == command.ProjectId, ct);
         if (project is null) return GccDeliverableResult.Refused("That project does not exist.");
 
-        var create = await _db.GccCreates.FirstOrDefaultAsync(c => c.Id == command.CreateId, ct);
-        if (create is null) return GccDeliverableResult.Refused("That create does not exist.");
-
-        if (create.ClientId != project.ClientId)
-        {
-            return GccDeliverableResult.Refused(
-                "That create belongs to a different client than this project.");
-        }
-
-        var alreadyListed = await _db.GccDeliverables
-            .AnyAsync(d => d.CreateId == command.CreateId, ct);
-        if (alreadyListed)
-        {
-            // The unique index would catch this too. Saying it in words costs one query and saves
-            // the operator a constraint-violation page.
-            return GccDeliverableResult.Refused(
-                "That create is already a deliverable on a project.");
-        }
-
         var now = DateTime.UtcNow;
         var entity = new GccDeliverable
         {
             ProjectId = command.ProjectId,
-            CreateId = command.CreateId,
             Name = command.Name.Trim(),
-            // A deliverable's type is the create's type -- never a second, client-suppliable copy
-            // that can drift from it. `create` is already loaded above for the ownership check.
-            Type = create.StartingContentType,
             Status = GccDeliverableStatuses.Planned,
             DueDate = command.DueDate,
             CreatedAtUtc = now,
@@ -88,9 +65,7 @@ public class GccDeliverableRepository : IGccDeliverableRepository
             Payload = JsonSerializer.Serialize(new
             {
                 deliverableId = entity.Id,
-                createId = entity.CreateId,
                 name = entity.Name,
-                type = entity.Type,
                 dueDate = entity.DueDate,
             }),
         });
@@ -156,7 +131,6 @@ public class GccDeliverableRepository : IGccDeliverableRepository
         new(
             entity.Id,
             entity.ProjectId,
-            entity.CreateId,
             entity.Name,
             entity.Type,
             entity.Status,

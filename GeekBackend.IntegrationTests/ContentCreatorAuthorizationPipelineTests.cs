@@ -57,6 +57,8 @@ public sealed class ContentCreatorAuthorizationPipelineTests(GeekApiTestFactory 
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/tasks"];
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/time"];
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/deliverables"];
+        yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/artifacts"];
+        yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/export/html"];
     }
 
     /// <summary>

@@ -546,28 +546,7 @@ public class GccController : ControllerBase
         if (documents.Count == 0)
             return BadRequest("Nothing to export: this create has no generated artifacts yet.");
 
-        using var zipStream = new MemoryStream();
-        using (var archive = new System.IO.Compression.ZipArchive(
-            zipStream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
-        {
-            foreach (var document in documents)
-            {
-                var entry = archive.CreateEntry(document.FileName, System.IO.Compression.CompressionLevel.Optimal);
-                await using var entryStream = entry.Open();
-                if (document.BinaryContent is { Length: > 0 } bytes)
-                {
-                    await entryStream.WriteAsync(bytes, ct);
-                }
-                else
-                {
-                    await using var writer = new StreamWriter(entryStream);
-                    await writer.WriteAsync(document.Content ?? string.Empty);
-                }
-            }
-        }
-
-        zipStream.Position = 0;
-        return File(zipStream.ToArray(), "application/zip", $"{id}-content-export.zip");
+        return File(await GccExportZip.WriteAsync(documents, ct), "application/zip", $"{id}-content-export.zip");
     }
     /// <summary>
     /// Returns null, always: Generate has no staleness gate, and has never had one that could fire.

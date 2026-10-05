@@ -393,30 +393,27 @@ public sealed record GccTimeEntryResult(GccTimeEntryDto? Entry, string? Reason)
     public static GccTimeEntryResult Refused(string reason) => new(null, reason);
 }
 
-/// <summary>Something the client receives, backed by the create that produces it.</summary>
-/// <param name="CreateId">The GccCreate this deliverable is. One create, one deliverable.</param>
+/// <summary>Something the client is promised: a name and a due date on the project.</summary>
+/// <param name="Type">The content type of the create an older deliverable was attached to. Null on
+/// every deliverable recorded since they stopped being attached.</param>
 /// <param name="Status">planned | in_progress | delivered.</param>
 /// <param name="DeliveredAtUtc">Set exactly when delivered; the database enforces the pair.</param>
 public sealed record GccDeliverableDto(
     Guid Id,
     Guid ProjectId,
-    Guid CreateId,
     string Name,
-    string Type,
+    string? Type,
     string Status,
     DateOnly? DueDate,
     DateTime? DeliveredAtUtc,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
-// No Type here -- a deliverable's content type is never a separate decision from the create it
-// wraps. It used to be a client-supplied field defaulting to "long-form" (a value CONTENT_TYPES
-// doesn't even recognize any more) when omitted; GccDeliverableRepository.CreateAsync already
-// loads the create to validate client ownership, so it now reads Type off that same create
-// (create.StartingContentType) instead of trusting a redundant, driftable copy from the caller.
+// A name and a due date on the project, and nothing attached (Jeff, 2026-10-04: "Creates, it is
+// project"; content-creator-v2 plans/project-api-contract.md section 6). It carried a CreateId, and
+// the deliverable's type was read off that create.
 public sealed record CreateGccDeliverableCommand(
     Guid ProjectId,
-    Guid CreateId,
     string Name,
     string ActorUserId,
     DateOnly? DueDate = null);

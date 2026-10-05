@@ -40,6 +40,11 @@ public class GccArtifactsController : ControllerBase
         return Ok(artifacts);
     }
 
+    /// <summary>Every draft on a project, newest first. An empty list is a project with no drafts yet.</summary>
+    [HttpGet("~/repo/content-creator/projects/{projectId:guid}/artifacts")]
+    public async Task<ActionResult<IReadOnlyList<GccArtifactDto>>> GetByProjectId(Guid projectId, CancellationToken ct) =>
+        Ok(await _repository.GetByProjectIdAsync(projectId, ct));
+
     [HttpPost]
     public async Task<ActionResult<GccArtifactDto>> Create([FromBody] CreateGccArtifactCommand command, CancellationToken ct)
     {

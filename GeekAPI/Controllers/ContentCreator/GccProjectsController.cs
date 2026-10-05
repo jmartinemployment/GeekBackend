@@ -69,6 +69,36 @@ public class GccProjectsController : ControllerBase
         return Ok(project);
     }
 
+    /// <summary>
+    /// Every draft on the project, newest first. The project is the unit: which create a draft is
+    /// stored under does not appear in how the page asks for it.
+    /// </summary>
+    [HttpGet("{id:guid}/artifacts")]
+    public async Task<ActionResult<IReadOnlyList<GccArtifactDto>>> ListArtifacts(Guid id, CancellationToken ct)
+    {
+        var project = await _repo.GetProjectAsync(id, ct);
+        if (project is null) return NotFound();
+        return Ok(await _repo.ListProjectArtifactsAsync(id, ct));
+    }
+
+    /// <summary>
+    /// The project's drafts as a zip of standalone pages, foldered by content type with image prompts
+    /// in their own tree -- the same files a create's export gives.
+    /// </summary>
+    [HttpGet("{id:guid}/export/html")]
+    public async Task<IActionResult> ExportHtml(
+        Guid id, [FromServices] GccArtifactExportService export, CancellationToken ct)
+    {
+        var project = await _repo.GetProjectAsync(id, ct);
+        if (project is null) return NotFound();
+
+        var documents = await export.ExportProjectAsync(id, ct);
+        if (documents.Count == 0)
+            return BadRequest("Nothing to export: this project has no generated drafts yet.");
+
+        return File(await GccExportZip.WriteAsync(documents, ct), "application/zip", $"{id}-content-export.zip");
+    }
+
     [HttpGet("{id:guid}/log")]
     public async Task<ActionResult<IReadOnlyList<GccProjectLogEntryDto>>> GetLog(Guid id, CancellationToken ct)
     {
@@ -542,14 +572,11 @@ public class GccProjectsController : ControllerBase
     {
         var actor = CurrentSubject();
         if (actor is null) return Unauthorized();
-        if (request.CreateId == Guid.Empty)
-            return BadRequest("createId is required — a deliverable is a create.");
         if (string.IsNullOrWhiteSpace(request.Name)) return BadRequest("name is required.");
 
         var result = await _repo.CreateDeliverableAsync(
             new CreateGccDeliverableCommand(
                 id,
-                request.CreateId,
                 request.Name,
                 actor,
                 request.DueDate),
@@ -577,8 +604,8 @@ public class GccProjectsController : ControllerBase
             ct));
     }
 
+    /// <summary>A named, dated promise on the project. Nothing is attached to it.</summary>
     public sealed record CreateDeliverableRequest(
-        Guid CreateId,
         string Name,
         DateOnly? DueDate = null);
 

@@ -490,9 +490,9 @@ public class ContentCreatorDbContext : DbContext
             entity.HasKey(d => d.Id);
             entity.Property(d => d.Id).HasColumnName("id");
             entity.Property(d => d.ProjectId).HasColumnName("project_id").IsRequired();
-            entity.Property(d => d.CreateId).HasColumnName("create_id").IsRequired();
+            entity.Property(d => d.CreateId).HasColumnName("create_id");
             entity.Property(d => d.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
-            entity.Property(d => d.Type).HasColumnName("type").IsRequired().HasMaxLength(64);
+            entity.Property(d => d.Type).HasColumnName("type").HasMaxLength(64);
             entity.Property(d => d.Status).HasColumnName("status").IsRequired().HasMaxLength(32);
             entity.Property(d => d.DueDate).HasColumnName("due_date").HasColumnType("date");
             entity.Property(d => d.DeliveredAtUtc).HasColumnName("delivered_at_utc");
@@ -509,8 +509,9 @@ public class ContentCreatorDbContext : DbContext
                 .HasForeignKey(d => d.CreateId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // One create, one deliverable. The same piece of content listed under two projects
-            // would make both schedules wrong with no way to tell which.
+            // Where a deliverable has a create -- the rows from when one was attached -- it is the only
+            // deliverable with it. Rows without one are not constrained: Postgres does not treat two
+            // nulls as equal.
             entity.HasIndex(d => d.CreateId)
                 .IsUnique()
                 .HasDatabaseName("ix_gcc_deliverables_create_id_unique");

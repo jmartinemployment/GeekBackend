@@ -211,29 +211,26 @@ public class GccTimeEntry
 }
 
 /// <summary>
-/// Something the client receives, backed by the create that produces it.
+/// Something the client is promised: a name and a due date on the project.
 /// </summary>
 /// <remarks>
-/// The project-side record of a piece of content, not a second copy of it. The content pipeline is
-/// untouched: the create, its artifacts, its versions and its approvals stay exactly where they
-/// are, and this row says which project promised the thing and when it was delivered.
-///
-/// <see cref="CreateId"/> is unique across the table. One create is one deliverable — listing the
-/// same piece of content under two projects would make both schedules and both invoices wrong, and
-/// there would be no way to tell which.
+/// The project is the unit (Jeff, 2026-10-04: "Creates, it is project"), so a deliverable is not
+/// attached to a create. <see cref="CreateId"/> and <see cref="Type"/> remain for rows recorded when
+/// one was -- the type was read off that create -- and are null on every row recorded since. Where a
+/// create id is present it is still unique: one create was one deliverable.
 /// </remarks>
 public class GccDeliverable
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ProjectId { get; set; }
 
-    /// <summary>The GccCreate this deliverable is. Unique: one create, one deliverable.</summary>
-    public Guid CreateId { get; set; }
+    /// <summary>The create an older deliverable was attached to. Null since deliverables stopped being attached.</summary>
+    public Guid? CreateId { get; set; }
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>What kind of thing it is — long-form, social, and so on. Free text by design.</summary>
-    public string Type { get; set; } = string.Empty;
+    /// <summary>The attached create's content type, on rows that had one. Null otherwise.</summary>
+    public string? Type { get; set; }
 
     /// <summary>planned | in_progress | delivered. The database carries the same list.</summary>
     public string Status { get; set; } = "planned";

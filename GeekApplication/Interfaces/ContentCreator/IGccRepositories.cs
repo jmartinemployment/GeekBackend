@@ -34,6 +34,9 @@ public interface IGccArtifactRepository
 {
     Task<GccArtifactDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<GccArtifactDto>> GetByCreateIdAsync(Guid createId, CancellationToken ct = default);
+
+    /// <summary>Every draft on a project, across every create it is stored under, newest first.</summary>
+    Task<IReadOnlyList<GccArtifactDto>> GetByProjectIdAsync(Guid projectId, CancellationToken ct = default);
     Task<GccArtifactDto> CreateAsync(CreateGccArtifactCommand command, CancellationToken ct = default);
     Task<GccArtifactDto> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default);
 }

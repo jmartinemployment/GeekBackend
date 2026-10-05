@@ -76,6 +76,10 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     public Task<IReadOnlyList<GccArtifactDto>> ListArtifactsAsync(Guid createId, CancellationToken ct = default) =>
         GetListAsync<GccArtifactDto>($"repo/content-creator/artifacts?createId={createId}", ct);
 
+    /// <summary>Every draft on a project, newest first.</summary>
+    public Task<IReadOnlyList<GccArtifactDto>> ListProjectArtifactsAsync(Guid projectId, CancellationToken ct = default) =>
+        GetListAsync<GccArtifactDto>($"repo/content-creator/projects/{projectId}/artifacts", ct);
+
     public Task<GccArtifactDto> CreateArtifactAsync(CreateGccArtifactCommand command, CancellationToken ct = default) =>
         PostAsync<GccArtifactDto>("repo/content-creator/artifacts", command, ct);
 

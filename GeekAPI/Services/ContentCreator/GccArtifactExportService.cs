@@ -34,7 +34,54 @@ public sealed class GccArtifactExportService(
         var create = await repo.GetCreateAsync(createId, ct)
             ?? throw new InvalidOperationException($"Create {createId} was not found.");
 
-        var artifacts = await repo.ListArtifactsAsync(createId, ct);
+        return await ExportArtifactsAsync(create, await repo.ListArtifactsAsync(createId, ct), ct);
+    }
+
+    /// <summary>
+    /// Every draft on a project, as the same files a create's export gives. The project is what the
+    /// operator sees; which create a draft is stored under is not their concern.
+    /// </summary>
+    /// <remarks>
+    /// Each Generate writes new drafts, so a project carries several with the same title. A zip cannot
+    /// hold two files of one name, and silently keeping one would drop a draft: the newest takes the
+    /// plain name and each older one is numbered.
+    /// </remarks>
+    public async Task<IReadOnlyList<ExportedHtmlDocument>> ExportProjectAsync(Guid projectId, CancellationToken ct)
+    {
+        var artifacts = await repo.ListProjectArtifactsAsync(projectId, ct);
+        var documents = new List<ExportedHtmlDocument>();
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var artifact in artifacts.OrderByDescending(a => a.CreatedAtUtc))
+        {
+            var create = await repo.GetCreateAsync(artifact.CreateId, ct)
+                ?? throw new InvalidOperationException($"Create {artifact.CreateId} was not found.");
+            foreach (var document in await ExportArtifactsAsync(create, [artifact], ct))
+            {
+                documents.Add(document with { FileName = Unused(document.FileName, taken) });
+            }
+        }
+
+        return documents;
+    }
+
+    /// <summary><paramref name="fileName"/>, or it with "-2", "-3"... before the extension when taken.</summary>
+    private static string Unused(string fileName, HashSet<string> taken)
+    {
+        if (taken.Add(fileName)) return fileName;
+
+        var dot = fileName.LastIndexOf('.');
+        var (stem, extension) = dot < 0 ? (fileName, string.Empty) : (fileName[..dot], fileName[dot..]);
+        for (var n = 2; ; n++)
+        {
+            var candidate = $"{stem}-{n}{extension}";
+            if (taken.Add(candidate)) return candidate;
+        }
+    }
+
+    private async Task<IReadOnlyList<ExportedHtmlDocument>> ExportArtifactsAsync(
+        GccCreateDto create, IReadOnlyList<GccArtifactDto> artifacts, CancellationToken ct)
+    {
         var documents = new List<ExportedHtmlDocument>();
 
         foreach (var artifact in artifacts.OrderBy(a => a.Type).ThenBy(a => a.CreatedAtUtc))

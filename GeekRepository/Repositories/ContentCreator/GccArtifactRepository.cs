@@ -27,6 +27,19 @@ public class GccArtifactRepository : IGccArtifactRepository
         return entities.Select(MapToDto).ToList().AsReadOnly();
     }
 
+    /// <remarks>
+    /// Drafts are keyed by create until they are re-keyed to the project, so the project's drafts are
+    /// the drafts of its creates. One query over the join, not a read per create.
+    /// </remarks>
+    public async Task<IReadOnlyList<GccArtifactDto>> GetByProjectIdAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var entities = await _db.GccArtifacts
+            .Where(a => _db.GccCreates.Any(c => c.Id == a.CreateId && c.ProjectId == projectId))
+            .OrderByDescending(a => a.CreatedAtUtc)
+            .ToListAsync(ct);
+        return entities.Select(MapToDto).ToList().AsReadOnly();
+    }
+
     public async Task<GccArtifactDto> CreateAsync(CreateGccArtifactCommand command, CancellationToken ct = default)
     {
         var entity = new GccArtifact
