@@ -7,7 +7,8 @@ namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
 /// Whether a project's declared URLs -- the site, the partners, the competitors -- can be written from,
-/// asked of the index itself, when they are entered: on Profile save. Generate does not ask again.
+/// asked of the index itself. Asked when they are entered, on Profile save, which is where it does the
+/// most good; and asked once more when Generate is pressed, before anything is spent.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -127,6 +128,36 @@ public sealed class GccDeclaredUrlValidator
         return GccDeclaredUrlVerdict.Usable(usablePartners, usableCompetitors);
     }
 
+    /// <summary>
+    /// When Generate is pressed, before the run starts or anything is spent: every URL the project
+    /// declares must still be usable. Refused, naming each one and why, when any is not -- nothing is
+    /// dropped here, because the saved project is what the run promises to cover.
+    /// </summary>
+    public async Task<GccDeclaredUrlVerdict> ForGenerateAsync(GccProjectDto project, CancellationToken ct)
+    {
+        var site = (project.SiteUrl ?? string.Empty).Trim();
+        if (site.Length == 0)
+            return GccDeclaredUrlVerdict.Refused("The project has no site URL. Save the Profile with one before generating.");
+
+        var partners = Clean(project.PartnerUrls);
+        var competitors = Clean(project.CompetitorUrls);
+        var evidence = await EvidenceAsync(site, partners, competitors, ct);
+        if (evidence.Unreachable is { } unreachable)
+            return GccDeclaredUrlVerdict.Refused(unreachable + " Nothing was started — try again.");
+
+        if (evidence.Reasons.Count == 0)
+            return GccDeclaredUrlVerdict.Usable(partners, competitors);
+
+        var named = new[] { site }.Concat(partners).Concat(competitors)
+            .Where(evidence.Reasons.ContainsKey)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(u => $"{u} — {evidence.Reasons[u]}");
+        return GccDeclaredUrlVerdict.Refused(
+            "Nothing was started: these declared URLs cannot be written from now. "
+            + string.Join("; ", named) + ". "
+            + "Re-index them, or save the Profile again so the unusable ones are dropped.");
+    }
+
     private sealed record Evidence(string? Unreachable, IReadOnlyDictionary<string, string> Reasons);
 
     /// <summary>Why each declared URL cannot be used, for the ones that cannot; or why nothing could be asked.</summary>
@@ -194,8 +225,8 @@ public sealed class GccDeclaredUrlValidator
 
             if (result.Pages.Count == 0)
             {
-                reasons[url] = $"the index holds nothing for its crawl (run {runId}) when searched as a "
-                    + $"{crawlTypeByUrl[url]} crawl, so a Generate would have nothing from it to write with";
+                reasons[url] = "its crawl finished, but a search of the index finds nothing from it, so there "
+                    + "is nothing to write with";
             }
         }
 

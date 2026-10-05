@@ -361,6 +361,9 @@ public sealed class GccGroundingResolver(
             };
 
             List<Guid> runIds;
+            // What the operator entered for each run, so every message names a URL they recognise
+            // rather than a run id that means nothing to them.
+            var namesByRun = new Dictionary<Guid, string>();
             if (string.Equals(crawlType, CrawlTypes.ProjectSite, StringComparison.OrdinalIgnoreCase))
             {
                 if (project.ProjectSiteRunId is not { } siteRun || siteRun == Guid.Empty)
@@ -371,6 +374,7 @@ public sealed class GccGroundingResolver(
                 }
 
                 runIds = [siteRun];
+                namesByRun[siteRun] = string.IsNullOrWhiteSpace(project.SiteUrl) ? project.Name : project.SiteUrl;
             }
             else
             {
@@ -414,6 +418,8 @@ public sealed class GccGroundingResolver(
                     .Select(host => Guid.Parse(host.RunId!))
                     .Distinct()
                     .ToList();
+                foreach (var group in answered.GroupBy(host => Guid.Parse(host.RunId!)))
+                    namesByRun[group.Key] = string.Join(", ", group.Select(host => host.Url));
 
                 if (string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase))
                 {
@@ -452,7 +458,7 @@ public sealed class GccGroundingResolver(
                 if (result is null)
                 {
                     return GccGroundingOutcome.Refuse(
-                        $"The evidence library returned nothing for {crawlType} run {runId}. "
+                        $"The evidence library returned nothing for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}. "
                         + $"'{contentType}' cannot be grounded.");
                 }
 
@@ -460,12 +466,17 @@ public sealed class GccGroundingResolver(
                 {
                     return GccGroundingOutcome.Refuse(
                         result.Error ?? result.Warning
-                        ?? $"The evidence library query failed for {crawlType} run {runId}.");
+                        ?? $"The evidence library query failed for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}.");
                 }
 
                 if (!string.IsNullOrWhiteSpace(result.Warning))
                 {
-                    warnings.Add($"{crawlType} run {runId}: {result.Warning}");
+                    // RAG's own warning carries the run id ("No chunks for runId=..."); the operator
+                    // gets the URL they entered and what it means for the draft instead.
+                    warnings.Add(result.Pages.Count == 0
+                        ? $"{CrawlTypeLabel(crawlType)} {namesByRun[runId]}: the index finds nothing from its "
+                          + "crawl, so this was written without it"
+                        : $"{CrawlTypeLabel(crawlType)} {namesByRun[runId]}: {result.Warning}");
                 }
 
                 // Every declared partner must return evidence -- but what its absence refuses depends on
@@ -481,7 +492,7 @@ public sealed class GccGroundingResolver(
                 {
                     partnersWithoutPassages.Add(partnerHostsByRun.TryGetValue(runId, out var hosts)
                         ? string.Join(", ", hosts)
-                        : $"run {runId}");
+                        : namesByRun[runId]);
                 }
 
                 // Which list a page lands in is decided here, by the crawl type that was queried,
@@ -557,6 +568,15 @@ public sealed class GccGroundingResolver(
         return new GccGroundingOutcome(
             retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages);
     }
+
+    /// <summary>How a crawl type reads in a message to the operator.</summary>
+    private static string CrawlTypeLabel(string crawlType) => crawlType switch
+    {
+        CrawlTypes.Competitors => "Competitor",
+        CrawlTypes.Partner => "Partner",
+        CrawlTypes.ProjectSite => "Site",
+        _ => crawlType,
+    };
 
     /// <summary>
     /// The retrieval query. Mirrors <c>GccV2CreateLibraryWriter.BuildNeed</c> — that path never ran,

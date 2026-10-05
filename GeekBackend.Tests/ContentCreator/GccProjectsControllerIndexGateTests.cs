@@ -359,7 +359,9 @@ public class GccProjectsControllerIndexGateTests
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains(Competitor, BodyOf(result), StringComparison.Ordinal);
-        Assert.Contains("the index holds nothing for its crawl", BodyOf(result), StringComparison.Ordinal);
+        Assert.Contains("a search of the index finds nothing from it", BodyOf(result), StringComparison.Ordinal);
+        // Named by the URL the operator entered; a run id means nothing to them.
+        Assert.DoesNotContain(emptyRun.ToString(), BodyOf(result), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, repo.Calls);
     }
 

@@ -7,6 +7,7 @@ using GeekAPI.Auth;
 using GeekAPI.Controllers.Workflow.Hubs;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using Microsoft.AspNetCore.Authorization;
@@ -186,6 +187,25 @@ public sealed class GccProjectGenerateRouteTests
         Assert.Empty(repo.Starts);
     }
 
+    /// <summary>
+    /// Validated when entered; asked once more before anything is spent, in case the index has lost a
+    /// crawl since the Profile was saved.
+    /// </summary>
+    [Fact]
+    public async Task A_declared_url_the_index_now_finds_nothing_for_stops_the_run_before_it_starts()
+    {
+        var project = Project(CompleteBrief, briefVersion: 1) with { CompetitorUrls = [Rival] };
+        var repo = new Repo(project, backing: null);
+
+        var result = await Controller(repo, Index(project, Rival)).Generate(
+            project.Id, new ApiProjectsController.GenerateRequest(["pillar"], "OpenAi"), CancellationToken.None);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.StartsWith("Nothing was started", (string)conflict.Value!);
+        Assert.Contains(Rival, (string)conflict.Value!);
+        Assert.Empty(repo.Starts);
+    }
+
     [Fact]
     public async Task A_missing_project_is_a_404()
     {
@@ -224,7 +244,28 @@ public sealed class GccProjectGenerateRouteTests
         Assert.False(mapped.RootElement.TryGetProperty("createId", out _));
     }
 
-    private static ApiProjectsController Controller(Repo repo)
+    private const string Rival = "https://rival.test";
+
+    /// <summary>The index: every declared URL has a finished crawl, and a search of its run finds pages
+    /// unless the URL is one of <paramref name="emptyUrls"/>.</summary>
+    private static GccDeclaredUrlValidator Index(GccProjectDto project, params string[] emptyUrls)
+    {
+        var rows = new[] { project.SiteUrl! }.Concat(project.PartnerUrls).Concat(project.CompetitorUrls)
+            .Select(u => new GeekCrawlerRagHostIndex(u, new Uri(u).Host, true, Guid.NewGuid().ToString()))
+            .ToList();
+        var emptyRuns = rows.Where(r => emptyUrls.Contains(r.Url)).Select(r => Guid.Parse(r.RunId!)).ToHashSet();
+        var crawlerRepo = new HttpGeekCrawlerRepository(
+            new HttpClient(new GccProjectsControllerIndexGateTests.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
+            NullLogger<HttpGeekCrawlerRepository>.Instance);
+        return new GccDeclaredUrlValidator(
+            new GccCompetitorAnalysisResolverTests.FakeRag(rows, (runId, _) => emptyRuns.Contains(runId)
+                ? GccProjectsControllerIndexGateTests.HoldsNothing(runId)
+                : GccProjectsControllerIndexGateTests.Holds(runId)),
+            crawlerRepo,
+            NullLogger<GccDeclaredUrlValidator>.Instance);
+    }
+
+    private static ApiProjectsController Controller(Repo repo, GccDeclaredUrlValidator? index = null)
     {
         var http = new HttpGccRepository(
             new HttpClient(repo) { BaseAddress = new Uri("http://repo.test/") },
@@ -240,8 +281,9 @@ public sealed class GccProjectGenerateRouteTests
         var mustMention = new GccMustMentionBlockBuilder(
             new GccProjectSiteStructureReader(new NoPages()), NullLogger<GccMustMentionBlockBuilder>.Instance);
         var controller = new ApiProjectsController(
-            // Generate does not validate declared URLs -- that is done when they are entered.
-            http, null!, runner, mustMention, NullLogger<ApiProjectsController>.Instance)
+            // With no project the route returns before the index is asked, so none is built.
+            http, index ?? (repo.Project is null ? null! : Index(repo.Project)), runner, mustMention,
+            NullLogger<ApiProjectsController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
@@ -268,6 +310,7 @@ public sealed class GccProjectGenerateRouteTests
     /// <summary>GeekRepository, as the routes the generate path calls.</summary>
     private sealed class Repo(GccProjectDto? project, GccCreateDto? backing) : HttpMessageHandler
     {
+        public GccProjectDto? Project => project;
         public List<StartGccGenerateJobCommand> Starts { get; } = [];
         public TaskCompletionSource<Guid> Failed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public GccGenerateJobStartResult? StartAnswer { get; init; }

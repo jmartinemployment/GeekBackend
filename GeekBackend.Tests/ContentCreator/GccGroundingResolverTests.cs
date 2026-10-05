@@ -489,11 +489,12 @@ public class GccGroundingResolverTests
     }
 
     [Fact]
-    public async Task A_library_failure_names_the_crawl_type_and_the_run_that_failed()
+    public async Task A_library_failure_names_the_crawl_type_and_the_url_that_failed()
     {
         // The one risk hoisting the resolve out of the per-type fan-out introduced. A failure used to
-        // belong to one content type; now it fails the whole generate, so without the run id and the
-        // crawl type in the message an operator sees three dead drafts and no cause to act on.
+        // belong to one content type; now it fails the whole generate, so without the URL and the crawl
+        // type in the message an operator sees three dead drafts and no cause to act on. Named by the
+        // URL the operator entered -- a run id means nothing to them (Jeff, 2026-10-05).
         var rag = new FakeRag(
             hosts: [new GeekCrawlerRagHostIndex("https://p.test", "p.test", true, PartnerRun.ToString())],
             result: new GeekCrawlerRagQueryResult
@@ -510,11 +511,12 @@ public class GccGroundingResolverTests
 
         Assert.True(outcome.Refused);
         Assert.Contains(CrawlTypes.Partner, outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(PartnerRun.ToString(), outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https://p.test", outcome.Refusal!, StringComparison.Ordinal);
+        Assert.DoesNotContain(PartnerRun.ToString(), outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task An_empty_library_answer_names_the_crawl_type_and_the_run_too()
+    public async Task An_empty_library_answer_names_the_crawl_type_and_the_url_too()
     {
         // Null from the client is the library not answering at all, which reads differently from a
         // failed result -- and has to carry the same two facts.
@@ -527,7 +529,8 @@ public class GccGroundingResolverTests
 
         Assert.True(outcome.Refused);
         Assert.Contains(CrawlTypes.Partner, outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(PartnerRun.ToString(), outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https://p.test", outcome.Refusal!, StringComparison.Ordinal);
+        Assert.DoesNotContain(PartnerRun.ToString(), outcome.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

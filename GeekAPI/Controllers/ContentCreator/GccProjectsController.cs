@@ -291,6 +291,11 @@ public class GccProjectsController : ControllerBase
         var typeRefusal = GccGenerationCoordinator.ValidateRequestedTypes(requested);
         if (typeRefusal is not null) return BadRequest(typeRefusal);
 
+        // The declared URLs were validated when they were entered. Asked once more here, before the
+        // run starts and before anything is spent, in case the index has lost one since.
+        var declared = await _declaredUrls.ForGenerateAsync(project, ct);
+        if (declared.Refusal is { } unusable) return Conflict(unusable);
+
         var backing = await _repo.GetProjectBackingCreateAsync(id, ct);
         var view = ProjectView(project, backing?.Id ?? Guid.Empty, ownerUserId, requested[0], backing);
         var section = GccGenerateService.ParseSiteSection(view.SiteSectionJson);
