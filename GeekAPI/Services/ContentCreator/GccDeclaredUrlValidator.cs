@@ -169,29 +169,57 @@ public sealed class GccDeclaredUrlValidator
     {
         // The crawl type each URL is searched as at Generate -- the list it is declared in. A URL in two
         // lists is searched as the first.
-        var crawlTypeByUrl = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var crawlTypeByUrl = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         crawlTypeByUrl.TryAdd(site, CrawlTypes.ProjectSite);
         foreach (var url in partners) crawlTypeByUrl.TryAdd(url, CrawlTypes.Partner);
         foreach (var url in competitors) crawlTypeByUrl.TryAdd(url, CrawlTypes.Competitors);
-        var declared = crawlTypeByUrl.Keys.ToList();
 
+        var answered = await AnswerAsync(crawlTypeByUrl, ct);
+        if (answered.Unreachable is { } unreachable)
+            return new Evidence(unreachable, new Dictionary<string, string>());
+
+        var reasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var url in answered.Unanswered) reasons[url] = "the index returned no answer for it";
+        foreach (var answer in answered.Answers)
+        {
+            if (answer.Reason is { } reason) reasons[answer.Url] = reason;
+        }
+
+        return new Evidence(null, reasons);
+    }
+
+    /// <summary>
+    /// The one answer about each URL: usable or not, and why not. The form's as-you-type feedback, the
+    /// Profile save and the check before Generate all read this, so a URL cannot be green in one place
+    /// and refused in another. It was two implementations for a day: the save searched the index while
+    /// the form still read the crawl's counters, and showed green for a URL the save would refuse.
+    /// </summary>
+    /// <param name="crawlTypeByUrl">Each URL and the kind of list it is entered in, which is how
+    /// Generate searches it. A null kind searches the crawl without that filter.</param>
+    public async Task<GccDeclaredUrlAnswers> AnswerAsync(
+        IReadOnlyDictionary<string, string?> crawlTypeByUrl,
+        CancellationToken ct)
+    {
+        var declared = crawlTypeByUrl.Keys.ToList();
         var rows = await _rag.HostsIndexedAsync(declared, ct);
         if (rows.Count == 0)
         {
             _logger.LogWarning(
                 "Index unreachable while validating {Count} declared URL(s); refusing rather than guessing.",
                 declared.Count);
-            return new Evidence("The index could not be reached, so the declared URLs could not be checked.", new Dictionary<string, string>());
+            return GccDeclaredUrlAnswers.NotAsked(
+                "The index could not be reached, so the declared URLs could not be checked.");
         }
 
         var byUrl = rows.ToDictionary(r => r.Url, StringComparer.OrdinalIgnoreCase);
-        var reasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var unanswered = new List<string>();
+        var answers = new Dictionary<string, GccDeclaredUrlAnswer>(StringComparer.OrdinalIgnoreCase);
         var toSearch = new List<(string Url, Guid RunId)>();
         foreach (var url in declared)
         {
             if (!byUrl.TryGetValue(url, out var row))
             {
-                reasons[url] = "the index returned no answer for it";
+                unanswered.Add(url);
                 continue;
             }
 
@@ -199,13 +227,11 @@ public sealed class GccDeclaredUrlValidator
             GeekCrawlerRunDto? run = null;
             if (row.Indexed && Guid.TryParse(row.RunId, out var runId))
                 run = await _crawlerRepo.GetRunAsync(runId, ct);
-            if (GccDeclaredUrlEvidence.Unusable(row, run) is { } reason)
-            {
-                reasons[url] = reason;
-                continue;
-            }
-
-            toSearch.Add((url, run!.Id));
+            var reason = GccDeclaredUrlEvidence.Unusable(row, run);
+            answers[url] = new GccDeclaredUrlAnswer(
+                row.Url, row.Host, row.Indexed, row.RunId, reason,
+                run?.RagPagesEnglish, run?.RagChunksUpserted, run?.RagPagesSkippedUnusable);
+            if (reason is null) toSearch.Add((url, run!.Id));
         }
 
         // What the counters cannot say: does the index hold chunks for this run, searched as Generate
@@ -218,19 +244,21 @@ public sealed class GccDeclaredUrlValidator
             if (result is null || result.Failed)
             {
                 _logger.LogWarning("Index search failed for run {RunId} ({Url}) while validating declared URLs", runId, url);
-                return new Evidence(
-                    $"The index could not be searched for {url}, so the declared URLs could not be checked.",
-                    new Dictionary<string, string>());
+                return GccDeclaredUrlAnswers.NotAsked(
+                    $"The index could not be searched for {url}, so the declared URLs could not be checked.");
             }
 
             if (result.Pages.Count == 0)
             {
-                reasons[url] = "its crawl finished, but a search of the index finds nothing from it, so there "
-                    + "is nothing to write with";
+                answers[url] = answers[url] with
+                {
+                    Reason = "its crawl finished, but a search of the index finds nothing from it, so there "
+                        + "is nothing to write with",
+                };
             }
         }
 
-        return new Evidence(null, reasons);
+        return new GccDeclaredUrlAnswers(null, declared.Where(answers.ContainsKey).Select(u => answers[u]).ToList(), unanswered);
     }
 
     /// <summary>Any question retrieves from a run that holds chunks; this one only asks whether it does.</summary>
@@ -275,4 +303,30 @@ public sealed record GccDeclaredUrlVerdict(
 
     public static GccDeclaredUrlVerdict Usable(IReadOnlyList<string> partners, IReadOnlyList<string> competitors) =>
         new(null, partners, competitors);
+}
+
+/// <summary>What the index says about one entered URL. Usable when <see cref="Reason"/> is null.</summary>
+public sealed record GccDeclaredUrlAnswer(
+    string Url,
+    string? Host,
+    bool Indexed,
+    string? RunId,
+    string? Reason,
+    int? Pages,
+    int? Chunks,
+    int? SkippedUnusable)
+{
+    public bool Usable => Reason is null;
+}
+
+/// <summary>
+/// The answers for a set of URLs; or, when the index could not be asked, why -- which is not an answer
+/// about any of them. <see cref="Unanswered"/> are URLs the index said nothing about.
+/// </summary>
+public sealed record GccDeclaredUrlAnswers(
+    string? Unreachable,
+    IReadOnlyList<GccDeclaredUrlAnswer> Answers,
+    IReadOnlyList<string> Unanswered)
+{
+    public static GccDeclaredUrlAnswers NotAsked(string why) => new(why, [], []);
 }

@@ -4,6 +4,7 @@ using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Rag;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
+using GeekApplication.Models.GeekCrawler;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.Rag;
@@ -18,19 +19,16 @@ public sealed class RagController : ControllerBase
 {
     private readonly ICurrentUserContext _user;
     private readonly GccV2CreateLibraryWriter _generate;
-    private readonly IGeekCrawlerRagClient _rag;
-    private readonly HttpGeekCrawlerRepository _crawlerRepo;
+    private readonly GccDeclaredUrlValidator _declaredUrls;
 
     public RagController(
         ICurrentUserContext user,
         GccV2CreateLibraryWriter generate,
-        IGeekCrawlerRagClient rag,
-        HttpGeekCrawlerRepository crawlerRepo)
+        GccDeclaredUrlValidator declaredUrls)
     {
         _user = user;
         _generate = generate;
-        _rag = rag;
-        _crawlerRepo = crawlerRepo;
+        _declaredUrls = declaredUrls;
     }
 
     [HttpGet("health")]
@@ -81,51 +79,60 @@ public sealed class RagController : ControllerBase
         if (request?.Urls is null || request.Urls.Count == 0)
             return BadRequest(new { error = "urls required" });
 
-        var results = await _rag.HostsIndexedAsync(request.Urls, ct).ConfigureAwait(false);
-
-        // An empty result means the check did not run, not that nothing is indexed. Returning
-        // "not indexed" for every URL would block creates on an answer never obtained.
-        if (results.Count == 0)
+        string? crawlType = null;
+        if (!string.IsNullOrWhiteSpace(request.CrawlType))
         {
-            return StatusCode(
-                StatusCodes.Status502BadGateway,
-                new { error = "The index could not be reached, so no URL could be checked." });
-        }
-
-        // Indexed is not usable. A crawl can complete having been blocked at its first page, or
-        // against a site that renders nothing without JavaScript, and still put a row in the index:
-        // that passes "does an index exist" and gives a writer nothing. The run records what
-        // actually landed, so the same answer carries it -- one question, one answer, and the form
-        // and the project gate read the same one rather than each deciding for itself.
-        var answers = new List<object>(results.Count);
-        foreach (var row in results)
-        {
-            GeekCrawlerRunDto? run = null;
-            if (row.Indexed && Guid.TryParse(row.RunId, out var runId))
-                run = await _crawlerRepo.GetRunAsync(runId, ct).ConfigureAwait(false);
-
-            var reason = GccDeclaredUrlEvidence.Unusable(row, run);
-            answers.Add(new
+            crawlType = request.CrawlType.Trim().ToLowerInvariant();
+            if (crawlType is not (CrawlTypes.ProjectSite or CrawlTypes.Partner or CrawlTypes.Competitors))
             {
-                url = row.Url,
-                host = row.Host,
-                indexed = row.Indexed,
-                runId = row.RunId,
-                usable = reason is null,
-                reason,
-                pages = run?.RagPagesEnglish,
-                chunks = run?.RagChunksUpserted,
-                // crawl_runs has persisted this since aa7f3ee and nothing returned it -- the value
-                // was write-only. It is what tells "40 pages, the site is small" from "40 pages,
-                // 460 were error bodies", which is the question this endpoint is asked.
-                skippedUnusable = run?.RagPagesSkippedUnusable,
-            });
+                return BadRequest(new
+                {
+                    error = $"crawlType must be one of: {CrawlTypes.ProjectSite}, {CrawlTypes.Partner}, {CrawlTypes.Competitors}.",
+                });
+            }
         }
 
-        return Ok(new { results = answers });
+        var urls = request.Urls
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(u => u, _ => crawlType, StringComparer.OrdinalIgnoreCase);
+        if (urls.Count == 0)
+            return BadRequest(new { error = "urls required" });
+
+        // One answer per URL, from the same check the Profile save and Generate run
+        // (GccDeclaredUrlValidator). This route used to decide for itself, from the crawl's own page
+        // and chunk counts -- so the form showed green for a URL whose crawl recorded writing pages
+        // the index does not hold, and the save, which searches the index, refused it.
+        var answered = await _declaredUrls.AnswerAsync(urls, ct).ConfigureAwait(false);
+
+        // Not asked is not "nothing is indexed". Returning "not indexed" for every URL would block
+        // creates on an answer never obtained.
+        if (answered.Unreachable is { } unreachable)
+            return StatusCode(StatusCodes.Status502BadGateway, new { error = unreachable });
+
+        return Ok(new
+        {
+            results = answered.Answers.Select(a => new
+            {
+                url = a.Url,
+                host = a.Host,
+                indexed = a.Indexed,
+                runId = a.RunId,
+                usable = a.Usable,
+                reason = a.Reason,
+                pages = a.Pages,
+                chunks = a.Chunks,
+                // What tells "40 pages, the site is small" from "40 pages, 460 were error bodies".
+                skippedUnusable = a.SkippedUnusable,
+            }),
+        });
     }
 
-    public sealed record HostsIndexedRequest(IReadOnlyList<string>? Urls);
+    /// <param name="CrawlType">The list the URLs are entered in: project-site, partner or competitors.
+    /// Generate searches each URL's crawl as that kind, so the check does too when it is sent. Absent,
+    /// the crawl is searched without that filter.</param>
+    public sealed record HostsIndexedRequest(IReadOnlyList<string>? Urls, string? CrawlType = null);
 
     /// <summary>Phase D2 — upsert ad templates into Geek-Crawler-Rag (owned by content-creator-v2).</summary>
     [HttpPost("templates")]
