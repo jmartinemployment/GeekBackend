@@ -25,6 +25,14 @@ public class GccGenerateJobsController : ControllerBase
         return job is null ? NotFound() : Ok(job);
     }
 
+    /// <summary>The project's newest run, running or ended. 404 when the project has never run.</summary>
+    [HttpGet("~/repo/content-creator/projects/{projectId:guid}/generate-jobs/latest")]
+    public async Task<ActionResult<GccGenerateJobDto>> GetLatestForProject(Guid projectId, CancellationToken ct)
+    {
+        var job = await _jobs.GetLatestForProjectAsync(projectId, ct);
+        return job is null ? NotFound() : Ok(job);
+    }
+
     /// <summary>The create the project's drafts are stored under. 404 when the project has none yet.</summary>
     [HttpGet("~/repo/content-creator/projects/{projectId:guid}/backing-create")]
     public async Task<ActionResult<GccCreateDto>> GetBackingCreate(Guid projectId, CancellationToken ct)

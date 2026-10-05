@@ -419,6 +419,18 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     }
 
     /// <summary>
+    /// The project's newest run, running or ended. Null when it has never run -- and only a 404 means
+    /// that: any other failure read as "never run" would tell the page nothing is going while a run is.
+    /// </summary>
+    public async Task<GccGenerateJobDto?> GetLatestGenerateJobAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var res = await _http.GetAsync($"repo/content-creator/projects/{projectId}/generate-jobs/latest", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccGenerateJobDto>(await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+
+    /// <summary>
     /// Save every piece of one Generate to the project's pages, in one write: a new version of the
     /// page that exists, a new page where none does. Null when the project does not exist; a refusal
     /// is carried in the result and means nothing was written.

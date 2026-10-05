@@ -237,6 +237,13 @@ public interface IGccGenerateJobRepository
 {
     Task<GccGenerateJobDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>
+    /// The project's newest run: the one going now, or the last to end. Null when it has never run.
+    /// What the page reads when it opens, so a run started before a reload is still shown as running
+    /// and the last run's result is still there to read.
+    /// </summary>
+    Task<GccGenerateJobDto?> GetLatestForProjectAsync(Guid projectId, CancellationToken ct = default);
+
     /// <summary>The create a project's drafts are stored under: its newest. Null when it has none.</summary>
     Task<GccCreateDto?> GetBackingCreateAsync(Guid projectId, CancellationToken ct = default);
 

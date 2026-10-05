@@ -23,6 +23,19 @@ public class GccGenerateJobRepository : IGccGenerateJobRepository
         return job is null ? null : await MapAsync(job, ct);
     }
 
+    /// <remarks>
+    /// Newest by when it started. A project has at most one running run (the partial unique index),
+    /// and a run cannot start while another is going, so the newest is the running one whenever one is.
+    /// </remarks>
+    public async Task<GccGenerateJobDto?> GetLatestForProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var job = await _db.GccGenerateJobs.AsNoTracking()
+            .Where(j => j.ProjectId == projectId)
+            .OrderByDescending(j => j.StartedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        return job is null ? null : await MapAsync(job, ct);
+    }
+
     public async Task<GccCreateDto?> GetBackingCreateAsync(Guid projectId, CancellationToken ct = default)
     {
         var create = await NewestCreateAsync(projectId, ct);

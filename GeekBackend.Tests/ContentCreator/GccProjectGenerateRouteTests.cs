@@ -324,6 +324,78 @@ public sealed class GccProjectGenerateRouteTests
             NullLogger<GccDeclaredUrlValidator>.Instance);
     }
 
+    // ---- the newest run, read back -----------------------------------------------------------------
+
+    [Fact]
+    public async Task A_running_run_is_read_back_with_the_id_the_page_joins_and_nothing_internal()
+    {
+        // Reload during a run and the page showed nothing running: it had only ever learned of a run
+        // from the click that started it.
+        var project = Project("""{"angle":"problem_solution"}""", briefVersion: 3);
+        var running = Job(project.Id) with { RequestedTypes = ["pillar", "tool"] };
+        var repo = new Repo(project, backing: null) { LatestJob = running };
+
+        var result = await Controller(repo).LatestGenerate(project.Id, CancellationToken.None);
+
+        var body = Assert.IsType<ApiProjectsController.LatestGenerateResponse>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.Equal(running.Id, body.Run!.JobId);
+        Assert.Equal(GccGenerateJobStatuses.Running, body.Run.Status);
+        Assert.Equal(["pillar", "tool"], body.Run.RequestedTypes);
+        Assert.Equal(running.StartedAtUtc, body.Run.StartedAtUtc);
+        Assert.Null(body.Run.FinishedAtUtc);
+
+        // Which create the drafts are stored under, and who started the run, are not the page's.
+        var json = JsonSerializer.Serialize(body, Web);
+        Assert.DoesNotContain(running.CreateId.ToString(), json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("createId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ownerUserId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(repo.Writes);
+    }
+
+    [Fact]
+    public async Task An_ended_run_is_read_back_with_what_it_recorded()
+    {
+        // Reload after a run and what it refused, and why, was gone: it had only ever been on the hub.
+        var project = Project("""{"angle":"problem_solution"}""", briefVersion: 3);
+        var finishedAt = new DateTime(2026, 10, 5, 18, 32, 7, DateTimeKind.Utc);
+        const string recorded = """{"created":[],"refusals":["Approvalmax: Refused: money that is not in US dollars"],"preflight":[],"warnings":[]}""";
+        var ended = Job(project.Id) with
+        {
+            Status = GccGenerateJobStatuses.Ready, ResultJson = recorded, FinishedAtUtc = finishedAt,
+        };
+
+        var result = await Controller(new Repo(project, backing: null) { LatestJob = ended })
+            .LatestGenerate(project.Id, CancellationToken.None);
+
+        var run = Assert.IsType<ApiProjectsController.LatestGenerateResponse>(Assert.IsType<OkObjectResult>(result).Value).Run!;
+        Assert.Equal(GccGenerateJobStatuses.Ready, run.Status);
+        Assert.Equal(finishedAt, run.FinishedAtUtc);
+        Assert.Equal(recorded, run.ResultJson);
+        Assert.Null(run.Error);
+    }
+
+    [Fact]
+    public async Task A_project_that_has_never_run_answers_with_no_run_and_a_missing_project_with_404()
+    {
+        var project = Project("""{"angle":"problem_solution"}""", briefVersion: 3);
+
+        var never = await Controller(new Repo(project, backing: null)).LatestGenerate(project.Id, CancellationToken.None);
+        var missing = await Controller(new Repo(project: null, backing: null)).LatestGenerate(Guid.NewGuid(), CancellationToken.None);
+
+        // An object with a null in it, not an empty 204: "never run" is an answer the page reads.
+        Assert.Null(Assert.IsType<ApiProjectsController.LatestGenerateResponse>(Assert.IsType<OkObjectResult>(never).Value).Run);
+        Assert.IsType<NotFoundResult>(missing);
+    }
+
+    [Fact]
+    public void The_latest_run_is_read_under_the_manage_policy_like_the_rest_of_the_project()
+    {
+        Assert.Equal(
+            "{id:guid}/generate/latest",
+            typeof(ApiProjectsController).GetMethod(nameof(ApiProjectsController.LatestGenerate))!
+                .GetCustomAttributes(typeof(HttpGetAttribute), false).Cast<HttpGetAttribute>().Single().Template);
+    }
+
     private static ApiProjectsController Controller(Repo repo, GccDeclaredUrlValidator? index = null)
     {
         var http = new HttpGccRepository(
@@ -379,11 +451,16 @@ public sealed class GccProjectGenerateRouteTests
         public TaskCompletionSource<Guid> Failed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public GccGenerateJobStartResult? StartAnswer { get; init; }
 
+        /// <summary>The project's newest run as GeekRepository holds it, or null when it has never run.</summary>
+        public GccGenerateJobDto? LatestJob { get; init; }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var path = request.RequestUri!.AbsolutePath;
             if (request.Method == HttpMethod.Get && path.EndsWith("/backing-create"))
                 return backing is null ? Status(HttpStatusCode.NotFound) : Json(backing);
+            if (request.Method == HttpMethod.Get && path.EndsWith("/generate-jobs/latest"))
+                return LatestJob is null ? Status(HttpStatusCode.NotFound) : Json(LatestJob);
             if (request.Method == HttpMethod.Get && path.StartsWith("/repo/content-creator/projects/"))
                 return project is null ? Status(HttpStatusCode.NotFound) : Json(project);
             if (request.Method == HttpMethod.Post && path == "/repo/content-creator/generate-jobs")

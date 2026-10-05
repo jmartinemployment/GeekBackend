@@ -156,6 +156,37 @@ public sealed class GccGenerateJobRepositoryTests
     }
 
     [Fact]
+    public async Task The_projects_newest_run_is_the_one_going_now_or_the_last_to_end()
+    {
+        var options = Options();
+        var (project, _) = await Seed(options);
+        var (other, _) = await Seed(options);
+
+        await using (var db = new ContentCreatorDbContext(options))
+            Assert.Null(await new GccGenerateJobRepository(db).GetLatestForProjectAsync(project.Id));
+
+        var first = await Start(options, project.Id, createId: null);
+        await using (var db = new ContentCreatorDbContext(options))
+            await new GccGenerateJobRepository(db).CompleteAsync(first.Job!.Id, """{"created":[]}""");
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var ended = await new GccGenerateJobRepository(db).GetLatestForProjectAsync(project.Id);
+            Assert.Equal(first.Job!.Id, ended!.Id);
+            Assert.Equal(GccGenerateJobStatuses.Ready, ended.Status);
+            Assert.Equal("""{"created":[]}""", ended.ResultJson);
+        }
+
+        var second = await Start(options, project.Id, first.Job!.CreateId);
+        await Start(options, other.Id, createId: null);
+        await using (var read = new ContentCreatorDbContext(options))
+        {
+            var running = await new GccGenerateJobRepository(read).GetLatestForProjectAsync(project.Id);
+            Assert.Equal(second.Job!.Id, running!.Id);
+            Assert.Equal(GccGenerateJobStatuses.Running, running.Status);
+        }
+    }
+
+    [Fact]
     public async Task Startup_fails_every_running_run_and_frees_the_project()
     {
         var options = Options();

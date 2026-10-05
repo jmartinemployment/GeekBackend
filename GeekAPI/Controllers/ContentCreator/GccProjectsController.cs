@@ -82,6 +82,44 @@ public class GccProjectsController : ControllerBase
     }
 
     /// <summary>
+    /// The project's newest Generate: the one going now, or the last to end. <c>run</c> is null when
+    /// the project has never run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What the page reads when it opens. A run reports over the hub, and a hub event is heard only by
+    /// a page that was open and joined when it was sent: reload during a run and the page showed
+    /// nothing running; reload after one and what it refused, and why, was gone. The run is a row
+    /// (A11), so both are read back -- a running one is rejoined by its id, an ended one is shown with
+    /// what it recorded.
+    /// </para>
+    /// <para>
+    /// The create the run's drafts are stored under and the operator's id are not part of the answer:
+    /// the first is internal while drafts are keyed by create, the second is not the page's to show.
+    /// </para>
+    /// </remarks>
+    [HttpGet("{id:guid}/generate/latest")]
+    public async Task<IActionResult> LatestGenerate(Guid id, CancellationToken ct)
+    {
+        var project = await _repo.GetProjectAsync(id, ct);
+        if (project is null) return NotFound();
+
+        var job = await _repo.GetLatestGenerateJobAsync(id, ct);
+        return Ok(new LatestGenerateResponse(job is null
+            ? null
+            : new GenerateRunView(
+                job.Id,
+                job.Status,
+                job.RequestedTypes,
+                job.Provider,
+                job.StartedAtUtc,
+                job.FinishedAtUtc,
+                job.BriefRevisionSavedAtUtc,
+                job.ResultJson,
+                job.Error)));
+    }
+
+    /// <summary>
     /// The project's drafts as a zip of standalone pages, foldered by content type with image prompts
     /// in their own tree -- the same files a create's export gives.
     /// </summary>
@@ -712,6 +750,26 @@ public class GccProjectsController : ControllerBase
 
     /// <summary>The new version to send with the next save, and the revision this save wrote.</summary>
     public sealed record SaveBriefResponse(int Version, Guid RevisionId, DateTime SavedAtUtc, string? Topic);
+
+    /// <summary>The answer to "what is this project's newest Generate": always an object, so "never run"
+    /// is a null inside it rather than an empty response.</summary>
+    public sealed record LatestGenerateResponse(GenerateRunView? Run);
+
+    /// <summary>A Generate as the page is shown it.</summary>
+    /// <param name="JobId">What the page joins on the hub to follow a run that is still going.</param>
+    /// <param name="Status">running | ready | failed.</param>
+    /// <param name="ResultJson">What an ended run recorded: what it saved, what it refused by name, the
+    /// partner pre-flight and the gaps. The same aggregate its last hub event carried.</param>
+    public sealed record GenerateRunView(
+        Guid JobId,
+        string Status,
+        IReadOnlyList<string> RequestedTypes,
+        string Provider,
+        DateTime StartedAtUtc,
+        DateTime? FinishedAtUtc,
+        DateTime BriefRevisionSavedAtUtc,
+        string? ResultJson,
+        string? Error);
 
     /// <summary>What the browser sends to Generate. AcknowledgeStaleGrounding is accepted for the
     /// contract's shape; Generate has no staleness gate that can fire (see GccController).</summary>
