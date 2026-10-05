@@ -305,3 +305,26 @@ public class GccGenerateJob
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? FinishedAtUtc { get; set; }
 }
+
+/// <summary>Everything one version was made from. See <c>GccVersionEvidenceDto</c>.</summary>
+/// <remarks>
+/// Keyed to the project as well as the version, so "what was this project's writer given" is one
+/// query. The project is read off the version's own draft when the row is written, never supplied.
+/// </remarks>
+public class GccVersionEvidence
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid VersionId { get; set; }
+    public Guid ProjectId { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public string ModelIdsJson { get; set; } = "[]";
+    public string CallsJson { get; set; } = "[]";
+    public string? DiscardedDraftsJson { get; set; }
+    public string? ResearchJson { get; set; }
+    public string? PassagesJson { get; set; }
+    public string? QuoteCandidatesJson { get; set; }
+    public string? ReadinessJson { get; set; }
+    public string? BankDigestsJson { get; set; }
+    public string? RagQueriesJson { get; set; }
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+}

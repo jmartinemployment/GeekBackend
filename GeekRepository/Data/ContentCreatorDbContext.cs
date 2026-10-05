@@ -22,6 +22,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccProjectLogEntry> GccProjectLog => Set<GccProjectLogEntry>();
     public virtual DbSet<GccProjectRevision> GccProjectRevisions => Set<GccProjectRevision>();
     public virtual DbSet<GccGenerateJob> GccGenerateJobs => Set<GccGenerateJob>();
+    public virtual DbSet<GccVersionEvidence> GccVersionEvidence => Set<GccVersionEvidence>();
     public virtual DbSet<GccTask> GccTasks => Set<GccTask>();
     public virtual DbSet<GccTimeEntry> GccTimeEntries => Set<GccTimeEntry>();
     public virtual DbSet<GccDeliverable> GccDeliverables => Set<GccDeliverable>();
@@ -351,6 +352,34 @@ public class ContentCreatorDbContext : DbContext
             entity.HasIndex(r => new { r.ProjectId, r.SavedAtUtc })
                 .IsDescending(false, true)
                 .HasDatabaseName("ix_gcc_project_revisions_project_id_saved_at");
+        });
+
+        modelBuilder.Entity<GccVersionEvidence>(entity =>
+        {
+            entity.ToTable("gcc_version_evidence");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.VersionId).HasColumnName("version_id").IsRequired();
+            entity.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
+            entity.Property(e => e.Provider).HasColumnName("provider").IsRequired().HasMaxLength(32);
+            entity.Property(e => e.ModelIdsJson).HasColumnName("model_ids_json").IsRequired().HasColumnType("text");
+            entity.Property(e => e.CallsJson).HasColumnName("calls_json").IsRequired().HasColumnType("text");
+            entity.Property(e => e.DiscardedDraftsJson).HasColumnName("discarded_drafts_json").HasColumnType("text");
+            entity.Property(e => e.ResearchJson).HasColumnName("research_json").HasColumnType("text");
+            entity.Property(e => e.PassagesJson).HasColumnName("passages_json").HasColumnType("text");
+            entity.Property(e => e.QuoteCandidatesJson).HasColumnName("quote_candidates_json").HasColumnType("text");
+            entity.Property(e => e.ReadinessJson).HasColumnName("readiness_json").HasColumnType("text");
+            entity.Property(e => e.BankDigestsJson).HasColumnName("bank_digests_json").HasColumnType("text");
+            entity.Property(e => e.RagQueriesJson).HasColumnName("rag_queries_json").HasColumnType("text");
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at").IsRequired();
+
+            // One row per version, by constraint: a version is made once.
+            entity.HasIndex(e => e.VersionId).IsUnique().HasDatabaseName("ux_gcc_version_evidence_version_id");
+            entity.HasIndex(e => e.ProjectId).HasDatabaseName("ix_gcc_version_evidence_project_id");
+
+            // RESTRICT like every content_creator key.
+            entity.HasOne<GccArtifactVersion>().WithMany().HasForeignKey(e => e.VersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<GccProject>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<GccGenerateJob>(entity =>

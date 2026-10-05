@@ -246,3 +246,16 @@ public interface IGccBriefBackfillRepository
     /// </summary>
     Task<GccBriefCopyResult> CopyOntoProjectAsync(Guid projectId, CancellationToken ct = default);
 }
+
+/// <summary>One evidence row per artifact version. See <see cref="GccVersionEvidenceDto"/>.</summary>
+public interface IGccVersionEvidenceRepository
+{
+    Task<GccVersionEvidenceDto?> GetByVersionIdAsync(Guid versionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Write the row for a version. Refused, not overwritten, when the version already has one --
+    /// evidence is a record of how a version was made, and a version is made once -- and when the
+    /// version does not exist or its draft is not on a project.
+    /// </summary>
+    Task<GccVersionEvidenceResult> CreateAsync(CreateGccVersionEvidenceCommand command, CancellationToken ct = default);
+}

@@ -515,3 +515,59 @@ public sealed record CompleteGccGenerateJobCommand(string ResultJson);
 public sealed record FailGccGenerateJobCommand(string Error);
 
 public sealed record FailInterruptedGccGenerateJobsCommand(string Error);
+
+/// <summary>
+/// Everything a version was made from, kept so "what was the writer given, and what did it return"
+/// is answerable from the database alone.
+/// </summary>
+/// <remarks>
+/// Every diagnosis of a bad draft before this was archaeology on a 60-character excerpt: no prompt, no
+/// raw response, no discarded first draft, no passages, no candidate list, no RAG query. One row per
+/// version, written beside it, and keyed to the project its draft is on. The JSON columns are opaque here -- GeekAPI owns their shape -- because
+/// the repository's job is to keep them, not to interpret them.
+/// </remarks>
+/// <param name="CallsJson">Every model call made for this version, in order: purpose, system and user
+/// prompt, raw response, model id.</param>
+/// <param name="DiscardedDraftsJson">Drafts written and not kept, each with the guard findings that
+/// discarded it.</param>
+/// <param name="ResearchJson">The merged research the writer was given.</param>
+/// <param name="PassagesJson">The typed partner passages.</param>
+/// <param name="QuoteCandidatesJson">The numbered quotation candidates, as shown to the writer.</param>
+/// <param name="ReadinessJson">The pre-flight verdicts.</param>
+/// <param name="BankDigestsJson">The extraction bank digests used.</param>
+/// <param name="RagQueriesJson">Each retrieval query, the run it went to, and the scores returned.</param>
+public sealed record GccVersionEvidenceDto(
+    Guid Id,
+    Guid VersionId,
+    Guid ProjectId,
+    string Provider,
+    string ModelIdsJson,
+    string CallsJson,
+    string? DiscardedDraftsJson,
+    string? ResearchJson,
+    string? PassagesJson,
+    string? QuoteCandidatesJson,
+    string? ReadinessJson,
+    string? BankDigestsJson,
+    string? RagQueriesJson,
+    DateTime CreatedAtUtc);
+
+public sealed record CreateGccVersionEvidenceCommand(
+    Guid VersionId,
+    string Provider,
+    string ModelIdsJson,
+    string CallsJson,
+    string? DiscardedDraftsJson = null,
+    string? ResearchJson = null,
+    string? PassagesJson = null,
+    string? QuoteCandidatesJson = null,
+    string? ReadinessJson = null,
+    string? BankDigestsJson = null,
+    string? RagQueriesJson = null);
+
+/// <summary>Evidence written, or why it was not: the version does not exist, or already has a row.</summary>
+public sealed record GccVersionEvidenceResult(GccVersionEvidenceDto? Evidence, string? Refusal)
+{
+    public static GccVersionEvidenceResult Written(GccVersionEvidenceDto evidence) => new(evidence, null);
+    public static GccVersionEvidenceResult Refused(string reason) => new(null, reason);
+}

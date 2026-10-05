@@ -76,6 +76,28 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     public Task<IReadOnlyList<GccArtifactDto>> ListArtifactsAsync(Guid createId, CancellationToken ct = default) =>
         GetListAsync<GccArtifactDto>($"repo/content-creator/artifacts?createId={createId}", ct);
 
+    public Task<GccVersionEvidenceDto?> GetVersionEvidenceAsync(Guid versionId, CancellationToken ct = default) =>
+        GetAsync<GccVersionEvidenceDto>($"repo/content-creator/version-evidence/by-version/{versionId}", ct);
+
+    /// <summary>
+    /// Record what a version was made from. A 409 -- the version already has its row, or does not
+    /// exist -- is an answer and is returned as one, the way <see cref="LogTimeAsync"/> reads its conflict.
+    /// </summary>
+    public async Task<GccVersionEvidenceResult> CreateVersionEvidenceAsync(
+        CreateGccVersionEvidenceCommand command, CancellationToken ct = default)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(command, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PostAsync("repo/content-creator/version-evidence", content, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
+            return GccVersionEvidenceResult.Refused(await res.Content.ReadAsStringAsync(ct));
+
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadAsStringAsync(ct);
+        var evidence = JsonSerializer.Deserialize<GccVersionEvidenceDto>(json, JsonOpts)
+            ?? throw new InvalidOperationException("Empty response recording version evidence.");
+        return GccVersionEvidenceResult.Written(evidence);
+    }
+
     /// <summary>Every draft on a project, newest first.</summary>
     public Task<IReadOnlyList<GccArtifactDto>> ListProjectArtifactsAsync(Guid projectId, CancellationToken ct = default) =>
         GetListAsync<GccArtifactDto>($"repo/content-creator/projects/{projectId}/artifacts", ct);
