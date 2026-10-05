@@ -3100,6 +3100,14 @@ public class GccGenerateService
     /// The site's own tool list is still read -- not to hand to the writer, which is how Melio and
     /// Plooto reached a pillar whose project did not list them, but to know which names to keep out.
     /// </remarks>
+    /// <summary>
+    /// The project's declared partners, each with the path its tool page is published at -- the only
+    /// tool links a pillar or a blog may carry. For the run to check a piece's links against the tool
+    /// pages the project actually has.
+    /// </summary>
+    public async Task<IReadOnlyList<GccPartnerToolPage>> PartnerToolPagesAsync(GccCreateDto create, CancellationToken ct) =>
+        GccPartnerToolPages.For(create, await PartnerUrlsForAsync(create, ct), _company.ToolBaseUrl);
+
     private async Task<PartnerTools> PartnerToolsAsync(GccCreateDto create, CancellationToken ct)
     {
         var partnerUrls = await PartnerUrlsForAsync(create, ct);

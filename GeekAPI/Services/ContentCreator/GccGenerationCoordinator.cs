@@ -296,15 +296,19 @@ public sealed class GccGenerationCoordinator
                 throw new InvalidOperationException(
                     string.Join(" | ", failures.Select(f => $"{f.Type}: {f.Error}")));
 
+            // What the run wrote, with a link to a tool page the project does not have named on the
+            // piece that carries it -- see WithMissingToolPagesNamedAsync.
+            var pieces = await WithMissingToolPagesNamedAsync(
+                repo, gen, create, [.. attempts.SelectMany(a => a.Outcome!.Pieces)], requested, ct);
+
             // Every piece of every type, in one write: all of them saved or none. Announced after it
             // succeeds, so nothing on the page says a piece exists that was not kept.
-            var created = await PersistAllAsync(
-                repo, create, [.. attempts.SelectMany(a => a.Outcome!.Pieces)], provider, briefRevision, onTypeOutcome, ct);
+            var created = await PersistAllAsync(repo, create, pieces, provider, briefRevision, onTypeOutcome, ct);
             var refusals = new List<string>();
             var warnings = new List<string>(groundingWarnings);
             foreach (var attempt in attempts)
             {
-                foreach (var piece in attempt.Outcome!.Pieces)
+                foreach (var piece in pieces.Where(p => p.ContentType == attempt.Type))
                 {
                     foreach (var warning in WarningsOf(piece.BodyJson))
                     {
@@ -337,9 +341,10 @@ public sealed class GccGenerationCoordinator
             repo, gen, create, section, provider, requested[0], mustMentionBlock,
             resolvedSingle.PartnerPassages, ct, recordReadiness);
 
+        var singlePieces = await WithMissingToolPagesNamedAsync(repo, gen, create, single.Pieces, requested, ct);
         var singleCreated = await PersistAllAsync(
-            repo, create, single.Pieces, provider, briefRevision, onTypeOutcome, ct);
-        foreach (var piece in single.Pieces)
+            repo, create, singlePieces, provider, briefRevision, onTypeOutcome, ct);
+        foreach (var piece in singlePieces)
         {
             foreach (var warning in WarningsOf(piece.BodyJson))
             {
@@ -554,6 +559,172 @@ public sealed class GccGenerationCoordinator
         // not incur changes on failures. One failure fails all, for now."). Persisting per type as
         // it finished is what left one page on disk when two other types failed.
         return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, create.Topic)], []);
+    }
+
+    /// <summary>
+    /// The run's pieces, with each pillar or blog that links a tool page the project does not have
+    /// saying so in its own warnings.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The 2:32 PM run of 2026-10-05 wrote a pillar and a blog that both link
+    /// <c>/tools/accounting/accounts-payable/approvalmax</c>, and refused the Approvalmax tool page in
+    /// the same run. Each type is written on its own, at once, so the pillar cannot know which tool
+    /// pages will pass; the link check allows every declared partner's path because every one is a
+    /// page the project is meant to have. Whether it has it is known only when the run is over.
+    /// </para>
+    /// <para>
+    /// A gap, not a refusal: the piece is sound and one link in it leads nowhere yet. It is saved
+    /// with that written on it, and the operator generates the tool page or takes the link out.
+    /// </para>
+    /// </remarks>
+    private static async Task<IReadOnlyList<GeneratedPiece>> WithMissingToolPagesNamedAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        IReadOnlyList<GeneratedPiece> pieces,
+        IReadOnlyList<string> requestedTypes,
+        CancellationToken ct)
+    {
+        // Only a piece that is not itself a tool page links tool pages, and only a project has pages.
+        if (create.ProjectId is not Guid projectId || pieces.All(p => IsToolType(p.ContentType))) return pieces;
+
+        var partnerPages = await gen.PartnerToolPagesAsync(create, ct);
+        if (partnerPages.Count == 0) return pieces;
+
+        var onProject = (await repo.ListProjectArtifactsAsync(projectId, ct))
+            .Where(a => IsToolType(a.Type))
+            .Select(a => a.Name)
+            .ToList();
+        return NameMissingToolPages(pieces, partnerPages, onProject, requestedTypes.Any(IsToolType));
+    }
+
+    /// <summary>
+    /// The decision <see cref="WithMissingToolPagesNamedAsync"/> makes, with nothing to read: which
+    /// partner tool pages each piece links, and which of those the project will not have once this
+    /// run is saved.
+    /// </summary>
+    /// <param name="toolPagesOnProject">The names of the tool pages the project already has.</param>
+    /// <param name="toolPagesAskedFor">Whether this run was asked for tool pages, which decides what a
+    /// missing one is called: refused by this run, or never generated.</param>
+    internal static IReadOnlyList<GeneratedPiece> NameMissingToolPages(
+        IReadOnlyList<GeneratedPiece> pieces,
+        IReadOnlyList<GccPartnerToolPage> partnerPages,
+        IReadOnlyCollection<string> toolPagesOnProject,
+        bool toolPagesAskedFor)
+    {
+        var have = new HashSet<string>(toolPagesOnProject.Select(n => n.Trim()), StringComparer.OrdinalIgnoreCase);
+        foreach (var written in pieces.Where(p => IsToolType(p.ContentType))) have.Add(written.ArtifactName.Trim());
+
+        var result = new List<GeneratedPiece>(pieces.Count);
+        foreach (var piece in pieces)
+        {
+            if (IsToolType(piece.ContentType))
+            {
+                result.Add(piece);
+                continue;
+            }
+
+            var linked = LinksIn(piece.BodyJson);
+            var missing = partnerPages
+                .Where(page => linked.Contains(page.Path.TrimEnd('/')) && !have.Contains(page.ProductName))
+                .Select(page => page.ProductName)
+                .ToList();
+            if (missing.Count == 0)
+            {
+                result.Add(piece);
+                continue;
+            }
+
+            var why = toolPagesAskedFor
+                ? "this run did not write it -- see what was not written"
+                : "it has not been generated";
+            var warning = missing.Count == 1
+                ? $"Links to the {missing[0]} tool page, and this project has no {missing[0]} tool page: {why}. "
+                  + "Generate it, or take the link out, before this is published."
+                : $"Links to {missing.Count} tool pages this project does not have ({string.Join(", ", missing)}): "
+                  + (toolPagesAskedFor
+                      ? "this run did not write them -- see what was not written. "
+                      : "they have not been generated. ")
+                  + "Generate them, or take the links out, before this is published.";
+            result.Add(piece with { BodyJson = WithWarning(piece.BodyJson, warning) });
+        }
+
+        return result;
+    }
+
+    private static bool IsToolType(string? type) =>
+        string.Equals(type?.Trim(), "tool", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Every link in a body: each "href" in it, without a trailing slash.</summary>
+    private static HashSet<string> LinksIn(string? bodyJson)
+    {
+        var links = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(bodyJson)) return links;
+        try
+        {
+            using var doc = JsonDocument.Parse(bodyJson);
+            Collect(doc.RootElement);
+        }
+        catch (JsonException)
+        {
+            // A body that is not JSON carries no links this can read; it is saved as it is.
+        }
+
+        return links;
+
+        void Collect(JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (property.NameEquals("href") && property.Value.ValueKind == JsonValueKind.String
+                            && property.Value.GetString() is { Length: > 0 } href)
+                        {
+                            links.Add(href.Trim().TrimEnd('/'));
+                        }
+                        else
+                        {
+                            Collect(property.Value);
+                        }
+                    }
+
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray()) Collect(item);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A body with one more warning in its envelope's <c>warnings</c>, where <see cref="WarningsOf"/>
+    /// reads them and the page shows them beside the version. A body that is not a JSON object has
+    /// no envelope to carry one and is returned as it was.
+    /// </summary>
+    internal static string WithWarning(string bodyJson, string warning)
+    {
+        System.Text.Json.Nodes.JsonNode? root;
+        try
+        {
+            root = System.Text.Json.Nodes.JsonNode.Parse(bodyJson);
+        }
+        catch (JsonException)
+        {
+            return bodyJson;
+        }
+
+        if (root is not System.Text.Json.Nodes.JsonObject envelope) return bodyJson;
+        if (envelope["warnings"] is not System.Text.Json.Nodes.JsonArray warnings)
+        {
+            warnings = [];
+            envelope["warnings"] = warnings;
+        }
+
+        warnings.Add(warning);
+        return envelope.ToJsonString();
     }
 
     /// <summary>
