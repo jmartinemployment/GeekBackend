@@ -551,7 +551,15 @@ public class GccGenerateService
         /// <summary>True when the extraction was read from the bank rather than paid for on this
         /// run. Said, never silent: a cache nobody can see is how a stale result becomes invisible.</summary>
         bool Reused = false,
-        DateTime? BankedAtUtc = null);
+        DateTime? BankedAtUtc = null)
+    {
+        /// <summary>
+        /// How many categories <see cref="PopulatedCategories"/> is out of. Sent with the count so the
+        /// page prints the number the gate uses: the workspace had "of 22" written into it, and went
+        /// on saying 22 after freshness and disclosures left the schema and the count became twenty.
+        /// </summary>
+        public int TotalCategories { get; init; } = PartnerDataCategoryCount;
+    }
 
     /// <summary>
     /// Runs extraction and the sufficiency gate for one partner and reports the finding, drafting
