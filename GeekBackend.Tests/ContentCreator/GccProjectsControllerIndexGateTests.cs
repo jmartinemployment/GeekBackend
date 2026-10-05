@@ -404,6 +404,25 @@ public class GccProjectsControllerIndexGateTests
     }
 
     [Fact]
+    public async Task AUrlIsJudgedAsAMemberOfTheListItIsIn()
+    {
+        // One crawl, indexed as a partner crawl. Entered as a partner it is usable; entered as a
+        // competitor the index finds nothing for it under that kind, and it is named there.
+        var rows = AllIndexed;
+        var run = Guid.Parse(rows.Single(r => r.Url == Competitor).RunId!);
+        var (controller, repo) = Build(rows, (runId, crawlType) =>
+            runId == run && crawlType == CrawlTypes.Competitors ? HoldsNothing(runId) : Holds(runId));
+
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains("Competitor URLs: 4 of 5", BodyOf(result), StringComparison.Ordinal);
+        Assert.Contains(Competitor, BodyOf(result), StringComparison.Ordinal);
+        Assert.DoesNotContain("Partner URLs:", BodyOf(result), StringComparison.Ordinal);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
     public async Task ASearchThatFailsRefusesTheSaveRatherThanJudgingTheUrl()
     {
         var (controller, repo) = Build(AllIndexed, (runId, _) => new GeekCrawlerRagQueryResult

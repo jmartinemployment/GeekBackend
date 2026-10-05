@@ -84,16 +84,23 @@ public sealed class HostsIndexedFeedbackTests
         Assert.Equal([CrawlTypes.Partner], searchedAs);
     }
 
-    [Fact]
-    public async Task With_no_list_named_the_crawl_is_still_searched()
+    /// <summary>
+    /// The list is part of the question. With none named there is no looser check to fall back to --
+    /// that would be a second meaning of "valid" at the place validation happens first.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("rivals")]
+    public async Task Without_a_known_list_the_check_is_refused_and_nothing_is_searched(string? crawlType)
     {
-        var (controller, searchedAs) = Build(GccProjectsControllerIndexGateTests.HoldsNothing, Rival);
+        var (controller, searchedAs) = Build(GccProjectsControllerIndexGateTests.Holds, Rival);
 
         var result = await controller.HostsIndexed(
-            new RagController.HostsIndexedRequest([Rival]), CancellationToken.None);
+            new RagController.HostsIndexedRequest([Rival], crawlType), CancellationToken.None);
 
-        Assert.False(Assert.Single(Results(result).EnumerateArray()).GetProperty("usable").GetBoolean());
-        Assert.Equal([null], searchedAs);
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Empty(searchedAs);
     }
 
     [Fact]
@@ -106,17 +113,5 @@ public sealed class HostsIndexedFeedbackTests
             new RagController.HostsIndexedRequest([Rival], CrawlTypes.Competitors), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsType<ObjectResult>(result).StatusCode);
-    }
-
-    [Fact]
-    public async Task An_unknown_list_is_refused()
-    {
-        var (controller, searchedAs) = Build(GccProjectsControllerIndexGateTests.Holds, Rival);
-
-        var result = await controller.HostsIndexed(
-            new RagController.HostsIndexedRequest([Rival], "rivals"), CancellationToken.None);
-
-        Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Empty(searchedAs);
     }
 }

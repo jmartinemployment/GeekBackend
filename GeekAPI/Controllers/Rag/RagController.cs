@@ -79,32 +79,24 @@ public sealed class RagController : ControllerBase
         if (request?.Urls is null || request.Urls.Count == 0)
             return BadRequest(new { error = "urls required" });
 
-        string? crawlType = null;
-        if (!string.IsNullOrWhiteSpace(request.CrawlType))
+        // The list is part of the question, not a refinement of it: Generate searches a URL's crawl as
+        // the kind of list it is entered in. Without it there is no answer to give, so there is no
+        // looser check to fall back to.
+        var crawlType = (request.CrawlType ?? string.Empty).Trim().ToLowerInvariant();
+        if (crawlType is not (CrawlTypes.ProjectSite or CrawlTypes.Partner or CrawlTypes.Competitors))
         {
-            crawlType = request.CrawlType.Trim().ToLowerInvariant();
-            if (crawlType is not (CrawlTypes.ProjectSite or CrawlTypes.Partner or CrawlTypes.Competitors))
+            return BadRequest(new
             {
-                return BadRequest(new
-                {
-                    error = $"crawlType must be one of: {CrawlTypes.ProjectSite}, {CrawlTypes.Partner}, {CrawlTypes.Competitors}.",
-                });
-            }
+                error = "crawlType is required: the list the URLs are entered in -- "
+                    + $"{CrawlTypes.ProjectSite}, {CrawlTypes.Partner} or {CrawlTypes.Competitors}.",
+            });
         }
-
-        var urls = request.Urls
-            .Where(u => !string.IsNullOrWhiteSpace(u))
-            .Select(u => u.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(u => u, _ => crawlType, StringComparer.OrdinalIgnoreCase);
-        if (urls.Count == 0)
-            return BadRequest(new { error = "urls required" });
 
         // One answer per URL, from the same check the Profile save and Generate run
         // (GccDeclaredUrlValidator). This route used to decide for itself, from the crawl's own page
         // and chunk counts -- so the form showed green for a URL whose crawl recorded writing pages
         // the index does not hold, and the save, which searches the index, refused it.
-        var answered = await _declaredUrls.AnswerAsync(urls, ct).ConfigureAwait(false);
+        var answered = await _declaredUrls.AnswerAsync(request.Urls, crawlType, ct).ConfigureAwait(false);
 
         // Not asked is not "nothing is indexed". Returning "not indexed" for every URL would block
         // creates on an answer never obtained.
@@ -129,9 +121,8 @@ public sealed class RagController : ControllerBase
         });
     }
 
-    /// <param name="CrawlType">The list the URLs are entered in: project-site, partner or competitors.
-    /// Generate searches each URL's crawl as that kind, so the check does too when it is sent. Absent,
-    /// the crawl is searched without that filter.</param>
+    /// <param name="CrawlType">Required. The list the URLs are entered in: project-site, partner or
+    /// competitors. Generate searches each URL's crawl as that kind, so the check does too.</param>
     public sealed record HostsIndexedRequest(IReadOnlyList<string>? Urls, string? CrawlType = null);
 
     /// <summary>Phase D2 — upsert ad templates into Geek-Crawler-Rag (owned by content-creator-v2).</summary>

@@ -105,22 +105,21 @@ public sealed class GccDeclaredUrlValidator
         if (evidence.Unreachable is { } unreachable)
             return GccDeclaredUrlVerdict.Refused(unreachable + " Nothing was saved — try again.");
 
-        var reasons = evidence.Reasons;
-        if (reasons.TryGetValue(site, out var siteReason))
+        if (evidence.Site.TryGetValue(site, out var siteReason))
         {
             return GccDeclaredUrlVerdict.Refused(
                 $"The project site URL cannot be written from: {site} — {siteReason}. "
                 + "It is the crawl this project is grounded on, so nothing else can stand in for it.");
         }
 
-        var usablePartners = partners.Where(u => !reasons.ContainsKey(u)).ToList();
-        var usableCompetitors = competitors.Where(u => !reasons.ContainsKey(u)).ToList();
+        var usablePartners = partners.Where(u => !evidence.Partners.ContainsKey(u)).ToList();
+        var usableCompetitors = competitors.Where(u => !evidence.Competitors.ContainsKey(u)).ToList();
         var floors = new[]
         {
             Floor("Partner URLs", partners, usablePartners,
-                GccDeclaredUrlEvidence.RequiredPartnerUrls, reasons),
+                GccDeclaredUrlEvidence.RequiredPartnerUrls, evidence.Partners),
             Floor("Competitor URLs", competitors, usableCompetitors,
-                GccDeclaredUrlEvidence.RequiredCompetitorUrls, reasons),
+                GccDeclaredUrlEvidence.RequiredCompetitorUrls, evidence.Competitors),
         }.Where(m => m is not null).ToList();
         if (floors.Count > 0)
             return GccDeclaredUrlVerdict.Refused(string.Join(" ", floors));
@@ -145,39 +144,53 @@ public sealed class GccDeclaredUrlValidator
         if (evidence.Unreachable is { } unreachable)
             return GccDeclaredUrlVerdict.Refused(unreachable + " Nothing was started — try again.");
 
-        if (evidence.Reasons.Count == 0)
+        var named = Named(new[] { site }, evidence.Site)
+            .Concat(Named(partners, evidence.Partners))
+            .Concat(Named(competitors, evidence.Competitors))
+            .ToList();
+        if (named.Count == 0)
             return GccDeclaredUrlVerdict.Usable(partners, competitors);
 
-        var named = new[] { site }.Concat(partners).Concat(competitors)
-            .Where(evidence.Reasons.ContainsKey)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(u => $"{u} — {evidence.Reasons[u]}");
         return GccDeclaredUrlVerdict.Refused(
             "Nothing was started: these declared URLs cannot be written from now. "
             + string.Join("; ", named) + ". "
             + "Re-index them, or save the Profile again so the unusable ones are dropped.");
     }
 
-    private sealed record Evidence(string? Unreachable, IReadOnlyDictionary<string, string> Reasons);
+    private static IEnumerable<string> Named(IEnumerable<string> urls, IReadOnlyDictionary<string, string> reasons) =>
+        urls.Where(reasons.ContainsKey).Select(u => $"{u} — {reasons[u]}");
 
-    /// <summary>Why each declared URL cannot be used, for the ones that cannot; or why nothing could be asked.</summary>
+    /// <summary>
+    /// Why each declared URL cannot be used, list by list; or why nothing could be asked. A URL is
+    /// judged as a member of the list it is declared in, so the same URL in two lists gets an answer
+    /// for each.
+    /// </summary>
+    private sealed record Evidence(
+        string? Unreachable,
+        IReadOnlyDictionary<string, string> Site,
+        IReadOnlyDictionary<string, string> Partners,
+        IReadOnlyDictionary<string, string> Competitors);
+
     private async Task<Evidence> EvidenceAsync(
         string site,
         IReadOnlyList<string> partners,
         IReadOnlyList<string> competitors,
         CancellationToken ct)
     {
-        // The crawl type each URL is searched as at Generate -- the list it is declared in. A URL in two
-        // lists is searched as the first.
-        var crawlTypeByUrl = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        crawlTypeByUrl.TryAdd(site, CrawlTypes.ProjectSite);
-        foreach (var url in partners) crawlTypeByUrl.TryAdd(url, CrawlTypes.Partner);
-        foreach (var url in competitors) crawlTypeByUrl.TryAdd(url, CrawlTypes.Competitors);
+        var lists = await Task.WhenAll(
+            AnswerAsync([site], CrawlTypes.ProjectSite, ct),
+            AnswerAsync(partners, CrawlTypes.Partner, ct),
+            AnswerAsync(competitors, CrawlTypes.Competitors, ct));
 
-        var answered = await AnswerAsync(crawlTypeByUrl, ct);
-        if (answered.Unreachable is { } unreachable)
-            return new Evidence(unreachable, new Dictionary<string, string>());
+        var none = new Dictionary<string, string>();
+        if (lists.Select(l => l.Unreachable).FirstOrDefault(u => u is not null) is { } unreachable)
+            return new Evidence(unreachable, none, none, none);
 
+        return new Evidence(null, Reasons(lists[0]), Reasons(lists[1]), Reasons(lists[2]));
+    }
+
+    private static Dictionary<string, string> Reasons(GccDeclaredUrlAnswers answered)
+    {
         var reasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var url in answered.Unanswered) reasons[url] = "the index returned no answer for it";
         foreach (var answer in answered.Answers)
@@ -185,22 +198,29 @@ public sealed class GccDeclaredUrlValidator
             if (answer.Reason is { } reason) reasons[answer.Url] = reason;
         }
 
-        return new Evidence(null, reasons);
+        return reasons;
     }
 
     /// <summary>
-    /// The one answer about each URL: usable or not, and why not. The form's as-you-type feedback, the
-    /// Profile save and the check before Generate all read this, so a URL cannot be green in one place
-    /// and refused in another. It was two implementations for a day: the save searched the index while
-    /// the form still read the crawl's counters, and showed green for a URL the save would refuse.
+    /// The one answer about each URL of one list: usable or not, and why not. The form's as-you-type
+    /// feedback, the Profile save and the check before Generate all read this, so a URL cannot be
+    /// green in one place and refused in another.
     /// </summary>
-    /// <param name="crawlTypeByUrl">Each URL and the kind of list it is entered in, which is how
-    /// Generate searches it. A null kind searches the crawl without that filter.</param>
+    /// <remarks>
+    /// The list is required, because it is part of the question: Generate searches a URL's crawl as
+    /// the kind of list it is declared in, so "is this usable" has no answer without it. It was
+    /// optional for a few hours on 2026-10-05, searching unfiltered when absent -- a second, looser
+    /// meaning of usable at the very place validation is meant to happen first.
+    /// </remarks>
+    /// <param name="crawlType">project-site, partner or competitors (<see cref="CrawlTypes"/>).</param>
     public async Task<GccDeclaredUrlAnswers> AnswerAsync(
-        IReadOnlyDictionary<string, string?> crawlTypeByUrl,
+        IReadOnlyList<string> urls,
+        string crawlType,
         CancellationToken ct)
     {
-        var declared = crawlTypeByUrl.Keys.ToList();
+        var declared = Clean(urls);
+        if (declared.Count == 0) return new GccDeclaredUrlAnswers(null, [], []);
+
         var rows = await _rag.HostsIndexedAsync(declared, ct);
         if (rows.Count == 0)
         {
@@ -235,10 +255,9 @@ public sealed class GccDeclaredUrlValidator
         }
 
         // What the counters cannot say: does the index hold chunks for this run, searched as Generate
-        // searches it. In parallel -- a Profile carries a dozen URLs, and each is one small query.
+        // searches it. In parallel -- a list is a handful of URLs, and each is one small query.
         var searched = await Task.WhenAll(toSearch.Select(async s =>
-            (s.Url, s.RunId, Result: await _rag.QueryAsync(
-                ProbeNeed, s.RunId, crawlType: crawlTypeByUrl[s.Url], topK: 1, ct: ct))));
+            (s.Url, s.RunId, Result: await _rag.QueryAsync(ProbeNeed, s.RunId, crawlType: crawlType, topK: 1, ct: ct))));
         foreach (var (url, runId, result) in searched)
         {
             if (result is null || result.Failed)
