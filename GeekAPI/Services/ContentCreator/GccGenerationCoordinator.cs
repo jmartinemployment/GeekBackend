@@ -212,6 +212,9 @@ public sealed class GccGenerationCoordinator
         var refusal = ValidateRequestedTypes(requested);
         if (refusal is not null) throw new InvalidOperationException(refusal);
 
+        // Decided here, where it costs nothing, rather than at the save, where it would cost the run.
+        if (create.ProjectId is null) throw new InvalidOperationException(NoProjectRefusal);
+
         // Recorded as well as pushed. A hub event is live-only: an operator who reloads or reconnects
         // after the push would have no way back to the pre-flight, which is the same shape of loss as
         // a refusal that only ever reached a log. The job result carries it instead.
@@ -293,14 +296,16 @@ public sealed class GccGenerationCoordinator
                 throw new InvalidOperationException(
                     string.Join(" | ", failures.Select(f => $"{f.Type}: {f.Error}")));
 
-            var created = new List<object>(attempts.Length);
+            // Every piece of every type, in one write: all of them saved or none. Announced after it
+            // succeeds, so nothing on the page says a piece exists that was not kept.
+            var created = await PersistAllAsync(
+                repo, create, [.. attempts.SelectMany(a => a.Outcome!.Pieces)], provider, briefRevision, onTypeOutcome, ct);
             var refusals = new List<string>();
             var warnings = new List<string>(groundingWarnings);
             foreach (var attempt in attempts)
             {
                 foreach (var piece in attempt.Outcome!.Pieces)
                 {
-                    created.Add(await PersistOneAsync(repo, create, piece, provider, briefRevision, onTypeOutcome, ct));
                     foreach (var warning in WarningsOf(piece.BodyJson))
                     {
                         warnings.Add($"{attempt.Type}: {warning}");
@@ -332,10 +337,10 @@ public sealed class GccGenerationCoordinator
             repo, gen, create, section, provider, requested[0], mustMentionBlock,
             resolvedSingle.PartnerPassages, ct, recordReadiness);
 
-        var singleCreated = new List<object>(single.Pieces.Count);
+        var singleCreated = await PersistAllAsync(
+            repo, create, single.Pieces, provider, briefRevision, onTypeOutcome, ct);
         foreach (var piece in single.Pieces)
         {
-            singleCreated.Add(await PersistOneAsync(repo, create, piece, provider, briefRevision, onTypeOutcome, ct));
             foreach (var warning in WarningsOf(piece.BodyJson))
             {
                 singleWarnings.Add($"{requested[0]}: {warning}");
@@ -416,7 +421,7 @@ public sealed class GccGenerationCoordinator
     /// The create's Topic for every type except tool, where it is the partner's product name — a tool
     /// page is about one product, and five pages all named after the keyword would be indistinguishable.
     /// </param>
-    private sealed record GeneratedPiece(string ContentType, string BodyJson, string ArtifactName);
+    internal sealed record GeneratedPiece(string ContentType, string BodyJson, string ArtifactName);
 
     /// <summary>
     /// What one requested content type produced: usually one piece, five for tool.
@@ -552,32 +557,83 @@ public sealed class GccGenerationCoordinator
     }
 
     /// <summary>
-    /// One artifact and its first version.
+    /// Every piece of one Generate, saved to the project's pages in one write.
     /// </summary>
     /// <remarks>
-    /// The artifact takes the piece's own name. It was always <c>create.Topic</c>, which was wrong even
-    /// for the single tool page — a tool page is about a product, not about the keyword — and would make
-    /// five partner pages indistinguishable in the artifact list.
+    /// <para>
+    /// <b>A page, not a new draft.</b> Each piece was written as a new artifact with a first version,
+    /// so a second Generate left a second pillar beside the first, under the same name
+    /// (fix-project-persistence J1 says "Generate adds versions to the project"). GeekRepository now
+    /// finds the project's page of that type and name and gives it its next version, or creates the
+    /// page where there is none.
+    /// </para>
+    /// <para>
+    /// <b>All or nothing.</b> The pieces were written one at a time, an artifact call and a version
+    /// call each, so "one failure fails all" stopped being true at the first write: a fault on the
+    /// fourth tool page left three saved under a run reported as failed. One call, one save; a
+    /// refusal throws with what GeekRepository said, and nothing was kept.
+    /// </para>
+    /// <para>
+    /// The page takes the piece's own name. It was always <c>create.Topic</c>, which was wrong even
+    /// for the single tool page -- a tool page is about a product, not about the keyword -- and would
+    /// make five partner pages one page.
+    /// </para>
     /// </remarks>
-    private static async Task<object> PersistOneAsync(
+    internal static async Task<List<object>> PersistAllAsync(
         HttpGccRepository repo,
         GccCreateDto create,
-        GeneratedPiece piece,
+        IReadOnlyList<GeneratedPiece> pieces,
         ContentGeneratorProvider provider,
         GccBriefRevisionStamp? briefRevision,
         Func<string, object?, string?, Task>? onTypeOutcome,
         CancellationToken ct)
     {
-        var artifact = await repo.CreateArtifactAsync(
-            new CreateGccArtifactCommand(create.Id, piece.ContentType, piece.ArtifactName), ct);
-        var version = await repo.CreateVersionAsync(
-            new CreateGccArtifactVersionCommand(
-                artifact.Id, piece.BodyJson, GccVersionProvenance.For(provider, briefRevision)),
+        // A tool run whose every partner was refused wrote nothing; there is nothing to save, and
+        // the refusals are reported by the caller.
+        if (pieces.Count == 0) return [];
+
+        var projectId = create.ProjectId ?? throw new InvalidOperationException(NoProjectRefusal);
+        var metadata = GccVersionProvenance.For(provider, briefRevision);
+        var result = await repo.SaveGeneratedPiecesAsync(
+            projectId,
+            new SaveGccGeneratedPiecesCommand(
+                create.Id,
+                [.. pieces.Select(p => new GccGeneratedPiece(p.ContentType, p.ArtifactName, p.BodyJson, metadata))]),
             ct);
-        var produced = new { artifact, version };
-        if (onTypeOutcome is not null) await onTypeOutcome(piece.ContentType, produced, null);
+        if (result is null)
+        {
+            throw new InvalidOperationException(
+                $"None of the {pieces.Count} piece(s) was saved: the project no longer exists.");
+        }
+
+        if (result.Refusal is not null || result.Saved is null)
+        {
+            throw new InvalidOperationException(
+                result.Refusal ?? $"None of the {pieces.Count} piece(s) was saved, and no reason was given.");
+        }
+
+        if (result.Saved.Count != pieces.Count)
+        {
+            throw new InvalidOperationException(
+                $"The run wrote {pieces.Count} piece(s) and {result.Saved.Count} were reported saved. "
+                + "What is on the project is not what this run can vouch for.");
+        }
+
+        var produced = new List<object>(result.Saved.Count);
+        for (var i = 0; i < result.Saved.Count; i++)
+        {
+            var item = new { artifact = result.Saved[i].Artifact, version = result.Saved[i].Version };
+            produced.Add(item);
+            if (onTypeOutcome is not null) await onTypeOutcome(pieces[i].ContentType, item, null);
+        }
+
         return produced;
     }
+
+    /// <summary>What a run on a create with no project is told, before anything is written or spent.</summary>
+    internal const string NoProjectRefusal =
+        "Refused: this create is on no project. What a Generate writes is saved to a project's pages, "
+        + "so there is nowhere to save it. Nothing was generated.";
 
     /// <summary>
     /// Attaches an <c>imagePrompt</c> field to a short-form body (email/social — a flat JSON

@@ -47,7 +47,7 @@ public class GccArtifactVersionRepository : IGccArtifactVersionRepository
         return MapToDto(entity);
     }
 
-    private static GccArtifactVersionDto MapToDto(GccArtifactVersion entity) =>
+    internal static GccArtifactVersionDto MapToDto(GccArtifactVersion entity) =>
         new(
             entity.Id,
             entity.ArtifactId,

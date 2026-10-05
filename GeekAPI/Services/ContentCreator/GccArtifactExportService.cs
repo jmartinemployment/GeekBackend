@@ -42,9 +42,14 @@ public sealed class GccArtifactExportService(
     /// operator sees; which create a draft is stored under is not their concern.
     /// </summary>
     /// <remarks>
-    /// Each Generate writes new drafts, so a project carries several with the same title. A zip cannot
-    /// hold two files of one name, and silently keeping one would drop a draft: the newest takes the
-    /// plain name and each older one is numbered.
+    /// One file per page, from its newest version. A project has one page per type and name, and a
+    /// Generate rewrites it as a new version, so there is no second draft of a page to export -- until
+    /// 2026-10-05 each Generate added one, and the export carried the older text as "-2" beside the
+    /// newer with nothing saying which run either came from.
+    ///
+    /// Two different pages can still reduce to one file name, because a file is named for the title
+    /// its page was given. A zip cannot hold two files of one name and keeping one would drop a page
+    /// without a word, so the second is numbered.
     /// </remarks>
     public async Task<IReadOnlyList<ExportedHtmlDocument>> ExportProjectAsync(Guid projectId, CancellationToken ct)
     {

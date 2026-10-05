@@ -98,6 +98,10 @@ public sealed record BankGccPartnerExtractionCommand(
     string ExtractionJson,
     int PagesAttempted);
 
+/// <param name="LatestVersionNumber">The number of the page's newest version, where the read carries
+/// it: the project's draft list and a Generate's save. Null on the reads that do not.</param>
+/// <param name="LatestVersionAtUtc">When that newest version was written -- when the text now on the
+/// page was written, which is not when the page was first created once a Generate has rewritten it.</param>
 public sealed record GccArtifactDto(
     Guid Id,
     Guid CreateId,
@@ -106,7 +110,9 @@ public sealed record GccArtifactDto(
     string Name,
     string Status,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    int? LatestVersionNumber = null,
+    DateTime? LatestVersionAtUtc = null);
 
 public sealed record CreateGccArtifactCommand(
     Guid CreateId,

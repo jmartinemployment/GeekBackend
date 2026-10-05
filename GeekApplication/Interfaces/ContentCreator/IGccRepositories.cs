@@ -41,6 +41,26 @@ public interface IGccArtifactRepository
     Task<GccArtifactDto> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default);
 }
 
+/// <summary>
+/// A project's pages: one per content type and name, each rewritten by a Generate as a new version
+/// (fix-project-persistence J1, "Generate adds versions to the project").
+/// </summary>
+public interface IGccProjectPageRepository
+{
+    /// <summary>
+    /// Save every piece of one Generate in one write. A piece whose page exists becomes that page's
+    /// next version; one whose page does not creates it. All of them, or none.
+    /// </summary>
+    Task<GccGeneratedPiecesSaveResult> SaveGeneratedAsync(
+        Guid projectId, SaveGccGeneratedPiecesCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// Merge the drafts left by Generates that each wrote a second page beside the first: for every
+    /// type and name, the newest draft keeps its place and the others become its earlier versions.
+    /// </summary>
+    Task<GccDraftMergeResult> MergeDuplicateDraftsAsync(Guid projectId, CancellationToken ct = default);
+}
+
 public interface IGccArtifactVersionRepository
 {
     Task<GccArtifactVersionDto?> GetByIdAsync(Guid id, CancellationToken ct = default);

@@ -150,12 +150,16 @@ public sealed class GccBriefBackfillReportTests
         // ApiKeyMiddleware requires X-API-Key on /api/{x}/internal/*.
         Assert.Equal("api/geek-content-creator/internal", route);
         Assert.Equal("brief-backfill/report", action);
-        // The one thing under this controller that writes: the copy for a single named project.
+        // The two things under this controller that write, each for a single named project: the brief
+        // copy, and the merge of the duplicate drafts earlier Generates left.
         var writes = typeof(GccInternalController)
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(m => m.GetCustomAttributes().Any(a => a is HttpPostAttribute or HttpPutAttribute or HttpPatchAttribute or HttpDeleteAttribute))
-            .Select(m => m.Name);
-        Assert.Equal([nameof(GccInternalController.CopyBriefOntoProject)], writes);
+            .Select(m => m.Name)
+            .Order();
+        Assert.Equal(
+            [nameof(GccInternalController.CopyBriefOntoProject), nameof(GccInternalController.MergeDuplicateDrafts)],
+            writes);
     }
 
     /// <summary>

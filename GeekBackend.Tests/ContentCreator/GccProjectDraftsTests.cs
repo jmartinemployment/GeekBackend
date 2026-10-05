@@ -76,8 +76,9 @@ public sealed class GccProjectDraftsTests
     }
 
     /// <summary>
-    /// Each Generate writes new drafts, so a project holds several with one title. A zip cannot hold
-    /// two files of one name, and keeping one would drop a draft without a word.
+    /// Two pages whose titles reduce to one file name are both exported. A zip cannot hold two files
+    /// of one name, and keeping one would drop a page without a word. (A project no longer holds two
+    /// drafts of one page -- see GccProjectPageRepositoryTests -- so this is two pages, not two runs.)
     /// </summary>
     [Fact]
     public async Task The_export_holds_every_draft_and_two_with_one_title_do_not_collide()

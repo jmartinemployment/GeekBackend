@@ -24,20 +24,38 @@ public class GccArtifactRepository : IGccArtifactRepository
             .Where(a => a.CreateId == createId)
             .OrderByDescending(a => a.CreatedAtUtc)
             .ToListAsync(ct);
-        return entities.Select(MapToDto).ToList().AsReadOnly();
+        return entities.Select(a => MapToDto(a)).ToList().AsReadOnly();
     }
 
     /// <remarks>
     /// Drafts are keyed by create until they are re-keyed to the project, so the project's drafts are
     /// the drafts of its creates. One query over the join, not a read per create.
     /// </remarks>
+    /// <remarks>
+    /// Each draft carries its newest version's number and time. A Generate rewrites a page as a new
+    /// version, so when a page was first created stops being when its text was written; the page
+    /// lists drafts by the second, and reading it here is one grouped query rather than a versions
+    /// read per draft from the browser. Ordered by that time, most recently written first.
+    /// </remarks>
     public async Task<IReadOnlyList<GccArtifactDto>> GetByProjectIdAsync(Guid projectId, CancellationToken ct = default)
     {
         var entities = await _db.GccArtifacts
             .Where(a => _db.GccCreates.Any(c => c.Id == a.CreateId && c.ProjectId == projectId))
-            .OrderByDescending(a => a.CreatedAtUtc)
             .ToListAsync(ct);
-        return entities.Select(MapToDto).ToList().AsReadOnly();
+        var ids = entities.Select(a => a.Id).ToList();
+        var latest = (await _db.GccArtifactVersions
+                .Where(v => ids.Contains(v.ArtifactId))
+                .GroupBy(v => v.ArtifactId)
+                .Select(g => new { ArtifactId = g.Key, Number = g.Max(v => v.VersionNumber), At = g.Max(v => v.CreatedAtUtc) })
+                .ToListAsync(ct))
+            .ToDictionary(v => v.ArtifactId);
+
+        return entities
+            .Select(a => latest.TryGetValue(a.Id, out var v) ? MapToDto(a, v.Number, v.At) : MapToDto(a))
+            .OrderByDescending(d => d.LatestVersionAtUtc ?? d.CreatedAtUtc)
+            .ThenByDescending(d => d.CreatedAtUtc)
+            .ToList()
+            .AsReadOnly();
     }
 
     public async Task<GccArtifactDto> CreateAsync(CreateGccArtifactCommand command, CancellationToken ct = default)
@@ -71,7 +89,8 @@ public class GccArtifactRepository : IGccArtifactRepository
         return MapToDto(entity);
     }
 
-    private static GccArtifactDto MapToDto(GccArtifact entity) =>
+    internal static GccArtifactDto MapToDto(
+        GccArtifact entity, int? latestVersionNumber = null, DateTime? latestVersionAtUtc = null) =>
         new(
             entity.Id,
             entity.CreateId,
@@ -80,5 +99,7 @@ public class GccArtifactRepository : IGccArtifactRepository
             entity.Name,
             entity.Status,
             entity.CreatedAtUtc,
-            entity.UpdatedAtUtc);
+            entity.UpdatedAtUtc,
+            latestVersionNumber,
+            latestVersionAtUtc);
 }

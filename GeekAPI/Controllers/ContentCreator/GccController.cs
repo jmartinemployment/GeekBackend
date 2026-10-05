@@ -482,6 +482,10 @@ public class GccController : ControllerBase
         var create = await _repo.GetCreateAsync(id, ct);
         if (create is null) return NotFound();
 
+        // What a Generate writes is saved to a project's pages. A create on no project has nowhere
+        // to save it, and that is known before anything is written.
+        if (create.ProjectId is null) return Conflict(GccGenerationCoordinator.NoProjectRefusal);
+
         var section = GccGenerateService.ParseSiteSection(create.SiteSectionJson);
         try
         {

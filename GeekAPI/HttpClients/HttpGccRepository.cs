@@ -419,6 +419,37 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     }
 
     /// <summary>
+    /// Save every piece of one Generate to the project's pages, in one write: a new version of the
+    /// page that exists, a new page where none does. Null when the project does not exist; a refusal
+    /// is carried in the result and means nothing was written.
+    /// </summary>
+    public async Task<GccGeneratedPiecesSaveResult?> SaveGeneratedPiecesAsync(
+        Guid projectId, SaveGccGeneratedPiecesCommand command, CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator/projects/{projectId}/generated";
+        var content = new StringContent(JsonSerializer.Serialize(command, JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PostAsync(path, content, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccGeneratedPiecesSaveResult>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    /// <summary>
+    /// Merge a project's duplicate drafts into one page each, the others becoming its earlier
+    /// versions. Null when the project does not exist.
+    /// </summary>
+    public async Task<GccDraftMergeResult?> MergeDuplicateDraftsAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator/projects/{projectId}/merge-duplicate-drafts";
+        var res = await _http.PostAsync(path, content: null, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccDraftMergeResult>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    /// <summary>
     /// The create a project's drafts are stored under, or null when it has none yet. Only a 404 means
     /// none: anything else read as "none" would mint a second create for the project.
     /// </summary>
