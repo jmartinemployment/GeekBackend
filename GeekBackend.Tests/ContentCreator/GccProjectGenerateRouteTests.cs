@@ -206,6 +206,58 @@ public sealed class GccProjectGenerateRouteTests
         Assert.Empty(repo.Starts);
     }
 
+    /// <summary>
+    /// 2026-10-05: the site was re-crawled, which deletes the earlier crawl. The project still pointed
+    /// at the deleted one; the check before Generate passed on the new crawl; the run searched the dead
+    /// one and was "written without it". The run is written from the crawl that was checked.
+    /// </summary>
+    [Fact]
+    public async Task A_re_crawled_site_is_picked_up_before_the_run_starts()
+    {
+        var project = Project(CompleteBrief, briefVersion: 1);
+        var newCrawl = Guid.NewGuid();
+        var repo = new Repo(project, backing: null);
+
+        var result = await Controller(repo, Index(project, siteRun: newCrawl)).Generate(
+            project.Id, new ApiProjectsController.GenerateRequest(["pillar"], "OpenAi"), CancellationToken.None);
+
+        Assert.IsType<AcceptedResult>(result);
+        var repointed = Assert.Single(repo.SiteRuns);
+        Assert.Equal(newCrawl, repointed.ProjectSiteRunId);
+        Assert.Equal(project.Id, repointed.ProjectId);
+        Assert.Equal(Sub, repointed.ActorUserId);
+        // The project points at the new crawl before the run exists, not after.
+        Assert.Equal(["site-run", "start"], repo.Writes);
+    }
+
+    [Fact]
+    public async Task A_site_that_has_not_been_re_crawled_changes_nothing_on_the_project()
+    {
+        var project = Project(CompleteBrief, briefVersion: 1);
+        var repo = new Repo(project, backing: null);
+
+        var result = await Controller(repo).Generate(
+            project.Id, new ApiProjectsController.GenerateRequest(["pillar"], "OpenAi"), CancellationToken.None);
+
+        Assert.IsType<AcceptedResult>(result);
+        Assert.Empty(repo.SiteRuns);
+        Assert.Equal(["start"], repo.Writes);
+    }
+
+    [Fact]
+    public async Task If_the_project_cannot_be_pointed_at_the_new_crawl_nothing_starts()
+    {
+        var project = Project(CompleteBrief, briefVersion: 1);
+        var repo = new Repo(project, backing: null) { SiteRunAnswer = HttpStatusCode.Conflict };
+
+        var result = await Controller(repo, Index(project, siteRun: Guid.NewGuid())).Generate(
+            project.Id, new ApiProjectsController.GenerateRequest(["pillar"], "OpenAi"), CancellationToken.None);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Contains("Nothing was started", (string)conflict.Value!);
+        Assert.Empty(repo.Starts);
+    }
+
     [Fact]
     public async Task A_missing_project_is_a_404()
     {
@@ -248,10 +300,17 @@ public sealed class GccProjectGenerateRouteTests
 
     /// <summary>The index: every declared URL has a finished crawl, and a search of its run finds pages
     /// unless the URL is one of <paramref name="emptyUrls"/>.</summary>
-    private static GccDeclaredUrlValidator Index(GccProjectDto project, params string[] emptyUrls)
+    private static GccDeclaredUrlValidator Index(GccProjectDto project, params string[] emptyUrls) =>
+        Index(project, siteRun: null, emptyUrls);
+
+    /// <param name="siteRun">The crawl of the project's site the index holds. Null means the one the
+    /// project already points at -- a site nobody has re-crawled since the Profile was saved.</param>
+    private static GccDeclaredUrlValidator Index(GccProjectDto project, Guid? siteRun, params string[] emptyUrls)
     {
         var rows = new[] { project.SiteUrl! }.Concat(project.PartnerUrls).Concat(project.CompetitorUrls)
-            .Select(u => new GeekCrawlerRagHostIndex(u, new Uri(u).Host, true, Guid.NewGuid().ToString()))
+            .Select(u => new GeekCrawlerRagHostIndex(
+                u, new Uri(u).Host, true,
+                (u == project.SiteUrl ? siteRun ?? project.ProjectSiteRunId ?? Guid.NewGuid() : Guid.NewGuid()).ToString()))
             .ToList();
         var emptyRuns = rows.Where(r => emptyUrls.Contains(r.Url)).Select(r => Guid.Parse(r.RunId!)).ToHashSet();
         var crawlerRepo = new HttpGeekCrawlerRepository(
@@ -312,6 +371,11 @@ public sealed class GccProjectGenerateRouteTests
     {
         public GccProjectDto? Project => project;
         public List<StartGccGenerateJobCommand> Starts { get; } = [];
+
+        /// <summary>Every call that changes something, in the order it arrived.</summary>
+        public List<string> Writes { get; } = [];
+        public List<SetGccProjectSiteRunCommand> SiteRuns { get; } = [];
+        public HttpStatusCode SiteRunAnswer { get; init; } = HttpStatusCode.OK;
         public TaskCompletionSource<Guid> Failed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public GccGenerateJobStartResult? StartAnswer { get; init; }
 
@@ -327,9 +391,21 @@ public sealed class GccProjectGenerateRouteTests
                 var start = JsonSerializer.Deserialize<StartGccGenerateJobCommand>(
                     await request.Content!.ReadAsStringAsync(ct), Web)!;
                 Starts.Add(start);
+                Writes.Add("start");
                 return Json(StartAnswer ?? GccGenerateJobStartResult.Started(
                     Job(start.ProjectId) with { Id = start.Id, CreateId = start.CreateId ?? Guid.NewGuid() }));
             }
+            if (request.Method == HttpMethod.Put && path.EndsWith("/site-run"))
+            {
+                var command = JsonSerializer.Deserialize<SetGccProjectSiteRunCommand>(
+                    await request.Content!.ReadAsStringAsync(ct), Web)!;
+                SiteRuns.Add(command);
+                Writes.Add("site-run");
+                return SiteRunAnswer == HttpStatusCode.OK
+                    ? Json(project! with { ProjectSiteRunId = command.ProjectSiteRunId })
+                    : Status(SiteRunAnswer);
+            }
+
             if (request.Method == HttpMethod.Put && path.EndsWith("/fail"))
             {
                 var id = Guid.Parse(path.Split('/')[^2]);

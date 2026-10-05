@@ -187,6 +187,32 @@ public class GccProjectRepository : IGccProjectRepository
         return await SaveOrRefuseAsync(entity, ct);
     }
 
+    public async Task<GccProjectWriteResult> SetSiteRunAsync(
+        SetGccProjectSiteRunCommand command,
+        CancellationToken ct = default)
+    {
+        var entity = await _db.GccProjects
+            .FirstOrDefaultAsync(p => p.Id == command.ProjectId && p.DeletedAtUtc == null, ct);
+        if (entity is null) return GccProjectWriteResult.Missing();
+        if (entity.ProjectSiteRunId == command.ProjectSiteRunId)
+            return GccProjectWriteResult.Written(MapToDto(entity, await BriefSavedAtAsync(entity.Id, ct)));
+
+        var before = Snapshot(entity);
+        entity.ProjectSiteRunId = command.ProjectSiteRunId;
+        entity.UpdatedAtUtc = DateTime.UtcNow;
+
+        _db.GccProjectLog.Add(new GccProjectLogEntry
+        {
+            ProjectId = entity.Id,
+            OccurredAtUtc = entity.UpdatedAtUtc,
+            ActorUserId = command.ActorUserId,
+            EventType = GccProjectLogEventTypes.ProjectUpdated,
+            Payload = JsonSerializer.Serialize(new { before, after = Snapshot(entity) }),
+        });
+
+        return await SaveOrRefuseAsync(entity, ct);
+    }
+
     /// <summary>
     /// The project and its log entry in one transaction, or nothing when the row changed since it was
     /// read. Not retried: a second attempt would be writing over a change this request never saw.

@@ -95,6 +95,37 @@ public sealed class GccProjectBriefColumnsTests
         Assert.Equal("Q4 content programme", (await verify.GccProjects.SingleAsync(p => p.Id == project.Id)).Name);
     }
 
+    /// <summary>
+    /// Pointing a project at a newer crawl of its site changes that and nothing else, and is logged.
+    /// </summary>
+    [Fact]
+    public async Task Setting_the_site_crawl_changes_only_that_and_logs_it_and_the_same_crawl_writes_nothing()
+    {
+        var options = Options();
+        await using var db = new ContentCreatorDbContext(options);
+        var project = await Seed(db, brief: """{"angle":"problem_solution"}""", topic: "AP: Approvals");
+        var repo = new GccProjectRepository(db);
+        var newCrawl = Guid.NewGuid();
+
+        var written = await repo.SetSiteRunAsync(new SetGccProjectSiteRunCommand(project.Id, Actor, newCrawl));
+        var again = await repo.SetSiteRunAsync(new SetGccProjectSiteRunCommand(project.Id, Actor, newCrawl));
+        var missing = await repo.SetSiteRunAsync(new SetGccProjectSiteRunCommand(Guid.NewGuid(), Actor, newCrawl));
+
+        Assert.Equal(newCrawl, written.Project!.ProjectSiteRunId);
+        Assert.Equal(newCrawl, again.Project!.ProjectSiteRunId);
+        Assert.True(missing.NotFound);
+        await using var verify = new ContentCreatorDbContext(options);
+        var stored = await verify.GccProjects.SingleAsync(p => p.Id == project.Id);
+        Assert.Equal(newCrawl, stored.ProjectSiteRunId);
+        Assert.Equal("Q4 content programme", stored.Name);
+        Assert.Equal("""{"angle":"problem_solution"}""", stored.BriefJson);
+        Assert.Equal(project.BriefVersion, stored.BriefVersion);
+        // One log entry for the one change; the second call changed nothing and logged nothing.
+        var entry = await verify.GccProjectLog.SingleAsync(e => e.ProjectId == project.Id);
+        Assert.Equal(GccProjectLogEventTypes.ProjectUpdated, entry.EventType);
+        Assert.Contains(newCrawl.ToString(), entry.Payload);
+    }
+
     [Fact]
     public async Task The_project_read_carries_its_brief_and_version()
     {

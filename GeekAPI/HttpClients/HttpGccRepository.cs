@@ -313,6 +313,11 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
             command,
             ct);
 
+    /// <summary>Point the project at the crawl of its own site the index holds now.</summary>
+    public Task<GccProjectWriteResult> SetProjectSiteRunAsync(
+        SetGccProjectSiteRunCommand command, CancellationToken ct = default) =>
+        ProjectWriteAsync(HttpMethod.Put, $"repo/content-creator/projects/{command.ProjectId}/site-run", command, ct);
+
     public Task<GccProjectWriteResult> ChangeProjectStatusAsync(
         ChangeGccProjectStatusCommand command,
         CancellationToken ct = default) =>

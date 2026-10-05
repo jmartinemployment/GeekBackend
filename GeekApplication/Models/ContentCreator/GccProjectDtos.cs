@@ -65,6 +65,19 @@ public sealed record GccProjectWriteResult(GccProjectDto? Project, bool NotFound
         "This project was changed after you loaded it. Nothing was saved -- reload it and save again.";
 }
 
+/// <summary>
+/// Point a project at the crawl of its own site that the index holds now.
+/// </summary>
+/// <remarks>
+/// The project stores which crawl of its site it is grounded on. Re-crawling the site replaces and
+/// deletes the earlier crawl, so that stored id goes dead the moment the new crawl is published --
+/// and until 2026-10-05 only a Profile save refreshed it. A Generate run then searched a crawl that no
+/// longer existed and was written without the site, after the check before it had passed on the new
+/// crawl. Partners and competitors are resolved from their URLs on every run; this is the same for the
+/// site.
+/// </remarks>
+public sealed record SetGccProjectSiteRunCommand(Guid ProjectId, string ActorUserId, Guid ProjectSiteRunId);
+
 /// <summary>The kinds of brief revision, and the only kinds.</summary>
 public static class GccProjectRevisionKinds
 {

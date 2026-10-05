@@ -149,7 +149,7 @@ public sealed class GccDeclaredUrlValidator
             .Concat(Named(competitors, evidence.Competitors))
             .ToList();
         if (named.Count == 0)
-            return GccDeclaredUrlVerdict.Usable(partners, competitors);
+            return GccDeclaredUrlVerdict.Usable(partners, competitors) with { SiteRunId = evidence.SiteRunId };
 
         return GccDeclaredUrlVerdict.Refused(
             "Nothing was started: these declared URLs cannot be written from now. "
@@ -165,11 +165,14 @@ public sealed class GccDeclaredUrlValidator
     /// judged as a member of the list it is declared in, so the same URL in two lists gets an answer
     /// for each.
     /// </summary>
+    /// <param name="SiteRunId">The crawl of the site the index resolves and that was searched. The run
+    /// must be written from this crawl and no other.</param>
     private sealed record Evidence(
         string? Unreachable,
         IReadOnlyDictionary<string, string> Site,
         IReadOnlyDictionary<string, string> Partners,
-        IReadOnlyDictionary<string, string> Competitors);
+        IReadOnlyDictionary<string, string> Competitors,
+        Guid? SiteRunId = null);
 
     private async Task<Evidence> EvidenceAsync(
         string site,
@@ -186,7 +189,10 @@ public sealed class GccDeclaredUrlValidator
         if (lists.Select(l => l.Unreachable).FirstOrDefault(u => u is not null) is { } unreachable)
             return new Evidence(unreachable, none, none, none);
 
-        return new Evidence(null, Reasons(lists[0]), Reasons(lists[1]), Reasons(lists[2]));
+        var siteRun = lists[0].Answers.Select(a => a.RunId).FirstOrDefault();
+        return new Evidence(
+            null, Reasons(lists[0]), Reasons(lists[1]), Reasons(lists[2]),
+            Guid.TryParse(siteRun, out var siteRunId) ? siteRunId : null);
     }
 
     private static Dictionary<string, string> Reasons(GccDeclaredUrlAnswers answered)
@@ -313,10 +319,13 @@ public sealed class GccDeclaredUrlValidator
 }
 
 /// <summary>The answer about a project's declared URLs: a refusal, or the usable ones.</summary>
+/// <param name="SiteRunId">On a pass before Generate: the crawl of the project's own site that was
+/// checked. It is the crawl the run is written from.</param>
 public sealed record GccDeclaredUrlVerdict(
     string? Refusal,
     IReadOnlyList<string> PartnerUrls,
-    IReadOnlyList<string> CompetitorUrls)
+    IReadOnlyList<string> CompetitorUrls,
+    Guid? SiteRunId = null)
 {
     public static GccDeclaredUrlVerdict Refused(string refusal) => new(refusal, [], []);
 

@@ -130,6 +130,12 @@ public interface IGccProjectRepository
     Task<GccProjectWriteResult> ChangeStatusAsync(ChangeGccProjectStatusCommand command, CancellationToken ct = default);
 
     /// <summary>
+    /// Set the crawl of its own site the project is grounded on, and log the change. Only that column
+    /// changes. Writes nothing when it is already that crawl.
+    /// </summary>
+    Task<GccProjectWriteResult> SetSiteRunAsync(SetGccProjectSiteRunCommand command, CancellationToken ct = default);
+
+    /// <summary>
     /// Save the project's brief and keyword, and the revision that records it, in one write. Only the
     /// brief columns change. Refused as stale when <c>ExpectedVersion</c> is not the brief's version or
     /// the brief is saved again before the write lands. An incomplete brief saves (decision J3); a blank topic

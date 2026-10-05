@@ -326,6 +326,23 @@ public class GccProjectsController : ControllerBase
         var declared = await _declaredUrls.ForGenerateAsync(project, ct);
         if (declared.Refusal is { } unusable) return Conflict(unusable);
 
+        // The run is written from the crawl that was just checked. The project stores which crawl of
+        // its site it is grounded on, and re-crawling the site deletes the earlier one -- so a project
+        // nobody re-saved pointed at a crawl that no longer existed, the check above passed on the new
+        // crawl, and the run searched the dead one and was "written without it" (2026-10-05). Partners
+        // and competitors are resolved from their URLs on every run; the site is too.
+        if (declared.SiteRunId is not Guid siteRun)
+            return Conflict("The index did not say which crawl of the project site it holds. Nothing was started — try again.");
+        if (project.ProjectSiteRunId != siteRun)
+        {
+            var repointed = await _repo.SetProjectSiteRunAsync(new SetGccProjectSiteRunCommand(id, actor, siteRun), ct);
+            if (repointed.NotFound) return NotFound();
+            if (repointed.Stale || repointed.Project is null)
+                return Conflict("The project changed while its site crawl was being brought up to date. "
+                    + "Nothing was started — generate again.");
+            project = repointed.Project;
+        }
+
         var backing = await _repo.GetProjectBackingCreateAsync(id, ct);
         var view = ProjectView(project, backing?.Id ?? Guid.Empty, ownerUserId, requested[0], backing);
         var section = GccGenerateService.ParseSiteSection(view.SiteSectionJson);

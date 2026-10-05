@@ -143,6 +143,26 @@ public class GccProjectsController : ControllerBase
         return Ok(written.Project);
     }
 
+    /// <summary>Point the project at the crawl of its own site that the index holds now.</summary>
+    [HttpPut("{id:guid}/site-run")]
+    public async Task<ActionResult<GccProjectDto>> SetSiteRun(
+        Guid id,
+        [FromBody] SetGccProjectSiteRunCommand command,
+        CancellationToken ct)
+    {
+        if (id != command.ProjectId)
+            return BadRequest("The id in the route and the body must match.");
+        if (string.IsNullOrWhiteSpace(command.ActorUserId))
+            return BadRequest("actorUserId is required — every change is attributed.");
+        if (command.ProjectSiteRunId == Guid.Empty)
+            return BadRequest("projectSiteRunId is required.");
+
+        var written = await _repository.SetSiteRunAsync(command, ct);
+        if (written.NotFound) return NotFound();
+        if (written.Stale) return Conflict(GccProjectWriteResult.StaleMessage);
+        return Ok(written.Project);
+    }
+
     /// <summary>
     /// Save the project's brief and keyword as one revision. 409 when the editor's read is older than
     /// the row; nothing is written then. An incomplete brief is a valid save (decision J3); a body that
