@@ -704,6 +704,23 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "drop the currency. Say the vendor publishes its pricing and leave the figure out. A block " +
         "quotation is the one exception: it is reproduced exactly as published, currency included.";
 
+    /// <summary>
+    /// Where a link sits: on the few words that name what it leads to. Enforced after the draft by
+    /// <c>GccDraftGuard</c>'s link-text check, which reads the same limit; this tells the writer first.
+    /// </summary>
+    /// <remarks>
+    /// The run contract offers "href" and said nothing about how much text a linked run may hold, and
+    /// two instructions told the writer to attribute a paraphrase with the source URL "as that run's
+    /// href". A paraphrased paragraph is one run, so whole paragraphs came back as links.
+    /// </remarks>
+    internal static readonly string LinkTextInstruction =
+        "A LINK SITS ON A FEW WORDS: a run that carries an \"href\" holds only the name of what it links to "
+        + "-- the product, the page or the source -- and never more than "
+        + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
+        + " words. The sentence around it is separate runs with no href. Never put an href on a whole "
+        + "sentence or a whole paragraph: when a paragraph draws on a page, name that page in a short run "
+        + "of its own and link only that run. A run longer than that with an href is refused.";
+
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
         "would sit unchanged on a page about a different product, industry or keyword, it is the " +
@@ -884,8 +901,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private static string ToolQuotationWrittenElsewhere(string productName) =>
         "NO QUOTATION IN THIS PART: this page's one block quotation of " + productName + " is written by "
         + "another call. Write no paragraph of type \"quote\" here. When a section needs what "
-        + productName + " says, put it in your own words and attribute it, with the page it comes from "
-        + "as that run's \"href\".";
+        + productName + " says, put it in your own words and attribute it: name the page it comes from "
+        + "in a short run of its own, with that page's URL as that run's \"href\" -- never an href on the "
+        + "sentence or the paragraph.";
 
     private static string ToolQuotationInstruction(string productName, string targetKeyword) =>
         "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries exactly one block "
@@ -1822,6 +1840,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch, but MUST be explicitly labeled hypothetical/illustrative. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
             .AppendLine(CurrencyInstruction)
+            .AppendLine(LinkTextInstruction)
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
@@ -1961,6 +1980,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("but it MUST be explicitly labeled hypothetical/illustrative — e.g. \"a hypothetical mid-sized manufacturer\" or ")
             .AppendLine("\"in a representative scenario\". Never phrase it as something that already happened to a real client. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
+            .AppendLine(CurrencyInstruction)
+            .AppendLine(LinkTextInstruction)
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for this section. Do not write other sections.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
@@ -2342,6 +2363,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                   + "whole post's, across every call; yours is the per-section range."
                 : string.Empty)
             .AppendLine(CurrencyInstruction)
+            .AppendLine(LinkTextInstruction)
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
@@ -2731,6 +2753,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                   + RenderOutline(fullOutline)
                 : string.Empty)
             .AppendLine(CurrencyInstruction)
+            .AppendLine(LinkTextInstruction)
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(SeoBodyInstruction(
@@ -2902,6 +2925,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "its factual content, add a claim not in the answer given, or drop the substance to shorten it.")
             .AppendLine("Use every question provided, in the order given, none invented and none skipped.")
             .AppendLine(CurrencyInstruction)
+            .AppendLine(LinkTextInstruction)
             .ToString();
 
         var user = new StringBuilder()

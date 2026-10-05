@@ -58,6 +58,67 @@ public class GccDraftGuardTests
         Assert.True(verdict.Clean, string.Join(" ", verdict.Findings.Select(f => f.Detail)));
     }
 
+    /// <summary>One paragraph of the Stampli tool page of 2026-10-05, which came back as a single link.</summary>
+    private const string LinkedParagraph =
+        "A critical aspect of implementing Stampli is configuring the approval chains and routing logic "
+        + "that align with the company's specific needs. This involves setting up predefined business "
+        + "rules and spending authority, which guide the approval process.";
+
+    [Fact]
+    public void A_link_on_a_whole_paragraph_is_refused_on_every_type()
+    {
+        var doc = Doc(Body("How it routes", Text(LinkedParagraph, PartnerPage)));
+
+        foreach (var verdict in new[]
+                 {
+                     GccDraftGuard.Pillar(doc, Inputs()), GccDraftGuard.Blog(doc, Inputs()), GccDraftGuard.Tool(doc, Inputs()),
+                 })
+        {
+            var finding = Assert.Single(verdict.Findings, f => f.Check == "link-text");
+            Assert.True(finding.Refuses);
+            // Named by its opening words and where it leads, so the writer can find the run.
+            Assert.Contains("A critical aspect of implementing Stampli is configuring", finding.Detail, StringComparison.Ordinal);
+            Assert.Contains(PartnerPage, finding.RetryInstruction, StringComparison.Ordinal);
+            Assert.Contains("a short run that names the source", finding.RetryInstruction, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void A_link_on_the_name_of_its_source_passes()
+    {
+        var doc = Doc(Body(
+            "How it routes",
+            new TextParagraph(
+            [
+                new Run("According to "),
+                new Run("Melio's bill pay page", Href: PartnerPage),
+                new Run(", approvals route by amount. " + LinkedParagraph),
+            ])));
+
+        Assert.DoesNotContain("link-text", Failed(GccDraftGuard.Pillar(doc, Inputs())));
+        Assert.DoesNotContain("link-text", Failed(GccDraftGuard.Blog(doc, Inputs())));
+        Assert.DoesNotContain("link-text", Failed(GccDraftGuard.Tool(doc, Inputs())));
+    }
+
+    [Fact]
+    public void A_link_may_sit_on_as_many_words_as_the_limit_and_no_more()
+    {
+        var atTheLimit = string.Join(' ', Enumerable.Repeat("word", GccDraftGuard.MaxLinkWords));
+
+        Assert.DoesNotContain(
+            "link-text", Failed(GccDraftGuard.Pillar(Doc(Body("A", Text(atTheLimit, PartnerPage))), Inputs())));
+        Assert.Contains(
+            "link-text", Failed(GccDraftGuard.Pillar(Doc(Body("A", Text(atTheLimit + " more", PartnerPage))), Inputs())));
+    }
+
+    [Fact]
+    public void A_long_item_of_a_list_is_a_passage_too()
+    {
+        var doc = Doc(Body("Steps", new ListParagraph(false, [[new Run(LinkedParagraph, Href: PartnerPage)]])));
+
+        Assert.Contains("link-text", Failed(GccDraftGuard.Tool(doc, Inputs())));
+    }
+
     [Fact]
     public void A_quotation_on_a_pillar_or_blog_is_refused()
     {

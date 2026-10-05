@@ -167,6 +167,7 @@ public static partial class GccDraftGuard
         }
 
         AddLinkFindings(document, inputs, findings);
+        AddLinkTextFindings(document, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
         AddClosingFinding(document, inputs, findings);
@@ -219,11 +220,13 @@ public static partial class GccDraftGuard
                 + "carries a quotation, and only one checked against the partner's own words.",
                 Refuses: true,
                 $"The last attempt carried {quotes} quote paragraph(s). A {type} never quotes: write every "
-                + "quote paragraph as an ordinary text paragraph in your own words, attributing the claim to "
-                + "its source with the URL as that run's \"href\"."));
+                + "quote paragraph as an ordinary text paragraph in your own words, and attribute the claim "
+                + "by naming its source in a short run of its own with the URL as that run's \"href\" -- "
+                + "never an href on the sentence or the paragraph."));
         }
 
         AddLinkFindings(document, inputs, findings);
+        AddLinkTextFindings(document, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
 
@@ -287,6 +290,55 @@ public static partial class GccDraftGuard
             + "a competitor is read and never linked. A tool is linked only at the exact path listed for it, "
             + "and a tool that is not listed is not linked."));
     }
+
+    /// <summary>
+    /// The most words a link may sit on. A link is the name of what it leads to -- a product, a page,
+    /// a source -- and the longest of those is a page title; a sentence is not a name.
+    /// </summary>
+    /// <remarks>
+    /// One number, read by this check and by the instruction that tells the writer
+    /// (<c>ContentPromptBuilder.LinkTextInstruction</c>), so the two cannot name different limits.
+    /// </remarks>
+    public const int MaxLinkWords = 12;
+
+    /// <summary>
+    /// A link sits on a few words, never on a passage.
+    /// </summary>
+    /// <remarks>
+    /// The Stampli tool page of 2026-10-05: two sections were 85% and 67% link text, each paragraph one
+    /// run of 280 to 650 characters carrying the URL of the page it paraphrased (Jeff: "this is
+    /// ridiculous, 90% of the section is a link or anchor"). The writer had been told to attribute a
+    /// paraphrase "with the page it comes from as that run's href", and a paragraph is one run. Where
+    /// the link leads was checked; what it sat on was not.
+    /// </remarks>
+    private static void AddLinkTextFindings(ContentDocument document, List<GccGuardFinding> into)
+    {
+        var passages = AllSections(document)
+            .SelectMany(section => section.Paragraphs)
+            .SelectMany(Runs)
+            .Where(run => !string.IsNullOrWhiteSpace(run.Href) && WordCount(run.Text) > MaxLinkWords)
+            .ToList();
+        if (passages.Count == 0) return;
+
+        var named = string.Join("; ", passages.Select(run =>
+            $"\"{Opening(run.Text)}...\" ({WordCount(run.Text)} words, linked to {run.Href!.Trim()})"));
+        into.Add(new GccGuardFinding(
+            "link-text",
+            $"The draft puts a link on {passages.Count} whole passage(s) instead of on a few words: {named}. "
+            + $"A link sits on the name of what it leads to, {MaxLinkWords} words at most.",
+            Refuses: true,
+            $"The last attempt put an href on {passages.Count} long run(s): {named}. A link is a short run of "
+            + $"its own -- the name of the product, page or source, {MaxLinkWords} words at most. Split each of "
+            + "those runs: keep the sentences as runs with no href, and put the href only on a short run that "
+            + "names the source."));
+    }
+
+    private static int WordCount(string? text) =>
+        (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+
+    /// <summary>The first few words of a run, enough to find it in the draft.</summary>
+    private static string Opening(string text) =>
+        string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Take(8));
 
     internal static bool LinkAllowed(string href, GccGuardInputs inputs)
     {

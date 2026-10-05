@@ -1,4 +1,5 @@
 using GeekAPI.Services.ContentCreator.ContentTypes;
+using GeekAPI.Services.ContentCreator.Guardrail;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -124,6 +125,47 @@ public class ContentPromptBuilderClosingCtaTests
 
         Assert.Contains("CLOSING:", system, StringComparison.Ordinal);
         Assert.Contains($"href \"{Anchor}\"", system, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllFourBodyPrompts))]
+    public void Every_body_prompt_tells_the_writer_a_link_sits_on_a_few_words(string which)
+    {
+        // The Stampli tool page of 2026-10-05 came back with whole paragraphs as links. The limit is
+        // the guard's own number, so the writer is never told one thing and refused for another.
+        var system = Render(which, Context());
+
+        Assert.Contains(ContentPromptBuilder.LinkTextInstruction, system, StringComparison.Ordinal);
+        Assert.Contains(
+            $"never more than {GccDraftGuard.MaxLinkWords} words", ContentPromptBuilder.LinkTextInstruction, StringComparison.Ordinal);
+        Assert.Contains("Never put an href on a whole sentence or a whole paragraph", system, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllFourBodyPrompts))]
+    public void Every_body_prompt_states_the_us_dollar_rule(string which)
+    {
+        Assert.Contains(ContentPromptBuilder.CurrencyInstruction, Render(which, Context()), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_tool_part_that_paraphrases_the_partner_links_the_source_name_not_the_paragraph()
+    {
+        // "attribute it, with the page it comes from as that run's href" is the sentence that produced
+        // the paragraph-long links: the paraphrase is one run, so the whole of it carried the URL.
+        var app = new SoftwareApplicationDescriptor("Partner Widget", "A widget.");
+        var outline = ToolPrompts.Outline(Context(), app.Name);
+        var later = SystemPrompt(new ContentPromptBuilder().BuildToolBodyPrompt(
+            Context(),
+            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
+            app,
+            "partner-widget",
+            outline,
+            batchIndex: 1));
+
+        Assert.Contains("NO QUOTATION IN THIS PART", later, StringComparison.Ordinal);
+        Assert.Contains("in a short run of its own", later, StringComparison.Ordinal);
+        Assert.DoesNotContain("attribute it, with the page it comes from", later, StringComparison.Ordinal);
     }
 
     [Theory]

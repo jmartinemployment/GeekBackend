@@ -354,10 +354,12 @@ public class GccGenerateService
             sb.AppendLine("2. Attribute it: name the source where the claim appears, and carry its URL in a");
             sb.AppendLine("   field, never in the text. Both are on the bracketed line above the passage --");
             sb.AppendLine("   the page title first, then its URL in parentheses -- and every passage indented");
-            sb.AppendLine("   beneath that line belongs to it. The page title is run text; the URL is that");
-            sb.AppendLine("   run's \"href\". A URL typed into \"text\", or a bracketed link such as [title](url),");
-            sb.AppendLine("   is refused and the section is not written. Never attribute a claim to a URL");
-            sb.AppendLine("   you did not read it under.");
+            sb.AppendLine("   beneath that line belongs to it. The page title, or a short form of it, is the");
+            sb.AppendLine("   text of a run of its own -- no more than " + GccDraftGuard.MaxLinkWords + " words -- and the URL is that");
+            sb.AppendLine("   run's \"href\". The sentence it sits in is separate runs with no href: a link on a");
+            sb.AppendLine("   whole sentence or paragraph is refused. A URL typed into \"text\", or a bracketed");
+            sb.AppendLine("   link such as [title](url), is refused and the section is not written. Never");
+            sb.AppendLine("   attribute a claim to a URL you did not read it under.");
             sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
             sb.AppendLine("   price, integration or limitation that no passage states.");
             sb.AppendLine("4. If the evidence does not cover something, omit it. Do not fill the gap.");
