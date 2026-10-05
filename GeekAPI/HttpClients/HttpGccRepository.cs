@@ -366,6 +366,16 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
         BankGccPartnerExtractionCommand command, CancellationToken ct = default) =>
         PostAsync<GccBankedPartnerExtractionDto>("repo/content-creator/partner-extractions", command, ct);
 
+    /// <summary>The brief backfill's dry-run report. A read; a failure to read it is a fault, not an empty report.</summary>
+    public async Task<GccBriefBackfillReport> GetBriefBackfillReportAsync(CancellationToken ct = default)
+    {
+        const string path = "repo/content-creator/brief-backfill/report";
+        var res = await _http.GetAsync(path, ct);
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccBriefBackfillReport>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
     /// <summary>
     /// The create a project's drafts are stored under, or null when it has none yet. Only a 404 means
     /// none: anything else read as "none" would mint a second create for the project.

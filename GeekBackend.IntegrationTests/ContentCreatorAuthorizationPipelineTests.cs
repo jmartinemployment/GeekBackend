@@ -59,6 +59,28 @@ public sealed class ContentCreatorAuthorizationPipelineTests(GeekApiTestFactory 
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/deliverables"];
     }
 
+    /// <summary>
+    /// The backfill report lists every client's projects and creates. It is under the internal-key
+    /// path, so a browser session -- even one holding the manage scope -- does not reach it.
+    /// </summary>
+    [Fact]
+    public async Task The_backfill_report_is_refused_without_the_internal_key()
+    {
+        const string path = "/api/geek-content-creator/internal/brief-backfill/report";
+        using var anonymous = factory.CreateClient();
+        // A signed token with the manage scope and no X-API-Key. CreateScopedClient is not used here:
+        // it is built on the authenticated client, which carries the internal key.
+        using var browser = factory.CreateClient();
+        browser.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", GeekApiTestFactory.IssueTestToken(GeekApiTestFactory.OwnerUserId, "content-creator.manage"));
+
+        using var noKey = await anonymous.GetAsync(path);
+        using var bearerOnly = await browser.GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, noKey.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, bearerOnly.StatusCode);
+    }
+
     [Theory]
     [MemberData(nameof(ProtectedRequests))]
     public async Task No_token_is_refused(HttpMethod method, string path)

@@ -229,3 +229,10 @@ public interface IGccGenerateJobRepository
     /// a job still running then was running in a process that no longer exists.</summary>
     Task<int> FailInterruptedAsync(string error, CancellationToken ct = default);
 }
+
+/// <summary>The brief backfill (GR3). Report only: nothing here writes.</summary>
+public interface IGccBriefBackfillRepository
+{
+    /// <summary>What the backfill would do, read from the database and changing nothing.</summary>
+    Task<GccBriefBackfillReport> GetReportAsync(CancellationToken ct = default);
+}
