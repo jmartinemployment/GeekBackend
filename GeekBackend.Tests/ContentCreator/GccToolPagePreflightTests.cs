@@ -96,8 +96,7 @@ public class GccToolPagePreflightTests
                 "melio.com",
                 "Melio",
                 GccResearchFetchService.Deserialize(fixtures.Create.ResearchJson)!.Quoteables,
-                []),
-            CancellationToken.None);
+                []), ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         Assert.False(verdict.Ready);
         Assert.Equal(0, verdict.PopulatedCategories);
@@ -121,8 +120,7 @@ public class GccToolPagePreflightTests
                 "dext.com",
                 "Dext",
                 GccResearchFetchService.Deserialize(fixtures.Create.ResearchJson)!.Quoteables,
-                []),
-            CancellationToken.None);
+                []), ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         Assert.True(verdict.Ready);
         Assert.True(verdict.HasCapabilitySignal);
@@ -146,13 +144,13 @@ public class GccToolPagePreflightTests
         // generate, four or five times on 2026-10-03, twice by runs that then died on a provider error.
         var fixtures = GccToolPageFanOutFixture.Build(GroundablePage, ["https://dext.com"], pagesPerPartner: 2);
 
-        var first = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+        var first = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
         var paid = fixtures.Calls.Extractions;
         Assert.True(paid > 0);
         Assert.False(first.Reused);
         Assert.Equal(1, fixtures.Bank.Count);
 
-        var second = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+        var second = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         Assert.Equal(paid, fixtures.Calls.Extractions);
         Assert.True(second.Reused);
@@ -170,7 +168,7 @@ public class GccToolPagePreflightTests
         // id in place and yields the same URLs with new text, and both must miss the bank.
         var fixtures = GccToolPageFanOutFixture.Build(GroundablePage, ["https://dext.com"], pagesPerPartner: 2);
         var slice = SliceOf(fixtures, "dext.com", "Dext");
-        await fixtures.Service.AssessPartnerToolReadinessAsync(slice, CancellationToken.None);
+        await fixtures.Service.AssessPartnerToolReadinessAsync(slice, ContentGeneratorProvider.OpenAi, CancellationToken.None);
         var paid = fixtures.Calls.Extractions;
 
         var edited = slice with
@@ -179,7 +177,7 @@ public class GccToolPagePreflightTests
                 ? p with { Paragraphs = ["The product now also matches purchase orders to invoices."] }
                 : p)],
         };
-        var verdict = await fixtures.Service.AssessPartnerToolReadinessAsync(edited, CancellationToken.None);
+        var verdict = await fixtures.Service.AssessPartnerToolReadinessAsync(edited, ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         Assert.True(fixtures.Calls.Extractions > paid);
         Assert.False(verdict.Reused);
@@ -193,15 +191,15 @@ public class GccToolPagePreflightTests
         // overlap." Keyed by host and digest rather than by create, the overlap is free.
         var firstRun = GccToolPageFanOutFixture.Build(
             GroundablePage, ["https://dext.com", "https://bill.com"], pagesPerPartner: 2);
-        await firstRun.Service.AssessPartnerToolReadinessAsync(SliceOf(firstRun, "dext.com", "Dext"), CancellationToken.None);
-        await firstRun.Service.AssessPartnerToolReadinessAsync(SliceOf(firstRun, "bill.com", "Bill"), CancellationToken.None);
+        await firstRun.Service.AssessPartnerToolReadinessAsync(SliceOf(firstRun, "dext.com", "Dext"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
+        await firstRun.Service.AssessPartnerToolReadinessAsync(SliceOf(firstRun, "bill.com", "Bill"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
         Assert.Equal(2, firstRun.Bank.Count);
 
         var secondRun = GccToolPageFanOutFixture.Build(
             GroundablePage, ["https://bill.com", "https://melio.com"], pagesPerPartner: 2, bank: firstRun.Bank);
-        var bill = await secondRun.Service.AssessPartnerToolReadinessAsync(SliceOf(secondRun, "bill.com", "Bill"), CancellationToken.None);
+        var bill = await secondRun.Service.AssessPartnerToolReadinessAsync(SliceOf(secondRun, "bill.com", "Bill"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
         var paidBeforeMelio = secondRun.Calls.Extractions;
-        var melio = await secondRun.Service.AssessPartnerToolReadinessAsync(SliceOf(secondRun, "melio.com", "Melio"), CancellationToken.None);
+        var melio = await secondRun.Service.AssessPartnerToolReadinessAsync(SliceOf(secondRun, "melio.com", "Melio"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         Assert.True(bill.Reused);
         Assert.Equal(0, paidBeforeMelio);
@@ -218,7 +216,7 @@ public class GccToolPagePreflightTests
         var fixtures = GccToolPageFanOutFixture.Build(
             GroundablePage, ["https://dext.com"], pagesPerPartner: 2, extractionFails: true);
 
-        var verdict = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+        var verdict = await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         Assert.False(verdict.Ready);
         Assert.Equal(2, verdict.PagesFailed);
@@ -227,7 +225,7 @@ public class GccToolPagePreflightTests
 
         // And it is attempted again next time, not remembered as empty.
         var paid = fixtures.Calls.Extractions;
-        await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), CancellationToken.None);
+        await fixtures.Service.AssessPartnerToolReadinessAsync(SliceOf(fixtures, "dext.com", "Dext"), ContentGeneratorProvider.OpenAi, CancellationToken.None);
         Assert.True(fixtures.Calls.Extractions > paid);
     }
 
@@ -255,7 +253,7 @@ public class GccToolPagePreflightTests
         var fixtures = GccToolPageFanOutFixture.Build(GroundablePage, ["https://dext.com"], pagesPerPartner: 0);
 
         var verdict = await fixtures.Service.AssessPartnerToolReadinessAsync(
-            new GccPartnerToolSlice("dext.com", "Dext", [], []), CancellationToken.None);
+            new GccPartnerToolSlice("dext.com", "Dext", [], []), ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
         Assert.False(verdict.Ready);
         Assert.Equal("no extractable partner pages", verdict.Coverage);

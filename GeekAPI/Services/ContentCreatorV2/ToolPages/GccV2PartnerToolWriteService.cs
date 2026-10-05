@@ -67,7 +67,7 @@ public sealed class GccV2PartnerToolWriteService
         var partnerResearchPages = ParsePartnerResearchPages(wc.Brief.RawBriefJson);
         var partnerExtraction = GccV2PartnerUrlResearchService.ParsePartnerExtraction(wc.Brief.RawBriefJson)
             ?? (partnerResearchPages.Count > 0
-                ? await _partnerExtraction.ExtractFromPagesAsync(partnerResearchPages, null, ct).ConfigureAwait(false)
+                ? await _partnerExtraction.ExtractFromPagesAsync(partnerResearchPages, null, wc.Provider.ProviderType, ct).ConfigureAwait(false)
                 : null);
         var descriptionFromExtraction = partnerExtraction?.Advertisements.FirstOrDefault()?.MarketingHook;
         var app = new SoftwareApplicationDescriptor(

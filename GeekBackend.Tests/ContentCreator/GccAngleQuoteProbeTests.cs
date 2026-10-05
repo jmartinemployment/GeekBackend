@@ -102,7 +102,7 @@ public class GccAngleQuoteProbeTests
             Retrieved(Page(Published)),
             new GccAngleQuoteSelection(true, 1, "names the manual pain and the fix"));
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.True(finding.CanAnswer);
         Assert.Equal(PartnerUrl, finding.CiteUrl);
@@ -124,7 +124,7 @@ public class GccAngleQuoteProbeTests
                 "We are a payments company founded in 2015 and headquartered in Mountain View.")),
             new GccAngleQuoteSelection(false, null, "nothing here names a manual-process pain"));
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.NoAnswer, finding.Outcome);
         Assert.Contains("manual-process pain", finding.Reason!, StringComparison.Ordinal);
@@ -137,7 +137,7 @@ public class GccAngleQuoteProbeTests
             Retrieved(Page(Published)),
             new GccAngleQuoteSelection(true, null, "fits"));
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.NoAnswer, finding.Outcome);
     }
@@ -149,7 +149,7 @@ public class GccAngleQuoteProbeTests
             Retrieved(Page(Published)),
             new GccAngleQuoteSelection(true, 7, "fits"));
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.NoAnswer, finding.Outcome);
     }
@@ -159,7 +159,7 @@ public class GccAngleQuoteProbeTests
     {
         var probe = Build(new GeekCrawlerRagQueryResult { RunId = Run, Pages = [], Failed = true }, null);
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
         Assert.False(finding.CanAnswer);
@@ -173,7 +173,7 @@ public class GccAngleQuoteProbeTests
         // read alike, or an operator re-crawls a partner whose evidence is fine.
         var probe = Build(Retrieved(Page(Published)), null, blocksReadable: false);
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
         Assert.Contains("could not be read back", finding.Reason!, StringComparison.Ordinal);
@@ -185,7 +185,7 @@ public class GccAngleQuoteProbeTests
         // Retrieval answered; none of it is shaped like a quotation. That is this partner's answer.
         var probe = Build(Retrieved(Page("pricing | plans | enterprise")), null);
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.NoAnswer, finding.Outcome);
     }
@@ -197,7 +197,7 @@ public class GccAngleQuoteProbeTests
         // reads differently from the index being down.
         var probe = Build(Retrieved(), null);
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.NoAnswer, finding.Outcome);
     }
@@ -207,7 +207,7 @@ public class GccAngleQuoteProbeTests
     {
         var probe = Build(Retrieved(Page(Published)), null, providerAvailable: false);
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
     }
@@ -218,7 +218,7 @@ public class GccAngleQuoteProbeTests
         var probe = Build(
             Retrieved(Page(Published)), null, selectorThrows: new HttpRequestException("502"));
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
     }
@@ -228,7 +228,7 @@ public class GccAngleQuoteProbeTests
     {
         var probe = Build(Retrieved(Page(Published)), null);
 
-        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Guid.Empty, CancellationToken.None);
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Guid.Empty, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi, CancellationToken.None);
 
         Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
     }
@@ -276,6 +276,72 @@ public class GccAngleQuoteProbeTests
             return Task.FromResult(
                 new GccV2SchemaConstrainedCompletion<T>((T)(object)selection!, "fake", null, null));
         }
+    }
+
+    [Fact]
+    public async Task The_probe_asks_the_provider_the_operator_chose_and_never_the_default()
+    {
+        var providers = new RecordingProviders();
+        var retrieved = Retrieved(Page(Published));
+        var probe = new GccAngleQuoteProbe(
+            new FakeRag(retrieved),
+            new GccTypedPassageReader(new FakePages([Crawled(Published)])),
+            new FakeGenerator(new GccAngleQuoteSelection(true, 1, "fits"), null),
+            providers,
+            NullLogger<GccAngleQuoteProbe>.Instance);
+
+        await probe.ProbeAsync(
+            Spec, PartnerUrl, Run, GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.Anthropic, CancellationToken.None);
+
+        Assert.Equal([GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.Anthropic], providers.Requested);
+    }
+
+    [Fact]
+    public async Task No_provider_sent_is_the_configured_default_not_a_refusal()
+    {
+        // The workspace does not send one yet. Absent is LlmProviders:DefaultProvider -- what the probe
+        // always used -- resolved through GetDefault(), which refuses a misconfigured value itself.
+        var providers = new DefaultOnlyProviders();
+        var probe = new GccAngleQuoteProbe(
+            new FakeRag(Retrieved(Page(Published))),
+            new GccTypedPassageReader(new FakePages([Crawled(Published)])),
+            new FakeGenerator(new GccAngleQuoteSelection(true, 1, "fits"), null),
+            providers,
+            NullLogger<GccAngleQuoteProbe>.Instance);
+
+        var finding = await probe.ProbeAsync(Spec, PartnerUrl, Run, providerType: null, CancellationToken.None);
+
+        Assert.True(finding.CanAnswer);
+        Assert.Equal(1, providers.DefaultCalls);
+    }
+
+    private sealed class DefaultOnlyProviders : IContentProviderFactory
+    {
+        public int DefaultCalls { get; private set; }
+
+        public IContentGenerationProvider Get(LlmProviderType providerType) =>
+            throw new InvalidOperationException("Get() was called with no provider chosen.");
+
+        public IContentGenerationProvider GetDefault()
+        {
+            DefaultCalls++;
+            return new FakeProvider();
+        }
+    }
+
+    /// <summary>Records which provider was asked for; the default is a failure, not an answer.</summary>
+    internal sealed class RecordingProviders : IContentProviderFactory
+    {
+        public List<LlmProviderType> Requested { get; } = [];
+
+        public IContentGenerationProvider Get(LlmProviderType providerType)
+        {
+            Requested.Add(providerType);
+            return new FakeProvider();
+        }
+
+        public IContentGenerationProvider GetDefault() =>
+            throw new InvalidOperationException("GetDefault() was called: the operator's provider was ignored.");
     }
 
     private sealed class FakeProviders(bool available) : IContentProviderFactory

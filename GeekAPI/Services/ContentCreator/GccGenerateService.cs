@@ -556,6 +556,7 @@ public class GccGenerateService
     /// </summary>
     public async Task<GccPartnerToolReadiness> AssessPartnerToolReadinessAsync(
         GccPartnerToolSlice slice,
+        ContentGeneratorProvider provider,
         CancellationToken ct,
         Guid? createId = null)
     {
@@ -584,7 +585,7 @@ public class GccGenerateService
             }
             else
             {
-                extraction = await _partnerExtraction.ExtractFromPagesAsync(slice.Pages, [slice.ProductName], ct);
+                extraction = await _partnerExtraction.ExtractFromPagesAsync(slice.Pages, [slice.ProductName], ToLlm(provider), ct);
 
                 // Successes only. A failed page is a fault -- a draining balance, a deprecated
                 // parameter -- and banking it would make a billing incident a permanent property
@@ -730,7 +731,7 @@ public class GccGenerateService
         var readiness = new List<GccPartnerToolReadiness>(slices.Count);
         foreach (var slice in slices)
         {
-            readiness.Add(await AssessPartnerToolReadinessAsync(slice, ct, create.Id));
+            readiness.Add(await AssessPartnerToolReadinessAsync(slice, provider, ct, create.Id));
         }
 
         if (onReadiness is not null) await onReadiness(readiness);
@@ -1283,7 +1284,7 @@ public class GccGenerateService
 
         var partnerExtraction = extraction ?? (partnerPages.Count == 0
             ? null
-            : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], ct));
+            : await _partnerExtraction.ExtractFromPagesAsync(partnerPages, [name], llmType, ct));
         // Same gate as the pre-flight: a failed page is a fault, and a page drafted from the
         // pages that happened to survive is the middle state AGENTS.md forbids.
         var groundedExtraction = partnerExtraction is not null
@@ -1752,8 +1753,18 @@ public class GccGenerateService
     private IContentGenerationProvider GetLlm(ContentGeneratorProvider provider) =>
         _cwProviders.Get(ToLlm(provider));
 
-    private static LlmProviderType ToLlm(ContentGeneratorProvider provider) =>
-        provider == ContentGeneratorProvider.Anthropic ? LlmProviderType.Anthropic : LlmProviderType.OpenAi;
+    /// <summary>
+    /// The workflow provider for the one the operator chose. Every value is named: this was
+    /// <c>== Anthropic ? Anthropic : OpenAi</c>, so any value it did not know -- a provider added to the
+    /// enum and not here -- was silently written by OpenAI and recorded as the provider asked for.
+    /// </summary>
+    internal static LlmProviderType ToLlm(ContentGeneratorProvider provider) => provider switch
+    {
+        ContentGeneratorProvider.Anthropic => LlmProviderType.Anthropic,
+        ContentGeneratorProvider.OpenAi => LlmProviderType.OpenAi,
+        _ => throw new InvalidOperationException(
+            $"Refused: provider '{provider}' has no workflow provider mapped, so nothing was generated."),
+    };
 
     private ProjectGenerationContext BuildMinimalContext(
         string topic,

@@ -1,3 +1,4 @@
+using GeekAPI.Services.Workflow.Domain.Enums;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -86,9 +87,13 @@ public sealed class GccV2PartnerExtractionService(
     /// Extract partner payloads from crawled partner pages. Returns an empty document when nothing
     /// usable is found; never throws.
     /// </summary>
+    /// <param name="providerType">The provider the operator chose for this generate. Extraction ran on
+    /// <c>GetDefault()</c> whatever was chosen, so a draft written by one provider was grounded on what
+    /// another had extracted, and nothing recorded which.</param>
     public async Task<GccPartnerExtractionDocument> ExtractFromPagesAsync(
         IReadOnlyList<GccQuoteablePage> pages,
         IReadOnlyList<string>? partnerToolNames,
+        LlmProviderType providerType,
         CancellationToken ct)
     {
         if (pages is null || pages.Count == 0) return EmptyDocument();
@@ -96,12 +101,19 @@ public sealed class GccV2PartnerExtractionService(
         IContentGenerationProvider provider;
         try
         {
-            provider = providers.GetDefault();
+            provider = providers.Get(providerType);
         }
         catch (Exception cause)
         {
-            logger.LogWarning(cause, "Partner extraction skipped: no content provider available.");
-            return EmptyDocument();
+            // Counted as a failure of every page, not an empty result: an empty document reads as a
+            // partner with nothing to say, which sends the operator to re-crawl a partner that is fine.
+            logger.LogWarning(cause, "Partner extraction could not run: provider {Provider} is unavailable.", providerType);
+            return EmptyDocument() with
+            {
+                PagesAttempted = pages.Count,
+                PagesFailed = pages.Count,
+                FirstFailure = $"provider {providerType} is unavailable: {cause.Message}",
+            };
         }
 
         var citables = new List<GccPartnerCitableAsset>();

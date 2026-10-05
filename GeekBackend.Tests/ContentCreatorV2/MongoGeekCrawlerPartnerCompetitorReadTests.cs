@@ -135,6 +135,7 @@ public sealed class MongoGeekCrawlerPartnerCompetitorReadTests : IAsyncLifetime
             brief,
             "https://geekatyourspot.com",
             null,
+            GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi,
             CancellationToken.None);
         Assert.Equal(brief, partnerMerged.BriefJson);
         Assert.DoesNotContain("partnerResearch", partnerMerged.BriefJson!, StringComparison.OrdinalIgnoreCase);

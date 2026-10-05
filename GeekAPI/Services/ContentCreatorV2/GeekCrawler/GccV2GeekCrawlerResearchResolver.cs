@@ -1,3 +1,4 @@
+using GeekAPI.Services.Workflow.Domain.Enums;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using GeekAPI.HttpClients;
@@ -178,6 +179,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string? rawBriefJson,
         string? projectSiteUrl,
         Guid? projectSiteCrawlRunId,
+        LlmProviderType providerType,
         CancellationToken ct,
         string? createTitle = null,
         string? targetKeyword = null)
@@ -188,6 +190,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             rawBriefJson,
             projectSiteUrl,
             projectSiteCrawlRunId,
+            providerType,
             ct,
             topic);
         var competitor = await MergeCompetitorResearchAsync(
@@ -422,6 +425,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
         string? rawBriefJson,
         string? projectSiteUrl,
         Guid? projectSiteCrawlRunId,
+        LlmProviderType providerType,
         CancellationToken ct,
         RagTopicContext? topic = null)
     {
@@ -476,7 +480,7 @@ public sealed class GccV2GeekCrawlerResearchResolver
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var extraction = await _partnerExtraction.ExtractFromPagesAsync(quoteable, toolNames, ct).ConfigureAwait(false);
+        var extraction = await _partnerExtraction.ExtractFromPagesAsync(quoteable, toolNames, providerType, ct).ConfigureAwait(false);
         if (_rag.IsEnabled)
         {
             extraction = await GccV2PartnerExtractionVerify.VerifyAgainstLibraryAsync(

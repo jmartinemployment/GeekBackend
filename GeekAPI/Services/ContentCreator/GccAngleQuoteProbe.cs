@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.GeekCrawler;
 
@@ -93,10 +94,14 @@ public sealed class GccAngleQuoteProbe(
         + "Returning false is a correct and expected answer — never stretch an unrelated candidate "
         + "to fill the field.";
 
+    /// <param name="providerType">The provider the operator chose, when the caller sent one. Null is
+    /// <c>LlmProviders:DefaultProvider</c> -- the configured setting, resolved by <c>GetDefault()</c>,
+    /// which refuses a misconfigured value rather than substituting one.</param>
     public async Task<GccAngleQuoteFinding> ProbeAsync(
         GccAngleQuoteSpec spec,
         string partnerUrl,
         Guid runId,
+        LlmProviderType? providerType,
         CancellationToken ct)
     {
         if (runId == Guid.Empty)
@@ -108,7 +113,7 @@ public sealed class GccAngleQuoteProbe(
         IContentGenerationProvider provider;
         try
         {
-            provider = providers.GetDefault();
+            provider = providerType is { } requested ? providers.Get(requested) : providers.GetDefault();
         }
         catch (Exception cause)
         {

@@ -139,6 +139,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             brief,
             "https://geekatyourspot.com",
             crawlRunId,
+            GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi,
             CancellationToken.None);
 
         Assert.NotNull(merged.BriefJson);
@@ -164,6 +165,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             brief,
             "https://geekatyourspot.com",
             null,
+            GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi,
             CancellationToken.None);
 
         Assert.Equal(brief, merged.BriefJson);
@@ -206,6 +208,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             brief,
             "https://geekatyourspot.com",
             null,
+            GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi,
             CancellationToken.None);
 
         Assert.Equal(brief, merged.BriefJson);
@@ -640,6 +643,7 @@ public sealed class GccV2GeekCrawlerResearchResolverTests
             brief,
             "https://geekatyourspot.com",
             null,
+            GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType.OpenAi,
             CancellationToken.None);
 
         Assert.Equal(brief, merged.BriefJson);

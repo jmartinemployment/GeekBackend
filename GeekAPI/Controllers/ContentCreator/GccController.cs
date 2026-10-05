@@ -962,6 +962,16 @@ public class GccController : ControllerBase
             return BadRequest(new { error = "topic is required — it is the subject of the question." });
         if (request?.ProjectId is not { } projectId || projectId == Guid.Empty)
             return BadRequest(new { error = "projectId is required — it owns the declared partners." });
+        // The operator's provider when the workspace sends one; absent is LlmProviders:DefaultProvider,
+        // the configured setting the probe always used. A value that is present and unknown is refused,
+        // never read as absent.
+        LlmProviderType? probeProvider = null;
+        if (!string.IsNullOrWhiteSpace(request.Provider))
+        {
+            if (!TryParseProvider(request.Provider, out var provider, out var providerError))
+                return BadRequest(new { error = providerError });
+            probeProvider = GccGenerateService.ToLlm(provider);
+        }
 
         // Read the partners from the project rather than taking them from the caller. The project's
         // declared list is the one the content is obliged to name, and it is not the same set as the
@@ -1022,6 +1032,7 @@ public class GccController : ControllerBase
                 spec,
                 url,
                 runByUrl.TryGetValue(url, out var runId) ? runId : Guid.Empty,
+                probeProvider,
                 ct)));
 
         return Ok(new
@@ -1048,7 +1059,9 @@ public class GccController : ControllerBase
     public sealed record PartnerQuoteReadinessRequest(
         Guid? ProjectId,
         string? Topic,
-        string? Angle);
+        string? Angle,
+        /// <summary>The provider the brief will be written with. Absent is the configured default.</summary>
+        string? Provider = null);
     private async Task<GccSiteAnalysisDto> MarkAnalysisFailedAsync(
         GccSiteAnalysisDto analysis,
         string error,
