@@ -94,8 +94,11 @@ public record ProjectGenerationContext(
     /// </remarks>
     IReadOnlyList<string>? DiagnosisQuestions = null);
 
-/// <summary>Crawl tool name + optional source href. Generate-time only — not copied onto the project.</summary>
-public sealed record KnownCrawlTool(string Name, string? Href);
+/// <summary>A tool the writer may name and link. Generate-time only — not copied onto the project.</summary>
+/// <param name="Href">Where a crawl found it, when it came from one. Never the link target.</param>
+/// <param name="PublicPath">The tool page's path on the publisher's site, when the caller knows it --
+/// Content Creator does, from <c>GccPartnerToolPages</c>. Null on the Workflow path, which derives one.</param>
+public sealed record KnownCrawlTool(string Name, string? Href, string? PublicPath = null);
 
 public record TopicFocusResponse(string[]? Focus);
 

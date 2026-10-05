@@ -214,6 +214,40 @@ public static class GccRequiredToolMentions
     }
 
     /// <summary>Whether two names refer to the same product, ignoring spacing and punctuation.</summary>
+    public static bool SameProduct(string a, string b) => Covers(a, b);
+
+    /// <summary>
+    /// The instruction naming the tools this piece must not name, or null when there are none.
+    /// </summary>
+    /// <remarks>
+    /// The publisher's own site lists tools that are not this project's partners, and the writer sees
+    /// that site's headings and prose, so the names are in front of it. Naming them here is what stops
+    /// "tools like ApprovalMax, Melio, and Ramp" on a project whose partners do not include Melio.
+    /// </remarks>
+    public static string? UnlistedInstruction(IReadOnlyList<string> unlisted)
+    {
+        if (unlisted.Count == 0) return null;
+
+        return new StringBuilder()
+            .AppendLine($"TOOLS THIS PIECE DOES NOT NAME: {string.Join(", ", unlisted)}.")
+            .AppendLine(
+                "This site covers them elsewhere, but they are not this project's partners. Do not name them and " +
+                "do not link them, anywhere in this piece. The only tools this piece names are the partner " +
+                "tools listed above.")
+            .ToString();
+    }
+
+    /// <summary>The names in <paramref name="unlisted"/> that the document uses, as whole words.</summary>
+    public static IReadOnlyList<string> Named(ContentDocument document, IReadOnlyList<string> unlisted)
+    {
+        if (unlisted.Count == 0) return [];
+
+        var text = ContentDocumentText.Flatten(document);
+        return [.. unlisted.Where(name => System.Text.RegularExpressions.Regex.IsMatch(
+            text,
+            $@"(?<![A-Za-z0-9]){System.Text.RegularExpressions.Regex.Escape(name)}(?![A-Za-z0-9])"))];
+    }
+
     private static bool Covers(string a, string b)
     {
         static string Key(string v) => new([.. v.Where(char.IsLetterOrDigit)]);

@@ -93,6 +93,24 @@ public static class GccContentPath
     }
 
     /// <summary>
+    /// The page's path on the publisher's site, with no scheme or host -- what a link from another page
+    /// on that site is set to. Built from <see cref="For"/>, so it cannot name a different address.
+    /// </summary>
+    public static string PathFor(string baseUrl, GccCreateDto? create, string slug) =>
+        PathOf(For(baseUrl, create, slug));
+
+    /// <summary>The path of a URL or of a path, always starting with a slash and never ending in one.</summary>
+    public static string PathOf(string? urlOrPath)
+    {
+        var value = (urlOrPath ?? string.Empty).Trim();
+        var path = Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? uri.AbsolutePath
+            : value.Split('?', '#')[0];
+        path = "/" + path.Trim('/');
+        return path;
+    }
+
+    /// <summary>
     /// The directory a page sits in, with no slug — what a section index would be.
     /// </summary>
     public static string DirectoryFor(string baseUrl, GccCreateDto? create) =>

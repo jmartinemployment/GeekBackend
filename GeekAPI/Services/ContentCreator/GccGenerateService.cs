@@ -1845,6 +1845,12 @@ public class GccGenerateService
             DiagnosisQuestions: diagnosisQuestions);
     }
 
+    /// <summary>
+    /// A tool page's slug from its product name. The one definition: the page is generated with it,
+    /// and <see cref="GccPartnerToolPages"/> builds the link to that page with it.
+    /// </summary>
+    internal static string ToolSlug(string productName) => Slugify(productName);
+
     private static string Slugify(string value)
     {
         var s = value.Trim().ToLowerInvariant();
@@ -2365,9 +2371,10 @@ public class GccGenerateService
     {
         var llm = GetLlm(provider);
         var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
+        var partnerTools = await PartnerToolsAsync(create, ct);
         var context = BuildPillarContext(
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
-            await _knownTools.ResolveAsync(create, ct),
+            partnerTools.Linked,
             create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(
             create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
@@ -2405,9 +2412,8 @@ public class GccGenerateService
 
         // The partner tools this page is obliged to name, stated to the model and checked against
         // the result below -- one list, so the instruction and the check cannot disagree.
-        var requiredTools = GccRequiredToolMentions.For(
-            create.BriefJson, await PartnerUrlsForAsync(create, ct));
-        var toolInstruction = GccRequiredToolMentions.Instruction(requiredTools);
+        var requiredTools = partnerTools.Required;
+        var toolInstruction = partnerTools.Instruction;
         var pillarEvidence = string.IsNullOrWhiteSpace(toolInstruction)
             ? evidenceBlock
             : $"{evidenceBlock}{Environment.NewLine}{toolInstruction}";
@@ -2458,7 +2464,8 @@ public class GccGenerateService
             evidence,
             requiredTools,
             pillarEvidence,
-            appendedSections: pillarFaq is null ? 0 : 1);
+            appendedSections: pillarFaq is null ? 0 : 1,
+            partnerTools: partnerTools);
 
         // Every check, on the draft and on its one retry -- see GccDraftGuard. The FAQ is part of the
         // document each time, so it is checked for links, figures and quotations like the body is, and
@@ -2581,9 +2588,10 @@ public class GccGenerateService
     {
         var llm = GetLlm(provider);
         var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
+        var partnerTools = await PartnerToolsAsync(create, ct);
         var context = BuildPillarContext(
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
-            await _knownTools.ResolveAsync(create, ct),
+            partnerTools.Linked,
             create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(
             create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
@@ -2625,9 +2633,8 @@ public class GccGenerateService
         // ParseLede. Reading it as a sections array failed every blog generation.
         var (blogLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
 
-        var blogRequiredTools = GccRequiredToolMentions.For(
-            create.BriefJson, await PartnerUrlsForAsync(create, ct));
-        var blogToolInstruction = GccRequiredToolMentions.Instruction(blogRequiredTools);
+        var blogRequiredTools = partnerTools.Required;
+        var blogToolInstruction = partnerTools.Instruction;
         var blogEvidence = string.IsNullOrWhiteSpace(blogToolInstruction)
             ? evidenceBlock
             : $"{evidenceBlock}{Environment.NewLine}{blogToolInstruction}";
@@ -2643,7 +2650,8 @@ public class GccGenerateService
             context,
             evidence,
             blogRequiredTools,
-            blogEvidence);
+            blogEvidence,
+            partnerTools: partnerTools);
 
         // Every check, on the draft and on its one retry -- see GccDraftGuard.
         async Task<GccDraft> WriteBlogDraftAsync(string? retryInstructions)
@@ -3007,6 +3015,55 @@ public class GccGenerateService
     /// are added to it for the figure check -- the operator's own statements -- and nothing else: the
     /// generation context and the outline carry instruction numbers (word floors, "600-850 words"), and
     /// licensing a figure because the prompt said it licenses nothing (review, 2026-10-04).</param>
+    /// <summary>
+    /// The tools a pillar or blog names: which it must name, which it links and where, and which it
+    /// must not name at all.
+    /// </summary>
+    /// <param name="Required">The partner tools the piece is obliged to name.</param>
+    /// <param name="Linked">The declared partners, each with its tool page's path -- the only tool
+    /// links the piece may carry.</param>
+    /// <param name="Unlisted">Tools the publisher's own site lists under this keyword that are not this
+    /// project's partners. The writer can see them in the site's own prose; it is told not to use them,
+    /// and the guard refuses a draft that does.</param>
+    private sealed record PartnerTools(
+        IReadOnlyList<string> Required,
+        IReadOnlyList<KnownCrawlTool> Linked,
+        IReadOnlyList<string> Unlisted)
+    {
+        /// <summary>What the writer is told: the names it must use, then the names it must not.</summary>
+        public string? Instruction
+        {
+            get
+            {
+                var blocks = new[]
+                {
+                    GccRequiredToolMentions.Instruction(Required),
+                    GccRequiredToolMentions.UnlistedInstruction(Unlisted),
+                }.Where(b => !string.IsNullOrWhiteSpace(b)).ToList();
+                return blocks.Count == 0 ? null : string.Join(Environment.NewLine, blocks);
+            }
+        }
+    }
+
+    /// <remarks>
+    /// The site's own tool list is still read -- not to hand to the writer, which is how Melio and
+    /// Plooto reached a pillar whose project did not list them, but to know which names to keep out.
+    /// </remarks>
+    private async Task<PartnerTools> PartnerToolsAsync(GccCreateDto create, CancellationToken ct)
+    {
+        var partnerUrls = await PartnerUrlsForAsync(create, ct);
+        var required = GccRequiredToolMentions.For(create.BriefJson, partnerUrls);
+        var linked = GccPartnerToolPages.For(create, partnerUrls, _company.ToolBaseUrl)
+            .Select(page => new KnownCrawlTool(page.ProductName, Href: null, PublicPath: page.Path))
+            .ToList();
+        var unlisted = (await _knownTools.ResolveAsync(create, ct))
+            .Select(tool => tool.Name)
+            .Where(name => !required.Any(partner => GccRequiredToolMentions.SameProduct(partner, name)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return new PartnerTools(required, linked, unlisted);
+    }
+
     private Guardrail.GccGuardInputs GuardInputsFor(
         GccCreateDto? create,
         ProjectGenerationContext context,
@@ -3015,7 +3072,8 @@ public class GccGenerateService
         string? evidenceText,
         IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null,
         int appendedSections = 0,
-        string? extractionJson = null)
+        string? extractionJson = null,
+        PartnerTools? partnerTools = null)
     {
         var research = create is null ? null : GccResearchFetchService.Deserialize(create.ResearchJson);
         var allowedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -3048,7 +3106,16 @@ public class GccGenerateService
             publisherHosts,
             numberEvidence,
             quoteCandidates,
-            appendedSections);
+            appendedSections,
+            // Under the tool base, a link goes to a tool page the writer was handed, or nowhere. A tool
+            // page is handed none, so it carries no link to another tool page.
+            ToolBasePath: GccContentPath.PathOf(_company.ToolBaseUrl),
+            ToolPaths: (partnerTools?.Linked ?? [])
+                .Select(tool => tool.PublicPath)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => path!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase),
+            UnlistedTools: partnerTools?.Unlisted ?? []);
     }
 
     /// <summary>

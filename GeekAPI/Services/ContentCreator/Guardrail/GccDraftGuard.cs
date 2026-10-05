@@ -84,7 +84,14 @@ public sealed record GccGuardInputs(
     IReadOnlySet<string> PublisherHosts,
     string NumberEvidence,
     IReadOnlyList<GccQuoteCandidate>? QuoteCandidates = null,
-    int AppendedSections = 0);
+    int AppendedSections = 0,
+    // Where the publisher's tool pages live ("/tools"), and the tool pages the writer was handed. A
+    // link under the first must be one of the second: the project's declared partners, and no others.
+    string? ToolBasePath = null,
+    IReadOnlySet<string>? ToolPaths = null,
+    // Tools the publisher's site lists that are not this project's partners. A pillar or blog that
+    // names one is refused.
+    IReadOnlyList<string>? UnlistedTools = null);
 
 /// <summary>
 /// The guard for each long-form type: one function that runs every check, called on the first draft
@@ -220,6 +227,22 @@ public static partial class GccDraftGuard
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
 
+        // "Tools like ApprovalMax, Melio, and Ramp" on a project whose partners do not include Melio
+        // (Jeff, 2026-10-05). The publisher's site lists more tools than a project has partners, and
+        // the writer reads that site.
+        var unlisted = GccRequiredToolMentions.Named(document, inputs.UnlistedTools ?? []);
+        if (unlisted.Count > 0)
+        {
+            var named = string.Join(", ", unlisted);
+            findings.Add(new GccGuardFinding(
+                "unlisted-tools",
+                $"{Capitalized(type)} names {named}, which this project does not list as a partner. A {type} "
+                + "names the project's partner tools and no other.",
+                Refuses: true,
+                $"The last attempt named {named}. They are not this project's partners: remove every mention "
+                + "of them, and any link to them. Name only the partner tools listed."));
+        }
+
         var missing = GccRequiredToolMentions.Missing(document, inputs.RequiredTools);
         if (missing.Count > 0)
         {
@@ -256,11 +279,13 @@ public static partial class GccDraftGuard
             "links",
             $"The draft links outside the evidence it was given: {listed}. A link may go to the scheduler, "
             + "the publisher's own pages, or a partner page in QUOTEABLE RESEARCH -- never a competitor and "
-            + "never an address the writer supplied itself.",
+            + "never an address the writer supplied itself. A tool page is linked only at the path listed "
+            + "for one of this project's partner tools.",
             Refuses: true,
             $"The last attempt linked {listed}, which is not a page you were given. Remove those hrefs. A run "
             + "may link only the scheduler, the publisher's own pages, or a URL listed in QUOTEABLE RESEARCH; "
-            + "a competitor is read and never linked."));
+            + "a competitor is read and never linked. A tool is linked only at the exact path listed for it, "
+            + "and a tool that is not listed is not linked."));
     }
 
     internal static bool LinkAllowed(string href, GccGuardInputs inputs)
@@ -276,14 +301,22 @@ public static partial class GccDraftGuard
 
         if (inputs.AllowedLinkUrls.Contains(trimmed)) return true;
 
-        // A root-relative path is a page on the publisher's own site by construction -- the known-tools
-        // brief hands the writer exactly these, /tools/{department}/{slug}, and requires the link. Read
-        // by host alone, every one of them was refused (2026-10-04). "//host/..." is not a path: it is
-        // an absolute address with the scheme left off, and goes through the host check below.
-        if (trimmed.StartsWith('/') && !trimmed.StartsWith("//", StringComparison.Ordinal)) return true;
+        // A root-relative path is a page on the publisher's own site by construction. Read by host
+        // alone, every one of them was refused (2026-10-04). "//host/..." is not a path: it is an
+        // absolute address with the scheme left off, and goes through the host check below.
+        var relative = trimmed.StartsWith('/') && !trimmed.StartsWith("//", StringComparison.Ordinal);
+        var host = relative ? string.Empty : GccRequiredToolMentions.HostKeyOf(trimmed);
+        var onPublisherSite = relative || (host.Length > 0 && inputs.PublisherHosts.Contains(host));
+        if (!onPublisherSite) return false;
 
-        var host = GccRequiredToolMentions.HostKeyOf(trimmed);
-        return host.Length > 0 && inputs.PublisherHosts.Contains(host);
+        // Among the publisher's pages, a tool page is one the writer was handed -- a declared partner's
+        // -- or it is not linked. A pillar linked /tools/marketing/melio and /tools/marketing/plooto on
+        // a project that lists neither (Jeff, 2026-10-05), at paths no page is published under.
+        var path = GccContentPath.PathOf(trimmed);
+        var toolBase = inputs.ToolBasePath;
+        var isToolPage = !string.IsNullOrWhiteSpace(toolBase)
+            && path.StartsWith(toolBase + "/", StringComparison.OrdinalIgnoreCase);
+        return !isToolPage || (inputs.ToolPaths?.Contains(path) ?? false);
     }
 
     /// <summary>

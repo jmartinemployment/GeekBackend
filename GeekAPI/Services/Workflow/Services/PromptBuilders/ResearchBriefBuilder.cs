@@ -432,11 +432,14 @@ internal static class ResearchBriefBuilder
             "The path is relative and starts with a slash, exactly as written below. Do not link a tool to the " +
             "vendor's own website, to the crawl source page, or to any absolute URL, and never fabricate a path: " +
             "an off-site href is not the link being asked for here.");
-        sb.AppendLine("Tools from the crawl:");
+        sb.AppendLine("The tools:");
         foreach (var tool in tools)
         {
-            var slug = SlugHelper.Slugify(tool.Name);
-            var publicPath = $"/tools/{dept}/{slug}";
+            // Content Creator supplies the path its tool page is published at. Without one this is the
+            // Workflow path, which has no create to build it from.
+            var publicPath = string.IsNullOrWhiteSpace(tool.PublicPath)
+                ? $"/tools/{dept}/{SlugHelper.Slugify(tool.Name)}"
+                : tool.PublicPath;
             if (!string.IsNullOrWhiteSpace(tool.Href))
             {
                 sb.AppendLine($"- {tool.Name} — public path: {publicPath} (crawl source, do not send the reader there: {tool.Href})");

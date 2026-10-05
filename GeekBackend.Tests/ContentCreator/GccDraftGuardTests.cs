@@ -16,11 +16,15 @@ public class GccDraftGuardTests
     private static readonly GccHeadingProvenanceEvidence NoEvidence = new(
         new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), new HashSet<string>());
 
+    /// <summary>The one partner tool page the writer was handed, at the path it is published under.</summary>
+    private const string RampToolPage = "/tools/accounting/accounts-payable/ramp";
+
     private static GccGuardInputs Inputs(
         string numberEvidence = "",
         IReadOnlyList<string>? requiredTools = null,
         IReadOnlyList<GccQuoteCandidate>? candidates = null,
-        int appended = 0) =>
+        int appended = 0,
+        IReadOnlyList<string>? unlistedTools = null) =>
         new(
             NoEvidence,
             requiredTools ?? [],
@@ -29,7 +33,10 @@ public class GccDraftGuardTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "geek.test" },
             numberEvidence,
             candidates,
-            appended);
+            appended,
+            ToolBasePath: "/tools",
+            ToolPaths: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { RampToolPage },
+            UnlistedTools: unlistedTools);
 
     private static Section Body(string heading, params Paragraph[] paragraphs) =>
         new("h2", heading, paragraphs, null, [], Provenance: "plan");
@@ -77,13 +84,16 @@ public class GccDraftGuardTests
 
     [Theory]
     [InlineData(PartnerPage)]
-    [InlineData("https://geek.test/tools/accounting/melio")]
     [InlineData("https://www.geek.test/blog/ap")]
     [InlineData(Scheduler)]
-    // The known-tools brief hands the writer exactly these paths and requires the link
-    // (refused by host alone on 2026-10-04's Accounts Payable run).
-    [InlineData("/tools/marketing/ramp")]
+    // A path on the publisher's own site (refused by host alone on 2026-10-04's Accounts Payable run).
     [InlineData("/blog/accounts-payable")]
+    // A partner's tool page, at the path the writer was handed -- as a path, and as the same page's
+    // full address on the publisher's site.
+    [InlineData(RampToolPage)]
+    [InlineData("https://geek.test" + RampToolPage)]
+    // The tools index is a page of the site, not a tool page.
+    [InlineData("/tools")]
     public void A_link_to_the_evidence_the_publisher_or_the_scheduler_is_allowed(string href)
     {
         var doc = Doc(Body("Choosing", Text("See the source.", href)));
@@ -99,6 +109,49 @@ public class GccDraftGuardTests
         var doc = Doc(Body("Choosing", Text("See the source.", href)));
 
         Assert.Contains("links", Failed(GccDraftGuard.Pillar(doc, Inputs())));
+    }
+
+    /// <summary>
+    /// Jeff, 2026-10-05, on a pillar: "links or anchor tags to Partners not listed". A tool page is
+    /// linked when it is a declared partner's and at the path it is published under, or not at all.
+    /// </summary>
+    [Theory]
+    // Not a partner of this project.
+    [InlineData("/tools/accounting/accounts-payable/melio")]
+    [InlineData("https://geek.test/tools/accounting/melio")]
+    // A partner, at a path no page is published under.
+    [InlineData("/tools/marketing/ramp")]
+    public void A_tool_page_that_is_not_a_listed_partners_is_not_linked(string href)
+    {
+        var doc = Doc(Body("Choosing", Text("Ramp routes approvals.", href)));
+
+        var finding = Assert.Single(GccDraftGuard.Pillar(doc, Inputs()).Findings, f => f.Check == "links");
+        Assert.True(finding.Refuses);
+        Assert.Contains(href, finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_pillar_or_blog_that_names_a_tool_the_project_does_not_list_is_refused()
+    {
+        var doc = Doc(Body("Choosing", Text("With tools like ApprovalMax, Melio, and Ramp, teams tailor workflows.")));
+        var inputs = Inputs(requiredTools: ["ApprovalMax", "Ramp"], unlistedTools: ["Melio", "Plooto"]);
+
+        var pillar = Assert.Single(GccDraftGuard.Pillar(doc, inputs).Findings, f => f.Check == "unlisted-tools");
+        Assert.True(pillar.Refuses);
+        Assert.Contains("Melio", pillar.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("Plooto", pillar.Detail, StringComparison.Ordinal);
+        Assert.Contains("unlisted-tools", Failed(GccDraftGuard.Blog(doc, inputs)));
+    }
+
+    [Fact]
+    public void Naming_only_listed_partners_is_not_an_unlisted_tool_finding()
+    {
+        // "Billing" is not the tool "Bill": names are matched as whole words, as the site writes them.
+        var doc = Doc(Body("Choosing", Text("ApprovalMax and Ramp cut billing delays.")));
+
+        var verdict = GccDraftGuard.Pillar(doc, Inputs(requiredTools: ["ApprovalMax", "Ramp"], unlistedTools: ["Bill", "Melio"]));
+
+        Assert.DoesNotContain("unlisted-tools", Failed(verdict));
     }
 
     [Fact]

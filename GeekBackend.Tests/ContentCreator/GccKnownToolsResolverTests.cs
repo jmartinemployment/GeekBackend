@@ -20,7 +20,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccKnownToolsResolverTests
 {
-    private static readonly Guid RunId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    internal static readonly Guid RunId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     private sealed class FakeRunPages(IReadOnlyList<GeekCrawlerPageDto> pages) : IGccCrawlPageReader
     {
@@ -85,7 +85,7 @@ public class GccKnownToolsResolverTests
     /// A heading with a paragraph under it whose anchors are the tools — the shape the crawler emits
     /// and the shape the site's own use-case lists actually have.
     /// </summary>
-    private static GeekCrawlerPageDto UseCasePage() => Page(
+    internal static GeekCrawlerPageDto UseCasePage() => Page(
         "https://geek.test/use-cases/accounting",
         """
         [
