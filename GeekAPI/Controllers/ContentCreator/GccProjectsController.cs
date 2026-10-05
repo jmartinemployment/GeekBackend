@@ -332,7 +332,7 @@ public class GccProjectsController : ControllerBase
         try
         {
             GccGenerateService.ValidateSiteSectionGate(view.ProjectSiteRunId, section);
-            GccGenerateService.ValidateBriefRequired(view, requireLengthBand: false);
+            GccGenerateService.ValidateBriefRequired(view);
         }
         catch (InvalidOperationException ex)
         {

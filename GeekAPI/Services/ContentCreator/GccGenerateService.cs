@@ -152,9 +152,13 @@ public class GccGenerateService
     /// <summary>
     /// Generate reads persisted BriefJson from the create only — not client request bodies.
     /// </summary>
-    /// <param name="requireLengthBand">True on the create-keyed path. False on the project path, where
-    /// the brief carries no length band: length is each output type's own (J6).</param>
-    public static void ValidateBriefRequired(GccCreateDto create, bool requireLengthBand = true)
+    /// <remarks>
+    /// <c>lengthBand</c> is not required. The brief carries no length band: length is each output type's
+    /// own (decision J6). It was required here, and for a day it was waived only at the project route --
+    /// while the tool page path calls this again, so every tool page of the first project run was refused
+    /// "brief required: missing lengthBand" (2026-10-05). One rule, in the one place it is checked.
+    /// </remarks>
+    public static void ValidateBriefRequired(GccCreateDto create)
     {
         if (string.IsNullOrWhiteSpace(create.BriefJson))
             throw new InvalidOperationException("brief required");
@@ -194,7 +198,6 @@ public class GccGenerateService
             if (string.IsNullOrWhiteSpace(S(root, "toneOfVoice"))) missing.Add("toneOfVoice");
             if (!HasArrayItem(root, "eeatSignals")) missing.Add("eeatSignals");
         }
-        if (requireLengthBand && string.IsNullOrWhiteSpace(S(root, "lengthBand"))) missing.Add("lengthBand");
         if (missing.Count > 0)
             throw new InvalidOperationException($"brief required: missing {string.Join(", ", missing)}");
     }
