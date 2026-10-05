@@ -1455,8 +1455,23 @@ public class GccGenerateService
         // defect IContentTypePrompts exists to remove (see its docstring: "the choice of which to
         // call made in a switch elsewhere"). Routing it through the type is also what gets the
         // opening its evidence, since that is what carries EvidenceBlock.
+        //
+        // Every amount in this partner's evidence that is not in US dollars, named for the opening
+        // and for each part of the body. Read from everything the page is written from -- the research
+        // block and the extraction here, the competitor and own-site blocks further down.
+        var toolForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(string.Join(
+            Environment.NewLine,
+            toolOutlineCtx.EvidenceBlock ?? string.Empty,
+            Guardrail.GccJsonEvidence.TextOf(extractedToolResearchJson),
+            create is null ? string.Empty : BuildCompetitorResearchBlock(create),
+            create is null ? string.Empty : BuildOwnSiteCoverageBlock(create)));
         var ledeResult = await llm.CompleteAsync(
-            toolType.Lede(toolOutlineCtx with { Metadata = pillarMeta }), ct);
+            toolType.Lede(toolOutlineCtx with
+            {
+                Metadata = pillarMeta,
+                EvidenceBlock = WithForeignAmountsNamed(toolOutlineCtx.EvidenceBlock, toolForeignAmounts),
+            }),
+            ct);
         var (toolLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{name}' lede");
 
         // `brief` used to be passed positionally here, landing in the revisionNotes slot -- every
@@ -1555,7 +1570,7 @@ public class GccGenerateService
                     Lede = toolLede,
                     EvidenceBlock = string.Join(
                         Environment.NewLine,
-                        new[] { toolOutlineCtx.EvidenceBlock, toolCompetitorBlock, retryInstructions }
+                        new[] { toolOutlineCtx.EvidenceBlock, toolCompetitorBlock, toolForeignAmounts, retryInstructions }
                             .Where(b => !string.IsNullOrWhiteSpace(b))),
                     QuoteCandidates = quoteCandidates,
                 },
@@ -2423,7 +2438,15 @@ public class GccGenerateService
         // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
         // headings stay out of a prompt that states no provenance rules.
         var ledeEvidence = BuildResearchBlock(create);
-        var pillarPromptCtx = outlineCtx with { Metadata = metadata, EvidenceBlock = ledeEvidence };
+        // The amounts in this page's evidence that are not in US dollars, named for the opening and
+        // for each part of the body.
+        var pillarForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(
+            $"{evidenceBlock}{Environment.NewLine}{ledeEvidence}");
+        var pillarPromptCtx = outlineCtx with
+        {
+            Metadata = metadata,
+            EvidenceBlock = WithForeignAmountsNamed(ledeEvidence, pillarForeignAmounts),
+        };
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
         // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way
         // ContentGenerationOrchestrator reads the same prompt. Reading it as a sections array threw
@@ -2503,8 +2526,8 @@ public class GccGenerateService
                 pillarPromptCtx with
                 {
                     EvidenceBlock = retryInstructions is null
-                        ? pillarEvidence
-                        : $"{pillarEvidence}{Environment.NewLine}{retryInstructions}",
+                        ? WithForeignAmountsNamed(pillarEvidence, pillarForeignAmounts)
+                        : $"{WithForeignAmountsNamed(pillarEvidence, pillarForeignAmounts)}{Environment.NewLine}{retryInstructions}",
                     Lede = pillarLede,
                 },
                 [.. pillarOutline.Skip(1)],
@@ -2650,8 +2673,12 @@ public class GccGenerateService
         // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
         // headings stay out of a prompt that states no provenance rules.
         var ledeEvidence = BuildResearchBlock(create);
+        // The amounts in this page's evidence that are not in US dollars, named for the opening and
+        // for each part of the body.
+        var blogForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(
+            $"{evidenceBlock}{Environment.NewLine}{ledeEvidence}");
         var blogPromptCtx = new ContentTypes.ContentTypePromptContext(
-            context, BlogMetadata: metadata, EvidenceBlock: ledeEvidence);
+            context, BlogMetadata: metadata, EvidenceBlock: WithForeignAmountsNamed(ledeEvidence, blogForeignAmounts));
         var ledeResult = await llm.CompleteAsync(blogType.Lede(blogPromptCtx), ct);
         // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
         // ParseLede. Reading it as a sections array failed every blog generation.
@@ -2687,8 +2714,8 @@ public class GccGenerateService
                 blogPromptCtx with
                 {
                     EvidenceBlock = retryInstructions is null
-                        ? blogEvidence
-                        : $"{blogEvidence}{Environment.NewLine}{retryInstructions}",
+                        ? WithForeignAmountsNamed(blogEvidence, blogForeignAmounts)
+                        : $"{WithForeignAmountsNamed(blogEvidence, blogForeignAmounts)}{Environment.NewLine}{retryInstructions}",
                     Lede = blogLede,
                 },
                 blogOutline,
@@ -3088,6 +3115,19 @@ public class GccGenerateService
         return new PartnerTools(required, linked, unlisted);
     }
 
+    /// <summary>
+    /// A call's evidence with the page's non-dollar amounts named after it, or the evidence as it was
+    /// when the page has none.
+    /// </summary>
+    /// <remarks>
+    /// Added to what the writer is shown and never to what the checks read: the note repeats the
+    /// amounts, and evidence that repeated them on one line would be read as stating them.
+    /// </remarks>
+    private static string? WithForeignAmountsNamed(string? evidence, string? foreignAmountsNote) =>
+        foreignAmountsNote is null ? evidence
+        : string.IsNullOrWhiteSpace(evidence) ? foreignAmountsNote
+        : $"{evidence}{Environment.NewLine}{foreignAmountsNote}";
+
     private Guardrail.GccGuardInputs GuardInputsFor(
         GccCreateDto? create,
         ProjectGenerationContext context,
@@ -3114,11 +3154,13 @@ public class GccGenerateService
             if (host.Length > 0) publisherHosts.Add(host);
         }
 
+        // The extraction and the brief as the text in them, a value to a line -- see GccJsonEvidence
+        // for what reading the serialized string did to the currency check.
         var numberEvidence = string.Join(
             Environment.NewLine,
             evidenceText ?? string.Empty,
-            extractionJson ?? string.Empty,
-            create?.BriefJson ?? string.Empty,
+            Guardrail.GccJsonEvidence.TextOf(extractionJson),
+            Guardrail.GccJsonEvidence.TextOf(create?.BriefJson),
             create?.Topic ?? string.Empty,
             create?.Notes ?? string.Empty);
 

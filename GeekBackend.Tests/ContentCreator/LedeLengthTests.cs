@@ -88,6 +88,19 @@ public class LedeLengthTests
 
     [Theory]
     [MemberData(nameof(EveryLedePrompt))]
+    public void EveryLedePromptStatesTheRulesItsTextIsCheckedAgainst(string which)
+    {
+        // The opening is checked for money and for link text like the rest of the page, and it is
+        // written once: the retry rewrites the body, not the opening. So a rule the opening was never
+        // told is a refusal no retry can fix.
+        var prompt = Prompt(Build(which));
+
+        Assert.Contains(ContentPromptBuilder.CurrencyInstruction, prompt, StringComparison.Ordinal);
+        Assert.Contains(ContentPromptBuilder.LinkTextInstruction, prompt, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryLedePrompt))]
     public void EveryLedePromptStatesAWordRangeAndAParagraphFloor(string which)
     {
         // "2-3 paragraphs" is a count, and three one-sentence paragraphs satisfies it exactly.

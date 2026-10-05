@@ -54,6 +54,42 @@ public static partial class GccCurrencyGrammar
         return [.. found.OrderBy(m => m.Index)];
     }
 
+    /// <summary>How many amounts <see cref="ForeignAmountsInstruction"/> names. A prompt is not a ledger.</summary>
+    private const int MostAmountsNamed = 30;
+
+    /// <summary>
+    /// The amounts in a page's evidence that are not in US dollars, named for the writer before it
+    /// writes. Null when the evidence carries none.
+    /// </summary>
+    /// <remarks>
+    /// The writer was told the rule in general -- "do not state that amount at all" -- and then given
+    /// evidence in which a foreign figure was the most concrete outcome on offer. The Approvalmax tool
+    /// page of 2026-10-05 stated "Paddle Australia's estimated yearly savings of $12,400 AUD", was
+    /// told so by name, wrote it again, and was refused: the page was lost to one sentence. Naming
+    /// the amounts up front costs a line and means the first draft is written knowing which figures
+    /// are not its to use. The check afterwards is unchanged.
+    /// </remarks>
+    public static string? ForeignAmountsInstruction(string? evidence)
+    {
+        var foreign = Find(evidence)
+            .Where(m => m.IsForeign)
+            .Select(m => m.Written.Contains(m.Currency, StringComparison.OrdinalIgnoreCase)
+                ? m.Written
+                : $"{m.Written} ({m.Currency})")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MostAmountsNamed)
+            .ToList();
+        if (foreign.Count == 0) return null;
+
+        return "=== AMOUNTS THAT ARE NOT IN US DOLLARS -- DO NOT STATE THEM ===" + Environment.NewLine
+            + "The material you were given carries these amounts in another currency:" + Environment.NewLine
+            + string.Join(Environment.NewLine, foreign.Select(f => "- " + f)) + Environment.NewLine
+            + "None of them may appear in a sentence you write: not as given, not converted, not rounded, and "
+            + "not with the currency left off. Where one would have gone, say what happened without the "
+            + "figure, or leave the point out. A block quotation is the one place such an amount may stand, "
+            + "exactly as it was published.";
+    }
+
     private static void FindInLine(string line, int offset, List<GccMoney> into)
     {
         var taken = new List<(int Start, int End)>();

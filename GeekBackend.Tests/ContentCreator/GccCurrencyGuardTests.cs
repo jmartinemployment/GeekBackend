@@ -133,6 +133,67 @@ public sealed class GccCurrencyGuardTests
         Assert.Contains("currency", GccDraftGuard.Tool(doc, inputs).FailedChecks);
     }
 
+    /// <summary>
+    /// A partner's extraction, serialized as it is stored: one line, with what is not ASCII escaped.
+    /// </summary>
+    private const string ExtractionJson =
+        """{"pricingCatalog":[{"plan":"Starter","price":"$15 per user per month"},{"plan":"UK","price":"\u00A312 per user"}],"caseStudies":[{"customer":"Paddle Australia","outcome":"estimated yearly savings of $12,400 AUD"}],"pagesAttempted":21}""";
+
+    [Fact]
+    public void Json_evidence_is_read_as_the_text_in_it_a_value_to_a_line()
+    {
+        var text = GccJsonEvidence.TextOf(ExtractionJson);
+
+        Assert.Equal(
+            ["Starter", "$15 per user per month", "UK", "£12 per user", "Paddle Australia", "estimated yearly savings of $12,400 AUD", "21"],
+            text.Split('\n'));
+        // Property names are the schema's words, not the partner's.
+        Assert.DoesNotContain("pricingCatalog", text, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, GccJsonEvidence.TextOf(null));
+        Assert.Equal("not json { at all", GccJsonEvidence.TextOf("not json { at all"));
+    }
+
+    [Fact]
+    public void One_foreign_amount_in_an_extraction_does_not_make_its_dollar_prices_foreign()
+    {
+        // Read as one line, the whole extraction named AUD once, so "$15" took AUD from "its line"
+        // and a page that stated the partner's real US price was refused for it.
+        var raw = GccCurrencyGrammar.Find(ExtractionJson);
+        var read = GccCurrencyGrammar.Find(GccJsonEvidence.TextOf(ExtractionJson));
+
+        Assert.Equal("AUD", raw.Single(m => m.Value == "15").Currency);
+        Assert.True(read.Single(m => m.Value == "15").IsBareDollar);
+        Assert.Equal("AUD", read.Single(m => m.Value == "12400").Currency);
+        // And the pounds the serializer had escaped are read as pounds.
+        Assert.DoesNotContain(raw, m => m.Currency == "GBP");
+        Assert.Equal("GBP", read.Single(m => m.Value == "12").Currency);
+    }
+
+    [Fact]
+    public void The_amounts_the_writer_may_not_state_are_named_one_to_a_line()
+    {
+        var note = GccCurrencyGrammar.ForeignAmountsInstruction(
+            "Standard is $39 per month (billed in AUD).\nRamp starts at $15 per user.\n"
+            + GccJsonEvidence.TextOf(ExtractionJson));
+
+        Assert.NotNull(note);
+        Assert.StartsWith("=== AMOUNTS THAT ARE NOT IN US DOLLARS -- DO NOT STATE THEM ===", note!, StringComparison.Ordinal);
+        // A bare dollar that takes its line's currency is named with it; a US price is not named at all.
+        Assert.Contains("- $39 (AUD)" + Environment.NewLine, note, StringComparison.Ordinal);
+        Assert.Contains("- £12 (GBP)" + Environment.NewLine, note, StringComparison.Ordinal);
+        Assert.Contains("- $12,400 AUD" + Environment.NewLine, note, StringComparison.Ordinal);
+        Assert.DoesNotContain("$15", note, StringComparison.Ordinal);
+        Assert.Contains("not with the currency left off", note, StringComparison.Ordinal);
+        Assert.Contains("A block quotation is the one place", note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evidence_with_no_foreign_amount_names_nothing()
+    {
+        Assert.Null(GccCurrencyGrammar.ForeignAmountsInstruction("Ramp starts at $15 per user. US$20 for teams."));
+        Assert.Null(GccCurrencyGrammar.ForeignAmountsInstruction(null));
+    }
+
     [Fact]
     public void The_writer_is_told_before_it_writes()
     {

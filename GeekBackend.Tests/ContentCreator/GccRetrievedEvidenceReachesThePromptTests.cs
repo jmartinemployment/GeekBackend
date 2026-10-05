@@ -79,11 +79,11 @@ public class GccRetrievedEvidenceReachesThePromptTests
             RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk);
 
     /// <summary>A create carrying exactly what the resolver would have merged into it.</summary>
-    private static GccCreateDto CreateWithRetrievedEvidence()
+    private static GccCreateDto CreateWithRetrievedEvidence(string partnerText = PartnerText)
     {
         var research = new GccResearchDocument(
             SerpIndex: null,
-            Quoteables: [Page("https://partner.test/pricing", "Partner pricing", PartnerText)],
+            Quoteables: [Page("https://partner.test/pricing", "Partner pricing", partnerText)],
             CompetitorQuoteables: [Page(CompetitorUrl, "Rival services", CompetitorText)],
             SiteQuoteables: [Page("https://acme.test/ap-guide", "Our AP guide", SiteText)]);
 
@@ -166,6 +166,44 @@ public class GccRetrievedEvidenceReachesThePromptTests
 
         Assert.Contains(SiteText, provider.FirstBodyPrompt, StringComparison.Ordinal);
         Assert.Contains("do not write these again", provider.FirstBodyPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Amounts_that_are_not_in_us_dollars_are_named_for_the_opening_and_every_part_of_the_body()
+    {
+        // The Approvalmax tool page of 2026-10-05 was refused for stating "$12,400 AUD" twice: once on
+        // the draft, once on the retry that named it. The rule was in the prompt in general terms and
+        // the figure was in the evidence in particular ones. The amounts are now named before the
+        // first word is written.
+        var provider = new CapturingProvider();
+        await Build(provider).GeneratePillarBodyAsync(
+            CreateWithRetrievedEvidence(
+                "Paddle Australia's estimated yearly savings were $12,400 AUD. Plans start at £12 per user."),
+            null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        var writing = provider.Requests
+            .Select(r => string.Join("\n", r.Messages.Select(m => m.Content)))
+            .Where(asked => asked.Contains("ledeType", StringComparison.Ordinal)
+                || asked.Contains("WHAT THIS PAGE IS SCORED ON", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(writing.Count >= 2, "the opening and at least one part of the body are written");
+        Assert.All(writing, asked =>
+        {
+            Assert.Contains("=== AMOUNTS THAT ARE NOT IN US DOLLARS -- DO NOT STATE THEM ===", asked, StringComparison.Ordinal);
+            Assert.Contains("- $12,400 AUD", asked, StringComparison.Ordinal);
+            Assert.Contains("- £12 (GBP)", asked, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task A_page_whose_evidence_is_all_in_dollars_is_told_nothing_extra()
+    {
+        var provider = await GeneratePillar();
+
+        Assert.DoesNotContain(
+            provider.Requests.SelectMany(r => r.Messages.Select(m => m.Content)),
+            asked => asked.Contains("AMOUNTS THAT ARE NOT IN US DOLLARS", StringComparison.Ordinal));
     }
 
     [Fact]
