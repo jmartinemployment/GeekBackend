@@ -1,0 +1,247 @@
+using GeekAPI.HttpClients;
+using GeekAPI.Services.GeekCrawler;
+using GeekApplication.Models.ContentCreator;
+using GeekApplication.Models.GeekCrawler;
+
+namespace GeekAPI.Services.ContentCreator;
+
+/// <summary>
+/// Whether a project's declared URLs -- the site, the partners, the competitors -- can be written from,
+/// asked of the index itself, when they are entered: on Profile save. Generate does not ask again.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A URL is usable when the index names a crawl for it, that crawl is complete with extracted content
+/// and enough pages and chunks by its own counters, <b>and</b> the index returns chunks when that crawl
+/// is searched the way Generate searches it: by run and crawl type. The last test is the one that
+/// matters. The counters are what the crawl recorded writing; they say nothing of what the index holds
+/// now. On 2026-10-04 a competitor passed the counter check at save and its run returned "No chunks"
+/// at Generate, which then wrote the pieces without it -- after the work was paid for.
+/// </para>
+/// <para>
+/// Searching by crawl type also catches a URL whose crawl was indexed as a different type: Generate
+/// filters on the type of the list the URL is declared in, and would find nothing either.
+/// </para>
+/// <para>
+/// A search that fails -- the index unreachable or erroring -- is not an answer about any URL, so the
+/// whole check refuses and asks for a retry rather than calling the URL unusable or usable.
+/// </para>
+/// </remarks>
+public sealed class GccDeclaredUrlValidator
+{
+    private readonly IGeekCrawlerRagClient _rag;
+    private readonly HttpGeekCrawlerRepository _crawlerRepo;
+    private readonly ILogger<GccDeclaredUrlValidator> _logger;
+
+    public GccDeclaredUrlValidator(
+        IGeekCrawlerRagClient rag,
+        HttpGeekCrawlerRepository crawlerRepo,
+        ILogger<GccDeclaredUrlValidator> logger)
+    {
+        _rag = rag;
+        _crawlerRepo = crawlerRepo;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// The URLs a project may be saved with: a refusal, or the usable partners and competitors to
+    /// persist.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The floor is measured on URLs that have evidence, not on URLs that were typed. Declaring six
+    /// partners and finding one uncrawled used to disable the whole save, because the count rule read
+    /// the declared list while a separate rule required every declared URL to be usable -- two rules
+    /// over two different sets, so an extra URL could only ever hurt. Five good partners are five good
+    /// partners whether a sixth was entered or not.
+    /// </para>
+    /// <para>
+    /// The unusable ones are excluded from what is saved rather than merely ignored. A declared partner
+    /// obliges Pillar, Blog and Tool to name it (<c>GccRequiredToolMentions</c>), so one with no
+    /// evidence behind it buys a refusal at generate time, which by then the operator can do nothing
+    /// about. Excluding it is what keeps that promise; saving it and hoping is what broke it.
+    /// </para>
+    /// <para>
+    /// The site is not one of several. There is exactly one, the project is grounded on its run, and
+    /// nothing else can stand in for it, so an unusable site URL is a refusal and never an exclusion.
+    /// </para>
+    /// </remarks>
+    public async Task<GccDeclaredUrlVerdict> ForSaveAsync(
+        string? siteUrl,
+        Guid? projectSiteRunId,
+        IReadOnlyList<string>? partnerUrls,
+        IReadOnlyList<string>? competitorUrls,
+        CancellationToken ct)
+    {
+        var site = (siteUrl ?? string.Empty).Trim();
+        var partners = Clean(partnerUrls);
+        var competitors = Clean(competitorUrls);
+
+        // Declared counts first, because they cost nothing and the operator can act on them without
+        // waiting for an index round trip. A list already shorter than the floor cannot reach it once
+        // the unusable are removed, so this stays a sound early answer rather than a guess.
+        var shortfalls = new[]
+        {
+            string.IsNullOrWhiteSpace(site)
+                ? $"Project site URL: 0 declared, {GccDeclaredUrlEvidence.RequiredSiteUrls} required."
+                : null,
+            GccDeclaredUrlEvidence.WrongCount(
+                "Partner URLs", partners.Count, GccDeclaredUrlEvidence.RequiredPartnerUrls),
+            GccDeclaredUrlEvidence.WrongCount(
+                "Competitor URLs", competitors.Count, GccDeclaredUrlEvidence.RequiredCompetitorUrls),
+        }.Where(m => m is not null).ToList();
+        if (shortfalls.Count > 0)
+            return GccDeclaredUrlVerdict.Refused(string.Join(" ", shortfalls));
+
+        if (projectSiteRunId is not { } siteRun || siteRun == Guid.Empty)
+        {
+            return GccDeclaredUrlVerdict.Refused(
+                "projectSiteRunId is required. It is the crawl this project's content is grounded "
+                + "on, and the index returns it alongside the answer about the site URL.");
+        }
+
+        var evidence = await EvidenceAsync(site, partners, competitors, ct);
+        if (evidence.Unreachable is { } unreachable)
+            return GccDeclaredUrlVerdict.Refused(unreachable + " Nothing was saved — try again.");
+
+        var reasons = evidence.Reasons;
+        if (reasons.TryGetValue(site, out var siteReason))
+        {
+            return GccDeclaredUrlVerdict.Refused(
+                $"The project site URL cannot be written from: {site} — {siteReason}. "
+                + "It is the crawl this project is grounded on, so nothing else can stand in for it.");
+        }
+
+        var usablePartners = partners.Where(u => !reasons.ContainsKey(u)).ToList();
+        var usableCompetitors = competitors.Where(u => !reasons.ContainsKey(u)).ToList();
+        var floors = new[]
+        {
+            Floor("Partner URLs", partners, usablePartners,
+                GccDeclaredUrlEvidence.RequiredPartnerUrls, reasons),
+            Floor("Competitor URLs", competitors, usableCompetitors,
+                GccDeclaredUrlEvidence.RequiredCompetitorUrls, reasons),
+        }.Where(m => m is not null).ToList();
+        if (floors.Count > 0)
+            return GccDeclaredUrlVerdict.Refused(string.Join(" ", floors));
+
+        return GccDeclaredUrlVerdict.Usable(usablePartners, usableCompetitors);
+    }
+
+    private sealed record Evidence(string? Unreachable, IReadOnlyDictionary<string, string> Reasons);
+
+    /// <summary>Why each declared URL cannot be used, for the ones that cannot; or why nothing could be asked.</summary>
+    private async Task<Evidence> EvidenceAsync(
+        string site,
+        IReadOnlyList<string> partners,
+        IReadOnlyList<string> competitors,
+        CancellationToken ct)
+    {
+        // The crawl type each URL is searched as at Generate -- the list it is declared in. A URL in two
+        // lists is searched as the first.
+        var crawlTypeByUrl = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        crawlTypeByUrl.TryAdd(site, CrawlTypes.ProjectSite);
+        foreach (var url in partners) crawlTypeByUrl.TryAdd(url, CrawlTypes.Partner);
+        foreach (var url in competitors) crawlTypeByUrl.TryAdd(url, CrawlTypes.Competitors);
+        var declared = crawlTypeByUrl.Keys.ToList();
+
+        var rows = await _rag.HostsIndexedAsync(declared, ct);
+        if (rows.Count == 0)
+        {
+            _logger.LogWarning(
+                "Index unreachable while validating {Count} declared URL(s); refusing rather than guessing.",
+                declared.Count);
+            return new Evidence("The index could not be reached, so the declared URLs could not be checked.", new Dictionary<string, string>());
+        }
+
+        var byUrl = rows.ToDictionary(r => r.Url, StringComparer.OrdinalIgnoreCase);
+        var reasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var toSearch = new List<(string Url, Guid RunId)>();
+        foreach (var url in declared)
+        {
+            if (!byUrl.TryGetValue(url, out var row))
+            {
+                reasons[url] = "the index returned no answer for it";
+                continue;
+            }
+
+            // Indexed is not usable. The run says what actually landed.
+            GeekCrawlerRunDto? run = null;
+            if (row.Indexed && Guid.TryParse(row.RunId, out var runId))
+                run = await _crawlerRepo.GetRunAsync(runId, ct);
+            if (GccDeclaredUrlEvidence.Unusable(row, run) is { } reason)
+            {
+                reasons[url] = reason;
+                continue;
+            }
+
+            toSearch.Add((url, run!.Id));
+        }
+
+        // What the counters cannot say: does the index hold chunks for this run, searched as Generate
+        // searches it. In parallel -- a Profile carries a dozen URLs, and each is one small query.
+        var searched = await Task.WhenAll(toSearch.Select(async s =>
+            (s.Url, s.RunId, Result: await _rag.QueryAsync(
+                ProbeNeed, s.RunId, crawlType: crawlTypeByUrl[s.Url], topK: 1, ct: ct))));
+        foreach (var (url, runId, result) in searched)
+        {
+            if (result is null || result.Failed)
+            {
+                _logger.LogWarning("Index search failed for run {RunId} ({Url}) while validating declared URLs", runId, url);
+                return new Evidence(
+                    $"The index could not be searched for {url}, so the declared URLs could not be checked.",
+                    new Dictionary<string, string>());
+            }
+
+            if (result.Pages.Count == 0)
+            {
+                reasons[url] = $"the index holds nothing for its crawl (run {runId}) when searched as a "
+                    + $"{crawlTypeByUrl[url]} crawl, so a Generate would have nothing from it to write with";
+            }
+        }
+
+        return new Evidence(null, reasons);
+    }
+
+    /// <summary>Any question retrieves from a run that holds chunks; this one only asks whether it does.</summary>
+    internal const string ProbeNeed = "what this company offers and the problems it solves";
+
+    /// <summary>
+    /// The shortfall once the unusable are excluded, as the message the operator gets, or null when
+    /// the floor is met.
+    /// </summary>
+    private static string? Floor(
+        string label,
+        IReadOnlyList<string> declared,
+        IReadOnlyList<string> usable,
+        int required,
+        IReadOnlyDictionary<string, string> reasons)
+    {
+        if (usable.Count >= required) return null;
+        var excluded = declared
+            .Where(reasons.ContainsKey)
+            .Select(u => $"{u} — {reasons[u]}")
+            .ToList();
+        return $"{label}: {usable.Count} of {required} have usable crawl evidence. "
+            + $"These cannot be written from: {string.Join("; ", excluded)}. "
+            + "Crawl and index them, or declare others.";
+    }
+
+    private static List<string> Clean(IReadOnlyList<string>? urls) =>
+        (urls ?? [])
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+}
+
+/// <summary>The answer about a project's declared URLs: a refusal, or the usable ones.</summary>
+public sealed record GccDeclaredUrlVerdict(
+    string? Refusal,
+    IReadOnlyList<string> PartnerUrls,
+    IReadOnlyList<string> CompetitorUrls)
+{
+    public static GccDeclaredUrlVerdict Refused(string refusal) => new(refusal, [], []);
+
+    public static GccDeclaredUrlVerdict Usable(IReadOnlyList<string> partners, IReadOnlyList<string> competitors) =>
+        new(null, partners, competitors);
+}

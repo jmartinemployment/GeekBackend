@@ -127,6 +127,7 @@ builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerateService>()
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccTypedPassageReader>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccProjectSiteStructureReader>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccMustMentionBlockBuilder>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccDeclaredUrlValidator>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGroundingResolver>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerationCoordinator>();
 // Asks the brief's Angle question of a partner's crawl. The same retrieval and selection the

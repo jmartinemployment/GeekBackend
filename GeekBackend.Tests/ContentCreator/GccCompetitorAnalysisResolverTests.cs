@@ -67,7 +67,11 @@ public class GccCompetitorAnalysisResolverTests
             Task.FromResult(offset == 0 ? pages ?? [] : []);
     }
 
-    internal sealed class FakeRag(IReadOnlyList<GeekCrawlerRagHostIndex>? hosts = null) : IGeekCrawlerRagClient
+    /// <param name="query">What a search of (run, crawl type) returns. Null answers every search with
+    /// null -- the library failing -- as this fake always did.</param>
+    internal sealed class FakeRag(
+        IReadOnlyList<GeekCrawlerRagHostIndex>? hosts = null,
+        Func<Guid, string?, GeekCrawlerRagQueryResult?>? query = null) : IGeekCrawlerRagClient
     {
         public bool IsEnabled => true;
         public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
@@ -83,7 +87,7 @@ public class GccCompetitorAnalysisResolverTests
             IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
             IReadOnlyDictionary<string, string>? anchorToolLookup = null,
             CancellationToken ct = default) =>
-            Task.FromResult<GeekCrawlerRagQueryResult?>(null);
+            Task.FromResult(query?.Invoke(runId, crawlType));
         public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
             IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagTemplateIndexResult?>(null);

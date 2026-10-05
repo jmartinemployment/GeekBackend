@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using GeekAPI.Controllers.ContentCreator;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.ContentCreator;
 using GeekApplication.Models.GeekCrawler;
@@ -99,18 +100,24 @@ public class GccProjectsControllerIndexGateTests
     /// Answers the crawler repository with a run good enough to write from, so "indexed" and
     /// "usable" only diverge where a test makes them.
     /// </summary>
-    private sealed class UsableRunHandler : HttpMessageHandler
+    /// <summary>
+    /// A crawl run whose counters all pass, answered for whichever run id is asked for -- so each
+    /// declared URL keeps its own run and a search can be answered per run.
+    /// </summary>
+    internal sealed class UsableRunHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(UsableRunJson, Encoding.UTF8, "application/json"),
+                Content = new StringContent(
+                    UsableRunJson.Replace("RUN_ID", request.RequestUri!.Segments[^1].TrimEnd('/')),
+                    Encoding.UTF8, "application/json"),
             });
 
         private const string UsableRunJson =
             """
-            {"id":"33333333-3333-3333-3333-333333333333","ownerUserId":"operator-1",
+            {"id":"RUN_ID","ownerUserId":"operator-1",
              "crawlType":"partner","status":"complete","seedUrlsJson":"[]","seedKey":null,
              "hostProgressJson":null,"errorSummary":null,"createdAtUtc":"2026-09-01T00:00:00Z",
              "startedAtUtc":"2026-09-01T00:00:00Z","completedAtUtc":"2026-09-01T01:00:00Z",
@@ -120,8 +127,21 @@ public class GccProjectsControllerIndexGateTests
             """;
     }
 
+    /// <summary>A search that returns a page: the run holds chunks.</summary>
+    internal static GeekCrawlerRagQueryResult Holds(Guid runId) =>
+        new() { RunId = runId, Pages = [new GccQuoteablePage("https://found.test/page", "Found", [], ["Text."])] };
+
+    /// <summary>A search that returns nothing: "No chunks for runId".</summary>
+    internal static GeekCrawlerRagQueryResult HoldsNothing(Guid runId) =>
+        new() { RunId = runId, Pages = [], Warning = $"No chunks for runId={runId}; notify-and-skip research", Retrieval = "empty" };
+
     private static (GccProjectsController Controller, RecordingHandler Repo) Build(
-        params GeekCrawlerRagHostIndex[] rows)
+        params GeekCrawlerRagHostIndex[] rows) =>
+        Build(rows, (runId, _) => Holds(runId));
+
+    private static (GccProjectsController Controller, RecordingHandler Repo) Build(
+        GeekCrawlerRagHostIndex[] rows,
+        Func<Guid, string?, GeekCrawlerRagQueryResult?> search)
     {
         var handler = new RecordingHandler();
         var repo = new HttpGccRepository(
@@ -136,8 +156,10 @@ public class GccProjectsControllerIndexGateTests
             repo,
             // The index fake already written for GccCompetitorAnalysisResolverTests -- one
             // implementation of IGeekCrawlerRagClient for the suite, not a second that can drift.
-            new GccCompetitorAnalysisResolverTests.FakeRag(rows),
-            crawlerRepo,
+            new GccDeclaredUrlValidator(
+                new GccCompetitorAnalysisResolverTests.FakeRag(rows, search),
+                crawlerRepo,
+                NullLogger<GccDeclaredUrlValidator>.Instance),
             // Profile save reaches neither the generate runner nor the must-mention builder.
             null!,
             null!,
@@ -318,6 +340,80 @@ public class GccProjectsControllerIndexGateTests
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains("could not be reached", BodyOf(result), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    /// <summary>
+    /// 2026-10-04: a competitor's crawl passed every counter at save, and Generate found "No chunks"
+    /// for its run and wrote without it. The counters say what the crawl recorded writing; only a
+    /// search says what the index holds.
+    /// </summary>
+    [Fact]
+    public async Task ACompetitorWhoseRunTheIndexHoldsNothingForIsRefusedAndNamed()
+    {
+        var rows = AllIndexed;
+        var emptyRun = Guid.Parse(rows.Single(r => r.Url == Competitor).RunId!);
+        var (controller, repo) = Build(rows, (runId, _) => runId == emptyRun ? HoldsNothing(runId) : Holds(runId));
+
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains(Competitor, BodyOf(result), StringComparison.Ordinal);
+        Assert.Contains("the index holds nothing for its crawl", BodyOf(result), StringComparison.Ordinal);
+        Assert.Equal(0, repo.Calls);
+    }
+
+    [Fact]
+    public async Task APartnerOrASiteTheIndexHoldsNothingForIsTreatedTheSame()
+    {
+        var rows = AllIndexed;
+        var emptyPartner = Guid.Parse(rows.Single(r => r.Url == Partner).RunId!);
+        var (partnerController, partnerRepo) = Build(
+            rows, (runId, _) => runId == emptyPartner ? HoldsNothing(runId) : Holds(runId));
+        var emptySite = Guid.Parse(rows.Single(r => r.Url == Site).RunId!);
+        var (siteController, siteRepo) = Build(
+            rows, (runId, _) => runId == emptySite ? HoldsNothing(runId) : Holds(runId));
+
+        var partnerResult = await partnerController.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
+        var siteResult = await siteController.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
+
+        Assert.Contains(Partner, BodyOf(partnerResult), StringComparison.Ordinal);
+        Assert.Contains("The project site URL cannot be written from", BodyOf(siteResult), StringComparison.Ordinal);
+        Assert.Equal(0, partnerRepo.Calls + siteRepo.Calls);
+    }
+
+    [Fact]
+    public async Task EachUrlIsSearchedAsTheCrawlTypeOfItsList()
+    {
+        // Generate filters on the type of the list a URL is declared in, so the check does too: a
+        // competitor indexed as a partner crawl would come back empty for both.
+        var searched = new List<string?>();
+        var (controller, _) = Build(AllIndexed, (runId, crawlType) =>
+        {
+            lock (searched) searched.Add(crawlType);
+            return Holds(runId);
+        });
+
+        await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
+
+        Assert.Equal(1, searched.Count(t => t == CrawlTypes.ProjectSite));
+        Assert.Equal(Partners.Length, searched.Count(t => t == CrawlTypes.Partner));
+        Assert.Equal(Competitors.Length, searched.Count(t => t == CrawlTypes.Competitors));
+    }
+
+    [Fact]
+    public async Task ASearchThatFailsRefusesTheSaveRatherThanJudgingTheUrl()
+    {
+        var (controller, repo) = Build(AllIndexed, (runId, _) => new GeekCrawlerRagQueryResult
+        {
+            RunId = runId, Pages = [], Failed = true, Error = "timeout",
+        });
+
+        var result = await controller.Create(CreateRequest(Partners, Competitors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
+        Assert.Contains("could not be searched", BodyOf(result), StringComparison.Ordinal);
+        Assert.Contains("Nothing was saved", BodyOf(result), StringComparison.Ordinal);
         Assert.Equal(0, repo.Calls);
     }
 

@@ -240,7 +240,8 @@ public sealed class GccProjectGenerateRouteTests
         var mustMention = new GccMustMentionBlockBuilder(
             new GccProjectSiteStructureReader(new NoPages()), NullLogger<GccMustMentionBlockBuilder>.Instance);
         var controller = new ApiProjectsController(
-            http, null!, null!, runner, mustMention, NullLogger<ApiProjectsController>.Instance)
+            // Generate does not validate declared URLs -- that is done when they are entered.
+            http, null!, runner, mustMention, NullLogger<ApiProjectsController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
