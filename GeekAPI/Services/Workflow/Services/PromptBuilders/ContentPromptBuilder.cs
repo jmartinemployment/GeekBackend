@@ -691,6 +691,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// preference.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Money is stated in US dollars or not at all (Jeff, 2026-10-05: "Any time a currency is listed
+    /// needs to be in USD"). A tool page had stated ApprovalMax's prices in Australian dollars, because
+    /// that is how the crawled page gave them. The guard enforces this
+    /// (<c>GccDraftGuard</c>'s currency check); this tells the writer before it writes.
+    /// </summary>
+    internal const string CurrencyInstruction =
+        "MONEY IS IN US DOLLARS ONLY: state a price or any amount of money only in US dollars, written " +
+        "with a $ sign. When the evidence gives an amount in another currency (AUD, A$, GBP, £, EUR, € " +
+        "and so on), do not state that amount at all -- never convert it, and never keep the number and " +
+        "drop the currency. Say the vendor publishes its pricing and leave the figure out.";
+
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
         "would sit unchanged on a page about a different product, industry or keyword, it is the " +
@@ -1794,6 +1806,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. ")
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch, but MUST be explicitly labeled hypothetical/illustrative. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
+            .AppendLine(CurrencyInstruction)
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
@@ -2313,6 +2326,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 ? $"Write {blogBatch.Count} of this post's sections in this response. The word aim above is the "
                   + "whole post's, across every call; yours is the per-section range."
                 : string.Empty)
+            .AppendLine(CurrencyInstruction)
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
@@ -2701,6 +2715,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                   + "them, and do not write a conclusion for the page:" + Environment.NewLine
                   + RenderOutline(fullOutline)
                 : string.Empty)
+            .AppendLine(CurrencyInstruction)
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(SeoBodyInstruction(
@@ -2871,6 +2886,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"tighten it into {context.PublisherName}'s ({context.ImplementerPositioning}) voice, but never change " +
                 "its factual content, add a claim not in the answer given, or drop the substance to shorten it.")
             .AppendLine("Use every question provided, in the order given, none invented and none skipped.")
+            .AppendLine(CurrencyInstruction)
             .ToString();
 
         var user = new StringBuilder()

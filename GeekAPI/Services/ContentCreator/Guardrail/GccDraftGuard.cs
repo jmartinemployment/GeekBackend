@@ -161,6 +161,7 @@ public static partial class GccDraftGuard
 
         AddLinkFindings(document, inputs, findings);
         AddNumberFindings(document, inputs, findings);
+        AddCurrencyFindings(document, inputs, findings);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
     }
@@ -217,6 +218,7 @@ public static partial class GccDraftGuard
 
         AddLinkFindings(document, inputs, findings);
         AddNumberFindings(document, inputs, findings);
+        AddCurrencyFindings(document, inputs, findings);
 
         var missing = GccRequiredToolMentions.Missing(document, inputs.RequiredTools);
         if (missing.Count > 0)
@@ -314,6 +316,51 @@ public static partial class GccDraftGuard
             $"The last attempt stated figures that are in none of the evidence you were given: {named}. A "
             + "number may appear only if it is in the evidence. Remove each one or replace it with the figure "
             + "the evidence actually gives; never estimate, round or convert."));
+    }
+
+    /// <summary>
+    /// Money is in US dollars or it is not on the page (<see cref="GccCurrencyGrammar"/>). Refused: an
+    /// amount written in another currency; and a dollar amount the evidence gives only in another
+    /// currency -- the foreign price with its currency dropped, which reads as US dollars and is not.
+    /// </summary>
+    private static void AddCurrencyFindings(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
+    {
+        var evidence = GccCurrencyGrammar.Find(inputs.NumberEvidence);
+        var inDollars = evidence.Where(m => m.IsUsd || m.IsBareDollar).Select(m => m.Value).ToHashSet(StringComparer.Ordinal);
+        var foreignOnly = evidence
+            .Where(m => m.IsForeign && !inDollars.Contains(m.Value))
+            .GroupBy(m => m.Value, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Currency, StringComparer.Ordinal);
+
+        var wrong = new List<string>();
+        foreach (var (text, _) in Paragraphs(document))
+        {
+            foreach (var money in GccCurrencyGrammar.Find(text))
+            {
+                if (money.IsForeign)
+                {
+                    wrong.Add($"{money.Written} ({money.Currency}) in \"{SentenceAround(text, money.Index)}\"");
+                }
+                else if (foreignOnly.TryGetValue(money.Value, out var currency))
+                {
+                    wrong.Add(
+                        $"{money.Written} in \"{SentenceAround(text, money.Index)}\" -- the evidence gives that "
+                        + $"amount in {currency}, not US dollars");
+                }
+            }
+        }
+
+        if (wrong.Count == 0) return;
+
+        var named = string.Join("; ", wrong.Distinct(StringComparer.Ordinal).Take(6));
+        into.Add(new GccGuardFinding(
+            "currency",
+            $"The draft states money that is not in US dollars: {named}. Every amount is in US dollars.",
+            Refuses: true,
+            $"The last attempt stated money that is not in US dollars: {named}. State an amount of money only "
+            + "in US dollars. Where the evidence gives a price only in another currency, do not state the "
+            + "price at all -- never convert it, and never keep the number and drop the currency. Say the "
+            + "vendor publishes its pricing, and leave the figure out."));
     }
 
     private static void AddClosingFinding(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
