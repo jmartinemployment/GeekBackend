@@ -24,7 +24,7 @@ public sealed class GccBriefBackfillReportTests
     {
         var options = Options();
         var project = await AddProject(options, "Accounts Payable");
-        var older = await AddCreate(options, project, "AP: Old", Day, brief: "{}");
+        var older = await AddCreate(options, project, "AP: Approvals", Day, brief: "{}");
         var newer = await AddCreate(options, project, "AP: Approvals", Day.AddDays(3), brief: """{"angle":"x"}""", artifacts: 2);
 
         var report = await Report(options);
@@ -65,6 +65,27 @@ public sealed class GccBriefBackfillReportTests
         var reported = Assert.Single((await Report(options)).Projects);
 
         Assert.Contains(reported.Decisions, d => d.Contains("has no brief, and an older one does"));
+    }
+
+    [Fact]
+    public async Task A_project_whose_creates_carry_different_keywords_needs_a_decision()
+    {
+        var options = Options();
+        var project = await AddProject(options, "Content Backfill Number 2");
+        await AddCreate(options, project, "AP: Data Entry", Day, brief: "{}", artifacts: 5);
+        await AddCreate(options, project, "AP: Approval Workflows", Day.AddDays(1), brief: "{}");
+        var oneKeyword = await AddProject(options, "One keyword");
+        await AddCreate(options, oneKeyword, "AP: Payments", Day, brief: "{}");
+        await AddCreate(options, oneKeyword, "ap: payments ", Day.AddDays(1), brief: "{}");
+
+        var report = await Report(options);
+
+        var mixed = report.Projects.Single(p => p.ProjectName == "Content Backfill Number 2");
+        var decision = Assert.Single(mixed.Decisions);
+        Assert.StartsWith("Its creates carry 2 different keywords", decision);
+        Assert.Contains("\"AP: Data Entry\" (5 drafts)", decision);
+        Assert.Contains("would make it \"AP: Approval Workflows\"", decision);
+        Assert.Empty(report.Projects.Single(p => p.ProjectName == "One keyword").Decisions);
     }
 
     [Fact]

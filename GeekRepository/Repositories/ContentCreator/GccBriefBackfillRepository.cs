@@ -62,6 +62,21 @@ public class GccBriefBackfillRepository : IGccBriefBackfillRepository
                     + "one does. The rule takes the newest, which would leave the project with no brief.");
             }
 
+            // A project is one keyword. Found in production on 2026-10-05: a project whose newest create
+            // is one keyword and whose drafts all sit under an older create with another.
+            var keywords = ordered
+                .Select(c => c.Topic.Trim())
+                .Where(t => t.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (keywords.Count > 1)
+            {
+                decisions.Add(
+                    $"Its creates carry {keywords.Count} different keywords: "
+                    + string.Join("; ", keywords.Select(k => $"\"{k}\" ({ordered.Where(c => string.Equals(c.Topic.Trim(), k, StringComparison.OrdinalIgnoreCase)).Sum(c => Artifacts(c.Id))} drafts)"))
+                    + $". A project is one keyword, and the rule would make it \"{newest.Topic}\".");
+            }
+
             if (project.DeletedAtUtc is not null)
                 decisions.Add("The project is deleted. Its creates and their drafts still exist.");
 
