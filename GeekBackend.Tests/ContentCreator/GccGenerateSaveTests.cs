@@ -100,6 +100,40 @@ public sealed class GccGenerateSaveTests
         Assert.Contains("the project no longer exists", failure.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Before a run writes a word, the project's pages of the requested types are deleted (Jeff,
+    /// 2026-10-06: "delete should happen first"), so a refused run leaves no old page to be read as new.
+    /// </summary>
+    [Fact]
+    public async Task A_run_deletes_the_projects_pages_of_the_requested_types_before_it_writes()
+    {
+        var repository = new Repository(saved: true);
+
+        var deleted = await GccGenerationCoordinator.DeleteOldPagesAsync(
+            Repo(repository), Create(ProjectId), ["pillar", "tool", "email-cold-outreach"], CancellationToken.None);
+
+        var call = Assert.Single(repository.Calls);
+        Assert.Equal($"/repo/content-creator/projects/{ProjectId}/pages", call.Path);
+        Assert.Equal("type=pillar&type=tool&type=email-cold-outreach", call.Query);
+        Assert.Equal((3, 1), (deleted.Pages, deleted.DerivedPages));
+    }
+
+    [Fact]
+    public async Task A_run_on_a_project_that_is_gone_is_refused_before_a_model_call()
+    {
+        var repository = new Repository(saved: true, projectExists: false);
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            GccGenerationCoordinator.DeleteOldPagesAsync(
+                Repo(repository), Create(ProjectId), ["pillar"], CancellationToken.None));
+        var noProject = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            GccGenerationCoordinator.DeleteOldPagesAsync(
+                Repo(repository), Create(projectId: null), ["pillar"], CancellationToken.None));
+
+        Assert.Contains("no longer exists", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(GccGenerationCoordinator.NoProjectRefusal, noProject.Message);
+    }
+
     [Fact]
     public async Task A_run_that_wrote_nothing_saves_nothing_and_asks_for_nothing()
     {
@@ -134,16 +168,28 @@ public sealed class GccGenerateSaveTests
         CreateId, Guid.NewGuid(), Guid.NewGuid(), "pillar", "AP: Approvals", null, null, null, null, null,
         "draft", DateTime.UtcNow, DateTime.UtcNow, "marketing", projectId);
 
-    /// <summary>GeekRepository's page-save route: saves what it is sent, refuses it, or has no such project.</summary>
+    /// <summary>
+    /// GeekRepository's page routes: the save saves what it is sent or refuses it; the delete reports
+    /// three pages and one derived page gone; neither exists for a project that does not.
+    /// </summary>
     private sealed class Repository(bool saved, bool projectExists = true) : HttpMessageHandler
     {
-        public List<(string Path, string Body)> Calls { get; } = [];
+        public List<(string Path, string Query, string Body)> Calls { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(ct);
-            Calls.Add((request.RequestUri!.AbsolutePath, body));
+            Calls.Add((request.RequestUri!.AbsolutePath, request.RequestUri.Query.TrimStart('?'), body));
             if (!projectExists) return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            if (request.Method == HttpMethod.Delete)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        JsonSerializer.Serialize(new GccPagesDeleteResult(false, 3, 1), Web), Encoding.UTF8, "application/json"),
+                };
+            }
 
             GccGeneratedPiecesSaveResult result;
             if (saved)

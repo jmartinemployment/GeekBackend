@@ -29,4 +29,19 @@ public class GccProjectPagesController : ControllerBase
         var result = await _pages.SaveGeneratedAsync(projectId, command, ct);
         return result.ProjectNotFound ? NotFound() : Ok(result);
     }
+
+    /// <summary>
+    /// The project's pages of the named types, deleted with their content. What a Generate does first.
+    /// No types is a bad request, not a delete of everything.
+    /// </summary>
+    [HttpDelete("pages")]
+    public async Task<ActionResult<GccPagesDeleteResult>> DeletePages(
+        Guid projectId, [FromQuery(Name = "type")] string[] types, CancellationToken ct)
+    {
+        if (types is null || types.Length == 0 || types.All(string.IsNullOrWhiteSpace))
+            return BadRequest("Name the types of page to delete; nothing is deleted without them.");
+
+        var result = await _pages.DeletePagesAsync(projectId, types, ct);
+        return result.ProjectNotFound ? NotFound() : Ok(result);
+    }
 }

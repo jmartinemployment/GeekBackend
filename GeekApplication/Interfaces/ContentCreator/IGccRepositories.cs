@@ -53,6 +53,13 @@ public interface IGccProjectPageRepository
     /// </summary>
     Task<GccGeneratedPiecesSaveResult> SaveGeneratedAsync(
         Guid projectId, SaveGccGeneratedPiecesCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// Delete the project's pages of the given types, with their content and the pages derived from
+    /// them. A Generate calls this first (Jeff, 2026-10-06: "delete should happen first"), so a run that
+    /// is refused leaves no old page behind to be read as the new one.
+    /// </summary>
+    Task<GccPagesDeleteResult> DeletePagesAsync(Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default);
 }
 
 public interface IGccArtifactVersionRepository

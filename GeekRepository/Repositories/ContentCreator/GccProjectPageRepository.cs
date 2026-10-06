@@ -156,6 +156,56 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                 s.NewPage))]);
     }
 
+    /// <summary>
+    /// The project's pages of these types go, with their content and whatever was derived from them.
+    /// </summary>
+    /// <remarks>
+    /// A Generate calls this before it writes anything (Jeff, 2026-10-06: "delete should happen first").
+    /// The 8:26 run that morning was refused on its pillar and saved nothing, and the page then showed
+    /// the previous afternoon's pillar as if it were the run's -- it was read as new, its faults were
+    /// taken for the run's, and the fixes that had shipped between the two looked as if they had not.
+    /// An old page left in place is a middle state; no page, with a failed job that says why, is not.
+    /// </remarks>
+    public async Task<GccPagesDeleteResult> DeletePagesAsync(
+        Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default)
+    {
+        if (!await _db.GccProjects.AnyAsync(p => p.Id == projectId, ct))
+            return GccPagesDeleteResult.Missing();
+
+        var wanted = types
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (wanted.Count == 0) return new GccPagesDeleteResult(false, 0, 0);
+
+        var all = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
+        var pages = all.Where(a => a.ParentArtifactId == null && wanted.Contains(a.Type.Trim())).ToList();
+        if (pages.Count == 0) return new GccPagesDeleteResult(false, 0, 0);
+
+        // A page derived from a deleted one has nothing to derive from, so it goes too -- and anything
+        // derived from that, until nothing more hangs off the set.
+        var going = pages.Select(a => a.Id).ToHashSet();
+        var derived = new List<GccArtifact>();
+        var grew = true;
+        while (grew)
+        {
+            grew = false;
+            foreach (var child in all.Where(a => a.ParentArtifactId is Guid parent && going.Contains(parent) && !going.Contains(a.Id)))
+            {
+                going.Add(child.Id);
+                derived.Add(child);
+                grew = true;
+            }
+        }
+
+        foreach (var id in going) await GccArtifactVersionRepository.RemoveContentAsync(_db, id, ct);
+        _db.GccArtifacts.RemoveRange(pages);
+        _db.GccArtifacts.RemoveRange(derived);
+        await _db.SaveChangesAsync(ct);
+
+        return new GccPagesDeleteResult(false, pages.Count, derived.Count);
+    }
+
     // The unit separator cannot occur in a type or a name, so two different pages never share a key.
     private static string PageKey(GccGeneratedPiece piece) => $"{piece.Type.Trim()}\u001f{piece.Name.Trim()}";
 

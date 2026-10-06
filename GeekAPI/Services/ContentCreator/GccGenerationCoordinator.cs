@@ -215,6 +215,14 @@ public sealed class GccGenerationCoordinator
         // Decided here, where it costs nothing, rather than at the save, where it would cost the run.
         if (create.ProjectId is null) throw new InvalidOperationException(NoProjectRefusal);
 
+        // The old pages of every requested type go now, before a word is written (Jeff, 2026-10-06:
+        // "delete should happen first"). A run that is then refused leaves the project with no page of
+        // that type and a failed job that says why -- not the previous run's page, read as this one's.
+        var deleted = await DeleteOldPagesAsync(repo, create, requested, ct);
+        _logger.LogInformation(
+            "Generate on project {ProjectId} deleted {Pages} page(s) and {Derived} derived page(s) of {Types} before writing",
+            create.ProjectId, deleted.Pages, deleted.DerivedPages, string.Join(", ", requested));
+
         // Recorded as well as pushed. A hub event is live-only: an operator who reloads or reconnects
         // after the push would have no way back to the pre-flight, which is the same shape of loss as
         // a refusal that only ever reached a log. The job result carries it instead.
@@ -816,6 +824,25 @@ public sealed class GccGenerationCoordinator
         }
 
         return produced;
+    }
+
+    /// <summary>
+    /// The project's pages of every requested type, deleted before the run writes anything.
+    /// </summary>
+    /// <remarks>
+    /// Jeff, 2026-10-06: "delete should happen first". Pieces are saved under the requested type's own
+    /// string, so the types requested are the types deleted. A project that is gone fails the run here,
+    /// before a model call; a repository that cannot be reached does the same.
+    /// </remarks>
+    internal static async Task<GccPagesDeleteResult> DeleteOldPagesAsync(
+        HttpGccRepository repo, GccCreateDto create, IReadOnlyList<string> requestedTypes, CancellationToken ct)
+    {
+        if (create.ProjectId is not Guid projectId) throw new InvalidOperationException(NoProjectRefusal);
+        if (requestedTypes.Count == 0) return new GccPagesDeleteResult(false, 0, 0);
+
+        return await repo.DeleteProjectPagesAsync(projectId, requestedTypes, ct)
+            ?? throw new InvalidOperationException(
+                $"Refused: project {projectId} no longer exists, so there is nowhere to write to. Nothing was generated.");
     }
 
     /// <summary>What a run on a create with no project is told, before anything is written or spent.</summary>

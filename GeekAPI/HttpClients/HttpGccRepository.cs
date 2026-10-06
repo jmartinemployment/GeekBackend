@@ -431,9 +431,25 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     }
 
     /// <summary>
-    /// Save every piece of one Generate to the project's pages, in one write: a new version of the
-    /// page that exists, a new page where none does. Null when the project does not exist; a refusal
-    /// is carried in the result and means nothing was written.
+    /// Delete the project's pages of these types, with their content and the pages derived from them.
+    /// What a Generate does before it writes anything. Null when the project does not exist.
+    /// </summary>
+    public async Task<GccPagesDeleteResult?> DeleteProjectPagesAsync(
+        Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default)
+    {
+        var query = string.Join("&", types.Select(t => $"type={Uri.EscapeDataString(t.Trim())}"));
+        var path = $"repo/content-creator/projects/{projectId}/pages?{query}";
+        var res = await _http.DeleteAsync(path, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccPagesDeleteResult>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    /// <summary>
+    /// Save every piece of one Generate to the project's pages, in one write: the content of the page
+    /// that exists is replaced, a new page is created where none does. Null when the project does not
+    /// exist; a refusal is carried in the result and means nothing was written.
     /// </summary>
     public async Task<GccGeneratedPiecesSaveResult?> SaveGeneratedPiecesAsync(
         Guid projectId, SaveGccGeneratedPiecesCommand command, CancellationToken ct = default)

@@ -279,6 +279,51 @@ public sealed class GccProjectPageRepositoryTests
         Assert.Equal(["afternoon", "blog", "morning", "pillar"], (await read.GccArtifactVersions.Select(v => v.BodyJson).ToListAsync()).Order());
     }
 
+    /// <summary>
+    /// What a Generate does first (Jeff, 2026-10-06: "delete should happen first"): the pages of the types
+    /// it will write go, with their content and what derived from them, and nothing else does.
+    /// </summary>
+    [Fact]
+    public async Task Deleting_the_pages_of_some_types_removes_them_their_content_and_what_derived_from_them_and_nothing_else()
+    {
+        var (options, projectId, createId) = await Seed();
+        Guid pillar, ramp, social, blog, loose;
+        await using (var seed = new ContentCreatorDbContext(options))
+        {
+            var p = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "pillar", Name = "AP: Approvals", Status = "approved", CreatedAtUtc = Morning };
+            var r = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "Tool", Name = "Ramp", CreatedAtUtc = Morning };
+            var s = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "social", Name = "From the pillar", ParentArtifactId = p.Id, CreatedAtUtc = Morning };
+            var b = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "blog", Name = "AP: Approvals", CreatedAtUtc = Morning };
+            var theirs = Create(Guid.NewGuid());
+            var l = new GccArtifact { ProjectId = theirs.ProjectId, CreateId = theirs.Id, Type = "pillar", Name = "Theirs", CreatedAtUtc = Morning };
+            (pillar, ramp, social, blog, loose) = (p.Id, r.Id, s.Id, b.Id, l.Id);
+            var pv = Version(p, Morning, "pillar");
+            seed.AddRange(
+                p, r, s, b, theirs, l,
+                pv, Version(r, Morning, "ramp"), Version(s, Morning, "social"), Version(b, Morning, "blog"), Version(l, Morning, "theirs"),
+                new GccVersionEvidence { VersionId = pv.Id, ProjectId = projectId, Provider = "OpenAi" },
+                new GccApprovalEvent { ArtifactVersionId = pv.Id, UserId = Owner });
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = new ContentCreatorDbContext(options);
+        var repo = new GccProjectPageRepository(db);
+        var nothing = await repo.DeletePagesAsync(projectId, []);
+        var result = await repo.DeletePagesAsync(projectId, ["pillar", " tool "]);
+        var missing = await repo.DeletePagesAsync(Guid.NewGuid(), ["pillar"]);
+
+        Assert.Equal((0, 0), (nothing.Pages, nothing.DerivedPages));
+        Assert.Equal((2, 1), (result.Pages, result.DerivedPages));
+        Assert.True(missing.ProjectNotFound);
+        await using var read = new ContentCreatorDbContext(options);
+        // The blog and the other project's pillar stand; the pillar, Ramp and the social post are gone whole.
+        Assert.Equal(new[] { blog, loose }.Order(), (await read.GccArtifacts.Select(a => a.Id).ToListAsync()).Order());
+        Assert.Equal(["blog", "theirs"], (await read.GccArtifactVersions.Select(v => v.BodyJson).ToListAsync()).Order());
+        Assert.Empty(await read.GccVersionEvidence.ToListAsync());
+        Assert.Empty(await read.GccApprovalEvents.ToListAsync());
+        Assert.DoesNotContain(await read.GccArtifacts.ToListAsync(), a => a.Id == pillar || a.Id == ramp || a.Id == social);
+    }
+
     [Fact]
     public async Task The_projects_draft_list_says_when_each_page_was_last_written_and_lists_the_newest_first()
     {

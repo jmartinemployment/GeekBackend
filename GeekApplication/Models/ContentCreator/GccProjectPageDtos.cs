@@ -19,6 +19,14 @@ public sealed record SaveGccGeneratedPiecesCommand(Guid CreateId, IReadOnlyList<
 /// the run replaced the page's content.</param>
 public sealed record GccSavedPieceDto(GccArtifactDto Artifact, GccArtifactVersionDto Version, bool NewPage);
 
+/// <summary>What deleting a project's pages of some types removed.</summary>
+/// <param name="Pages">Pages of the named types that were deleted, with their content.</param>
+/// <param name="DerivedPages">Pages derived from one of those -- a social post cut from the pillar -- deleted with it.</param>
+public sealed record GccPagesDeleteResult(bool ProjectNotFound, int Pages, int DerivedPages)
+{
+    public static GccPagesDeleteResult Missing() => new(true, 0, 0);
+}
+
 /// <summary>A run's pieces saved, or why none of them was. Nothing is written on a refusal.</summary>
 public sealed record GccGeneratedPiecesSaveResult(
     IReadOnlyList<GccSavedPieceDto>? Saved, bool ProjectNotFound, string? Refusal)
