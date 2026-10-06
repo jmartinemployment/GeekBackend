@@ -98,6 +98,21 @@ public class GccProjectsController : ControllerBase
     /// the first is internal while drafts are keyed by create, the second is not the page's to show.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A run's record, in order: what it was grounded on, every model call with what was sent and what
+    /// came back, every verdict with the draft it judged, every batch, every outcome, and how it ended.
+    /// What to read when a run is refused. 404 when the run is not this project's.
+    /// </summary>
+    [HttpGet("{id:guid}/generate/{jobId:guid}/events")]
+    public async Task<IActionResult> GenerateEvents(Guid id, Guid jobId, CancellationToken ct)
+    {
+        var job = await _repo.GetGenerateJobAsync(jobId, ct);
+        if (job is null || job.ProjectId != id) return NotFound();
+
+        var events = await _repo.ListGenerateJobEventsAsync(jobId, ct);
+        return events is null ? NotFound() : Ok(new { jobId, job.Status, job.Error, events });
+    }
+
     [HttpGet("{id:guid}/generate/latest")]
     public async Task<IActionResult> LatestGenerate(Guid id, CancellationToken ct)
     {

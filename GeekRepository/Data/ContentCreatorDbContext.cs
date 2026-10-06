@@ -22,6 +22,7 @@ public class ContentCreatorDbContext : DbContext
     public virtual DbSet<GccProjectLogEntry> GccProjectLog => Set<GccProjectLogEntry>();
     public virtual DbSet<GccProjectRevision> GccProjectRevisions => Set<GccProjectRevision>();
     public virtual DbSet<GccGenerateJob> GccGenerateJobs => Set<GccGenerateJob>();
+    public virtual DbSet<GccGenerateJobEvent> GccGenerateJobEvents => Set<GccGenerateJobEvent>();
     public virtual DbSet<GccVersionEvidence> GccVersionEvidence => Set<GccVersionEvidence>();
     public virtual DbSet<GccTask> GccTasks => Set<GccTask>();
     public virtual DbSet<GccTimeEntry> GccTimeEntries => Set<GccTimeEntry>();
@@ -427,6 +428,25 @@ public class ContentCreatorDbContext : DbContext
             entity.HasOne<GccCreate>().WithMany().HasForeignKey(j => j.CreateId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<GccProjectRevision>().WithMany().HasForeignKey(j => j.BriefRevisionId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GccGenerateJobEvent>(entity =>
+        {
+            entity.ToTable("gcc_generate_job_events");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+            entity.Property(e => e.JobId).HasColumnName("job_id").IsRequired();
+            entity.Property(e => e.Seq).HasColumnName("seq").IsRequired();
+            entity.Property(e => e.AtUtc).HasColumnName("at").IsRequired();
+            entity.Property(e => e.Kind).HasColumnName("kind").IsRequired().HasMaxLength(32);
+            entity.Property(e => e.Piece).HasColumnName("piece").HasMaxLength(128);
+            entity.Property(e => e.PayloadJson).HasColumnName("payload_json").IsRequired().HasColumnType("text");
+
+            // Read in order, per run; and one place per event in its run.
+            entity.HasIndex(e => new { e.JobId, e.Seq }).IsUnique().HasDatabaseName("ux_gcc_generate_job_events_job_id_seq");
+
+            // RESTRICT like every content_creator key.
+            entity.HasOne<GccGenerateJob>().WithMany().HasForeignKey(e => e.JobId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<GccTask>(entity =>

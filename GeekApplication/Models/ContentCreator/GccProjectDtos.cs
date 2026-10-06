@@ -493,6 +493,30 @@ public sealed record GccGenerateJobDto(
     DateTime StartedAtUtc,
     DateTime? FinishedAtUtc);
 
+/// <summary>
+/// One thing that happened in a Generate run, as it happened: what the run was grounded on, each model
+/// call with what was sent and what came back, each guard verdict with the draft it judged, each batch
+/// shortfall, each piece's outcome, and how the run ended. Written as the run goes, so a run a redeploy
+/// cuts off still has its record; never altered.
+/// </summary>
+/// <param name="Seq">The event's place in its run, from 1.</param>
+/// <param name="Kind">grounding | call | verdict | shortfall | outcome | failure | completed.</param>
+/// <param name="Piece">Which piece it concerns -- "pillar", "tool: Ramp", "blog" -- or null for the run.</param>
+/// <param name="PayloadJson">The event's content, as JSON; the shape depends on <paramref name="Kind"/>.</param>
+public sealed record GccGenerateJobEventDto(
+    long Id,
+    Guid JobId,
+    int Seq,
+    DateTime AtUtc,
+    string Kind,
+    string? Piece,
+    string PayloadJson);
+
+/// <summary>An event to append to a run's record. The repository assigns its place and its time.</summary>
+public sealed record GccGenerateJobEventWrite(string Kind, string? Piece, string PayloadJson);
+
+public sealed record AppendGccGenerateJobEventsCommand(IReadOnlyList<GccGenerateJobEventWrite> Events);
+
 /// <param name="Id">Minted by GeekAPI, which hands it to the caller and the hub.</param>
 /// <param name="CreateId">The project's backing create as GeekAPI read it, or null to mint one.</param>
 /// <param name="ExpectedBriefVersion">The brief version GeekAPI read and validated. A Save landing after

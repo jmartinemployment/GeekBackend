@@ -254,6 +254,16 @@ public interface IGccGenerateJobRepository
     Task<GccCreateDto?> GetBackingCreateAsync(Guid projectId, CancellationToken ct = default);
 
     /// <summary>
+    /// Append to a run's record (<see cref="GccGenerateJobEventDto"/>). Null when the job does not exist.
+    /// Each event takes the next place in the run and the time it was written.
+    /// </summary>
+    Task<IReadOnlyList<GccGenerateJobEventDto>?> AppendEventsAsync(
+        Guid jobId, IReadOnlyList<GccGenerateJobEventWrite> events, CancellationToken ct = default);
+
+    /// <summary>A run's record, in order. Null when the job does not exist; empty when nothing was recorded.</summary>
+    Task<IReadOnlyList<GccGenerateJobEventDto>?> ListEventsAsync(Guid jobId, CancellationToken ct = default);
+
+    /// <summary>
     /// Start a run: record it as running, with the newest brief revision, under the given create or a
     /// create minted for the project when none is given. Refused, writing nothing, when the project is
     /// missing, its brief has moved past <c>ExpectedBriefVersion</c>, its brief was never saved, or a

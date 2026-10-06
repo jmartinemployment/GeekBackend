@@ -80,6 +80,33 @@ public class GccGenerateJobsController : ControllerBase
         return job is null ? NotFound() : Ok(job);
     }
 
+    /// <summary>
+    /// Append to a run's record: what it was grounded on, each model call, each verdict, each outcome,
+    /// how it ended. Written as the run goes, by GeekAPI. Kinds and payloads are GeekAPI's; this stores
+    /// them in order and never alters one.
+    /// </summary>
+    [HttpPost("{id:guid}/events")]
+    public async Task<ActionResult<IReadOnlyList<GccGenerateJobEventDto>>> AppendEvents(
+        Guid id,
+        [FromBody] AppendGccGenerateJobEventsCommand command,
+        CancellationToken ct)
+    {
+        if (command?.Events is null) return BadRequest("events are required.");
+        var bad = command.Events.FirstOrDefault(e => string.IsNullOrWhiteSpace(e.Kind));
+        if (bad is not null) return BadRequest("Every event names its kind.");
+
+        var written = await _jobs.AppendEventsAsync(id, command.Events, ct);
+        return written is null ? NotFound() : Ok(written);
+    }
+
+    /// <summary>A run's record, in order.</summary>
+    [HttpGet("{id:guid}/events")]
+    public async Task<ActionResult<IReadOnlyList<GccGenerateJobEventDto>>> ListEvents(Guid id, CancellationToken ct)
+    {
+        var events = await _jobs.ListEventsAsync(id, ct);
+        return events is null ? NotFound() : Ok(events);
+    }
+
     /// <summary>Called once by GeekAPI at startup. Returns how many running jobs it failed.</summary>
     [HttpPost("fail-interrupted")]
     public async Task<ActionResult<int>> FailInterrupted(

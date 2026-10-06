@@ -94,6 +94,23 @@ public sealed class GccGenerateJobRunner
             var gen = scope.ServiceProvider.GetRequiredService<GccGenerateService>();
             var coordinator = scope.ServiceProvider.GetRequiredService<GccGenerationCoordinator>();
 
+            // The run's record, written to the job row's events as the run goes (GccRunLog). Only a
+            // run that has a row can have a record; the create-keyed path has none.
+            if (row is not null)
+            {
+                var sinkRepo = repo;
+                var log = GccRunLog.Begin(jobId, (events, ct) => sinkRepo.AppendGenerateJobEventsAsync(jobId, events, ct), _logger);
+                await log.RecordAsync("started", new
+                {
+                    projectId = row.ProjectId,
+                    createId = create.Id,
+                    provider = provider.ToString(),
+                    requestedTypes = outputTypes ?? [],
+                    briefRevisionId = row.BriefRevisionId,
+                    topic = create.Topic,
+                });
+            }
+
             // CancellationToken.None deliberately. The request's token is cancelled as soon as the
             // 202 returns, so passing it here would abort generation instantly and leave a job
             // stuck "running" with nothing to show for it -- the silent-failure shape this whole
@@ -110,6 +127,15 @@ public sealed class GccGenerateJobRunner
                 briefRevision: briefRevision);
 
             _jobs.Complete(jobId, result);
+            if (GccRunLog.Current is { } completed)
+            {
+                await completed.RecordAsync("completed", new
+                {
+                    elapsedMs = completed.ElapsedMs,
+                    events = completed.Events + 1,
+                    recordingFailures = completed.RecordingFailures,
+                });
+            }
             if (row is not null)
                 await RecordAsync(jobId, () => repo.CompleteGenerateJobAsync(jobId, _jobs.Get(jobId)!.ResultJson ?? "null"));
             await PushJobAsync(jobId);
@@ -120,6 +146,16 @@ public sealed class GccGenerateJobRunner
             // how a total extraction outage read as a partner-data shortage for two hours.
             _logger.LogError(ex, "Generate job {JobId} failed for create {CreateId}", jobId, create.Id);
             var error = $"{ex.GetType().Name}: {ex.Message}";
+            if (GccRunLog.Current is { } failed)
+            {
+                await failed.RecordAsync("failure", new
+                {
+                    error,
+                    elapsedMs = failed.ElapsedMs,
+                    events = failed.Events + 1,
+                    recordingFailures = failed.RecordingFailures,
+                });
+            }
             _jobs.Fail(jobId, error);
             if (row is not null && repo is not null)
                 await RecordAsync(jobId, () => repo.FailGenerateJobAsync(jobId, error));

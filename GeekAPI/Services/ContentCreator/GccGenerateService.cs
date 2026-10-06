@@ -774,6 +774,7 @@ public class GccGenerateService
                 continue;
             }
 
+            using var piece = GccRunLog.ForPiece($"tool: {slice.ProductName}");
             try
             {
                 var body = await GenerateStartingContentAsync(
@@ -1781,8 +1782,16 @@ public class GccGenerateService
         _types.Find(contentType)
         ?? throw new InvalidOperationException($"No prompt set is registered for content type '{contentType}'.");
 
-    private IContentGenerationProvider GetLlm(ContentGeneratorProvider provider) =>
-        _cwProviders.Get(ToLlm(provider));
+    /// <summary>
+    /// The operator's provider -- recording every call into the run's log when a run is being logged
+    /// (<see cref="GccRunLog"/>), so the prompt, the answer, the model and the tokens of every call are on
+    /// record whether the piece is saved or refused.
+    /// </summary>
+    private IContentGenerationProvider GetLlm(ContentGeneratorProvider provider)
+    {
+        var real = _cwProviders.Get(ToLlm(provider));
+        return GccRunLog.Current is null ? real : new GccRecordingProvider(real);
+    }
 
     /// <summary>
     /// The workflow provider for the one the operator chose. Every value is named: this was
@@ -3087,6 +3096,17 @@ public class GccGenerateService
     {
         var draft = await write(null);
         var verdict = guard(draft.Document);
+        // The verdict and the draft it judged, on the run's record -- a refused draft is otherwise text
+        // nobody can read afterwards.
+        await GccRunLog.RecordIfAnyAsync("verdict", new
+        {
+            label,
+            clean = verdict.Clean,
+            words = ContentDocumentText.CountWords(draft.Document),
+            findings = verdict.Findings.Select(f => new { f.Check, f.Detail, f.Refuses }).ToList(),
+            shortfalls = draft.Shortfalls,
+            document = draft.Document,
+        });
         var retried = false;
         if (!verdict.Clean)
         {
@@ -3342,6 +3362,13 @@ public class GccGenerateService
             // hands SeoBodyInstruction (batchIndex == 0).
             var owesKeywordHeading = i == 0;
             var owed = BatchShortfalls(sections, batch, batchLabel, keyword, keywordMentionsOwed, owesKeywordHeading);
+            await GccRunLog.RecordIfAnyAsync("batch", new
+            {
+                batch = batchLabel,
+                words = ContentDocumentText.CountWords(sections),
+                headings = sections.Select(x => x.Heading).ToList(),
+                shortfalls = owed.Select(o => o.Report).ToList(),
+            });
             if (owed.Count > 0)
             {
                 _logger.LogInformation(

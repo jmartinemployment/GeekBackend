@@ -36,6 +36,52 @@ public class GccGenerateJobRepository : IGccGenerateJobRepository
         return job is null ? null : await MapAsync(job, ct);
     }
 
+    public async Task<IReadOnlyList<GccGenerateJobEventDto>?> AppendEventsAsync(
+        Guid jobId, IReadOnlyList<GccGenerateJobEventWrite> events, CancellationToken ct = default)
+    {
+        if (!await _db.GccGenerateJobs.AnyAsync(j => j.Id == jobId, ct)) return null;
+        if (events.Count == 0) return [];
+
+        // The next place in the run. One writer per run -- GeekAPI records its own run's events in
+        // order -- so a read-then-insert is the place; the unique index on (job, seq) is the backstop.
+        var last = await _db.GccGenerateJobEvents
+            .Where(e => e.JobId == jobId)
+            .MaxAsync(e => (int?)e.Seq, ct) ?? 0;
+
+        var now = DateTime.UtcNow;
+        var rows = new List<GccGenerateJobEvent>(events.Count);
+        foreach (var write in events)
+        {
+            rows.Add(new GccGenerateJobEvent
+            {
+                JobId = jobId,
+                Seq = ++last,
+                AtUtc = now,
+                Kind = write.Kind.Trim(),
+                Piece = string.IsNullOrWhiteSpace(write.Piece) ? null : write.Piece.Trim(),
+                PayloadJson = string.IsNullOrWhiteSpace(write.PayloadJson) ? "{}" : write.PayloadJson,
+            });
+        }
+
+        _db.GccGenerateJobEvents.AddRange(rows);
+        await _db.SaveChangesAsync(ct);
+        return [.. rows.Select(ToEventDto)];
+    }
+
+    public async Task<IReadOnlyList<GccGenerateJobEventDto>?> ListEventsAsync(Guid jobId, CancellationToken ct = default)
+    {
+        if (!await _db.GccGenerateJobs.AnyAsync(j => j.Id == jobId, ct)) return null;
+
+        var rows = await _db.GccGenerateJobEvents.AsNoTracking()
+            .Where(e => e.JobId == jobId)
+            .OrderBy(e => e.Seq)
+            .ToListAsync(ct);
+        return [.. rows.Select(ToEventDto)];
+    }
+
+    private static GccGenerateJobEventDto ToEventDto(GccGenerateJobEvent e) =>
+        new(e.Id, e.JobId, e.Seq, e.AtUtc, e.Kind, e.Piece, e.PayloadJson);
+
     public async Task<GccCreateDto?> GetBackingCreateAsync(Guid projectId, CancellationToken ct = default)
     {
         var create = await NewestCreateAsync(projectId, ct);

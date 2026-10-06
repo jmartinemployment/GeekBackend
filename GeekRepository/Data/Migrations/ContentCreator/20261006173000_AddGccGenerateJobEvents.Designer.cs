@@ -3,6 +3,7 @@ using System;
 using GeekRepository.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeekRepository.Data.Migrations.ContentCreator
 {
     [DbContext(typeof(ContentCreatorDbContext))]
-    partial class ContentCreatorDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261006173000_AddGccGenerateJobEvents")]
+    partial class AddGccGenerateJobEvents
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

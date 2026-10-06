@@ -137,6 +137,40 @@ public sealed class GccGenerateJobRepositoryTests
         await AssertNoJobs(options);
     }
 
+    /// <summary>
+    /// A run's record is appended as the run goes and read back in order; a run that does not exist has
+    /// none (Jeff, 2026-10-06: "implement detailed comprehensive logging to properly diagnose errors").
+    /// </summary>
+    [Fact]
+    public async Task A_runs_events_are_appended_in_order_and_read_back_and_a_missing_run_has_none()
+    {
+        var options = Options();
+        var (project, _) = await Seed(options);
+        var job = (await Start(options, project.Id, createId: null)).Job!;
+
+        await using var db = new ContentCreatorDbContext(options);
+        var repo = new GccGenerateJobRepository(db);
+        var first = await repo.AppendEventsAsync(job.Id, [new("started", null, """{"provider":"OpenAi"}""")]);
+        var more = await repo.AppendEventsAsync(job.Id, [
+            new("call", "pillar", """{"model":"m"}"""),
+            new("verdict", " pillar ", """{"clean":false}"""),
+            new("failure", "", ""),
+        ]);
+        var nothing = await repo.AppendEventsAsync(job.Id, []);
+        var missing = await repo.AppendEventsAsync(Guid.NewGuid(), [new("started", null, "{}")]);
+        var read = await repo.ListEventsAsync(job.Id);
+
+        Assert.Equal([1], first!.Select(e => e.Seq));
+        Assert.Equal([2, 3, 4], more!.Select(e => e.Seq));
+        Assert.Empty(nothing!);
+        Assert.Null(missing);
+        Assert.Null(await repo.ListEventsAsync(Guid.NewGuid()));
+        Assert.Equal(["started", "call", "verdict", "failure"], read!.Select(e => e.Kind));
+        Assert.Equal([null, "pillar", "pillar", null], read.Select(e => e.Piece));
+        Assert.Equal("{}", read[3].PayloadJson);
+        Assert.All(read, e => Assert.Equal(job.Id, e.JobId));
+    }
+
     [Fact]
     public async Task A_run_finishes_once()
     {

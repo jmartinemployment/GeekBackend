@@ -306,6 +306,34 @@ public class GccGenerateJob
     public DateTime? FinishedAtUtc { get; set; }
 }
 
+/// <summary>
+/// One thing that happened in a Generate run, as it happened. See <c>GccGenerateJobEventDto</c>.
+/// </summary>
+/// <remarks>
+/// Jeff, 2026-10-06, after three runs that refused with nothing to read but a log line: "implement
+/// detailed comprehensive logging to properly diagnose errors". Written as the run goes, one row per
+/// event, so a run a redeploy cuts off still has its record up to the cut. Never altered. The key is a
+/// bigint identity: events are read in order and never addressed from elsewhere.
+/// </remarks>
+public class GccGenerateJobEvent
+{
+    public long Id { get; set; }
+    public Guid JobId { get; set; }
+
+    /// <summary>The event's place in its run, from 1.</summary>
+    public int Seq { get; set; }
+
+    public DateTime AtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>grounding | call | verdict | shortfall | outcome | failure | completed.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>Which piece it concerns, or null for the run.</summary>
+    public string? Piece { get; set; }
+
+    public string PayloadJson { get; set; } = "{}";
+}
+
 /// <summary>Everything one version was made from. See <c>GccVersionEvidenceDto</c>.</summary>
 /// <remarks>
 /// Keyed to the project as well as the version, so "what was this project's writer given" is one

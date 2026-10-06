@@ -280,9 +280,11 @@ public sealed class GccGenerationCoordinator
             create = resolved.Create;
             var groundingWarnings = new List<string>();
             await RecordGroundingWarningsAsync(resolved.Warnings, groundingWarnings, onTypeWarning);
+            await GccRunLog.RecordIfAnyAsync("grounding", GroundingRecord(resolved), piece: null);
 
             var attempts = await Task.WhenAll(requested.Select(async type =>
             {
+                using var piece = GccRunLog.ForPiece(type);
                 try
                 {
                     if (PartnerEvidenceRefusal(type, resolved.PartnersWithoutPassages) is { } evidenceRefusal)
@@ -290,6 +292,12 @@ public sealed class GccGenerationCoordinator
                     var generated = await GenerateOneAsync(
                         repo, gen, create, section, provider, type, mustMentionBlock,
                         resolved.PartnerPassages, ct, recordReadiness);
+                    await GccRunLog.RecordIfAnyAsync("outcome", new
+                    {
+                        type,
+                        written = generated.Pieces.Select(p => new { p.ArtifactName, words = WordsOf(p.BodyJson) }).ToList(),
+                        refused = generated.SoftFailures,
+                    });
                     return (Type: type, Outcome: (TypeOutcome?)generated, Error: (string?)null);
                 }
                 catch (OperationCanceledException)
@@ -300,6 +308,7 @@ public sealed class GccGenerationCoordinator
                 {
                     _logger.LogWarning(
                         ex, "Generate failed for type {ContentType} on create {CreateId}", type, create.Id);
+                    await GccRunLog.RecordIfAnyAsync("outcome", new { type, error = ex.Message });
                     return (Type: type, Outcome: (TypeOutcome?)null, Error: (string?)ex.Message);
                 }
             }));
@@ -829,6 +838,37 @@ public sealed class GccGenerationCoordinator
         }
 
         return produced;
+    }
+
+    /// <summary>What the run was grounded on, for its record: counts, names and the warnings, not the text.</summary>
+    private static object GroundingRecord(
+        (GccCreateDto Create, IReadOnlyList<GccGroundedPassage> PartnerPassages, IReadOnlyList<string> Warnings, IReadOnlyList<string> PartnersWithoutPassages) resolved) => new
+    {
+        partnerPassages = resolved.PartnerPassages.Count,
+        partnersWithoutPassages = resolved.PartnersWithoutPassages,
+        warnings = resolved.Warnings,
+        research = GroundingCounts(resolved.Create),
+    };
+
+    private static object? GroundingCounts(GccCreateDto create)
+    {
+        var research = GccResearchFetchService.Deserialize(create.ResearchJson);
+        if (research is null) return null;
+        return new
+        {
+            partnerQuoteables = research.Quoteables?.Count ?? 0,
+            competitorQuoteables = research.CompetitorQuoteables?.Count ?? 0,
+            siteQuoteables = research.SiteQuoteables?.Count ?? 0,
+            publisherPositions = (research.PublisherPositions ?? []).Select(p => p.Heading).ToList(),
+        };
+    }
+
+    private static readonly JsonSerializerOptions RecordJson = new(JsonSerializerDefaults.Web);
+
+    private static int WordsOf(string bodyJson)
+    {
+        var document = GccBodyEnvelope.Read(bodyJson, RecordJson).Document;
+        return document is null ? 0 : GeekAPI.Services.Workflow.Services.ContentDocumentText.CountWords(document);
     }
 
     /// <summary>

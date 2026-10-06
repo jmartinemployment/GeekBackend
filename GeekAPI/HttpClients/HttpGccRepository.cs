@@ -422,6 +422,38 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     /// The project's newest run, running or ended. Null when it has never run -- and only a 404 means
     /// that: any other failure read as "never run" would tell the page nothing is going while a run is.
     /// </summary>
+    /// <summary>One run, by id. Null when it does not exist.</summary>
+    public async Task<GccGenerateJobDto?> GetGenerateJobAsync(Guid jobId, CancellationToken ct = default)
+    {
+        var res = await _http.GetAsync($"repo/content-creator/generate-jobs/{jobId}", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccGenerateJobDto>(await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+
+    /// <summary>Append to a run's record. Null when the job does not exist.</summary>
+    public async Task<IReadOnlyList<GccGenerateJobEventDto>?> AppendGenerateJobEventsAsync(
+        Guid jobId, IReadOnlyList<GccGenerateJobEventWrite> events, CancellationToken ct = default)
+    {
+        var path = $"repo/content-creator/generate-jobs/{jobId}/events";
+        var content = new StringContent(
+            JsonSerializer.Serialize(new AppendGccGenerateJobEventsCommand(events), JsonOpts), Encoding.UTF8, "application/json");
+        var res = await _http.PostAsync(path, content, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<IReadOnlyList<GccGenerateJobEventDto>>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    /// <summary>A run's record, in order. Null when the job does not exist.</summary>
+    public async Task<IReadOnlyList<GccGenerateJobEventDto>?> ListGenerateJobEventsAsync(Guid jobId, CancellationToken ct = default)
+    {
+        var res = await _http.GetAsync($"repo/content-creator/generate-jobs/{jobId}/events", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<IReadOnlyList<GccGenerateJobEventDto>>(await res.Content.ReadAsStringAsync(ct), JsonOpts) ?? [];
+    }
+
     public async Task<GccGenerateJobDto?> GetLatestGenerateJobAsync(Guid projectId, CancellationToken ct = default)
     {
         var res = await _http.GetAsync($"repo/content-creator/projects/{projectId}/generate-jobs/latest", ct);

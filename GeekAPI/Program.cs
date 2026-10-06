@@ -33,11 +33,11 @@ var builder = WebApplication.CreateBuilder(args);
 // appeared under an error filter -- unhandled exceptions were being reported by the app and made
 // invisible by the transport. JSON console emits the level as a field, which Railway parses.
 builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole(options =>
-{
-    options.IncludeScopes = false;
-    options.JsonWriterOptions = new System.Text.Json.JsonWriterOptions { Indented = false };
-});
+// One JSON line per entry with the rendered text in a top-level "message", which is what Railway's
+// log search reads -- see RailwayConsoleFormatter for the day a search for "Grounding resolved"
+// found nothing while the line was there.
+builder.Logging.AddConsole(options => options.FormatterName = GeekAPI.Logging.RailwayConsoleFormatter.FormatterName);
+builder.Logging.AddConsoleFormatter<GeekAPI.Logging.RailwayConsoleFormatter, Microsoft.Extensions.Logging.Console.ConsoleFormatterOptions>();
 
 builder.Services.Configure<HostOptions>(options =>
 {
