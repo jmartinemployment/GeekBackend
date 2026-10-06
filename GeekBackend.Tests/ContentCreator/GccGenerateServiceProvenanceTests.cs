@@ -231,11 +231,49 @@ public class GccGenerateServiceProvenanceTests
 
         Assert.Contains("How long the first site really takes", json);
         // The guard passing isn't proof the wiring happened -- the rendered prompt is. Assert the
-        // body call's own system message actually showed the model this heading and its source URL.
+        // body call's own system message actually showed the model this heading. Its source URL is
+        // not shown: a competitor is read and never named, and the 8:26 run of 2026-10-06 named one
+        // the prompt had printed beside the rule not to (GccCompetitorNames).
         var bodyRequest = provider.Requests[1];
         var systemMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.System).Content;
         Assert.Contains("Enterprise Rollout Timeline", systemMessage, StringComparison.Ordinal);
-        Assert.Contains("competitor.test/pricing", systemMessage, StringComparison.Ordinal);
+        Assert.Contains("[Competitor page 1]", systemMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("competitor.test", systemMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A competitor heading that carries the competitor's own name is shown redacted, and the tag the
+    /// writer copies from the shown text still licenses the section -- the lookup set is redacted the
+    /// same way, by the same names.
+    /// </summary>
+    [Fact]
+    public async Task ACompetitorsNameIsKeptOutOfTheHeadingsShownAndTheRedactedHeadingStillLicensesItsTag()
+    {
+        var rag = new GccCompetitorAnalysisResolverTests.FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://tipalti.com", "tipalti.com", true, Guid.NewGuid().ToString())]);
+        var pages = new GccCompetitorAnalysisResolverTests.FakePages(
+            [GccCompetitorAnalysisResolverTests.BlockPage(
+                "https://tipalti.com/ap-automation",
+                GccCompetitorAnalysisResolverTests.Heading(1, "AP Automation"),
+                GccCompetitorAnalysisResolverTests.Heading(2, "Why Tipalti for Global Payables"))]);
+        var project = GccCompetitorAnalysisResolverTests.Project("https://tipalti.com");
+        var resolver = GccCompetitorAnalysisResolverTests.Build(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(project), pages, rag);
+
+        var provider = new ScriptedProvider(
+            lede: LedeJson,
+            imagePrompts: ImagePromptsJson,
+            metadata: ArticleMetadataJson,
+            body: """{"sections":[{"tag":"h2","heading":"Where global payables go wrong","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Paying suppliers in other currencies","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Why a competitor for Global Payables"}]}]}""");
+        var service = Build(provider, resolver);
+        var create = Create(projectId: project.Id);
+
+        var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Contains("Paying suppliers in other currencies", json);
+        var systemMessage = provider.Requests[1].Messages.First(m => m.Role == ChatRole.System).Content;
+        Assert.Contains("Why a competitor for Global Payables", systemMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("tipalti", systemMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     // "retrieval:<url>" provenance was removed 2026-09-22 (Jeff, "remove this stupid rule") --

@@ -2898,13 +2898,18 @@ public class GccGenerateService
         sb.AppendLine("   Read them as what a reader has already seen, never as a standard to match.");
         sb.AppendLine();
 
-        foreach (var page in pages.Take(MaxCompetitorPagesInPrompt))
+        // Their identity stays out of the text the writer reads -- see GccCompetitorNames.
+        var shown = pages.Take(MaxCompetitorPagesInPrompt).ToList();
+        var names = GccCompetitorNames.FromUrls(shown.Select(p => p.Url));
+        var n = 0;
+        foreach (var page in shown)
         {
-            sb.AppendLine($"[{page.Title}]");
+            n++;
+            sb.AppendLine($"[Competitor page {n}: {GccCompetitorNames.Redact(page.Title ?? string.Empty, names)}]");
             foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
-                sb.AppendLine($"- H{h.Level}: {h.Text}");
+                sb.AppendLine($"- H{h.Level}: {GccCompetitorNames.Redact(h.Text, names)}");
             foreach (var para in page.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
-                sb.AppendLine($"- {para}");
+                sb.AppendLine($"- {GccCompetitorNames.Redact(para, names)}");
             sb.AppendLine();
         }
 
@@ -2937,20 +2942,31 @@ public class GccGenerateService
         sb.AppendLine("thin local SEO pages. Read them as a checklist of what a reader expects covered -- never");
         sb.AppendLine("as an example of how to cover it, and never as a standard to match.");
         sb.AppendLine();
-        foreach (var page in analyses.Take(MaxCompetitorPagesInPrompt))
+        // The URL and the competitor's name stay out of the text the writer reads; the heading text is
+        // redacted with the same names BuildProvenanceEvidence uses, so a tag written from what is
+        // shown here still matches the lookup set. See GccCompetitorNames.
+        var shown = analyses.Take(MaxCompetitorPagesInPrompt).ToList();
+        var names = CompetitorNamesOf(analyses);
+        var n = 0;
+        foreach (var page in shown)
         {
-            sb.AppendLine($"[{page.Url}]");
+            n++;
+            sb.AppendLine($"[Competitor page {n}]");
             var flat = new List<(string Text, int Level)>();
             FlattenCompetitorHeadings(page.Headings, flat);
             // The level is a parenthetical, not a prefix -- "competitor:<exact heading text>" must
             // not have to guess whether "H2: " counts as part of the heading it's quoting.
             foreach (var h in flat.Take(MaxCompetitorHeadingsPerPage))
-                sb.AppendLine($"- {h.Text} (h{h.Level})");
+                sb.AppendLine($"- {GccCompetitorNames.Redact(h.Text, names)} (h{h.Level})");
             sb.AppendLine();
         }
 
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>The one set of names both the shown heading block and the provenance lookup redact with.</summary>
+    private static IReadOnlyList<string> CompetitorNamesOf(IReadOnlyList<GccCompetitorPageAnalysis> analyses) =>
+        GccCompetitorNames.FromUrls(analyses.Select(a => a.Url));
 
     /// <summary>Flattens a competitor page's heading tree to (text, level) pairs, depth-first. The
     /// one shared traversal for both the rendered prompt block above (which also shows the level)
@@ -3505,13 +3521,16 @@ public class GccGenerateService
         var paaQuestions = new HashSet<string>(
             (brief.PaaQuestions ?? []).Select(q => q.Trim()), StringComparer.OrdinalIgnoreCase);
 
+        // Redacted exactly as BuildCompetitorHeadingBlock shows them, so a "competitor:<heading>" tag
+        // written from the shown text matches here.
+        var competitorNames = CompetitorNamesOf(competitorAnalyses);
         var competitorHeadings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var page in competitorAnalyses)
         {
             var flat = new List<(string Text, int Level)>();
             FlattenCompetitorHeadings(page.Headings, flat);
             foreach (var h in flat)
-                competitorHeadings.Add(h.Text);
+                competitorHeadings.Add(GccCompetitorNames.Redact(h.Text, competitorNames));
         }
 
         var siteSubtopics = new HashSet<string>(
