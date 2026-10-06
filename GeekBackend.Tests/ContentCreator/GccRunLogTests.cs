@@ -85,7 +85,8 @@ public sealed class GccRunLogTests
         Assert.Equal("the body", first.RootElement.GetProperty("response").GetString());
         using var second = JsonDocument.Parse(written[1].PayloadJson);
         Assert.Contains("ContentGenerationException", second.RootElement.GetProperty("error").GetString(), StringComparison.Ordinal);
-        Assert.False(second.RootElement.TryGetProperty("response", out _));
+        // Nothing came back, so there is no text to show -- null, not a stand-in.
+        Assert.Equal(JsonValueKind.Null, second.RootElement.GetProperty("response").ValueKind);
     }
 
     [Fact]

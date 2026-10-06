@@ -95,6 +95,11 @@ public class OpenAiProvider : IContentGenerationProvider
         {
             throw new ContentGenerationException("Could not reach the OpenAI API.", ex);
         }
+        catch (OperationCanceledException ex) when (OpenAiCompatibleOutcome.IsTimeout(ex, cancellationToken))
+        {
+            throw new ContentGenerationException(
+                $"OpenAI did not answer within {_options.TimeoutSeconds} seconds.", ex);
+        }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -115,12 +120,15 @@ public class OpenAiProvider : IContentGenerationProvider
             "OpenAI usage: promptTokens={PromptTokens} cachedTokens={CachedTokens} completionTokens={CompletionTokens}",
             parsed.Usage?.PromptTokens, cachedTokens, parsed.Usage?.CompletionTokens);
 
+        var content = OpenAiCompatibleOutcome.RequireUsableContent(choice, "OpenAI", request.MaxOutputTokens);
+
         return new ChatCompletionResult(
-            Content: choice.Message.Content,
+            Content: content,
             ModelUsed: parsed.Model ?? model,
             PromptTokens: parsed.Usage?.PromptTokens,
             CompletionTokens: parsed.Usage?.CompletionTokens,
-            CachedTokens: cachedTokens);
+            CachedTokens: cachedTokens,
+            FinishReason: choice.FinishReason);
     }
 
     /// <summary>o1/o3/o4-family models reject custom temperature and want max_completion_tokens.</summary>

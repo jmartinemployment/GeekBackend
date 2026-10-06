@@ -149,6 +149,8 @@ public sealed class GccRecordingProvider(IContentGenerationProvider inner) : ICo
                 maxOutputTokens = request.MaxOutputTokens,
                 promptTokens = result.PromptTokens,
                 completionTokens = result.CompletionTokens,
+                cachedTokens = result.CachedTokens,
+                finishReason = result.FinishReason,
                 durationMs = started.ElapsedMilliseconds,
                 system = Join(request, ChatRole.System),
                 user = Join(request, ChatRole.User),
@@ -168,6 +170,10 @@ public sealed class GccRecordingProvider(IContentGenerationProvider inner) : ICo
                 system = Join(request, ChatRole.System),
                 user = Join(request, ChatRole.User),
                 error = $"{ex.GetType().Name}: {ex.Message}",
+                // What the model had written when the call was judged a failure, and why it stopped:
+                // a body cut off at its output ceiling is only legible with its own text beside it.
+                finishReason = (ex as ContentGenerationException)?.FinishReason,
+                response = (ex as ContentGenerationException)?.PartialResponse,
             });
             throw;
         }

@@ -66,12 +66,23 @@ public record ChatCompletionResult(
     int? CompletionTokens,
     int RetryCount = 0,
     string? RetryReason = null,
-    int? CachedTokens = null);
+    int? CachedTokens = null,
+    /// <summary>Why the model stopped: "stop", "length", "content_filter" ... Null when the provider
+    /// did not say. Kept on the result so the run log records it; a result that is a failure never
+    /// reaches a caller, see <see cref="OpenAiCompatibleOutcome"/>.</summary>
+    string? FinishReason = null);
 
 public class ContentGenerationException : Exception
 {
     public ContentGenerationException(string message, Exception? inner = null) : base(message, inner)
     {
     }
+
+    /// <summary>What the model had written when the call was judged a failure -- the cut-off text of a
+    /// truncated answer -- so the run log can show it. Null when nothing came back.</summary>
+    public string? PartialResponse { get; init; }
+
+    /// <summary>The provider's stop reason for a call that came back but could not be used.</summary>
+    public string? FinishReason { get; init; }
 }
 

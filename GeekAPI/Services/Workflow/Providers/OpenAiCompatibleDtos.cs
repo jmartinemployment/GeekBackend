@@ -41,9 +41,15 @@ internal sealed class OpenAiJsonSchemaSpec
     [JsonPropertyName("schema")] public JsonNode? Schema { get; set; }
 }
 
+/// <summary>
+/// <paramref name="Content"/> is null when the model refused or was cut short before writing
+/// anything, which is a fact about the response and not a reason to substitute an empty string.
+/// <paramref name="Refusal"/> carries the refusal text; it is never sent in a request.
+/// </summary>
 internal sealed record OpenAiCompatibleMessage(
     [property: JsonPropertyName("role")] string Role,
-    [property: JsonPropertyName("content")] string Content);
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("refusal")] string? Refusal = null);
 
 internal sealed class OpenAiCompatibleResponse
 {
@@ -54,10 +60,8 @@ internal sealed class OpenAiCompatibleResponse
 
 internal sealed class OpenAiChoice
 {
-    [JsonPropertyName("message")] public OpenAiCompatibleMessage Message { get; set; } = new("assistant", string.Empty);
-    // #region agent log
+    [JsonPropertyName("message")] public OpenAiCompatibleMessage Message { get; set; } = new("assistant", null);
     [JsonPropertyName("finish_reason")] public string? FinishReason { get; set; }
-    // #endregion
 }
 
 internal sealed class OpenAiUsage

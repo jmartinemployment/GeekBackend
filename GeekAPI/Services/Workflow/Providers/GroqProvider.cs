@@ -99,6 +99,11 @@ public class GroqProvider : IContentGenerationProvider
         {
             throw new ContentGenerationException("Could not reach the Groq API.", ex);
         }
+        catch (OperationCanceledException ex) when (OpenAiCompatibleOutcome.IsTimeout(ex, cancellationToken))
+        {
+            throw new ContentGenerationException(
+                $"Groq did not answer within {_options.TimeoutSeconds} seconds.", ex);
+        }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -114,10 +119,13 @@ public class GroqProvider : IContentGenerationProvider
         var choice = parsed.Choices.FirstOrDefault()
             ?? throw new ContentGenerationException("Groq response contained no choices.");
 
+        var content = OpenAiCompatibleOutcome.RequireUsableContent(choice, "Groq", request.MaxOutputTokens);
+
         return new ChatCompletionResult(
-            Content: choice.Message.Content,
+            Content: content,
             ModelUsed: parsed.Model ?? model,
             PromptTokens: parsed.Usage?.PromptTokens,
-            CompletionTokens: parsed.Usage?.CompletionTokens);
+            CompletionTokens: parsed.Usage?.CompletionTokens,
+            FinishReason: choice.FinishReason);
     }
 }
