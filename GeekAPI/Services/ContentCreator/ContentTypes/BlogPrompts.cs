@@ -86,11 +86,13 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
                 $"how the work changes once {keyword} is automated -- the mechanics, in the order they happen",
                 depth,
                 With(
-                    "Name the partner tools that do this part of the work, in the prose, where the explanation "
-                    + "reaches them -- what each one does about THIS step, not what it is in general. Link the "
-                    + "first substantive mention. Never a heading, never a sub-section, never one paragraph per "
-                    + "product.",
-                    niche?.ApproachGuidance())),
+                    With(
+                        "Name the partner tools that do this part of the work, in the prose, where the explanation "
+                        + "reaches them -- what each one does about THIS step, not what it is in general. Link the "
+                        + "first substantive mention. Never a heading, never a sub-section, never one paragraph per "
+                        + "product.",
+                        niche?.ApproachGuidance()),
+                    GccPublisherPositions.ApproachSlotGuidance)),
             SectionSlot.Cover(
                 $"what separates an implementation of {keyword} that holds up from one that stalls",
                 depth,

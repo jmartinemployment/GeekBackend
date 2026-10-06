@@ -148,6 +148,7 @@ public class GccGroundingResolverTests
         IGeekCrawlerRagClient rag,
         IGccCrawlPageReader? pages = null) =>
         new(projects, rag, new GccTypedPassageReader(pages ?? new FakePages()),
+            new GccPublisherPositionsReader(pages ?? new FakePages(), NullLogger<GccPublisherPositionsReader>.Instance),
             NullLogger<GccGroundingResolver>.Instance);
 
     private static GeekCrawlerPageDto CrawledPage(string url, string blocksJson) => new(
@@ -421,8 +422,12 @@ public class GccGroundingResolverTests
 
         Assert.False(outcome.Refused);
         Assert.Equal(2, outcome.Pages.Count);
-        Assert.Equal(2, outcome.Warnings.Count);
-        Assert.All(outcome.Warnings, w => Assert.Contains("reranker unavailable", w, StringComparison.Ordinal));
+        // Two from the library, one per partner run; and one because this fake site has no page in its
+        // crawl run, so the writer had none of the publisher's own positions -- said, not silent.
+        Assert.Equal(2, outcome.Warnings.Count(w => w.Contains("reranker unavailable", StringComparison.Ordinal)));
+        var positions = Assert.Single(outcome.Warnings, w => w.Contains("publisher's own positions", StringComparison.Ordinal));
+        Assert.Contains("https://acme.test", positions, StringComparison.Ordinal);
+        Assert.Empty(outcome.PublisherPositions ?? []);
     }
 
     [Fact]

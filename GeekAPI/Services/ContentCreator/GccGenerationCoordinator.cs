@@ -41,7 +41,8 @@ public sealed class GccGenerationCoordinator
     {
         if (grounding.Pages.Count == 0
             && grounding.CompetitorPages.Count == 0
-            && grounding.SitePages.Count == 0)
+            && grounding.SitePages.Count == 0
+            && grounding.PublisherPositions is not { Count: > 0 })
         {
             return create;
         }
@@ -54,15 +55,19 @@ public sealed class GccGenerationCoordinator
         var quoteables = Merge(existing?.Quoteables, grounding.Pages);
         var competitors = Merge(existing?.CompetitorQuoteables, grounding.CompetitorPages);
         var site = Merge(existing?.SiteQuoteables, grounding.SitePages);
+        // Replaced, not merged: the publisher's positions are read from the site page on every run, and
+        // nothing an operator uploads stands in for what their own site says.
+        var positions = grounding.PublisherPositions is { Count: > 0 } read ? read : existing?.PublisherPositions;
 
         var merged = existing is null
             ? new GccResearchDocument(
-                null, quoteables, CompetitorQuoteables: competitors, SiteQuoteables: site)
+                null, quoteables, CompetitorQuoteables: competitors, SiteQuoteables: site, PublisherPositions: positions)
             : existing with
             {
                 Quoteables = quoteables,
                 CompetitorQuoteables = competitors,
                 SiteQuoteables = site,
+                PublisherPositions = positions,
             };
 
         return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };

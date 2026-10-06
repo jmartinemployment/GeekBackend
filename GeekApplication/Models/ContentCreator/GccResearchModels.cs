@@ -33,7 +33,21 @@ public sealed record GccResearchDocument(
     /// to them is a third one: partner evidence is cited, competitor evidence is never cited, and
     /// the publisher's own pages are what this piece must not repeat.
     /// </summary>
-    IReadOnlyList<GccQuoteablePage>? SiteQuoteables = null);
+    IReadOnlyList<GccQuoteablePage>? SiteQuoteables = null,
+    /// <summary>
+    /// What the publisher states on their own site page, by heading -- The Methodology, Seamless
+    /// Integrations, Artificial Intelligence Use Cases, whatever the page carries. Read from the site's
+    /// crawl page itself, never retrieved by a keyword question, and replaced on every run. The page
+    /// argues these as the publisher's own (Jeff, 2026-10-06: "writer needs to use my The Methodology
+    /// instead of inventing its own").
+    /// </summary>
+    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null);
+
+/// <summary>One position the publisher states on their own site: a named section and its text.</summary>
+/// <param name="Heading">The section's heading, as written on the site.</param>
+/// <param name="Paragraphs">The section's text, one entry per block, in order; a sub-heading is an entry.</param>
+/// <param name="Url">The page the section was read from.</param>
+public sealed record GccPublisherPosition(string Heading, IReadOnlyList<string> Paragraphs, string Url);
 
 /// <summary>
 /// A parsed Keyword (Google SERP) upload — organics + related searches only. PAA is intentionally

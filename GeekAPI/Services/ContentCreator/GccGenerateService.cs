@@ -1512,7 +1512,7 @@ public class GccGenerateService
             ? string.Empty
             : string.Join(
                 Environment.NewLine,
-                new[] { BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create, toolUnlisted) }
+                new[] { BuildPublisherPositionsBlock(create), BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create, toolUnlisted) }
                     .Where(b => b.Length > 0));
 
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
@@ -2443,7 +2443,7 @@ public class GccGenerateService
         //
         // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
         // headings stay out of a prompt that states no provenance rules.
-        var ledeEvidence = BuildResearchBlock(create);
+        var ledeEvidence = WithPublisherPositions(BuildResearchBlock(create), create);
         // The amounts in this page's evidence that are not in US dollars, named for the opening and
         // for each part of the body.
         var pillarForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(
@@ -2678,7 +2678,7 @@ public class GccGenerateService
         //
         // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
         // headings stay out of a prompt that states no provenance rules.
-        var ledeEvidence = BuildResearchBlock(create);
+        var ledeEvidence = WithPublisherPositions(BuildResearchBlock(create), create);
         // The amounts in this page's evidence that are not in US dollars, named for the opening and
         // for each part of the body.
         var blogForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(
@@ -2801,6 +2801,12 @@ public class GccGenerateService
         if (researchBlock.Length > 0)
             sb.AppendLine(researchBlock);
 
+        // The publisher's own positions, before anything read for difference or for coverage: the
+        // method the page describes and the subjects it covers are the publisher's first.
+        var positionsBlock = BuildPublisherPositionsBlock(create);
+        if (positionsBlock.Length > 0)
+            sb.AppendLine(positionsBlock);
+
         var competitorBlock = BuildCompetitorHeadingBlock(competitorAnalyses);
         if (competitorBlock.Length > 0)
             sb.AppendLine(competitorBlock);
@@ -2832,6 +2838,16 @@ public class GccGenerateService
     /// with them. This is retrieved against the create's own topic and is about not repeating them.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// What the publisher states on their own site page, by heading, as the research recorded it for
+    /// this run (<see cref="GccPublisherPositionsReader"/>). Empty when the run read none.
+    /// </summary>
+    internal static string BuildPublisherPositionsBlock(GccCreateDto create)
+    {
+        var research = GccResearchFetchService.Deserialize(create.ResearchJson);
+        return GccPublisherPositions.Block(research?.PublisherPositions, GccTopic.KeywordOf(create.Topic));
+    }
+
     /// <param name="unlistedTools">
     /// Tools this site lists that are not this project's partners. The site's own page about one of
     /// them -- its tool page for a partner of another project -- is a page about a tool this piece does
@@ -3178,6 +3194,14 @@ public class GccGenerateService
     /// Added to what the writer is shown and never to what the checks read: the note repeats the
     /// amounts, and evidence that repeated them on one line would be read as stating them.
     /// </remarks>
+    /// <summary>The research half with the publisher's positions after it, for the opening of a pillar or blog.</summary>
+    private static string WithPublisherPositions(string research, GccCreateDto create)
+    {
+        var positions = BuildPublisherPositionsBlock(create);
+        if (positions.Length == 0) return research;
+        return research.Length == 0 ? positions : $"{research}{Environment.NewLine}{positions}";
+    }
+
     private static string? WithForeignAmountsNamed(string? evidence, string? foreignAmountsNote) =>
         foreignAmountsNote is null ? evidence
         : string.IsNullOrWhiteSpace(evidence) ? foreignAmountsNote

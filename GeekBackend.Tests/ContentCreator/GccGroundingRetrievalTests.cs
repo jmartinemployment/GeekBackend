@@ -165,8 +165,9 @@ public class GccGroundingRetrievalTests
             Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
     }
 
-    private static GccGroundingResolver Build(GccProjectDto? project, IGeekCrawlerRagClient rag) =>
-        new(new FakeProjects(project), rag, new GccTypedPassageReader(new NoPages()),
+    private static GccGroundingResolver Build(GccProjectDto? project, IGeekCrawlerRagClient rag, IGccCrawlPageReader? pages = null) =>
+        new(new FakeProjects(project), rag, new GccTypedPassageReader(pages ?? new NoPages()),
+            new GccPublisherPositionsReader(pages ?? new NoPages(), NullLogger<GccPublisherPositionsReader>.Instance),
             NullLogger<GccGroundingResolver>.Instance);
 
     [Theory]

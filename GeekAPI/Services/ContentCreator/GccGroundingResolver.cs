@@ -63,7 +63,13 @@ public sealed record GccGroundingOutcome(
     /// name every partner is refused for it (GccGenerationCoordinator), and a tool fan-out refuses only
     /// that partner's page and writes the others.
     /// </summary>
-    IReadOnlyList<string>? PartnersWithoutPassages = null)
+    IReadOnlyList<string>? PartnersWithoutPassages = null,
+    /// <summary>
+    /// What the publisher states on their own site page, by heading, read from the site's crawl page
+    /// (<see cref="GccPublisherPositionsReader"/>). Empty when the site crawl was not resolved or the
+    /// page has no sections -- and then a warning says so.
+    /// </summary>
+    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null)
 {
     public bool Refused => !string.IsNullOrWhiteSpace(Refusal);
 
@@ -104,6 +110,7 @@ public sealed class GccGroundingResolver(
     IGccProjectReader repo,
     IGeekCrawlerRagClient rag,
     GccTypedPassageReader typedPassages,
+    GccPublisherPositionsReader publisherPositions,
     ILogger<GccGroundingResolver> logger)
 {
     /// <summary>
@@ -326,6 +333,7 @@ public sealed class GccGroundingResolver(
         var retrieved = new List<GccQuoteablePage>();
         var competitors = new List<GccQuoteablePage>();
         var sitePages = new List<GccQuoteablePage>();
+        IReadOnlyList<GccPublisherPosition> positions = [];
         var passages = new List<GccGroundedPassage>();
         var warnings = new List<string>();
         // Per crawl type, not across them. The same URL retrieved from two runs of one corpus is one
@@ -375,6 +383,19 @@ public sealed class GccGroundingResolver(
 
                 runIds = [siteRun];
                 namesByRun[siteRun] = string.IsNullOrWhiteSpace(project.SiteUrl) ? project.Name : project.SiteUrl;
+
+                // The publisher's own positions, read from the site page itself -- not retrieved by the
+                // keyword question below, which is why they were never in front of the writer before.
+                if (!string.IsNullOrWhiteSpace(project.SiteUrl))
+                {
+                    var (read, warning) = await publisherPositions.ReadAsync(siteRun, project.SiteUrl, ct);
+                    positions = read;
+                    if (warning is not null) warnings.Add(warning);
+                }
+                else
+                {
+                    warnings.Add($"Project '{project.Name}' has no site URL, so the writer has none of the publisher's own positions.");
+                }
             }
             else
             {
@@ -560,13 +581,13 @@ public sealed class GccGroundingResolver(
 
         logger.LogInformation(
             "Grounding resolved for create {CreateId} ({ContentType}): {PageCount} partner, "
-            + "{CompetitorCount} competitor, {SiteCount} own-site pages; {PassageCount} typed "
-            + "partner passages, {WarningCount} warnings.",
-            create.Id, contentType, retrieved.Count, competitors.Count, sitePages.Count,
+            + "{CompetitorCount} competitor, {SiteCount} own-site pages, {PositionCount} publisher positions; "
+            + "{PassageCount} typed partner passages, {WarningCount} warnings.",
+            create.Id, contentType, retrieved.Count, competitors.Count, sitePages.Count, positions.Count,
             passages.Count, warnings.Count);
 
         return new GccGroundingOutcome(
-            retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages);
+            retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages, positions);
     }
 
     /// <summary>How a crawl type reads in a message to the operator.</summary>

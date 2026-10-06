@@ -66,7 +66,17 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     /// </remarks>
     public static IReadOnlyList<SectionSlot> Outline(GccNicheFraming? niche)
     {
-        if (niche is null || !niche.HasAny) return Sections;
+        // The publisher's own method, stated on their site, is what "how the approach works" walks
+        // whether or not the brief carries a framing (GccPublisherPositions).
+        if (niche is null || !niche.HasAny)
+        {
+            return
+            [
+                Sections[0], Sections[1],
+                Sections[2] with { Guidance = GccPublisherPositions.ApproachSlotGuidance },
+                Sections[3], Sections[4], Sections[5],
+            ];
+        }
 
         var approach = niche.ApproachGuidance();
         var pointer = niche.ApproachPointer();
@@ -74,7 +84,7 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
         [
             Sections[0] with { Guidance = niche.ToGuidance() },
             Sections[1] with { Guidance = niche.FailuresGuidance() },
-            Sections[2] with { Guidance = approach },
+            Sections[2] with { Guidance = $"{approach}{Environment.NewLine}   {GccPublisherPositions.ApproachSlotGuidance}" },
             Sections[3] with { Guidance = pointer },
             Sections[4] with { Guidance = pointer },
             Sections[5] with { Guidance = pointer },
