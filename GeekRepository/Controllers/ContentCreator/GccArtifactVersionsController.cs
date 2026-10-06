@@ -47,6 +47,9 @@ public class GccArtifactVersionsController : ControllerBase
             return BadRequest("Command is required");
 
         var version = await _repository.CreateAsync(command, ct);
+        if (version is null)
+            return NotFound($"Artifact {command.ArtifactId} does not exist, so there is no page to write to.");
+
         return CreatedAtAction(nameof(GetById), new { id = version.Id }, version);
     }
 }

@@ -83,10 +83,19 @@ public class GccArtifact
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
+/// <summary>
+/// A page's content. One per page, by unique index: a Generate or a Revise replaces it and deletes
+/// what was there, with that content's evidence and approvals (Jeff, 2026-10-06: no history).
+/// </summary>
 public class GccArtifactVersion
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ArtifactId { get; set; }
+
+    /// <summary>
+    /// Always 1. A page has one version, so the number says nothing; it stays on the wire because the
+    /// page sorts and labels by it, and goes when the page stops reading it.
+    /// </summary>
     public int VersionNumber { get; set; }
     /// <summary>
     /// Structured content JSON — ContentDocument shape for long-form, pack JSON for

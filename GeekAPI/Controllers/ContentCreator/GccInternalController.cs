@@ -25,26 +25,6 @@ public sealed class GccInternalController(HttpGccRepository repo) : ControllerBa
     /// Refused -- 409 with the reason, nothing written -- unless the project has no brief of its own
     /// and exactly one create, which carries a brief. The create is left as it is.
     /// </summary>
-    /// <summary>
-    /// Merge a project's duplicate drafts into one page each. Until 2026-10-05 every Generate wrote a
-    /// second draft of each page beside the last run's; for each type and name the newest draft keeps
-    /// its place and the others become its earlier versions. Nothing is deleted but the emptied
-    /// drafts, and a project with no duplicates is left exactly as it is.
-    /// </summary>
-    [HttpPost("projects/{projectId:guid}/merge-duplicate-drafts")]
-    public async Task<IActionResult> MergeDuplicateDrafts(Guid projectId, CancellationToken ct)
-    {
-        var result = await repo.MergeDuplicateDraftsAsync(projectId, ct);
-        if (result is null) return NotFound();
-        return Ok(new
-        {
-            projectId,
-            pages = result.Pages,
-            draftsMerged = result.DraftsMerged,
-            versionsMoved = result.VersionsMoved,
-        });
-    }
-
     [HttpPost("brief-backfill/projects/{projectId:guid}")]
     public async Task<IActionResult> CopyBriefOntoProject(Guid projectId, CancellationToken ct)
     {

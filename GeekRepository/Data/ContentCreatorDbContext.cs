@@ -94,7 +94,11 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(v => v.MetadataJson).HasColumnName("metadata_json").HasColumnType("text");
             entity.Property(v => v.RowVersion).IsConcurrencyToken();
             entity.Property(v => v.CreatedAtUtc).IsRequired();
-            entity.HasIndex(v => v.ArtifactId).HasDatabaseName("ix_gcc_artifact_versions_artifact_id");
+            // One version per page, by constraint: a page's content is replaced, never added to
+            // (Jeff, 2026-10-06). The companion rule -- one page per type and name on a project -- is
+            // an expression index over lower(btrim(...)) that EF cannot model; the migration that
+            // created it (ARerunReplacesThePage) holds it.
+            entity.HasIndex(v => v.ArtifactId).IsUnique().HasDatabaseName("ux_gcc_artifact_versions_artifact_id");
         });
 
         modelBuilder.Entity<GccBankedPartnerExtraction>(entity =>

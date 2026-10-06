@@ -32,10 +32,10 @@ public class GccArtifactRepository : IGccArtifactRepository
     /// not part of the question.
     /// </remarks>
     /// <remarks>
-    /// Each draft carries its newest version's number and time. A Generate rewrites a page as a new
-    /// version, so when a page was first created stops being when its text was written; the page
-    /// lists drafts by the second, and reading it here is one grouped query rather than a versions
-    /// read per draft from the browser. Ordered by that time, most recently written first.
+    /// Each draft carries its version's number and time. A Generate replaces a page's content, so
+    /// when a page was first created stops being when its text was written; the page lists drafts by
+    /// the second, and reading it here is one query rather than a versions read per draft from the
+    /// browser. Ordered by that time, most recently written first.
     /// </remarks>
     public async Task<IReadOnlyList<GccArtifactDto>> GetByProjectIdAsync(Guid projectId, CancellationToken ct = default)
     {

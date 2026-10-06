@@ -42,8 +42,8 @@ public sealed class GccArtifactExportService(
     /// operator sees; which create a draft is stored under is not their concern.
     /// </summary>
     /// <remarks>
-    /// One file per page, from its newest version. A project has one page per type and name, and a
-    /// Generate rewrites it as a new version, so there is no second draft of a page to export -- until
+    /// One file per page, from its one version. A project has one page per type and name, and a
+    /// Generate replaces its content, so there is no second draft of a page to export -- until
     /// 2026-10-05 each Generate added one, and the export carried the older text as "-2" beside the
     /// newer with nothing saying which run either came from.
     ///

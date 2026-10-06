@@ -29,11 +29,4 @@ public class GccProjectPagesController : ControllerBase
         var result = await _pages.SaveGeneratedAsync(projectId, command, ct);
         return result.ProjectNotFound ? NotFound() : Ok(result);
     }
-
-    [HttpPost("merge-duplicate-drafts")]
-    public async Task<ActionResult<GccDraftMergeResult>> MergeDuplicateDrafts(Guid projectId, CancellationToken ct)
-    {
-        var result = await _pages.MergeDuplicateDraftsAsync(projectId, ct);
-        return result.ProjectNotFound ? NotFound() : Ok(result);
-    }
 }

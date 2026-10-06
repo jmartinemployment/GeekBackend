@@ -1043,9 +1043,9 @@ public class GccGenerateService
 
         // A revision that comes back a quarter shorter has not revised the draft, it has replaced
         // it with a summary -- which is what three presses of "Fix these and revise" did, each one
-        // storing the loss as a new version. Refused rather than repaired: the previous version is
-        // intact and still the latest, and a draft the model shortened cannot be lengthened back by
-        // this code without inventing the missing words.
+        // storing the loss. Refused rather than repaired: the page's text is left as it was, and a
+        // draft the model shortened cannot be lengthened back by this code without inventing the
+        // missing words.
         var beforeWords = ContentDocumentText.CountWords(document);
         var afterWords = ContentDocumentText.CountWords(revised);
         if (beforeWords > 0 && afterWords < beforeWords * 0.75)

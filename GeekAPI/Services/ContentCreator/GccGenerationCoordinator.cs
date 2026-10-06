@@ -733,9 +733,9 @@ public sealed class GccGenerationCoordinator
     /// <remarks>
     /// <para>
     /// <b>A page, not a new draft.</b> Each piece was written as a new artifact with a first version,
-    /// so a second Generate left a second pillar beside the first, under the same name
-    /// (fix-project-persistence J1 says "Generate adds versions to the project"). GeekRepository now
-    /// finds the project's page of that type and name and gives it its next version, or creates the
+    /// so a second Generate left a second pillar beside the first, under the same name. GeekRepository
+    /// now finds the project's page of that type and name and replaces its content -- the old text,
+    /// its evidence and its approvals are deleted (Jeff, 2026-10-06: no history) -- or creates the
     /// page where there is none.
     /// </para>
     /// <para>

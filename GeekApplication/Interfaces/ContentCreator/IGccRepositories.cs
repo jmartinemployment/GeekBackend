@@ -42,30 +42,29 @@ public interface IGccArtifactRepository
 }
 
 /// <summary>
-/// A project's pages: one per content type and name, each rewritten by a Generate as a new version
-/// (fix-project-persistence J1, "Generate adds versions to the project").
+/// A project's pages: one per content type and name, each replaced by a Generate. Nothing older is
+/// kept (Jeff, 2026-10-06: "no history is required ... the old created content should be deleted").
 /// </summary>
 public interface IGccProjectPageRepository
 {
     /// <summary>
-    /// Save every piece of one Generate in one write. A piece whose page exists becomes that page's
-    /// next version; one whose page does not creates it. All of them, or none.
+    /// Save every piece of one Generate in one write. A piece whose page exists replaces that page's
+    /// content; one whose page does not creates it. All of them, or none.
     /// </summary>
     Task<GccGeneratedPiecesSaveResult> SaveGeneratedAsync(
         Guid projectId, SaveGccGeneratedPiecesCommand command, CancellationToken ct = default);
-
-    /// <summary>
-    /// Merge the drafts left by Generates that each wrote a second page beside the first: for every
-    /// type and name, the newest draft keeps its place and the others become its earlier versions.
-    /// </summary>
-    Task<GccDraftMergeResult> MergeDuplicateDraftsAsync(Guid projectId, CancellationToken ct = default);
 }
 
 public interface IGccArtifactVersionRepository
 {
     Task<GccArtifactVersionDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<GccArtifactVersionDto>> GetByArtifactIdAsync(Guid artifactId, CancellationToken ct = default);
-    Task<GccArtifactVersionDto> CreateAsync(CreateGccArtifactVersionCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// Write a page's text, deleting the text it had. Null when the page does not exist: a version
+    /// belongs to a page, and there is none to put it on.
+    /// </summary>
+    Task<GccArtifactVersionDto?> CreateAsync(CreateGccArtifactVersionCommand command, CancellationToken ct = default);
 }
 
 public interface IGccApprovalEventRepository

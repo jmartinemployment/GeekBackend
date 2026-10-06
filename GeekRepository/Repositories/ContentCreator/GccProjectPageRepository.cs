@@ -8,26 +8,29 @@ namespace GeekRepository.Repositories.ContentCreator;
 
 /// <summary>
 /// A project's pages. One per content type and name -- one pillar, one blog, one tool page per
-/// partner -- and each Generate rewrites them as new versions.
+/// partner -- and each Generate replaces their content. Nothing older is kept.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>"Generate adds versions to the project"</b> (fix-project-persistence J1). It did not: every
-/// Generate created a new draft for every piece, beside the last run's, under the same name. On
-/// 2026-10-05 project "test" held two pillars, two blogs and nine tool pages after two runs; the page
-/// showed the morning's as if it were the afternoon's, and the export held both with "-2" on the older
-/// file (Jeff: "you surprised me keeping old version that wasn't clear or expected, what do I do with
-/// two versions").
+/// <b>A re-run replaces the page</b> (Jeff, 2026-10-06: "no history is required ... the old created
+/// content should be deleted"). Before 2026-10-05 every Generate created a second page beside the
+/// last run's; from then until this, it kept the old text as the page's earlier version. Neither is
+/// what the operator expects of running a project again. The page's old version goes, with its
+/// evidence and its approval events, and the new text is the page's one version. The database holds
+/// both rules: one page per type and name on a project, and one version per page, each by unique
+/// index.
 /// </para>
 /// <para>
-/// <b>Which page a piece belongs to</b> is its type and its name, compared without regard to case, among
-/// the project's pages -- the drafts keyed to it (GR4). A new page is keyed to the project and, until
-/// the create table goes, also stored under the create the run names, which must be the project's.
+/// <b>Which page a piece belongs to</b> is its type and its name, compared without regard to case or
+/// surrounding spaces, among the project's own pages (GR4) -- the ones no other page derives from. A
+/// new page is keyed to the project and, until the create table goes, also stored under the create
+/// the run names, which must be the project's.
 /// </para>
 /// <para>
 /// <b>All or nothing</b> (A12). GeekAPI wrote each piece with two calls -- the draft, then its
 /// version -- one piece after another, so a failure on the fourth tool page left three saved and a
-/// run reported as failed. Every row of a run is added to one unit of work and saved once.
+/// run reported as failed. Every row of a run, and every deletion it entails, is one unit of work
+/// saved once.
 /// </para>
 /// </remarks>
 public class GccProjectPageRepository : IGccProjectPageRepository
@@ -55,7 +58,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
         }
 
         // A run writes each page once. Two pieces for one page would make the second the page's
-        // newest version and the first a version nobody asked for.
+        // content and the first text nobody asked for.
         var twice = command.Pieces
             .GroupBy(PageKey, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(g => g.Count() > 1);
@@ -74,15 +77,27 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                 + "of this project's, so a new page cannot be stored under it.");
         }
 
-        var drafts = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
+        var pages = await _db.GccArtifacts
+            .Where(a => a.ProjectId == projectId && a.ParentArtifactId == null)
+            .ToListAsync(ct);
         var now = DateTime.UtcNow;
         var saved = new List<(GccArtifact Page, GccArtifactVersion Version, bool NewPage)>(command.Pieces.Count);
 
         foreach (var piece in command.Pieces)
         {
-            var same = DraftsOfPage(drafts, PageKey(piece));
+            var same = pages.Where(a => string.Equals(PageKey(a), PageKey(piece), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (same.Count > 1)
+            {
+                // The database forbids this; if it is seen, nothing is guessed about which page to write.
+                // Earlier pieces of this run may already have their page's old content marked for
+                // deletion; a refusal writes nothing, so those marks go too.
+                _db.ChangeTracker.Clear();
+                return GccGeneratedPiecesSaveResult.Refused(
+                    $"None of the {command.Pieces.Count} piece(s) was saved: the project has {same.Count} "
+                    + $"{piece.Type.Trim()} pages named '{piece.Name.Trim()}', and a page is one.");
+            }
+
             GccArtifact page;
-            int number;
             if (same.Count == 0)
             {
                 page = new GccArtifact
@@ -96,24 +111,14 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                     UpdatedAtUtc = now,
                 };
                 _db.GccArtifacts.Add(page);
-                drafts.Add(page);
-                number = 1;
+                pages.Add(page);
             }
             else
             {
                 page = same[0];
-                // More than one draft of this page is what earlier Generates left. They become this
-                // page's earlier versions here, in the same write, so the run's version is the newest
-                // of one page rather than of whichever duplicate was picked.
-                var highest = same.Count > 1
-                    ? await MergeAsync(page, same.Skip(1).ToList(), drafts, ct)
-                    : await _db.GccArtifactVersions
-                        .Where(v => v.ArtifactId == page.Id)
-                        .MaxAsync(v => (int?)v.VersionNumber, ct) ?? 0;
-                number = highest + 1;
-
-                // The text on the page is new and nobody has approved it; the operator's current
-                // spelling of the name is the page's name.
+                // The old text goes, with its evidence and its approvals. The text on the page is new
+                // and nobody has approved it; the operator's current spelling of the name is the page's.
+                await GccArtifactVersionRepository.RemoveContentAsync(_db, page.Id, ct);
                 page.Status = "draft";
                 page.Name = piece.Name.Trim();
                 page.UpdatedAtUtc = now;
@@ -122,7 +127,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
             var version = new GccArtifactVersion
             {
                 ArtifactId = page.Id,
-                VersionNumber = number,
+                VersionNumber = 1,
                 BodyJson = piece.BodyDocumentJson,
                 MetadataJson = piece.MetadataJson,
                 CreatedAtUtc = now,
@@ -151,75 +156,8 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                 s.NewPage))]);
     }
 
-    public async Task<GccDraftMergeResult> MergeDuplicateDraftsAsync(Guid projectId, CancellationToken ct = default)
-    {
-        if (!await _db.GccProjects.AnyAsync(p => p.Id == projectId, ct))
-            return GccDraftMergeResult.Missing();
-
-        var drafts = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
-
-        var pages = 0;
-        var merged = 0;
-        var moved = 0;
-        foreach (var key in drafts.Select(PageKey).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
-        {
-            var same = DraftsOfPage(drafts, key);
-            if (same.Count < 2) continue;
-
-            var others = same.Skip(1).ToList();
-            var otherIds = others.Select(a => a.Id).ToList();
-            moved += await _db.GccArtifactVersions.CountAsync(v => otherIds.Contains(v.ArtifactId), ct);
-            await MergeAsync(same[0], others, drafts, ct);
-            pages++;
-            merged += others.Count;
-        }
-
-        if (pages > 0) await _db.SaveChangesAsync(ct);
-        return new GccDraftMergeResult(false, pages, merged, moved);
-    }
-
-    /// <summary>
-    /// Make <paramref name="others"/> earlier versions of <paramref name="page"/>: every version of
-    /// all of them is renumbered in the order it was written and belongs to the page, anything
-    /// derived from one of the others points at the page, and the others are removed. Returns the
-    /// page's highest version number afterwards. Tracked only -- the caller saves.
-    /// </summary>
-    private async Task<int> MergeAsync(
-        GccArtifact page, List<GccArtifact> others, List<GccArtifact> drafts, CancellationToken ct)
-    {
-        var ids = others.Select(a => a.Id).Append(page.Id).ToList();
-        var versions = await _db.GccArtifactVersions.Where(v => ids.Contains(v.ArtifactId)).ToListAsync(ct);
-        var inOrder = versions
-            .OrderBy(v => v.CreatedAtUtc)
-            .ThenBy(v => v.VersionNumber)
-            .ThenBy(v => v.Id)
-            .ToList();
-        for (var i = 0; i < inOrder.Count; i++)
-        {
-            inOrder[i].ArtifactId = page.Id;
-            inOrder[i].VersionNumber = i + 1;
-        }
-
-        var otherIds = others.Select(a => a.Id).ToList();
-        var derived = await _db.GccArtifacts
-            .Where(a => a.ParentArtifactId != null && otherIds.Contains(a.ParentArtifactId.Value))
-            .ToListAsync(ct);
-        foreach (var child in derived) child.ParentArtifactId = page.Id;
-
-        _db.GccArtifacts.RemoveRange(others);
-        drafts.RemoveAll(others.Contains);
-        return inOrder.Count;
-    }
-
-    /// <summary>The drafts of one page, newest first: the first is the page, the rest are duplicates of it.</summary>
-    private static List<GccArtifact> DraftsOfPage(List<GccArtifact> drafts, string pageKey) =>
-        [.. drafts
-            .Where(a => string.Equals(PageKey(a), pageKey, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(a => a.CreatedAtUtc)
-            .ThenByDescending(a => a.Id)];
-
     // The unit separator cannot occur in a type or a name, so two different pages never share a key.
     private static string PageKey(GccGeneratedPiece piece) => $"{piece.Type.Trim()}\u001f{piece.Name.Trim()}";
 
-    private static string PageKey(GccArtifact draft) => $"{draft.Type.Trim()}\u001f{draft.Name.Trim()}";
+    private static string PageKey(GccArtifact page) => $"{page.Type.Trim()}\u001f{page.Name.Trim()}";
 }
