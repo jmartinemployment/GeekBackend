@@ -2421,7 +2421,10 @@ public class GccGenerateService
         // Prompts come from the type's own set, not from a switch over a flat builder -- see
         // content-creator-v2/plans/prompts-per-content-type.md.
         var pillarType = RequireType("pillar");
-        var outlineCtx = new ContentTypes.ContentTypePromptContext(context);
+        // The operator's framing of the category: what the pillar argues from. Until 2026-10-06 only
+        // the tool page received it, and the pillar's slots were filled from retrieved prose instead.
+        var outlineCtx = new ContentTypes.ContentTypePromptContext(
+            context, NicheFraming: GccNicheFramingReader.ForCategory(create.BriefJson));
         var metadata = new ArticleMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),

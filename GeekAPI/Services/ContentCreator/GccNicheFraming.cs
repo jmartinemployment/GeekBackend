@@ -93,6 +93,63 @@ public sealed record GccNicheFraming(
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// The failures alone, for the section whose job is what is going wrong today. Null when the
+    /// operator listed none.
+    /// </summary>
+    /// <remarks>
+    /// The pillar and the blog each have a slot for "what is actually going wrong in this work today",
+    /// and until 2026-10-06 it carried no guidance, so the writer filled it from retrieved vendor
+    /// prose and competitor coverage -- a methodology of its own. Jeff, 2026-10-06: "It is again
+    /// inventing its own Methodology versus using mine?" This section's substance is the operator's
+    /// failures, every one of them and no other.
+    /// </remarks>
+    public string? FailuresGuidance()
+    {
+        if (PainPoints.Count == 0) return null;
+
+        var sb = new StringBuilder();
+        sb.Append("THE OPERATOR'S OWN FRAMING -- argue from it, never cite it; it is the publisher's position, ");
+        sb.Append("not retrieved evidence, so attribute none of it to a source. ");
+        sb.Append("This section's substance is where the work goes wrong, in the operator's own analysis. Cover ");
+        sb.Append("every one of these, in your own prose, never as a list and never verbatim, and add no failure ");
+        sb.Append("the operator did not name:");
+        for (var i = 0; i < PainPoints.Count; i++)
+        {
+            sb.AppendLine();
+            sb.Append(i + 1).Append(". ").Append(PainPoints[i]);
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The automation alone, for the sections about how the approach works, what makes it hold up and
+    /// what rolling it out involves. Null when the operator described none.
+    /// </summary>
+    /// <remarks>
+    /// "How the approach works end to end: the mechanics" was answered, until 2026-10-06, with whatever
+    /// approach the retrieved passages described -- a vendor's, or the aggregate of the pages already
+    /// ranking. The approach is the operator's; the writer supplies the prose and the evidence for it.
+    /// </remarks>
+    public string? ApproachGuidance()
+    {
+        if (string.IsNullOrWhiteSpace(AutomationToPitch)) return null;
+
+        return "THE OPERATOR'S OWN FRAMING -- argue from it, never cite it; it is the publisher's position, "
+            + "not retrieved evidence, so attribute none of it to a source. The approach this section describes "
+            + "is the operator's, not a generic one and not a vendor's: " + AutomationToPitch.Trim()
+            + " Describe its mechanics, its sequence and its decisions. The partner tools appear where they do "
+            + "this work, as the evidence shows them doing it.";
+    }
+
+    /// <summary>A one-line pointer for the later sections, so the approach is stated once and held to throughout.</summary>
+    public string? ApproachPointer() =>
+        string.IsNullOrWhiteSpace(AutomationToPitch)
+            ? null
+            : "Within the operator's own approach, stated in the section before this one -- never a generic "
+              + "or a vendor's alternative to it.";
 }
 
 /// <summary>

@@ -50,7 +50,36 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
             SectionDepth),
     ];
 
-    public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx) => Sections;
+    public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx) => Outline(ctx.NicheFraming);
+
+    /// <summary>
+    /// The six obligations, each guided by the part of the operator's framing that answers it: the
+    /// opening by the whole framing, "what is going wrong" by the operator's failures, "how the approach
+    /// works" by the operator's automation, and the later sections held to that same approach.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-06 the pillar never received the framing at all -- only the tool page did (its
+    /// opening slot, since 2026-10-02) -- so the slots were filled from retrieved vendor prose and
+    /// competitor coverage and every pillar argued a methodology of the model's own. Jeff, 2026-10-06:
+    /// "It is again inventing its own Methodology versus using mine?" The coverage is unchanged; what
+    /// each section argues from is now the operator's. A brief with no framing gets the slots as before.
+    /// </remarks>
+    public static IReadOnlyList<SectionSlot> Outline(GccNicheFraming? niche)
+    {
+        if (niche is null || !niche.HasAny) return Sections;
+
+        var approach = niche.ApproachGuidance();
+        var pointer = niche.ApproachPointer();
+        return
+        [
+            Sections[0] with { Guidance = niche.ToGuidance() },
+            Sections[1] with { Guidance = niche.FailuresGuidance() },
+            Sections[2] with { Guidance = approach },
+            Sections[3] with { Guidance = pointer },
+            Sections[4] with { Guidance = pointer },
+            Sections[5] with { Guidance = pointer },
+        ];
+    }
 
     /// <summary>
     /// Returns the lede AND the introduction section -- BuildPillarLedePrompt asks for
@@ -60,28 +89,34 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     private static ArticleMetadataDraft Meta(ContentTypePromptContext ctx) =>
         ctx.Metadata ?? throw new InvalidOperationException("A pillar page needs ArticleMetadataDraft.");
 
-    public ChatCompletionRequest Lede(ContentTypePromptContext ctx) =>
-        prompts.BuildPillarLedePrompt(
+    public ChatCompletionRequest Lede(ContentTypePromptContext ctx)
+    {
+        var outline = OutlineFor(ctx);
+        return prompts.BuildPillarLedePrompt(
             ctx.Context,
             Meta(ctx),
-            ledeHeading: Sections[0].Label,
+            ledeHeading: outline[0].Label,
             ledeIndex: 0,
-            totalSections: Sections.Length,
-            fullOutline: Sections,
+            totalSections: outline.Count,
+            fullOutline: outline,
             isRegeneration: false,
             evidenceBlock: ctx.EvidenceBlock);
+    }
 
     /// <summary>Outline minus the lede slot: the lede already wrote Outline[0].</summary>
-    public ChatCompletionRequest Body(ContentTypePromptContext ctx) =>
-        prompts.BuildArticleSectionBatchPrompt(
+    public ChatCompletionRequest Body(ContentTypePromptContext ctx)
+    {
+        var outline = OutlineFor(ctx);
+        return prompts.BuildArticleSectionBatchPrompt(
             ctx.Context,
             Meta(ctx),
-            slots: ctx.SectionBatch ?? [.. Sections.Skip(1)],
-            fullOutline: Sections,
+            slots: ctx.SectionBatch ?? [.. outline.Skip(1)],
+            fullOutline: outline,
             isRegeneration: ctx.RevisionNotes is { Length: > 0 },
             revisionNotes: ctx.RevisionNotes,
             requireHeadingProvenance: true,
             evidenceBlock: ctx.EvidenceBlock,
             lede: ctx.Lede,
             batchIndex: ctx.SectionBatchIndex);
+    }
 }
