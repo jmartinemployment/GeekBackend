@@ -246,6 +246,29 @@ public static partial class GccDraftGuard
                 + "of them, and any link to them. Name only the partner tools listed."));
         }
 
+        // "Software like Lightyear, Ramp, and Bill offer powerful automation capabilities" on a project
+        // with five partners (Jeff, 2026-10-06: "Which implies the other two do not?"). A sentence that
+        // names some of the partners says, by omission, that the rest lack what it describes. One is a
+        // claim about one; all is a claim about the set; some is an exclusion nobody decided.
+        var partial = GccRequiredToolMentions.PartialLists(document, inputs.RequiredTools);
+        if (partial.Count > 0)
+        {
+            var first = partial[0];
+            findings.Add(new GccGuardFinding(
+                "partner-subset",
+                $"{Capitalized(type)} names some partner tools without the rest in {partial.Count} sentence(s). "
+                + $"\"{Excerpt(first.Sentence)}\" names {string.Join(", ", first.Named)} and not "
+                + $"{string.Join(", ", first.Unnamed)}. A sentence that names some partners says the others lack "
+                + "what it describes; a page names all of them together, or one at a time.",
+                Refuses: true,
+                "The last attempt grouped some partner tools without the rest: "
+                + string.Join(" ", partial.Take(4).Select(p =>
+                    $"\"{Excerpt(p.Sentence)}\" names {string.Join(", ", p.Named)} and not {string.Join(", ", p.Unnamed)}."))
+                + " Where a capability is shared, name every partner tool in that sentence or name none of them "
+                + "by name; where it belongs to one tool, name that tool alone, and only with evidence for it in "
+                + "QUOTEABLE RESEARCH. Do this for every such sentence."));
+        }
+
         var missing = GccRequiredToolMentions.Missing(document, inputs.RequiredTools);
         if (missing.Count > 0)
         {
@@ -455,6 +478,8 @@ public static partial class GccDraftGuard
 
     private static void AddClosingFinding(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
     {
+        AddQuizFinding(document, into);
+
         var violations = GccClosingCtaGuard.FindViolations(document, inputs.ConsultationHref);
         if (violations.Count == 0) return;
 
@@ -463,6 +488,51 @@ public static partial class GccDraftGuard
             "The draft ships without a scheduler link. " + string.Join(" ", violations),
             Refuses: false,
             GccClosingCtaGuard.RetryInstruction(inputs.ConsultationHref!)));
+    }
+
+    /// <summary>
+    /// The phrasings that turn the publisher's questions into a quiz the reader grades before booking.
+    /// The instruction names them as forbidden; a page that uses one anyway is refused rather than trusted.
+    /// </summary>
+    private static readonly string[] QuizPhrasings =
+    [
+        "ask yourself",
+        "asking yourself",
+        "if these questions",
+        "if any of these",
+        "if your answers",
+        "if the answers",
+    ];
+
+    /// <summary>
+    /// The publisher's questions are answered when the reader books. They are not a self-check the
+    /// appointment depends on (Jeff, 2026-10-05: "It was meant answer these questions when booking your
+    /// appointment"; 2026-10-06: "Questions are not being used as intended").
+    /// </summary>
+    /// <remarks>
+    /// The closing instruction has said so since 2026-10-05, and said which phrasings are forbidden.
+    /// An instruction is not a check: a page that still wrote "consider asking yourself ... if these
+    /// questions highlight inefficiencies, it may be time to book" would have shipped. The phrasings
+    /// are matched anywhere on the page, since a quiz is a quiz wherever it sits.
+    /// </remarks>
+    private static void AddQuizFinding(ContentDocument document, List<GccGuardFinding> into)
+    {
+        var text = GeekAPI.Services.Workflow.Services.ContentDocumentText.Flatten(document);
+        var used = QuizPhrasings
+            .Where(p => text.Contains(p, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (used.Count == 0) return;
+
+        var listed = string.Join("\", \"", used);
+        into.Add(new GccGuardFinding(
+            "questions-quiz",
+            $"The draft turns the publisher's questions into a quiz (\"{listed}\"). The reader answers them "
+            + "when booking; the appointment does not depend on their answers.",
+            Refuses: true,
+            $"The last attempt wrote \"{listed}\". The publisher's questions are answered when the reader books "
+            + "the appointment: say so in plain words -- book, and answer these when booking -- and give the "
+            + "questions. Never \"ask yourself\", never \"if these questions ...\", never \"if any of these ...\", "
+            + "never a condition on the answers. The ask does not depend on them."));
     }
 
     private static int CountQuotes(ContentDocument document) =>
@@ -554,5 +624,9 @@ public static partial class GccDraftGuard
     }
 
     private static string Capitalized(string type) => char.ToUpperInvariant(type[0]) + type[1..];
+
+    /// <summary>The start of a sentence, enough to find it on the page, not the whole of it in a log line.</summary>
+    private static string Excerpt(string sentence) =>
+        sentence.Length <= 140 ? sentence : sentence[..140].TrimEnd() + "...";
 
 }

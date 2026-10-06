@@ -204,6 +204,67 @@ public class GccDraftGuardTests
         Assert.Contains("unlisted-tools", Failed(GccDraftGuard.Blog(doc, inputs)));
     }
 
+    /// <summary>
+    /// "Software like Lightyear, Ramp, and Bill offer powerful automation capabilities" on a project with
+    /// five partners (Jeff, 2026-10-06: "Which implies the other two do not?").
+    /// </summary>
+    [Fact]
+    public void A_sentence_naming_some_partners_and_not_the_rest_is_refused_and_the_retry_names_both_sides()
+    {
+        var doc = Doc(Body(
+            "What the tools do",
+            Text("Software like Lightyear, Ramp, and Bill offer powerful automation capabilities that streamline "
+                 + "invoice processing. Stampli and Approvalmax are also options for approvals.")));
+        var inputs = Inputs(requiredTools: ["Lightyear", "Ramp", "Bill", "Stampli", "Approvalmax"]);
+
+        var finding = Assert.Single(GccDraftGuard.Pillar(doc, inputs).Findings, f => f.Check == "partner-subset");
+        Assert.True(finding.Refuses);
+        Assert.Contains("2 sentence(s)", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("names Lightyear, Ramp, Bill and not Stampli, Approvalmax", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("names Stampli, Approvalmax and not Lightyear, Ramp, Bill", finding.RetryInstruction, StringComparison.Ordinal);
+        // Every partner is named on the page, so the mentions check is satisfied; this is a different finding.
+        Assert.DoesNotContain("partner-mentions", Failed(GccDraftGuard.Blog(doc, inputs)));
+        Assert.Contains("partner-subset", Failed(GccDraftGuard.Blog(doc, inputs)));
+    }
+
+    [Fact]
+    public void Naming_all_partners_together_or_one_at_a_time_is_not_a_subset_finding()
+    {
+        var doc = Doc(Body(
+            "What the tools do",
+            Text("Lightyear, Ramp, Bill, Stampli and Approvalmax all route invoices to approvers. Ramp also issues cards. "
+                 + "Bill.com syncs with QuickBooks; billing delays fall.")));
+        var inputs = Inputs(requiredTools: ["Lightyear", "Ramp", "Bill", "Stampli", "Approvalmax"]);
+
+        Assert.DoesNotContain("partner-subset", Failed(GccDraftGuard.Pillar(doc, inputs)));
+        // With two partners every sentence names one or all, so there is nothing partial to find.
+        var two = Doc(Body("Choosing", Text("ApprovalMax and Ramp both route approvals. ApprovalMax does so in Xero.")));
+        Assert.DoesNotContain("partner-subset", Failed(GccDraftGuard.Pillar(two, Inputs(requiredTools: ["ApprovalMax", "Ramp"]))));
+    }
+
+    /// <summary>
+    /// The publisher's questions are answered when the reader books; a closing that makes the booking
+    /// conditional on a self-check is refused (Jeff, 2026-10-05 and 2026-10-06).
+    /// </summary>
+    [Fact]
+    public void A_closing_that_turns_the_questions_into_a_quiz_is_refused()
+    {
+        var quiz = Doc(Body(
+            "Next steps",
+            Text("Consider asking yourself these questions. If these questions highlight inefficiencies in your "
+                 + "process, it may be time to book a consultation.")));
+        var booking = Doc(Body(
+            "Next steps",
+            Text("Book the appointment, and answer these questions when booking: how many invoices arrive each "
+                 + "month, and who approves them today.")));
+
+        var finding = Assert.Single(GccDraftGuard.Pillar(quiz, Inputs()).Findings, f => f.Check == "questions-quiz");
+        Assert.True(finding.Refuses);
+        Assert.Contains("\"asking yourself\", \"if these questions\"", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("questions-quiz", Failed(GccDraftGuard.Tool(quiz, Inputs(requiredTools: []))));
+        Assert.DoesNotContain("questions-quiz", Failed(GccDraftGuard.Pillar(booking, Inputs())));
+    }
+
     [Fact]
     public void Naming_only_listed_partners_is_not_an_unlisted_tool_finding()
     {
