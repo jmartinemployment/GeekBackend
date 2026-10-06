@@ -104,6 +104,29 @@ public sealed class GccPublisherPositionsTests
         Assert.Equal(string.Empty, GccPublisherPositions.Block(null, "x"));
     }
 
+    /// <summary>
+    /// The site names every tool the publisher implements; this project lists some of them. The 16:52 run
+    /// of 2026-10-06 wrote Tipalti into the blog from the site's own Seamless Integrations text. A tool the
+    /// project does not list reads as "another tool" -- not "a competitor", which it is not.
+    /// </summary>
+    [Fact]
+    public void A_tool_the_project_does_not_list_reads_as_another_tool_in_the_publishers_positions()
+    {
+        var positions = new List<GccPublisherPosition>
+        {
+            new("Seamless Integrations", ["We connect Tipalti, Ramp and Bill to the ledger you run.", "TIPALTI handles global payables."], Site),
+            new("Tipalti Rollouts", ["How we deploy Tipalti."], Site),
+        };
+
+        var block = GccPublisherPositions.Block(positions, "Automated Approval Workflows", ["Tipalti", "Melio"]);
+
+        Assert.Contains("- We connect another tool, Ramp and Bill to the ledger you run.", block, StringComparison.Ordinal);
+        Assert.Contains("- another tool handles global payables.", block, StringComparison.Ordinal);
+        Assert.Contains("[another tool Rollouts]", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("tipalti", block, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("a competitor", block, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_positions_ride_the_research_document_and_the_evidence_block_carries_them()
     {
@@ -115,7 +138,7 @@ public sealed class GccPublisherPositionsTests
             null, null, null, null, json, "draft", DateTime.UtcNow, DateTime.UtcNow, "accounting", Guid.NewGuid());
 
         var roundTrip = GccResearchFetchService.Deserialize(json)!.PublisherPositions;
-        var block = GccGenerateService.BuildPublisherPositionsBlock(create);
+        var block = GccGenerateService.BuildPublisherPositionsBlock(create, []);
 
         Assert.Equal("The Methodology", Assert.Single(roundTrip!).Heading);
         Assert.Contains("[The Methodology]", block, StringComparison.Ordinal);

@@ -317,11 +317,29 @@ public static class GccRequiredToolMentions
         }
     }
 
-    /// <summary>Whether <paramref name="text"/> contains <paramref name="name"/> as a whole word, spelled as given.</summary>
-    private static bool NamesAsWord(string text, string name) =>
-        System.Text.RegularExpressions.Regex.IsMatch(
-            text,
-            $@"(?<![A-Za-z0-9]){System.Text.RegularExpressions.Regex.Escape(name)}(?![A-Za-z0-9])");
+    /// <summary>
+    /// Whether <paramref name="text"/> names <paramref name="name"/> as a whole word. A brand is itself
+    /// whatever its capitals -- "ApprovalMax" is "Approvalmax" -- but a name that starts with a capital
+    /// is not matched by the lower-case word: "a bill arrives" does not name Bill.
+    /// </summary>
+    /// <remarks>
+    /// The 16:52 run of 2026-10-06 wrote "tools like Bill, Ramp, and ApprovalMax" against a partner
+    /// list that spells it "Approvalmax", and the partial-list finding reported ApprovalMax as not
+    /// named -- the retry was told the wrong sides. One matcher for the unlisted-tool and partial-list
+    /// checks, so the two cannot read a name differently.
+    /// </remarks>
+    internal static bool NamesAsWord(string text, string name)
+    {
+        var pattern = $@"(?<![A-Za-z0-9]){System.Text.RegularExpressions.Regex.Escape(name)}(?![A-Za-z0-9])";
+        var capitalised = name.Length > 0 && char.IsUpper(name[0]);
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                     text, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            if (!capitalised || char.IsUpper(match.Value[0])) return true;
+        }
+
+        return false;
+    }
 
     private static bool Covers(string a, string b)
     {

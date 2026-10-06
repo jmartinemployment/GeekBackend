@@ -478,8 +478,8 @@ public class GccGroundingRetrievalTests
         Assert.DoesNotContain("accounts-payable/tipalti", block, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Automated Invoice Processing", block, StringComparison.Ordinal);
         Assert.Contains("Accounts Payable automation", block, StringComparison.Ordinal);
-        Assert.Contains("Tools we implement, a competitor included", block, StringComparison.Ordinal);
-        Assert.Contains("Clients on a competitor and Ramp both saw it.", block, StringComparison.Ordinal);
+        Assert.Contains("Tools we implement, another tool included", block, StringComparison.Ordinal);
+        Assert.Contains("Clients on another tool and Ramp both saw it.", block, StringComparison.Ordinal);
         Assert.DoesNotContain("tipalti", block, StringComparison.OrdinalIgnoreCase);
     }
 

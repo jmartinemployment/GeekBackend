@@ -227,6 +227,25 @@ public class GccDraftGuardTests
         Assert.Contains("partner-subset", Failed(GccDraftGuard.Blog(doc, inputs)));
     }
 
+    /// <summary>
+    /// The 16:52 run of 2026-10-06 wrote "tools like Bill, Ramp, and ApprovalMax" against a partner list
+    /// spelling it "Approvalmax", and the finding told the retry ApprovalMax was not named. A brand is
+    /// itself whatever its capitals; a lower-case common word is not the brand.
+    /// </summary>
+    [Fact]
+    public void A_partner_is_named_whatever_its_capitals_but_a_lower_case_word_is_not_the_brand()
+    {
+        var doc = Doc(Body(
+            "What the tools do",
+            Text("Tools like Bill, Ramp, and ApprovalMax route approvals. Every bill still needs a stampli-shaped nudge.")));
+        var inputs = Inputs(requiredTools: ["Approvalmax", "Stampli", "Melio", "Bill", "Ramp"]);
+
+        var finding = Assert.Single(GccDraftGuard.Pillar(doc, inputs).Findings, f => f.Check == "partner-subset");
+        Assert.Contains("names Approvalmax, Bill, Ramp and not Stampli, Melio", finding.Detail, StringComparison.Ordinal);
+        // The second sentence names nobody: "bill" is a word and "stampli-shaped" is not a whole word.
+        Assert.Contains("in 1 sentence(s)", finding.Detail, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Naming_all_partners_together_or_one_at_a_time_is_not_a_subset_finding()
     {

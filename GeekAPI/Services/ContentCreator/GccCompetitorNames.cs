@@ -31,6 +31,13 @@ public static class GccCompetitorNames
     public const string Redacted = "a competitor";
 
     /// <summary>
+    /// What a tool the project does not list becomes in the publisher's own text. Not "a competitor":
+    /// on the publisher's site it is a tool they implement, and on this project it is simply not a
+    /// partner.
+    /// </summary>
+    public const string AnotherTool = "another tool";
+
+    /// <summary>
     /// The hosts and host-derived names of these pages, longest first so <c>tipalti.com</c> goes before
     /// <c>Tipalti</c> would otherwise leave <c>.com</c> behind. Empty for no URLs or none that parse.
     /// </summary>
@@ -79,7 +86,7 @@ public static class GccCompetitorNames
     /// <paramref name="text"/> with every whole-word occurrence of each name replaced. The text itself
     /// when there are no names.
     /// </summary>
-    public static string Redact(string text, IReadOnlyList<string> names)
+    public static string Redact(string text, IReadOnlyList<string> names, string replacement = Redacted)
     {
         if (names.Count == 0 || string.IsNullOrEmpty(text)) return text;
 
@@ -89,7 +96,7 @@ public static class GccCompetitorNames
             result = Regex.Replace(
                 result,
                 $@"(?<![A-Za-z0-9]){Regex.Escape(name)}(?![A-Za-z0-9])",
-                Redacted,
+                replacement,
                 RegexOptions.IgnoreCase);
         }
 

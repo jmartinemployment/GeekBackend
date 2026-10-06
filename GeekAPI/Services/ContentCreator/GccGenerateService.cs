@@ -1512,7 +1512,7 @@ public class GccGenerateService
             ? string.Empty
             : string.Join(
                 Environment.NewLine,
-                new[] { BuildPublisherPositionsBlock(create), BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create, toolUnlisted) }
+                new[] { BuildPublisherPositionsBlock(create, toolUnlisted), BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create, toolUnlisted) }
                     .Where(b => b.Length > 0));
 
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
@@ -2443,7 +2443,7 @@ public class GccGenerateService
         //
         // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
         // headings stay out of a prompt that states no provenance rules.
-        var ledeEvidence = WithPublisherPositions(BuildResearchBlock(create), create);
+        var ledeEvidence = WithPublisherPositions(BuildResearchBlock(create), create, partnerTools.Unlisted);
         // The amounts in this page's evidence that are not in US dollars, named for the opening and
         // for each part of the body.
         var pillarForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(
@@ -2678,7 +2678,7 @@ public class GccGenerateService
         //
         // The research half, not the whole block: see BuildPillarLedePrompt for why the competitor
         // headings stay out of a prompt that states no provenance rules.
-        var ledeEvidence = WithPublisherPositions(BuildResearchBlock(create), create);
+        var ledeEvidence = WithPublisherPositions(BuildResearchBlock(create), create, partnerTools.Unlisted);
         // The amounts in this page's evidence that are not in US dollars, named for the opening and
         // for each part of the body.
         var blogForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(
@@ -2803,7 +2803,7 @@ public class GccGenerateService
 
         // The publisher's own positions, before anything read for difference or for coverage: the
         // method the page describes and the subjects it covers are the publisher's first.
-        var positionsBlock = BuildPublisherPositionsBlock(create);
+        var positionsBlock = BuildPublisherPositionsBlock(create, unlistedTools);
         if (positionsBlock.Length > 0)
             sb.AppendLine(positionsBlock);
 
@@ -2842,10 +2842,10 @@ public class GccGenerateService
     /// What the publisher states on their own site page, by heading, as the research recorded it for
     /// this run (<see cref="GccPublisherPositionsReader"/>). Empty when the run read none.
     /// </summary>
-    internal static string BuildPublisherPositionsBlock(GccCreateDto create)
+    internal static string BuildPublisherPositionsBlock(GccCreateDto create, IReadOnlyList<string> unlistedTools)
     {
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
-        return GccPublisherPositions.Block(research?.PublisherPositions, GccTopic.KeywordOf(create.Topic));
+        return GccPublisherPositions.Block(research?.PublisherPositions, GccTopic.KeywordOf(create.Topic), unlistedTools);
     }
 
     /// <param name="unlistedTools">
@@ -2886,9 +2886,9 @@ public class GccGenerateService
         {
             sb.AppendLine($"[{page.Title}] ({page.Url})");
             foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
-                sb.AppendLine($"- H{h.Level}: {GccCompetitorNames.Redact(h.Text, names)}");
+                sb.AppendLine($"- H{h.Level}: {GccCompetitorNames.Redact(h.Text, names, GccCompetitorNames.AnotherTool)}");
             foreach (var para in page.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
-                sb.AppendLine($"- {GccCompetitorNames.Redact(para, names)}");
+                sb.AppendLine($"- {GccCompetitorNames.Redact(para, names, GccCompetitorNames.AnotherTool)}");
             sb.AppendLine();
         }
 
@@ -3195,9 +3195,9 @@ public class GccGenerateService
     /// amounts, and evidence that repeated them on one line would be read as stating them.
     /// </remarks>
     /// <summary>The research half with the publisher's positions after it, for the opening of a pillar or blog.</summary>
-    private static string WithPublisherPositions(string research, GccCreateDto create)
+    private static string WithPublisherPositions(string research, GccCreateDto create, IReadOnlyList<string> unlistedTools)
     {
-        var positions = BuildPublisherPositionsBlock(create);
+        var positions = BuildPublisherPositionsBlock(create, unlistedTools);
         if (positions.Length == 0) return research;
         return research.Length == 0 ? positions : $"{research}{Environment.NewLine}{positions}";
     }

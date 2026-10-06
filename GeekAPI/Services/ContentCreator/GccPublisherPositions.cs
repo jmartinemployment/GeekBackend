@@ -32,10 +32,18 @@ public static class GccPublisherPositions
         + "stages -- this section walks that method's stages, in order, in your own prose, applied to "
         + "this page's subject. That is the method this page describes, not a generic one and not a vendor's.";
 
-    /// <summary>The block, or an empty string when the research carries no positions.</summary>
-    public static string Block(IReadOnlyList<GccPublisherPosition>? positions, string keyword)
+    /// <summary>
+    /// The block, or an empty string when the research carries no positions. A tool the project does
+    /// not list -- a partner of another project, named on the site as one the publisher implements --
+    /// reads as "another tool", since this page may not name it (the 16:52 run of 2026-10-06: the blog
+    /// named Tipalti from the site's own Seamless Integrations text).
+    /// </summary>
+    public static string Block(IReadOnlyList<GccPublisherPosition>? positions, string keyword, IReadOnlyList<string>? unlistedTools = null)
     {
         if (positions is not { Count: > 0 }) return string.Empty;
+
+        var names = GccCompetitorNames.Names(unlistedTools ?? []);
+        string Clean(string text) => GccCompetitorNames.Redact(text, names, GccCompetitorNames.AnotherTool);
 
         var sb = new StringBuilder();
         var url = positions[0].Url;
@@ -57,9 +65,9 @@ public static class GccPublisherPositions
 
         foreach (var position in positions)
         {
-            sb.AppendLine($"[{position.Heading}]");
+            sb.AppendLine($"[{Clean(position.Heading)}]");
             foreach (var line in position.Paragraphs)
-                sb.AppendLine($"- {line}");
+                sb.AppendLine($"- {Clean(line)}");
             sb.AppendLine();
         }
 
