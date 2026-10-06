@@ -125,7 +125,7 @@ public class AnthropicProvider : IContentGenerationProvider
         if (usingSchema)
         {
             var toolUseBlock = parsed.Content.FirstOrDefault(c => c.Type == "tool_use")
-                ?? throw new ContentGenerationException("Anthropic response contained no tool_use content block.");
+                ?? throw NoBlock("tool_use", parsed, body);
             // Input is already a parsed JSON value (not a string) — GetRawText() hands back the
             // exact JSON text the API returned, with no extra serialization round-trip.
             content = toolUseBlock.Input?.GetRawText() ?? string.Empty;
@@ -133,7 +133,7 @@ public class AnthropicProvider : IContentGenerationProvider
         else
         {
             var textBlock = parsed.Content.FirstOrDefault(c => c.Type == "text")
-                ?? throw new ContentGenerationException("Anthropic response contained no text content block.");
+                ?? throw NoBlock("text", parsed, body);
             content = textBlock.Text ?? string.Empty;
         }
 
@@ -142,6 +142,30 @@ public class AnthropicProvider : IContentGenerationProvider
             ModelUsed: parsed.Model ?? model,
             PromptTokens: parsed.Usage?.InputTokens,
             CompletionTokens: parsed.Usage?.OutputTokens);
+    }
+
+    /// <summary>
+    /// A 200 whose content has no block of the kind the call needs. The failure says what did come
+    /// back -- the stop reason and the block types -- and the body is logged whole, as a non-2xx
+    /// body is.
+    /// </summary>
+    /// <remarks>
+    /// On 2026-10-06 every piece of a Generate failed with "Anthropic response contained no text
+    /// content block" after a 200 that took 25 seconds, and that sentence was all the log held: the
+    /// body was read and thrown away, so whether the model refused, ran out of output tokens, or
+    /// answered in a block type this code does not read could not be told after the fact.
+    /// </remarks>
+    private ContentGenerationException NoBlock(string wanted, AnthropicResponse parsed, string body)
+    {
+        var blocks = parsed.Content.Count == 0
+            ? "no content blocks"
+            : $"{parsed.Content.Count} content block(s): {string.Join(", ", parsed.Content.Select(c => c.Type))}";
+        var stop = string.IsNullOrEmpty(parsed.StopReason) ? "not stated" : parsed.StopReason;
+        _logger.LogError(
+            "Anthropic returned 200 with no {Wanted} block (stop_reason {StopReason}; {Blocks}): {Body}",
+            wanted, stop, blocks, body);
+        return new ContentGenerationException(
+            $"Anthropic response contained no {wanted} content block (stop_reason: {stop}; {blocks}).");
     }
 
     private sealed class AnthropicRequest
@@ -179,6 +203,8 @@ public class AnthropicProvider : IContentGenerationProvider
     {
         [JsonPropertyName("model")] public string? Model { get; set; }
         [JsonPropertyName("content")] public List<AnthropicContentBlock> Content { get; set; } = new();
+        /// <summary>end_turn, max_tokens, stop_sequence, tool_use, pause_turn or refusal.</summary>
+        [JsonPropertyName("stop_reason")] public string? StopReason { get; set; }
         [JsonPropertyName("usage")] public AnthropicUsage? Usage { get; set; }
     }
 
