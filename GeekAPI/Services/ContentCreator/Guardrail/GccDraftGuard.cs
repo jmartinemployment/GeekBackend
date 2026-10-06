@@ -4,16 +4,13 @@ using GeekAPI.Services.Workflow.Domain.Entities;
 namespace GeekAPI.Services.ContentCreator.Guardrail;
 
 /// <summary>
-/// One check a draft failed: what it was, what to tell the writer, and whether it refuses the draft
-/// or ships with it reported.
+/// One check a draft failed: what it was, and whether it refuses the draft or ships with it reported.
 /// </summary>
 /// <param name="Check">A stable name, so two verdicts can be compared check by check.</param>
 /// <param name="Detail">The operator-facing reason, naming what was found.</param>
 /// <param name="Refuses">True when a draft failing this is not saved. False when it is saved with
 /// <paramref name="Detail"/> in its warnings -- a missing partner, an unlinked closing.</param>
-/// <param name="RetryInstruction">What the single retry is told, so the writer fixes this and not
-/// something else.</param>
-public sealed record GccGuardFinding(string Check, string Detail, bool Refuses, string RetryInstruction);
+public sealed record GccGuardFinding(string Check, string Detail, bool Refuses);
 
 /// <summary>Every check one draft failed. Empty is a draft that passes everything.</summary>
 public sealed record GccGuardVerdict(IReadOnlyList<GccGuardFinding> Findings)
@@ -27,33 +24,6 @@ public sealed record GccGuardVerdict(IReadOnlyList<GccGuardFinding> Findings)
     /// <summary>The names of the checks this draft failed.</summary>
     public IReadOnlySet<string> FailedChecks =>
         Findings.Select(f => f.Check).ToHashSet(StringComparer.Ordinal);
-
-    /// <summary>Every finding's retry instruction, once each, for the single retry.</summary>
-    public string RetryInstructions =>
-        string.Join(
-            Environment.NewLine,
-            Findings.Select(f => f.RetryInstruction).Where(i => i.Length > 0).Distinct(StringComparer.Ordinal));
-
-    /// <summary>
-    /// Whether <paramref name="retry"/> may replace <paramref name="draft"/>.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A retry is taken only when the checks it fails are a strict subset of the checks the draft
-    /// failed: it fixed at least one thing and broke nothing. So a retry can never fail a check the
-    /// draft passed and still be taken: the CTA retry that fixed the link and dropped a partner, the
-    /// mentions retry that came back with an unlicensed heading, and the tool retry that fixed the
-    /// link and lost the quotation were each that shape, and each was stopped (or not) by a
-    /// condition written beside that one retry. This is the condition, once.
-    /// </para>
-    /// <para>
-    /// Not "fewer refusals": that let a retry swap one failure for a new one -- fix an unlicensed
-    /// heading, add an invented figure -- and be kept, which is a different draft with a different
-    /// fault, not a better one (review, 2026-10-04).
-    /// </para>
-    /// </remarks>
-    public static bool RetryReplaces(GccGuardVerdict draft, GccGuardVerdict retry) =>
-        retry.FailedChecks.IsProperSubsetOf(draft.FailedChecks);
 }
 
 /// <summary>
@@ -94,16 +64,12 @@ public sealed record GccGuardInputs(
     IReadOnlyList<string>? UnlistedTools = null);
 
 /// <summary>
-/// The guard for each long-form type: one function that runs every check, called on the first draft
-/// and on the retry alike.
+/// The guard for each long-form type: one function that runs every check on the draft, once.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The checks used to be run one at a time, each with its own retry and its own idea of what that
-/// retry had to preserve. So a retry could pass fewer checks than the draft it replaced: the pillar's
-/// mentions and CTA retries re-ran heading provenance but not the tools-section guard, rebuilt the
-/// document from the retry's sections and dropped the People Also Ask section on the way. Running
-/// all of them on every draft makes that impossible to write.
+/// Every check runs on every draft, so no check can be skipped by the path a draft took to get here.
+/// A draft that fails one is refused or shipped with the gap reported; it is never sent back.
 /// </para>
 /// <para>
 /// It also makes four promises the prompts already make true in code, where nothing checked them:
@@ -135,8 +101,7 @@ public static partial class GccDraftGuard
             findings.Add(new GccGuardFinding(
                 "names-product",
                 $"The tool page never names {string.Join(", ", unnamed)}. A page about a product must name the product.",
-                Refuses: true,
-                GccRequiredToolMentions.RetryInstruction(unnamed)));
+                Refuses: true));
         }
 
         // No candidates is the legacy path with no create and no partner evidence: there is nothing a
@@ -150,9 +115,7 @@ public static partial class GccDraftGuard
             findings.Add(new GccGuardFinding(
                 "quotation",
                 "The tool page does not carry a verifiable block quotation. " + string.Join(" ", quoteViolations),
-                Refuses: true,
-                "The page must carry one block quotation: a quote paragraph whose \"candidate\" is the "
-                + "number of one listed QUOTABLE SPAN. " + string.Join(" ", quoteViolations)));
+                Refuses: true));
         }
 
         var quotes = CountQuotes(document);
@@ -161,9 +124,7 @@ public static partial class GccDraftGuard
             findings.Add(new GccGuardFinding(
                 "one-quotation",
                 $"The tool page carries {quotes} block quotations; it carries exactly one.",
-                Refuses: true,
-                $"The last attempt carried {quotes} block quotations. Keep exactly one quote paragraph -- "
-                + "the one that best shows how the product solves the problem -- and write the rest as prose."));
+                Refuses: true));
         }
 
         AddLinkFindings(document, inputs, findings);
@@ -189,22 +150,19 @@ public static partial class GccDraftGuard
                 $"The {type} carries a section whose job is to list tools — "
                 + string.Join(", ", toolsSections.Select(h => $"\"{h}\""))
                 + ". Tools belong in the prose of the sections they serve.",
-                Refuses: true,
-                GccToolsSectionGuard.RetryInstruction(toolsSections)));
+                Refuses: true));
         }
 
         if (inputs.Provenance is { } provenance)
         {
-            // Checked even when a tools section was found: the two are separate failures, and a
-            // retry that fixes one must not be taken for having fixed both.
+            // Checked even when a tools section was found: the two are separate failures.
             var unlicensed = GccHeadingProvenanceGuard.FindUnlicensedHeadings(headed, provenance);
             if (unlicensed.Count > 0)
             {
                 findings.Add(new GccGuardFinding(
                     "heading-provenance",
                     $"The {type} body contains unlicensed headings: " + string.Join("; ", unlicensed),
-                    Refuses: true,
-                    GccHeadingProvenanceGuard.RetryInstruction(unlicensed, provenance)));
+                    Refuses: true));
             }
         }
 
@@ -218,11 +176,7 @@ public static partial class GccDraftGuard
                 "no-quotation",
                 $"The {type} carries {quotes} block quotation(s). A {type} does not quote; only a tool page "
                 + "carries a quotation, and only one checked against the partner's own words.",
-                Refuses: true,
-                $"The last attempt carried {quotes} quote paragraph(s). A {type} never quotes: write every "
-                + "quote paragraph as an ordinary text paragraph in your own words, and attribute the claim "
-                + "by naming its source in a short run of its own with the URL as that run's \"href\" -- "
-                + "never an href on the sentence or the paragraph."));
+                Refuses: true));
         }
 
         AddLinkFindings(document, inputs, findings);
@@ -241,9 +195,7 @@ public static partial class GccDraftGuard
                 "unlisted-tools",
                 $"{Capitalized(type)} names {named}, which this project does not list as a partner. A {type} "
                 + "names the project's partner tools and no other.",
-                Refuses: true,
-                $"The last attempt named {named}. They are not this project's partners: remove every mention "
-                + "of them, and any link to them. Name only the partner tools listed."));
+                Refuses: true));
         }
 
         // "Software like Lightyear, Ramp, and Bill offer powerful automation capabilities" on a project
@@ -253,20 +205,14 @@ public static partial class GccDraftGuard
         var partial = GccRequiredToolMentions.PartialLists(document, inputs.RequiredTools);
         if (partial.Count > 0)
         {
-            var first = partial[0];
             findings.Add(new GccGuardFinding(
                 "partner-subset",
                 $"{Capitalized(type)} names some partner tools without the rest in {partial.Count} sentence(s). "
-                + $"\"{Excerpt(first.Sentence)}\" names {string.Join(", ", first.Named)} and not "
-                + $"{string.Join(", ", first.Unnamed)}. A sentence that names some partners says the others lack "
-                + "what it describes; a page names all of them together, or one at a time.",
-                Refuses: true,
-                "The last attempt grouped some partner tools without the rest: "
                 + string.Join(" ", partial.Take(4).Select(p =>
                     $"\"{Excerpt(p.Sentence)}\" names {string.Join(", ", p.Named)} and not {string.Join(", ", p.Unnamed)}."))
-                + " Where a capability is shared, name every partner tool in that sentence or name none of them "
-                + "by name; where it belongs to one tool, name that tool alone, and only with evidence for it in "
-                + "QUOTEABLE RESEARCH. Do this for every such sentence."));
+                + " A sentence that names some partners says the others lack what it describes; a page names "
+                + "all of them together, or one at a time.",
+                Refuses: true));
         }
 
         var missing = GccRequiredToolMentions.Missing(document, inputs.RequiredTools);
@@ -278,8 +224,7 @@ public static partial class GccDraftGuard
                 + $"partner tools. Missing: {string.Join(", ", missing)}. The draft is saved as written. Add the "
                 + "missing partner where it belongs, or check that it has an indexed crawl, since a partner with "
                 + "no evidence gives the writer nothing to say about it.",
-                Refuses: false,
-                GccRequiredToolMentions.RetryInstruction(missing)));
+                Refuses: false));
         }
 
         AddClosingFinding(document, inputs, findings);
@@ -307,11 +252,7 @@ public static partial class GccDraftGuard
             + "the publisher's own pages, or a partner page in QUOTEABLE RESEARCH -- never a competitor and "
             + "never an address the writer supplied itself. A tool page is linked only at the path listed "
             + "for one of this project's partner tools.",
-            Refuses: true,
-            $"The last attempt linked {listed}, which is not a page you were given. Remove those hrefs. A run "
-            + "may link only the scheduler, the publisher's own pages, or a URL listed in QUOTEABLE RESEARCH; "
-            + "a competitor is read and never linked. A tool is linked only at the exact path listed for it, "
-            + "and a tool that is not listed is not linked."));
+            Refuses: true));
     }
 
     /// <summary>
@@ -349,11 +290,7 @@ public static partial class GccDraftGuard
             "link-text",
             $"The draft puts a link on {passages.Count} whole passage(s) instead of on a few words: {named}. "
             + $"A link sits on the name of what it leads to, {MaxLinkWords} words at most.",
-            Refuses: true,
-            $"The last attempt put an href on {passages.Count} long run(s): {named}. A link is a short run of "
-            + $"its own -- the name of the product, page or source, {MaxLinkWords} words at most. Split each of "
-            + "those runs: keep the sentences as runs with no href, and put the href only on a short run that "
-            + "names the source."));
+            Refuses: true));
     }
 
     private static int WordCount(string? text) =>
@@ -420,10 +357,7 @@ public static partial class GccDraftGuard
         into.Add(new GccGuardFinding(
             "numbers",
             $"The draft states figures that appear in none of its evidence: {named}.",
-            Refuses: true,
-            $"The last attempt stated figures that are in none of the evidence you were given: {named}. A "
-            + "number may appear only if it is in the evidence. Remove each one or replace it with the figure "
-            + "the evidence actually gives; never estimate, round or convert."));
+            Refuses: true));
     }
 
     /// <summary>
@@ -469,11 +403,7 @@ public static partial class GccDraftGuard
         into.Add(new GccGuardFinding(
             "currency",
             $"The draft states money that is not in US dollars: {named}. Every amount is in US dollars.",
-            Refuses: true,
-            $"The last attempt stated money that is not in US dollars: {named}. State an amount of money only "
-            + "in US dollars. Where the evidence gives a price only in another currency, do not state the "
-            + "price at all -- never convert it, and never keep the number and drop the currency. Say the "
-            + "vendor publishes its pricing, and leave the figure out."));
+            Refuses: true));
     }
 
     private static void AddClosingFinding(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
@@ -486,8 +416,7 @@ public static partial class GccDraftGuard
         into.Add(new GccGuardFinding(
             "closing-link",
             "The draft ships without a scheduler link. " + string.Join(" ", violations),
-            Refuses: false,
-            GccClosingCtaGuard.RetryInstruction(inputs.ConsultationHref!)));
+            Refuses: false));
     }
 
     /// <summary>
@@ -528,11 +457,7 @@ public static partial class GccDraftGuard
             "questions-quiz",
             $"The draft turns the publisher's questions into a quiz (\"{listed}\"). The reader answers them "
             + "when booking; the appointment does not depend on their answers.",
-            Refuses: true,
-            $"The last attempt wrote \"{listed}\". The publisher's questions are answered when the reader books "
-            + "the appointment: say so in plain words -- book, and answer these when booking -- and give the "
-            + "questions. Never \"ask yourself\", never \"if these questions ...\", never \"if any of these ...\", "
-            + "never a condition on the answers. The ask does not depend on them."));
+            Refuses: true));
     }
 
     private static int CountQuotes(ContentDocument document) =>

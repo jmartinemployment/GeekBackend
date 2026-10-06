@@ -85,16 +85,4 @@ public class GccToolsSectionGuardTests
 
         Assert.Single(GccToolsSectionGuard.FindToolsSections(sections));
     }
-
-    [Fact]
-    public void The_retry_names_the_heading_and_says_to_keep_the_products()
-    {
-        // Deleting the section wholesale is the other way to satisfy this check, and it loses the
-        // page a few hundred words of real material.
-        var instruction = GccToolsSectionGuard.RetryInstruction(["Top Tools for X"]);
-
-        Assert.Contains("\"Top Tools for X\"", instruction, StringComparison.Ordinal);
-        Assert.Contains("Do not simply delete the material", instruction, StringComparison.Ordinal);
-        Assert.Contains("link the first substantive mention", instruction, StringComparison.Ordinal);
-    }
 }

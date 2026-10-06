@@ -53,13 +53,8 @@ public class GccGenerateServiceProvenanceTests
             Requests.Add(request);
             var asked = string.Join("\n", request.Messages.Select(m => m.Content));
 
-            // A shortfall retry re-asks for the batch it was just given -- these scripted sections are
-            // a sentence long, so every one of them is short of its floor and its keyword share.
-            // It is answered with that same batch and not counted: answering it with the next script
-            // would hand the second batch's sections to the call that owns the first.
-            var isShortfallRetry = asked.Contains("=== SHORTFALL", StringComparison.Ordinal);
             var content = request.JsonSchemaName == "sections"
-                ? Served(isShortfallRetry ? Math.Max(bodyCalls - 1, 0) : bodyCalls++)
+                ? Served(bodyCalls++)
                 : asked.Contains("ledeType", StringComparison.OrdinalIgnoreCase) ? lede
                 : asked.Contains("image-generation prompts", StringComparison.OrdinalIgnoreCase) ? imagePrompts
                 : metadata;
@@ -124,25 +119,19 @@ public class GccGenerateServiceProvenanceTests
             new GccCompetitorAnalysisResolverTests.FakeRag());
 
     [Fact]
-    public async Task UnlicensedInventedHeadingRefusesTheWholeGenerationWhenTheRetryCannotFixIt()
+    public async Task UnlicensedInventedHeadingRefusesTheWholeGenerationOnTheFirstAttempt()
     {
-        // Changed 2026-10-01: an unlicensed heading now buys one retry naming the licensable values,
-        // the same single retry a tools section, an omitted tool and a missing CTA each already got.
-        // Provenance was the only guard that refused on first sight, so a model that tagged one
-        // heading "paa:<a question that reads real and is not in the brief>" killed a whole generate
-        // over a tag it could have corrected.
-        //
-        // The refusal is unchanged where it matters -- this pins the second failure, with the same
-        // unlicensed body returned twice.
+        // A heading tagged "paa:<a question that reads real and is not in the brief>" is refused where
+        // it was written. Nothing is sent to the model a second time to re-tag it (Jeff, 2026-10-06:
+        // no retries); the refusal names the heading so the operator can act.
         const string unlicensed =
             """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Made Up Subtopic","paragraphs":[],"href":null,"children":[]}]}]}""";
         var provider = new ScriptedProvider(
             lede: LedeJson,
             imagePrompts: ImagePromptsJson,
             metadata: ArticleMetadataJson,
-            // Two batches for the first pass and two for the retry -- the body is written in
-            // batches, and the retry writes the whole body again.
-            body: [unlicensed, unlicensed, unlicensed, unlicensed]);
+            // The body is written in three batches, once each.
+            body: [unlicensed, unlicensed, unlicensed]);
         var service = Build(provider, NoCompetitorData());
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -150,42 +139,11 @@ public class GccGenerateServiceProvenanceTests
 
         Assert.Contains("unlicensed", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Made Up Subtopic", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("after a retry", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task The_retry_tells_the_writer_which_values_license_a_heading()
-    {
-        // The retry exists to be usable, which means naming the offending heading AND what could have
-        // licensed it. "Tag it against real material" is not actionable without the material listed,
-        // and a model inventing a plausible PAA has usually never been shown which ones exist.
-        //
-        // Asserted on the retry prompt rather than on the finished document: the body is written in
-        // batches, so scripting "first body bad, second good" couples the test to the batch count
-        // instead of to the behaviour. The refusal-after-retry case above pins the end state.
-        const string unlicensed =
-            """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Made Up Subtopic","paragraphs":[],"href":null,"children":[]}]}]}""";
-        var provider = new ScriptedProvider(
-            lede: LedeJson,
-            imagePrompts: ImagePromptsJson,
-            metadata: ArticleMetadataJson,
-            // Two batches for the first pass and two for the retry -- the body is written in
-            // batches, and the retry writes the whole body again.
-            body: [unlicensed, unlicensed, unlicensed, unlicensed]);
-        var service = Build(provider, NoCompetitorData());
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GeneratePillarBodyAsync(Create(), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None));
-
-        var retryPrompt = provider.Requests
-            .SelectMany(r => r.Messages.Select(m => m.Content))
-            .FirstOrDefault(c => c.Contains("HEADING PROVENANCE REJECTED", StringComparison.Ordinal));
-
-        Assert.NotNull(retryPrompt);
-        Assert.Contains("Made Up Subtopic", retryPrompt!, StringComparison.Ordinal);
-        Assert.Contains("only values that license a heading", retryPrompt!, StringComparison.Ordinal);
-        // A kind with nothing behind it says so, rather than being left out for the writer to guess at.
-        Assert.Contains("none available", retryPrompt!, StringComparison.Ordinal);
+        Assert.DoesNotContain("retry", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, provider.Requests.Count(r => r.JsonSchemaName == "sections"));
+        Assert.DoesNotContain(
+            provider.Requests.SelectMany(r => r.Messages.Select(m => m.Content)),
+            c => c.Contains("HEADING PROVENANCE REJECTED", StringComparison.Ordinal));
     }
 
     [Fact]

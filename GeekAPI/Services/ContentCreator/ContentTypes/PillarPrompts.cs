@@ -22,7 +22,7 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     /// none, on the reasoning that depth is only worth stating where sections differ -- but the slot's
     /// lower figure is also what a batch is held to when it comes back
     /// (<c>GccGenerateService.BatchFloorWords</c>), so a pillar had no floor at all: the 2:32 PM pillar
-    /// of 2026-10-05 was 2,006 words against 3,000 with nothing retried and nothing reported, while
+    /// of 2026-10-05 was 2,006 words against 3,000 with nothing reported, while
     /// the blog and tool pages beside it were each told and each listed.
     /// </summary>
     private static readonly string SectionDepth =

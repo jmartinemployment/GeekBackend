@@ -1485,9 +1485,6 @@ public class GccGenerateService
         // dropping it here removes a misleading duplicate, not the only copy.
         // In batches, same reason as the pillar: this page's own outline asks for 3,200-4,400 words
         // and a single response holds about 3,000 in this JSON.
-        // The guard's retry re-writes the body, so it batches too: a retry that asks for the whole
-        // page in one response is the arithmetic cap batching removed, put back on the draft that
-        // ships.
         // Cut before the body is written, not after: the writer quotes from this list and the guard
         // checks the draft against it, so both must be looking at the same one.
         //
@@ -1522,10 +1519,8 @@ public class GccGenerateService
         // from scratch. The pairs are model-extracted and nothing checks them against the page text
         // before this call; GccPartnerFaqAsset.VerifiedAnswer is a field name, not a verification.
         //
-        // Written once, after the first body draft, and carried onto the retry: it is answered from
-        // the partner's FAQ, not from the body's evidence, so re-writing the body has no bearing on
-        // it. The CTA retry used to rebuild the page from its own sections and re-append this by
-        // hand; now every draft the guard sees carries it.
+        // Written once, after the body draft: it is answered from the partner's FAQ, not from the
+        // body's evidence, and the draft the guard sees carries it.
         Section? toolFaqSection = null;
         var toolFaqWritten = false;
         async Task<Section?> ToolFaqAsync()
@@ -1562,7 +1557,7 @@ public class GccGenerateService
             quoteCandidates: create is null ? null : quoteCandidates,
             extractionJson: extractedToolResearchJson);
 
-        async Task<GccDraft> WriteToolDraftAsync(string? retryInstructions)
+        async Task<GccDraft> WriteToolDraftAsync()
         {
             var shortfalls = new List<string>();
             var written = await GenerateSectionsInBatchesAsync(
@@ -1574,7 +1569,7 @@ public class GccGenerateService
                     Lede = toolLede,
                     EvidenceBlock = string.Join(
                         Environment.NewLine,
-                        new[] { toolOutlineCtx.EvidenceBlock, toolCompetitorBlock, toolForeignAmounts, retryInstructions }
+                        new[] { toolOutlineCtx.EvidenceBlock, toolCompetitorBlock, toolForeignAmounts }
                             .Where(b => !string.IsNullOrWhiteSpace(b))),
                     QuoteCandidates = quoteCandidates,
                 },
@@ -1586,8 +1581,8 @@ public class GccGenerateService
             // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a
             // live run lost AvidXchange's page to a shortened span with an ellipsis added. Snapping
             // restores the system's own string for anything that matches a candidate; the guard still
-            // refuses anything that matches none. On the retry too, or a retry that chose its
-            // quotation by number would be refused for carrying empty runs.
+            // refuses anything that matches none. A quotation chosen by number carries empty runs
+            // until it is snapped, so it would be refused without this.
             List<Section> sections = create is null
                 ? written
                 : [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(written, quoteCandidates)];
@@ -2484,14 +2479,8 @@ public class GccGenerateService
         // SectionsPerBatch -- so asking for the whole page in one call capped it by arithmetic.
         var pillarOutline = pillarType.OutlineFor(outlineCtx);
 
-        // The retry re-writes the body, so it batches too. A retry that asks for the whole page in one
-        // response is exactly the arithmetic cap batching removed, put back at the point the page can
-        // least afford it -- the draft that ships.
-        // The People Also Ask section, written before the body and carried onto every draft of it.
-        // It was written after the provenance check and appended to bodySections, and the mentions
-        // and CTA retries then rebuilt the document from their own sections -- so a pillar that
-        // needed either retry shipped without its FAQ. It depends on the brief's questions, not on
-        // the body, so nothing a retry changes can change it.
+        // The People Also Ask section, written before the body and carried onto the draft. It depends
+        // on the brief's questions, not on the body.
         //
         // The brief's PAA questions were parsed (ExtractBriefFields) and then silently dropped --
         // never fed to an FAQ section anywhere on this path -- until Stage 8c. Not "cluster PAA
@@ -2529,10 +2518,9 @@ public class GccGenerateService
             appendedSections: pillarFaq is null ? 0 : 1,
             partnerTools: partnerTools);
 
-        // Every check, on the draft and on its one retry -- see GccDraftGuard. The FAQ is part of the
-        // document each time, so it is checked for links, figures and quotations like the body is, and
-        // no retry can lose it.
-        async Task<GccDraft> WritePillarDraftAsync(string? retryInstructions)
+        // Every check, once -- see GccDraftGuard. The FAQ is part of the document, so it is checked for
+        // links, figures and quotations like the body is.
+        async Task<GccDraft> WritePillarDraftAsync()
         {
             var shortfalls = new List<string>();
             var sections = await GenerateSectionsInBatchesAsync(
@@ -2540,9 +2528,7 @@ public class GccGenerateService
                 pillarType,
                 pillarPromptCtx with
                 {
-                    EvidenceBlock = retryInstructions is null
-                        ? WithForeignAmountsNamed(pillarEvidence, pillarForeignAmounts)
-                        : $"{WithForeignAmountsNamed(pillarEvidence, pillarForeignAmounts)}{Environment.NewLine}{retryInstructions}",
+                    EvidenceBlock = WithForeignAmountsNamed(pillarEvidence, pillarForeignAmounts),
                     Lede = pillarLede,
                 },
                 [.. pillarOutline.Skip(1)],
@@ -2712,8 +2698,6 @@ public class GccGenerateService
         // In batches, same reason as pillar and tool: one response cannot hold the 1,800-word floor
         // in this JSON, so asking for the whole post in one call capped it by arithmetic -- 1,199
         // words and a 0.2% keyword density were the symptom (Jeff, 2026-09-28).
-        //
-        // The retry re-writes the body, so it batches too.
         var blogOutline = blogType.OutlineFor(blogPromptCtx);
         var blogGuardInputs = GuardInputsFor(
             create,
@@ -2723,8 +2707,8 @@ public class GccGenerateService
             blogEvidence,
             partnerTools: partnerTools);
 
-        // Every check, on the draft and on its one retry -- see GccDraftGuard.
-        async Task<GccDraft> WriteBlogDraftAsync(string? retryInstructions)
+        // Every check, once -- see GccDraftGuard.
+        async Task<GccDraft> WriteBlogDraftAsync()
         {
             var shortfalls = new List<string>();
             var sections = await GenerateSectionsInBatchesAsync(
@@ -2732,9 +2716,7 @@ public class GccGenerateService
                 blogType,
                 blogPromptCtx with
                 {
-                    EvidenceBlock = retryInstructions is null
-                        ? WithForeignAmountsNamed(blogEvidence, blogForeignAmounts)
-                        : $"{WithForeignAmountsNamed(blogEvidence, blogForeignAmounts)}{Environment.NewLine}{retryInstructions}",
+                    EvidenceBlock = WithForeignAmountsNamed(blogEvidence, blogForeignAmounts),
                     Lede = blogLede,
                 },
                 blogOutline,
@@ -3069,32 +3051,31 @@ public class GccGenerateService
     /// missing whole sections of its own plan and call it finished.
     /// </para>
     /// </summary>
-    /// <summary>One written draft, and any batch that stayed short of its floor after its own retry.</summary>
+    /// <summary>One written draft, and any batch that came back short of its floor.</summary>
     internal sealed record GccDraft(ContentDocument Document, IReadOnlyList<string> Shortfalls);
 
     /// <summary>
-    /// Write a draft, guard it, retry once with every finding named, keep the better of the two, and
-    /// refuse or ship with its gaps reported.
+    /// Write a draft, guard it once, and refuse or ship with its gaps reported.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// One retry, not one per check. Each guard used to carry its own retry and its own idea of what
-    /// that retry must preserve, so a pillar could pay for four extra drafts and still ship one that
-    /// passed fewer checks than the first -- see <see cref="Guardrail.GccDraftGuard"/>. The retry is
-    /// told everything that was wrong at once and judged by the same function the draft was.
+    /// A draft that fails a check is refused on that attempt. Nothing is sent to the model a second
+    /// time, and there is no second draft to prefer (Jeff, 2026-10-06: <i>"NO RETRIES ... So I paid
+    /// twice for nothing"</i>). The verdict and the draft it judged are on the run's record, so the
+    /// refusal can be read afterwards.
     /// </para>
     /// <para>
     /// Refusals throw with the "Refused:" prefix GenerateAsync answers as a 400. Gaps -- a partner
-    /// never named, a closing never linked, a batch still short of its floor -- are the draft's
-    /// warnings: saved, recorded with the version and pushed to the workspace by name.
+    /// never named, a closing never linked, a batch short of its floor -- are the draft's warnings:
+    /// saved, recorded with the version and pushed to the workspace by name.
     /// </para>
     /// </remarks>
     private async Task<(ContentDocument Document, List<string> Warnings)> GuardedDraftAsync(
         string label,
-        Func<string?, Task<GccDraft>> write,
+        Func<Task<GccDraft>> write,
         Func<ContentDocument, Guardrail.GccGuardVerdict> guard)
     {
-        var draft = await write(null);
+        var draft = await write();
         var verdict = guard(draft.Document);
         // The verdict and the draft it judged, on the run's record -- a refused draft is otherwise text
         // nobody can read afterwards.
@@ -3107,31 +3088,15 @@ public class GccGenerateService
             shortfalls = draft.Shortfalls,
             document = draft.Document,
         });
-        var retried = false;
-        if (!verdict.Clean)
-        {
-            _logger.LogInformation(
-                "{Label} failed {Checks}; retrying once with every finding named.",
-                label, string.Join(", ", verdict.FailedChecks));
-            var retry = await write(verdict.RetryInstructions);
-            var retryVerdict = guard(retry.Document);
-            retried = true;
-            if (Guardrail.GccGuardVerdict.RetryReplaces(verdict, retryVerdict))
-            {
-                draft = retry;
-                verdict = retryVerdict;
-            }
-        }
 
         if (verdict.Refusals.Count > 0)
         {
             throw new InvalidOperationException(
-                $"Refused: {label}, after a retry naming every finding. "
-                + string.Join(" ", verdict.Refusals.Select(f => f.Detail)));
+                $"Refused: {label}. " + string.Join(" ", verdict.Refusals.Select(f => f.Detail)));
         }
 
         var warnings = verdict.Gaps
-            .Select(g => retried ? $"{g.Detail} (after a retry naming it)" : g.Detail)
+            .Select(g => g.Detail)
             .Concat(draft.Shortfalls)
             .ToList();
         foreach (var warning in warnings)
@@ -3351,10 +3316,8 @@ public class GccGenerateService
             // said so was a report the operator opened afterwards (Jeff: "these SEO hints should
             // already be applied to all content types").
             //
-            // One retry naming every shortfall, the way the scheduler-link retry names its omission.
-            // The attempt with fewer shortfalls is kept, the longer of the two when they tie, and
-            // whatever is still owed is reported rather than refused: the page is saved and says what
-            // it is short of.
+            // Nothing is written again (Jeff, 2026-10-06: no retries). What the batch is short of is
+            // reported with the draft rather than refused: the page is saved and says what it is short of.
             var keywordMentionsOwed = string.IsNullOrWhiteSpace(keyword)
                 ? 0
                 : ContentPromptBuilder.SeoKeywordMentionsFor(type.Key, batch.Count, outline.Count);
@@ -3369,35 +3332,12 @@ public class GccGenerateService
                 headings = sections.Select(x => x.Heading).ToList(),
                 shortfalls = owed.Select(o => o.Report).ToList(),
             });
-            if (owed.Count > 0)
+            foreach (var shortfall in owed)
             {
-                _logger.LogInformation(
-                    "{Batch} came back short ({Shortfalls}); retrying once with every shortfall named.",
-                    batchLabel, string.Join("; ", owed.Select(o => o.Report)));
-                var instruction = ShortfallInstruction(owed);
-                var retryCtx = batchCtx with
-                {
-                    EvidenceBlock = string.IsNullOrEmpty(batchCtx.EvidenceBlock)
-                        ? instruction
-                        : $"{batchCtx.EvidenceBlock}{Environment.NewLine}{instruction}",
-                };
-                var retried = await WriteBatchAsync(llm, type, retryCtx, batchLabel, outline.Count, ct);
-                var retriedOwed = BatchShortfalls(retried, batch, batchLabel, keyword, keywordMentionsOwed, owesKeywordHeading);
-                if (retriedOwed.Count < owed.Count
-                    || (retriedOwed.Count == owed.Count
-                        && ContentDocumentText.CountWords(retried) > ContentDocumentText.CountWords(sections)))
-                {
-                    sections = retried;
-                    owed = retriedOwed;
-                }
-
-                foreach (var shortfall in owed)
-                {
-                    // Reported, not only logged: the shortfall travels with the draft into its
-                    // warnings, so the operator sees it beside the version rather than in a log.
-                    _logger.LogWarning("{Shortfall} after a retry naming the shortfall.", shortfall.Report);
-                    shortfalls?.Add($"{shortfall.Report}, after a retry naming the shortfall.");
-                }
+                // Reported, not only logged: the shortfall travels with the draft into its
+                // warnings, so the operator sees it beside the version rather than in a log.
+                _logger.LogWarning("{Shortfall}.", shortfall.Report);
+                shortfalls?.Add($"{shortfall.Report}.");
             }
 
             written.AddRange(sections);
@@ -3483,8 +3423,7 @@ public class GccGenerateService
 
     /// <summary>One thing a batch owes its page that an attempt at it did not deliver.</summary>
     /// <param name="Report">What the operator is told, as the start of a sentence.</param>
-    /// <param name="Instruction">What the writer is told when the batch is written again.</param>
-    internal sealed record BatchShortfall(string Report, string Instruction);
+    internal sealed record BatchShortfall(string Report);
 
     /// <summary>
     /// What an attempt at a batch is short of: words against the floor its slots declare, the keyword
@@ -3511,13 +3450,7 @@ public class GccGenerateService
         var words = ContentDocumentText.CountWords(sections);
         if (floor > 0 && words < floor)
         {
-            var slots = string.Join("; ", batch.Select(s => $"\"{s.Label}\" {s.Depth}"));
-            found.Add(new BatchShortfall(
-                $"{batchLabel} is {words:N0} words against a {floor:N0}-word floor",
-                $"LENGTH: the previous attempt at these sections returned {words:N0} words against the {floor:N0} "
-                + $"they owe ({slots}). Write them at full depth. Do not pad and do not invent: go further into "
-                + "what the evidence supports -- the mechanism, the consequence for this reader, what deploying "
-                + "it involves -- until each section carries at least its lower figure."));
+            found.Add(new BatchShortfall($"{batchLabel} is {words:N0} words against a {floor:N0}-word floor"));
         }
 
         if (string.IsNullOrWhiteSpace(keyword)) return found;
@@ -3530,32 +3463,17 @@ public class GccGenerateService
         if (mentions < keywordMentionsOwed)
         {
             found.Add(new BatchShortfall(
-                $"{batchLabel} uses \"{phrase}\" {mentions} time(s) against the {keywordMentionsOwed} it owes",
-                $"KEYWORD: the previous attempt used the exact phrase \"{phrase}\" {mentions} time(s) in these "
-                + $"sections against the {keywordMentionsOwed} they owe. Use that phrase, word for word, at least "
-                + $"{keywordMentionsOwed} times across them -- about once every 200 words, never twice in a "
-                + "paragraph. A shortened or reworded form of it is not counted."));
+                $"{batchLabel} uses \"{phrase}\" {mentions} time(s) against the {keywordMentionsOwed} it owes"));
         }
 
         if (owesKeywordHeading
             && !read.Headings.Any(h => Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(h, phrase) > 0))
         {
-            found.Add(new BatchShortfall(
-                $"{batchLabel} has no heading containing \"{phrase}\"",
-                $"HEADING: none of the previous attempt's headings contains \"{phrase}\". Exactly one of these "
-                + "sections' headings carries that phrase, word for word -- written as a heading a reader would "
-                + "search for, not as a label."));
+            found.Add(new BatchShortfall($"{batchLabel} has no heading containing \"{phrase}\""));
         }
 
         return found;
     }
-
-    /// <summary>What a batch is told when it is written again: every shortfall, at once.</summary>
-    internal static string ShortfallInstruction(IReadOnlyList<BatchShortfall> owed) =>
-        "=== SHORTFALL -- WRITE THESE SECTIONS AGAIN ===" + Environment.NewLine
-        + "The previous attempt at these sections came back short of what they owe the page. Write them "
-        + "again, and this time deliver each of these:" + Environment.NewLine
-        + string.Join(Environment.NewLine, owed.Select(o => "- " + o.Instruction));
 
     /// <summary>
     /// Stage 2: the concrete evidence set this specific generation call had available -- the same

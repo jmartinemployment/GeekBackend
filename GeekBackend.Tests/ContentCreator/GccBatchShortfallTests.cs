@@ -60,8 +60,6 @@ public sealed class GccBatchShortfallTests
 
         Assert.StartsWith(Label + " is ", shortfall.Report, StringComparison.Ordinal);
         Assert.EndsWith("words against a 1,100-word floor", shortfall.Report, StringComparison.Ordinal);
-        Assert.StartsWith("LENGTH:", shortfall.Instruction, StringComparison.Ordinal);
-        Assert.Contains("600-850 words", shortfall.Instruction, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -83,9 +81,6 @@ public sealed class GccBatchShortfallTests
         // The heading and the one mention in the prose, whatever their case or spacing: two.
         Assert.Equal(
             Label + " uses \"Automated Approval Workflows\" 2 time(s) against the 6 it owes", shortfall.Report);
-        Assert.StartsWith("KEYWORD:", shortfall.Instruction, StringComparison.Ordinal);
-        Assert.Contains("word for word, at least 6 times", shortfall.Instruction, StringComparison.Ordinal);
-        Assert.Contains("is not counted", shortfall.Instruction, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -113,7 +108,6 @@ public sealed class GccBatchShortfallTests
         var shortfall = Assert.Single(Owed(sections));
 
         Assert.Equal(Label + " has no heading containing \"Automated Approval Workflows\"", shortfall.Report);
-        Assert.StartsWith("HEADING:", shortfall.Instruction, StringComparison.Ordinal);
         // A later batch does not carry that heading and is not asked for it.
         Assert.Empty(Owed(sections, heading: false));
     }
@@ -124,23 +118,6 @@ public sealed class GccBatchShortfallTests
         Section[] sections = [H2("One", Words(300)), H2("Two", Words(300))];
 
         var shortfall = Assert.Single(Owed(sections, keyword: "  ", mentions: 0));
-
-        Assert.StartsWith("LENGTH:", shortfall.Instruction, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void A_batch_is_written_again_with_every_shortfall_named_at_once()
-    {
-        Section[] sections = [H2("The Challenges of Manual Approval", Words(200)), H2("How it works", Words(200))];
-
-        var owed = Owed(sections, mentions: 6);
-        var instruction = GccGenerateService.ShortfallInstruction(owed);
-
-        Assert.Equal(3, owed.Count);
-        Assert.StartsWith("=== SHORTFALL -- WRITE THESE SECTIONS AGAIN ===", instruction, StringComparison.Ordinal);
-        Assert.Contains("- LENGTH:", instruction, StringComparison.Ordinal);
-        Assert.Contains("- KEYWORD:", instruction, StringComparison.Ordinal);
-        Assert.Contains("- HEADING:", instruction, StringComparison.Ordinal);
     }
 
     [Theory]

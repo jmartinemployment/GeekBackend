@@ -78,8 +78,7 @@ public class GccDraftGuardTests
             Assert.True(finding.Refuses);
             // Named by its opening words and where it leads, so the writer can find the run.
             Assert.Contains("A critical aspect of implementing Stampli is configuring", finding.Detail, StringComparison.Ordinal);
-            Assert.Contains(PartnerPage, finding.RetryInstruction, StringComparison.Ordinal);
-            Assert.Contains("a short run that names the source", finding.RetryInstruction, StringComparison.Ordinal);
+            Assert.Contains(PartnerPage, finding.Detail, StringComparison.Ordinal);
         }
     }
 
@@ -209,7 +208,7 @@ public class GccDraftGuardTests
     /// five partners (Jeff, 2026-10-06: "Which implies the other two do not?").
     /// </summary>
     [Fact]
-    public void A_sentence_naming_some_partners_and_not_the_rest_is_refused_and_the_retry_names_both_sides()
+    public void A_sentence_naming_some_partners_and_not_the_rest_is_refused_naming_both_sides()
     {
         var doc = Doc(Body(
             "What the tools do",
@@ -221,7 +220,7 @@ public class GccDraftGuardTests
         Assert.True(finding.Refuses);
         Assert.Contains("2 sentence(s)", finding.Detail, StringComparison.Ordinal);
         Assert.Contains("names Lightyear, Ramp, Bill and not Stampli, Approvalmax", finding.Detail, StringComparison.Ordinal);
-        Assert.Contains("names Stampli, Approvalmax and not Lightyear, Ramp, Bill", finding.RetryInstruction, StringComparison.Ordinal);
+        Assert.Contains("names Stampli, Approvalmax and not Lightyear, Ramp, Bill", finding.Detail, StringComparison.Ordinal);
         // Every partner is named on the page, so the mentions check is satisfied; this is a different finding.
         Assert.DoesNotContain("partner-mentions", Failed(GccDraftGuard.Blog(doc, inputs)));
         Assert.Contains("partner-subset", Failed(GccDraftGuard.Blog(doc, inputs)));
@@ -407,57 +406,5 @@ public class GccDraftGuardTests
 
         Assert.True(GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: null)).Clean);
         Assert.Contains("quotation", Failed(GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: []))));
-    }
-
-    // ---- RetryReplaces ------------------------------------------------------------------------
-
-    private static GccGuardVerdict Verdict(params (string Check, bool Refuses)[] findings) =>
-        new([.. findings.Select(f => new GccGuardFinding(f.Check, f.Check, f.Refuses, f.Check))]);
-
-    [Fact]
-    public void A_retry_that_fails_a_check_the_draft_passed_is_not_taken()
-    {
-        // The shape the old per-guard retries let through: fixed the link, lost a partner.
-        var draft = Verdict(("closing-link", false));
-        var retry = Verdict(("partner-mentions", false));
-
-        Assert.False(GccGuardVerdict.RetryReplaces(draft, retry));
-    }
-
-    [Fact]
-    public void A_retry_with_a_new_refusal_is_not_taken_even_when_it_fixes_a_gap()
-    {
-        var draft = Verdict(("closing-link", false));
-        var retry = Verdict(("links", true));
-
-        Assert.False(GccGuardVerdict.RetryReplaces(draft, retry));
-    }
-
-    [Fact]
-    public void A_retry_that_trades_a_refusal_for_a_new_failure_is_not_taken()
-    {
-        // Fewer refusals, but it fails a check the draft passed: a different fault, not a fix.
-        var draft = Verdict(("numbers", true), ("closing-link", false));
-        var retry = Verdict(("partner-mentions", false));
-
-        Assert.False(GccGuardVerdict.RetryReplaces(draft, retry));
-    }
-
-    [Fact]
-    public void A_retry_that_fixes_a_refusal_and_breaks_nothing_is_taken()
-    {
-        var draft = Verdict(("numbers", true), ("closing-link", false));
-        var retry = Verdict(("closing-link", false));
-
-        Assert.True(GccGuardVerdict.RetryReplaces(draft, retry));
-    }
-
-    [Fact]
-    public void A_retry_that_fails_a_strict_subset_is_taken_and_an_equal_one_is_not()
-    {
-        var draft = Verdict(("closing-link", false), ("partner-mentions", false));
-
-        Assert.True(GccGuardVerdict.RetryReplaces(draft, Verdict(("closing-link", false))));
-        Assert.False(GccGuardVerdict.RetryReplaces(draft, Verdict(("closing-link", false), ("partner-mentions", false))));
     }
 }

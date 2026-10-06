@@ -63,15 +63,15 @@ public static partial class GccToolsSectionGuard
     /// <c>t o o l s ?</c> — any h2 containing the word. That is not what this guard is for, and
     /// it refused work it was never meant to touch: "How AI Tools Simplify Your Accounts Payable
     /// Process" and "Choosing the Right AI Tool for Your Business Needs" are prose sections about
-    /// using tools, and both were rejected. The retry could not save them either, because any
-    /// honest heading for that material contains the word.
+    /// using tools, and both were rejected, because any honest heading for that material contains the
+    /// word.
     /// </para>
     /// <para>
     /// A listing announces itself two ways, and both are structural rather than lexical. The
     /// heading enumerates — "Top 5 … Tools", "Best … Tools", "7 Tools to Consider". Or the section
     /// is built as a list: three or more children, each a short product name rather than a
     /// statement or a question. A section that does neither is prose that mentions tools, which is
-    /// exactly what the retry instruction asks the writer to produce.
+    /// exactly what the page is meant to carry.
     /// </para>
     /// <para>
     /// The word is still required. Widening to "platform" and "solution" is what
@@ -137,13 +137,4 @@ public static partial class GccToolsSectionGuard
     [GeneratedRegex(@"\b(choos|pick|select|find)\w*\s+(the\s+)?(right|best|ideal)\b[^.]*\btools?\b",
         RegexOptions.IgnoreCase)]
     private static partial Regex SelectionHeading();
-
-    /// <summary>What to tell the writer when it wrote one anyway.</summary>
-    public static string RetryInstruction(IReadOnlyList<string> headings) =>
-        $"REMOVE THE TOOLS SECTION -- {string.Join(", ", headings.Select(h => $"\"{h}\""))}. "
-        + "This page does not carry a section whose job is to list tools, whatever it is called, and "
-        + "a heading of that shape existing on the site does not license one here. Keep the products "
-        + "themselves: name each where it earns the mention in the prose of the section it belongs "
-        + "to, and link the first substantive mention. Do not simply delete the material -- the page "
-        + "is not shorter for losing the heading.";
 }

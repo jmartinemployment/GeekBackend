@@ -140,68 +140,6 @@ public static class GccHeadingProvenanceGuard
                && cited.Equals(section.Heading?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// What to tell the writer so it can fix an unlicensed heading, once, before the draft is refused.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Provenance was the only guard here with no retry.</b> A tools section, an omitted required
-    /// tool and a missing closing CTA each get one retry naming the problem, then the refusal stands.
-    /// An unlicensed heading refused on first sight — so a model that tagged one heading
-    /// <c>paa:How to implement AI in accounts payable?</c>, a question that reads exactly like a real
-    /// one and was not in the brief, killed the whole generate with no chance to re-tag it. That is a
-    /// mechanical fix the writer could have made.
-    /// </para>
-    /// <para>
-    /// Still fail closed: this buys one attempt, and a second failure refuses. It is also the reason
-    /// the licensable values are listed rather than merely demanded — a model inventing a
-    /// plausible-sounding PAA has usually not been shown which ones exist, and <i>"tag it against real
-    /// material"</i> is not actionable without the material named.
-    /// </para>
-    /// </remarks>
-    public static string RetryInstruction(
-        IReadOnlyList<string> violations, GccHeadingProvenanceEvidence evidence)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("HEADING PROVENANCE REJECTED -- fix these and return the whole body again:");
-        foreach (var violation in violations)
-        {
-            sb.AppendLine($"- {violation}");
-        }
-
-        sb.AppendLine(
-            "Every heading needs a \"provenance\" tag naming real material you were shown. Do not "
-            + "invent a source, and do not reword one: the tag must match the listed text exactly.");
-        sb.AppendLine("These are the only values that license a heading:");
-
-        Append(sb, "plan", ["(always allowed -- the heading the outline assigned)"]);
-        Append(sb, "brief", evidence.PopulatedBriefFields);
-        Append(sb, "paa", evidence.PaaQuestions);
-        Append(sb, "competitor", evidence.CompetitorHeadings);
-        Append(sb, "site", evidence.SiteSubtopics);
-        Append(sb, "evidence", evidence.RetrievedEvidence);
-
-        sb.AppendLine(
-            "If none of them fits a heading, that heading has no source and must be rewritten into one "
-            + "that does -- not retagged with the nearest value.");
-        return sb.ToString().TrimEnd();
-    }
-
-    /// <summary>
-    /// One kind and what it licenses. A kind with nothing behind it is said to be empty rather than
-    /// omitted: a writer that cannot see "paa: none available" guesses that one exists.
-    /// </summary>
-    private static void Append(StringBuilder sb, string kind, IEnumerable<string> values)
-    {
-        var listed = values.Where(v => !string.IsNullOrWhiteSpace(v)).Take(MaxListedPerKind).ToList();
-        sb.AppendLine(listed.Count == 0
-            ? $"  {kind}: none available -- this kind cannot license anything on this page."
-            : $"  {kind}: " + string.Join(" | ", listed.Select(v => $"\"{v}\"")));
-    }
-
-    /// <summary>Enough to choose from without turning one retry into the largest prompt of the run.</summary>
-    private const int MaxListedPerKind = 40;
-
     private static bool IsLicensed(string? provenance, GccHeadingProvenanceEvidence evidence)
     {
         if (string.IsNullOrWhiteSpace(provenance))

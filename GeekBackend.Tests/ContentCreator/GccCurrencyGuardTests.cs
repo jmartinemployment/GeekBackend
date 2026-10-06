@@ -77,7 +77,7 @@ public sealed class GccCurrencyGuardTests
 
         Assert.NotNull(finding);
         Assert.True(finding!.Refuses);
-        Assert.Contains("never convert it", finding.RetryInstruction);
+        Assert.Contains("US dollars", finding.Detail);
     }
 
     [Fact]
