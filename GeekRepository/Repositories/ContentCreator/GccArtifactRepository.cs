@@ -28,8 +28,8 @@ public class GccArtifactRepository : IGccArtifactRepository
     }
 
     /// <remarks>
-    /// Drafts are keyed by create until they are re-keyed to the project, so the project's drafts are
-    /// the drafts of its creates. One query over the join, not a read per create.
+    /// The project's drafts are the drafts keyed to it (GR4). Which create each was stored under is
+    /// not part of the question.
     /// </remarks>
     /// <remarks>
     /// Each draft carries its newest version's number and time. A Generate rewrites a page as a new
@@ -40,7 +40,7 @@ public class GccArtifactRepository : IGccArtifactRepository
     public async Task<IReadOnlyList<GccArtifactDto>> GetByProjectIdAsync(Guid projectId, CancellationToken ct = default)
     {
         var entities = await _db.GccArtifacts
-            .Where(a => _db.GccCreates.Any(c => c.Id == a.CreateId && c.ProjectId == projectId))
+            .Where(a => a.ProjectId == projectId)
             .ToListAsync(ct);
         var ids = entities.Select(a => a.Id).ToList();
         var latest = (await _db.GccArtifactVersions
@@ -60,8 +60,16 @@ public class GccArtifactRepository : IGccArtifactRepository
 
     public async Task<GccArtifactDto> CreateAsync(CreateGccArtifactCommand command, CancellationToken ct = default)
     {
+        // The page's project is its create's, read here and never supplied: a caller cannot file a
+        // page under a project its create is not on. Null when the create has no project.
+        var projectId = await _db.GccCreates
+            .Where(c => c.Id == command.CreateId)
+            .Select(c => c.ProjectId)
+            .FirstOrDefaultAsync(ct);
+
         var entity = new GccArtifact
         {
+            ProjectId = projectId,
             CreateId = command.CreateId,
             ParentArtifactId = command.ParentArtifactId,
             Type = command.Type,
@@ -94,6 +102,7 @@ public class GccArtifactRepository : IGccArtifactRepository
         new(
             entity.Id,
             entity.CreateId,
+            entity.ProjectId,
             entity.ParentArtifactId,
             entity.Type,
             entity.Name,

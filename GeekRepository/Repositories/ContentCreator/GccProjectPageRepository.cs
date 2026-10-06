@@ -21,9 +21,8 @@ namespace GeekRepository.Repositories.ContentCreator;
 /// </para>
 /// <para>
 /// <b>Which page a piece belongs to</b> is its type and its name, compared without regard to case, among
-/// the drafts of the project's creates. Drafts are keyed by create until they are keyed to the
-/// project (GR4), so the project's drafts are found through its creates and a new page is stored
-/// under the create the run names.
+/// the project's pages -- the drafts keyed to it (GR4). A new page is keyed to the project and, until
+/// the create table goes, also stored under the create the run names, which must be the project's.
 /// </para>
 /// <para>
 /// <b>All or nothing</b> (A12). GeekAPI wrote each piece with two calls -- the draft, then its
@@ -68,18 +67,14 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                 + $"'{piece.Name.Trim()}' {twice.Count()} times, and a page is written once per run.");
         }
 
-        var createIds = await _db.GccCreates
-            .Where(c => c.ProjectId == projectId)
-            .Select(c => c.Id)
-            .ToListAsync(ct);
-        if (!createIds.Contains(command.CreateId))
+        if (!await _db.GccCreates.AnyAsync(c => c.Id == command.CreateId && c.ProjectId == projectId, ct))
         {
             return GccGeneratedPiecesSaveResult.Refused(
                 $"None of the {command.Pieces.Count} piece(s) was saved: create {command.CreateId} is not one "
                 + "of this project's, so a new page cannot be stored under it.");
         }
 
-        var drafts = await _db.GccArtifacts.Where(a => createIds.Contains(a.CreateId)).ToListAsync(ct);
+        var drafts = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
         var now = DateTime.UtcNow;
         var saved = new List<(GccArtifact Page, GccArtifactVersion Version, bool NewPage)>(command.Pieces.Count);
 
@@ -92,6 +87,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
             {
                 page = new GccArtifact
                 {
+                    ProjectId = projectId,
                     CreateId = command.CreateId,
                     Type = piece.Type.Trim(),
                     Name = piece.Name.Trim(),
@@ -160,11 +156,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
         if (!await _db.GccProjects.AnyAsync(p => p.Id == projectId, ct))
             return GccDraftMergeResult.Missing();
 
-        var createIds = await _db.GccCreates
-            .Where(c => c.ProjectId == projectId)
-            .Select(c => c.Id)
-            .ToListAsync(ct);
-        var drafts = await _db.GccArtifacts.Where(a => createIds.Contains(a.CreateId)).ToListAsync(ct);
+        var drafts = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
 
         var pages = 0;
         var merged = 0;

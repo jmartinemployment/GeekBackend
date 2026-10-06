@@ -20,14 +20,13 @@ public class GccVersionEvidenceRepository(ContentCreatorDbContext db) : IGccVers
         if (!await db.GccArtifactVersions.AnyAsync(v => v.Id == command.VersionId, ct))
             return GccVersionEvidenceResult.Refused($"Version {command.VersionId} does not exist.");
 
-        // The project is the version's own: version -> draft -> create -> project. Read here, so a
-        // caller cannot file one project's evidence under another.
+        // The project is the version's own: version -> draft -> project (GR4). Read here, so a caller
+        // cannot file one project's evidence under another.
         var projectId = await (
             from version in db.GccArtifactVersions
             join artifact in db.GccArtifacts on version.ArtifactId equals artifact.Id
-            join create in db.GccCreates on artifact.CreateId equals create.Id
             where version.Id == command.VersionId
-            select create.ProjectId).FirstOrDefaultAsync(ct);
+            select artifact.ProjectId).FirstOrDefaultAsync(ct);
         if (projectId is not Guid project)
         {
             return GccVersionEvidenceResult.Refused(

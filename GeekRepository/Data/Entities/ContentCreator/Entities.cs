@@ -58,6 +58,20 @@ public class GccCreate
 public class GccArtifact
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>
+    /// The project this page belongs to (fix-project-persistence GR4). A project's pages are found by
+    /// this key alone; the create a page was stored under is history, kept until the create table goes.
+    /// </summary>
+    /// <remarks>
+    /// Nullable for one reason: a page stored under a create that was never assigned a project belongs
+    /// to no project, and such creates are left alone and reported, never deleted (J11). Every page
+    /// written since this key exists carries it. The column becomes NOT NULL when the create table is
+    /// dropped and there is no create left to be unassigned.
+    /// </remarks>
+    public Guid? ProjectId { get; set; }
+
+    /// <summary>The create this page was stored under. Stays until the create table is dropped (GR6).</summary>
     public Guid CreateId { get; set; }
     public Guid? ParentArtifactId { get; set; }
     // No default -- CreateGccArtifactCommand.Type is a required parameter and the one real

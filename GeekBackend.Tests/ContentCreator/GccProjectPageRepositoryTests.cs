@@ -39,7 +39,10 @@ public sealed class GccProjectPageRepositoryTests
         Assert.Equal(2, result.Saved!.Count);
         Assert.All(result.Saved, s => Assert.True(s.NewPage));
         Assert.All(result.Saved, s => Assert.Equal(1, s.Version.VersionNumber));
+        // Keyed to the project (GR4), and still stored under the run's create until the create table goes.
+        Assert.All(result.Saved, s => Assert.Equal(projectId, s.Artifact.ProjectId));
         Assert.All(result.Saved, s => Assert.Equal(createId, s.Artifact.CreateId));
+        Assert.All(await db.GccArtifacts.ToListAsync(), a => Assert.Equal(projectId, a.ProjectId));
         Assert.Equal(["pillar", "tool"], result.Saved.Select(s => s.Artifact.Type));
         Assert.Equal(2, await db.GccArtifacts.CountAsync());
         Assert.Equal(2, await db.GccArtifactVersions.CountAsync());
@@ -139,7 +142,7 @@ public sealed class GccProjectPageRepositoryTests
         {
             var theirs = Create(Guid.NewGuid());
             theirCreate = theirs.Id;
-            var page = new GccArtifact { CreateId = theirs.Id, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning };
+            var page = new GccArtifact { ProjectId = theirs.ProjectId, CreateId = theirs.Id, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning };
             seed.AddRange(theirs, page, Version(page, 1, Morning, "theirs"));
             await seed.SaveChangesAsync();
         }
@@ -154,6 +157,38 @@ public sealed class GccProjectPageRepositoryTests
         Assert.Equal(1, await db.GccArtifacts.CountAsync(a => a.CreateId == theirCreate));
     }
 
+    /// <summary>
+    /// The project's pages are the drafts keyed to it, not the drafts of its creates. A draft under one
+    /// of its creates that carries no project is on an unassigned create as far as this code knows, and
+    /// keying it is the migration's backfill, never a guess made at save time.
+    /// </summary>
+    [Fact]
+    public async Task A_page_is_the_projects_by_its_project_key_not_by_the_create_it_sits_under()
+    {
+        var (options, projectId, createId) = await Seed();
+        Guid unkeyed;
+        await using (var seed = new ContentCreatorDbContext(options))
+        {
+            var page = new GccArtifact { CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning };
+            unkeyed = page.Id;
+            seed.AddRange(page, Version(page, 1, Morning, "unkeyed"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = new ContentCreatorDbContext(options);
+        var result = await new GccProjectPageRepository(db).SaveGeneratedAsync(
+            projectId, new SaveGccGeneratedPiecesCommand(createId, [Piece("pillar", "AP: Approvals", "keyed")]));
+
+        Assert.True(result.Saved![0].NewPage);
+        Assert.NotEqual(unkeyed, result.Saved[0].Artifact.Id);
+        Assert.Equal(projectId, result.Saved[0].Artifact.ProjectId);
+        Assert.Null((await db.GccArtifacts.SingleAsync(a => a.Id == unkeyed)).ProjectId);
+        // Nor is the unkeyed draft a duplicate of the project's page: a merge finds one pillar and nothing to do.
+        var merge = await new GccProjectPageRepository(db).MergeDuplicateDraftsAsync(projectId);
+        Assert.Equal(0, merge.Pages);
+        Assert.Equal(0, merge.DraftsMerged);
+    }
+
     /// <summary>Project "test" as two runs left it: a morning and an afternoon draft of each page.</summary>
     [Fact]
     public async Task Merging_makes_the_older_drafts_of_a_page_its_earlier_versions()
@@ -162,10 +197,10 @@ public sealed class GccProjectPageRepositoryTests
         Guid morningPillar, afternoonPillar, approvalmax, derived;
         await using (var seed = new ContentCreatorDbContext(options))
         {
-            var am = new GccArtifact { CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning, Status = "approved" };
-            var pm = new GccArtifact { CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Afternoon };
-            var onlyMorning = new GccArtifact { CreateId = createId, Type = "tool", Name = "Approvalmax", CreatedAtUtc = Morning };
-            var social = new GccArtifact { CreateId = createId, Type = "social", Name = "From the pillar", ParentArtifactId = am.Id, CreatedAtUtc = Morning };
+            var am = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning, Status = "approved" };
+            var pm = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Afternoon };
+            var onlyMorning = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "tool", Name = "Approvalmax", CreatedAtUtc = Morning };
+            var social = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "social", Name = "From the pillar", ParentArtifactId = am.Id, CreatedAtUtc = Morning };
             (morningPillar, afternoonPillar, approvalmax, derived) = (am.Id, pm.Id, onlyMorning.Id, social.Id);
             seed.AddRange(
                 am, pm, onlyMorning, social,
@@ -208,8 +243,8 @@ public sealed class GccProjectPageRepositoryTests
         Guid afternoon;
         await using (var seed = new ContentCreatorDbContext(options))
         {
-            var am = new GccArtifact { CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning };
-            var pm = new GccArtifact { CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Afternoon };
+            var am = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning };
+            var pm = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Afternoon };
             afternoon = pm.Id;
             seed.AddRange(am, pm, Version(am, 1, Morning, "morning"), Version(pm, 1, Afternoon, "afternoon"));
             await seed.SaveChangesAsync();
@@ -237,8 +272,8 @@ public sealed class GccProjectPageRepositoryTests
         {
             // The pillar was created first and rewritten this afternoon; Approvalmax was created later
             // in the morning and not rewritten since, because the afternoon's run refused it.
-            var page = new GccArtifact { CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning };
-            var tool = new GccArtifact { CreateId = createId, Type = "tool", Name = "Approvalmax", CreatedAtUtc = Morning.AddMinutes(1) };
+            var page = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "pillar", Name = "AP: Approvals", CreatedAtUtc = Morning };
+            var tool = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "tool", Name = "Approvalmax", CreatedAtUtc = Morning.AddMinutes(1) };
             (pillar, approvalmax) = (page.Id, tool.Id);
             seed.AddRange(
                 page, tool,

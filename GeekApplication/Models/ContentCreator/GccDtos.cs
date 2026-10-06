@@ -102,9 +102,13 @@ public sealed record BankGccPartnerExtractionCommand(
 /// it: the project's draft list and a Generate's save. Null on the reads that do not.</param>
 /// <param name="LatestVersionAtUtc">When that newest version was written -- when the text now on the
 /// page was written, which is not when the page was first created once a Generate has rewritten it.</param>
+/// <param name="ProjectId">The project the page belongs to (GR4). Null only on a page stored under a create
+/// that was never assigned a project.</param>
+/// <param name="CreateId">The create the page was stored under. History; goes with the create table.</param>
 public sealed record GccArtifactDto(
     Guid Id,
     Guid CreateId,
+    Guid? ProjectId,
     Guid? ParentArtifactId,
     string Type,
     string Name,

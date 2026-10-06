@@ -149,10 +149,12 @@ public sealed class GccGenerateSaveTests
             if (saved)
             {
                 var command = JsonSerializer.Deserialize<SaveGccGeneratedPiecesCommand>(body, Web)!;
+                // .../projects/{id}/generated: the page is keyed to the project the route names.
+                var projectId = Guid.Parse(request.RequestUri.Segments[^2].TrimEnd('/'));
                 var now = DateTime.UtcNow;
                 result = GccGeneratedPiecesSaveResult.Written([.. command.Pieces.Select(p =>
                 {
-                    var page = new GccArtifactDto(Guid.NewGuid(), command.CreateId, null, p.Type, p.Name, "draft", now, now, 1, now);
+                    var page = new GccArtifactDto(Guid.NewGuid(), command.CreateId, projectId, null, p.Type, p.Name, "draft", now, now, 1, now);
                     return new GccSavedPieceDto(
                         page, new GccArtifactVersionDto(Guid.NewGuid(), page.Id, 1, p.BodyDocumentJson, p.MetadataJson, 0, now), true);
                 })]);

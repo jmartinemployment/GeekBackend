@@ -67,6 +67,14 @@ public class ContentCreatorDbContext : DbContext
         {
             entity.ToTable("gcc_artifacts");
             entity.HasKey(a => a.Id);
+            // The project is the key a page is found by (GR4). RESTRICT like every content_creator
+            // key: a project with pages is not deleted out from under them.
+            entity.Property(a => a.ProjectId).HasColumnName("project_id");
+            entity.HasOne<GccProject>()
+                .WithMany()
+                .HasForeignKey(a => a.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(a => a.ProjectId).HasDatabaseName("ix_gcc_artifacts_project_id");
             entity.Property(a => a.CreateId).IsRequired();
             entity.Property(a => a.Type).IsRequired().HasMaxLength(64);
             entity.Property(a => a.Name).IsRequired().HasMaxLength(256);

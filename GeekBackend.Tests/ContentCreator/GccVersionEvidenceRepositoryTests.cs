@@ -86,7 +86,10 @@ public sealed class GccVersionEvidenceRepositoryTests
             ClientId = Guid.NewGuid(), ProjectId = onProject ? projectId : null, OwnerUserId = Owner,
             StartingContentType = "pillar", Topic = "Accounts Payable",
         };
-        var artifact = new GccArtifact { CreateId = create.Id, Type = "pillar", Name = "Accounts Payable" };
+        var artifact = new GccArtifact
+        {
+            ProjectId = create.ProjectId, CreateId = create.Id, Type = "pillar", Name = "Accounts Payable",
+        };
         var version = new GccArtifactVersion { ArtifactId = artifact.Id, VersionNumber = 1, BodyJson = "{}" };
         db.AddRange(create, artifact, version);
         await db.SaveChangesAsync();

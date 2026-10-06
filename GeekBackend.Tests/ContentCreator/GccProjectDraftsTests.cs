@@ -22,7 +22,8 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// The project's drafts, listed and exported by project. The page asks for a project's drafts; which
-/// create each is stored under is not part of the question.
+/// create each is stored under is not part of the question -- a draft is the project's by its own
+/// project key (GR4).
 /// </summary>
 public sealed class GccProjectDraftsTests
 {
@@ -30,7 +31,7 @@ public sealed class GccProjectDraftsTests
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     [Fact]
-    public async Task A_projects_drafts_are_the_drafts_of_every_create_on_it_newest_first_and_no_one_elses()
+    public async Task A_projects_drafts_are_the_drafts_keyed_to_it_newest_first_and_no_one_elses()
     {
         var options = new DbContextOptionsBuilder<ContentCreatorDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options;
@@ -55,8 +56,38 @@ public sealed class GccProjectDraftsTests
         var drafts = await new GccArtifactRepository(read).GetByProjectIdAsync(project);
 
         Assert.Equal([newer, older], drafts.Select(d => d.Id));
+        Assert.All(drafts, d => Assert.Equal(project, d.ProjectId));
         Assert.DoesNotContain(drafts, d => d.Id == elsewhere || d.Id == loose);
         Assert.Empty(await new GccArtifactRepository(read).GetByProjectIdAsync(Guid.NewGuid()));
+    }
+
+    /// <summary>
+    /// A page made one at a time -- Repurpose, a tool job -- is keyed to its create's project, read off the
+    /// create and never supplied; under an unassigned create it is keyed to none.
+    /// </summary>
+    [Fact]
+    public async Task A_page_created_on_its_own_takes_its_creates_project()
+    {
+        var options = new DbContextOptionsBuilder<ContentCreatorDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options;
+        var project = Guid.NewGuid();
+        var onProject = Create(project);
+        var unassigned = Create(null);
+        await using (var seed = new ContentCreatorDbContext(options))
+        {
+            seed.AddRange(onProject, unassigned);
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = new ContentCreatorDbContext(options);
+        var repo = new GccArtifactRepository(db);
+        var keyed = await repo.CreateAsync(new CreateGccArtifactCommand(onProject.Id, "social", "From the pillar"));
+        var loose = await repo.CreateAsync(new CreateGccArtifactCommand(unassigned.Id, "social", "Loose"));
+
+        Assert.Equal(project, keyed.ProjectId);
+        Assert.Null(loose.ProjectId);
+        Assert.Equal(project, (await db.GccArtifacts.SingleAsync(a => a.Id == keyed.Id)).ProjectId);
+        Assert.Equal([keyed.Id], (await repo.GetByProjectIdAsync(project)).Select(d => d.Id));
     }
 
     [Fact]
@@ -136,7 +167,7 @@ public sealed class GccProjectDraftsTests
     }
 
     private static GccArtifactDto Artifact(Guid createId, string type, string name, DateTime createdAt) =>
-        new(Guid.NewGuid(), createId, null, type, name, "draft", createdAt, createdAt);
+        new(Guid.NewGuid(), createId, Guid.NewGuid(), null, type, name, "draft", createdAt, createdAt);
 
     private static GccCreate Create(Guid? projectId) => new()
     {
@@ -146,7 +177,10 @@ public sealed class GccProjectDraftsTests
 
     private static Guid Add(ContentCreatorDbContext db, GccCreate create, string name, DateTime createdAt)
     {
-        var artifact = new GccArtifact { CreateId = create.Id, Type = "pillar", Name = name, CreatedAtUtc = createdAt };
+        var artifact = new GccArtifact
+        {
+            ProjectId = create.ProjectId, CreateId = create.Id, Type = "pillar", Name = name, CreatedAtUtc = createdAt,
+        };
         db.Add(artifact);
         return artifact.Id;
     }
