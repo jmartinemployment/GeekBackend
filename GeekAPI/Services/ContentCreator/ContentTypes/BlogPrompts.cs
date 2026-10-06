@@ -60,42 +60,63 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
         // Already the keyword -- see ProjectGenerationContext.TargetKeyword. Re-splitting here made this
         // a second reader that disagreed with the scorer on a multi-colon topic.
         var keyword = ctx.Context.TargetKeyword;
+        var depth = $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words";
+
+        // The operator's framing, where the brief carries it, on the slots that ask what it answers:
+        // the problem on the opening, the operator's failures on the cost section, the operator's
+        // automation on the mechanics, and the later sections held to that approach. Until 2026-10-06
+        // the blog, like the pillar, never received it (Jeff: "inventing its own Methodology versus
+        // using mine?"); the slot text below is unchanged, and what each argues from is now the operator's.
+        var niche = ctx.NicheFraming is { HasAny: true } framing ? framing : null;
+        var pointer = niche?.ApproachPointer();
 
         return
         [
-            Opening(ctx.Context.ContentAngle, keyword),
+            Opening(ctx.Context.ContentAngle, keyword, niche),
             SectionSlot.Cover(
                 $"what doing {keyword} by hand actually costs this reader -- the hours, the errors, the "
                 + "delay, and who absorbs them",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words",
-                "Concrete and attributable, from the evidence in front of you. Not a list of generic pain "
-                + "points, and no tool is named here -- this section is the problem, stated so plainly that "
-                + "the rest of the page has something to solve."),
+                depth,
+                With(
+                    "Concrete and attributable, from the evidence in front of you. Not a list of generic pain "
+                    + "points, and no tool is named here -- this section is the problem, stated so plainly that "
+                    + "the rest of the page has something to solve.",
+                    niche?.FailuresGuidance())),
             SectionSlot.Cover(
                 $"how the work changes once {keyword} is automated -- the mechanics, in the order they happen",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words",
-                "Name the partner tools that do this part of the work, in the prose, where the explanation "
-                + "reaches them -- what each one does about THIS step, not what it is in general. Link the "
-                + "first substantive mention. Never a heading, never a sub-section, never one paragraph per "
-                + "product."),
+                depth,
+                With(
+                    "Name the partner tools that do this part of the work, in the prose, where the explanation "
+                    + "reaches them -- what each one does about THIS step, not what it is in general. Link the "
+                    + "first substantive mention. Never a heading, never a sub-section, never one paragraph per "
+                    + "product.",
+                    niche?.ApproachGuidance())),
             SectionSlot.Cover(
                 $"what separates an implementation of {keyword} that holds up from one that stalls",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words",
-                "The decisions made early that cannot be unmade -- data, mapping, approval routing, who owns "
-                + "what. Name the tools whose behaviour decides these, where that matters to the point being "
-                + "made."),
+                depth,
+                With(
+                    "The decisions made early that cannot be unmade -- data, mapping, approval routing, who owns "
+                    + "what. Name the tools whose behaviour decides these, where that matters to the point being "
+                    + "made.",
+                    pointer)),
             SectionSlot.Cover(
                 $"what the evidence shows about {keyword} -- measured outcomes, and what they do not prove",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words",
+                depth,
                 "Only figures the retrieved evidence carries, attributed to the partner that published them. "
                 + "Where the evidence is thin, say what is unknown rather than filling it."),
             SectionSlot.Cover(
                 $"when automating {keyword} is the right call, when it is not, and what this reader does next",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words",
-                "An honest boundary -- the cases where the manual way is still correct. Then one concrete "
-                + "next step, not a summary of the page."),
+                depth,
+                With(
+                    "An honest boundary -- the cases where the manual way is still correct. Then one concrete "
+                    + "next step, not a summary of the page.",
+                    pointer)),
         ];
     }
+
+    /// <summary>The slot's own guidance, followed by the operator's where there is some.</summary>
+    private static string With(string own, string? operators) =>
+        string.IsNullOrWhiteSpace(operators) ? own : $"{own}{Environment.NewLine}   {operators}";
 
     /// <summary>
     /// The opening obligation, shaped by the brief's Angle for SEO.
@@ -106,26 +127,37 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
     /// <c>problem_solution</c> the keyword names the <i>solution</i>, so the problem is its manual form:
     /// the page argues that doing it by hand is the problem, and automating it is the answer.
     /// </remarks>
-    private static SectionSlot Opening(string? angle, string keyword) =>
-        (angle ?? string.Empty).Trim().ToLowerInvariant() switch
+    private static SectionSlot Opening(string? angle, string keyword, GccNicheFraming? niche)
+    {
+        var depth = $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words";
+        // The whole framing on the opening, whatever the angle: a comparative or evidence-led post opens
+        // differently but is still about the same problem, and the framing says what that problem is.
+        var guidance = niche?.ToGuidance();
+        return (angle ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "problem_solution" => SectionSlot.Cover(
                 $"the moment this reader recognises the problem: doing {keyword} the manual way, and why it "
                 + "keeps costing them",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words"),
+                depth,
+                guidance),
             "comparative" => SectionSlot.Cover(
                 $"the choice this reader is actually facing about {keyword}, and what the options really differ on",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words"),
+                depth,
+                guidance),
             "case_study_data" => SectionSlot.Cover(
                 $"what measurably changed for someone who automated {keyword}, and under what conditions",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words"),
+                depth,
+                guidance),
             "ultimate_guide" => SectionSlot.Cover(
                 $"what {keyword} is, what it requires, and what this page settles for the reader",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words"),
+                depth,
+                guidance),
             _ => SectionSlot.Cover(
                 $"what this reader is dealing with around {keyword}, and what this page settles for them",
-                $"{ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words"),
+                depth,
+                guidance),
         };
+    }
 
     /// <summary>LedeJsonContract -- read with ParseLede, not ParseSections.</summary>
     public ChatCompletionRequest Lede(ContentTypePromptContext ctx) =>

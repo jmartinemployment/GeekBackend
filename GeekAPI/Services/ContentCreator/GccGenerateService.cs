@@ -2680,8 +2680,12 @@ public class GccGenerateService
         // for each part of the body.
         var blogForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(
             $"{evidenceBlock}{Environment.NewLine}{ledeEvidence}");
+        // The operator's framing of the category, as the pillar gets it: what the post argues from.
         var blogPromptCtx = new ContentTypes.ContentTypePromptContext(
-            context, BlogMetadata: metadata, EvidenceBlock: WithForeignAmountsNamed(ledeEvidence, blogForeignAmounts));
+            context,
+            BlogMetadata: metadata,
+            EvidenceBlock: WithForeignAmountsNamed(ledeEvidence, blogForeignAmounts),
+            NicheFraming: GccNicheFramingReader.ForCategory(create.BriefJson));
         var ledeResult = await llm.CompleteAsync(blogType.Lede(blogPromptCtx), ct);
         // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
         // ParseLede. Reading it as a sections array failed every blog generation.
