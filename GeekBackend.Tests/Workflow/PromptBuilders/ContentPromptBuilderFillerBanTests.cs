@@ -37,6 +37,9 @@ public class ContentPromptBuilderFillerBanTests
     private static string SystemPrompt(ChatCompletionRequest request) =>
         request.Messages.Single(m => m.Role == ChatRole.System).Content;
 
+    private static string UserPrompt(ChatCompletionRequest request) =>
+        request.Messages.Single(m => m.Role == ChatRole.User).Content;
+
     [Fact]
     public void Pillar_body_prompt_bans_ai_filler()
     {
@@ -84,10 +87,12 @@ public class ContentPromptBuilderFillerBanTests
             fullOutline: [SectionSlot.Assigned("Overview")],
             isRegeneration: false);
 
-        var system = SystemPrompt(request);
-        Assert.Contains("=== BRIEF CONTROLS", system);
-        Assert.Contains("Primary intent: commercial_investigation", system);
-        Assert.Contains("Writing notes: SMBs looking to implement AI", system);
+        var user = UserPrompt(request);
+        Assert.Contains("=== BRIEF CONTROLS", user);
+        Assert.Contains("Primary intent: commercial_investigation", user);
+        Assert.Contains("Writing notes: SMBs looking to implement AI", user);
+        // Run data is not in the system message: the brief is the user's, and the system is the same text every call.
+        Assert.DoesNotContain("=== BRIEF CONTROLS", SystemPrompt(request));
     }
 
     [Fact]
@@ -102,7 +107,7 @@ public class ContentPromptBuilderFillerBanTests
             fullOutline: [SectionSlot.Assigned("Overview")],
             isRegeneration: false);
 
-        Assert.DoesNotContain("=== BRIEF CONTROLS", SystemPrompt(request));
+        Assert.DoesNotContain("=== BRIEF CONTROLS", UserPrompt(request));
     }
 
     [Fact]
@@ -115,10 +120,10 @@ public class ContentPromptBuilderFillerBanTests
         var metadata = new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]);
 
         var request = builder.BuildStandaloneBlogLedePrompt(Context(), metadata);
-        var system = SystemPrompt(request);
+        var user = UserPrompt(request);
 
-        Assert.Contains("Lede types (pick ONE ledeType", system);
-        Assert.DoesNotContain("Prefer a creative (hook/narrative) opening", system);
+        Assert.Contains("Lede types (pick ONE ledeType", user);
+        Assert.DoesNotContain("Prefer a creative (hook/narrative) opening", user);
     }
 
     [Fact]
@@ -133,7 +138,7 @@ public class ContentPromptBuilderFillerBanTests
         };
 
         var request = builder.BuildStandaloneBlogLedePrompt(context, metadata);
-        var system = SystemPrompt(request);
+        var system = UserPrompt(request);
 
         // The angle has to arrive as an instruction, not a token. "Angle: comparative" told the
         // model a value and left it to guess what to do with it, in a prompt where all twelve lede

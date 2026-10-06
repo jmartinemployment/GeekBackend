@@ -69,12 +69,14 @@ public class HumanRegisterTests
     }
 
     [Fact]
-    public void The_register_is_a_person_talking_to_a_colleague()
+    public void The_register_is_one_consultant_voice()
     {
         var blog = BlogPrompt();
 
-        Assert.Contains("explaining this to a colleague over coffee", blog, StringComparison.Ordinal);
+        Assert.Contains("a senior consultant who knows this work", blog, StringComparison.Ordinal);
         Assert.Contains("Active voice", blog, StringComparison.Ordinal);
+        // The second identity is gone, not reconciled: one voice, whose rhythm rules survive.
+        Assert.DoesNotContain("over coffee", blog, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -107,7 +109,7 @@ public class HumanRegisterTests
         // the drift this is written once to avoid.
         var pillar = PillarPrompt();
 
-        Assert.Contains("explaining this to a colleague over coffee", pillar, StringComparison.Ordinal);
+        Assert.Contains("a senior consultant who knows this work", pillar, StringComparison.Ordinal);
         Assert.Contains("delve", pillar, StringComparison.Ordinal);
     }
 }

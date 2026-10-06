@@ -189,11 +189,11 @@ public class GccGenerateServiceProvenanceTests
 
         Assert.Contains("How long the first site really takes", json);
         // The guard passing isn't proof the wiring happened -- the rendered prompt is. Assert the
-        // body call's own system message actually showed the model this heading. Its source URL is
+        // body call's own user message actually showed the model this heading. Its source URL is
         // not shown: a competitor is read and never named, and the 8:26 run of 2026-10-06 named one
         // the prompt had printed beside the rule not to (GccCompetitorNames).
         var bodyRequest = provider.Requests[1];
-        var systemMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.System).Content;
+        var systemMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("Enterprise Rollout Timeline", systemMessage, StringComparison.Ordinal);
         Assert.Contains("[Competitor page 1]", systemMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("competitor.test", systemMessage, StringComparison.OrdinalIgnoreCase);
@@ -229,7 +229,7 @@ public class GccGenerateServiceProvenanceTests
         var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
         Assert.Contains("Paying suppliers in other currencies", json);
-        var systemMessage = provider.Requests[1].Messages.First(m => m.Role == ChatRole.System).Content;
+        var systemMessage = provider.Requests[1].Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("Why a competitor for Global Payables", systemMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("tipalti", systemMessage, StringComparison.OrdinalIgnoreCase);
     }

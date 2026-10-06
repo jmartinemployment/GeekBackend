@@ -660,14 +660,57 @@ public class ContentPromptBuilder : IContentPromptBuilder
     }
 
     /// <summary>
+    /// The one system message every long-form call sends: who is writing, how, the rules that never
+    /// change, and the shape of the answer. Nothing in it depends on the project, the page, the batch,
+    /// the evidence or a revision, so for a given contract it is the same text on every call -- which
+    /// keeps the rules out from between the data they govern, and lets a provider's prompt cache read
+    /// the whole prefix from the second call on.
+    /// </summary>
+    /// <remarks>
+    /// Everything that varies is in the user message: what this type of page is, the brief, the
+    /// publisher's site, the evidence, the continuity of the opening, the revision notes, and the
+    /// assignment itself. See plans/content-creator-prompt-restructure.md.
+    /// </remarks>
+    internal static string SystemPrompt(string outputContract) =>
+        new StringBuilder()
+            .AppendLine("You are a senior consultant at an IT consulting firm that specializes in AI implementation, writing for that firm's prospective clients: expert, direct and consultative.")
+            .AppendLine(BrandTones.ForWebpages())
+            .AppendLine(HumanRegisterInstruction)
+            .AppendLine(FillerBanInstruction)
+            .AppendLine(HeadingCraftInstruction)
+            .AppendLine(SectionVarietyInstruction)
+            .AppendLine(CurrencyInstruction)
+            .AppendLine(LinkTextInstruction)
+            .AppendLine(GroundingInstruction)
+            .AppendLine(ContentOnlyInstruction)
+            .AppendLine("OUTPUT: respond with ONLY the JSON this contract describes -- no code fences, no commentary. Where the user message assigns sections, return one entry per assigned section, in the order given.")
+            .AppendLine(outputContract)
+            .ToString()
+            .TrimEnd();
+
+    /// <summary>Said last in every user message, so the evidence is not the final thing the model reads.</summary>
+    private const string AnswerInTheContract =
+        "Answer in the JSON the output contract in the system message describes. You write each heading yourself.";
+
+    private const string GroundingInstruction =
+        "GROUNDING: state a figure, price, percentage, customer, case study or quotation only when the "
+        + "evidence in the user message gives it, and attribute it to the source that published it. Where "
+        + "the evidence is silent, write less. Never invent a feature, an integration, an outcome or a "
+        + "customer to fill a section.";
+
+    private const string ContentOnlyInstruction =
+        "CONTENT ONLY: the text of every run is plain words. Headings, emphasis, lists and links are "
+        + "fields of the JSON and never characters in the text -- no #, no <h2>, no **, no [text](url).";
+
+    /// <summary>
     /// How the prose sounds. Extended 2026-09-27 with Jeff's own brief, after a finished blog was
     /// reported as 100% AI-detected: "Act as a human copywriter explaining your draft to a colleague
     /// over coffee", clear everyday language, active voice, no formal opener and no wrap-up.
     /// </summary>
     private const string HumanRegisterInstruction =
-        "WHO IS TALKING: a copywriter explaining this to a colleague over coffee. Clear, everyday " +
-        "words. Active voice -- somebody does something, rather than something being done. Casual, " +
-        "direct, honest. " +
+        "WHO IS TALKING: a senior consultant who knows this work, advising a client in plain language. " +
+        "Clear, everyday words. Active voice -- somebody does something, rather than something being " +
+        "done. Direct and honest. " +
         "No formal opener and no wrap-up: do not introduce what you are about to cover, and do not " +
         "close by telling the reader what they just read. Start talking, and stop when you are done. " +
         "HOW THIS READS: the giveaway is rhythm, not vocabulary. " +
@@ -1631,50 +1674,49 @@ public class ContentPromptBuilder : IContentPromptBuilder
         string? existingLedeHeading = null,
         string? evidenceBlock = null)
     {
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
+        var system = SystemPrompt(LedeJsonContract);
+
+        var user = new StringBuilder()
+            .AppendLine("=== THIS PAGE ===")
             .AppendLine("Write the opening lede for a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
+            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
             .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("Do NOT start with \"How\" or a question.")
             .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
-            .AppendLine(HumanRegisterInstruction)
-            .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
-            .AppendLine(BuildPublisherSiteBlock(context))
-            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeHeadingInstruction)
-            .AppendLine(HeadingCraftInstruction)
-            .AppendLine(LedeJsonContract)
-            .ToString();
+            .AppendLine()
+            .AppendLine(BuildPublisherSiteBlock(context));
 
-        // Same as the pillar and blog openings: the evidence is framed for an opening before it is
-        // shown, and only the research half is passed -- see BuildPillarLedePrompt.
+        // The opening is where the page's factual claims are set, so it is written against the same
+        // retrieved evidence the body gets -- see LedeEvidenceInstruction for why the framing comes
+        // first. Only the research half is passed in: BuildCompetitorHeadingBlock tells the model to
+        // tag a heading "competitor:<exact heading text>" and refers it to the provenance rules, and
+        // neither exists here -- the lede contract has no provenance field.
         if (!string.IsNullOrWhiteSpace(evidenceBlock))
         {
-            system += Environment.NewLine + LedeEvidenceInstruction + Environment.NewLine + evidenceBlock;
+            user.AppendLine(LedeEvidenceInstruction).AppendLine(evidenceBlock);
         }
 
         var ledeNotes = ScopeRevisionNotesForLede(revisionNotes, existingLedeHeading, metadata.SectionOutline);
         var revisionBlock = BuildRevisionNotesBlock(ledeNotes, sectionHeading: existingLedeHeading);
         if (revisionBlock is not null)
         {
-            system += Environment.NewLine + revisionBlock;
+            user.AppendLine(revisionBlock);
         }
 
-        var user = new StringBuilder()
+        user.AppendLine()
+            .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Article title: {metadata.Title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Meta description: {metadata.MetaDescription}")
-            .ToString();
+            .AppendLine(AnswerInTheContract);
 
         return new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.65,
             MaxOutputTokens: 2048);
     }
@@ -1692,10 +1734,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
         string? evidenceBlock = null)
     {
         var outlineContext = RenderOutline(fullOutline);
+        var system = SystemPrompt(LedeAndIntroductionJsonContract);
 
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(BrandTones.ForWebpages())
+        var user = new StringBuilder()
+            .AppendLine("=== THIS PAGE ===")
             .AppendLine(SeoLedeInstruction(context.TargetKeyword))
             .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + topic → 12 types); keep expert, consultative tone throughout.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
@@ -1707,10 +1749,6 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
-            .AppendLine(HumanRegisterInstruction)
-            .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
-            .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine()
             .AppendLine("The introduction continues the same opening — it is not a second start:")
             .AppendLine("After the hook, carry straight on into scoping (who this is for, what the article walks through). Never a duplicate hook, and never a heading.")
@@ -1728,46 +1766,43 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for the Introduction section.")
             .AppendLine(BuildIntroductionSectionGuidance(context))
             .AppendLine()
-            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine("Always include both \"lede\" and \"introduction\" keys. They are one continuous opening: the lede carries the heading, the introduction carries none, and its paragraphs follow the lede's under that same heading.")
             .AppendLine(LedeHeadingInstruction)
-            .AppendLine(HeadingCraftInstruction)
-            .AppendLine(LedeAndIntroductionJsonContract)
-            .ToString();
+            .AppendLine()
+            .AppendLine(BuildPublisherSiteBlock(context));
 
-        // The opening is where the page's factual claims are set, so it is written against the
-        // same retrieved evidence the body gets -- see LedeEvidenceInstruction for why the framing
-        // comes first. Only the research half is passed in: BuildCompetitorHeadingBlock tells the
-        // model to tag a heading "competitor:<exact heading text>" and refers it to the provenance
-        // rules, and neither exists here -- the lede contract has no provenance field and this
-        // prompt states no provenance rules, so that block would cite instructions the model was
-        // never given.
+        // The opening is where the page's factual claims are set, so it is written against the same
+        // retrieved evidence the body gets -- see LedeEvidenceInstruction for why the framing comes
+        // first. Only the research half is passed in: BuildCompetitorHeadingBlock tells the model to
+        // tag a heading "competitor:<exact heading text>" and refers it to the provenance rules, and
+        // neither exists here -- the lede contract has no provenance field.
         if (!string.IsNullOrWhiteSpace(evidenceBlock))
         {
-            system += Environment.NewLine + LedeEvidenceInstruction + Environment.NewLine + evidenceBlock;
+            user.AppendLine(LedeEvidenceInstruction).AppendLine(evidenceBlock);
         }
 
         if (isRegeneration)
         {
-            system += Environment.NewLine + "REGENERATION: use fresh prose and examples.";
+            user.AppendLine("REGENERATION: use fresh prose and examples.");
         }
 
         var ledeNotes = ScopeRevisionNotesForLede(revisionNotes, existingLedeHeading, metadata.SectionOutline);
         var ledeRevisionBlock = BuildRevisionNotesBlock(ledeNotes, sectionHeading: existingLedeHeading);
         if (ledeRevisionBlock is not null)
         {
-            system += Environment.NewLine + "LEDE " + ledeRevisionBlock;
+            user.AppendLine("LEDE " + ledeRevisionBlock);
         }
 
         var introRevisionBlock = BuildRevisionNotesBlock(revisionNotes, sectionHeading: ledeHeading);
         if (introRevisionBlock is not null)
         {
-            system += Environment.NewLine + "INTRODUCTION " + introRevisionBlock;
+            user.AppendLine("INTRODUCTION " + introRevisionBlock);
         }
 
-        var user = new StringBuilder()
+        user.AppendLine()
             .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
             .AppendLine()
+            .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}. It covers: {ledeHeading}. You write its heading.")
             .AppendLine($"Article title: {metadata.Title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
@@ -1775,10 +1810,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine()
             .AppendLine("Full article outline (for context only — write ONLY the Lede H2):")
             .AppendLine(outlineContext)
-            .ToString();
+            .AppendLine(AnswerInTheContract);
 
         return new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: isRegeneration ? 0.72 : 0.65,
             MaxOutputTokens: 6144);
     }
@@ -1840,26 +1875,16 @@ public class ContentPromptBuilder : IContentPromptBuilder
                     + (sl.Guidance is { Length: > 0 } ? Environment.NewLine + $"   {sl.Guidance}" : string.Empty)
                 : $"{i + 1}. \"{sl.Heading}\""));
 
-        var briefBody = BuildBriefBodyGuidance(context);
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(briefBody)
-            .AppendLine(FillerBanInstruction)
-            .AppendLine(HumanRegisterInstruction)
-            .AppendLine(BuildPublisherSiteBlock(context))
-            .AppendLine($"Write {slots.Count} sections of a schema.org TechnicalArticle pillar in one response — third person, expert, consultative, like a senior consultant advising a prospective client.")
+        var system = SystemPrompt(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract);
+
+        // What a pillar is. The same text on every call of the type.
+        var user = new StringBuilder()
+            .AppendLine("=== THIS PAGE ===")
+            .AppendLine("A schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
-            .AppendLine("Respond with ONLY the sections array, one entry per section listed below, in the same order — no code fences, no commentary:")
-            .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
             .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
-            .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
             .AppendLine(ToolsAsSolutionInstruction)
-            // The lede wrote fullOutline[0], so the body's own sections are what remains.
-            .AppendLine(SeoBodyInstruction(
-                context.TargetKeyword, GccV2LongFormTypes.Pillar,
-                slots.Count, Math.Max(slots.Count, fullOutline.Count - 1), batchIndex == 0))
             .AppendLine("Open each section where its own material starts. Somewhere early in the page the practitioner's cost — the delay, the error rate, the wasted hours of the status quo — has to be concrete, but it is one page making one argument: do not restate the pain at the top of every section, and never open with \"AI enables…\", \"Intelligent X is…\", a capability list, or a definition of the technology.")
             .AppendLine("Do not write these as neutral textbook explainers — every subsection should be framed through what an AI implementation " +
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")
@@ -1872,38 +1897,34 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. ")
             .AppendLine("A hypothetical scenario may still use a concrete operational outcome for punch, but MUST be explicitly labeled hypothetical/illustrative. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
-            .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
-            .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
-            .AppendLine(BatchClosingInstruction(
-                context, [.. slots.Select(sl => sl.Label)], [.. fullOutline.Select(sl => sl.Label)]))
-            .ToString();
+            .AppendLine();
 
-        if (namesItsOwn)
-        {
-            system += Environment.NewLine + HeadingCraftInstruction;
-        }
-
-        var continuity = BuildLedeContinuityBlock(lede);
-        if (continuity is not null)
-        {
-            system += Environment.NewLine + continuity;
-        }
+        // Who it is for and what the publisher already says about itself.
+        user.AppendLine(BuildBriefBodyGuidance(context));
+        user.AppendLine(BuildPublisherSiteBlock(context));
+        user.AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection));
+        user.AppendLine();
 
         if (requireHeadingProvenance)
         {
             if (!string.IsNullOrWhiteSpace(evidenceBlock))
             {
-                system += Environment.NewLine + evidenceBlock;
+                user.AppendLine(evidenceBlock);
             }
 
-            system += Environment.NewLine + HeadingProvenanceInstruction +
+            user.AppendLine(HeadingProvenanceInstruction +
                 " Each top-level section here fulfils one of the numbered sections you were assigned" +
-                " above — tag its own provenance \"plan\", whether the heading was given to you or you" +
+                " below — tag its own provenance \"plan\", whether the heading was given to you or you" +
                 " wrote it yourself. Every h3/h4 child nested under it is yours to invent, and each of" +
-                " those needs a real tag from the rules above.";
+                " those needs a real tag from the rules above.");
+        }
+
+        var continuity = BuildLedeContinuityBlock(lede);
+        if (continuity is not null)
+        {
+            user.AppendLine(continuity);
         }
 
         // Per-heading guidance — these blocks are pure functions of context (not the loop index),
@@ -1913,36 +1934,42 @@ public class ContentPromptBuilder : IContentPromptBuilder
         {
             if (PillarSectionClassifier.IsBenefitsSection(heading))
             {
-                system += Environment.NewLine + $"For \"{heading}\":" + Environment.NewLine + BuildBenefitsSectionGuidance(context);
+                user.AppendLine($"For \"{heading}\":").AppendLine(BuildBenefitsSectionGuidance(context));
             }
             if (PillarSectionClassifier.IsBestPracticesSection(heading))
             {
-                system += Environment.NewLine + $"For \"{heading}\":" + Environment.NewLine + BuildBestPracticesSectionGuidance(context);
+                user.AppendLine($"For \"{heading}\":").AppendLine(BuildBestPracticesSectionGuidance(context));
             }
             if (PillarSectionClassifier.IsFutureTrendsSection(heading))
             {
-                system += Environment.NewLine + $"For \"{heading}\":" + Environment.NewLine + BuildFutureTrendsSectionGuidance(context);
+                user.AppendLine($"For \"{heading}\":").AppendLine(BuildFutureTrendsSectionGuidance(context));
             }
         }
 
         if (isRegeneration)
         {
-            system += Environment.NewLine + "REGENERATION: use fresh prose and examples.";
+            user.AppendLine("REGENERATION: use fresh prose and examples.");
         }
 
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes);
         if (revisionBlock is not null)
         {
-            system += Environment.NewLine + revisionBlock;
+            user.AppendLine(revisionBlock);
             if (slots.Any(sl => PillarSectionClassifier.IsBenefitsSection(sl.Label)) || NotesAskForConcreteness(revisionNotes, string.Empty))
             {
-                system += Environment.NewLine + BuildConcretenessRevisionAmplifier();
+                user.AppendLine(BuildConcretenessRevisionAmplifier());
             }
         }
 
-        var user = new StringBuilder()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
-            .AppendLine()
+        // What this call writes. The part that differs from one batch to the next, last.
+        user.AppendLine()
+            .AppendLine("=== ASSIGNMENT ===")
+            .AppendLine($"Write {slots.Count} sections of this pillar in one response.")
+            .AppendLine(SeoBodyInstruction(
+                context.TargetKeyword, GccV2LongFormTypes.Pillar,
+                // The lede wrote fullOutline[0], so the body's own sections are what remains.
+                slots.Count, Math.Max(slots.Count, fullOutline.Count - 1), batchIndex == 0))
+            .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine(namesItsOwn
                 ? "Write these sections, in this order. Each numbered entry says what the section must cover; you write its heading:"
                 : "Write these sections, in this order:")
@@ -1953,10 +1980,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine()
             .AppendLine("Full article outline (for context only — write ONLY the sections listed above):")
             .AppendLine(outlineContext)
-            .ToString();
+            .AppendLine()
+            .AppendLine(BatchClosingInstruction(
+                context, [.. slots.Select(sl => sl.Label)], [.. fullOutline.Select(sl => sl.Label)]))
+            .AppendLine(AnswerInTheContract);
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: isRegeneration ? 0.72 : 0.65,
             MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
@@ -2293,46 +2323,37 @@ public class ContentPromptBuilder : IContentPromptBuilder
     public ChatCompletionRequest BuildStandaloneBlogLedePrompt(
         ProjectGenerationContext context, BlogMetadataDraft metadata, string? evidenceBlock = null)
     {
-        var system = new StringBuilder()
-            .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
+        var system = SystemPrompt(LedeJsonContract);
+
+        var user = new StringBuilder()
+            .AppendLine("=== THIS PAGE ===")
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
-            // Stage 6: this used to hardcode "prefer a creative opening" with no way to choose
-            // among the 12 lede types the JSON contract below already demands a value for --
-            // pillar's lede got real brief-aware guidance; blog never did. Same guidance now.
+            .AppendLine(SeoLedeInstruction(context.TargetKeyword))
+            // The same lede-type guidance the pillar's opening gets: twelve types, chosen against the brief.
             .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
-            .AppendLine(HumanRegisterInstruction)
-            .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
-            .AppendLine(BuildPublisherSiteBlock(context))
-            .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeHeadingInstruction)
-            .AppendLine(HeadingCraftInstruction)
-            .AppendLine(LedeJsonContract)
-            .ToString();
+            .AppendLine()
+            .AppendLine(BuildPublisherSiteBlock(context));
 
-        // The opening is where the page's factual claims are set, so it is written against the
-        // same retrieved evidence the body gets -- see LedeEvidenceInstruction for why the framing
-        // comes first. Only the research half is passed in: BuildCompetitorHeadingBlock tells the
-        // model to tag a heading "competitor:<exact heading text>" and refers it to the provenance
-        // rules, and neither exists here -- the lede contract has no provenance field and this
-        // prompt states no provenance rules, so that block would cite instructions the model was
-        // never given.
+        // The opening is where the page's factual claims are set, so it is written against the same
+        // retrieved evidence the body gets -- see LedeEvidenceInstruction. Only the research half is
+        // passed in: the competitor-heading block refers to provenance rules the lede contract does
+        // not carry.
         if (!string.IsNullOrWhiteSpace(evidenceBlock))
         {
-            system += Environment.NewLine + LedeEvidenceInstruction + Environment.NewLine + evidenceBlock;
+            user.AppendLine(LedeEvidenceInstruction).AppendLine(evidenceBlock);
         }
 
-        var user = new StringBuilder()
+        user.AppendLine()
+            .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Blog title: {metadata.Title}")
-            .ToString();
+            .AppendLine(AnswerInTheContract);
 
         return new ChatCompletionRequest(
-            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.7,
             MaxOutputTokens: 2048);
     }
@@ -2379,11 +2400,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var blogBatch = sectionBatch is { Count: > 0 } ? sectionBatch : blogOutline;
         var isBlogBatch = blogBatch.Count != blogOutline.Count;
 
-        var briefBody = BuildBriefBodyGuidance(context);
-        var system = new StringBuilder()
-            .AppendLine("You are a content marketer for an IT consulting firm that specializes in AI implementation.")
-            .AppendLine(BrandTones.ForWebpages())
-            .AppendLine("Write a standalone deep-dive blog post from the research brief and keyword — there is no pillar article to repurpose.")
+        var system = SystemPrompt(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract);
+
+        // What a blog post is. The same text on every call of the type.
+        var user = new StringBuilder()
+            .AppendLine("=== THIS PAGE ===")
+            .AppendLine("A standalone deep-dive blog post written from the research brief and keyword — there is no pillar article to repurpose.")
             .AppendLine("Substantive paragraphs with examples and implementation context; first/second person allowed.")
             .AppendLine(
                 $"Aim for {ContentLengthTargets.BlogRangeLabel} words. The scored floor stated below is "
@@ -2395,56 +2417,51 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Each section runs {ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words. " +
                 $"That is what {ContentLengthTargets.BlogSectionCountMin}-{ContentLengthTargets.BlogSectionCountTarget} sections of real depth adds up to -- " +
                 "a section coming in at half of it has not finished making its point, it has not been written concisely.")
-            .AppendLine(isBlogBatch
-                ? $"Write {blogBatch.Count} of this post's sections in this response. The word aim above is the "
-                  + "whole post's, across every call; yours is the per-section range."
-                : string.Empty)
-            .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
-            .AppendLine(HeadingCraftInstruction)
-            .AppendLine(SectionVarietyInstruction)
             .AppendLine(NoToolsSectionInstruction)
             .AppendLine(ToolsAsSolutionInstruction)
-            .AppendLine(SeoBodyInstruction(
-                context.TargetKeyword, GccV2LongFormTypes.Blog,
-                blogBatch.Count, blogOutline.Count, batchIndex == 0))
-            .AppendLine(FillerBanInstruction)
-            .AppendLine(HumanRegisterInstruction)
-            .AppendLine(BuildPublisherSiteBlock(context))
-            .AppendLine(briefBody)
-            .AppendLine("Respond with ONLY the sections array — no code fences, no commentary:")
-            .AppendLine(requireHeadingProvenance ? SectionsArrayJsonContractWithProvenance : SectionsArrayJsonContract)
-            .ToString();
+            .AppendLine();
+
+        user.AppendLine(BuildBriefBodyGuidance(context));
+        user.AppendLine(BuildPublisherSiteBlock(context));
+        user.AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.BlogSection,
+            "Write the blog body sections from this research. Ground claims in the brief; do not invent statistics."));
+        user.AppendLine();
 
         if (requireHeadingProvenance)
         {
             if (!string.IsNullOrWhiteSpace(evidenceBlock))
             {
-                system += Environment.NewLine + evidenceBlock;
+                user.AppendLine(evidenceBlock);
             }
 
-            system += Environment.NewLine + HeadingProvenanceInstruction +
+            user.AppendLine(HeadingProvenanceInstruction +
                 " A section whose heading matches one of the advisory H2s below may tag its own" +
                 " provenance \"plan\". Any heading you refine, replace, or add beyond those — at any" +
-                " level, including nested children — needs a real tag from the rules above.";
+                " level, including nested children — needs a real tag from the rules above.");
         }
 
         var blogContinuity = BuildLedeContinuityBlock(lede);
         if (blogContinuity is not null)
         {
-            system += Environment.NewLine + blogContinuity;
+            user.AppendLine(blogContinuity);
         }
 
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes);
         if (revisionBlock is not null)
         {
-            system += Environment.NewLine + revisionBlock;
+            user.AppendLine(revisionBlock);
         }
 
-        var user = new StringBuilder()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.BlogSection,
-                "Write the blog body sections from this research. Ground claims in the brief; do not invent statistics."))
-            .AppendLine()
+        // What this call writes. The part that differs from one batch to the next, last.
+        user.AppendLine()
+            .AppendLine("=== ASSIGNMENT ===")
+            .AppendLine(isBlogBatch
+                ? $"Write {blogBatch.Count} of this post's sections in this response. The word aim above is the "
+                  + "whole post's, across every call; yours is the per-section range."
+                : string.Empty)
+            .AppendLine(SeoBodyInstruction(
+                context.TargetKeyword, GccV2LongFormTypes.Blog,
+                blogBatch.Count, blogOutline.Count, batchIndex == 0))
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine($"Blog meta description: {metadata.MetaDescription}")
@@ -2469,10 +2486,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 context,
                 [.. blogBatch.Select(sl => sl.Label)],
                 [.. blogOutline.Select(sl => sl.Label)]))
-            .ToString();
+            .AppendLine(AnswerInTheContract);
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
-            Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
+            Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user.ToString()) },
             Temperature: 0.7,
             MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
@@ -2702,10 +2719,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         string? evidenceBlock = null,
         IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null)
     {
-        // One rendering of the outline, from the one definition. This block used to be three hand-
-        // written prose lists inside this prompt -- the required section names, the per-section word
-        // budget, and three paragraphs of per-section instruction addressing sections by name --
-        // beside a fourth copy in ToolPrompts and a fifth in GccGenerateService.
+        // One rendering of the outline, from the one definition (ToolPrompts.Outline). It used to be
+        // three hand-written prose lists inside this prompt beside a fourth copy in ToolPrompts and a
+        // fifth in GccGenerateService.
         var sectionBlock = new StringBuilder();
         for (var i = 0; i < outline.Count; i++)
         {
@@ -2723,40 +2739,15 @@ public class ContentPromptBuilder : IContentPromptBuilder
             }
         }
 
-        var system = new StringBuilder()
-            .AppendLine("You are a senior technical writer for an IT consulting firm.")
-            .AppendLine(BrandTones.ForWebpages())
+        var system = SystemPrompt(SectionsArrayJsonContract);
+
+        // What a tool page is, and who it is about. Same text on every call of this page.
+        var user = new StringBuilder()
+            .AppendLine("=== THIS PAGE ===")
             .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
-            // The operator's brief, from the one place that renders it. Pillar, Blog, the FAQ
-            // section, social and cold outreach all called this; the tool body never did, so the
-            // primary intent, the buying-stage funnel alignment, the tone of voice, the E-E-A-T
-            // signals, the CTA, the length band and the writing notes reached every content type
-            // except the one Jeff calls the most important. The gap read as covered because the
-            // audience block below named the segment and asked for a closing -- neither of which
-            // was this rendering, so a reader checking those two found them.
-            //
-            // None of this is the page's grounding: the partner evidence RAG retrieved is the
-            // substance of a tool page, arrives as PARTNER DATA in the user message, and is
-            // refused outright when extraction yields too little. These are the operator's
-            // controls over how that evidence is written up.
-            .AppendLine(BuildBriefBodyGuidance(context))
-            // Pillar and Blog have banned this vocabulary for weeks; Tool never got it, which is the
-            // wrong way round -- a page about a partner's product is where "transformative
-            // potential" and "unlock value" are most likely to turn up, and where they do the most
-            // damage to a claim that has to be true.
-            .AppendLine(FillerBanInstruction)
-            .AppendLine(HumanRegisterInstruction)
-            .AppendLine(BuildPublisherSiteBlock(context))
-            .AppendLine("Respond with ONLY the sections array for this tool overview page — no code fences, no commentary:")
-            .AppendLine(SectionsArrayJsonContract)
-            .AppendLine("This page is published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
-            // What this page IS. The prompt previously described a consulting firm writing about a
-            // tool and never said the word partner -- while the extraction prompt that feeds it
-            // defines one precisely. The two halves of the same pipeline did not share a
-            // definition, so the writer had to infer the relationship it was writing about
-            // (Jeff, 2026-09-23: "this doesn't appear to be a prompt that is specifically written
-            // for Partners/Tools?"). Kept deliberately consistent with
-            // GccV2PartnerExtractionService's wording, since both run over the same material.
+            .AppendLine("A tool overview page published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
+            // What this page IS. Kept deliberately consistent with GccV2PartnerExtractionService's
+            // wording, since both run over the same material.
             .AppendLine($"WHAT THIS PAGE IS: {app.Name} is a PARTNER — a third-party SaaS product that " +
                 $"{context.PublisherName} promotes and implements for clients. This page exists to show a reader " +
                 $"facing \"{context.TargetKeyword}\" how {app.Name} specifically addresses that problem. It is one " +
@@ -2767,10 +2758,95 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 $"and never claim {context.PublisherName} builds the product's own features.")
             .AppendLine($"Name {app.Name} throughout, in every section. A sentence that would read identically " +
                 "about a competing product is a sentence that has not done its job.")
+            .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent a feature, integration, or claim to fill space.")
+            .AppendLine("When persisted tool research is provided, treat it as the authoritative source — do not re-extract or contradict it.")
+            .AppendLine($"Frame the implementation material as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
+            // What the extraction actually holds, not a fixed sentence.
+            .AppendLine(ToolCaseStudyRule(extractedToolResearchJson) +
+                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
+                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
+                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
+                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. " +
+                "A quantified outcome is fine for narrative punch only if explicitly labeled hypothetical/illustrative — avoid recycling a stock 40% line.")
+            .AppendLine($"Tie the opening and closing sections to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps — this page is about {app.Name}, not a roundup.");
+
+        // Who the page is for, and what it has to do for them (Jeff's partner-page template,
+        // 2026-09-23). What stays here is what is Tool's alone: what this reader wants to know about
+        // this product. The audience itself is rendered once, by BuildBriefBodyGuidance.
+        user.AppendLine($"They are weighing {app.Name} and want three questions answered: is it right for a business my size, "
+            + $"what does it fix for my team specifically, and why hire {context.PublisherName} to set it up instead of doing it myself.");
+        user.AppendLine("Translate capability into consequence. Every feature you state must land with what it means for "
+            + "that reader — hours returned, errors removed, a job that stops needing a person. A capability listed without "
+            + "its consequence is a spec sheet, and they can already read the vendor's own.");
+        user.AppendLine("Lead with outcomes, not mechanism. Plain language over jargon, concrete over abstract.");
+        user.AppendLine($"The implementation section is where you answer the DIY question: what {context.PublisherName} "
+            + $"({context.ImplementerPositioning}) does that makes {app.Name} work in their environment — configuration, data "
+            + "mapping, integration with what they already run, training. Earn the claim, never assert it.");
+        user.AppendLine();
+
+        // The operator's controls over how the evidence is written up, and what the publisher says of itself.
+        user.AppendLine(BuildBriefBodyGuidance(context));
+        user.AppendLine(BuildPublisherSiteBlock(context));
+
+        user.AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ToolBody, $"Write the tool overview page for {app.Name}."))
+            .AppendLine()
+            .AppendLine($"Target keyword context: {context.TargetKeyword}")
+            .AppendLine($"Pillar topic: {pillarMetadata.Title}")
+            .AppendLine($"Tool name: {app.Name}")
+            .AppendLine($"Tool summary: {app.Description ?? "N/A"}")
+            .AppendLine($"Public path: /tools/{toolSlug}");
+        if (!string.IsNullOrWhiteSpace(context.PillarBodyExcerpt))
+        {
+            user.AppendLine("=== PILLAR USE-CASE EXCERPT (ground the opening and closing sections here; do not reprint the pillar) ===");
+            user.AppendLine(context.PillarBodyExcerpt);
+        }
+        if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
+        {
+            // This is the substance of the page, not background reading. A tool page paraphrases
+            // the partner's own data -- capabilities, pricing, who it is for, integrations, limits,
+            // proof -- into our words (Jeff, 2026-09-23: "Tools should be paraphrasing Partner data").
+            user.AppendLine("=== PARTNER DATA -- THE SUBSTANCE OF THIS PAGE (authoritative) ===");
+            user.AppendLine(extractedToolResearchJson);
+            user.AppendLine();
+            user.AppendLine(
+                "Write this page as a paraphrase of the partner data above. Every factual statement " +
+                "-- capabilities, pricing, integrations, who it is for, limitations, evidence -- must " +
+                "restate something actually present in that data, in your own words.");
+            user.AppendLine(
+                "Do not reproduce it verbatim, and do not add capabilities, figures, customers, " +
+                "integrations or claims that are not in it. Where the data is silent on something a " +
+                "section would normally cover, write less rather than inventing it -- an unsupported " +
+                "claim on a partner page is worse than a shorter section.");
+            user.AppendLine(
+                "Name the product and its specifics concretely. A page that could be about any tool " +
+                "in this category has not used the data.");
+        }
+
+        // Evidence the call carries beyond the partner's own pages: the competitor and own-site
+        // blocks and the foreign amounts to leave out.
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            user.AppendLine(evidenceBlock);
+        }
+
+        var toolContinuity = BuildLedeContinuityBlock(lede);
+        if (toolContinuity is not null)
+        {
+            user.AppendLine(toolContinuity);
+        }
+
+        var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
+        if (revisionBlock is not null)
+        {
+            user.AppendLine(revisionBlock);
+        }
+
+        // What this call writes. The part that differs from one batch to the next, last.
+        user.AppendLine()
+            .AppendLine("=== ASSIGNMENT ===")
             // The page carries exactly one quotation, and a page written in batches is several calls:
-            // told the quotation is required, every batch wrote one, and the guard refused pages
-            // with two, three and four (2026-10-04). The first batch carries it; the rest are told
-            // it is written elsewhere and not handed the spans at all.
+            // the first batch carries it; the rest are told it is written elsewhere and not handed the
+            // spans at all.
             .AppendLine(batchIndex == 0
                 ? ToolQuotationInstruction(app.Name, context.TargetKeyword)
                 : ToolQuotationWrittenElsewhere(app.Name))
@@ -2789,137 +2865,30 @@ public class ContentPromptBuilder : IContentPromptBuilder
                   + "them, and do not write a conclusion for the page:" + Environment.NewLine
                   + RenderOutline(fullOutline)
                 : string.Empty)
-            .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
-            .AppendLine(HeadingCraftInstruction)
-            .AppendLine(SectionVarietyInstruction)
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccV2LongFormTypes.Tool,
                 outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count), batchIndex == 0))
-            // One statement about length, and it agrees with the scorer. SeoBodyInstruction above
-            // says the floor "fails outright"; the two lines that followed it here said "not a
-            // quota ... never a target to reach ... say less", and a writer handed both took the
-            // permission: a 2,108-word tool page against a 3,000-word floor, 2026-10-03, failing the
-            // length check it had been told did not apply. Quality still beats count (Jeff,
-            // 2026-09-23), which is why padding and invention stay banned -- but the answer to thin
-            // evidence is depth on what the evidence does support, not a shorter page. Tool equals
-            // Pillar on every measure (Jeff, 2026-09-28), and Pillar's floor is a floor.
+            // One statement about length, and it agrees with the scorer. Quality still beats count
+            // (Jeff, 2026-09-23), which is why padding and invention stay banned -- but the answer to
+            // thin evidence is depth on what the evidence does support, not a shorter page.
             .AppendLine($"Length: {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0} words across the sections above, {ContentLengthTargets.ToolHardMaxWords:N0} at most. " +
-                "Each section's lower figure is owed, and a batch under its floor is written again.")
+                "Each section's lower figure is owed.")
             .AppendLine("Depth, never padding: do not restate a point in new words, do not invent a feature, figure or integration to fill a section. " +
                 $"When the evidence for a section is thin, go further into what it does support -- the mechanism, what it changes for this reader's week, what deploying it involves with {context.PublisherName} -- rather than closing the section short.")
             .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {outline.Count} substantial sections, not four.")
             .AppendLine($"This word target is for the {outline.Count} sections above only -- a separate FAQ section, when the tool has " +
                 "partner FAQ data, is generated afterward and is additional, not part of this budget.")
-            .AppendLine($"Only describe real, verifiable capabilities of {app.Name} — never invent a feature, integration, or claim to fill space.")
-            .AppendLine($"When persisted tool research is provided, treat it as the authoritative source — do not re-extract or contradict it.")
-            .AppendLine($"Frame the implementation material as {context.PublisherName} ({context.ImplementerPositioning}) closing the gap for a client — consultative, not a sales pitch.")
-            // What the extraction actually holds, not a fixed sentence. This said "there is no
-            // case-study data available" on every tool page, while PARTNER DATA below carried the
-            // extraction's caseStudies -- one prompt contradicting itself, and the writer told to
-            // ignore the only customer evidence it had.
-            .AppendLine(ToolCaseStudyRule(extractedToolResearchJson) +
-                "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
-                "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
-                "unfalsifiable. Never write \"many businesses have\", \"one company saw\", \"for instance, a firm in this sector\", or any figure " +
-                "attached to an unnamed customer. A number may appear only if it is in the supplied evidence or published by this publisher. " +
-                "A quantified outcome is fine for narrative punch only if explicitly labeled hypothetical/illustrative — avoid recycling a stock 40% line.")
-            .AppendLine($"Tie the opening and closing sections to this project's use-case ({context.TargetKeyword}). Name sibling platforms from the research brief only when a real contrast helps — this page is about {app.Name}, not a roundup.")
-            .ToString();
-
-        var toolContinuity = BuildLedeContinuityBlock(lede);
-        if (toolContinuity is not null)
-        {
-            system += Environment.NewLine + toolContinuity;
-        }
-
-
-        // Who the page is for, and what it has to do for them. Drawn from Jeff's own partner-page
-        // template (2026-09-23), supplied "to facilitate, not dictate" -- so the six-section
-        // outline stays and its conversion intent is folded in as instruction. Until now the tool
-        // body prompt named no audience and had no call to action at all, while the brief has
-        // collected both for months and ResearchBriefPhase.ToolBody emits neither.
-        // The audience line that used to open this block is gone: BuildBriefBodyGuidance above now
-        // renders it, with the details list this copy dropped. What stays is what is Tool's alone --
-        // what this reader wants to know about this product.
-        var audience = new StringBuilder();
-        audience.AppendLine($"They are weighing {app.Name} and want three questions answered: is it right for a business my size, "
-            + $"what does it fix for my team specifically, and why hire {context.PublisherName} to set it up instead of doing it myself.");
-        audience.AppendLine("Translate capability into consequence. Every feature you state must land with what it means for "
-            + "that reader — hours returned, errors removed, a job that stops needing a person. A capability listed without "
-            + "its consequence is a spec sheet, and they can already read the vendor's own.");
-        audience.AppendLine("Lead with outcomes, not mechanism. Plain language over jargon, concrete over abstract.");
-        audience.AppendLine($"The implementation section is where you answer the DIY question: what {context.PublisherName} "
-            + $"({context.ImplementerPositioning}) does that makes {app.Name} work in their environment — configuration, data "
-            + "mapping, integration with what they already run, training. Earn the claim, never assert it.");
-        audience.AppendLine(BatchClosingInstruction(
-            context, [.. outline.Select(sl => sl.Label)], [.. (fullOutline ?? outline).Select(sl => sl.Label)]));
-        audience.AppendLine("Place it after the reader has reason to act — never a banner, never repeated per section.");
-
-        system += Environment.NewLine + audience.ToString();
-
-        // What this particular call has to fix, when it is a retry. Pillar and Blog have carried
-        // this since their guards were written; Tool's prompt had no parameter for it, so
-        // GenerateToolPageAsync set EvidenceBlock on the context, ToolPrompts.Body did not forward
-        // it and nothing here would have rendered it -- the closing-CTA retry re-sent a
-        // byte-identical prompt and was charged for a second draft that could not differ from the
-        // first. A retry that cannot say what was wrong is not a retry.
-        if (!string.IsNullOrWhiteSpace(evidenceBlock))
-        {
-            system += Environment.NewLine + evidenceBlock;
-        }
-
-        var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
-        if (revisionBlock is not null)
-        {
-            system += Environment.NewLine + revisionBlock;
-        }
-
-        var user = new StringBuilder()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ToolBody, $"Write the tool overview page for {app.Name}."))
-            .AppendLine()
-            .AppendLine($"Target keyword context: {context.TargetKeyword}")
-            .AppendLine($"Pillar topic: {pillarMetadata.Title}")
-            .AppendLine($"Tool name: {app.Name}")
-            .AppendLine($"Tool summary: {app.Description ?? "N/A"}")
-            .AppendLine($"Public path: /tools/{toolSlug}");
-        if (!string.IsNullOrWhiteSpace(context.PillarBodyExcerpt))
-        {
-            user.AppendLine("=== PILLAR USE-CASE EXCERPT (ground the opening and closing sections here; do not reprint the pillar) ===");
-            user.AppendLine(context.PillarBodyExcerpt);
-        }
-        if (!string.IsNullOrWhiteSpace(extractedToolResearchJson))
-        {
-            // This is the substance of the page, not background reading. A tool page paraphrases
-            // the partner's own data -- capabilities, pricing, who it is for, integrations, limits,
-            // proof -- into our words. Labelling it "authoritative" and then asking for prose about
-            // the subject produced pages that named no partner and restated nothing from it
-            // (Jeff, 2026-09-23: "Tools should be paraphrasing Partner data").
-            user.AppendLine("=== PARTNER DATA -- THE SUBSTANCE OF THIS PAGE (authoritative) ===");
-            user.AppendLine(extractedToolResearchJson);
-            user.AppendLine();
-            user.AppendLine(
-                "Write this page as a paraphrase of the partner data above. Every factual statement " +
-                "-- capabilities, pricing, integrations, who it is for, limitations, evidence -- must " +
-                "restate something actually present in that data, in your own words.");
-            user.AppendLine(
-                "Do not reproduce it verbatim, and do not add capabilities, figures, customers, " +
-                "integrations or claims that are not in it. Where the data is silent on something a " +
-                "section would normally cover, write less rather than inventing it -- an unsupported " +
-                "claim on a partner page is worse than a shorter section.");
-            user.AppendLine(
-                "Name the product and its specifics concretely. A page that could be about any tool " +
-                "in this category has not used the data.");
-        }
-
-        user.AppendLine($"Write expert third-person technical prose focused on {app.Name}, grounded in this use-case.");
+            .AppendLine(BatchClosingInstruction(
+                context, [.. outline.Select(sl => sl.Label)], [.. (fullOutline ?? outline).Select(sl => sl.Label)]))
+            .AppendLine("Place it after the reader has reason to act — never a banner, never repeated per section.")
+            .AppendLine($"Write expert third-person technical prose focused on {app.Name}, grounded in this use-case.")
+            .AppendLine(AnswerInTheContract);
 
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.5,
             // 16384 to match BuildArticleSectionBatchPrompt (Pillar's own body-batch call) now that
-            // Tool targets the same 3,000-5,000 word range across six JSON-structured sections --
-            // 8192 was sized for the old four-section, ~1,500-2,000 word target.
+            // Tool targets the same 3,000-5,000 word range across six JSON-structured sections.
             MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
 

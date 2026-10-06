@@ -138,8 +138,11 @@ public class SectionHeadingCraftTests
             fullOutline: [SectionSlot.Assigned("Planned One"), SectionSlot.Assigned("Planned Two")],
             isRegeneration: false);
 
-        var system = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.System).Select(m => m.Content));
-        Assert.DoesNotContain("HEADINGS: write them for this page and no other", system, StringComparison.Ordinal);
+        var user = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.User).Select(m => m.Content));
+        // The heading rule is in the system message on every call; what differs is the assignment.
+        // A planned heading is handed over as given, not as something to be written.
+        Assert.Contains("1. \"Planned Two\"", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("you write its heading", user, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -161,11 +164,11 @@ public class SectionHeadingCraftTests
             isRegeneration: false,
             lede: lede);
 
-        var system = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.System).Select(m => m.Content));
-        Assert.Contains("THE OPENING THIS PAGE ALREADY HAS", system, StringComparison.Ordinal);
-        Assert.Contains("The invoice that sat in a drawer for nine days", system, StringComparison.Ordinal);
-        Assert.Contains("It was still there on Friday.", system, StringComparison.Ordinal);
-        Assert.Contains("do not drop into neutral textbook voice", system, StringComparison.Ordinal);
+        var user = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.User).Select(m => m.Content));
+        Assert.Contains("THE OPENING THIS PAGE ALREADY HAS", user, StringComparison.Ordinal);
+        Assert.Contains("The invoice that sat in a drawer for nine days", user, StringComparison.Ordinal);
+        Assert.Contains("It was still there on Friday.", user, StringComparison.Ordinal);
+        Assert.Contains("do not drop into neutral textbook voice", user, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -180,8 +183,8 @@ public class SectionHeadingCraftTests
             fullOutline: [SectionSlot.Cover("what the delay costs")],
             isRegeneration: false);
 
-        var system = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.System).Select(m => m.Content));
-        Assert.DoesNotContain("THE OPENING THIS PAGE ALREADY HAS", system, StringComparison.Ordinal);
+        var all = string.Join("\n", request.Messages.Select(m => m.Content));
+        Assert.DoesNotContain("THE OPENING THIS PAGE ALREADY HAS", all, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -195,10 +198,11 @@ public class SectionHeadingCraftTests
 
         var request = builder.BuildStandaloneBlogBodyPrompt(Context(), metadata);
         var system = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.System).Select(m => m.Content));
+        var user = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.User).Select(m => m.Content));
 
         Assert.Contains(
             $"Each section runs {ContentLengthTargets.BlogSectionMinWords}-{ContentLengthTargets.BlogSectionTargetMaxWords} words",
-            system,
+            user,
             StringComparison.Ordinal);
         Assert.Contains("HEADINGS: write them for this page and no other", system, StringComparison.Ordinal);
     }
@@ -217,10 +221,10 @@ public class SectionHeadingCraftTests
 
         var request = builder.BuildToolBodyPrompt(
             context, new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []), app, "partner-widget", outline);
-        var system = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.System).Select(m => m.Content));
+        var user = string.Join("\n", request.Messages.Where(m => m.Role == ChatRole.User).Select(m => m.Content));
 
-        Assert.Contains($"Write {outline.Count} top-level (h2) sections", system, StringComparison.Ordinal);
-        Assert.All(outline, slot => Assert.Contains(slot.Label, system, StringComparison.Ordinal));
-        Assert.DoesNotContain("Required top-level (h2) sections, in order: Overview", system, StringComparison.Ordinal);
+        Assert.Contains($"Write {outline.Count} top-level (h2) sections", user, StringComparison.Ordinal);
+        Assert.All(outline, slot => Assert.Contains(slot.Label, user, StringComparison.Ordinal));
+        Assert.DoesNotContain("Required top-level (h2) sections, in order: Overview", user, StringComparison.Ordinal);
     }
 }
