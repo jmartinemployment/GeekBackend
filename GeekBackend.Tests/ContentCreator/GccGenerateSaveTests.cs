@@ -57,6 +57,16 @@ public sealed class GccGenerateSaveTests
 
         Assert.Equal(3, produced.Count);
         Assert.Equal([("pillar", true), ("tool", true), ("tool", true)], announced);
+
+        // What is recorded of each piece is which page and which version -- never the page's text,
+        // which would put every body the run wrote into its result, its row and its hub events.
+        var recorded = JsonSerializer.Serialize(produced, Web);
+        Assert.DoesNotContain("bodyDocumentJson", recorded, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ramp\"}", recorded, StringComparison.Ordinal);
+        using var first = JsonDocument.Parse(JsonSerializer.Serialize(produced[0], Web));
+        Assert.Equal("pillar", first.RootElement.GetProperty("artifact").GetProperty("type").GetString());
+        Assert.Equal(1, first.RootElement.GetProperty("version").GetProperty("versionNumber").GetInt32());
+        Assert.True(first.RootElement.GetProperty("version").TryGetProperty("metadataJson", out _));
     }
 
     [Fact]

@@ -793,7 +793,24 @@ public sealed class GccGenerationCoordinator
         var produced = new List<object>(result.Saved.Count);
         for (var i = 0; i < result.Saved.Count; i++)
         {
-            var item = new { artifact = result.Saved[i].Artifact, version = result.Saved[i].Version };
+            // What a run records of a piece is the page it went to and the version it became -- not
+            // the page's text. The whole version was here, so every body a run wrote was also in the
+            // run's result, in its stored row, in the per-piece hub event and in the terminal one:
+            // six pages was some 130 KB carried four times, and read back again by a page that only
+            // wants to know what the run did. The text is read from the version, where it lives.
+            var version = result.Saved[i].Version;
+            var item = new
+            {
+                artifact = result.Saved[i].Artifact,
+                version = new
+                {
+                    version.Id,
+                    version.ArtifactId,
+                    version.VersionNumber,
+                    version.MetadataJson,
+                    version.CreatedAtUtc,
+                },
+            };
             produced.Add(item);
             if (onTypeOutcome is not null) await onTypeOutcome(pieces[i].ContentType, item, null);
         }
