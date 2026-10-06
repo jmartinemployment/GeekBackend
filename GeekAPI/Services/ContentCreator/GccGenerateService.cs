@@ -1459,12 +1459,15 @@ public class GccGenerateService
         // Every amount in this partner's evidence that is not in US dollars, named for the opening
         // and for each part of the body. Read from everything the page is written from -- the research
         // block and the extraction here, the competitor and own-site blocks further down.
+        // The site's tools that are not this project's partners stay out of what this page reads too,
+        // as they do for the pillar and the blog. None on the orchestrator's create-less path.
+        IReadOnlyList<string> toolUnlisted = create is null ? [] : (await PartnerToolsAsync(create, ct)).Unlisted;
         var toolForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(string.Join(
             Environment.NewLine,
             toolOutlineCtx.EvidenceBlock ?? string.Empty,
             Guardrail.GccJsonEvidence.TextOf(extractedToolResearchJson),
             create is null ? string.Empty : BuildCompetitorResearchBlock(create),
-            create is null ? string.Empty : BuildOwnSiteCoverageBlock(create)));
+            create is null ? string.Empty : BuildOwnSiteCoverageBlock(create, toolUnlisted)));
         var ledeResult = await llm.CompleteAsync(
             toolType.Lede(toolOutlineCtx with
             {
@@ -1509,7 +1512,7 @@ public class GccGenerateService
             ? string.Empty
             : string.Join(
                 Environment.NewLine,
-                new[] { BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create) }
+                new[] { BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create, toolUnlisted) }
                     .Where(b => b.Length > 0));
 
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
@@ -2417,7 +2420,7 @@ public class GccGenerateService
             create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(
             create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
-        var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
+        var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted);
         // Prompts come from the type's own set, not from a switch over a flat builder -- see
         // content-creator-v2/plans/prompts-per-content-type.md.
         var pillarType = RequireType("pillar");
@@ -2645,7 +2648,7 @@ public class GccGenerateService
             create, section, mustMentionBlock, provider);
         var evidence = BuildProvenanceEvidence(
             create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
-        var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses);
+        var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted);
         // Metadata first, because everything downstream needs what it produces. The title has to
         // exist before the lede is written or the hook just restates it, and the section outline is
         // what the body is actually written against.
@@ -2784,8 +2787,14 @@ public class GccGenerateService
     /// have reached the same silent dead end this stage exists to close. A direct parameter can't
     /// depend on which phase happens to render it.
     /// </summary>
+    /// <param name="unlistedTools">
+    /// Tools the publisher's site lists that are not this project's partners. An own-site page about
+    /// one of them is left out of the block, and the names are redacted from the rest of it.
+    /// </param>
     private static string BuildEvidenceBlock(
-        GccCreateDto create, IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses)
+        GccCreateDto create,
+        IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses,
+        IReadOnlyList<string> unlistedTools)
     {
         var sb = new StringBuilder();
         var researchBlock = BuildResearchBlock(create);
@@ -2800,7 +2809,7 @@ public class GccGenerateService
         if (competitorResearch.Length > 0)
             sb.AppendLine(competitorResearch);
 
-        var ownSite = BuildOwnSiteCoverageBlock(create);
+        var ownSite = BuildOwnSiteCoverageBlock(create, unlistedTools);
         if (ownSite.Length > 0)
             sb.AppendLine(ownSite);
 
@@ -2823,11 +2832,26 @@ public class GccGenerateService
     /// with them. This is retrieved against the create's own topic and is about not repeating them.
     /// </para>
     /// </remarks>
-    internal static string BuildOwnSiteCoverageBlock(GccCreateDto create)
+    /// <param name="unlistedTools">
+    /// Tools this site lists that are not this project's partners. The site's own page about one of
+    /// them -- its tool page for a partner of another project -- is a page about a tool this piece does
+    /// not name, so it is left out; where a remaining page mentions one, the name is redacted. On
+    /// 2026-10-06 the 8:26 run's pillar named Tipalti, a partner on another Accounts Payable project,
+    /// twice while being told not to: the site's Tipalti page was printed here, title and URL, beside
+    /// the instruction. An instruction against a name the prompt shows is a weak instruction.
+    /// </param>
+    internal static string BuildOwnSiteCoverageBlock(GccCreateDto create, IReadOnlyList<string> unlistedTools)
     {
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
-        var pages = research?.SiteQuoteables;
-        if (pages is not { Count: > 0 })
+        var all = research?.SiteQuoteables;
+        if (all is not { Count: > 0 })
+            return string.Empty;
+
+        var names = GccCompetitorNames.Names(unlistedTools);
+        var pages = all
+            .Where(page => !GccCompetitorNames.Mentions(page.Url, names) && !GccCompetitorNames.Mentions(page.Title, names))
+            .ToList();
+        if (pages.Count == 0)
             return string.Empty;
 
         var sb = new StringBuilder();
@@ -2846,9 +2870,9 @@ public class GccGenerateService
         {
             sb.AppendLine($"[{page.Title}] ({page.Url})");
             foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
-                sb.AppendLine($"- H{h.Level}: {h.Text}");
+                sb.AppendLine($"- H{h.Level}: {GccCompetitorNames.Redact(h.Text, names)}");
             foreach (var para in page.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
-                sb.AppendLine($"- {para}");
+                sb.AppendLine($"- {GccCompetitorNames.Redact(para, names)}");
             sb.AppendLine();
         }
 

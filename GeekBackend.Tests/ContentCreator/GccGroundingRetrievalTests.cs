@@ -443,10 +443,43 @@ public class GccGroundingRetrievalTests
 
         var research = new GccResearchDocument(null, [], SiteQuoteables: outcome.SitePages);
         var create = Create(Guid.NewGuid()) with { ResearchJson = GccResearchFetchService.Serialize(research) };
-        var block = GccGenerateService.BuildOwnSiteCoverageBlock(create);
+        var block = GccGenerateService.BuildOwnSiteCoverageBlock(create, []);
 
         Assert.Contains("do not write these again", block, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("We published this last quarter.", block, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The site's own page about a tool that is not this project's partner -- its tool page for a
+    /// partner of another project -- is left out of what the writer reads, and the name is redacted
+    /// where another own page mentions it. The 8:26 run of 2026-10-06 named Tipalti, a partner on
+    /// another Accounts Payable project, because the site's Tipalti page was printed here beside the
+    /// instruction not to name it.
+    /// </summary>
+    [Fact]
+    public void An_own_site_page_about_an_unlisted_tool_is_left_out_and_the_name_is_redacted_elsewhere()
+    {
+        var tipaltiPage = new GccQuoteablePage(
+            "https://geekatyourspot.com/tools/accounting/accounts-payable/tipalti",
+            "Tipalti: Automated Invoice Processing",
+            [new HeadingDto(1, "Tipalti for AP")],
+            ["Tipalti automates supplier payments."]);
+        var overview = new GccQuoteablePage(
+            "https://geekatyourspot.com/accounting/accounts-payable",
+            "Accounts Payable automation",
+            [new HeadingDto(2, "Tools we implement, Tipalti included")],
+            ["We published this last quarter. Clients on Tipalti and Ramp both saw it."]);
+        var research = new GccResearchDocument(null, [], SiteQuoteables: [tipaltiPage, overview]);
+        var create = Create(Guid.NewGuid()) with { ResearchJson = GccResearchFetchService.Serialize(research) };
+
+        var block = GccGenerateService.BuildOwnSiteCoverageBlock(create, ["Tipalti", "Melio"]);
+
+        Assert.DoesNotContain("accounts-payable/tipalti", block, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Automated Invoice Processing", block, StringComparison.Ordinal);
+        Assert.Contains("Accounts Payable automation", block, StringComparison.Ordinal);
+        Assert.Contains("Tools we implement, a competitor included", block, StringComparison.Ordinal);
+        Assert.Contains("Clients on a competitor and Ramp both saw it.", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("tipalti", block, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

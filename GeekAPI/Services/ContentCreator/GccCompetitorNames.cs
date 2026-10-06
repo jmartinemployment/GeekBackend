@@ -54,6 +54,28 @@ public static class GccCompetitorNames
     }
 
     /// <summary>
+    /// Tool names as given -- the site's tools that are not this project's partners -- trimmed,
+    /// distinct, longest first, for the same redaction. Two-letter names are kept out for the reason
+    /// <see cref="FromUrls"/> gives.
+    /// </summary>
+    public static IReadOnlyList<string> Names(IEnumerable<string?> toolNames) =>
+        [.. toolNames
+            .Select(n => n?.Trim() ?? string.Empty)
+            .Where(n => n.Length >= 3)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(n => n.Length)];
+
+    /// <summary>
+    /// Whether <paramref name="text"/> names any of <paramref name="names"/> as a whole word, whatever
+    /// the case. A URL counts: <c>/tools/accounting/accounts-payable/tipalti</c> names Tipalti.
+    /// </summary>
+    public static bool Mentions(string? text, IReadOnlyList<string> names) =>
+        !string.IsNullOrEmpty(text) && names.Any(name => Regex.IsMatch(
+            text,
+            $@"(?<![A-Za-z0-9]){Regex.Escape(name)}(?![A-Za-z0-9])",
+            RegexOptions.IgnoreCase));
+
+    /// <summary>
     /// <paramref name="text"/> with every whole-word occurrence of each name replaced. The text itself
     /// when there are no names.
     /// </summary>
