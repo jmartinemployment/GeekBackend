@@ -247,86 +247,13 @@ public static class GccRequiredToolMentions
     }
 
     /// <summary>
-    /// A sentence that names some of the partner tools and not the rest. By omission it says the rest
-    /// cannot do what the sentence describes.
-    /// </summary>
-    /// <param name="Sentence">The sentence as written, trimmed.</param>
-    /// <param name="Named">The partners it names, in the operator's order.</param>
-    /// <param name="Unnamed">The partners it leaves out, in the operator's order.</param>
-    public sealed record PartialPartnerList(string Sentence, IReadOnlyList<string> Named, IReadOnlyList<string> Unnamed);
-
-    /// <summary>
-    /// Every sentence that names two or more of the partner tools but not all of them. Empty when there
-    /// is none, or when there are fewer than three partners, since then every sentence names one or all.
-    /// </summary>
-    /// <remarks>
-    /// "Software like Lightyear, Ramp, and Bill offer powerful automation capabilities ... These tools
-    /// integrate seamlessly with existing accounting systems" on a project with Stampli and Approvalmax
-    /// as well. Jeff, 2026-10-06: "Which implies the other two do not?" It does. The mentions check saw
-    /// all five named somewhere on the page and passed it; nothing looked at how they were grouped. One
-    /// partner alone is a claim about that partner; all of them is a claim about the set; some of them
-    /// is an exclusion nobody decided.
-    ///
-    /// A sentence is text between sentence-ending punctuation followed by white space, so "Bill.com
-    /// offers" does not split. Names are matched as whole words, exactly as the brief spells them, the
-    /// same way <see cref="Named"/> matches an unlisted tool.
-    /// </remarks>
-    public static IReadOnlyList<PartialPartnerList> PartialLists(ContentDocument document, IReadOnlyList<string> toolNames)
-    {
-        if (toolNames.Count < 3) return [];
-
-        var found = new List<PartialPartnerList>();
-        foreach (var sentence in Sentences(document))
-        {
-            var named = toolNames.Where(name => NamesAsWord(sentence, name)).ToList();
-            if (named.Count >= 2 && named.Count < toolNames.Count)
-            {
-                found.Add(new PartialPartnerList(sentence, named, [.. toolNames.Where(name => !named.Contains(name))]));
-            }
-        }
-
-        return found;
-    }
-
-    private static IEnumerable<string> Sentences(ContentDocument document)
-    {
-        foreach (var section in AllSections(document))
-        {
-            foreach (var paragraph in ContentDocumentText.ParagraphTexts(section))
-            {
-                foreach (var sentence in System.Text.RegularExpressions.Regex.Split(paragraph, @"(?<=[.!?])\s+"))
-                {
-                    if (!string.IsNullOrWhiteSpace(sentence)) yield return sentence.Trim();
-                }
-            }
-        }
-    }
-
-    private static IEnumerable<Section> AllSections(ContentDocument document)
-    {
-        yield return document.Lede;
-        foreach (var section in Descend(document.Sections)) yield return section;
-
-        static IEnumerable<Section> Descend(IReadOnlyList<Section> sections)
-        {
-            foreach (var section in sections)
-            {
-                yield return section;
-                foreach (var child in Descend(section.Children)) yield return child;
-            }
-        }
-    }
-
-    /// <summary>
     /// Whether <paramref name="text"/> names <paramref name="name"/> as a whole word. A brand is itself
     /// whatever its capitals -- "ApprovalMax" is "Approvalmax" -- but a name that starts with a capital
     /// is not matched by the lower-case word: "a bill arrives" does not name Bill.
     /// </summary>
     /// <remarks>
-    /// The 16:52 run of 2026-10-06 wrote "tools like Bill, Ramp, and ApprovalMax" against a partner
-    /// list that spells it "Approvalmax", and the partial-list finding reported ApprovalMax as not
-    /// named -- the finding named the wrong sides. One matcher for the unlisted-tool and partial-list
-    /// checks, so the two cannot read a name differently.
+    /// The 16:52 run of 2026-10-06 wrote "ApprovalMax" against a partner list that spells it
+    /// "Approvalmax". One matcher for naming a tool, so every check reads a name the same way.
     /// </remarks>
     internal static bool NamesAsWord(string text, string name)
     {
@@ -399,11 +326,6 @@ public static class GccRequiredToolMentions
             "this context. Never a roundup section, never a product name as a heading, never a bare " +
             "list of names to satisfy the count. If the evidence supports saying more about one than " +
             "another, say more -- but every one gets named.");
-        block.AppendLine(
-            "Name them all together, or one at a time -- never some of them. A sentence that names some " +
-            "of these tools and not the rest tells the reader the rest cannot do what it describes. Where " +
-            "a capability is shared, name every one of them in that sentence or name none by name; where " +
-            "it is one tool's, name that tool alone, with the evidence for it.");
         return block.ToString();
     }
 

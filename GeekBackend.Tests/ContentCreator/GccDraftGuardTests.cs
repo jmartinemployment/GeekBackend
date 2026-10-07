@@ -204,60 +204,39 @@ public class GccDraftGuardTests
     }
 
     /// <summary>
-    /// "Software like Lightyear, Ramp, and Bill offer powerful automation capabilities" on a project with
-    /// five partners (Jeff, 2026-10-06: "Which implies the other two do not?").
+    /// There is no rule about how many partners one sentence may name. A guard that refused any sentence
+    /// naming some of them and not all was added on 2026-10-06 from a remark of Jeff's ("Which implies the
+    /// other two do not?") and removed on 2026-10-07: it took the remark out of its context and refused a
+    /// whole pillar over four sentences. What is still checked is that every partner is named somewhere
+    /// (a reported gap) and that no tool the project does not list is named (a refusal).
     /// </summary>
     [Fact]
-    public void A_sentence_naming_some_partners_and_not_the_rest_is_refused_naming_both_sides()
+    public void A_sentence_naming_some_of_the_partners_is_not_refused()
     {
         var doc = Doc(Body(
             "What the tools do",
-            Text("Software like Lightyear, Ramp, and Bill offer powerful automation capabilities that streamline "
-                 + "invoice processing. Stampli and Approvalmax are also options for approvals.")));
-        var inputs = Inputs(requiredTools: ["Lightyear", "Ramp", "Bill", "Stampli", "Approvalmax"]);
+            Text("Tools like Bill, Ramp, and ApprovalMax route invoices to the right approvers. "
+                 + "Tools like Approvalmax and Stampli integrate with the ledger. Melio pays the approved bill.")));
+        var inputs = Inputs(requiredTools: ["Bill", "Ramp", "Approvalmax", "Stampli", "Melio"]);
 
-        var finding = Assert.Single(GccDraftGuard.Pillar(doc, inputs).Findings, f => f.Check == "partner-subset");
-        Assert.True(finding.Refuses);
-        Assert.Contains("2 sentence(s)", finding.Detail, StringComparison.Ordinal);
-        Assert.Contains("names Lightyear, Ramp, Bill and not Stampli, Approvalmax", finding.Detail, StringComparison.Ordinal);
-        Assert.Contains("names Stampli, Approvalmax and not Lightyear, Ramp, Bill", finding.Detail, StringComparison.Ordinal);
-        // Every partner is named on the page, so the mentions check is satisfied; this is a different finding.
-        Assert.DoesNotContain("partner-mentions", Failed(GccDraftGuard.Blog(doc, inputs)));
-        Assert.Contains("partner-subset", Failed(GccDraftGuard.Blog(doc, inputs)));
+        foreach (var verdict in new[] { GccDraftGuard.Pillar(doc, inputs), GccDraftGuard.Blog(doc, inputs) })
+        {
+            Assert.DoesNotContain("partner-subset", Failed(verdict));
+            Assert.Empty(verdict.Refusals);
+        }
     }
 
     /// <summary>
-    /// The 16:52 run of 2026-10-06 wrote "tools like Bill, Ramp, and ApprovalMax" against a partner list
-    /// spelling it "Approvalmax", and the finding told the retry ApprovalMax was not named. A brand is
-    /// itself whatever its capitals; a lower-case common word is not the brand.
+    /// The 16:52 run of 2026-10-06 wrote "ApprovalMax" against a partner list spelling it "Approvalmax". A
+    /// brand is itself whatever its capitals; a lower-case common word is not the brand.
     /// </summary>
     [Fact]
     public void A_partner_is_named_whatever_its_capitals_but_a_lower_case_word_is_not_the_brand()
     {
-        var doc = Doc(Body(
-            "What the tools do",
-            Text("Tools like Bill, Ramp, and ApprovalMax route approvals. Every bill still needs a stampli-shaped nudge.")));
-        var inputs = Inputs(requiredTools: ["Approvalmax", "Stampli", "Melio", "Bill", "Ramp"]);
-
-        var finding = Assert.Single(GccDraftGuard.Pillar(doc, inputs).Findings, f => f.Check == "partner-subset");
-        Assert.Contains("names Approvalmax, Bill, Ramp and not Stampli, Melio", finding.Detail, StringComparison.Ordinal);
-        // The second sentence names nobody: "bill" is a word and "stampli-shaped" is not a whole word.
-        Assert.Contains("in 1 sentence(s)", finding.Detail, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Naming_all_partners_together_or_one_at_a_time_is_not_a_subset_finding()
-    {
-        var doc = Doc(Body(
-            "What the tools do",
-            Text("Lightyear, Ramp, Bill, Stampli and Approvalmax all route invoices to approvers. Ramp also issues cards. "
-                 + "Bill.com syncs with QuickBooks; billing delays fall.")));
-        var inputs = Inputs(requiredTools: ["Lightyear", "Ramp", "Bill", "Stampli", "Approvalmax"]);
-
-        Assert.DoesNotContain("partner-subset", Failed(GccDraftGuard.Pillar(doc, inputs)));
-        // With two partners every sentence names one or all, so there is nothing partial to find.
-        var two = Doc(Body("Choosing", Text("ApprovalMax and Ramp both route approvals. ApprovalMax does so in Xero.")));
-        Assert.DoesNotContain("partner-subset", Failed(GccDraftGuard.Pillar(two, Inputs(requiredTools: ["ApprovalMax", "Ramp"]))));
+        Assert.True(GccRequiredToolMentions.NamesAsWord("Tools like Bill, Ramp, and ApprovalMax route approvals.", "Approvalmax"));
+        Assert.True(GccRequiredToolMentions.NamesAsWord("Bill.com syncs with QuickBooks.", "Bill"));
+        Assert.False(GccRequiredToolMentions.NamesAsWord("Every bill still needs a nudge.", "Bill"));
+        Assert.False(GccRequiredToolMentions.NamesAsWord("A stampli-shaped nudge.", "Stampli"));
     }
 
     /// <summary>

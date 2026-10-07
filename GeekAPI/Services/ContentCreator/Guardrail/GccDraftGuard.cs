@@ -198,23 +198,6 @@ public static partial class GccDraftGuard
                 Refuses: true));
         }
 
-        // "Software like Lightyear, Ramp, and Bill offer powerful automation capabilities" on a project
-        // with five partners (Jeff, 2026-10-06: "Which implies the other two do not?"). A sentence that
-        // names some of the partners says, by omission, that the rest lack what it describes. One is a
-        // claim about one; all is a claim about the set; some is an exclusion nobody decided.
-        var partial = GccRequiredToolMentions.PartialLists(document, inputs.RequiredTools);
-        if (partial.Count > 0)
-        {
-            findings.Add(new GccGuardFinding(
-                "partner-subset",
-                $"{Capitalized(type)} names some partner tools without the rest in {partial.Count} sentence(s). "
-                + string.Join(" ", partial.Take(4).Select(p =>
-                    $"\"{Excerpt(p.Sentence)}\" names {string.Join(", ", p.Named)} and not {string.Join(", ", p.Unnamed)}."))
-                + " A sentence that names some partners says the others lack what it describes; a page names "
-                + "all of them together, or one at a time.",
-                Refuses: true));
-        }
-
         var missing = GccRequiredToolMentions.Missing(document, inputs.RequiredTools);
         if (missing.Count > 0)
         {
@@ -549,9 +532,5 @@ public static partial class GccDraftGuard
     }
 
     private static string Capitalized(string type) => char.ToUpperInvariant(type[0]) + type[1..];
-
-    /// <summary>The start of a sentence, enough to find it on the page, not the whole of it in a log line.</summary>
-    private static string Excerpt(string sentence) =>
-        sentence.Length <= 140 ? sentence : sentence[..140].TrimEnd() + "...";
 
 }
