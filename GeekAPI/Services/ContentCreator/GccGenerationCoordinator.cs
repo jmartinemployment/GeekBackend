@@ -248,108 +248,44 @@ public sealed class GccGenerationCoordinator
             // (rewrite-derivation for a second long-form type, a repurpose-pack for email/social/
             // ads, sourceContext contamination for Tool), which is the same defect class as
             // "Repurpose" itself (disabled entirely for it, GeekBackend 08187d9). Each call below
-            // gets its own grounding resolution and its own real generator, exactly as if it were
-            // the only thing selected -- literally the same method single-select calls once.
+            // gets its own real generator, exactly as if it were the only thing selected -- literally
+            // the same method single-select calls once.
             //
-            // Parallel, not sequential: every call is genuinely independent now (no shared mutable
-            // state, nothing waits on another type's output), so awaiting them one at a time only
-            // summed their durations for no reason. Real consequence of today's own redesign --
-            // several selected types, previously one full generation plus cheap single-call
-            // rewrites, now each run their own full generation sequence (Tool alone is up to four
-            // sequential LLM calls) -- summed sequentially that's long enough to trip a timeout
-            // somewhere between the browser and here, surfacing as an empty-body 500 with no
-            // exception message at all (the connection dies before any response is written, so
-            // neither of Generate's own catch blocks below ever gets the chance to run).
-            // Generate every requested type first, persisting none of them. One failure fails the
-            // whole request and leaves nothing behind -- Jeff, 2026-09-23, after three selected
-            // types produced one saved page and a single error: "do not incur changes on failures.
-            // One failure fails all, for now."
+            // Parallel, not sequential: every call is genuinely independent (no shared mutable state,
+            // nothing waits on another type's output), so awaiting them one at a time only summed
+            // their durations for no reason, long enough to trip a timeout somewhere between the
+            // browser and here.
             //
-            // Every failure is collected rather than the first one thrown, because Task.WhenAll
-            // surfaces only whichever lost the race and discards the rest -- that is how Blog's
-            // error vanished behind Pillar's. The refusal names every type that failed.
-            // Resolved ONCE for the whole generate, not per type. Evidence is a property of the
+            // Evidence is resolved ONCE for the whole generate, not per type. It is a property of the
             // create: every live content type retrieves the same three crawl types over the same
             // runs (RetrieveCrawlTypes), so resolving per type issued the same 21 vector queries
             // three times and discarded two of the answers. It also let one URL land in different
-            // lists for different drafts -- see ResolveAsync's remarks.
-            //
-            // Before the fan-out rather than inside it, so a refusal costs nothing: the generate
-            // stops before any paid model call instead of after two of three types have written.
+            // lists for different drafts -- see ResolveAsync's remarks. Before the fan-out rather
+            // than inside it, so a refusal costs nothing: the generate stops before any paid model
+            // call instead of after two of three types have written.
             var resolved = await ResolveAndMergeGroundingAsync(create, requested, ct);
             create = resolved.Create;
             var groundingWarnings = new List<string>();
             await RecordGroundingWarningsAsync(resolved.Warnings, groundingWarnings, onTypeWarning);
             await GccRunLog.RecordIfAnyAsync("grounding", GroundingRecord(resolved), piece: null);
 
-            var attempts = await Task.WhenAll(requested.Select(async type =>
+            // Every type is attempted, and what a type cannot write is that type's refusal, not the
+            // run's (Jeff, 2026-10-06 and 2026-10-07; AGENTS.md "Content Creator pages"). Every failure
+            // is kept rather than the first, because Task.WhenAll surfaces only whichever lost the race
+            // and discards the rest -- that is how Blog's error vanished behind Pillar's.
+            var createId = create.Id;
+            var attempts = await Task.WhenAll(requested.Select(type => AttemptAsync(_logger, type, createId, async () =>
             {
-                using var piece = GccRunLog.ForPiece(type);
-                try
-                {
-                    if (PartnerEvidenceRefusal(type, resolved.PartnersWithoutPassages) is { } evidenceRefusal)
-                        throw new InvalidOperationException(evidenceRefusal);
-                    var generated = await GenerateOneAsync(
-                        repo, gen, create, section, provider, type, mustMentionBlock,
-                        resolved.PartnerPassages, ct, recordReadiness);
-                    await GccRunLog.RecordIfAnyAsync("outcome", new
-                    {
-                        type,
-                        written = generated.Pieces.Select(p => new { p.ArtifactName, words = WordsOf(p.BodyJson) }).ToList(),
-                        refused = generated.SoftFailures,
-                    });
-                    return (Type: type, Outcome: (TypeOutcome?)generated, Error: (string?)null);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(
-                        ex, "Generate failed for type {ContentType} on create {CreateId}", type, create.Id);
-                    await GccRunLog.RecordIfAnyAsync("outcome", new { type, error = ex.Message });
-                    return (Type: type, Outcome: (TypeOutcome?)null, Error: (string?)ex.Message);
-                }
-            }));
+                if (PartnerEvidenceRefusal(type, resolved.PartnersWithoutPassages) is { } evidenceRefusal)
+                    throw new InvalidOperationException(evidenceRefusal);
+                return await GenerateOneAsync(
+                    repo, gen, create, section, provider, type, mustMentionBlock,
+                    resolved.PartnerPassages, ct, recordReadiness);
+            })));
 
-            var failures = attempts.Where(a => a.Error is not null).ToList();
-            if (failures.Count > 0)
-                throw new InvalidOperationException(
-                    string.Join(" | ", failures.Select(f => $"{f.Type}: {f.Error}")));
-
-            // What the run wrote, with a link to a tool page the project does not have named on the
-            // piece that carries it -- see WithMissingToolPagesNamedAsync.
-            var pieces = await WithMissingToolPagesNamedAsync(
-                repo, gen, create, [.. attempts.SelectMany(a => a.Outcome!.Pieces)], requested, ct);
-
-            // Every piece of every type, in one write: all of them saved or none. Announced after it
-            // succeeds, so nothing on the page says a piece exists that was not kept.
-            var created = await PersistAllAsync(repo, create, pieces, provider, briefRevision, onTypeOutcome, ct);
-            var refusals = new List<string>();
-            var warnings = new List<string>(groundingWarnings);
-            foreach (var attempt in attempts)
-            {
-                foreach (var piece in pieces.Where(p => p.ContentType == attempt.Type))
-                {
-                    foreach (var warning in WarningsOf(piece.BodyJson))
-                    {
-                        warnings.Add($"{attempt.Type}: {warning}");
-                        if (onTypeWarning is not null) await onTypeWarning(attempt.Type, warning);
-                    }
-                }
-
-                // Named, never swallowed: a partner whose page was not written is reported alongside the
-                // ones that were, so five declared partners and four pages is visible rather than
-                // something the operator has to count.
-                foreach (var partnerRefusal in attempt.Outcome.SoftFailures)
-                {
-                    refusals.Add(partnerRefusal);
-                    if (onTypeOutcome is not null) await onTypeOutcome(attempt.Type, null, partnerRefusal);
-                }
-            }
-
-            return BuildGenerateResult(created, refusals, preflight, warnings);
+            return await SettleAndSaveAsync(
+                repo, gen, create, requested, attempts, groundingWarnings, preflight, provider,
+                briefRevision, onTypeOutcome, onTypeWarning, _logger, ct);
         }
 
         // requested.Count is guaranteed 1 here: 0 was refused above, >1 returned above.
@@ -416,6 +352,128 @@ public sealed class GccGenerationCoordinator
     }
 
     /// <summary>
+    /// What a multi-type run does once every type has been attempted: settle, save what wrote in one
+    /// write, say what was not written. Apart from the fan-out so the decision to keep what wrote is
+    /// tested through the real save rather than inferred from the pieces of it.
+    /// </summary>
+    internal static async Task<object> SettleAndSaveAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        IReadOnlyList<string> requested,
+        IReadOnlyList<GccRunSettlement.TypeAttempt> attempts,
+        IReadOnlyList<string> groundingWarnings,
+        IReadOnlyList<GccGenerateService.GccPartnerToolReadiness> preflight,
+        ContentGeneratorProvider provider,
+        GccBriefRevisionStamp? briefRevision,
+        Func<string, object?, string?, Task>? onTypeOutcome,
+        Func<string, string, Task>? onTypeWarning,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        // Throws, saying why for each type, only when no type wrote anything. Before any repository
+        // read, so a run with nothing to save asks the repository for nothing.
+        var settled = GccRunSettlement.Settle(attempts);
+
+        // What the run wrote, with a link to a tool page the project does not have named on the
+        // piece that carries it -- see WithMissingToolPagesNamedAsync. Advisory: it reads the project's
+        // pages to add a warning, and a read that fails must not discard pages that were written.
+        var runWarnings = new List<string>(groundingWarnings);
+        IReadOnlyList<GeneratedPiece> pieces;
+        try
+        {
+            pieces = await WithMissingToolPagesNamedAsync(repo, gen, create, settled.Pieces, requested, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "The link check against the project's tool pages failed on create {CreateId}", create.Id);
+            await GccRunLog.RecordIfAnyAsync("warning", new { step = "tool-page link check", fault = GccRunFault.Describe(ex) });
+            runWarnings.Add($"Links to tool pages were not checked ({ex.Message}); check them before publishing.");
+            pieces = settled.Pieces;
+        }
+
+        // Every piece that was written, in one write: all of them saved or none. Announced after it
+        // succeeds, so nothing on the page says a piece exists that was not kept.
+        var created = await PersistAllAsync(repo, create, pieces, provider, briefRevision, onTypeOutcome, ct);
+        foreach (var piece in pieces)
+        {
+            foreach (var warning in WarningsOf(piece.BodyJson))
+            {
+                runWarnings.Add($"{piece.ContentType}: {warning}");
+                if (onTypeWarning is not null) await onTypeWarning(piece.ContentType, warning);
+            }
+        }
+
+        // Named, never swallowed: a type that was not written, and a partner whose page was not, are
+        // reported alongside what was, so five requested types and three pages is visible rather
+        // than something the operator has to count.
+        var refusals = new List<string>();
+        foreach (var refused in settled.Refusals)
+        {
+            refusals.Add(refused.Line);
+            if (onTypeOutcome is not null) await onTypeOutcome(refused.Type, null, refused.Text);
+        }
+
+        // After the save, so it never claims a piece that was not kept.
+        await GccRunLog.RecordIfAnyAsync("settled", new
+        {
+            saved = pieces.Select(p => new { type = p.ContentType, name = p.ArtifactName }).ToList(),
+            refused = settled.Refusals.Select(r => new { type = r.Type, reason = r.Text }).ToList(),
+        });
+
+        return BuildGenerateResult(created, refusals, preflight, runWarnings);
+    }
+
+    /// <summary>
+    /// One requested type's attempt. A type that cannot be written is that type's refusal, recorded in
+    /// the run's log, not an exception for the run to die of; cancellation is the one thing that is.
+    /// </summary>
+    /// <remarks>
+    /// The record keeps what happened, not only what was said: a refusal ("Refused: the pillar. ...")
+    /// carries its message, and any other exception carries its type, its stack and its inner exceptions
+    /// (<see cref="GccRunFault"/>), so a fault in the code can be found from the run's record without a
+    /// reproduction.
+    /// </remarks>
+    internal static async Task<GccRunSettlement.TypeAttempt> AttemptAsync(
+        ILogger logger, string type, Guid createId, Func<Task<TypeOutcome>> write)
+    {
+        using var piece = GccRunLog.ForPiece(type);
+        try
+        {
+            var generated = await write();
+            await GccRunLog.RecordIfAnyAsync("outcome", new
+            {
+                type,
+                written = generated.Pieces.Select(p => new { p.ArtifactName, words = WordsOf(p.BodyJson) }).ToList(),
+                refused = generated.SoftFailures,
+            });
+            return GccRunSettlement.TypeAttempt.Wrote(type, generated);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (GccRunFault.IsRefusal(ex))
+            {
+                logger.LogWarning("Generate refused type {ContentType} on create {CreateId}: {Reason}", type, createId, ex.Message);
+            }
+            else
+            {
+                logger.LogError(ex, "Generate failed for type {ContentType} on create {CreateId}", type, createId);
+            }
+
+            await GccRunLog.RecordIfAnyAsync("outcome", new { type, error = ex.Message, fault = GccRunFault.Describe(ex) });
+            return GccRunSettlement.TypeAttempt.Refused(type, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// The multi-artifact generate result: what was created, what was refused by name, and the
     /// pre-flight that decided it. One builder for both call sites so the two cannot disagree about
     /// the shape the frontend reads.
@@ -456,9 +514,9 @@ public sealed class GccGenerationCoordinator
     /// <param name="SoftFailures">
     /// Per-partner refusals that must not fail the generate. Reported to the operator, named, while the
     /// partners that did produce a page still persist — Jeff, 2026-10-02: each page stands alone. Empty
-    /// for every other type, which keeps "one failure fails all" intact across types.
+    /// for every other type, whose refusal is the whole type's (see <see cref="GccRunSettlement"/>).
     /// </param>
-    private sealed record TypeOutcome(
+    internal sealed record TypeOutcome(
         IReadOnlyList<GeneratedPiece> Pieces, IReadOnlyList<string> SoftFailures);
 
     private async Task<TypeOutcome> GenerateOneAsync(
@@ -576,10 +634,10 @@ public sealed class GccGenerationCoordinator
                 break;
         }
 
-        // Nothing is persisted here. Generation and persistence are separate phases so that a
-        // failure in any requested type leaves no artifacts behind at all (Jeff, 2026-09-23: "do
-        // not incur changes on failures. One failure fails all, for now."). Persisting per type as
-        // it finished is what left one page on disk when two other types failed.
+        // Nothing is persisted here. Generation and persistence are separate phases, so the run
+        // saves what it wrote in one write after every type has been attempted
+        // (GccRunSettlement). Persisting per type as it finished is what left a page on disk with
+        // no record of which run wrote it.
         return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, create.Topic)], []);
     }
 
@@ -761,10 +819,11 @@ public sealed class GccGenerationCoordinator
     /// page where there is none.
     /// </para>
     /// <para>
-    /// <b>All or nothing.</b> The pieces were written one at a time, an artifact call and a version
-    /// call each, so "one failure fails all" stopped being true at the first write: a fault on the
-    /// fourth tool page left three saved under a run reported as failed. One call, one save; a
-    /// refusal throws with what GeekRepository said, and nothing was kept.
+    /// <b>All of the pieces given, or none of them.</b> The pieces were written one at a time, an
+    /// artifact call and a version call each, so a fault on the fourth tool page left three saved
+    /// under a run reported as failed. One call, one save; a refusal throws with what GeekRepository
+    /// said, and nothing was kept. Which pieces are given is decided before this, by
+    /// <see cref="GccRunSettlement"/>: a type that was refused is not among them.
     /// </para>
     /// <para>
     /// The page takes the piece's own name. It was always <c>create.Topic</c>, which was wrong even

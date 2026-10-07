@@ -388,9 +388,9 @@ public class GccGroundingRetrievalTests
     [Fact]
     public async Task AMultiTypeGenerateIncludingToolStillRefusesWhenPartnerEvidenceIsMissing()
     {
-        // tool's must-cite requirement is unioned in, so it refuses the whole generate rather than
-        // being silently dropped because pillar and blog would have been content without it. That
-        // is the existing contract: one failure fails all.
+        // tool's must-cite requirement is unioned in, so it refuses the whole generate, before any
+        // type is attempted, rather than being silently dropped because pillar and blog would have
+        // been content without it.
         var project = Project([PartnerUrl], [CompetitorUrl]);
         var rag = new CrawlTypeRag(partnerIndexed: false);
 

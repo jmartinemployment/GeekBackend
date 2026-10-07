@@ -12,8 +12,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// <remarks>
 /// These assert the fan-out's contract through the real service. The per-slice mechanics — bucketing,
 /// naming, narrowing — are pinned in <see cref="GccPartnerToolSlicesTests"/>; what matters here is that
-/// one partner refusing does not take the others with it, which is the exception to "one failure fails
-/// all" that this fan-out was given.
+/// one partner refusing does not take the others with it.
 /// </remarks>
 public class GccToolPagesPerPartnerTests
 {
@@ -70,8 +69,7 @@ public class GccToolPagesPerPartnerTests
     [Fact]
     public async Task One_partner_refusing_does_not_stop_the_others_being_attempted()
     {
-        // The exception to "one failure fails all", scoped to this fan-out. Every partner is attempted
-        // and every outcome comes back; the caller decides what to persist.
+        // Every partner is attempted and every outcome comes back; the caller decides what to persist.
         var fixtures = GccToolPageFanOutFixture.WithPartners(
             "https://dext.com", "https://melio.com", "https://bill.com");
 

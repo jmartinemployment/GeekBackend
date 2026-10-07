@@ -3,6 +3,7 @@ using GeekAPI.Services.ContentCreatorV2.Partner;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace GeekBackend.Tests.ContentCreator;
@@ -80,6 +81,47 @@ public class GccToolPagePreflightTests
         // ...and drafting did happen afterwards, which is what makes the zero above an ordering fact
         // rather than a fixture that never drafts at all.
         Assert.True(fixtures.Calls.Drafts > 0);
+    }
+
+    [Fact]
+    public async Task A_partner_that_cannot_be_assessed_is_one_not_ready_finding_and_the_others_are_still_assessed_and_drafted()
+    {
+        // The pre-flight promises to report on every partner without any of them aborting the others.
+        // The bank throwing for one of three used to abort all three.
+        var fixtures = GccToolPageFanOutFixture.Build(
+            GroundablePage,
+            ["https://dext.com", "https://bill.com", "https://melio.com"],
+            pagesPerPartner: 2,
+            draftable: true,
+            bank: new GccToolPageFanOutFixture.FakeExtractionBank { ThrowForHost = "bill.com" });
+
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
+
+        IReadOnlyList<GccGenerateService.GccPartnerToolReadiness> reported = [];
+        var outcomes = await fixtures.Service.GenerateToolPagesPerPartnerAsync(
+            fixtures.Create, null, ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            onReadiness: verdicts => { reported = verdicts; return Task.CompletedTask; });
+
+        Assert.Equal(["Dext", "Bill", "Melio"], reported.Select(r => r.ProductName));
+        var bill = Assert.Single(reported, r => r.ProductName == "Bill");
+        Assert.False(bill.Ready);
+        Assert.Contains("could not be assessed", bill.Coverage, StringComparison.Ordinal);
+        Assert.Contains("the repository could not be reached for bill.com", bill.Coverage, StringComparison.Ordinal);
+        Assert.True(reported.Where(r => r.ProductName != "Bill").All(r => r.Ready));
+
+        // Every partner has an outcome, and Bill's is a refusal that names why.
+        Assert.Equal(["Dext", "Bill", "Melio"], outcomes.Select(o => o.ProductName));
+        Assert.Contains("could not be assessed", outcomes.Single(o => o.ProductName == "Bill").Refusal, StringComparison.Ordinal);
+        Assert.True(fixtures.Calls.Drafts > 0);
+
+        // The cause is in the run's record, with its type and stack, not only in a message.
+        // (The scripted provider also fails Dext's and Melio's drafts; those are faults in the record too.)
+        var faults = written.Where(w => w.Kind == "fault").Select(w => System.Text.Json.JsonDocument.Parse(w.PayloadJson)).ToList();
+        var preflight = Assert.Single(faults, f => f.RootElement.GetProperty("step").GetString() == "tool pre-flight");
+        var doc = preflight;
+        Assert.Equal("Bill", doc.RootElement.GetProperty("partner").GetString());
+        Assert.Equal("System.Net.Http.HttpRequestException", doc.RootElement.GetProperty("fault").GetProperty("type").GetString());
     }
 
     [Fact]

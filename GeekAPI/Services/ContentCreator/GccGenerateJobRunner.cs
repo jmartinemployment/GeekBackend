@@ -119,11 +119,11 @@ public sealed class GccGenerateJobRunner
                 repo, gen, create, section, provider, outputTypes, mustMentionBlock,
                 CancellationToken.None,
                 onTypeOutcome: (contentType, produced, error) =>
-                    _notifier.PushTypeAsync(jobId, contentType, produced, error),
+                    BestEffortAsync(jobId, "type outcome", () => _notifier.PushTypeAsync(jobId, contentType, produced, error)),
                 onReadiness: (contentType, partners) =>
-                    _notifier.PushPreflightAsync(jobId, contentType, partners),
+                    BestEffortAsync(jobId, "pre-flight", () => _notifier.PushPreflightAsync(jobId, contentType, partners)),
                 onTypeWarning: (contentType, warning) =>
-                    _notifier.PushWarningAsync(jobId, contentType, warning),
+                    BestEffortAsync(jobId, "warning", () => _notifier.PushWarningAsync(jobId, contentType, warning)),
                 briefRevision: briefRevision);
 
             _jobs.Complete(jobId, result);
@@ -151,6 +151,7 @@ public sealed class GccGenerateJobRunner
                 await failed.RecordAsync("failure", new
                 {
                     error,
+                    fault = GccRunFault.Describe(ex),
                     elapsedMs = failed.ElapsedMs,
                     events = failed.Events + 1,
                     recordingFailures = failed.RecordingFailures,
@@ -182,6 +183,23 @@ public sealed class GccGenerateJobRunner
         catch (Exception ex)
         {
             _logger.LogError(ex, "Could not record how generate job {JobId} ended; its row stays running", jobId);
+        }
+    }
+
+    /// <summary>
+    /// A live push to the page, which can fail without the run having done anything wrong. Some of these
+    /// run after the pages were saved, so one that threw would fail a job whose work was kept; it is
+    /// logged and the run goes on. The job row, and GetJob on reconnect, still carry the truth.
+    /// </summary>
+    private async Task BestEffortAsync(Guid jobId, string what, Func<Task> push)
+    {
+        try
+        {
+            await push();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not push the {What} of generate job {JobId} to the hub", what, jobId);
         }
     }
 

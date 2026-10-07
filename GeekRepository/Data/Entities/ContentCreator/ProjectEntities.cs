@@ -325,7 +325,7 @@ public class GccGenerateJobEvent
 
     public DateTime AtUtc { get; set; } = DateTime.UtcNow;
 
-    /// <summary>grounding | call | verdict | shortfall | outcome | failure | completed.</summary>
+    /// <summary>started | grounding | call | batch | verdict | warning | fault | outcome | settled | failure | completed.</summary>
     public string Kind { get; set; } = string.Empty;
 
     /// <summary>Which piece it concerns, or null for the run.</summary>

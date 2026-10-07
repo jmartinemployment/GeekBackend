@@ -39,10 +39,16 @@ internal sealed record GccToolPageFanOutFixture(
 
         public int Count { get { lock (_rows) return _rows.Count; } }
 
+        /// <summary>A host whose bank read throws, the way an unreachable repository does.</summary>
+        public string? ThrowForHost { get; init; }
+
         public IReadOnlyList<GccBankedPartnerExtractionDto> Rows { get { lock (_rows) return [.. _rows.Values]; } }
 
         public Task<GccBankedPartnerExtractionDto?> FindBankedAsync(string partnerHost, string pagesDigest, CancellationToken ct = default)
         {
+            if (string.Equals(partnerHost, ThrowForHost, StringComparison.OrdinalIgnoreCase))
+                throw new HttpRequestException($"the repository could not be reached for {partnerHost}");
+
             lock (_rows) return Task.FromResult(_rows.GetValueOrDefault((partnerHost, pagesDigest)));
         }
 

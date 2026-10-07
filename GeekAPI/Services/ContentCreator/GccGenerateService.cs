@@ -524,9 +524,10 @@ public class GccGenerateService
     /// passes is extracted once, not twice.
     /// </para>
     /// <para>
-    /// <b>A verdict, never a throw.</b> The same gate inside <see cref="GenerateToolPageAsync"/> refuses
+    /// <b>A verdict for a thin partner, not a throw.</b> The same gate inside <see cref="GenerateToolPageAsync"/> refuses
     /// by throwing, which means its reason is only reachable from a catch. A pre-flight has to be able to
-    /// report on five partners without any of them aborting the others, so this returns the finding.
+    /// report on five partners without any of them aborting the others, so this returns the finding; an
+    /// exception from the assessment itself is turned into one by <see cref="AssessOrReportFaultAsync"/>.
     /// </para>
     /// </remarks>
     /// <param name="Coverage">
@@ -559,6 +560,36 @@ public class GccGenerateService
         /// on saying 22 after freshness and disclosures left the schema and the count became twenty.
         /// </summary>
         public int TotalCategories { get; init; } = PartnerDataCategoryCount;
+    }
+
+    /// <summary>
+    /// <see cref="AssessPartnerToolReadinessAsync"/> for one partner of several, where an exception from
+    /// assessing it is that partner's finding and not the run's. The pre-flight promises to report on every
+    /// partner "without any of them aborting the others"; extraction or the bank throwing for one of
+    /// five used to abort all five. The finding says it could not be assessed and why, and the exception's
+    /// type, stack and inner exceptions go to the log and to the run's record.
+    /// </summary>
+    private async Task<GccPartnerToolReadiness> AssessOrReportFaultAsync(
+        GccPartnerToolSlice slice, ContentGeneratorProvider provider, CancellationToken ct, Guid createId)
+    {
+        try
+        {
+            return await AssessPartnerToolReadinessAsync(slice, provider, ct, createId);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex, "Tool page pre-flight for {Product} ({Host}) failed with a fault", slice.ProductName, slice.Host);
+            await GccRunLog.RecordIfAnyAsync(
+                "fault", new { step = "tool pre-flight", partner = slice.ProductName, fault = GccRunFault.Describe(ex) });
+            return new GccPartnerToolReadiness(
+                slice.ProductName, slice.Host, Ready: false, Coverage: $"could not be assessed: {ex.Message}",
+                PagesAttempted: 0, PagesFailed: 0, PopulatedCategories: 0, HasCapabilitySignal: false);
+        }
     }
 
     /// <summary>
@@ -682,9 +713,9 @@ public class GccGenerateService
     /// </para>
     /// <para>
     /// <b>Each page stands alone</b> (Jeff, 2026-10-02). A partner with too little evidence refuses its
-    /// own page and that refusal is returned, not thrown — the others still ship. A deliberate exception
-    /// to "one failure fails all", scoped to this fan-out: otherwise one thin partner means a project can
-    /// never produce any tool page. The caller decides what to do when <i>every</i> partner refuses.
+    /// own page and that refusal is returned, not thrown — the others still ship, as do the other types of
+    /// the run when one is refused (<see cref="GccRunSettlement"/>). The caller decides what to do when
+    /// <i>every</i> partner refuses.
     /// </para>
     /// </remarks>
     public async Task<IReadOnlyList<ToolPageOutcome>> GenerateToolPagesPerPartnerAsync(
@@ -744,7 +775,7 @@ public class GccGenerateService
         var readiness = new List<GccPartnerToolReadiness>(slices.Count);
         foreach (var slice in slices)
         {
-            readiness.Add(await AssessPartnerToolReadinessAsync(slice, provider, ct, create.Id));
+            readiness.Add(await AssessOrReportFaultAsync(slice, provider, ct, create.Id));
         }
 
         if (onReadiness is not null) await onReadiness(readiness);
@@ -796,9 +827,22 @@ public class GccGenerateService
             {
                 // Still caught: passing the pre-flight means the page can be grounded, not that every
                 // later guard (quote verification, required mentions, provenance) will pass.
-                _logger.LogInformation(
-                    "Tool page for {Product} ({Host}) was not written: {Reason}",
-                    slice.ProductName, slice.Host, ex.Message);
+                if (GccRunFault.IsRefusal(ex))
+                {
+                    _logger.LogInformation(
+                        "Tool page for {Product} ({Host}) was not written: {Reason}",
+                        slice.ProductName, slice.Host, ex.Message);
+                }
+                else
+                {
+                    // Not a guard's refusal: the code failed while writing this page. Its stack goes to
+                    // the log and to the run's record, so the cause can be read rather than guessed.
+                    _logger.LogError(
+                        ex, "Tool page for {Product} ({Host}) failed with a fault", slice.ProductName, slice.Host);
+                    await GccRunLog.RecordIfAnyAsync(
+                        "fault", new { step = "tool page", partner = slice.ProductName, fault = GccRunFault.Describe(ex) });
+                }
+
                 outcomes.Add(new ToolPageOutcome(slice.ProductName, null, ex.Message));
             }
         }

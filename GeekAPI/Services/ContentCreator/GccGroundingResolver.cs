@@ -242,10 +242,10 @@ public sealed class GccGroundingResolver(
     /// </para>
     /// <para>
     /// Refusal is unchanged in effect. A requested type that must cite evidence it cannot get still
-    /// refuses the generate — which is already what happened, because one failure fails all
-    /// (<c>GccGenerationCoordinator</c>, Jeff 2026-09-23: "do not incur changes on failures. One
-    /// failure fails all, for now"). What changes is that the message names the type that required
-    /// it rather than the type that happened to be running.
+    /// refuses the generate, and it does so here, before any type is attempted and before any model is
+    /// paid: this is a refusal of the request, not of one type's draft (which
+    /// <c>GccGenerationCoordinator</c> keeps apart from the types that did write). What changes is that
+    /// the message names the type that required it rather than the type that happened to be running.
     /// </para>
     /// </remarks>
     public async Task<GccGroundingOutcome> ResolveAsync(
