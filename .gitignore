@@ -74,12 +74,8 @@ CLAUDE.*.md
 claude/tasks/
 claude/bootstrap/
 
-# Cursor — ignore IDE state; team policy files under .cursor/ may be committed (see exceptions)
-.cursor/**
-!.cursor/
-!.cursor/cli.json
-!.cursor/rules/
-!.cursor/rules/**
+# Cursor — all of it, local only (Jeff, 2026-10-07)
+.cursor/
 .cursorignore
 .cursorindexingignore
 .cursorrules
