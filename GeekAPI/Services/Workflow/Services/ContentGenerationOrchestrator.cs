@@ -1832,9 +1832,9 @@ public class CompanyProfileOptions
 {
     public const string SectionName = "CompanyProfile";
 
-    public string PublisherName { get; set; } = "Geek At Your Spot";
+    public string PublisherName { get; set; } = "Geek @ Your Spot";
     public string PublisherLogoUrl { get; set; } = "https://geekatyourspot.com/images/GeekAtYourSpot.svg";
-    public string AuthorName { get; set; } = "Geek At Your Spot Editorial Team";
+    public string AuthorName { get; set; } = "Geek @ Your Spot Editorial Team";
     public string ArticleBaseUrl { get; set; } = "https://geekatyourspot.com/use-cases";
     public string BlogBaseUrl { get; set; } = "https://geekatyourspot.com/blog";
     public string ToolBaseUrl { get; set; } = "https://geekatyourspot.com/tools";
@@ -1856,11 +1856,12 @@ public class CompanyProfileOptions
     public string? YandexVerification { get; set; }
     public string? YahooVerification { get; set; }
 
-    /// <summary>How the publisher positions AI implementation services in pillar Tools sections.</summary>
+    /// <summary>
+    /// How the publisher describes itself, in every prompt: who it is and who it serves. A description,
+    /// not an instruction -- it used to order a Tools section in every pillar, which the prompts forbid.
+    /// </summary>
     public string ImplementerPositioning { get; set; } =
-        "Geek At Your Spot is an AI implementation consultancy for B2B organizations. " +
-        "In every pillar Tools section, for each major platform covered, explain which client problems an AI implementer solves " +
-        "(accelerated deployment, data model design, workflow configuration, custom code, autonomous agents, integration, and change management).";
+        "Geek @ Your Spot is an AI implementation consultancy for small businesses located in West Palm Beach, Broward and Miami-Dade counties.";
 
     /// <summary>
     /// Where the closing call to action sends the reader: the shared scheduler component, which the
