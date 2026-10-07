@@ -188,8 +188,9 @@ public sealed class GccGenerateJobRunner
 
     /// <summary>
     /// A live push to the page, which can fail without the run having done anything wrong. Some of these
-    /// run after the pages were saved, so one that threw would fail a job whose work was kept; it is
-    /// logged and the run goes on. The job row, and GetJob on reconnect, still carry the truth.
+    /// run after the pages were saved, so one that threw would fail a job whose work was kept; the run
+    /// goes on. The failure is not quiet: it is logged as an error and written into the run's record, where
+    /// the Run log shows it. The job row, and GetJob on reconnect, still carry the truth.
     /// </summary>
     private async Task BestEffortAsync(Guid jobId, string what, Func<Task> push)
     {
@@ -199,7 +200,8 @@ public sealed class GccGenerateJobRunner
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not push the {What} of generate job {JobId} to the hub", what, jobId);
+            _logger.LogError(ex, "Could not push the {What} of generate job {JobId} to the hub", what, jobId);
+            await GccRunLog.RecordIfAnyAsync("warning", new { step = "hub push", what, fault = GccRunFault.Describe(ex) });
         }
     }
 
