@@ -89,6 +89,61 @@ public sealed class GccToolTitleTests
         Assert.DoesNotContain("ramp-automated-approval-workflows", page.Content, StringComparison.Ordinal);
     }
 
+    // ---- the hero text -------------------------------------------------------------------------
+
+    private static string EnvelopeWithSummary(string title, string? summary)
+    {
+        var document = new ContentDocument(
+            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
+            [new Section("h2", "How it routes", [new TextParagraph([new Run("Approvals route by amount.")])], null, [])]);
+        var envelope = new Dictionary<string, object?> { ["title"] = title };
+        if (summary is not null) envelope["summary"] = summary;
+        envelope["metaDescription"] = "A meta description.";
+        envelope["body"] = document;
+        return JsonSerializer.Serialize(envelope, Web);
+    }
+
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task Every_long_form_page_exports_an_h1_with_its_summary_directly_under_it(string type)
+    {
+        var artifact = new GccArtifactDto(
+            Guid.NewGuid(), Guid.NewGuid(), ProjectId, null, type, "A Page", "draft", DateTime.UtcNow, DateTime.UtcNow);
+        var repo = new HttpGccRepository(
+            new HttpClient(new Repository(artifact, EnvelopeWithSummary("A Page Title", "A hero summary & more."))) { BaseAddress = new Uri("http://repo.test/") },
+            NullLogger<HttpGccRepository>.Instance);
+        var export = new GccArtifactExportService(
+            repo, Options.Create(new CompanyProfileOptions()), NullLogger<GccArtifactExportService>.Instance);
+
+        var page = Assert.Single(await export.ExportProjectAsync(ProjectId, CancellationToken.None));
+
+        var h1 = page.Content.IndexOf("<h1>A Page Title</h1>", StringComparison.Ordinal);
+        var hero = page.Content.IndexOf("<p class=\"hero-summary\">A hero summary &amp; more.</p>", StringComparison.Ordinal);
+        var lede = page.Content.IndexOf("An opening.", StringComparison.Ordinal);
+        Assert.True(h1 >= 0, "no h1");
+        Assert.True(hero > h1, "the summary is not directly after the h1");
+        Assert.True(lede > hero, "the lede does not follow the summary");
+    }
+
+    [Fact]
+    public async Task A_page_with_no_summary_writes_no_empty_hero_paragraph()
+    {
+        var artifact = new GccArtifactDto(
+            Guid.NewGuid(), Guid.NewGuid(), ProjectId, null, "pillar", "A Page", "draft", DateTime.UtcNow, DateTime.UtcNow);
+        var repo = new HttpGccRepository(
+            new HttpClient(new Repository(artifact, EnvelopeWithSummary("A Page Title", summary: null))) { BaseAddress = new Uri("http://repo.test/") },
+            NullLogger<HttpGccRepository>.Instance);
+        var export = new GccArtifactExportService(
+            repo, Options.Create(new CompanyProfileOptions()), NullLogger<GccArtifactExportService>.Instance);
+
+        var page = Assert.Single(await export.ExportProjectAsync(ProjectId, CancellationToken.None));
+
+        Assert.Contains("<h1>A Page Title</h1>", page.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("hero-summary", page.Content, StringComparison.Ordinal);
+    }
+
     private sealed class Repository(GccArtifactDto artifact, string body) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)

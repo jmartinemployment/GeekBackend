@@ -131,7 +131,8 @@ public sealed class GccArtifactExportService(
                     faviconUrl: _company.FaviconUrl,
                     googleSiteVerification: _company.GoogleSiteVerification,
                     yandexVerification: _company.YandexVerification,
-                    yahooVerification: _company.YahooVerification)));
+                    yahooVerification: _company.YahooVerification,
+                    summary: parsed.Summary)));
 
             documents.AddRange(ImagePromptFiles(slug, parsed.Document));
         }

@@ -12,7 +12,7 @@ namespace GeekAPI.Services.Workflow.Services.Export;
 public static class SectionHtmlRenderer
 {
     /// <summary>Builds a full standalone HTML document: doctype, head metadata (canonical, Open Graph,
-    /// Twitter card, JSON+LD, robots, viewport), optional Google Tag Manager, H1 title, lede, sections.</summary>
+    /// Twitter card, JSON+LD, robots, viewport), optional Google Tag Manager, H1 title, hero summary, lede, sections.</summary>
     public static string RenderDocument(
         string title,
         string? description,
@@ -28,7 +28,8 @@ public static class SectionHtmlRenderer
         string? faviconUrl = null,
         string? googleSiteVerification = null,
         string? yandexVerification = null,
-        string? yahooVerification = null)
+        string? yahooVerification = null,
+        string? summary = null)
     {
         var doc = new HtmlDocument();
         var html = doc.CreateElement("html");
@@ -128,6 +129,16 @@ public static class SectionHtmlRenderer
         var h1 = doc.CreateElement("h1");
         h1.AppendChild(CreateEncodedTextNode(doc, title));
         body_.AppendChild(h1);
+
+        // The page's hero text, directly under its title: the standfirst the metadata call wrote. A page with
+        // none writes nothing here rather than an empty paragraph.
+        if (!string.IsNullOrWhiteSpace(summary))
+        {
+            var hero = doc.CreateElement("p");
+            hero.SetAttributeValue("class", "hero-summary");
+            hero.AppendChild(CreateEncodedTextNode(doc, summary.Trim()));
+            body_.AppendChild(hero);
+        }
 
         // A document with no lede is not a failure worth throwing over at export time.
         if (body.Lede is not null) AppendSection(doc, body_, body.Lede);
