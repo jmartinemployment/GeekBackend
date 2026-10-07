@@ -1,3 +1,5 @@
+using GeekAPI.Services.ContentCreator.Guardrail;
+
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
@@ -31,10 +33,14 @@ public static class GccMustMention
             .AppendLine(Header)
             .AppendLine($"Matched heading on {sourcePageUrl}: {matchedHeading}");
 
-        if (subtopics.Count > 0)
+        // A subtopic that enumerates tools ("Top 5 Automated Approval Workflow Tools:") is a section the
+        // draft is refused for writing (GccToolsSectionGuard), so it cannot also be one it must cover.
+        // The tools are entered in the brief form (Jeff, 2026-10-07), not taken from the site's list.
+        var coverable = subtopics.Where(subtopic => !GccToolsSectionGuard.EnumeratesTools(subtopic)).ToList();
+        if (coverable.Count > 0)
         {
             block.AppendLine(SubtopicsLine);
-            foreach (var subtopic in subtopics)
+            foreach (var subtopic in coverable)
             {
                 block.AppendLine($"{Bullet}{subtopic}");
             }

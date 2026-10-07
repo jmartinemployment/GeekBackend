@@ -1195,6 +1195,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "get. A three-sentence opening is not a short opening, it is an opening that has not started.";
 
     /// <summary>
+    /// The opening asks nothing of the reader. The page's one ask is at its end, built by code
+    /// (Jeff, 2026-10-07); an opening that books, calls or links a vendor is a second ask in the wrong
+    /// place. The tool page's opening read "CTA: book_now" three times (the lede-type guidance, the
+    /// brief block and a call-to-action line), took it for a button label, and linked the vendor's
+    /// homepage -- the page was refused for a link that led nowhere the evidence went.
+    /// </summary>
+    private const string LedeAskInstruction =
+        "THE OPENING ASKS NOTHING OF THE READER: it ends on its own material. The page's one invitation to " +
+        "the reader sits at its end, so this opening does not ask them to book, call, sign up or click. " +
+        "A link in the opening goes only to a page whose address is printed in this prompt.";
+
+    /// <summary>
     /// The lede carries a heading. It is this page's first H2 -- <c>PillarPrompts</c> says so
     /// ("Its lede IS its first H2"), <c>GccGenerateService</c> stores it as
     /// <c>lede with { Tag = "h2" }</c>, its outline slot is a <see cref="SectionSlot.Cover"/> the
@@ -1411,7 +1423,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             + "reader from the opening image to what this page is actually about.");
         var hasBrief = !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes) || !string.IsNullOrWhiteSpace(context.ContentAngle)
             || !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
-            || !string.IsNullOrWhiteSpace(context.CtaType) || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
+            || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
             || context.EeatSignals is { Count: > 0 };
         if (hasBrief)
         {
@@ -1431,8 +1443,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 sb.AppendLine($"Tone of voice: {context.ToneOfVoice}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {string.Join(", ", ee)}" : ""));
             else if (context.EeatSignals is { Count: > 0 } eeOnly)
                 sb.AppendLine($"E-E-A-T: {string.Join(", ", eeOnly)}");
-            if (!string.IsNullOrWhiteSpace(context.CtaType))
-                sb.AppendLine($"CTA: {context.CtaType}" + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $" — label: {context.CtaLabel}"));
+            // No CTA line: the opening asks nothing of the reader (LedeAskInstruction), and the brief's
+            // CtaType is an internal setting ("book_now"), not words, which the writer took for a
+            // button label.
             if (!string.IsNullOrWhiteSpace(context.LengthBand))
                 sb.AppendLine($"Length band: {context.LengthBand}");
             if (!string.IsNullOrWhiteSpace(context.WritingNotes))
@@ -1687,6 +1700,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(LedeAskInstruction)
             .AppendLine(LedeHeadingInstruction)
             .AppendLine()
             .AppendLine(BuildPublisherSiteBlock(context));
@@ -1739,7 +1753,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine("=== THIS PAGE ===")
             .AppendLine(SeoLedeInstruction(context.TargetKeyword))
-            .AppendLine($"Tone: {context.ImplementerPositioning} — audience×angle sets ledeType and voice (audience + angle + topic → 12 types); keep expert, consultative tone throughout.")
+            .AppendLine("Tone: audience × angle sets ledeType and voice (audience + angle + topic → 12 types); keep an expert, consultative tone throughout.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine()
             .AppendLine("Produce the pillar's opening — its first H2 and the lead paragraphs under it.")
@@ -1749,6 +1763,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
             .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(LedeAskInstruction)
             .AppendLine()
             .AppendLine("The introduction continues the same opening — it is not a second start:")
             .AppendLine("After the hook, carry straight on into scoping (who this is for, what the article walks through). Never a duplicate hook, and never a heading.")
@@ -1800,7 +1815,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         }
 
         user.AppendLine()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection))
+            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.Opening))
             .AppendLine()
             .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}. It covers: {ledeHeading}. You write its heading.")
@@ -2217,6 +2232,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(LedeAskInstruction)
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(CurrencyInstruction)
             .AppendLine(LinkTextInstruction)
@@ -2333,6 +2349,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BuildLedeTypeGuidance(context))
             .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
+            .AppendLine(LedeAskInstruction)
             .AppendLine(LedeHeadingInstruction)
             .AppendLine()
             .AppendLine(BuildPublisherSiteBlock(context));

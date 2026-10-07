@@ -13,7 +13,14 @@ internal enum ResearchBriefPhase
     ArticleFaq,
     Review,
     BlogSection,
-    ToolBody
+    ToolBody,
+
+    /// <summary>
+    /// The pillar's opening. <see cref="ArticleSection"/>'s brief without the known-tools block: that block
+    /// tells the writer to name each tool wherever it is relevant and to link it on first mention, and
+    /// the opening's own rule is that it names no partner or tool.
+    /// </summary>
+    Opening
 }
 
 /// <summary>
@@ -73,6 +80,11 @@ internal static class ResearchBriefBuilder
                 AppendKeywordSerpBrief(sb, context, maxHeadingsPerFile: 3, maxParagraphsPerFile: 1);
                 AppendAuthoritativeSourcesBrief(sb, context);
                 AppendKnownToolsBrief(sb, context);
+                break;
+
+            case ResearchBriefPhase.Opening:
+                AppendKeywordSerpBrief(sb, context, maxHeadingsPerFile: 3, maxParagraphsPerFile: 1);
+                AppendAuthoritativeSourcesBrief(sb, context);
                 break;
 
             case ResearchBriefPhase.ArticleFaq:

@@ -80,8 +80,24 @@ public static partial class GccToolsSectionGuard
     /// </para>
     /// </remarks>
     private static bool IsListing(Section section) =>
-        PillarSectionClassifier.IsToolsListingHeading(section.Heading)
-        && (Enumerates(section.Heading) || ReadsAsAList(section.Children));
+        EnumeratesTools(section.Heading)
+        || (PillarSectionClassifier.IsToolsListingHeading(section.Heading) && ReadsAsAList(section.Children));
+
+    /// <summary>
+    /// Whether a heading's words alone announce a tools listing — "Top 5 … Tools", "Best … Tools",
+    /// "7 Tools to Consider". The half of <see cref="IsListing"/> that needs no children, so a
+    /// heading that is only a line of text can be asked too.
+    /// </summary>
+    /// <remarks>
+    /// Shared with <see cref="GccMustMention.Format"/>: a subtopic that enumerates tools is a section
+    /// this guard refuses, so the same words cannot be one the writer is also told it must cover
+    /// (the 2026-10-07 run was handed "Top 5 Automated Approval Workflow Tools:" as compulsory, beside
+    /// a rule against writing it).
+    /// </remarks>
+    public static bool EnumeratesTools(string? heading) =>
+        !string.IsNullOrWhiteSpace(heading)
+        && PillarSectionClassifier.IsToolsListingHeading(heading)
+        && Enumerates(heading);
 
     /// <summary>
     /// A heading the writer was explicitly told not to write.

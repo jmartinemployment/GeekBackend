@@ -435,6 +435,12 @@ public class GccGenerateService
     /// Applied when toneOfVoice == consultant_professional, or the angle is the
     /// comprehensive ultimate-guide. Returns "" when it should not apply.
     /// </summary>
+    /// <remarks>
+    /// It carries no voice line, no instruction about how the page closes, and no sampling advice
+    /// (Jeff, 2026-10-07). The voice is the one the system message sets, and a second one named here
+    /// was the writer's other voice; the FAQ is appended by code, so "Close with an FAQ" told the
+    /// writer to write what the page already gets; and the temperature is the call's, not the prose's.
+    /// </remarks>
     public static string BuildConsultantAppendix(GccCreateDto create)
     {
         if (string.IsNullOrWhiteSpace(create.BriefJson)) return string.Empty;
@@ -461,16 +467,14 @@ public class GccGenerateService
         {
             "=== ROLE & METHOD (consultant appendix) ===",
             "Write as a Senior IT Consultant advising local SMBs on AI implementation and business-process",
-            "automation. Voice: objective, authoritative, technical, analytical (newspaper-style). Use first-person",
-            "plural or objective third-person advisor. Assume peer-level technical knowledge; high scannability.",
+            "automation. Assume peer-level technical knowledge; high scannability.",
             "Weave these four phases into the narrative (do not label them mechanically):",
             "1. Business Objectives Alignment — the measurable goal / pain point (ROI, bottlenecks, cost of inaction).",
             "2. Data Quality Assessment — integrity, schema, storage (pooling, JSONB, validation).",
             "3. Tech Selection & Architecture — specific tools over generics (decoupled services, routing, benchmarks).",
             "4. Pilot Implementation Strategy — execution, smoke tests, validation (local integration, TDD, sandboxed rollout).",
             "Constraints: ban AI filler / clichés. Emit no markup of any kind — structure is carried",
-            "by the section contract, not by characters in the text. Close with an FAQ drawn from the",
-            "People Also Ask / related searches in the brief. Keep temperature low.",
+            "by the section contract, not by characters in the text.",
         });
     }
 

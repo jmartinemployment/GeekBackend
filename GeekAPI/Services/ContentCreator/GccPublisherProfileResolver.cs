@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
+using GeekAPI.Services.ContentCreator.Guardrail;
 using GeekAPI.Services.ContentCreatorV2.Hierarchy;
 
 namespace GeekAPI.Services.ContentCreator;
@@ -32,6 +33,10 @@ public sealed class GccPublisherProfileResolver(
     private const int MaxHeadings = 24;
     private const int MaxParagraphs = 40;
     private const int MaxParagraphChars = 600;
+
+    /// <summary>A roster's label is a line ("Top 5 Automated Approval Workflow Tools:"), not prose that
+    /// happens to say "best" and "tools" somewhere. Longer than this is never taken for one.</summary>
+    private const int MaxRosterLabelChars = 120;
 
     public sealed record PublisherProfile(
         IReadOnlyList<string> Headings,
@@ -84,13 +89,29 @@ public sealed class GccPublisherProfileResolver(
         // before blocks were emitted.
         if (home.Blocks is { ValueKind: JsonValueKind.Array } blocks)
         {
+            // The home page's own roster of tools ("Top 5 Automated Approval Workflow Tools:" and the
+            // names under it) is not read: the tools are entered in the brief form (Jeff, 2026-10-07),
+            // and a page that printed a tool the project does not list beside the rule not to name it
+            // is how the 2026-10-06 run named Tipalti. The label and what follows it, up to the next
+            // heading, are the roster.
+            var inRoster = false;
             foreach (var block in blocks.EnumerateArray())
             {
                 var type = block.TryGetProperty("type", out var t) ? t.GetString() : null;
                 var text = block.TryGetProperty("text", out var x) ? x.GetString()?.Trim() : null;
                 if (string.IsNullOrWhiteSpace(text)) continue;
 
-                if (type == "heading" && headings.Count < MaxHeadings) headings.Add(text);
+                var isHeading = type == "heading";
+                if (isHeading) inRoster = false;
+                if (IsRosterLabel(text))
+                {
+                    inRoster = true;
+                    continue;
+                }
+
+                if (inRoster) continue;
+
+                if (isHeading && headings.Count < MaxHeadings) headings.Add(text);
                 else if (paragraphs.Count < MaxParagraphs)
                     paragraphs.Add(text.Length > MaxParagraphChars ? text[..MaxParagraphChars] : text);
             }
@@ -109,9 +130,14 @@ public sealed class GccPublisherProfileResolver(
             : new PublisherProfile(headings, paragraphs);
     }
 
+    private static bool IsRosterLabel(string text) =>
+        text.Length <= MaxRosterLabelChars && GccToolsSectionGuard.EnumeratesTools(text);
+
     private static void CollectHeadings(GccV2HeadingNode node, List<string> into)
     {
         if (into.Count >= MaxHeadings) return;
+        // A roster's heading takes its subtree with it: the headings under it are the tools.
+        if (!string.IsNullOrWhiteSpace(node.HeadingText) && IsRosterLabel(node.HeadingText.Trim())) return;
         if (!string.IsNullOrWhiteSpace(node.HeadingText)) into.Add(node.HeadingText.Trim());
         foreach (var child in node.Children) CollectHeadings(child, into);
     }
