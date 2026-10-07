@@ -219,7 +219,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     ///
     /// <para>
     /// Prose in this contract is not prose. Every run carries all four fields the schema marks
-    /// required -- <c>{"text":"...","bold":false,"italic":false,"href":null}</c> -- and every
+    /// required -- <c>{"text":"...","href":null}</c> (it was four, with bold and italic, until 2026-10-07) -- and every
     /// section carries its tag, heading, href, children and provenance. The scaffolding roughly
     /// doubles the token cost of the words, so a budget set by eye against a word count lands at
     /// about half of what those words need.
@@ -243,12 +243,13 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// The structured-output contract every section-body call uses. No tag characters and no
     /// heading/emphasis/list punctuation in the text at all — headings are a plain string field,
-    /// emphasis/links are boolean/url fields on a run, lists are their own paragraph variant. This
+    /// links are a url field on a run, lists are their own paragraph variant, and the writer has no
+    /// emphasis to set (bold and italic are not offered; see LlmResponseJsonParser.NormalizeRun). This
     /// is what actually eliminates truncated or malformed markup: there is no markup syntax
     /// available for the model to get wrong.
     /// </summary>
     private const string RunJsonShape =
-        "{\"text\": string (plain text only — never markup syntax of any kind), \"bold\": boolean?, \"italic\": boolean?, \"href\": string?}";
+        "{\"text\": string (plain text only — never markup syntax of any kind), \"href\": string?}";
 
     private const string ParagraphJsonShape =
         "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...]} " +

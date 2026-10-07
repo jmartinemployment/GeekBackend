@@ -23,7 +23,7 @@ public class GccOpeningAsksNothingTests
 {
     private const string Ask = "THE OPENING ASKS NOTHING OF THE READER";
 
-    private static ProjectGenerationContext Context() => new(
+    internal static ProjectGenerationContext Context() => new(
         ProjectName: "Acme",
         ProjectUrl: "https://acme.test",
         TargetKeyword: "automated approval workflows",

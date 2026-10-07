@@ -52,7 +52,7 @@ public static class LlmResponseJsonParser
                 var section = JsonSerializer.Deserialize<Section>(candidate.Text, SectionJsonOptions);
                 if (section is not null && !string.IsNullOrWhiteSpace(section.Heading))
                 {
-                    JsonRepairTrace.Note(label, candidate.Repairs);
+                    JsonRepairTrace.Note(label, WithFormattingDrop(candidate.Repairs, HasWriterFormatting(section)));
                     var normalized = Normalize(section) with { Tag = expectedTag };
                     ValidateContentHygiene(normalized, label);
                     return normalized;
@@ -87,7 +87,7 @@ public static class LlmResponseJsonParser
 
                 if (sectionsRaw is { Count: > 0 } sections)
                 {
-                    JsonRepairTrace.Note(label, candidate.Repairs);
+                    JsonRepairTrace.Note(label, WithFormattingDrop(candidate.Repairs, sections.Any(HasWriterFormatting)));
                     var normalized = sections.Select(Normalize).ToList();
                     foreach (var section in normalized)
                     {
@@ -124,7 +124,7 @@ public static class LlmResponseJsonParser
                 // BuildLedeSection) and is not required for the response to be a lede.
                 if (parsed is not null && parsed.Paragraphs is { Count: > 0 })
                 {
-                    JsonRepairTrace.Note(label, candidate.Repairs);
+                    JsonRepairTrace.Note(label, WithFormattingDrop(candidate.Repairs, HasWriterFormatting(parsed.Paragraphs)));
                     var ledeType = ParseLedeTypeStrict(parsed.LedeType, label);
                     var section = Normalize(new Section("h2", string.Empty, parsed.Paragraphs, null, [], parsed.ImagePrompt));
                     ValidateContentHygiene(section, label);
@@ -169,7 +169,13 @@ public static class LlmResponseJsonParser
                     continue;
                 }
 
-                JsonRepairTrace.Note(label, candidate.Repairs);
+                JsonRepairTrace.Note(
+                    label,
+                    WithFormattingDrop(
+                        candidate.Repairs,
+                        HasWriterFormatting(lede.Paragraphs)
+                            || (lede.Children ?? []).Any(HasWriterFormatting)
+                            || (parsed.Introduction is { } opened && HasWriterFormatting(opened))));
                 var ledeType = ParseLedeTypeStrict(lede.LedeType, label);
                 var ledeSection = BuildLedeSection(lede);
                 ValidateContentHygiene(ledeSection, $"{label} (lede)");
@@ -274,7 +280,33 @@ public static class LlmResponseJsonParser
         _ => paragraph,
     };
 
-    private static Run NormalizeRun(Run run) => run with { Text = run.Text ?? string.Empty };
+    /// <summary>
+    /// A run is its text and where it links. Bold and italic are not the writer's to set: nothing in any prompt
+    /// asks for them, and the writer copied a linked name's bold onto the runs around it (Bill's and Ramp's
+    /// openings, and the Blog's, whose copy took the link too and cost the page, 2026-10-07). The contract no
+    /// longer offers them; one a reply carries anyway is dropped here and recorded as
+    /// <see cref="DropWriterFormattingRepair"/>.
+    /// </summary>
+    private static Run NormalizeRun(Run run) => run with { Text = run.Text ?? string.Empty, Bold = false, Italic = false };
+
+    private const string DropWriterFormattingRepair = "drop-writer-formatting";
+
+    private static IReadOnlyList<string> WithFormattingDrop(IReadOnlyList<string> repairs, bool formattingDropped) =>
+        formattingDropped ? [.. repairs, DropWriterFormattingRepair] : repairs;
+
+    private static bool HasWriterFormatting(Section section) =>
+        HasWriterFormatting(section.Paragraphs) || (section.Children ?? []).Any(HasWriterFormatting);
+
+    private static bool HasWriterFormatting(IEnumerable<Paragraph>? paragraphs) =>
+        (paragraphs ?? []).Any(paragraph => RunsOf(paragraph).Any(run => run.Bold || run.Italic));
+
+    private static IEnumerable<Run> RunsOf(Paragraph paragraph) => paragraph switch
+    {
+        TextParagraph text => text.Runs ?? [],
+        ListParagraph list => (list.Items ?? []).SelectMany(item => item ?? []),
+        QuoteParagraph quote => quote.Runs ?? [],
+        _ => [],
+    };
 
     private static void ValidateContentHygiene(Section section, string label)
     {

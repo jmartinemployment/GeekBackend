@@ -281,12 +281,10 @@ public static class ContentSectionJsonSchema
     {
         ["type"] = "object",
         ["additionalProperties"] = false,
-        ["required"] = new JsonArray { "text", "bold", "italic", "href" },
+        ["required"] = new JsonArray { "text", "href" },
         ["properties"] = new JsonObject
         {
             ["text"] = new JsonObject { ["type"] = "string" },
-            ["bold"] = new JsonObject { ["type"] = "boolean" },
-            ["italic"] = new JsonObject { ["type"] = "boolean" },
             ["href"] = new JsonObject { ["anyOf"] = new JsonArray { new JsonObject { ["type"] = "string" }, new JsonObject { ["type"] = "null" } } },
         },
     };
