@@ -1881,4 +1881,17 @@ public class CompanyProfileOptions
     /// invent. Used as the ask only when the brief names no ctaType of its own.
     /// </summary>
     public string ConsultationCtaLabel { get; set; } = "Schedule a Free Consultation";
+
+    /// <summary>
+    /// The words before the link in the closing line a Content Creator page ends on when the brief has
+    /// questions: "<c>Answer these questions when</c> booking your free consultation." Built by code
+    /// from <c>GccClosing</c>, so the wording is here and the writer never sees it (Jeff, 2026-10-07).
+    /// </summary>
+    public string ConsultationClosingLead { get; set; } = "Answer these questions when";
+
+    /// <summary>The linked words of that line. They are words, never the anchor itself.</summary>
+    public string ConsultationClosingLink { get; set; } = "booking your free consultation";
+
+    /// <summary>The whole line, linked, when the brief has no questions: "<c>Book your free consultation</c>."</summary>
+    public string ConsultationClosingLinkWithoutQuestions { get; set; } = "Book your free consultation";
 }

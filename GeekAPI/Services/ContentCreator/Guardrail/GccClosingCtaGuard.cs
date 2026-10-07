@@ -8,8 +8,11 @@ namespace GeekAPI.Services.ContentCreator.Guardrail;
 /// <para>
 /// Jeff, 2026-09-27: "CTA is on every page and should be referenced". The scheduler is a shared
 /// component the site renders on every page, so the ask is an in-page anchor and the draft has to
-/// carry it -- <c>ClosingCallToActionInstruction</c> asks for exactly that, naming the href and
-/// forbidding "visit our site", a contact page and an email address.
+/// carry it. A Content Creator page now ends on the line <c>GccClosing</c> builds, which links it by
+/// construction, so for those pages this check cannot fail while a scheduler is configured; it is what
+/// would say so if the closing were ever left off. The Workflow product's writer is still asked for the
+/// link (<c>ClosingCallToActionInstruction</c>, naming the href and forbidding "visit our site", a
+/// contact page and an email address) and this is its check.
 /// </para>
 ///
 /// <para>

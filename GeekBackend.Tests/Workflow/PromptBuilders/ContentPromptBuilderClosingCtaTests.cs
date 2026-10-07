@@ -225,104 +225,54 @@ public class ContentPromptBuilderClosingCtaTests
     }
 
     // ----------------------------------------------------------------------------------------------
-    // The operator's questions for the appointment -- Jeff, 2026-10-03: "A useful discovery question
-    // set as the CTA."
-    //
-    // The instruction above had always demanded one plain ask and banned the reflection endings every
-    // draft produced, while supplying nothing for the ask to be ABOUT. These are the questions the
-    // operator actually asks a prospect.
-    //
-    // They are answered when the reader books (Jeff, 2026-10-05: "It was meant answer these questions
-    // when booking your appointment"). The first version of this told the writer to hand the reader a
-    // "practical diagnosis" to run on their own operation, and the pillar and the blog both closed on
-    // "ask yourself these questions ... If these questions highlight inefficiencies or risks in your
-    // current process, it may be time to book" -- a self-audit the appointment was made to depend on.
+    // A page that builds its own closing (Content Creator, Jeff 2026-10-07). The questions the operator
+    // asks a new client, and the booking line they follow, are added by GccClosing; the writer ends its
+    // last section on its own material and is handed neither the CTA setting nor the questions. The
+    // tests of the page's own closing are in GccClosingLineTests.
     // ----------------------------------------------------------------------------------------------
 
-    /// <summary>The words that open the questions block, and appear nowhere else in a closing.</summary>
-    private const string QuestionsMarker = "the publisher's questions for the appointment";
-
-    /// <summary>Three of Jeff's eight for AP approval workflows, verbatim.</summary>
-    private static readonly string[] Diagnosis =
-    [
-        "How many invoices per month require someone's approval?",
-        "Who approves spending, and what happens when they are unavailable?",
-        "Is there an audit trail sufficient to answer \"who approved this payment and why?\"",
-    ];
+    private static ProjectGenerationContext PageBuildsItsClosing() =>
+        Context() with { PageBuildsClosing = true, CtaType = "book_now", CtaLabel = "Book a consult" };
 
     [Theory]
     [MemberData(nameof(AllFourBodyPrompts))]
-    public void Every_body_prompt_hands_the_reader_the_operators_diagnosis(string which)
+    public void A_page_that_builds_its_closing_tells_the_writer_to_end_on_its_own_material(string which)
     {
-        var system = Render(which, Context() with { DiagnosisQuestions = Diagnosis });
+        var system = Render(which, PageBuildsItsClosing());
 
-        // Every question, verbatim. A reader that drops one is indistinguishable from an operator who
-        // never typed it.
-        foreach (var question in Diagnosis)
-        {
-            Assert.Contains(question, system, StringComparison.Ordinal);
-        }
-
-        Assert.Contains(QuestionsMarker, system, StringComparison.Ordinal);
-        // The questions are material for the ask, not a replacement for it.
-        Assert.Contains("CLOSING:", system, StringComparison.Ordinal);
+        Assert.Contains("END OF THE PAGE: the page adds its own booking line after your last section", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("CLOSING:", system, StringComparison.Ordinal);
     }
 
     [Theory]
     [MemberData(nameof(AllFourBodyPrompts))]
-    public void The_reader_answers_the_questions_when_booking_and_the_ask_never_depends_on_them(string which)
+    public void A_page_that_builds_its_closing_never_shows_the_writer_the_cta_setting_or_the_scheduler_anchor(string which)
     {
-        var system = Render(which, Context() with { DiagnosisQuestions = Diagnosis });
+        var system = Render(which, PageBuildsItsClosing());
 
-        Assert.Contains("answer these questions when booking", system, StringComparison.Ordinal);
-        Assert.Contains("the ask never depends on them", system, StringComparison.Ordinal);
-        // The two endings the drafts of 2026-10-05 wrote, named so they are not written again.
-        Assert.Contains("never \"if these questions highlight a problem\"", system, StringComparison.Ordinal);
-        Assert.Contains("never \"ask yourself\"", system, StringComparison.Ordinal);
-        // What the instruction used to say, and the writer did.
-        Assert.DoesNotContain("practical diagnosis", system, StringComparison.Ordinal);
-        Assert.DoesNotContain("put to their own operation", system, StringComparison.Ordinal);
-        Assert.DoesNotContain("what they do with the answers", system, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [MemberData(nameof(AllFourBodyPrompts))]
-    public void An_empty_diagnosis_leaves_the_closing_byte_identical(string which)
-    {
-        // This is additive on every path. A create that never touches the field must build the prompt it
-        // built yesterday -- and an empty list must behave as absence, since that is what the frontend
-        // sends for a textarea the operator opened and left alone.
-        var absent = Render(which, Context());
-        var empty = Render(which, Context() with { DiagnosisQuestions = [] });
-
-        Assert.Equal(absent, empty);
-        Assert.DoesNotContain(QuestionsMarker, absent, StringComparison.Ordinal);
+        Assert.DoesNotContain("book_now", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("Book a consult", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("CTA:", system, StringComparison.Ordinal);
+        Assert.DoesNotContain(Anchor, system, StringComparison.Ordinal);
+        Assert.DoesNotContain("weave naturally into closing", system, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Only_the_batch_that_writes_the_last_section_gets_the_diagnosis()
+    public void A_batch_that_does_not_end_the_page_is_told_the_page_adds_the_closing()
     {
-        // The questions inherit OwnsTheClosing rather than carrying their own gate. Without that, a
-        // batched pillar asks the reader the same eight questions in every batch -- the three-sign-offs
-        // failure the gate was built for, with eight questions attached to each one.
-        var context = Context() with { DiagnosisQuestions = Diagnosis };
+        var doesNotClose = PillarBatchThatDoesNotCloseThePage(PageBuildsItsClosing());
+        var closes = PillarPrompt(PageBuildsItsClosing());
 
-        var closes = PillarPrompt(context);
-        var doesNotClose = PillarBatchThatDoesNotCloseThePage(context);
-
-        Assert.Contains(Diagnosis[0], closes, StringComparison.Ordinal);
-        Assert.DoesNotContain(Diagnosis[0], doesNotClose, StringComparison.Ordinal);
         Assert.Contains("This call does not end the page", doesNotClose, StringComparison.Ordinal);
+        Assert.Contains("The page adds its own closing after its final section.", doesNotClose, StringComparison.Ordinal);
+        Assert.DoesNotContain("END OF THE PAGE", doesNotClose, StringComparison.Ordinal);
+        Assert.Contains("END OF THE PAGE", closes, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Only_the_final_single_section_call_gets_the_closing()
+    public void Only_the_final_single_section_call_is_told_to_end_the_page()
     {
-        // BuildArticleSectionPrompt appended the closing unconditionally while the batch builder gated
-        // it behind OwnsTheClosing. That was survivable while the closing was one ask; once the
-        // diagnosis joined it, six of a pillar's seven sections were handed the operator's discovery
-        // questions and told to pose them. Code review, 2026-10-03.
-        var context = Context() with { DiagnosisQuestions = Diagnosis };
+        var context = PageBuildsItsClosing();
         var metadata = new ArticleMetadataDraft("Title", "Meta", ["ai"], ["A", "B", "C"]);
         var builder = new ContentPromptBuilder();
 
@@ -333,90 +283,18 @@ public class ContentPromptBuilderClosingCtaTests
             context, metadata, sectionHeading: "C", sectionIndex: 2, totalSections: 3,
             fullOutline: ["A", "B", "C"], isRegeneration: false));
 
-        Assert.DoesNotContain("CLOSING:", middle, StringComparison.Ordinal);
-        Assert.DoesNotContain(Diagnosis[0], middle, StringComparison.Ordinal);
-        Assert.Contains("This call does not end the page", middle, StringComparison.Ordinal);
-
-        Assert.Contains("CLOSING:", last, StringComparison.Ordinal);
-        Assert.Contains(Diagnosis[0], last, StringComparison.Ordinal);
+        Assert.DoesNotContain("END OF THE PAGE", middle, StringComparison.Ordinal);
+        Assert.Contains("END OF THE PAGE", last, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_closing_still_reaches_the_page_when_the_outline_ends_with_the_FAQ()
+    public void The_workflow_products_writer_is_still_asked_for_its_closing()
     {
-        // The shape ContentGenerationOrchestrator actually produces, and the one b5b4a6b's first test
-        // did not: metadata.SectionOutline ends with "People Also Ask" because the plan prompt requires
-        // it, while the section loop iterates mainSections with the FAQ stripped. Passing the UNSTRIPPED
-        // outline as fullOutline made batch[^1] != fullOutline[^1] for every call, so OwnsTheClosing was
-        // false everywhere and no section was told to end the page -- and BuildArticleFaqSectionPrompt
-        // carries no closing either. Gating a page's one closing on a list that includes a section the
-        // caller does not write removes the closing entirely.
-        var context = Context() with { DiagnosisQuestions = Diagnosis };
-        var metadata = new ArticleMetadataDraft(
-            "Title", "Meta", ["ai"], ["Overview", "Details", "People Also Ask"]);
-        var builder = new ContentPromptBuilder();
-        IReadOnlyList<string> mainSections = ["Overview", "Details"];
+        // PageBuildsClosing is false for the Workflow product, whose pages have no GccClosing: its
+        // behaviour and its asks are the ones the tests above pin.
+        var system = BlogPrompt(Context());
 
-        var last = SystemPrompt(builder.BuildArticleSectionPrompt(
-            context, metadata, sectionHeading: "Details", sectionIndex: 1,
-            totalSections: mainSections.Count, fullOutline: mainSections, isRegeneration: false));
-        var earlier = SystemPrompt(builder.BuildArticleSectionPrompt(
-            context, metadata, sectionHeading: "Overview", sectionIndex: 0,
-            totalSections: mainSections.Count, fullOutline: mainSections, isRegeneration: false));
-
-        Assert.Contains("CLOSING:", last, StringComparison.Ordinal);
-        Assert.Contains(Diagnosis[0], last, StringComparison.Ordinal);
-        Assert.DoesNotContain("CLOSING:", earlier, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void A_batch_ending_the_main_sections_owns_the_closing()
-    {
-        // Same mismatch on the batched path, where it predates b5b4a6b: the batch builder has always
-        // gated, so with the FAQ in fullOutline this path has never emitted a closing at all.
-        var context = Context() with { DiagnosisQuestions = Diagnosis };
-        var metadata = new ArticleMetadataDraft(
-            "Title", "Meta", ["ai"], ["Overview", "Details", "People Also Ask"]);
-        IReadOnlyList<SectionSlot> mainSlots =
-            [SectionSlot.Assigned("Overview"), SectionSlot.Assigned("Details")];
-
-        var prompt = SystemPrompt(new ContentPromptBuilder().BuildArticleSectionBatchPrompt(
-            context, metadata,
-            slots: [SectionSlot.Assigned("Details")],
-            fullOutline: mainSlots,
-            isRegeneration: false));
-
-        Assert.Contains("CLOSING:", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void The_supplied_set_is_the_whole_set_the_writer_may_use()
-    {
-        // Selecting among them is allowed -- a 450-word closing cannot carry eight questions and an ask.
-        // Composing a ninth is not: on the page it is indistinguishable from the eight that were
-        // researched, which is the same reason framing is labelled "argue from it, never cite it".
-        var system = BlogPrompt(Context() with { DiagnosisQuestions = Diagnosis });
-
-        Assert.Contains("or a subset of them", system, StringComparison.Ordinal);
-        Assert.Contains("Do NOT invent a question that is not in that list", system, StringComparison.Ordinal);
-        Assert.Contains("form the page administers", system, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void The_diagnosis_does_not_replace_the_ask_or_its_destination()
-    {
-        // "as the CTA" means the questions are what the ask is about, not that they are the ask. A
-        // closing that ends on a question has asked for nothing.
-        var system = BlogPrompt(Context() with
-        {
-            CtaType = "book_appointment",
-            CtaLabel = "Book your assessment",
-            DiagnosisQuestions = Diagnosis,
-        });
-
-        Assert.Contains("asking for book_appointment", system, StringComparison.Ordinal);
-        Assert.Contains("worded as \"Book your assessment\"", system, StringComparison.Ordinal);
-        Assert.Contains($"href \"{Anchor}\"", system, StringComparison.Ordinal);
-        Assert.Contains("The ask, with its link, still closes the section after them", system, StringComparison.Ordinal);
+        Assert.Contains("CLOSING:", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("END OF THE PAGE", system, StringComparison.Ordinal);
     }
 }

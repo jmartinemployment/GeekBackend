@@ -507,6 +507,57 @@ public class GccGenerateServiceToolPageGroundingTests
     }
 
     [Fact]
+    public async Task The_tool_page_ends_on_the_pages_closing_before_the_FAQ_and_the_writer_is_never_sent_the_questions()
+    {
+        var provider = new ScriptedProvider(includeFaq: true);
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Faqs = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFaqItem(
+                "Is Partner Widget secure?", "Yes, SOC 2 Type II certified.", "SOC 2 Type II certified")],
+        };
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
+        var service = Build(provider, partner);
+        var create = Create(ResearchJsonWithOnePartnerPage()) with
+        {
+            BriefJson = """{"ctaType":"book_now","nicheFraming":{"diagnosisQuestions":"What business objective should this automation serve?\nHow clean is the data the approvals draw on today?"}}""",
+        };
+
+        var result = await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: create, passages: PartnerPassages());
+
+        var sections = result.Document.Sections;
+        Assert.Equal("Frequently Asked Questions", sections[^1].Heading);
+        var paragraphs = sections[^2].Paragraphs;
+        var line = Assert.IsType<TextParagraph>(paragraphs[^2]);
+        Assert.Equal(
+            ["Answer these questions when ", "booking your free consultation", "."],
+            line.Runs.Select(r => r.Text));
+        Assert.Equal("#consultationAppointment2xl", line.Runs[1].Href);
+        var list = Assert.IsType<ListParagraph>(paragraphs[^1]);
+        Assert.Equal(
+            ["What business objective should this automation serve?", "How clean is the data the approvals draw on today?"],
+            list.Items.Select(item => Assert.Single(item).Text));
+
+        // What writes the page's body: its batches. The metadata and image-prompt calls that follow read the
+        // finished page, closing included, to summarise it; they write none of it.
+        var writers = provider.Requests.Where(r => r.JsonSchemaName == "sections");
+        var sent = string.Join("\n", writers.SelectMany(r => r.Messages.Select(m => m.Content)));
+        Assert.Contains("END OF THE PAGE", sent, StringComparison.Ordinal);
+        string[] never =
+        [
+            "What business objective should this automation serve?", "How clean is the data", "book_now", "CLOSING:",
+        ];
+        var found = never.Where(needle => sent.Contains(needle, StringComparison.Ordinal)).ToList();
+        Assert.True(found.Count == 0, "The writer was sent: " + string.Join(" | ", found));
+    }
+
+    [Fact]
     public async Task GroundedFaqBankDataProducesAnAdditionalFaqSectionBeyondTheWordCountTarget()
     {
         var provider = new ScriptedProvider(includeFaq: true);

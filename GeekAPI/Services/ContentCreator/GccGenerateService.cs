@@ -270,13 +270,8 @@ public class GccGenerateService
             sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
         if (brief.EeatSignals is { Count: > 0 })
             sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", brief.EeatSignals)}.");
-        if (!string.IsNullOrWhiteSpace(brief.CtaType))
-        {
-            var line = $"CTA: {brief.CtaType}";
-            if (!string.IsNullOrWhiteSpace(brief.CtaLabel))
-                line += $" ({brief.CtaLabel})";
-            sb.AppendLine(line + " — weave naturally into closing, not forced.");
-        }
+        // No CTA line: the page's closing is built by GccClosing, and the brief's CtaType is an internal
+        // setting ("book_now") the writer took for a button label.
         if (!string.IsNullOrWhiteSpace(brief.LengthBand))
             sb.AppendLine($"Length band: {brief.LengthBand} — respect target length.");
         if (!string.IsNullOrWhiteSpace(brief.WritingNotes))
@@ -428,6 +423,14 @@ public class GccGenerateService
 
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// The line the page ends on, from the operator's brief and the company's wording. The questions are
+    /// read here, at the page, and never reach the writer.
+    /// </summary>
+    private IReadOnlyList<Paragraph> ClosingFor(GccCreateDto? create) =>
+        GccClosing.Paragraphs(
+            _company, create is null ? [] : GccNicheFramingReader.DiagnosisQuestions(create.BriefJson));
 
     /// <summary>
     /// Part 4 — Consultant / four-phase methodology system-appendix, injected at the
@@ -910,7 +913,7 @@ public class GccGenerateService
             var tool = await GenerateToolPageAsync(
                 toolName: string.IsNullOrWhiteSpace(toolName) ? create.Topic : toolName.Trim(),
                 brief: create.Notes,
-                sourceContext: $"{briefBlock}\n\n{BuildAudience(create, section)}",
+                sourceContext: $"{briefBlock}\n\n{BuildAudience(create, section, includeCallToAction: false)}",
                 department: string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department,
                 relatedArticleUrl: null,
                 provider: provider,
@@ -932,7 +935,7 @@ public class GccGenerateService
         // Content Creator long-form: CWV2 standalone blog body + persisted brief/research.
         var llm = GetLlm(provider);
         var consultantAppendix = BuildConsultantAppendix(create);
-        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
+        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section, includeCallToAction: false)}";
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
         var brief = ExtractBriefFields(create.BriefJson);
@@ -953,8 +956,7 @@ public class GccGenerateService
             brief.CtaType,
             brief.CtaLabel,
             brief.LengthBand,
-            brief.WritingNotes,
-            diagnosisQuestions: brief.DiagnosisQuestions);
+            brief.WritingNotes);
         // The outline is planned for this post, not taken from a constant. The three headings that
         // used to sit here -- "Overview", "Key considerations", "Next steps" -- shipped on every
         // blog this path produced, and a section called "Key considerations" has nothing in
@@ -1036,9 +1038,14 @@ public class GccGenerateService
         // the next line dereferenced it. That NullReferenceException is the 500 Revise returned on
         // every long-form draft.
         var envelope = GccBodyEnvelope.Read(currentJson, CwDocumentJson);
-        var document = envelope.Document
+        var stored = envelope.Document
             ?? throw new InvalidOperationException(
                 "This draft cannot be revised: its stored body is not a content document.");
+
+        // The closing is the page's, not the writer's (GccClosing): it is taken off before the writer sees
+        // the draft, so it is neither rewritten nor shown as prose to revise, and put back unchanged after.
+        var (withoutClosing, closingAt, closing) = GccClosing.Detach(stored.Sections, _company.ConsultationAnchorHref);
+        var document = stored with { Sections = withoutClosing };
 
         // The draft used to be flattened into `notes`, which BuildMinimalContext puts in
         // CrawledParagraphs -- rendered by the research brief under "Representative site copy:". So
@@ -1105,6 +1112,7 @@ public class GccGenerateService
                 + "Narrow the feedback to the sections that need work and try again.");
         }
         revised = ContentGuardrail.Apply(revised).Document;
+        revised = revised with { Sections = GccClosing.Reattach(revised.Sections, closingAt, closing) };
         // Back into the envelope it came from. Revise used to store the bare document, so a revised
         // blog lost its title, meta description, summary and JSON-LD -- the envelope was not only
         // unread, it was dropped.
@@ -1448,8 +1456,7 @@ public class GccGenerateService
             toolBrief.CtaType,
             toolBrief.CtaLabel,
             toolBrief.LengthBand,
-            toolBrief.WritingNotes,
-            diagnosisQuestions: toolBrief.DiagnosisQuestions);
+            toolBrief.WritingNotes);
 
         // Equal to Pillar's outline in count and per-section depth (Jeff, 2026-09-22: Tool must be
         // equal in word count to Pillar if not longer). It is read from ToolPrompts rather than
@@ -1634,6 +1641,7 @@ public class GccGenerateService
             List<Section> sections = create is null
                 ? written
                 : [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(written, quoteCandidates)];
+            sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (await ToolFaqAsync() is { } faq) sections.Add(faq);
             return new GccDraft(new ContentDocument(toolLede with { Tag = "h2" }, sections), shortfalls);
         }
@@ -1868,8 +1876,7 @@ public class GccGenerateService
         string? lengthBand = null,
         string? writingNotes = null,
         GccPublisherProfileResolver.PublisherProfile? publisherProfile = null,
-        IReadOnlyList<KnownCrawlTool>? knownTools = null,
-        IReadOnlyList<string>? diagnosisQuestions = null)
+        IReadOnlyList<KnownCrawlTool>? knownTools = null)
     {
         // The operator's own home page, when the project site has been crawled. CrawledHeadings was
         // [] and CrawledParagraphs held only the create's Notes, so the writer had never seen the
@@ -1936,7 +1943,9 @@ public class GccGenerateService
             // Empty on every Create-path generate until 2026-09-27, which is why
             // AppendKnownToolsBrief never rendered and no draft ever linked a tool.
             KnownCrawlTools: knownTools,
-            DiagnosisQuestions: diagnosisQuestions);
+            // Every Content Creator page ends on the line GccClosing builds, so the writer is not asked
+            // for a closing and is given neither the CTA setting nor the operator's questions.
+            PageBuildsClosing: true);
     }
 
     /// <summary>
@@ -2157,10 +2166,6 @@ public class GccGenerateService
             var lengthBand = S("lengthBand");
             var writingNotes = S("writingNotes");
             IReadOnlyList<string>? paaQuestions = ParsePaaQuestions(root);
-            // Through the reader that owns the nicheFraming shape, not off `root`: it is the only place
-            // that knows these split per line while pain points split per paragraph.
-            var readQuestions = GccNicheFramingReader.DiagnosisQuestions(briefJson);
-            IReadOnlyList<string>? diagnosisQuestions = readQuestions.Count > 0 ? readQuestions : null;
             var segNotes = notes;
             return new BriefFields
             {
@@ -2178,7 +2183,6 @@ public class GccGenerateService
                 LengthBand = string.IsNullOrWhiteSpace(lengthBand) ? null : lengthBand.Trim(),
                 WritingNotes = string.IsNullOrWhiteSpace(writingNotes) ? null : writingNotes.Trim(),
                 PaaQuestions = paaQuestions,
-                DiagnosisQuestions = diagnosisQuestions,
             };
         }
         catch (JsonException)
@@ -2203,14 +2207,6 @@ public class GccGenerateService
         public string? LengthBand { get; init; }
         public string? WritingNotes { get; init; }
         public IReadOnlyList<string>? PaaQuestions { get; init; }
-
-        /// <summary>
-        /// The operator's questions for the appointment -- the closing asks the reader to answer them
-        /// when booking -- one per entry. Read here rather than at each call site so the three long-form paths cannot
-        /// diverge on whether the closing has material; that divergence is exactly how Tool ended up
-        /// passing none of the seventeen brief fields Pillar passed.
-        /// </summary>
-        public IReadOnlyList<string>? DiagnosisQuestions { get; init; }
     }
 
     public static string SerializeAnalysisPayload(SiteAnalysisStoredPayload payload) =>
@@ -2267,7 +2263,12 @@ public class GccGenerateService
     public static GcwPolishAnalyzer.PolishReport AnalyzePolish(string bodyJson) =>
         GcwPolishAnalyzer.Analyze(bodyJson, Array.Empty<string>());
 
-    private static string BuildAudience(GccCreateDto create, SiteSectionContextDto? section)
+    /// <param name="includeCallToAction">
+    /// Whether the brief's CTA setting is printed. A short-form piece (email, social) is written to ask for
+    /// it. A long-form page is not: it ends on the line <see cref="GccClosing"/> builds, and this setting
+    /// ("book_now") is an internal code the writer took for a button label and linked a vendor's homepage.
+    /// </param>
+    private static string BuildAudience(GccCreateDto create, SiteSectionContextDto? section, bool includeCallToAction)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"Starting content type: {create.StartingContentType}");
@@ -2294,7 +2295,7 @@ public class GccGenerateService
             sb.AppendLine($"Audience notes: {brief.Notes}");
         if (!string.IsNullOrWhiteSpace(brief.ToneOfVoice))
             sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
-        if (!string.IsNullOrWhiteSpace(brief.CtaType))
+        if (includeCallToAction && !string.IsNullOrWhiteSpace(brief.CtaType))
             sb.AppendLine($"Call to action: {brief.CtaType}"
                 + (string.IsNullOrWhiteSpace(brief.CtaLabel) ? "" : $" — worded as \"{brief.CtaLabel}\""));
         if (!string.IsNullOrWhiteSpace(create.Notes))
@@ -2341,7 +2342,7 @@ public class GccGenerateService
     {
         var llm = GetLlm(provider);
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var groundingBlock = BuildAudience(create, section);
+        var groundingBlock = BuildAudience(create, section, includeCallToAction: true);
 
         var system = new StringBuilder()
             .AppendLine("You write cold outreach / sales emails for an IT consulting firm that specializes in AI implementation.")
@@ -2392,7 +2393,7 @@ public class GccGenerateService
     {
         var llm = GetLlm(provider);
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var groundingBlock = BuildAudience(create, section);
+        var groundingBlock = BuildAudience(create, section, includeCallToAction: true);
 
         var (styleGuidance, lengthGuidance, maxTokens) = platform switch
         {
@@ -2586,6 +2587,8 @@ public class GccGenerateService
                 "Pillar body",
                 ct,
                 shortfalls);
+            // The page's own closing, before the section written outside the outline.
+            sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (pillarFaq is not null) sections.Add(pillarFaq);
             return new GccDraft(ContentGuardrail.Apply(new ContentDocument(lede, sections)).Document, shortfalls);
         }
@@ -2643,7 +2646,7 @@ public class GccGenerateService
         ContentGeneratorProvider provider)
     {
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
+        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section, includeCallToAction: false)}";
         var consultantAppendix = BuildConsultantAppendix(create);
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
@@ -2670,8 +2673,7 @@ public class GccGenerateService
             brief.LengthBand,
             brief.WritingNotes,
             publisherProfile,
-            knownTools,
-            brief.DiagnosisQuestions);
+            knownTools);
     }
 
     /// <summary>
@@ -2777,6 +2779,7 @@ public class GccGenerateService
                 "Blog body",
                 ct,
                 shortfalls);
+            sections = GccClosing.AppendTo(sections, ClosingFor(create));
             return new GccDraft(
                 ContentGuardrail.Apply(new ContentDocument(blogLede with { Tag = "h2" }, sections)).Document,
                 shortfalls);

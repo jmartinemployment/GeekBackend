@@ -39,7 +39,10 @@ public class GccGenerateServiceBriefBlockTests
         Assert.Contains("Buying stage: consideration", block);
         Assert.Contains("Tone of voice: consultant_professional", block);
         Assert.Contains("E-E-A-T signals to demonstrate: experience, expertise.", block);
-        Assert.Contains("CTA: book_now (Book a consult)", block);
+        // The brief's CTA setting is not printed: the page builds its own closing (GccClosing), and the
+        // setting is an internal code the writer took for a button label.
+        Assert.DoesNotContain("CTA:", block);
+        Assert.DoesNotContain("book_now", block);
         Assert.Contains("Length band: long", block);
         Assert.Contains("Writing notes: Avoid jargon in the first two paragraphs.", block);
     }

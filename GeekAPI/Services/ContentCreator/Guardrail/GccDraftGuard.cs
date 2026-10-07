@@ -391,7 +391,7 @@ public static partial class GccDraftGuard
 
     private static void AddClosingFinding(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
     {
-        AddQuizFinding(document, into);
+        AddQuizFinding(document, inputs.ConsultationHref, into);
 
         var violations = GccClosingCtaGuard.FindViolations(document, inputs.ConsultationHref);
         if (violations.Count == 0) return;
@@ -427,9 +427,13 @@ public static partial class GccDraftGuard
     /// questions highlight inefficiencies, it may be time to book" would have shipped. The phrasings
     /// are matched anywhere on the page, since a quiz is a quiz wherever it sits.
     /// </remarks>
-    private static void AddQuizFinding(ContentDocument document, List<GccGuardFinding> into)
+    private static void AddQuizFinding(ContentDocument document, string? anchorHref, List<GccGuardFinding> into)
     {
-        var text = GeekAPI.Services.Workflow.Services.ContentDocumentText.Flatten(document);
+        // Read without the page's own closing. That line and the list under it are the operator's words,
+        // built by code (GccClosing), not a quiz the writer framed: a question he wrote that happens to
+        // contain "if your answers" must not refuse the page it is on.
+        var (withoutClosing, _, _) = GccClosing.Detach(document.Sections, anchorHref);
+        var text = GeekAPI.Services.Workflow.Services.ContentDocumentText.Flatten(document with { Sections = withoutClosing });
         var used = QuizPhrasings
             .Where(p => text.Contains(p, StringComparison.OrdinalIgnoreCase))
             .ToList();

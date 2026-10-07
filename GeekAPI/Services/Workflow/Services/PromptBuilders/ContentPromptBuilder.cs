@@ -1048,11 +1048,25 @@ public class ContentPromptBuilder : IContentPromptBuilder
         IReadOnlyList<string> batch,
         IReadOnlyList<string>? fullOutline) =>
         OwnsTheClosing(batch, fullOutline)
-            ? ClosingCallToActionInstruction(context)
+            ? context.PageBuildsClosing ? PageAddsTheClosingInstruction : ClosingCallToActionInstruction(context)
             : "This call does not end the page -- sections you were not given follow yours. End your "
               + "last section on its own material: no summary of what came before, no wrap-up of the "
-              + "page, and no call to action. The closing is written by the call that owns the final "
-              + "section.";
+              + "page, and no call to action. "
+              + (context.PageBuildsClosing
+                  ? "The page adds its own closing after its final section."
+                  : "The closing is written by the call that owns the final section.");
+
+    /// <summary>
+    /// What the call that ends a Content Creator page is told: the page adds the booking line itself
+    /// (<c>GccClosing</c>), so the last section ends on its own material and asks for nothing. It replaced
+    /// a block of about three thousand characters of what not to write, which handed the writer the brief's
+    /// internal CTA setting and the operator's questions and was refused for what it did with both.
+    /// </summary>
+    private const string PageAddsTheClosingInstruction =
+        "END OF THE PAGE: the page adds its own booking line after your last section, so end that section on "
+        + "a concrete point of its own material -- a decision, a figure, a next step inside the topic. Write "
+        + "no call to action and nothing that asks the reader to book, call, click or answer anything, and do "
+        + "not trail off into a reflection (\"consider how this could apply\").";
 
     /// <summary>
     /// Whether this call writes the page's final section. True for an unbatched call, which owns
@@ -1090,75 +1104,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
         return "CLOSING: the last section ends by asking for " + ask + ". One ask, stated plainly, "
             + "addressed to the reader, naming who does what next. " + destination + " "
-            + ClientDiagnosisInstruction(context.DiagnosisQuestions)
             + "Do NOT end on a reflection -- \"it may be beneficial to explore\", \"consider how this "
             + "could apply\", \"these examples provide insight\", \"to understand the potential impact "
             + "further\". Those name no action and no actor; they are a piece trailing off, and they "
             + "are what every draft has closed on so far. If the reader finishes and does not know "
             + "what they are being asked to do, the ending has failed.";
-    }
-
-    /// <summary>
-    /// The operator's questions for the appointment: the closing asks the reader to book, and to answer
-    /// these when booking. Empty string when the brief carries none, so the closing reads exactly as it
-    /// did before this existed.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Answered when booking, not a test of whether to book</b> (Jeff, 2026-10-05: "It was meant answer
-    /// these questions when booking your appointment"). This told the writer to hand the reader a
-    /// "practical diagnosis ... put to their own operation ... so the ask is what they do with the
-    /// answers", and the writer did exactly that: "consider asking yourself these questions", then "If
-    /// these questions highlight inefficiencies or risks in your current process, it may be time to book".
-    /// That makes the appointment conditional on a self-audit the reader grades, and the questions a
-    /// quiz. They are what the operator asks a new client, and the reader brings the answers to the
-    /// booking.
-    /// </para>
-    /// <para>
-    /// <b>Why the closing needed material.</b> The instruction above has always demanded one plain ask
-    /// and banned the reflection endings every draft produced, while giving the writer nothing for the
-    /// ask to be about. These are the questions the operator actually asks a prospect, so the ending has
-    /// something concrete to ask for.
-    /// </para>
-    /// <para>
-    /// <b>Questions, not a form.</b> A short list is legitimate -- <c>ListParagraph</c> exists -- but a
-    /// numbered questionnaire the page administers is a different artifact, and the ask still has to
-    /// close the section.
-    /// </para>
-    /// <para>
-    /// <b>The set is the set.</b> Selecting among them is allowed when the length band will not carry all
-    /// of them; inventing a further question is not. They are the operator's research, and a ninth
-    /// question the model composed is indistinguishable on the page from the eight that were verified.
-    /// </para>
-    /// </remarks>
-    private static string ClientDiagnosisInstruction(IReadOnlyList<string>? questions)
-    {
-        if (questions is not { Count: > 0 }) return string.Empty;
-
-        var sb = new StringBuilder();
-        sb.Append("WITH that ask go the publisher's questions for the appointment. The reader answers ");
-        sb.Append("them when they book: say so in plain words -- book the appointment, and answer these ");
-        sb.Append("questions when booking -- and give the questions. They are what the publisher asks a ");
-        sb.Append("new client, not a test the reader takes to decide whether to book, so the ask never ");
-        sb.Append("depends on them: never \"if these questions highlight a problem\", never \"if any of ");
-        sb.Append("these sound familiar\", never \"ask yourself\". They are the publisher's own questions ");
-        sb.Append("-- not retrieved evidence, so attribute them to nobody -- and they are the whole set ");
-        sb.Append("available to you:");
-
-        foreach (var question in questions)
-        {
-            sb.AppendLine();
-            sb.Append("- ").Append(question.Trim());
-        }
-
-        sb.AppendLine();
-        sb.Append("Use them as written, or a subset of them if the length will not carry all. Do NOT ");
-        sb.Append("invent a question that is not in that list, do NOT pad toward a count, do NOT answer ");
-        sb.Append("them for the reader, and do NOT turn them into a form the page administers or a quiz. ");
-        sb.Append("A short list is fine; so is working them into the prose. The ask, with its link, still ");
-        sb.Append("closes the section after them. ");
-
-        return sb.ToString();
     }
 
     /// <summary>
@@ -1498,8 +1448,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private static string BuildBriefBodyGuidance(ProjectGenerationContext context)
     {
         var sb = new StringBuilder();
+        // A page that builds its own closing has no use for the brief's CTA setting, and printing it ("CTA:
+        // book_now -- weave naturally into closing") is what put the raw token in front of the writer.
+        var ctaApplies = !context.PageBuildsClosing && !string.IsNullOrWhiteSpace(context.CtaType);
         var hasAny = !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
-            || !string.IsNullOrWhiteSpace(context.CtaType) || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
+            || ctaApplies || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
             || context.EeatSignals is { Count: > 0 }
             || !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes)
             || context.AudienceDetails is { Count: > 0 };
@@ -1530,7 +1483,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             sb.AppendLine($"Tone of voice: {context.ToneOfVoice} — hold this voice throughout (consultant_professional=objective authority, informational_instructional=clear stepwise, commercial_balanced=balanced benefits/tradeoffs).");
         if (context.EeatSignals is { Count: > 0 } ee2)
             sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", ee2)}.");
-        if (!string.IsNullOrWhiteSpace(context.CtaType))
+        if (ctaApplies)
             sb.AppendLine($"CTA: {context.CtaType}" + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $" ({context.CtaLabel})") + " — weave naturally into closing, not forced.");
         if (!string.IsNullOrWhiteSpace(context.LengthBand))
             sb.AppendLine($"Length band: {context.LengthBand} — respect target length.");
@@ -2065,9 +2018,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
             // The same decision the batch builder makes, made by the same code. This builder appended
             // ClosingCallToActionInstruction unconditionally, so every section of a pillar was told to
-            // end the page -- survivable while the closing was one ask, and not once
-            // ClientDiagnosisInstruction joined it: six of seven sections were handed the operator's
-            // discovery questions and told to pose them.
+            // end the page -- survivable while the closing was one ask, and not once the operator's
+            // discovery questions joined it: six of seven sections were handed them and told to pose
+            // them.
             //
             // A single section IS a batch of one, so BatchClosingInstruction answers it as-is. Writing
             // the gate out again here is what let the two drift in the first place; the rule is one
