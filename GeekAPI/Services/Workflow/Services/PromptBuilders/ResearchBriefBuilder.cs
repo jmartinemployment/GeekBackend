@@ -195,37 +195,6 @@ internal static class ResearchBriefBuilder
         {
             sb.AppendLine("Representative site copy:");
             var taken = SelectSiteCopyParagraphs(context.CrawledParagraphs);
-            // #region agent log
-            {
-                var total = context.CrawledParagraphs.Count;
-                var mustInAll = context.CrawledParagraphs.Any(p =>
-                    p.Contains("Partner tools for this use case", StringComparison.Ordinal)
-                    || p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
-                var mustInTaken = taken.Any(p =>
-                    p.Contains("Partner tools for this use case", StringComparison.Ordinal)
-                    || p.Contains("MUST MENTION partner tools", StringComparison.Ordinal));
-                var researchInAll = context.CrawledParagraphs.Any(p =>
-                    p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal)
-                    || p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
-                var researchInTaken = taken.Any(p =>
-                    p.Contains("PARTNER PAGE EXCERPTS", StringComparison.Ordinal)
-                    || p.Contains("PARTNER PAGE RESEARCH", StringComparison.Ordinal));
-                GeekAPI.Diagnostics.AgentDebugLog.Write(
-                    "A",
-                    "ResearchBriefBuilder.AppendSiteContext",
-                    "CrawledParagraphs selection applied",
-                    new
-                    {
-                        total,
-                        takenCount = taken.Count,
-                        mustInAll,
-                        mustInTaken,
-                        researchInAll,
-                        researchInTaken,
-                        truncatedAway = mustInAll && !mustInTaken,
-                    });
-            }
-            // #endregion
             foreach (var p in taken) sb.AppendLine($"- {p}");
         }
 
