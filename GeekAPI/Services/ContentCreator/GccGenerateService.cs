@@ -279,6 +279,26 @@ public class GccGenerateService
         return sb.ToString();
     }
 
+    /// <summary>
+    /// A tool page's title: the product, then the project's keyword ("Ramp: Automated Approval Workflows").
+    /// The keyword is the topic without its department, <see cref="GccTopic.KeywordOf"/>, so another project's
+    /// keyword gives another title.
+    /// </summary>
+    internal static string ToolPageTitle(string productName, string? topic)
+    {
+        var keyword = GccTopic.KeywordOf(topic).Trim();
+        return keyword.Length == 0 ? productName : $"{productName}: {keyword}";
+    }
+
+    /// <summary>
+    /// The brief's fields alone, with none of the retrieved research. For a caller that hands the research
+    /// to the writer itself, once: <see cref="BuildBriefAndResearchBlock"/> as a tool page's source context
+    /// was printed three times per call (the publisher block, "Tool summary:" and the evidence block), 54%
+    /// of a tool call, and no check reads the two extra copies.
+    /// </summary>
+    public static string BuildBriefOnlyBlock(GccCreateDto create) =>
+        BuildBriefFieldsBlock(ExtractBriefFields(create.BriefJson)).TrimEnd();
+
     public static string BuildBriefAndResearchBlock(GccCreateDto create)
     {
         var sb = new StringBuilder();
@@ -910,10 +930,15 @@ public class GccGenerateService
         if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase)
             || string.Equals(create.StartingContentType, "tool", StringComparison.OrdinalIgnoreCase))
         {
+            // The brief, not the research: GenerateToolPageAsync hands the research to the tool prompts once,
+            // as their evidence block (BuildBriefOnlyBlock).
+            var toolSourceBrief = BuildBriefOnlyBlock(create);
+            if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+                toolSourceBrief = $"{toolSourceBrief}\n\n{mustMentionBlock}";
             var tool = await GenerateToolPageAsync(
                 toolName: string.IsNullOrWhiteSpace(toolName) ? create.Topic : toolName.Trim(),
                 brief: create.Notes,
-                sourceContext: $"{briefBlock}\n\n{BuildAudience(create, section, includeCallToAction: false)}",
+                sourceContext: $"{toolSourceBrief}\n\n{BuildAudience(create, section, includeCallToAction: false)}",
                 department: string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department,
                 relatedArticleUrl: null,
                 provider: provider,
@@ -923,7 +948,11 @@ public class GccGenerateService
                 extraction: partnerExtraction);
             return JsonSerializer.Serialize(new
             {
-                title = tool.Name,
+                // "Ramp: Automated Approval Workflows": a tool is written within the keyword and the
+                // problem it solves, so its title says both (Jeff, 2026-10-07). The product stays in its
+                // own field, which Revise and the export's slug read, so the URL stays /tools/.../ramp.
+                title = ToolPageTitle(tool.Name, create.Topic),
+                productName = tool.Name,
                 metaDescription = tool.Metadata.MetaDescription,
                 summary = tool.Metadata.Summary,
                 warnings = tool.Warnings ?? [],
@@ -1073,7 +1102,10 @@ public class GccGenerateService
         // GenerateToolPageAsync writes `title = tool.Name` -- and the slug is derived the way the
         // generate path derives it.
         var isTool = string.Equals(typeSet?.Key, "tool", StringComparison.OrdinalIgnoreCase);
-        var productName = isTool ? (envelope.Title is { Length: > 0 } t ? t : document.Lede.Heading) : null;
+        var productName = isTool
+            ? (envelope.ProductName is { Length: > 0 } product ? product
+                : envelope.Title is { Length: > 0 } t ? t : document.Lede.Heading)
+            : null;
         var promptCtx = new ContentTypes.ContentTypePromptContext(
             context,
             Metadata: metadata,

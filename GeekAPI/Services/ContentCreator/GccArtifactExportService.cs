@@ -109,7 +109,9 @@ public sealed class GccArtifactExportService(
                 continue;
             }
 
-            var slug = Slug(parsed.Title ?? artifact.Name ?? create.Topic, artifact.Id);
+            // The slug, and so the file and the canonical URL, come from the product on a tool page ("ramp"),
+            // not from its title ("Ramp: Automated Approval Workflows"): the URL stays /tools/.../ramp.
+            var slug = Slug(parsed.ProductName ?? parsed.Title ?? artifact.Name ?? create.Topic, artifact.Id);
             var title = parsed.Title ?? artifact.Name ?? create.Topic;
             var department = string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department.Trim();
             documents.Add(new ExportedHtmlDocument(

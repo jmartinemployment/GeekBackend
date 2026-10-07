@@ -39,7 +39,11 @@ public static class GccBodyEnvelope
         string? Title,
         string? MetaDescription,
         string? Summary,
-        string? JsonLdSchema);
+        string? JsonLdSchema,
+        // A tool page's product ("Ramp"), beside its title ("Ramp: Automated Approval Workflows"). Null on
+        // every other type and on a tool page written before the title carried the keyword, where the title
+        // is the product: read as ProductName ?? Title.
+        string? ProductName = null);
 
     public static Parsed Read(string? bodyJson, JsonSerializerOptions options)
     {
@@ -58,7 +62,8 @@ public static class GccBodyEnvelope
                     Str(root, "title"),
                     Str(root, "metaDescription"),
                     Str(root, "summary"),
-                    Str(root, "jsonLdSchema"));
+                    Str(root, "jsonLdSchema"),
+                    Str(root, "productName"));
             }
 
             // A bare document: what older artifacts hold, and what the shorter paths still return.
@@ -78,6 +83,7 @@ public static class GccBodyEnvelope
     public static string Write(Parsed original, ContentDocument document, JsonSerializerOptions options)
     {
         var hasEnvelope = original.Title is not null
+            || original.ProductName is not null
             || original.MetaDescription is not null
             || original.Summary is not null
             || original.JsonLdSchema is not null;
@@ -86,6 +92,7 @@ public static class GccBodyEnvelope
 
         var envelope = new Dictionary<string, object?>();
         if (original.Title is not null) envelope["title"] = original.Title;
+        if (original.ProductName is not null) envelope["productName"] = original.ProductName;
         if (original.MetaDescription is not null) envelope["metaDescription"] = original.MetaDescription;
         if (original.Summary is not null) envelope["summary"] = original.Summary;
         envelope["body"] = document;

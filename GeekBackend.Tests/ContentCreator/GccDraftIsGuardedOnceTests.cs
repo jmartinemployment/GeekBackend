@@ -277,6 +277,36 @@ public class GccDraftIsGuardedOnceTests
     }
 
     [Fact]
+    public async Task Revising_a_tool_page_reads_the_product_from_its_own_field_and_keeps_the_title_and_the_field()
+    {
+        var stored = new ContentDocument(
+            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
+            [
+                new Section("h2", "Where the hours go", [new TextParagraph([new Run("Invoices are keyed twice.")])], null, []),
+                new Section("h2", "People Also Ask", [new TextParagraph([new Run("It encrypts data at rest.")])], null, []),
+            ]);
+        var envelope = JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["title"] = "Ramp: Automated Approval Workflows",
+            ["productName"] = "Ramp",
+            ["metaDescription"] = "A meta description.",
+            ["body"] = stored,
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var provider = new ReviseProvider();
+
+        var revised = await Build(provider).ReviseAsync(
+            envelope, "Say it plainer.", "document", null, ContentGeneratorProvider.OpenAi, CancellationToken.None, "tool");
+
+        // The product is Ramp, so the writer is told about Ramp and the page's address; it is not
+        // "Ramp: Automated Approval Workflows", whose slug is a different page.
+        Assert.Contains("Ramp", provider.Sent, StringComparison.Ordinal);
+        Assert.DoesNotContain("ramp-automated-approval-workflows", provider.Sent, StringComparison.OrdinalIgnoreCase);
+        using var doc = JsonDocument.Parse(revised);
+        Assert.Equal("Ramp: Automated Approval Workflows", doc.RootElement.GetProperty("title").GetString());
+        Assert.Equal("Ramp", doc.RootElement.GetProperty("productName").GetString());
+    }
+
+    [Fact]
     public async Task A_pillar_whose_brief_has_no_questions_ends_on_the_plain_booking_line()
     {
         var provider = new ScriptedProvider();

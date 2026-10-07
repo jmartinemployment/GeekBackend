@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
@@ -555,6 +556,69 @@ public class GccGenerateServiceToolPageGroundingTests
         ];
         var found = never.Where(needle => sent.Contains(needle, StringComparison.Ordinal)).ToList();
         Assert.True(found.Count == 0, "The writer was sent: " + string.Join(" | ", found));
+    }
+
+    [Fact]
+    public async Task A_tool_pages_research_reaches_every_call_once_and_its_title_carries_the_keyword()
+    {
+        // The Ramp page of 2026-10-07 printed the whole research block three times per body call (the
+        // publisher block, "Tool summary:" and the evidence block): 54% of the call, for nothing any check
+        // reads. And its title was only the product.
+        var provider = new ScriptedProvider(includeFaq: true);
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Faqs = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFaqItem(
+                "Is Partner Widget secure?", "Yes, SOC 2 Type II certified.", "SOC 2 Type II certified")],
+        };
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
+        var service = Build(provider, partner);
+        var create = DispatchCreate("tool") with
+        {
+            Topic = "Accounts Payable: Automated Approval Workflows",
+            ResearchJson = ResearchJsonWithOnePartnerPage(),
+        };
+
+        var envelope = await service.GenerateStartingContentAsync(
+            create, null, ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            passages: PartnerPassages(), toolName: "Partner Widget");
+
+        const string header = "=== QUOTEABLE RESEARCH";
+        var perCall = provider.Requests
+            .Select(r => string.Join("\n", r.Messages.Select(m => m.Content)))
+            .Select(prompt => prompt.Split(header).Length - 1)
+            .ToList();
+        Assert.All(perCall, count => Assert.True(count <= 1, $"a call carried the research {count} times"));
+        // The body's calls carry it, once: it was not dropped to get there.
+        var bodyCalls = provider.Requests.Where(r => r.JsonSchemaName == "sections").ToList();
+        Assert.NotEmpty(bodyCalls);
+        Assert.All(bodyCalls, call =>
+            Assert.Equal(1, string.Join("\n", call.Messages.Select(m => m.Content)).Split(header).Length - 1));
+        Assert.All(bodyCalls, call =>
+        {
+            var summary = string.Join("\n", call.Messages.Select(m => m.Content))
+                .Split('\n').FirstOrDefault(l => l.StartsWith("Tool summary:", StringComparison.Ordinal));
+            Assert.DoesNotContain("QUOTEABLE", summary ?? string.Empty, StringComparison.Ordinal);
+        });
+
+        using var doc = JsonDocument.Parse(envelope);
+        Assert.Equal("Partner Widget: Automated Approval Workflows", doc.RootElement.GetProperty("title").GetString());
+        Assert.Equal("Partner Widget", doc.RootElement.GetProperty("productName").GetString());
+    }
+
+    [Theory]
+    [InlineData("Ramp", "Accounts Payable: Automated Approval Workflows", "Ramp: Automated Approval Workflows")]
+    [InlineData("Bill", "Accounts Payable: Automated Data Entry & Processing", "Bill: Automated Data Entry & Processing")]
+    [InlineData("Ramp", "Automated Approval Workflows", "Ramp: Automated Approval Workflows")]
+    [InlineData("Ramp", "Pricing:", "Ramp: Pricing:")]
+    [InlineData("Ramp", "", "Ramp")]
+    [InlineData("Ramp", null, "Ramp")]
+    public void A_tool_pages_title_is_the_product_then_the_projects_keyword(string product, string? topic, string expected)
+    {
+        Assert.Equal(expected, GccGenerateService.ToolPageTitle(product, topic));
     }
 
     [Fact]
