@@ -1,3 +1,7 @@
+> **STALE (2026-10-07).** This describes the dormant V2 pipeline and the 2026-10-01 state, and defines competitors as
+> rival AI-consulting agencies, which the operator says is out of date. Read `docs/content-creator-sources.md` instead:
+> it is checked against the live code and the 2026-10-07 run log, and says where a definition has not been recorded.
+
 # What competitor (and partner) data is actually *for* in the Create pipeline
 
 ## Context
