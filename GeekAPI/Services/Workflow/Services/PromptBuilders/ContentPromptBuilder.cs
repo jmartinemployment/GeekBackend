@@ -482,12 +482,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
                   + "outright. Across your sections that is roughly "
                   + $"{perSection:N0}+ words each -- three to five substantial paragraphs per section. "
                   + "A total alone is satisfiable by one long section and several thin ones, which is "
-                  + "how a piece asked for a floor came back at half of it. Count as you go."
+                  + "how a piece asked for a floor came back at half of it."
                 : $"LENGTH: the finished page has a {minWords:N0}-word floor and fails outright below "
                   + $"it. You are writing {sectionsInThisCall} of its {sectionsInThePage} sections, so "
                   + $"your share is about {wordsHere:N0} words -- roughly {perSection:N0}+ each, three "
                   + "to five substantial paragraphs per section. A short batch is not made up by "
-                  + "another one; it is simply the page arriving under the floor. Count as you go.")
+                  + "another one; it is simply the page arriving under the floor.")
             .AppendLine(writesWholePage
                 ? $"SECTIONS: at least {minSections} top-level sections, and more where the subject "
                   + "has more to say. Each one covers something the others do not."
@@ -510,7 +510,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                   + "once every 200 words. It is counted as that phrase, word for word: a shortened or "
                   + "reworded form of it is fine prose and is not counted. Never twice in a paragraph. "
                   + "Your sections are counted when they come back, and a batch under its share is "
-                  + "written again.")
+                  + "reported with the draft.")
             .AppendLine(ownsTheKeywordHeading
                 ? $"HEADINGS: at least one H2 contains the exact phrase \"{keyword}\" -- that phrase, "
                   + "word for word, not a variant of it. Headings answer the question a "
@@ -567,8 +567,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "site subtopic, or retrieved source it is drawn from. A tag is the source's own text copied " +
         "exactly, never a description of where you found it: \"site:Invoice capture\", not " +
         "\"site:the subtopics list\". The five forms are \"plan:\" for a section you were assigned, " +
-        "\"brief:<field name>\" -- the field\u0027s name, not the line as printed, so \"brief:topic\" " +
-        "and never \"brief:Topic / keyword: ...\" -- \"paa:<question>\", \"competitor:<heading>\", " +
+        "\"brief:<field name>\" -- the field\u0027s name, not the line as printed, so \"brief:primaryIntent\" " +
+        "and never \"brief:Primary intent: ...\" -- \"paa:<question>\", \"competitor:<heading>\", " +
         "\"site:<subtopic>\" with no trailing punctuation, and \"evidence:<source>\" for retrieved " +
         "material, where <source> is the partner name, the page title, the section title or the host " +
         "exactly as the retrieved passage gives it. " +
@@ -2880,7 +2880,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "partner FAQ data, is generated afterward and is additional, not part of this budget.")
             .AppendLine(BatchClosingInstruction(
                 context, [.. outline.Select(sl => sl.Label)], [.. (fullOutline ?? outline).Select(sl => sl.Label)]))
-            .AppendLine("Place it after the reader has reason to act — never a banner, never repeated per section.")
+            // Only the call that writes the closing is told where the ask goes; every other batch has just
+            // been told it does not close the page.
+            .AppendLine(OwnsTheClosing([.. outline.Select(sl => sl.Label)], [.. (fullOutline ?? outline).Select(sl => sl.Label)])
+                ? "Place it after the reader has reason to act — never a banner, never repeated per section."
+                : string.Empty)
             .AppendLine($"Write expert third-person technical prose focused on {app.Name}, grounded in this use-case.")
             .AppendLine(AnswerInTheContract);
 

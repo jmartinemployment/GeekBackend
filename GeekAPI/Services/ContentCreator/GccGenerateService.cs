@@ -2471,9 +2471,12 @@ public class GccGenerateService
         // the result below -- one list, so the instruction and the check cannot disagree.
         var requiredTools = partnerTools.Required;
         var toolInstruction = partnerTools.Instruction;
-        var pillarEvidence = string.IsNullOrWhiteSpace(toolInstruction)
-            ? evidenceBlock
-            : $"{evidenceBlock}{Environment.NewLine}{toolInstruction}";
+        // The valid tags are stated up front: with no retry to name them after a refusal, the first
+        // attempt has to be told what resolves.
+        var pillarEvidence = string.Join(
+            Environment.NewLine,
+            new[] { evidenceBlock, toolInstruction, GccHeadingProvenanceGuard.LicensedValues(evidence) }
+                .Where(b => !string.IsNullOrWhiteSpace(b)));
 
         // In batches. One response cannot hold a 3,000-word floor in this JSON -- see
         // SectionsPerBatch -- so asking for the whole page in one call capped it by arithmetic.
@@ -2691,9 +2694,12 @@ public class GccGenerateService
 
         var blogRequiredTools = partnerTools.Required;
         var blogToolInstruction = partnerTools.Instruction;
-        var blogEvidence = string.IsNullOrWhiteSpace(blogToolInstruction)
-            ? evidenceBlock
-            : $"{evidenceBlock}{Environment.NewLine}{blogToolInstruction}";
+        // The valid tags are stated up front: with no retry to name them after a refusal, the first
+        // attempt has to be told what resolves.
+        var blogEvidence = string.Join(
+            Environment.NewLine,
+            new[] { evidenceBlock, blogToolInstruction, GccHeadingProvenanceGuard.LicensedValues(evidence) }
+                .Where(b => !string.IsNullOrWhiteSpace(b)));
 
         // In batches, same reason as pillar and tool: one response cannot hold the 1,800-word floor
         // in this JSON, so asking for the whole post in one call capped it by arithmetic -- 1,199

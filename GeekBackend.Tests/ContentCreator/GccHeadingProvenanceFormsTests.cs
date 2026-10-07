@@ -56,7 +56,10 @@ public class GccHeadingProvenanceFormsTests
         // Processing" -- the rendered line, label and all. The set holds field names.
         var prompt = BlogPrompt();
 
-        Assert.Contains("brief:topic", prompt, StringComparison.Ordinal);
+        // The example is a field the guard licenses. It was "brief:topic" until 2026-10-07, which the
+        // guard never accepted, and the writer copied it into two refused headings.
+        Assert.Contains("brief:primaryIntent", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("brief:topic", prompt, StringComparison.Ordinal);
         Assert.Contains("not the line as printed", prompt, StringComparison.Ordinal);
     }
 

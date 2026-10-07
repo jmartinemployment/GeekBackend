@@ -140,6 +140,52 @@ public static class GccHeadingProvenanceGuard
                && cited.Equals(section.Heading?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The values that license a heading on this page, stated to the writer before it writes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The guard matches tags by exact set membership, so the writer has to be told exactly what is in
+    /// the set. It used to be told only when a draft had already failed -- the single retry listed these
+    /// values -- and with no retry a rule that names a form but not its values is a first-attempt
+    /// refusal. The instruction's own example, <c>brief:topic</c>, was never a licensable field, and
+    /// the writer copied it into two headings (2026-10-07).
+    /// </para>
+    /// <para>
+    /// A kind with nothing behind it is said to be empty rather than omitted: a writer that cannot see
+    /// "paa: none available" guesses that one exists.
+    /// </para>
+    /// </remarks>
+    public static string LicensedValues(GccHeadingProvenanceEvidence evidence)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("=== THE ONLY VALUES THAT LICENSE A HEADING ===");
+        sb.AppendLine(
+            "A heading's \"provenance\" tag is one of these, copied exactly. Nothing else resolves: do not "
+            + "invent a source, do not reword one, and do not use a field name that is not listed.");
+        Append(sb, "plan", ["(always allowed -- the heading the outline assigned)"]);
+        Append(sb, "brief", evidence.PopulatedBriefFields);
+        Append(sb, "paa", evidence.PaaQuestions);
+        Append(sb, "competitor", evidence.CompetitorHeadings);
+        Append(sb, "site", evidence.SiteSubtopics);
+        Append(sb, "evidence", evidence.RetrievedEvidence);
+        sb.AppendLine(
+            "If none of them fits a heading you want to write, that heading has no source: write one that "
+            + "does, rather than tagging it with the nearest value.");
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void Append(StringBuilder sb, string kind, IEnumerable<string> values)
+    {
+        var listed = values.Where(v => !string.IsNullOrWhiteSpace(v)).Take(MaxListedPerKind).ToList();
+        sb.AppendLine(listed.Count == 0
+            ? $"  {kind}: none available -- this kind cannot license anything on this page."
+            : $"  {kind}: " + string.Join(" | ", listed.Select(v => $"\"{v}\"")));
+    }
+
+    /// <summary>Enough to choose from without making the list the largest part of the prompt.</summary>
+    private const int MaxListedPerKind = 40;
+
     private static bool IsLicensed(string? provenance, GccHeadingProvenanceEvidence evidence)
     {
         if (string.IsNullOrWhiteSpace(provenance))
