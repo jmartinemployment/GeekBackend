@@ -4,6 +4,7 @@ using GeekApplication.Models.ContentCreator;
 using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Workflow.Providers;
+using GeekAPI.Services.Workflow.Services;
 
 namespace GeekAPI.Services.ContentCreator;
 
@@ -442,9 +443,11 @@ public sealed class GccGenerationCoordinator
         ILogger logger, string type, Guid createId, Func<Task<TypeOutcome>> write)
     {
         using var piece = GccRunLog.ForPiece(type);
+        using var repairs = JsonRepairTrace.Begin();
         try
         {
             var generated = await write();
+            await RecordRepairsAsync(repairs);
             await GccRunLog.RecordIfAnyAsync("outcome", new
             {
                 type,
@@ -468,9 +471,25 @@ public sealed class GccGenerationCoordinator
                 logger.LogError(ex, "Generate failed for type {ContentType} on create {CreateId}", type, createId);
             }
 
+            await RecordRepairsAsync(repairs);
             await GccRunLog.RecordIfAnyAsync("outcome", new { type, error = ex.Message, fault = GccRunFault.Describe(ex) });
             return GccRunSettlement.TypeAttempt.Refused(type, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Writes the replies this piece needed a repair for, if any, as one <c>repaired</c> event naming the
+    /// call and the repairs. A reply that parsed only after a repair read in the record exactly like one
+    /// that was well formed; the model's own text is in the <c>call</c> event beside it.
+    /// </summary>
+    private static Task RecordRepairsAsync(JsonRepairTrace.Scope repairs)
+    {
+        var applied = repairs.Drain();
+        return applied.Count == 0
+            ? Task.CompletedTask
+            : GccRunLog.RecordIfAnyAsync(
+                "repaired",
+                new { repairs = applied.Select(a => new { label = a.Label, repairs = a.Repairs }).ToList() });
     }
 
     /// <summary>
@@ -987,6 +1006,7 @@ public sealed class GccGenerationCoordinator
             // Image prompt generation is optional -- the primary content already succeeded and
             // must still be returned -- but a failure here should be visible, not silent.
             _logger.LogWarning(ex, "Image prompt generation failed for {ContentType}; content saved without one.", contentType);
+            await GccRunLog.RecordIfAnyAsync("warning", new { step = "image prompt", contentType, fault = GccRunFault.Describe(ex) });
             return contentJson;
         }
     }

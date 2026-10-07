@@ -14,7 +14,6 @@ public static class LlmResponseJsonParser
     /// provider-facing schema from these exact options — the single source of truth for the real
     /// deserialization contract, so the schema can never silently drift from it.</summary>
     internal static readonly JsonSerializerOptions SectionJsonOptions = CreateSectionJsonOptions();
-    private static readonly Regex CodeFence = new(@"^```(?:json|html)?\s*|\s*```$", RegexOptions.Multiline | RegexOptions.Compiled);
     private static readonly Regex InlineLinkSyntax = new(@"\[([^\]]*)\]\(([^)]+)\)", RegexOptions.Compiled);
 
     /// <summary>Stray formatting symbols that should never appear in a plain-text field — see the
@@ -44,56 +43,51 @@ public static class LlmResponseJsonParser
     /// </summary>
     public static Section ParseSection(string rawContent, string expectedTag, string label)
     {
-        var cleaned = Clean(rawContent);
-        var failures = new List<string>();
+        string? why = null;
 
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
             try
             {
-                var section = JsonSerializer.Deserialize<Section>(candidate, SectionJsonOptions);
+                var section = JsonSerializer.Deserialize<Section>(candidate.Text, SectionJsonOptions);
                 if (section is not null && !string.IsNullOrWhiteSpace(section.Heading))
                 {
+                    JsonRepairTrace.Note(label, candidate.Repairs);
                     var normalized = Normalize(section) with { Tag = expectedTag };
                     ValidateContentHygiene(normalized, label);
                     return normalized;
                 }
 
-                failures.Add($"deserialized but heading was empty (candidate length {candidate.Length})");
+                why ??= "the reply parsed but its heading was empty";
             }
             catch (JsonException ex)
             {
-                failures.Add($"JsonException at byte {ex.BytePositionInLine} (path {ex.Path}): {ex.Message}");
+                why ??= JsonFault(ex);
             }
         }
 
-        var trimmedEnd = cleaned.TrimEnd();
-        var isTruncated = cleaned.Length > 0 && !trimmedEnd.EndsWith('}') && !trimmedEnd.EndsWith(']');
-        var hint = isTruncated ? " The response looks truncated — it may have hit the max output token limit." : string.Empty;
-
-        throw new ContentGenerationException(
-            $"Model did not return a valid structured section for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+        throw Unusable("structured section", label, rawContent, why);
     }
 
     /// <summary>Parses a top-level sections array (whole-body regeneration/expansion responses).</summary>
     public static IReadOnlyList<Section> ParseSections(string rawContent, string label)
     {
-        var cleaned = Clean(rawContent);
+        string? why = null;
 
-        var candidateIndex = 0;
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
             try
             {
                 // Models frequently drop the {"sections": [...]} wrapper and return the bare array
                 // directly when asked for "the sections array" — accept both shapes.
-                var isBareArray = candidate.TrimStart().StartsWith('[');
+                var isBareArray = candidate.Text.TrimStart().StartsWith('[');
                 var sectionsRaw = isBareArray
-                    ? JsonSerializer.Deserialize<List<Section>>(candidate, SectionJsonOptions)
-                    : JsonSerializer.Deserialize<SectionsArrayResponse>(candidate, SectionJsonOptions)?.Sections;
+                    ? JsonSerializer.Deserialize<List<Section>>(candidate.Text, SectionJsonOptions)
+                    : JsonSerializer.Deserialize<SectionsArrayResponse>(candidate.Text, SectionJsonOptions)?.Sections;
 
                 if (sectionsRaw is { Count: > 0 } sections)
                 {
+                    JsonRepairTrace.Note(label, candidate.Repairs);
                     var normalized = sections.Select(Normalize).ToList();
                     foreach (var section in normalized)
                     {
@@ -101,36 +95,28 @@ public static class LlmResponseJsonParser
                     }
                     return normalized;
                 }
+
+                why ??= "the reply carried no sections";
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
-                // Try the next repaired candidate.
+                why ??= JsonFault(ex);
             }
-            catch (ContentGenerationException)
-            {
-                throw;
-            }
-            candidateIndex++;
         }
 
-        var trimmedEnd = cleaned.TrimEnd();
-        var isTruncated = cleaned.Length > 0 && !trimmedEnd.EndsWith('}') && !trimmedEnd.EndsWith(']');
-        var hint = isTruncated ? " The response looks truncated — it may have hit the max output token limit." : string.Empty;
-
-        throw new ContentGenerationException(
-            $"Model did not return a valid sections array for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+        throw Unusable("sections array", label, rawContent, why);
     }
 
     /// <summary>Parses the opening lede: a heading + paragraphs + which pattern was used.</summary>
     public static (Section Lede, LedeType LedeType) ParseLede(string rawContent, string label)
     {
-        var cleaned = Clean(rawContent);
+        string? why = null;
 
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
             try
             {
-                var parsed = JsonSerializer.Deserialize<LedeResponse>(candidate, SectionJsonOptions);
+                var parsed = JsonSerializer.Deserialize<LedeResponse>(candidate.Text, SectionJsonOptions);
                 // Paragraphs are the acceptance test, not the heading. It was a non-empty heading
                 // here -- the same check already corrected in ParseLedeAndIntroduction and missed in
                 // this sibling -- so the blog and tool paths rejected every lede for the six days the
@@ -138,24 +124,22 @@ public static class LlmResponseJsonParser
                 // BuildLedeSection) and is not required for the response to be a lede.
                 if (parsed is not null && parsed.Paragraphs is { Count: > 0 })
                 {
+                    JsonRepairTrace.Note(label, candidate.Repairs);
                     var ledeType = ParseLedeTypeStrict(parsed.LedeType, label);
                     var section = Normalize(new Section("h2", string.Empty, parsed.Paragraphs, null, [], parsed.ImagePrompt));
                     ValidateContentHygiene(section, label);
                     return (section, ledeType);
                 }
+
+                why ??= parsed is null ? "the reply was JSON null" : "the lede carried no paragraphs";
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
-                // Try the next repaired candidate.
-            }
-            catch (ContentGenerationException)
-            {
-                throw;
+                why ??= JsonFault(ex);
             }
         }
 
-        throw new ContentGenerationException(
-            $"Model did not return a valid lede for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+        throw Unusable("lede", label, rawContent, why);
     }
 
     private sealed record LedeAndIntroductionResponse(LedeResponse? Lede, Section? Introduction);
@@ -164,29 +148,28 @@ public static class LlmResponseJsonParser
     /// since they cover overlapping ground) — same candidate-JSON repair loop as <see cref="ParseLede"/>.</summary>
     public static (Section Lede, LedeType LedeType, Section Introduction) ParseLedeAndIntroduction(string rawContent, string label)
     {
-        var cleaned = Clean(rawContent);
-
-        // What went wrong on the last candidate, so the refusal can say it. Without this the message
+        // What went wrong on the first candidate, so the refusal can say it. Without this the message
         // was the first 200 characters and no reason -- and the first 200 characters of a lede look
         // perfectly well formed, because the problem is always further in.
         string? why = null;
 
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
             try
             {
-                var parsed = JsonSerializer.Deserialize<LedeAndIntroductionResponse>(candidate, SectionJsonOptions);
+                var parsed = JsonSerializer.Deserialize<LedeAndIntroductionResponse>(candidate.Text, SectionJsonOptions);
                 // Paragraphs, not a heading, are what makes this a lede: an opening with a heading
                 // and no prose is not an opening. The acceptance test was a non-empty heading until
                 // 2026-09-23. The heading itself is kept when present -- see BuildLedeSection.
                 if (parsed?.Lede is not { } lede || lede.Paragraphs is not { Count: > 0 })
                 {
-                    why = parsed?.Lede is null
+                    why ??= parsed?.Lede is null
                         ? "the response carried no \"lede\" object"
                         : "the \"lede\" object carried no paragraphs";
                     continue;
                 }
 
+                JsonRepairTrace.Note(label, candidate.Repairs);
                 var ledeType = ParseLedeTypeStrict(lede.LedeType, label);
                 var ledeSection = BuildLedeSection(lede);
                 ValidateContentHygiene(ledeSection, $"{label} (lede)");
@@ -216,32 +199,11 @@ public static class LlmResponseJsonParser
             }
             catch (JsonException ex)
             {
-                // Try the next repaired candidate, keeping why this one failed.
-                why = $"JSON error: {ex.Message}";
-            }
-            catch (ContentGenerationException)
-            {
-                throw;
+                why ??= JsonFault(ex);
             }
         }
 
-        // Judged on what the model actually returned, not on `cleaned`. CandidateJsonStrings repairs
-        // unbalanced JSON by closing it, so a response cut off mid-sentence can arrive here ending in
-        // "}" and read as complete -- which is how a truncation presented as "no reason given". The
-        // repaired candidate then parses into a lede with no paragraphs, and that is the shape this
-        // refusal was reporting without saying so.
-        var rawEnd = rawContent.TrimEnd();
-        var looksTruncated = rawEnd.Length > 0 && !rawEnd.EndsWith('}') && !rawEnd.EndsWith(']');
-        var hint = looksTruncated
-            ? " The response does not end with a closing brace, so it was cut off -- most likely the "
-              + "max output token limit."
-            : string.Empty;
-
-        throw new ContentGenerationException(
-            $"Model did not return a valid lede+introduction for {label}. "
-            + $"Reason: {why ?? "no candidate parsing was attempted"}. "
-            + $"Response was {rawContent.Length} chars. "
-            + $"First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+        throw Unusable("lede+introduction", label, rawContent, why);
     }
 
     /// <summary>
@@ -280,12 +242,12 @@ public static class LlmResponseJsonParser
     private static LedeType ParseLedeTypeStrict(string? raw, string label)
     {
         if (string.IsNullOrWhiteSpace(raw))
-            throw new ContentGenerationException($"Model returned ledeType null/empty for {label} — expected one of the 12 taxonomy values.");
+            throw UnusableReply($"Model returned ledeType null/empty for {label} — expected one of the 12 taxonomy values.");
         var normalized = raw.Trim();
         if (Enum.TryParse<LedeType>(normalized, ignoreCase: true, out var parsed) && Enum.IsDefined(typeof(LedeType), parsed))
             return parsed;
         // Also accept camelCase variants that differ only by case — Enum.TryParse with ignoreCase already handles, but ensure no alias
-        throw new ContentGenerationException($"Model returned unknown ledeType '{raw}' for {label} — expected one of: {string.Join(", ", Enum.GetNames<LedeType>())}.");
+        throw UnusableReply($"Model returned unknown ledeType '{raw}' for {label} — expected one of: {string.Join(", ", Enum.GetNames<LedeType>())}.");
     }
 
     /// <summary>
@@ -355,94 +317,121 @@ public static class LlmResponseJsonParser
         // Prompt changes are not a guarantee, so this fails the generation rather than shipping it.
         if (text.TrimStart().StartsWith("Image prompt", StringComparison.OrdinalIgnoreCase))
         {
-            throw new ContentGenerationException(
+            throw UnusableReply(
                 $"Model wrote an image prompt into the prose for {label}: \"{text[..Math.Min(80, text.Length)]}\". " +
                 "Image prompts are produced by their own call and shipped as separate files, never as page text.");
         }
         if (LeakedMarkupSyntax.IsMatch(text))
         {
-            throw new ContentGenerationException(
+            throw UnusableReply(
                 $"Model typed stray formatting symbols into a plain-text field for {label}: \"{text}\". " +
                 "Plain text only — use the bold/italic/href fields instead.");
         }
     }
 
-    public static T Parse<T>(string rawContent, string label)
-    {
-        var cleaned = Clean(rawContent);
+    public static T Parse<T>(string rawContent, string label) =>
+        Parse<T>(rawContent, label, "JSON object", static _ => null);
 
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+    /// <summary>
+    /// Parses a reply into <typeparamref name="T"/> and refuses one that parses but is not usable.
+    /// <paramref name="unacceptable"/> returns the reason a parsed reply cannot be used (a field the call
+    /// requires is blank), or null when it can. It is part of the candidate loop, as the other parse
+    /// methods' acceptance tests are, so the refusal carries the same fields whichever way a reply fails.
+    /// </summary>
+    public static T Parse<T>(string rawContent, string label, string what, Func<T, string?> unacceptable)
+    {
+        string? why = null;
+
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
             try
             {
-                var parsed = JsonSerializer.Deserialize<T>(candidate, JsonOptions);
-                if (parsed is not null)
+                var parsed = JsonSerializer.Deserialize<T>(candidate.Text, JsonOptions);
+                if (parsed is null)
                 {
-                    return parsed;
+                    why ??= "the reply was JSON null";
+                    continue;
                 }
+
+                var problem = unacceptable(parsed);
+                if (problem is not null)
+                {
+                    why ??= problem;
+                    continue;
+                }
+
+                JsonRepairTrace.Note(label, candidate.Repairs);
+                return parsed;
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
-                // Try the next repaired candidate.
+                why ??= JsonFault(ex);
             }
         }
 
-        var isTruncated = cleaned.Contains('{') && !cleaned.TrimEnd().EndsWith('}');
-        var hint = isTruncated
-            ? " The response looks truncated — try a smaller local model context window or use OpenAI/Anthropic for long-form content."
-            : string.Empty;
-
-        throw new ContentGenerationException(
-            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}.{hint}");
+        throw Unusable(what, label, rawContent, why);
     }
 
     public static string ParseSocialText(string rawContent, string articleUrl, string label)
     {
-        var cleaned = Clean(rawContent);
+        string? why = null;
 
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
-            if (TryDeserializeSocial(candidate, out var text))
+            if (TryDeserializeSocial(candidate.Text, out var text, out var socialWhy))
             {
+                JsonRepairTrace.Note(label, candidate.Repairs);
                 return NormalizeSocialText(text, articleUrl);
             }
+
+            why ??= socialWhy;
         }
 
-        var strictMatch = Regex.Match(cleaned, @"""text""\s*:\s*""((?:\\.|[^""\\])*)""", RegexOptions.Singleline);
+        var unfenced = JsonReplySanitizer.StripCodeFence(rawContent);
+        var strictMatch = Regex.Match(unfenced, @"""text""\s*:\s*""((?:\\.|[^""\\])*)""", RegexOptions.Singleline);
         if (strictMatch.Success)
         {
+            JsonRepairTrace.Note(label, [SalvageTextFieldRepair]);
             return NormalizeSocialText(UnescapeJsonString(strictMatch.Groups[1].Value), articleUrl);
         }
 
         // Truncated or broken JSON — salvage the text field and ensure the link is present.
-        var salvageMatch = Regex.Match(cleaned, @"""text""\s*:\s*""(.*)", RegexOptions.Singleline);
+        var salvageMatch = Regex.Match(unfenced, @"""text""\s*:\s*""(.*)", RegexOptions.Singleline);
         if (salvageMatch.Success)
         {
             var salvaged = UnescapeJsonString(salvageMatch.Groups[1].Value.TrimEnd('"', ' ', '\r', '\n', '}'));
             if (salvaged.Length > 0)
             {
+                JsonRepairTrace.Note(label, [SalvageTextFieldRepair]);
                 return NormalizeSocialText(salvaged, articleUrl);
             }
         }
 
-        throw new ContentGenerationException(
-            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+        throw Unusable("social post", label, rawContent, why);
     }
+
+    /// <summary>
+    /// Named so the run's record shows it. The two <c>text</c>-field patterns in <see cref="ParseSocialText"/>
+    /// predate the sanitiser and are left as they were; what changed is that using one is no longer silent.
+    /// </summary>
+    private const string SalvageTextFieldRepair = "salvage-text-field";
 
     public static ColdOutreachEmailDraft ParseColdOutreach(string rawContent, string label)
     {
-        var cleaned = Clean(rawContent);
+        string? why = null;
 
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
-            if (TryDeserializeColdOutreach(candidate, out var draft))
+            if (TryDeserializeColdOutreach(candidate.Text, out var draft, out var outreachWhy))
             {
+                JsonRepairTrace.Note(label, candidate.Repairs);
                 return ValidateColdOutreach(draft, label);
             }
+
+            why ??= outreachWhy;
         }
 
-        throw new ContentGenerationException(
-            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+        throw Unusable("cold-outreach email", label, rawContent, why);
     }
 
     public static ImagePromptSectionPromptsDraft ParseSectionImagePrompts(
@@ -450,29 +439,33 @@ public static class LlmResponseJsonParser
         IReadOnlyList<ImagePromptSectionTarget> expectedSections,
         string label)
     {
-        var cleaned = Clean(rawContent);
+        string? why = null;
 
-        foreach (var candidate in CandidateJsonStrings(cleaned))
+        foreach (var candidate in JsonReplySanitizer.Candidates(rawContent))
         {
-            if (TryDeserializeSectionImagePrompts(candidate, out var draft))
+            if (TryDeserializeSectionImagePrompts(candidate.Text, out var draft, out var promptsWhy))
             {
+                JsonRepairTrace.Note(label, candidate.Repairs);
                 return ValidateSectionImagePrompts(draft, expectedSections, label);
             }
+
+            why ??= promptsWhy;
         }
 
-        throw new ContentGenerationException(
-            $"Model did not return valid JSON for {label}. First 200 chars: {rawContent[..Math.Min(200, rawContent.Length)]}");
+        throw Unusable("section image prompts", label, rawContent, why);
     }
 
-    private static bool TryDeserializeSectionImagePrompts(string json, out ImagePromptSectionPromptsDraft draft)
+    private static bool TryDeserializeSectionImagePrompts(string json, out ImagePromptSectionPromptsDraft draft, out string? why)
     {
         draft = new ImagePromptSectionPromptsDraft([]);
+        why = null;
 
         try
         {
             var parsed = JsonSerializer.Deserialize<ImagePromptSectionsResponse>(json, JsonOptions);
             if (parsed?.Sections is null || parsed.Sections.Count == 0)
             {
+                why = "the reply carried no sections";
                 return false;
             }
 
@@ -480,8 +473,9 @@ public static class LlmResponseJsonParser
                 parsed.Sections.Select(ToSectionDraft).ToList());
             return true;
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            why = JsonFault(ex);
             return false;
         }
     }
@@ -519,7 +513,7 @@ public static class LlmResponseJsonParser
 
             if (item is null)
             {
-                throw new ContentGenerationException(
+                throw UnusableReply(
                     $"{label} is missing a prompt for {expected.SourceType} section \"{expected.Heading}\" (order {expected.Order}).");
             }
 
@@ -537,7 +531,7 @@ public static class LlmResponseJsonParser
     {
         if (string.IsNullOrWhiteSpace(item.Prompt))
         {
-            throw new ContentGenerationException(
+            throw UnusableReply(
                 $"Model returned empty prompt for {expected.SourceType} section \"{expected.Heading}\" in {label}.");
         }
 
@@ -546,45 +540,35 @@ public static class LlmResponseJsonParser
 
         if (item.Width < 512 || item.Height < 512 || item.Width > 2048 || item.Height > 2048)
         {
-            throw new ContentGenerationException($"Dimensions for \"{expected.Heading}\" are out of range (512–2048).");
+            throw UnusableReply($"Dimensions for \"{expected.Heading}\" are out of range (512–2048).");
         }
 
         if (item.Width < item.Height)
         {
-            throw new ContentGenerationException($"Prompt for \"{expected.Heading}\" should be landscape (width >= height).");
+            throw UnusableReply($"Prompt for \"{expected.Heading}\" should be landscape (width >= height).");
         }
 
         if (string.IsNullOrWhiteSpace(item.ImageModel))
         {
-            throw new ContentGenerationException($"Model returned empty imageModel for \"{expected.Heading}\" in {label}.");
+            throw UnusableReply($"Model returned empty imageModel for \"{expected.Heading}\" in {label}.");
         }
 
         if (string.IsNullOrWhiteSpace(item.StylePreset))
         {
-            throw new ContentGenerationException($"Model returned empty stylePreset for \"{expected.Heading}\" in {label}.");
+            throw UnusableReply($"Model returned empty stylePreset for \"{expected.Heading}\" in {label}.");
         }
     }
 
-    private static IEnumerable<string> CandidateJsonStrings(string cleaned)
-    {
-        yield return cleaned;
-
-        var extracted = ExtractJsonObject(cleaned);
-        if (!string.IsNullOrWhiteSpace(extracted))
-        {
-            yield return extracted;
-            yield return RepairLiteralNewlinesInJsonStrings(extracted);
-        }
-    }
-
-    private static bool TryDeserializeColdOutreach(string json, out ColdOutreachEmailDraft draft)
+    private static bool TryDeserializeColdOutreach(string json, out ColdOutreachEmailDraft draft, out string? why)
     {
         draft = new ColdOutreachEmailDraft("", "", "");
+        why = null;
         try
         {
             var parsed = JsonSerializer.Deserialize<ColdOutreachResponse>(json, JsonOptions);
             if (parsed is null)
             {
+                why = "the reply was JSON null";
                 return false;
             }
 
@@ -594,8 +578,9 @@ public static class LlmResponseJsonParser
                 (parsed.CtaLabel ?? "").Trim());
             return true;
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            why = JsonFault(ex);
             return false;
         }
     }
@@ -604,17 +589,17 @@ public static class LlmResponseJsonParser
     {
         if (string.IsNullOrWhiteSpace(draft.Subject))
         {
-            throw new ContentGenerationException($"Model returned empty subject for {label}.");
+            throw UnusableReply($"Model returned empty subject for {label}.");
         }
 
         if (string.IsNullOrWhiteSpace(draft.BodyText))
         {
-            throw new ContentGenerationException($"Model returned empty body for {label}.");
+            throw UnusableReply($"Model returned empty body for {label}.");
         }
 
         if (string.IsNullOrWhiteSpace(draft.CtaLabel))
         {
-            throw new ContentGenerationException($"Model returned empty ctaLabel for {label}.");
+            throw UnusableReply($"Model returned empty ctaLabel for {label}.");
         }
 
         // Word-count range is advisory only (soft gate, same as blog/tools) — out-of-range
@@ -622,143 +607,71 @@ public static class LlmResponseJsonParser
         return draft;
     }
 
-    private static bool TryDeserializeSocial(string json, out string text)
+    private static bool TryDeserializeSocial(string json, out string text, out string? why)
     {
         text = string.Empty;
+        why = null;
         try
         {
             var parsed = JsonSerializer.Deserialize<SocialTextResponse>(json, JsonOptions);
             if (string.IsNullOrWhiteSpace(parsed?.Text))
             {
+                why = "the reply carried no text";
                 return false;
             }
 
             text = parsed.Text;
             return true;
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            why = JsonFault(ex);
             return false;
         }
     }
 
-    private static string Clean(string rawContent) => CodeFence.Replace(rawContent, string.Empty).Trim();
+    /// <summary>
+    /// The one refusal for a reply that could not be used. Every parse method ends here, so the Run log
+    /// reads the same whichever call it was: what was being parsed, why the first candidate failed, which
+    /// named repairs were tried, how long the reply was, and the start of it.
+    /// </summary>
+    /// <remarks>
+    /// Marked <see cref="ContentGenerationFailureKind.UnusableReply"/>: the model's answer, not a fault in
+    /// the code, so the run's record shows it as a reply to read rather than a stack to chase. The
+    /// truncation hint is judged on the reply as written (fence stripped), never on a repaired candidate.
+    /// </remarks>
+    private static ContentGenerationException Unusable(string what, string label, string rawContent, string? why)
+    {
+        var reply = rawContent ?? string.Empty;
+        var reason = string.IsNullOrWhiteSpace(reply)
+            ? "the reply was empty"
+            : why ?? "no candidate could be read";
+
+        var unfenced = JsonReplySanitizer.StripCodeFence(reply);
+        var looksTruncated = unfenced.Length > 0 && !unfenced.EndsWith('}') && !unfenced.EndsWith(']');
+        var hint = looksTruncated
+            ? " The reply does not end with a closing brace or bracket, so it was cut off -- most likely the max output token limit."
+            : string.Empty;
+
+        return new ContentGenerationException(
+            $"Model did not return a valid {what} for {label}. "
+            + $"Reason: {reason}. "
+            + $"Repairs tried: {JsonReplySanitizer.RepairsTried(reply)}. "
+            + $"Reply was {reply.Length} chars; first 200: {reply[..Math.Min(200, reply.Length)]}.{hint}")
+        {
+            Kind = ContentGenerationFailureKind.UnusableReply,
+        };
+    }
 
     /// <summary>
-    /// Finds the first "{" or "[" and scans for its actual matching close (tracking nesting depth
-    /// across both bracket types and skipping over brackets inside string literals) rather than
-    /// naively grabbing through the last "}" anywhere in the response. A model that appends any
-    /// trailing text after valid JSON — a closing remark, an aside that happens to contain a brace
-    /// or bracket character — would otherwise get that trailing content spliced into the "JSON"
-    /// handed to the deserializer, breaking parsing even though the actual JSON was well-formed.
-    /// Returns null if no balanced close is found (e.g. the response was genuinely truncated
-    /// mid-object/mid-array).
+    /// A model's content that broke a rule the call stated, as the same kind of failure as an unreadable reply.
+    /// Internal so a caller that checks a parsed reply's fields refuses it the way the parser does.
     /// </summary>
-    private static string? ExtractJsonObject(string raw)
-    {
-        var start = -1;
-        for (var i = 0; i < raw.Length; i++)
-        {
-            if (raw[i] is '{' or '[')
-            {
-                start = i;
-                break;
-            }
-        }
+    internal static ContentGenerationException UnusableReply(string message) =>
+        new(message) { Kind = ContentGenerationFailureKind.UnusableReply };
 
-        if (start < 0)
-        {
-            return null;
-        }
-
-        var depth = 0;
-        var inString = false;
-        var escaped = false;
-
-        for (var i = start; i < raw.Length; i++)
-        {
-            var ch = raw[i];
-
-            if (escaped)
-            {
-                escaped = false;
-                continue;
-            }
-
-            if (ch == '\\' && inString)
-            {
-                escaped = true;
-                continue;
-            }
-
-            if (ch == '"')
-            {
-                inString = !inString;
-                continue;
-            }
-
-            if (inString)
-            {
-                continue;
-            }
-
-            if (ch is '{' or '[')
-            {
-                depth++;
-            }
-            else if (ch is '}' or ']')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    return raw[start..(i + 1)];
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static string RepairLiteralNewlinesInJsonStrings(string json)
-    {
-        var result = new System.Text.StringBuilder(json.Length);
-        var inString = false;
-        var escaped = false;
-
-        foreach (var ch in json)
-        {
-            if (escaped)
-            {
-                result.Append(ch);
-                escaped = false;
-                continue;
-            }
-
-            if (ch == '\\' && inString)
-            {
-                result.Append(ch);
-                escaped = true;
-                continue;
-            }
-
-            if (ch == '"')
-            {
-                inString = !inString;
-                result.Append(ch);
-                continue;
-            }
-
-            if (inString && (ch == '\r' || ch == '\n'))
-            {
-                result.Append("\\n");
-                continue;
-            }
-
-            result.Append(ch);
-        }
-
-        return result.ToString();
-    }
+    private static string JsonFault(JsonException ex) =>
+        $"JSON error at byte {ex.BytePositionInLine} (path {ex.Path}): {ex.Message}";
 
     private static string UnescapeJsonString(string value)
     {

@@ -22,7 +22,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public class GccGenerateServiceImagePromptTests
 {
-    private sealed class ScriptedProvider(string response) : IContentGenerationProvider
+    internal sealed class ScriptedProvider(string response) : IContentGenerationProvider
     {
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
         public List<ChatCompletionRequest> Requests { get; } = [];
@@ -35,13 +35,13 @@ public class GccGenerateServiceImagePromptTests
         }
     }
 
-    private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
+    internal sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
     {
         public IContentGenerationProvider Get(LlmProviderType providerType) => provider;
         public IContentGenerationProvider GetDefault() => provider;
     }
 
-    private static GccGenerateService Build(IContentGenerationProvider provider) => new(
+    internal static GccGenerateService Build(IContentGenerationProvider provider) => new(
         new ContentPromptBuilder(),
         TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
@@ -109,11 +109,12 @@ public class GccGenerateServiceImagePromptTests
         var provider = new ScriptedProvider(promptsResponse);
         var service = Build(provider);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<ContentGenerationException>(() =>
             service.GenerateSectionImagePromptsAsync(
                 "pillar", "Test Title", TwoSectionDocumentJson(), null,
                 ContentGeneratorProvider.OpenAi, CancellationToken.None));
 
+        Assert.Equal(ContentGenerationFailureKind.UnusableReply, ex.Kind);
         // The message has to say what was expected and what arrived -- "image prompts failed" sends
         // the reader back to the logs, which is the pattern this codebase keeps paying for.
         Assert.Contains("expected 3", ex.Message, StringComparison.Ordinal);
@@ -126,9 +127,12 @@ public class GccGenerateServiceImagePromptTests
         var provider = new ScriptedProvider("""{"prompts":[]}""");
         var service = Build(provider);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<ContentGenerationException>(() =>
             service.GenerateSectionImagePromptsAsync(
                 "pillar", "Test Title", TwoSectionDocumentJson(), null, ContentGeneratorProvider.OpenAi, CancellationToken.None));
+
+        Assert.Equal(ContentGenerationFailureKind.UnusableReply, ex.Kind);
+        Assert.Contains("the reply carried no prompts", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

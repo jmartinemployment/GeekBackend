@@ -1,3 +1,5 @@
+using GeekAPI.Services.Workflow.Providers;
+
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
@@ -5,12 +7,14 @@ namespace GeekAPI.Services.ContentCreator;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A run says two different things with an exception. A <b>refusal</b> ("Refused: the pillar. ...") is
-/// the run declining a draft or a request on purpose, and its message is the whole story. A <b>fault</b>
-/// is anything else: a bug, a bad row, a service that was down, a model reply nobody could parse. Its
-/// message is rarely enough, so the record carries its type, its stack and its inner exceptions. Until
-/// 2026-10-07 the record kept only <c>ex.Message</c>, so a fault in the code read the same as a draft
-/// that broke a rule.
+/// A run says three different things with an exception. A <b>refusal</b> ("Refused: the pillar. ...") is
+/// the run declining a draft or a request on purpose, and its message is the whole story. An
+/// <b>unusable reply</b> is the model's answer that could not be read, or that broke a rule the call stated;
+/// its message names the reason, the repairs tried and the start of the reply. A <b>fault</b> is anything
+/// else: a bug, a bad row, a service that was down. Its message is rarely enough, so the record carries
+/// its type, its stack and its inner exceptions. Until 2026-10-07 the record kept only <c>ex.Message</c>,
+/// so a fault in the code read the same as a draft that broke a rule, and a stray quote in a reply read as
+/// a fault in the code.
 /// </para>
 /// <para>
 /// The stack of a refusal is left out: it names the line that threw the refusal, which says nothing the
@@ -26,9 +30,19 @@ internal static class GccRunFault
 
     /// <summary>
     /// Whether the exception is a refusal: the run declining, in words, on purpose. Every refusal the
-    /// generators throw says "Refused:", and a joined failure names each type's refusal the same way.
+    /// generators throw says "Refused:", and a joined failure names each type's refusal the same way. A
+    /// model reply nobody could use is one too: its message names the reason, the repairs tried and the
+    /// start of the reply, and a stack would only point at the parser.
     /// </summary>
-    internal static bool IsRefusal(Exception ex) => ex.Message.Contains("Refused:", StringComparison.Ordinal);
+    internal static bool IsRefusal(Exception ex) =>
+        IsUnusableReply(ex) || ex.Message.Contains("Refused:", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether the model answered and the answer could not be used. Until 2026-10-07 this was
+    /// classified as a fault in the code, so the record carried a stack for a stray quote in a reply.
+    /// </summary>
+    internal static bool IsUnusableReply(Exception ex) =>
+        ex is ContentGenerationException { Kind: ContentGenerationFailureKind.UnusableReply };
 
     /// <summary>The exception as the run's record writes it.</summary>
     internal static object Describe(Exception ex)
@@ -36,7 +50,7 @@ internal static class GccRunFault
         var refusal = IsRefusal(ex);
         return new
         {
-            kind = refusal ? "refusal" : "fault",
+            kind = IsUnusableReply(ex) ? "unusable-reply" : refusal ? "refusal" : "fault",
             type = ex.GetType().FullName,
             message = ex.Message,
             stackTrace = refusal ? null : Trimmed(ex.StackTrace),

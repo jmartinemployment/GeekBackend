@@ -1214,24 +1214,27 @@ public class GccGenerateService
         var result = await llm.CompleteAsync(
             _prompts.BuildStandaloneImagePrompt(topic, notes, artifactContext),
             ct);
-        var raw = result.Content?.Trim() ?? string.Empty;
 
-        try
-        {
-            using var _ = JsonDocument.Parse(raw);
-            return raw;
-        }
-        catch
-        {
-            return JsonSerializer.Serialize(new
-            {
-                prompt = raw,
-                style = "Illustration",
-                negativePrompt = "readable text, logos, watermarks",
-                aspectRatio = "16:9",
-            }, JsonOpts);
-        }
+        // The model's own fields, read and written back by this code. A reply that is not an image prompt
+        // is refused. It used to be wrapped whole as the `prompt` with a canned style, which put whatever the
+        // model had said -- an apology, an explanation, a half-written object -- into the field an image is
+        // generated from, and called it a success.
+        var reply = LlmResponseJsonParser.Parse<StandaloneImagePromptReply>(
+            result.Content ?? string.Empty,
+            "the page's image prompt",
+            "image prompt",
+            static r => string.IsNullOrWhiteSpace(r.Prompt) ? "the reply carried no prompt" : null);
+        return JsonSerializer.Serialize(reply, JsonOpts);
     }
+
+    private sealed record StandaloneImagePromptReply(
+        string? Prompt,
+        string? Style,
+        string? NegativePrompt,
+        string? AspectRatio,
+        string? ImageModel,
+        string? StylePreset,
+        string? Notes);
 
     public async Task<string> GenerateRepurposePackAsync(
         string sourceJson,
@@ -1257,36 +1260,19 @@ public class GccGenerateService
             ],
             Temperature: 0.4);
         var result = await llm.CompleteAsync(request, ct);
-        var raw = result.Content?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(raw))
-            throw new InvalidOperationException("Social/ads pack LLM returned empty content.");
 
-        // Strip code fences if the model wraps JSON.
-        if (raw.StartsWith("```", StringComparison.Ordinal))
-        {
-            var start = raw.IndexOf('{');
-            var end = raw.LastIndexOf('}');
-            if (start < 0 || end <= start)
-                throw new InvalidOperationException("Social/ads pack LLM returned non-JSON content.");
-            raw = raw[start..(end + 1)];
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(raw);
-            if (!doc.RootElement.TryGetProperty("variants", out var variants)
-                || variants.ValueKind != JsonValueKind.Array
-                || variants.GetArrayLength() == 0)
-            {
-                throw new InvalidOperationException("Social/ads pack JSON missing non-empty variants array.");
-            }
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidOperationException("Social/ads pack LLM returned invalid JSON.", ex);
-        }
-
-        return raw;
+        var pack = LlmResponseJsonParser.Parse<JsonElement>(
+            result.Content ?? string.Empty,
+            "the repurpose request",
+            "social/ads pack",
+            static element =>
+                element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty("variants", out var variants)
+                && variants.ValueKind == JsonValueKind.Array
+                && variants.GetArrayLength() > 0
+                    ? null
+                    : "the reply carried no non-empty variants array");
+        return pack.GetRawText();
     }
 
     public static IReadOnlyList<PackVariant> ParsePackVariants(string packJson)
@@ -2398,22 +2384,23 @@ public class GccGenerateService
             MaxOutputTokens: 1024);
 
         var result = await llm.CompleteAsync(request, ct);
-        var raw = result.Content?.Trim() ?? "";
 
-        if (string.IsNullOrWhiteSpace(raw))
-            throw new InvalidOperationException("Email generation returned empty content.");
-
-        if (raw.StartsWith("```"))
-        {
-            var start = raw.IndexOf('{');
-            var end = raw.LastIndexOf('}');
-            if (start < 0 || end <= start)
-                throw new InvalidOperationException("Email generation returned non-JSON content.");
-            raw = raw[start..(end + 1)];
-        }
-
-        return raw;
+        // The page stores what this code wrote from the model's fields, not the model's text: a reply that
+        // cannot be read is refused here instead of being saved as the page's body. It used to be returned
+        // trimmed and unparsed, so a malformed reply became a stored email.
+        var email = LlmResponseJsonParser.Parse<ColdEmailReply>(
+            result.Content ?? string.Empty,
+            "the email page",
+            "cold-outreach email",
+            static r =>
+                string.IsNullOrWhiteSpace(r.Subject) ? "the reply carried no subject"
+                : string.IsNullOrWhiteSpace(r.Body) ? "the reply carried no body"
+                : string.IsNullOrWhiteSpace(r.CtaLabel) ? "the reply carried no ctaLabel"
+                : null);
+        return JsonSerializer.Serialize(email, JsonOpts);
     }
+
+    private sealed record ColdEmailReply(string? Subject, string? Body, string? CtaLabel);
 
     public async Task<string> GenerateSocialPostAsync(
         GccCreateDto create,
@@ -2462,22 +2449,17 @@ public class GccGenerateService
             MaxOutputTokens: maxTokens);
 
         var result = await llm.CompleteAsync(request, ct);
-        var raw = result.Content?.Trim() ?? "";
 
-        if (string.IsNullOrWhiteSpace(raw))
-            throw new InvalidOperationException($"{platform} generation returned empty content.");
-
-        if (raw.StartsWith("```"))
-        {
-            var start = raw.IndexOf('{');
-            var end = raw.LastIndexOf('}');
-            if (start < 0 || end <= start)
-                throw new InvalidOperationException($"{platform} generation returned non-JSON content.");
-            raw = raw[start..(end + 1)];
-        }
-
-        return raw;
+        // Stored as this code wrote it from the model's text field; see GenerateEmailAsync.
+        var post = LlmResponseJsonParser.Parse<SocialPostReply>(
+            result.Content ?? string.Empty,
+            $"the {platform} page",
+            "social post",
+            static r => string.IsNullOrWhiteSpace(r.Text) ? "the reply carried no text" : null);
+        return JsonSerializer.Serialize(post, JsonOpts);
     }
+
+    private sealed record SocialPostReply(string? Text);
 
     /// <summary>
     /// A pillar body as a <see cref="ContentDocument"/>, serialized. Never markup: the model
@@ -3727,24 +3709,13 @@ public class GccGenerateService
             MaxOutputTokens: 2048);
 
         var result = await llm.CompleteAsync(request, ct);
-        var raw = result.Content?.Trim() ?? "";
 
-        if (string.IsNullOrWhiteSpace(raw))
-            throw new InvalidOperationException("Image prompts generation returned empty content.");
-
-        if (raw.StartsWith("```"))
-        {
-            var start = raw.IndexOf('{');
-            var end = raw.LastIndexOf('}');
-            if (start < 0 || end <= start)
-                throw new InvalidOperationException("Image prompts generation returned non-JSON content.");
-            raw = raw[start..(end + 1)];
-        }
-
-        var parsed = JsonSerializer.Deserialize<SectionImagePromptsResponse>(raw, JsonOpts);
-        var prompts = parsed?.Prompts ?? [];
-        if (prompts.Count == 0)
-            throw new InvalidOperationException("Image prompts generation returned no prompts.");
+        var parsed = LlmResponseJsonParser.Parse<SectionImagePromptsResponse>(
+            result.Content ?? string.Empty,
+            $"the {contentType} page",
+            "set of section image prompts",
+            static r => r.Prompts is { Count: > 0 } ? null : "the reply carried no prompts");
+        var prompts = parsed.Prompts ?? [];
 
         // One per section is the whole contract -- the system prompt says "EXACTLY ONE prompt for
         // EACH listed section" and they are assigned positionally below. A short list used to be
@@ -3755,7 +3726,7 @@ public class GccGenerateService
         // Expected is the listed sections plus the hero at index 0.
         var expectedPrompts = sections.Count + 1;
         if (prompts.Count < expectedPrompts)
-            throw new InvalidOperationException(
+            throw LlmResponseJsonParser.UnusableReply(
                 $"Image prompts for {contentType}: expected {expectedPrompts} (one hero plus one per "
                 + $"H2), received {prompts.Count}. Not attaching a partial set.");
 

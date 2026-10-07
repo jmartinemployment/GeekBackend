@@ -84,5 +84,19 @@ public class ContentGenerationException : Exception
 
     /// <summary>The provider's stop reason for a call that came back but could not be used.</summary>
     public string? FinishReason { get; init; }
+
+    /// <summary>What kind of failure this is, so a run's record can tell a model's unusable answer from a
+    /// fault in the code. <see cref="ContentGenerationFailureKind.Other"/> is everything that was not
+    /// named.</summary>
+    public ContentGenerationFailureKind Kind { get; init; }
+}
+
+public enum ContentGenerationFailureKind
+{
+    Other = 0,
+
+    /// <summary>The model answered, and the answer could not be used: not JSON after every named repair, or
+    /// JSON without the content the call asked for. The model's output, not a bug in the code.</summary>
+    UnusableReply = 1,
 }
 
