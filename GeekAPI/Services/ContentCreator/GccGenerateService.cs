@@ -3392,9 +3392,9 @@ public class GccGenerateService
             var keywordMentionsOwed = string.IsNullOrWhiteSpace(keyword)
                 ? 0
                 : ContentPromptBuilder.SeoKeywordMentionsFor(type.Key, batch.Count, outline.Count);
-            // The first batch carries the page's keyword heading: the same rule every body prompt
-            // hands SeoBodyInstruction (batchIndex == 0).
-            var owesKeywordHeading = i == 0;
+            // The batch that carries the page's keyword heading: the same rule every body prompt hands
+            // SeoBodyInstruction, from the one definition (SectionSlot.BatchOwnsKeywordHeading).
+            var owesKeywordHeading = SectionSlot.BatchOwnsKeywordHeading(batch, outline, i / SectionsPerBatch);
             var owed = BatchShortfalls(sections, batch, batchLabel, keyword, keywordMentionsOwed, owesKeywordHeading);
             await GccRunLog.RecordIfAnyAsync("batch", new
             {

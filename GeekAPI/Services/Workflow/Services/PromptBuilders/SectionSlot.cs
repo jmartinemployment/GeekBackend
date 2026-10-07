@@ -43,6 +43,30 @@ public sealed record SectionSlot(
     string? Depth = null,
     string? Guidance = null)
 {
+    /// <summary>
+    /// True when the page's keyword-bearing H2 belongs in this section. The type that owns the outline says which
+    /// one, because only it knows which section can carry the phrase honestly: the Blog's first two sections are
+    /// about doing the work <i>by hand</i>, and a heading there cannot read "Automated Approval Workflows"
+    /// without contradicting what the section covers (the Blog of 2026-10-07 wrote "Manual Approval Workflows"
+    /// and was reported as having no keyword heading). Read through <see cref="BatchOwnsKeywordHeading"/>.
+    /// </summary>
+    public bool OwnsKeywordHeading { get; init; }
+
+    /// <summary>
+    /// Whether a call writing <paramref name="batch"/> is the one asked for the page's keyword heading, and the one
+    /// held to it. One definition for the prompt that asks and the check that counts, so a batch is never asked
+    /// for something it is not measured on or measured on something it was not asked for.
+    /// </summary>
+    /// <remarks>
+    /// An outline that names an owner is held to it. One that names none keeps the rule every type had until
+    /// 2026-10-07: the first batch owns it.
+    /// </remarks>
+    public static bool BatchOwnsKeywordHeading(
+        IReadOnlyList<SectionSlot> batch, IReadOnlyList<SectionSlot>? fullOutline, int batchIndex) =>
+        fullOutline is { } outline && outline.Any(slot => slot.OwnsKeywordHeading)
+            ? batch.Any(slot => slot.OwnsKeywordHeading)
+            : batchIndex == 0;
+
     /// <summary>A heading a planning call wrote for this page. Write it as given.</summary>
     public static SectionSlot Assigned(string heading) => new(Heading: heading);
 

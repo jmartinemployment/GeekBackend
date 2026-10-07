@@ -78,12 +78,13 @@ public class GccOpeningAsksNothingTests
 
     [Theory]
     [MemberData(nameof(EveryLedePrompt))]
-    public void Every_opening_is_told_it_asks_nothing_of_the_reader_and_where_a_link_may_go(string which)
+    public void Every_opening_is_told_it_asks_nothing_of_the_reader_and_carries_no_links(string which)
     {
         var prompt = Prompt(Build(which));
 
         Assert.Contains(Ask, prompt, StringComparison.Ordinal);
-        Assert.Contains("A link in the opening goes only to a page whose address is printed in this prompt.", prompt, StringComparison.Ordinal);
+        Assert.Contains("The opening carries no links.", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("A link in the opening goes only to", prompt, StringComparison.Ordinal);
     }
 
     [Theory]

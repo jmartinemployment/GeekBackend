@@ -129,6 +129,7 @@ public static partial class GccDraftGuard
 
         AddLinkFindings(document, inputs, findings);
         AddLinkTextFindings(document, findings);
+        AddOpeningLinkFindings(document, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
         AddClosingFinding(document, inputs, findings);
@@ -181,6 +182,7 @@ public static partial class GccDraftGuard
 
         AddLinkFindings(document, inputs, findings);
         AddLinkTextFindings(document, findings);
+        AddOpeningLinkFindings(document, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
 
@@ -275,6 +277,35 @@ public static partial class GccDraftGuard
             + $"A link sits on the name of what it leads to, {MaxLinkWords} words at most.",
             Refuses: true));
     }
+
+    /// <summary>
+    /// The opening carries no links. Reported with the draft, not refused: the page is saved as written and the
+    /// operator is told which words in the opening were linked.
+    /// </summary>
+    /// <remarks>
+    /// The opening prompts said "a link in the opening goes only to a page whose address is printed in this
+    /// prompt", which permits one, and in the 2026-10-07 run the Blog's opening linked the publisher's home page
+    /// and the Bill, Ramp and Stampli openings linked the vendors' own sites, while the Pillar's linked nothing.
+    /// The prompts now say the opening carries no links; this is what makes that a check and not a request.
+    /// </remarks>
+    private static void AddOpeningLinkFindings(ContentDocument document, List<GccGuardFinding> into)
+    {
+        var linked = OpeningSections(document.Lede)
+            .SelectMany(section => section.Paragraphs)
+            .SelectMany(Runs)
+            .Where(run => !string.IsNullOrWhiteSpace(run.Href))
+            .ToList();
+        if (linked.Count == 0) return;
+
+        var named = string.Join("; ", linked.Select(run => $"\"{Opening(run.Text)}\" ({run.Href!.Trim()})"));
+        into.Add(new GccGuardFinding(
+            "opening-links",
+            $"The opening links {linked.Count} place(s): {named}. The opening carries no links. The draft is saved as written.",
+            Refuses: false));
+    }
+
+    private static IEnumerable<Section> OpeningSections(Section section) =>
+        new[] { section }.Concat(section.Children.SelectMany(OpeningSections));
 
     private static int WordCount(string? text) =>
         (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;

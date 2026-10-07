@@ -386,4 +386,49 @@ public class GccDraftGuardTests
         Assert.True(GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: null)).Clean);
         Assert.Contains("quotation", Failed(GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: []))));
     }
+
+    // ---- the opening carries no links ----------------------------------------------------------------
+
+    private static ContentDocument DocWithOpening(Section opening) =>
+        new(opening, [Body("How it routes", Text("Approvals route by amount.")), Closing]);
+
+    [Fact]
+    public void A_link_in_the_opening_is_reported_with_the_draft_on_every_type_and_never_refuses_it()
+    {
+        var doc = DocWithOpening(new Section(
+            "h2", "Opening", [new TextParagraph([new Run("As outlined on "), new Run("Geek's site", Href: PartnerPage)])], null, []));
+
+        foreach (var verdict in new[]
+                 {
+                     GccDraftGuard.Pillar(doc, Inputs()), GccDraftGuard.Blog(doc, Inputs()), GccDraftGuard.Tool(doc, Inputs()),
+                 })
+        {
+            var finding = Assert.Single(verdict.Findings, f => f.Check == "opening-links");
+            Assert.False(finding.Refuses);
+            Assert.Contains("Geek's site", finding.Detail, StringComparison.Ordinal);
+            Assert.Contains(PartnerPage, finding.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain(verdict.Refusals, f => f.Check == "opening-links");
+        }
+    }
+
+    [Fact]
+    public void A_link_in_a_section_nested_under_the_opening_is_part_of_the_opening()
+    {
+        var child = new Section("h3", "Nested", [new TextParagraph([new Run("named", Href: PartnerPage)])], null, []);
+        var doc = DocWithOpening(new Section("h2", "Opening", [Text("An opening.")], null, [child]));
+
+        Assert.Contains("opening-links", Failed(GccDraftGuard.Pillar(doc, Inputs())));
+    }
+
+    [Fact]
+    public void An_opening_with_no_link_is_not_reported_and_links_in_the_body_are_not_the_openings()
+    {
+        var doc = DocWithOpening(new Section("h2", "Opening", [Text("An opening.")], null, []));
+        var withBodyLink = new ContentDocument(
+            doc.Lede, [Body("How it routes", Text("Approvals route by amount.", PartnerPage)), Closing]);
+
+        Assert.DoesNotContain("opening-links", Failed(GccDraftGuard.Pillar(doc, Inputs())));
+        Assert.DoesNotContain("opening-links", Failed(GccDraftGuard.Blog(withBodyLink, Inputs())));
+        Assert.DoesNotContain("opening-links", Failed(GccDraftGuard.Tool(withBodyLink, Inputs())));
+    }
 }

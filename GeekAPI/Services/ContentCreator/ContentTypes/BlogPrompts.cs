@@ -82,17 +82,24 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
                     + "points, and no tool is named here -- this section is the problem, stated so plainly that "
                     + "the rest of the page has something to solve.",
                     niche?.FailuresGuidance())),
+            // The page's keyword heading belongs here: this is the section about the work once it is automated,
+            // so the exact phrase reads true in its heading. The two before it are about doing it by hand.
+            //
+            // It names the tools in the prose and says nothing about linking them. The blog's sentence also said
+            // "Link the first substantive mention"; the pillar has no such sentence, and its tools are linked
+            // correctly by the tools block every long-form body prompt shares, which gives each tool its path
+            // (Jeff, 2026-10-07: copy how the pillar links tools). What follows the naming sentence is the
+            // pillar's "how the approach works" guidance, word for word.
             SectionSlot.Cover(
                 $"how the work changes once {keyword} is automated -- the mechanics, in the order they happen",
                 depth,
                 With(
                     With(
                         "Name the partner tools that do this part of the work, in the prose, where the explanation "
-                        + "reaches them -- what each one does about THIS step, not what it is in general. Link the "
-                        + "first substantive mention. Never a heading, never a sub-section, never one paragraph per "
-                        + "product.",
+                        + "reaches them -- what each one does about THIS step, not what it is in general. Never a "
+                        + "heading, never a sub-section, never one paragraph per product.",
                         niche?.ApproachGuidance()),
-                    GccPublisherPositions.ApproachSlotGuidance)),
+                    GccPublisherPositions.ApproachSlotGuidance)) with { OwnsKeywordHeading = true },
             SectionSlot.Cover(
                 $"what separates an implementation of {keyword} that holds up from one that stalls",
                 depth,

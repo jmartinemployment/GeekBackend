@@ -121,12 +121,14 @@ public static class LlmResponseJsonParser
                 // here -- the same check already corrected in ParseLedeAndIntroduction and missed in
                 // this sibling -- so the blog and tool paths rejected every lede for the six days the
                 // contract had no heading key. The heading is kept when it is there (see
-                // BuildLedeSection) and is not required for the response to be a lede.
+                // BuildLedeSection) and is not required for the response to be a lede. It was thrown
+                // away here, hardcoded to empty, so the Blog and every tool page opened with no H2 of
+                // their own while the pillar kept its (2026-10-07).
                 if (parsed is not null && parsed.Paragraphs is { Count: > 0 })
                 {
                     JsonRepairTrace.Note(label, WithFormattingDrop(candidate.Repairs, HasWriterFormatting(parsed.Paragraphs)));
                     var ledeType = ParseLedeTypeStrict(parsed.LedeType, label);
-                    var section = Normalize(new Section("h2", string.Empty, parsed.Paragraphs, null, [], parsed.ImagePrompt));
+                    var section = BuildLedeSection(parsed);
                     ValidateContentHygiene(section, label);
                     return (section, ledeType);
                 }

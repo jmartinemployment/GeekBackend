@@ -1155,7 +1155,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     private const string LedeAskInstruction =
         "THE OPENING ASKS NOTHING OF THE READER: it ends on its own material. The page's one invitation to " +
         "the reader sits at its end, so this opening does not ask them to book, call, sign up or click. " +
-        "A link in the opening goes only to a page whose address is printed in this prompt.";
+        "The opening carries no links.";
 
     /// <summary>
     /// The lede carries a heading. It is this page's first H2 -- <c>PillarPrompts</c> says so
@@ -1937,7 +1937,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccV2LongFormTypes.Pillar,
                 // The lede wrote fullOutline[0], so the body's own sections are what remains.
-                slots.Count, Math.Max(slots.Count, fullOutline.Count - 1), batchIndex == 0))
+                slots.Count, Math.Max(slots.Count, fullOutline.Count - 1),
+                SectionSlot.BatchOwnsKeywordHeading(slots, fullOutline, batchIndex)))
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine(namesItsOwn
                 ? "Write these sections, in this order. Each numbered entry says what the section must cover; you write its heading:"
@@ -2432,7 +2433,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 : string.Empty)
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccV2LongFormTypes.Blog,
-                blogBatch.Count, blogOutline.Count, batchIndex == 0))
+                blogBatch.Count, blogOutline.Count,
+                SectionSlot.BatchOwnsKeywordHeading(blogBatch, blogOutline, batchIndex)))
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine($"Blog meta description: {metadata.MetaDescription}")
@@ -2838,7 +2840,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 : string.Empty)
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccV2LongFormTypes.Tool,
-                outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count), batchIndex == 0))
+                outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count),
+                SectionSlot.BatchOwnsKeywordHeading(outline, fullOutline, batchIndex)))
             // One statement about length, and it agrees with the scorer. Quality still beats count
             // (Jeff, 2026-09-23), which is why padding and invention stay banned -- but the answer to
             // thin evidence is depth on what the evidence does support, not a shorter page.
