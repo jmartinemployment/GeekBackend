@@ -134,4 +134,29 @@ public class GccNicheFramingEvidenceTests
         Assert.Equal("Payments are executed ad hoc.", row.Need);
         Assert.Equal("scheduled payment runs", row.Keyword);
     }
+
+    /// <summary>
+    /// The tool page FAQ (2026-10-08): the operator's questions live in the tool's own perTool entry,
+    /// one per line or as an array, and are read for that tool only -- the category has no FAQ for a
+    /// tool page, so a tool without an entry gets none.
+    /// </summary>
+    [Fact]
+    public void Tool_faq_questions_are_read_from_the_tools_own_entry_only()
+    {
+        const string brief = """
+            { "nicheFraming": {
+                "faqQuestions": "A category question that no tool page answers",
+                "perTool": {
+                  "tipalti.com": { "faqQuestions": "Does it sync with QuickBooks Online?\n\nCan a bookkeeper schedule a payment the owner releases?" },
+                  "melio.com": { "faqQuestions": ["Does Melio pay by card?"] }
+                } } }
+            """;
+
+        Assert.Equal(
+            ["Does it sync with QuickBooks Online?", "Can a bookkeeper schedule a payment the owner releases?"],
+            GccNicheFramingReader.ToolFaqQuestions(brief, PartnerUrls, "Tipalti"));
+        Assert.Equal(["Does Melio pay by card?"], GccNicheFramingReader.ToolFaqQuestions(brief, PartnerUrls, "Melio"));
+        Assert.Empty(GccNicheFramingReader.ToolFaqQuestions(brief, PartnerUrls, "Bill"));
+        Assert.Empty(GccNicheFramingReader.ToolFaqQuestions(brief, null, "Tipalti"));
+    }
 }

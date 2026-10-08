@@ -98,6 +98,23 @@ public interface IContentPromptBuilder
         bool isRegeneration,
         string? revisionNotes = null);
 
+    /// <summary>The blog's FAQ from the brief's own questions -- the pillar's People Also Ask shape,
+    /// headed "Frequently Asked Questions" on a BlogPosting.</summary>
+    ChatCompletionRequest BuildBlogFaqSectionPrompt(
+        ProjectGenerationContext context,
+        BlogMetadataDraft metadata,
+        IReadOnlyList<string> faqQuestions);
+
+    /// <summary>The tool page's FAQ from the operator's questions, answered only from the partner's
+    /// retrieved pages in <paramref name="evidenceBlock"/>; a question no passage answers is left out
+    /// (the caller reports it), never answered from general knowledge.</summary>
+    ChatCompletionRequest BuildToolFaqFromQuestionsPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft pillarMetadata,
+        SchemaBuilders.SoftwareApplicationDescriptor app,
+        IReadOnlyList<string> questions,
+        string evidenceBlock);
+
 
 
     ChatCompletionRequest BuildBlogMetadataPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle);
@@ -2098,7 +2115,33 @@ public class ContentPromptBuilder : IContentPromptBuilder
         ArticleMetadataDraft metadata,
         IReadOnlyList<string> faqQuestions,
         bool isRegeneration,
-        string? revisionNotes = null)
+        string? revisionNotes = null) =>
+        FaqSectionPrompt(
+            context, metadata.Title, faqQuestions,
+            pageKind: "TechnicalArticle pillar", heading: "People Also Ask", isRegeneration, revisionNotes);
+
+    public ChatCompletionRequest BuildBlogFaqSectionPrompt(
+        ProjectGenerationContext context,
+        BlogMetadataDraft metadata,
+        IReadOnlyList<string> faqQuestions) =>
+        FaqSectionPrompt(
+            context, metadata.Title, faqQuestions,
+            pageKind: "BlogPosting blog", heading: "Frequently Asked Questions", isRegeneration: false, revisionNotes: null);
+
+    /// <summary>
+    /// One FAQ section from the operator's own questions, for the pillar (People Also Ask) and the
+    /// blog (Frequently Asked Questions) alike; the two differ only in the page named and the heading.
+    /// Called once per batch of questions (<c>GccGenerateService.WriteFaqInBatchesAsync</c>), so a
+    /// long list never meets the 3,072-token budget in one reply.
+    /// </summary>
+    private ChatCompletionRequest FaqSectionPrompt(
+        ProjectGenerationContext context,
+        string title,
+        IReadOnlyList<string> faqQuestions,
+        string pageKind,
+        string heading,
+        bool isRegeneration,
+        string? revisionNotes)
     {
         var paaBlock = string.Join("\n", faqQuestions.Select((q, i) => $"  - Q{i + 1}: {q}"));
 
@@ -2107,10 +2150,10 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("You are a senior technical content writer for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(briefBody)
-            .AppendLine("Write ONLY the \"People Also Ask\" FAQ section of a TechnicalArticle pillar.")
+            .AppendLine($"Write ONLY the \"{heading}\" FAQ section of a {pageKind}.")
             .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
             .AppendLine(SectionJsonContract)
-            .AppendLine("This section's tag is \"h2\" and heading is exactly \"People Also Ask\". Each question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
+            .AppendLine($"This section's tag is \"h2\" and heading is exactly \"{heading}\". Each question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
             .AppendLine("Direct, factual answers. Third person.")
             .AppendLine($"Answers must sound like {context.PublisherName} ({context.ImplementerPositioning}), not a generic textbook FAQ — reflect the same consultative brand voice as the rest of the article, not interchangeable boilerplate.")
             .ToString();
@@ -2120,7 +2163,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             system += Environment.NewLine + "REGENERATION: use fresh phrasing.";
         }
 
-        var revisionBlock = BuildRevisionNotesBlock(revisionNotes, sectionHeading: "People Also Ask");
+        var revisionBlock = BuildRevisionNotesBlock(revisionNotes, sectionHeading: heading);
         if (revisionBlock is not null)
         {
             system += Environment.NewLine + revisionBlock;
@@ -2128,9 +2171,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
         var user = new StringBuilder()
             .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleFaq,
-                "Write the People Also Ask FAQ section."))
+                $"Write the {heading} FAQ section."))
             .AppendLine()
-            .AppendLine($"Article title: {metadata.Title}")
+            .AppendLine($"Article title: {title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine()
             .AppendLine("Questions to answer:")
@@ -2140,6 +2183,47 @@ public class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionSchema(new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
             Temperature: isRegeneration ? 0.7 : 0.6,
+            MaxOutputTokens: 3072));
+    }
+
+    public ChatCompletionRequest BuildToolFaqFromQuestionsPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft pillarMetadata,
+        SchemaBuilders.SoftwareApplicationDescriptor app,
+        IReadOnlyList<string> questions,
+        string evidenceBlock)
+    {
+        var questionBlock = string.Join("\n", questions.Select((q, i) => $"  - Q{i + 1}: {q}"));
+
+        var system = new StringBuilder()
+            .AppendLine("You are a senior technical writer for an IT consulting firm.")
+            .AppendLine(BrandTones.ForWebpages())
+            .AppendLine($"Write ONLY the FAQ section of the tool overview page for {app.Name}, answering the operator's questions.")
+            .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
+            .AppendLine(SectionJsonContract)
+            .AppendLine("This section's tag is \"h2\" and heading is exactly \"Frequently Asked Questions\". Each answered " +
+                "question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
+            .AppendLine($"Answer ONLY from the PARTNER EVIDENCE in the user message -- {app.Name}'s own pages. If no passage " +
+                "answers a question, LEAVE THAT QUESTION OUT: no child for it and no placeholder. Never answer from general " +
+                "knowledge, and never state a capability, price or figure the evidence does not state.")
+            .AppendLine($"Answers sound like {context.PublisherName} ({context.ImplementerPositioning}): third person, direct, factual.")
+            .AppendLine(CurrencyInstruction)
+            .AppendLine(LinkTextInstruction)
+            .ToString();
+
+        var user = new StringBuilder()
+            .AppendLine($"Tool name: {app.Name}")
+            .AppendLine($"Page topic: {pillarMetadata.Title}")
+            .AppendLine("Questions to answer, only where the evidence answers them:")
+            .AppendLine(questionBlock)
+            .AppendLine()
+            .AppendLine("=== PARTNER EVIDENCE (the partner's own pages; the only source for these answers) ===")
+            .AppendLine(evidenceBlock.Length > 0 ? evidenceBlock : "(nothing was retrieved -- answer no question)")
+            .ToString();
+
+        return WithSectionSchema(new ChatCompletionRequest(
+            Messages: [new(ChatRole.System, system), new(ChatRole.User, user)],
+            Temperature: 0.3,
             MaxOutputTokens: 3072));
     }
 

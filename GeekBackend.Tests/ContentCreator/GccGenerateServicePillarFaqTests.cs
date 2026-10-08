@@ -214,7 +214,7 @@ public class GccGenerateServicePillarFaqTests
         var positions = questions.Select(q => json.IndexOf($"\"heading\":\"{q}\"", StringComparison.Ordinal)).ToList();
         Assert.All(positions, p => Assert.True(p >= 0));
         Assert.Equal(positions.OrderBy(p => p).ToList(), positions);
-        Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(json, "\"heading\":\"People Also Ask\"").Count);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, "\"heading\":\"People Also Ask\""));
     }
 
     [Fact]

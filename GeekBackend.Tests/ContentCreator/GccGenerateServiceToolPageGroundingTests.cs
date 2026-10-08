@@ -71,7 +71,8 @@ public class GccGenerateServiceToolPageGroundingTests
     private const string ToolLedeJson =
         """{"ledeType":"directAddress","heading":"Reclaiming The Hours You Lose","paragraphs":[{"type":"text","runs":[{"text":"A hook paragraph that opens the page."}]}]}""";
 
-    private sealed class ScriptedProvider(bool includeFaq = false, bool quoteByNumber = false) : IContentGenerationProvider
+    private sealed class ScriptedProvider(
+        bool includeFaq = false, bool quoteByNumber = false, string? operatorFaqJson = null) : IContentGenerationProvider
     {
         private int bodyCalls;
 
@@ -102,6 +103,9 @@ public class GccGenerateServiceToolPageGroundingTests
                 // copies of itself, which the image-prompt count then caught.
                 "sections" when isLengthRetry => Script(ToolBodyBatches[Math.Min(Math.Max(bodyCalls - 1, 0), ToolBodyBatches.Length - 1)]),
                 "sections" => Script(ToolBodyBatches[Math.Min(bodyCalls++, ToolBodyBatches.Length - 1)]),
+                // The operator's FAQ questions are the one "section" call that carries the partner
+                // evidence; the bank's FAQ call carries Q/Answer/Source pairs instead.
+                "section" when operatorFaqJson is not null && Asked(asked, "=== PARTNER EVIDENCE") => operatorFaqJson,
                 "section" => includeFaq ? ToolFaqJson : ToolMetadataJson,
                 _ => Asked(asked, "ledeType") ? ToolLedeJson
                     : Asked(asked, "image-generation prompts") ? ToolImagePromptsJson
@@ -137,7 +141,11 @@ public class GccGenerateServiceToolPageGroundingTests
         Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow);
 
     private static GccGenerateService Build(
-        IContentGenerationProvider provider, GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction) => new(
+        IContentGenerationProvider provider,
+        GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction,
+        // The project the create belongs to, when a test needs its partner URLs (the per-tool
+        // framing and FAQ questions key off the partner host).
+        GccProjectDto? project = null) => new(
         new ContentPromptBuilder(),
         TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
@@ -151,7 +159,7 @@ public class GccGenerateServiceToolPageGroundingTests
             new GccCompetitorAnalysisResolverTests.FakePages(),
             new GccCompetitorAnalysisResolverTests.FakeRag()),
         partnerExtraction,
-        new GccCompetitorAnalysisResolverTests.FakeProjects(null),
+        new GccCompetitorAnalysisResolverTests.FakeProjects(project),
         new GccPublisherProfileResolver(
             new GccCompetitorAnalysisResolverTests.FakeProjects(null),
             new GccCompetitorAnalysisResolverTests.FakePages(),
@@ -655,6 +663,59 @@ public class GccGenerateServiceToolPageGroundingTests
         var faqUserMessage = faqRequest.Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("SOC 2 Type II certified", faqUserMessage, StringComparison.Ordinal);
         Assert.Contains("Frequently Asked Questions", result.Document.Sections.Select(s => s.Heading));
+    }
+
+    /// <summary>
+    /// FAQ fields for the tool pages (Jeff, 2026-10-08). The operator's questions for a tool live in
+    /// its own perTool entry and are answered from the partner's retrieved pages alone; a question no
+    /// page answers is left out of the section and reported as a gap, never answered from general
+    /// knowledge.
+    /// </summary>
+    [Fact]
+    public async Task OperatorFaqQuestionsAreAnsweredFromThePartnersPagesAndAnUnansweredOneIsReported()
+    {
+        const string answeredOnlyTheFirst =
+            """{"tag":"h2","heading":"Frequently Asked Questions","paragraphs":[],"href":null,"children":[{"tag":"h3","heading":"Does Partner Widget sync with QuickBooks Online?","paragraphs":[{"type":"text","runs":[{"text":"Yes: every payment syncs to QuickBooks Online."}]}],"href":null,"children":[]}]}""";
+        var provider = new ScriptedProvider(operatorFaqJson: answeredOnlyTheFirst);
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+                "QuickBooks Online", "accounting", null, null)],
+        };
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
+        var projectId = Guid.NewGuid();
+        var partnerUrls = new[] { "https://partner.test/" };
+        const string brief =
+            """{"nicheFraming":{"perTool":{"partner.test":{"faqQuestions":"Does Partner Widget sync with QuickBooks Online?\nDoes Partner Widget fly?"}}}}""";
+        var project = new GccProjectDto(
+            projectId, Guid.NewGuid(), "Acme", null, null, "active", null, null, null,
+            partnerUrls, [], DateOnly.FromDateTime(DateTime.UtcNow), null, null, null, null, null,
+            DateTime.UtcNow, DateTime.UtcNow);
+        var service = Build(provider, partner, project);
+        // The product name the fan-out would use for this host, so the per-tool lookup resolves.
+        var toolName = GccRequiredToolMentions.AnchorLookup(brief, partnerUrls).Values.Single();
+
+        var result = await service.GenerateToolPageAsync(
+            toolName, "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithOnePartnerPage()) with { ProjectId = projectId, BriefJson = brief },
+            passages: PartnerPassages());
+
+        var faqRequest = Assert.Single(
+            provider.Requests,
+            r => r.Messages.Any(m => m.Content.Contains("=== PARTNER EVIDENCE", StringComparison.Ordinal)));
+        var faqUser = faqRequest.Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.Contains("- Q2: Does Partner Widget fly?", faqUser, StringComparison.Ordinal);
+        Assert.Contains("https://partner.test/widget", faqUser, StringComparison.Ordinal);
+        var faq = Assert.Single(result.Document.Sections, s => s.Heading == "Frequently Asked Questions");
+        Assert.Equal(["Does Partner Widget sync with QuickBooks Online?"], faq.Children.Select(c => c.Heading));
+        Assert.Contains(
+            result.Warnings ?? [],
+            w => w.Contains("no page of", StringComparison.Ordinal) && w.Contains("Does Partner Widget fly?", StringComparison.Ordinal));
     }
 
     [Fact]

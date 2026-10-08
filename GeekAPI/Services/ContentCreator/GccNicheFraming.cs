@@ -231,6 +231,40 @@ public static class GccNicheFramingReader
     }
 
     /// <summary>
+    /// The operator's FAQ questions for one tool: <c>perTool[host].faqQuestions</c>, one per line or
+    /// one per array item, resolved through the same product-to-host lookup as
+    /// <see cref="ForProduct"/>. The tool's own entry only -- the category has no FAQ for a tool page,
+    /// so nothing merges. Empty when the product resolves to no host or the entry carries none.
+    /// </summary>
+    public static IReadOnlyList<string> ToolFaqQuestions(
+        string? briefJson,
+        IReadOnlyList<string>? partnerUrls,
+        string? productName)
+    {
+        var host = HostForProduct(briefJson, partnerUrls, productName);
+        if (host.Length == 0) return [];
+        var root = ReadRoot(briefJson);
+        if (root is null) return [];
+        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
+            || perTool.ValueKind != JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        foreach (var entry in perTool.EnumerateObject())
+        {
+            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), host, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(entry.Name.Trim(), host, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (entry.Value.ValueKind != JsonValueKind.Object) return [];
+            return ReadQuestionLines(entry.Value, "faqQuestions");
+        }
+        return [];
+    }
+
+    /// <summary>
     /// The framing for one partner host (the <c>perTool</c> key, e.g. <c>tipalti.com</c>): its own
     /// override merged over the category's when the operator wrote one, otherwise the category's.
     /// Null when neither exists. Retrieval resolves partners by host, not by product name, so this

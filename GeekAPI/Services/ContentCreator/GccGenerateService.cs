@@ -1490,10 +1490,16 @@ public class GccGenerateService
         // The operator's framing of this niche, narrowed to this product: its own override when one was
         // written, otherwise the category's. Resolved here because this is the only point that has both
         // the create's brief and the product's name -- which is what keys the override to a host.
+        var toolPartnerUrls = create is null ? null : await PartnerUrlsForAsync(create, ct);
         var nicheFraming = create is null
             ? null
-            : GccNicheFramingReader.ForProduct(
-                create.BriefJson, await PartnerUrlsForAsync(create, ct), name);
+            : GccNicheFramingReader.ForProduct(create.BriefJson, toolPartnerUrls, name);
+        // The operator's FAQ questions for this tool alone -- its own perTool entry, never the
+        // category's. Answered in ToolFaqAsync from the partner's retrieved pages, or left out and
+        // reported (2026-10-08: FAQ fields for the tool pages).
+        IReadOnlyList<string> toolFaqQuestions = create is null
+            ? []
+            : GccNicheFramingReader.ToolFaqQuestions(create.BriefJson, toolPartnerUrls, name);
 
         var toolOutlineCtx = new ContentTypes.ContentTypePromptContext(
             context, App: app, ToolSlug: slug, ExtractedResearchJson: extractedToolResearchJson,
@@ -1592,19 +1598,55 @@ public class GccGenerateService
         // from scratch. The pairs are model-extracted and nothing checks them against the page text
         // before this call; GccPartnerFaqAsset.VerifiedAnswer is a field name, not a verification.
         //
-        // Written once, after the body draft: it is answered from the partner's FAQ, not from the
-        // body's evidence, and the draft the guard sees carries it.
+        // Written once, after the body draft, and the draft the guard sees carries it. Two sources,
+        // one section: the partner's own FAQ (paraphrased, never re-derived) and the operator's
+        // questions for this tool, answered only from the partner's retrieved pages. A question no
+        // page answers is left out and reported as a gap -- never answered from general knowledge
+        // (2026-10-08: FAQ fields for the tool pages).
         Section? toolFaqSection = null;
         var toolFaqWritten = false;
-        async Task<Section?> ToolFaqAsync()
+        async Task<Section?> ToolFaqAsync(List<string> shortfalls)
         {
             if (toolFaqWritten) return toolFaqSection;
             toolFaqWritten = true;
-            if (groundedExtraction is null || groundedExtraction.FaqBank.Count == 0) return null;
-            var faqResult = await llm.CompleteAsync(
-                _prompts.BuildToolFaqSectionPrompt(context, pillarMeta, app, groundedExtraction.FaqBank),
-                ct);
-            toolFaqSection = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section");
+            Section? head = null;
+            var children = new List<Section>();
+            if (groundedExtraction is { FaqBank.Count: > 0 })
+            {
+                var faqResult = await llm.CompleteAsync(
+                    _prompts.BuildToolFaqSectionPrompt(context, pillarMeta, app, groundedExtraction.FaqBank),
+                    ct);
+                head = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section");
+                children.AddRange(head.Children);
+            }
+
+            if (toolFaqQuestions.Count > 0)
+            {
+                var evidenceForFaq = toolOutlineCtx.EvidenceBlock ?? string.Empty;
+                for (var start = 0; start < toolFaqQuestions.Count; start += PaaQuestionsPerFaqCall)
+                {
+                    var batch = toolFaqQuestions.Skip(start).Take(PaaQuestionsPerFaqCall).ToList();
+                    var answered = await llm.CompleteAsync(
+                        _prompts.BuildToolFaqFromQuestionsPrompt(context, pillarMeta, app, batch, evidenceForFaq),
+                        ct);
+                    var section = LlmResponseJsonParser.ParseSection(
+                        answered.Content, "h2", $"tool page '{name}' FAQ, questions {start + 1}-{start + batch.Count}");
+                    head ??= section;
+                    foreach (var question in batch)
+                    {
+                        var answer = section.Children.FirstOrDefault(c => AnswersQuestion(c.Heading, question));
+                        if (answer is null)
+                        {
+                            shortfalls.Add($"FAQ: no page of {name}'s answers \"{question}\"; it was left out.");
+                            continue;
+                        }
+                        if (!children.Contains(answer)) children.Add(answer);
+                    }
+                }
+            }
+
+            if (head is null || children.Count == 0) return null;
+            toolFaqSection = head with { Children = children };
             return toolFaqSection;
         }
 
@@ -1663,7 +1705,7 @@ public class GccGenerateService
                 ? written
                 : [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(written, quoteCandidates)];
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
-            if (await ToolFaqAsync() is { } faq) sections.Add(faq);
+            if (await ToolFaqAsync(shortfalls) is { } faq) sections.Add(faq);
             return new GccDraft(new ContentDocument(toolLede with { Tag = "h2" }, sections), shortfalls);
         }
 
@@ -2045,9 +2087,11 @@ public class GccGenerateService
     }
 
     /// <summary>People Also Ask lines the operator typed on the brief — newline string or JSON array.</summary>
-    private static IReadOnlyList<string>? ParsePaaQuestions(JsonElement root)
+    /// <summary>A list of questions from the brief, one per line in a string or one per array item --
+    /// <c>paaQuestions</c> (the pillar's People Also Ask) and <c>blogFaqQuestions</c> (the blog's FAQ).</summary>
+    private static IReadOnlyList<string>? ParseQuestionList(JsonElement root, string name)
     {
-        if (!root.TryGetProperty("paaQuestions", out var prop))
+        if (!root.TryGetProperty(name, out var prop))
         {
             return null;
         }
@@ -2186,7 +2230,8 @@ public class GccGenerateService
             var ctaLabel = S("ctaLabel");
             var lengthBand = S("lengthBand");
             var writingNotes = S("writingNotes");
-            IReadOnlyList<string>? paaQuestions = ParsePaaQuestions(root);
+            IReadOnlyList<string>? paaQuestions = ParseQuestionList(root, "paaQuestions");
+            IReadOnlyList<string>? blogFaqQuestions = ParseQuestionList(root, "blogFaqQuestions");
             var segNotes = notes;
             return new BriefFields
             {
@@ -2204,6 +2249,7 @@ public class GccGenerateService
                 LengthBand = string.IsNullOrWhiteSpace(lengthBand) ? null : lengthBand.Trim(),
                 WritingNotes = string.IsNullOrWhiteSpace(writingNotes) ? null : writingNotes.Trim(),
                 PaaQuestions = paaQuestions,
+                BlogFaqQuestions = blogFaqQuestions,
             };
         }
         catch (JsonException)
@@ -2228,6 +2274,9 @@ public class GccGenerateService
         public string? LengthBand { get; init; }
         public string? WritingNotes { get; init; }
         public IReadOnlyList<string>? PaaQuestions { get; init; }
+        /// <summary>The blog's FAQ questions, written by the operator (2026-10-08): answered at the end
+        /// of the blog from the brief and the evidence, the way the pillar's People Also Ask is.</summary>
+        public IReadOnlyList<string>? BlogFaqQuestions { get; init; }
     }
 
     public static string SerializeAnalysisPayload(SiteAnalysisStoredPayload payload) =>
@@ -2559,7 +2608,12 @@ public class GccGenerateService
         var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions;
         if (paaQuestions is { Count: > 0 })
         {
-            pillarFaq = await WritePillarFaqAsync(llm, context, metadata, paaQuestions, ct);
+            pillarFaq = await WriteFaqInBatchesAsync(
+                llm,
+                batch => _prompts.BuildArticleFaqSectionPrompt(context, metadata, batch, isRegeneration: false),
+                paaQuestions,
+                "the pillar's People Also Ask",
+                ct);
         }
 
         // The lede IS the first H2, and the introduction is the lede continuing under its heading.
@@ -2769,12 +2823,29 @@ public class GccGenerateService
         // in this JSON, so asking for the whole post in one call capped it by arithmetic -- 1,199
         // words and a 0.2% keyword density were the symptom (Jeff, 2026-09-28).
         var blogOutline = blogType.OutlineFor(blogPromptCtx);
+
+        // The blog's FAQ, from the brief's own questions (2026-10-08: the pillar had its People Also
+        // Ask and the blog had nothing). Written before the body like the pillar's, in calls of eight,
+        // and carried onto the draft after the closing, where the guards check it like the body.
+        Section? blogFaq = null;
+        var blogFaqQuestions = ExtractBriefFields(create.BriefJson).BlogFaqQuestions;
+        if (blogFaqQuestions is { Count: > 0 })
+        {
+            blogFaq = await WriteFaqInBatchesAsync(
+                llm,
+                batch => _prompts.BuildBlogFaqSectionPrompt(context, metadata, batch),
+                blogFaqQuestions,
+                "the blog's FAQ",
+                ct);
+        }
+
         var blogGuardInputs = GuardInputsFor(
             create,
             context,
             evidence,
             blogRequiredTools,
             blogEvidence,
+            appendedSections: blogFaq is null ? 0 : 1,
             partnerTools: partnerTools);
 
         // Every check, once -- see GccDraftGuard.
@@ -2794,6 +2865,7 @@ public class GccGenerateService
                 ct,
                 shortfalls);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
+            if (blogFaq is not null) sections.Add(blogFaq);
             return new GccDraft(
                 ContentGuardrail.Apply(new ContentDocument(blogLede with { Tag = "h2" }, sections)).Document,
                 shortfalls);
@@ -3117,34 +3189,33 @@ public class GccGenerateService
     private const int PaaQuestionsPerFaqCall = 8;
 
     /// <summary>
-    /// The People Also Ask section, written in calls of <see cref="PaaQuestionsPerFaqCall"/>
-    /// questions and joined into one h2: every call returns the section with one h3 child per
-    /// question, and the children are concatenated in the brief's order under the first call's
-    /// heading. A call that answers none of its questions refuses the pillar naming the call -- a
-    /// missing answer is a refusal, not a shorter FAQ.
+    /// An FAQ section written from the operator's questions in calls of
+    /// <see cref="PaaQuestionsPerFaqCall"/> and joined into one h2: every call returns the section
+    /// with one h3 child per question, and the children are concatenated in the brief's order under
+    /// the first call's heading. A call that answers none of its questions refuses the piece naming
+    /// the call -- a missing answer is a refusal, not a shorter FAQ. The pillar's People Also Ask
+    /// and the blog's FAQ both come through here; <paramref name="prompt"/> is the one difference.
     /// </summary>
-    private async Task<Section> WritePillarFaqAsync(
+    private async Task<Section> WriteFaqInBatchesAsync(
         IContentGenerationProvider llm,
-        ProjectGenerationContext context,
-        ArticleMetadataDraft metadata,
-        IReadOnlyList<string> paaQuestions,
+        Func<IReadOnlyList<string>, ChatCompletionRequest> prompt,
+        IReadOnlyList<string> questions,
+        string label,
         CancellationToken ct)
     {
         Section? head = null;
         var children = new List<Section>();
-        for (var start = 0; start < paaQuestions.Count; start += PaaQuestionsPerFaqCall)
+        for (var start = 0; start < questions.Count; start += PaaQuestionsPerFaqCall)
         {
-            var batch = paaQuestions.Skip(start).Take(PaaQuestionsPerFaqCall).ToList();
+            var batch = questions.Skip(start).Take(PaaQuestionsPerFaqCall).ToList();
             var call = start / PaaQuestionsPerFaqCall + 1;
-            var result = await llm.CompleteAsync(
-                _prompts.BuildArticleFaqSectionPrompt(context, metadata, batch, isRegeneration: false),
-                ct);
+            var result = await llm.CompleteAsync(prompt(batch), ct);
             var section = LlmResponseJsonParser.ParseSection(
-                result.Content, "h2", $"pillar FAQ section, questions {start + 1}-{start + batch.Count}");
+                result.Content, "h2", $"{label}, questions {start + 1}-{start + batch.Count}");
             if (section.Children.Count == 0)
             {
                 throw new InvalidOperationException(
-                    $"Refused: the pillar's People Also Ask call {call} answered none of its {batch.Count} questions.");
+                    $"Refused: {label} call {call} answered none of its {batch.Count} questions.");
             }
             head ??= section;
             children.AddRange(section.Children);
@@ -3152,10 +3223,26 @@ public class GccGenerateService
 
         if (head is null)
         {
-            throw new InvalidOperationException("Refused: the pillar's People Also Ask has no questions to answer.");
+            throw new InvalidOperationException($"Refused: {label} has no questions to answer.");
         }
         return head with { Children = children };
     }
+
+    /// <summary>
+    /// Whether an FAQ child answers one of the operator's questions: the same words ignoring case,
+    /// punctuation and a trailing question mark, or one wording containing the other -- the prompt
+    /// lets the heading be "lightly tightened".
+    /// </summary>
+    private static bool AnswersQuestion(string heading, string question)
+    {
+        var h = NormalizeQuestion(heading);
+        var q = NormalizeQuestion(question);
+        if (h.Length == 0 || q.Length == 0) return false;
+        return h == q || h.Contains(q, StringComparison.Ordinal) || q.Contains(h, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeQuestion(string text) =>
+        string.Concat((text ?? string.Empty).ToLowerInvariant().Where(ch => char.IsLetterOrDigit(ch) || ch == ' ')).Trim();
 
     /// <summary>
     /// The body, written in batches of <see cref="SectionsPerBatch"/> and concatenated.
