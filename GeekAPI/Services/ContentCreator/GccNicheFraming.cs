@@ -39,11 +39,21 @@ public sealed record GccNicheFraming(
     IReadOnlyList<string> PainPoints,
     string AutomationToPitch)
 {
-    /// <summary>True when any of the three carries something. An all-blank set is not framing.</summary>
+    /// <summary>
+    /// One retrieval question per failure (Geek-Crawler-Rag plans/retrieval-from-the-brief.md,
+    /// 2026-10-08): the reader's problem, the vendor's solution in the vendor's own vocabulary, and
+    /// a few of the vendor's terms. Retrieval input, never guidance and never quoted: the solution
+    /// goes to the index's meaning half and the terms to its keyword half. Per tool, rows are added
+    /// to the category's, like pain points. Empty when the brief carries none.
+    /// </summary>
+    public IReadOnlyList<GccEvidenceRow> Evidence { get; init; } = [];
+
+    /// <summary>True when any part carries something. An all-blank set is not framing.</summary>
     public bool HasAny =>
         !string.IsNullOrWhiteSpace(CoreProblem)
         || PainPoints.Count > 0
-        || !string.IsNullOrWhiteSpace(AutomationToPitch);
+        || !string.IsNullOrWhiteSpace(AutomationToPitch)
+        || Evidence.Count > 0;
 
     /// <summary>
     /// The three parts as section guidance, or null when there is nothing to say.
@@ -350,12 +360,26 @@ public static class GccNicheFramingReader
             if (!pains.Contains(pain, StringComparer.OrdinalIgnoreCase)) pains.Add(pain);
         }
 
+        // Rows add, like pain points: the category's failures are true of every tool in the niche,
+        // and the tool's rows are the slice it owns. A row restating a category problem replaces it,
+        // because the tool's solution to that problem is the one its page should search for.
+        var rows = new List<GccEvidenceRow>(category?.Evidence ?? []);
+        foreach (var row in own.Evidence)
+        {
+            var at = rows.FindIndex(r => string.Equals(r.Problem, row.Problem, StringComparison.OrdinalIgnoreCase));
+            if (at >= 0) rows[at] = row;
+            else rows.Add(row);
+        }
+
         return new GccNicheFraming(
             own.CoreProblem.Length > 0 ? own.CoreProblem : category?.CoreProblem ?? string.Empty,
             pains,
             own.AutomationToPitch.Length > 0
                 ? own.AutomationToPitch
-                : category?.AutomationToPitch ?? string.Empty);
+                : category?.AutomationToPitch ?? string.Empty)
+        {
+            Evidence = rows,
+        };
     }
 
     /// <summary>
@@ -422,15 +446,56 @@ public static class GccNicheFramingReader
         var core = ReadString(obj, "coreProblem");
         var automation = ReadString(obj, "automationToPitch");
         var pains = ReadParagraphs(obj, "painPoints");
+        var evidence = ReadEvidence(obj);
 
-        if (core.Length == 0 && automation.Length == 0 && pains.Count == 0) return null;
-        return new GccNicheFraming(core, pains, automation);
+        if (core.Length == 0 && automation.Length == 0 && pains.Count == 0 && evidence.Count == 0) return null;
+        return new GccNicheFraming(core, pains, automation) { Evidence = evidence };
     }
 
     private static string ReadString(JsonElement obj, string name) =>
         TryGetPropertyIgnoreCase(obj, name, out var prop) && prop.ValueKind == JsonValueKind.String
             ? (prop.GetString() ?? string.Empty).Trim()
             : string.Empty;
+
+    /// <summary>
+    /// The <c>evidence</c> array: objects with <c>problem</c>, <c>solution</c> and <c>terms</c>
+    /// (an array of strings, or one comma-separated string -- the form stores an array; a pasted
+    /// research answer may carry the string). A row with every part blank is not a row.
+    /// </summary>
+    private static IReadOnlyList<GccEvidenceRow> ReadEvidence(JsonElement obj)
+    {
+        if (!TryGetPropertyIgnoreCase(obj, "evidence", out var prop) || prop.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var rows = new List<GccEvidenceRow>();
+        foreach (var item in prop.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            var problem = ReadString(item, "problem");
+            var solution = ReadString(item, "solution");
+            var terms = new List<string>();
+            if (TryGetPropertyIgnoreCase(item, "terms", out var termsProp))
+            {
+                if (termsProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var t in termsProp.EnumerateArray())
+                    {
+                        if (t.ValueKind == JsonValueKind.String) terms.Add((t.GetString() ?? string.Empty).Trim());
+                    }
+                }
+                else if (termsProp.ValueKind == JsonValueKind.String)
+                {
+                    terms.AddRange((termsProp.GetString() ?? string.Empty).Split(',').Select(t => t.Trim()));
+                }
+            }
+            terms.RemoveAll(string.IsNullOrWhiteSpace);
+            if (problem.Length == 0 && solution.Length == 0 && terms.Count == 0) continue;
+            rows.Add(new GccEvidenceRow(problem, solution, terms));
+        }
+        return rows;
+    }
 
     /// <summary>
     /// One item per <b>line</b>, or an array. The counterpart to <see cref="ReadParagraphs"/>, for data
@@ -539,4 +604,20 @@ public static class GccNicheFramingReader
         value = default;
         return false;
     }
+}
+
+/// <summary>
+/// One retrieval question from the brief's niche framing (the operator's <c>evidence</c> rows):
+/// the reader's failure, the vendor's solution in the vendor's own vocabulary, and a few of the
+/// vendor's terms. <paramref name="Solution"/> is sent to the index as <c>need</c> (the meaning
+/// half); <paramref name="Terms"/>, joined, as <c>keyword</c> (the keyword half). Never quoted and
+/// never shown to the writer as evidence: what retrieval returns for it is the evidence.
+/// </summary>
+public sealed record GccEvidenceRow(string Problem, string Solution, IReadOnlyList<string> Terms)
+{
+    /// <summary>The keyword half's text, or null when the row names no terms.</summary>
+    public string? Keyword => Terms.Count == 0 ? null : string.Join(" ", Terms);
+
+    /// <summary>What the meaning half is asked: the solution, else the problem.</summary>
+    public string Need => Solution.Length > 0 ? Solution : Problem;
 }
