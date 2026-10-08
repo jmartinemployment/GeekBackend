@@ -69,7 +69,7 @@ public class GccGroundingRetrievalTests
         public bool IsEnabled => true;
 
         public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
-            IReadOnlyList<string> urls, CancellationToken ct = default)
+            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default)
         {
             var rows = urls.Select(u => u.Contains("partner", StringComparison.Ordinal)
                 ? new GeekCrawlerRagHostIndex(u, "partner.test", partnerIndexed, PartnerRun.ToString())
@@ -224,7 +224,7 @@ public class GccGroundingRetrievalTests
         public bool IsEnabled => true;
 
         public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
-            IReadOnlyList<string> urls, CancellationToken ct = default) =>
+            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<GeekCrawlerRagHostIndex>>(
                 [.. urls.Select(u => new GeekCrawlerRagHostIndex(u, "shared.test", true, Guid.NewGuid().ToString()))]);
 

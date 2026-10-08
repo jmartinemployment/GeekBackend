@@ -78,9 +78,16 @@ public class GccCompetitorAnalysisResolverTests
             Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
         public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default) =>
             Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
+        /// <summary>The crawl type of every hosts lookup, in order. The list is part of the question
+        /// to the index (tipalti.com, 2026-10-08), so a caller that forgets it is a caller that can
+        /// be answered the wrong run.</summary>
+        public List<string> HostsAskedAs { get; } = [];
         public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
-            IReadOnlyList<string> urls, CancellationToken ct = default) =>
-            Task.FromResult(hosts ?? []);
+            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default)
+        {
+            lock (HostsAskedAs) HostsAskedAs.Add(crawlType);
+            return Task.FromResult(hosts ?? []);
+        }
         public Task<GeekCrawlerRagQueryResult?> QueryAsync(
             string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
             bool? preferParent = null, bool? preferChild = null,

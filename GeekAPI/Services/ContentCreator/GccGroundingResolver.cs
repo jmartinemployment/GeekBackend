@@ -401,7 +401,7 @@ public sealed class GccGroundingResolver(
             {
                 if (urls.Count == 0) continue;
 
-                var indexed = await rag.HostsIndexedAsync(urls, ct);
+                var indexed = await rag.HostsIndexedAsync(urls, crawlType, ct);
 
                 // An empty answer is the client's unreachable shape, not "nothing is indexed" -- the
                 // declare-time check reads it the same way. Named as an outage so the operator is not

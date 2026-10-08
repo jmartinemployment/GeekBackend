@@ -114,4 +114,34 @@ public sealed class HostsIndexedFeedbackTests
 
         Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsType<ObjectResult>(result).StatusCode);
     }
+
+    /// <summary>
+    /// tipalti.com, 2026-10-08: one host, a partner run and a competitor run, both complete and both
+    /// indexed. Asked by host alone, the index answered the competitor run; the partner probe on it
+    /// matched nothing, and the partner was excluded with "its crawl finished, but a search of the
+    /// index finds nothing from it". The list is part of the question to the index, not only to the
+    /// probe that follows it.
+    /// </summary>
+    [Theory]
+    [InlineData(CrawlTypes.Partner)]
+    [InlineData(CrawlTypes.Competitors)]
+    public async Task The_index_is_asked_for_the_list_the_urls_came_from(string crawlType)
+    {
+        var rows = new[]
+        {
+            new GeekCrawlerRagHostIndex(Rival, "rival.test", true, Guid.NewGuid().ToString(), crawlType),
+        };
+        var rag = new GccCompetitorAnalysisResolverTests.FakeRag(
+            rows, (runId, _) => GccProjectsControllerIndexGateTests.Holds(runId));
+        var validator = new GccDeclaredUrlValidator(
+            rag,
+            new HttpGeekCrawlerRepository(
+                new HttpClient(new GccProjectsControllerIndexGateTests.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
+                NullLogger<HttpGeekCrawlerRepository>.Instance),
+            NullLogger<GccDeclaredUrlValidator>.Instance);
+
+        await validator.AnswerAsync([Rival], crawlType, CancellationToken.None);
+
+        Assert.Equal([crawlType], rag.HostsAskedAs);
+    }
 }

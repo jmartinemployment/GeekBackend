@@ -42,11 +42,19 @@ public interface IGeekCrawlerRagClient
     /// host, was never crawled, and is therefore reported as having no index — which is why no
     /// separate syntax check is needed.
     ///
+    /// A host is not a run. tipalti.com sat on a project's partner list and its competitor list,
+    /// with one complete, indexed run for each; asked by host alone, the index answered the
+    /// competitor run, the partner probe on it matched nothing, and the partner was excluded
+    /// (2026-10-08). <paramref name="crawlType"/> is the list the URLs came from
+    /// (<see cref="CrawlTypes"/>), so the index resolves (host, crawlType) and answers the run the
+    /// caller means. Every caller knows which list it is asking for; none may ask untyped.
+    ///
     /// Default is empty so an implementation that does not override it can never report a URL as
     /// usable by omission.
     /// </summary>
     Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
         IReadOnlyList<string> urls,
+        string crawlType,
         CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<GeekCrawlerRagHostIndex>>([]);
 
@@ -181,9 +189,18 @@ public sealed class GeekCrawlerRagTemplateQueryResult
     public string? Warning { get; init; }
 }
 
-/// <summary>Whether an index exists for a URL's host, and which run indexed it. Whether, not how
-/// much — a count would invite a threshold, which is a different question.</summary>
-public sealed record GeekCrawlerRagHostIndex(string Url, string? Host, bool Indexed, string? RunId);
+/// <summary>Whether an index exists for a URL's host under the crawl type asked for, and which run
+/// indexed it. Whether, not how much — a count would invite a threshold, which is a different
+/// question. <paramref name="CrawlType"/> is the type of the run answered, so a caller can see it got
+/// the run it asked for; <paramref name="Reason"/> is set when the host has points but the index
+/// withheld an answer (an untyped ask on a host indexed under more than one type).</summary>
+public sealed record GeekCrawlerRagHostIndex(
+    string Url,
+    string? Host,
+    bool Indexed,
+    string? RunId,
+    string? CrawlType = null,
+    string? Reason = null);
 
 public sealed class GeekCrawlerRagIndexStatus
 {
@@ -388,6 +405,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
     public async Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
         IReadOnlyList<string> urls,
+        string crawlType,
         CancellationToken ct = default)
     {
         if (urls.Count == 0) return [];
@@ -397,10 +415,20 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         // distinguishes an empty result from a populated one.
         if (!_enabled) return [];
 
+        // Untyped is the ask that answered the wrong run for tipalti.com. The index refuses an
+        // ambiguous untyped host rather than guess; this side never sends one.
+        if (string.IsNullOrWhiteSpace(crawlType))
+        {
+            _logger.LogWarning(
+                "Geek-Crawler-Rag host index check asked with no crawl type for {Count} URL(s); refusing to ask",
+                urls.Count);
+            return [];
+        }
+
         try
         {
             using var response = await _http
-                .PostAsJsonAsync("v1/index/hosts", new { urls }, JsonOpts, ct)
+                .PostAsJsonAsync("v1/index/hosts", new { urls, crawlType }, JsonOpts, ct)
                 .ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
@@ -417,9 +445,22 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 .ReadFromJsonAsync<HostIndexResponseDto>(JsonOpts, ct)
                 .ConfigureAwait(false);
 
-            return dto?.Results?
-                .Select(r => new GeekCrawlerRagHostIndex(r.Url ?? "", r.Host, r.Indexed, r.RunId))
+            var rows = dto?.Results?
+                .Select(r => new GeekCrawlerRagHostIndex(
+                    r.Url ?? "", r.Host, r.Indexed, r.RunId, r.CrawlType, r.Reason))
                 .ToList() ?? [];
+
+            foreach (var row in rows.Where(r => !r.Indexed && !string.IsNullOrWhiteSpace(r.Reason)))
+            {
+                // The index had points for the host and still said no; the reason is the finding.
+                _logger.LogWarning(
+                    "Geek-Crawler-Rag host index withheld {Url} for crawl type {CrawlType}: {Reason}",
+                    row.Url,
+                    crawlType,
+                    row.Reason);
+            }
+
+            return rows;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1097,6 +1138,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Host { get; set; }
         public bool Indexed { get; set; }
         public string? RunId { get; set; }
+        public string? CrawlType { get; set; }
+        public string? Reason { get; set; }
     }
 
     /// <summary>

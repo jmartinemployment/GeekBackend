@@ -1012,7 +1012,7 @@ public class GccController : ControllerBase
 
         // The index is the one place that resolves a URL to the crawl behind it, and it is the same
         // answer the project form reads. Asked once for all partners rather than once per probe.
-        var rows = await _rag.HostsIndexedAsync(urls, ct);
+        var rows = await _rag.HostsIndexedAsync(urls, CrawlTypes.Partner, ct);
         if (rows.Count == 0)
         {
             return StatusCode(

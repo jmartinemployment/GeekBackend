@@ -65,7 +65,7 @@ public sealed class GccCompetitorAnalysisResolver(
             return [];
         }
 
-        var indexed = await rag.HostsIndexedAsync(project.CompetitorUrls, ct);
+        var indexed = await rag.HostsIndexedAsync(project.CompetitorUrls, CrawlTypes.Competitors, ct);
         var runIds = indexed
             .Where(host => host.Indexed)
             .Select(host => Guid.TryParse(host.RunId, out var id) ? id : Guid.Empty)

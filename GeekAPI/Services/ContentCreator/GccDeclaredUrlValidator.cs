@@ -227,7 +227,7 @@ public sealed class GccDeclaredUrlValidator
         var declared = Clean(urls);
         if (declared.Count == 0) return new GccDeclaredUrlAnswers(null, [], []);
 
-        var rows = await _rag.HostsIndexedAsync(declared, ct);
+        var rows = await _rag.HostsIndexedAsync(declared, crawlType, ct);
         if (rows.Count == 0)
         {
             _logger.LogWarning(

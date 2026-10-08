@@ -93,7 +93,7 @@ public class GccGroundingResolverTests
             Task.FromResult<GeekCrawlerRagIndexStatus?>(null);
 
         public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
-            IReadOnlyList<string> urls, CancellationToken ct = default) =>
+            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default) =>
             Task.FromResult(hosts ?? []);
 
         public Task<GeekCrawlerRagQueryResult?> QueryAsync(
@@ -289,7 +289,7 @@ public class GccGroundingResolverTests
             _rest.GetIndexStatusAsync(runId, ct);
 
         public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
-            IReadOnlyList<string> urls, CancellationToken ct = default) =>
+            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default) =>
             Task.FromResult(hosts);
 
         public Task<GeekCrawlerRagQueryResult?> QueryAsync(
