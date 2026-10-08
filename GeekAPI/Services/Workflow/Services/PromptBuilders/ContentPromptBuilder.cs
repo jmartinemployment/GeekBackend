@@ -979,8 +979,8 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "sentence or the paragraph.";
 
     private static string ToolQuotationInstruction(string productName, string targetKeyword) =>
-        "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries exactly one block "
-        + "quotation -- a paragraph of type \"quote\" -- and it is required. Choose it from the "
+        "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries at most one block "
+        + "quotation -- a paragraph of type \"quote\" -- and only when a listed span earns it. Choose it from the "
         + "numbered QUOTABLE SPANS below and answer with its number: {\"type\":\"quote\","
         + "\"candidate\":<number>,\"runs\":[],\"cite\":null}. Do not write the sentence out, and do "
         + "not shorten, edit or combine spans -- the words and the cite are taken from the list by "

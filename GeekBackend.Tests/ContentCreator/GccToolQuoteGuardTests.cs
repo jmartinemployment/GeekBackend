@@ -41,16 +41,20 @@ public class GccToolQuoteGuardTests
     private static TextParagraph Prose(string text) => new([new Run(text)]);
 
     [Fact]
-    public void A_page_with_no_block_quotation_is_refused()
+    public void A_page_with_no_block_quotation_is_a_reported_gap_not_a_violation()
     {
-        var violations = GccToolQuoteGuard.FindViolations(
-            [SectionWith(Prose("Tipalti automates payables."))],
-            Published());
+        // Jeff, 2026-10-08: do not fail the page when no fitting quotation was found. The absence is
+        // named by MissingQuotation and shipped with the draft; FindViolations judges only the
+        // quotations that are present, so an invented one still refuses.
+        var sections = new[] { SectionWith(Prose("Tipalti automates payables.")) };
 
-        var only = Assert.Single(violations);
-        Assert.Contains("carries no block quotation", only, StringComparison.Ordinal);
+        Assert.Empty(GccToolQuoteGuard.FindViolations(sections, Published()));
+
+        var missing = GccToolQuoteGuard.MissingQuotation(sections, Published());
+        Assert.NotNull(missing);
+        Assert.Contains("carries no block quotation", missing, StringComparison.Ordinal);
         // The message says a quote was available and unused, because that is the actionable half.
-        Assert.Contains("quotable partner span(s) were supplied", only, StringComparison.Ordinal);
+        Assert.Contains("quotable partner span(s) were supplied", missing, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -123,15 +127,15 @@ public class GccToolQuoteGuardTests
     [Fact]
     public void With_no_evidence_at_all_the_message_says_so_rather_than_blaming_the_writer()
     {
-        var violations = GccToolQuoteGuard.FindViolations(
-            [SectionWith(Prose("Tipalti automates payables."))],
-            null);
+        var sections = new[] { SectionWith(Prose("Tipalti automates payables.")) };
 
-        var only = Assert.Single(violations);
+        Assert.Empty(GccToolQuoteGuard.FindViolations(sections, null));
+        var missing = GccToolQuoteGuard.MissingQuotation(sections, null);
+
+        Assert.NotNull(missing);
         // Was "holds no quotable span", a claim about the partner's whole evidence made after
         // inspecting two of the extraction's twenty-two categories. It now names what it checked.
-        Assert.Contains("nothing retrieved", only, StringComparison.Ordinal);
-        
+        Assert.Contains("nothing retrieved", missing, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -218,26 +222,30 @@ public class GccToolQuoteGuardTests
     }
 
     [Fact]
-    public void With_candidates_available_the_refusal_says_they_went_unused()
+    public void With_candidates_available_the_gap_says_they_went_unused()
     {
         var candidates = Published();
+        var sections = new[] { SectionWith(Prose("Plain body copy, no quotation here.")) };
 
-        var violation = Assert.Single(
-            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], candidates));
+        Assert.Empty(GccToolQuoteGuard.FindViolations(sections, candidates));
+        var missing = GccToolQuoteGuard.MissingQuotation(sections, candidates);
 
-        Assert.Contains("none was used", violation, StringComparison.Ordinal);
+        Assert.NotNull(missing);
+        Assert.Contains("none was used", missing, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void With_nothing_anywhere_the_refusal_names_what_was_checked()
+    public void With_nothing_anywhere_the_gap_names_what_was_checked()
     {
         // It used to assert "the partner evidence holds no quotable span", having inspected two of
         // the extraction's twenty-two categories and nothing else.
-        var violation = Assert.Single(
-            GccToolQuoteGuard.FindViolations([SectionWith(Prose("Plain body copy, no quotation here."))], []));
+        var sections = new[] { SectionWith(Prose("Plain body copy, no quotation here.")) };
 
-        Assert.Contains("nothing retrieved", violation, StringComparison.Ordinal);
-        
+        Assert.Empty(GccToolQuoteGuard.FindViolations(sections, []));
+        var missing = GccToolQuoteGuard.MissingQuotation(sections, []);
+
+        Assert.NotNull(missing);
+        Assert.Contains("nothing retrieved", missing, StringComparison.Ordinal);
     }
 
     [Fact]

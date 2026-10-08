@@ -1608,11 +1608,14 @@ public class GccGenerateService
             return toolFaqSection;
         }
 
-        // Every tool page carries exactly one block quotation of the partner, in their own published
-        // words (Jeff, 2026-09-26: "I want a blockquote in each tool"). The prompt asks for it; the
-        // guard is what makes it true -- without a check the model could return the page with no
-        // quote at all, or with one it wrote itself carrying a real company's URL on its cite, and
-        // ContentGuardrail passes quotes through untouched by design.
+        // A tool page carries at most one block quotation of the partner, in their own published
+        // words (Jeff, 2026-09-26: "I want a blockquote in each tool"). The prompt asks for it when
+        // a listed span earns it; the guard is what keeps it honest -- without a check the model
+        // could return one it wrote itself carrying a real company's URL on its cite, and
+        // ContentGuardrail passes quotes through untouched by design. A page with no quotation is
+        // not refused (Jeff, 2026-10-08): the guard reports `blockquote-missing` as a gap and the
+        // page ships, because on a thin crawl no listed span may answer the problem and an invented
+        // one is worse than none.
         //
         // Scoped to `create is not null` (no candidates, no quotation check), the same boundary the
         // partner-grounding refusal above draws. The legacy no-create path has no partner evidence at

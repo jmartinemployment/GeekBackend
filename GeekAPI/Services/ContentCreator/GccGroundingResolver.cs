@@ -200,6 +200,14 @@ public sealed class GccGroundingResolver(
     /// </remarks>
     private const int PartnerTopK = 32;
 
+    /// <summary>
+    /// Passages per question when a partner run is asked from the brief: the core problem, then one
+    /// question per evidence row. Eight each, page-diverse on the index's side, so a partner with
+    /// five rows reaches up to forty-eight pages chosen for six different things rather than
+    /// thirty-two chosen for one (plans/retrieval-from-the-brief.md P5). The union is deduped by URL.
+    /// </summary>
+    private const int EvidenceTopK = 8;
+
 
     /// <summary>
     /// The evidence <paramref name="contentType"/> must be able to cite, or empty when it declares
@@ -346,6 +354,8 @@ public sealed class GccGroundingResolver(
         // Partner run -> the declared hosts it was indexed for, so a run that returns nothing can be
         // refused under the partner's name rather than a run id the operator never sees.
         var partnerHostsByRun = new Dictionary<Guid, List<string>>();
+        // Partner run -> the host key (bill.com) the brief's per-tool framing is filed under.
+        var partnerHostKeyByRun = new Dictionary<Guid, string>();
 
         foreach (var crawlType in crawlTypes)
         {
@@ -455,67 +465,16 @@ public sealed class GccGroundingResolver(
 
                         var label = PartnerLabel(host, anchorToolLookup);
                         if (!hosts.Contains(label, StringComparer.OrdinalIgnoreCase)) hosts.Add(label);
+
+                        // The brief's per-tool framing is keyed by host (bill.com), so the run's
+                        // questions are looked up by the host that resolved to it. One host per run.
+                        partnerHostKeyByRun.TryAdd(runId, GccRequiredToolMentions.HostKeyOf(host.Url));
                     }
                 }
             }
 
             foreach (var runId in runIds)
             {
-                var need = BuildNeed(create.Topic, crawlType);
-                var result = await rag.QueryAsync(
-                    need,
-                    runId,
-                    crawlType: crawlType,
-                    // Partner runs feed a per-product extraction with a category-breadth gate; the other
-                    // corpora feed prose. Different questions, different depth.
-                    topK: string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase)
-                        ? PartnerTopK
-                        : TopK,
-                    anchorToolLookup: anchorToolLookup,
-                    ct: ct);
-
-                // The library failing is the library failing, whatever the content type. Empty
-                // Pages on a successful query is a failure for a partner run only -- see below.
-                if (result is null)
-                {
-                    return GccGroundingOutcome.Refuse(
-                        $"The evidence library returned nothing for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}. "
-                        + $"'{contentType}' cannot be grounded.");
-                }
-
-                if (result.Failed)
-                {
-                    return GccGroundingOutcome.Refuse(
-                        result.Error ?? result.Warning
-                        ?? $"The evidence library query failed for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}.");
-                }
-
-                if (!string.IsNullOrWhiteSpace(result.Warning))
-                {
-                    // RAG's own warning carries the run id ("No chunks for runId=..."); the operator
-                    // gets the URL they entered and what it means for the draft instead.
-                    warnings.Add(result.Pages.Count == 0
-                        ? $"{CrawlTypeLabel(crawlType)} {namesByRun[runId]}: the index finds nothing from its "
-                          + "crawl, so this was written without it"
-                        : $"{CrawlTypeLabel(crawlType)} {namesByRun[runId]}: {result.Warning}");
-                }
-
-                // Every declared partner must return evidence -- but what its absence refuses depends on
-                // the type, so it is recorded here and decided by the caller. Pillar and Blog are
-                // obliged by GccRequiredToolMentions to name every declared partner, so a partner with
-                // no passage is one the draft must write about from nothing: those types are refused,
-                // naming it. A tool fan-out writes one page per partner, and refuses that partner's
-                // page alone -- four pages and one named refusal, not none. Competitor and own-site
-                // runs keep the old rule: those corpora inform the piece, and another run may cover
-                // what this one did not.
-                if (string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase)
-                    && result.Pages.Count == 0)
-                {
-                    partnersWithoutPassages.Add(partnerHostsByRun.TryGetValue(runId, out var hosts)
-                        ? string.Join(", ", hosts)
-                        : namesByRun[runId]);
-                }
-
                 // Which list a page lands in is decided here, by the crawl type that was queried,
                 // and nowhere else. It is the only point where that is known: the query result does
                 // not carry it back and no field on the page records it.
@@ -532,19 +491,89 @@ public sealed class GccGroundingResolver(
                     seenByCrawlType[crawlType] = seenUrls;
                 }
 
-                var fresh = new List<GccQuoteablePage>();
-                foreach (var page in result.Pages)
+                // A partner run is asked from the brief: its core problem, then one question per
+                // evidence row, each with the vendor's solution for the meaning half and the row's
+                // terms for the keyword half. Without a brief it is asked the keyword alone. The
+                // other corpora are asked their one question as before.
+                var isPartner = string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase);
+                var questions = isPartner
+                    ? PartnerQuestions(create, partnerHostKeyByRun.GetValueOrDefault(runId))
+                    : [new PartnerQuestion(BuildNeed(create.Topic, crawlType), null, TopK)];
+
+                var pagesReturned = 0;
+                foreach (var question in questions)
                 {
-                    if (!seenUrls.Add(page.Url)) continue;
-                    into.Add(page);
-                    fresh.Add(page);
+                    var result = await rag.QueryAsync(
+                        new GeekCrawlerRagQuery(
+                            question.Need,
+                            runId,
+                            CrawlType: crawlType,
+                            TopK: question.TopK,
+                            Keyword: question.Keyword,
+                            AnchorToolLookup: anchorToolLookup),
+                        ct);
+
+                    // The library failing is the library failing, whatever the content type. Empty
+                    // Pages on a successful query is judged per run, below, once every question is in.
+                    if (result is null)
+                    {
+                        return GccGroundingOutcome.Refuse(
+                            $"The evidence library returned nothing for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}. "
+                            + $"'{contentType}' cannot be grounded.");
+                    }
+
+                    if (result.Failed)
+                    {
+                        return GccGroundingOutcome.Refuse(
+                            result.Error ?? result.Warning
+                            ?? $"The evidence library query failed for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}.");
+                    }
+
+                    pagesReturned += result.Pages.Count;
+                    if (!string.IsNullOrWhiteSpace(result.Warning) && result.Pages.Count > 0)
+                    {
+                        var line = $"{CrawlTypeLabel(crawlType)} {namesByRun[runId]}: {result.Warning}";
+                        if (!warnings.Contains(line, StringComparer.Ordinal)) warnings.Add(line);
+                    }
+
+                    var fresh = new List<GccQuoteablePage>();
+                    foreach (var page in result.Pages)
+                    {
+                        if (!seenUrls.Add(page.Url)) continue;
+                        into.Add(page);
+                        fresh.Add(page);
+                    }
+
+                    // Partner only -- see PartnerPassages. The competitor and project-site runs skip
+                    // this read entirely rather than mapping blocks no consumer may quote from.
+                    if (isPartner && fresh.Count > 0)
+                    {
+                        passages.AddRange(await typedPassages.ReadAsync(runId, fresh, ct));
+                    }
                 }
 
-                // Partner only -- see PartnerPassages. The competitor and project-site runs skip
-                // this read entirely rather than mapping blocks no consumer may quote from.
-                if (string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase))
+                if (pagesReturned == 0)
                 {
-                    passages.AddRange(await typedPassages.ReadAsync(runId, fresh, ct));
+                    // RAG's own warning carries the run id ("No chunks for runId=..."); the operator
+                    // gets the URL they entered and what it means for the draft instead.
+                    warnings.Add(
+                        $"{CrawlTypeLabel(crawlType)} {namesByRun[runId]}: the index finds nothing from its "
+                        + "crawl, so this was written without it");
+                }
+
+                // Every declared partner must return evidence -- but what its absence refuses depends on
+                // the type, so it is recorded here and decided by the caller. Pillar and Blog are
+                // obliged by GccRequiredToolMentions to name every declared partner, so a partner with
+                // no passage is one the draft must write about from nothing: those types are refused,
+                // naming it. A tool fan-out writes one page per partner, and refuses that partner's
+                // page alone -- four pages and one named refusal, not none. Competitor and own-site
+                // runs keep the old rule: those corpora inform the piece, and another run may cover
+                // what this one did not.
+                if (isPartner && pagesReturned == 0)
+                {
+                    partnersWithoutPassages.Add(partnerHostsByRun.TryGetValue(runId, out var hosts)
+                        ? string.Join(", ", hosts)
+                        : namesByRun[runId]);
                 }
             }
         }
@@ -629,6 +658,48 @@ public sealed class GccGroundingResolver(
         }
 
         return Bounded(GccTopic.KeywordOf(topic), 150);
+    }
+
+    /// <summary>One search of a partner run: the meaning half's text, the keyword half's, and how many passages.</summary>
+    internal sealed record PartnerQuestion(string Need, string? Keyword, int TopK);
+
+    /// <summary>
+    /// What a partner run is asked, from the brief's niche framing for that host: the core problem
+    /// (the tool's own, else the category's), then one question per evidence row -- the vendor's
+    /// solution for the meaning half, the row's terms for the keyword half. A brief with neither
+    /// falls back to the keyword alone at <see cref="PartnerTopK"/>, which is what every partner was
+    /// asked before 2026-10-08.
+    /// </summary>
+    /// <remarks>
+    /// Measured on Tipalti the day this was written: the keyword alone returned product and ERP
+    /// integration pages; the tool's core problem returned case studies, pricing and solution pages;
+    /// solution descriptions in the vendor's own vocabulary found the product page for all six of
+    /// the operator's failures, including the three the pain points missed.
+    /// </remarks>
+    internal static IReadOnlyList<PartnerQuestion> PartnerQuestions(GccCreateDto create, string? hostKey)
+    {
+        var framing = string.IsNullOrWhiteSpace(hostKey)
+            ? null
+            : GccNicheFramingReader.ForHost(create.BriefJson, hostKey);
+
+        var questions = new List<PartnerQuestion>();
+        if (framing is not null && framing.CoreProblem.Length > 0)
+        {
+            questions.Add(new PartnerQuestion(framing.CoreProblem, null, EvidenceTopK));
+        }
+
+        foreach (var row in framing?.Evidence ?? [])
+        {
+            if (row.Need.Length == 0) continue;
+            questions.Add(new PartnerQuestion(row.Need, row.Keyword, EvidenceTopK));
+        }
+
+        if (questions.Count == 0)
+        {
+            questions.Add(new PartnerQuestion(BuildNeed(create.Topic, CrawlTypes.Partner), null, PartnerTopK));
+        }
+
+        return questions;
     }
 
     /// <summary>

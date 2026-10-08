@@ -97,12 +97,20 @@ public sealed class GccAngleQuoteProbe(
     /// <param name="providerType">The provider the operator chose, when the caller sent one. Null is
     /// <c>LlmProviders:DefaultProvider</c> -- the configured setting, resolved by <c>GetDefault()</c>,
     /// which refuses a misconfigured value rather than substituting one.</param>
+    /// <param name="need">
+    /// The brief's question for this partner (its core problem), when the brief has one; the
+    /// angle's generic sentence otherwise. Measured 2026-10-08 on Tipalti: the angle sentence
+    /// returned stubs and definitions, the brief's core problem returned the partner's own slice.
+    /// </param>
+    /// <param name="keyword">The keyword half's text (the brief's first evidence row's terms), or null.</param>
     public async Task<GccAngleQuoteFinding> ProbeAsync(
         GccAngleQuoteSpec spec,
         string partnerUrl,
         Guid runId,
         LlmProviderType? providerType,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? need = null,
+        string? keyword = null)
     {
         if (runId == Guid.Empty)
         {
@@ -124,7 +132,14 @@ public sealed class GccAngleQuoteProbe(
 
         var host = HostOf(partnerUrl);
         var retrieved = await rag.QueryAsync(
-                spec.Need, runId, crawlType: CrawlTypes.Partner, host: host, topK: TopK, ct: ct)
+                new GeekCrawlerRagQuery(
+                    string.IsNullOrWhiteSpace(need) ? spec.Need : need,
+                    runId,
+                    CrawlType: CrawlTypes.Partner,
+                    Host: host,
+                    TopK: TopK,
+                    Keyword: keyword),
+                ct)
             .ConfigureAwait(false);
 
         // Null or Failed is the index not answering. Empty pages on a successful call is the index

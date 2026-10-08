@@ -81,9 +81,9 @@ public class ToolPageQuotationTests
         var first = ToolPrompt(researchJson: null, spans, batchIndex: 0);
         var later = ToolPrompt(researchJson: null, spans, batchIndex: 1);
 
-        Assert.Contains("this page carries exactly one block quotation", first, StringComparison.Ordinal);
+        Assert.Contains("this page carries at most one block quotation", first, StringComparison.Ordinal);
         Assert.Contains("QUOTABLE SPANS", first, StringComparison.Ordinal);
-        Assert.DoesNotContain("this page carries exactly one block quotation", later, StringComparison.Ordinal);
+        Assert.DoesNotContain("this page carries at most one block quotation", later, StringComparison.Ordinal);
         Assert.DoesNotContain("QUOTABLE SPANS", later, StringComparison.Ordinal);
         Assert.Contains("is written by another call. Write no paragraph of type \"quote\" here.", later, StringComparison.Ordinal);
     }
@@ -93,8 +93,8 @@ public class ToolPageQuotationTests
     {
         var system = ToolPrompt("""{"testimonials":[{"quoteText":"We cut approval time."}]}""");
 
-        Assert.Contains("this page carries exactly one block quotation", system, StringComparison.Ordinal);
-        Assert.Contains("and it is required", system, StringComparison.Ordinal);
+        Assert.Contains("this page carries at most one block quotation", system, StringComparison.Ordinal);
+        Assert.Contains("only when a listed span earns it", system, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -226,9 +226,20 @@ public static class GccNicheFramingReader
         IReadOnlyList<string>? partnerUrls,
         string? productName)
     {
-        var category = ForCategory(briefJson);
-
         var host = HostForProduct(briefJson, partnerUrls, productName);
+        return host.Length == 0 ? ForCategory(briefJson) : ForHost(briefJson, host);
+    }
+
+    /// <summary>
+    /// The framing for one partner host (the <c>perTool</c> key, e.g. <c>tipalti.com</c>): its own
+    /// override merged over the category's when the operator wrote one, otherwise the category's.
+    /// Null when neither exists. Retrieval resolves partners by host, not by product name, so this
+    /// is the entry it uses (plans/retrieval-from-the-brief.md P5).
+    /// </summary>
+    public static GccNicheFraming? ForHost(string? briefJson, string host)
+    {
+        var category = ForCategory(briefJson);
+        host = (host ?? string.Empty).Trim();
         if (host.Length == 0) return category;
 
         var root = ReadRoot(briefJson);

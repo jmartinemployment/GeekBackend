@@ -105,17 +105,29 @@ public static partial class GccDraftGuard
         }
 
         // No candidates is the legacy path with no create and no partner evidence: there is nothing a
-        // quotation could be checked against, so none is required. Candidates present but empty is a
-        // grounded page with nothing quotable, and that is refused below.
-        var quoteViolations = inputs.QuoteCandidates is null
-            ? []
-            : GccToolQuoteGuard.FindViolations(sections, inputs.QuoteCandidates);
-        if (quoteViolations.Count > 0)
+        // quotation could be checked against, so none is required. With candidates, a quotation
+        // that is present is held to them -- invented or misattributed words refuse the page -- but a
+        // page with none ships and says so (Jeff, 2026-10-08: do not fail the page when no fitting
+        // quotation was found). The gap is reported with the draft; nothing is substituted for it.
+        if (inputs.QuoteCandidates is not null)
         {
-            findings.Add(new GccGuardFinding(
-                "quotation",
-                "The tool page does not carry a verifiable block quotation. " + string.Join(" ", quoteViolations),
-                Refuses: true));
+            var quoteViolations = GccToolQuoteGuard.FindViolations(sections, inputs.QuoteCandidates);
+            if (quoteViolations.Count > 0)
+            {
+                findings.Add(new GccGuardFinding(
+                    "quotation",
+                    "The tool page does not carry a verifiable block quotation. " + string.Join(" ", quoteViolations),
+                    Refuses: true));
+            }
+
+            var missing = GccToolQuoteGuard.MissingQuotation(sections, inputs.QuoteCandidates);
+            if (missing is not null)
+            {
+                findings.Add(new GccGuardFinding(
+                    "blockquote-missing",
+                    missing + " The page ships without one; the writer found no listed span that answers the problem.",
+                    Refuses: false));
+            }
         }
 
         var quotes = CountQuotes(document);

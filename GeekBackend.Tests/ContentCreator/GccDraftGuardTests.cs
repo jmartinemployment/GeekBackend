@@ -384,7 +384,21 @@ public class GccDraftGuardTests
         var doc = Doc(Body("Melio at work", Text("Melio moves the money.")));
 
         Assert.True(GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: null)).Clean);
-        Assert.Contains("quotation", Failed(GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: []))));
+    }
+
+    [Fact]
+    public void A_tool_page_with_candidates_and_no_quotation_ships_with_the_gap_named()
+    {
+        // Jeff, 2026-10-08: do not fail the page when no fitting quotation was found. The gap is a
+        // non-refusing finding the run reports; nothing is substituted for the quotation.
+        var doc = Doc(Body("Melio at work", Text("Melio moves the money.")));
+
+        var verdict = GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: []));
+
+        Assert.DoesNotContain("quotation", Failed(verdict));
+        var gap = Assert.Single(verdict.Findings, f => f.Check == "blockquote-missing");
+        Assert.False(gap.Refuses);
+        Assert.Contains("carries no block quotation", gap.Detail, StringComparison.Ordinal);
     }
 
     // ---- the opening carries no links ----------------------------------------------------------------

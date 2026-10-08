@@ -84,6 +84,26 @@ public interface IGeekCrawlerRagClient
         IReadOnlyDictionary<string, string>? anchorToolLookup = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// The same search, asked with a <see cref="GeekCrawlerRagQuery"/>, which can carry a separate
+    /// text for the index's keyword half (<see cref="GeekCrawlerRagQuery.Keyword"/>). Geek-Crawler-Rag
+    /// embeds <c>need</c> for its meaning half and, when <c>keyword</c> is sent, searches that with
+    /// its sparse BM25 half instead of <c>need</c> -- so a paragraph describing the reader's
+    /// situation can be the question without every common word in it becoming a search term
+    /// (plans/retrieval-from-the-brief.md, 2026-10-08). The default forwards to the positional
+    /// overload and drops the keyword, which is what every fake and every older implementation
+    /// does; the HTTP client overrides it to send the keyword.
+    /// </summary>
+    Task<GeekCrawlerRagQueryResult?> QueryAsync(GeekCrawlerRagQuery query, CancellationToken ct = default) =>
+        QueryAsync(
+            query.Need,
+            query.RunId,
+            crawlType: query.CrawlType,
+            host: query.Host,
+            topK: query.TopK,
+            anchorToolLookup: query.AnchorToolLookup,
+            ct: ct);
+
     /// <summary>Phase D2 — upsert ad templates into Geek-Crawler-Rag. Null when disabled.</summary>
     Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
         IReadOnlyList<GeekCrawlerRagTemplateDto> templates,
@@ -201,6 +221,20 @@ public sealed record GeekCrawlerRagHostIndex(
     string? RunId,
     string? CrawlType = null,
     string? Reason = null);
+
+/// <summary>
+/// One search of one run. <paramref name="Need"/> is embedded for the index's meaning half;
+/// <paramref name="Keyword"/>, when set, is what its keyword (sparse BM25) half searches instead
+/// of <paramref name="Need"/>. Null keyword: both halves get the need, as before 2026-10-08.
+/// </summary>
+public sealed record GeekCrawlerRagQuery(
+    string Need,
+    Guid RunId,
+    string? CrawlType = null,
+    string? Host = null,
+    int TopK = 8,
+    string? Keyword = null,
+    IReadOnlyDictionary<string, string>? AnchorToolLookup = null);
 
 public sealed class GeekCrawlerRagIndexStatus
 {
@@ -524,7 +558,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         }
     }
 
-    public async Task<GeekCrawlerRagQueryResult?> QueryAsync(
+    public Task<GeekCrawlerRagQueryResult?> QueryAsync(
         string need,
         Guid runId,
         string? crawlType = null,
@@ -535,7 +569,30 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         IReadOnlyList<string>? entityNames = null,
         string? retrievalMode = null,
         IReadOnlyDictionary<string, string>? anchorToolLookup = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        SendQueryAsync(
+            need, runId, crawlType, host, topK, preferParent, preferChild, entityNames, retrievalMode,
+            anchorToolLookup, keyword: null, ct);
+
+    public Task<GeekCrawlerRagQueryResult?> QueryAsync(GeekCrawlerRagQuery query, CancellationToken ct = default) =>
+        SendQueryAsync(
+            query.Need, query.RunId, query.CrawlType, query.Host, query.TopK,
+            preferParent: null, preferChild: null, entityNames: null, retrievalMode: null,
+            query.AnchorToolLookup, query.Keyword, ct);
+
+    private async Task<GeekCrawlerRagQueryResult?> SendQueryAsync(
+        string need,
+        Guid runId,
+        string? crawlType,
+        string? host,
+        int topK,
+        bool? preferParent,
+        bool? preferChild,
+        IReadOnlyList<string>? entityNames,
+        string? retrievalMode,
+        IReadOnlyDictionary<string, string>? anchorToolLookup,
+        string? keyword,
+        CancellationToken ct)
     {
         if (!_enabled)
             return null;
@@ -575,6 +632,9 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 payload["entityNames"] = entityNames.Where(e => !string.IsNullOrWhiteSpace(e)).Take(12).ToArray();
             if (!string.IsNullOrWhiteSpace(retrievalMode))
                 payload["retrievalMode"] = retrievalMode;
+            // The keyword half's own text. Absent, the index searches `need` with both halves.
+            if (!string.IsNullOrWhiteSpace(keyword))
+                payload["keyword"] = keyword;
 
             using var response = await _http.PostAsJsonAsync("v1/query", payload, JsonOpts, ct)
                 .ConfigureAwait(false);

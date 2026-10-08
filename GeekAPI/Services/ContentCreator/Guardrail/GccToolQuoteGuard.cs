@@ -36,9 +36,34 @@ public static class GccToolQuoteGuard
     private sealed record QuotableSpan(string Text, string OriginProofUrl);
 
     /// <summary>
-    /// Violations, most specific first. Empty means the page carries at least one block quotation
-    /// and every quotation on it is a verbatim span from <paramref name="extraction"/>, cited to
-    /// its own source. Never repairs: a rewritten quote is still a quote nobody verified.
+    /// Why the page carries no block quotation, or null when it carries one. A reported gap, not a
+    /// violation, since 2026-10-08 (Jeff: do not fail a tool page when no fitting quotation was
+    /// found): the page ships and the absence is named. The quotations that are present are judged
+    /// by <see cref="FindViolations"/>, which still refuses an invented or misattributed one.
+    /// </summary>
+    public static string? MissingQuotation(
+        IReadOnlyList<Section> sections,
+        IReadOnlyList<GccQuoteCandidate>? candidates)
+    {
+        var quotes = new List<QuoteParagraph>();
+        foreach (var section in sections)
+        {
+            CollectQuotes(section, quotes);
+        }
+        if (quotes.Count > 0) return null;
+
+        var spans = QuotableSpans(candidates);
+        return spans.Count == 0
+            ? "The page carries no block quotation, and nothing retrieved from the partner's "
+              + "pages is shaped like one -- no complete sentence outside boilerplate."
+            : $"The page carries no block quotation. {spans.Count} quotable partner span(s) were supplied and none was used.";
+    }
+
+    /// <summary>
+    /// Violations, most specific first, among the block quotations the page carries. Empty means
+    /// every quotation on it is a verbatim span from <paramref name="candidates"/>, cited to its
+    /// own source -- or that there is none, which <see cref="MissingQuotation"/> reports separately.
+    /// Never repairs: a rewritten quote is still a quote nobody verified.
     /// </summary>
     public static IReadOnlyList<string> FindViolations(
         IReadOnlyList<Section> sections,
@@ -54,10 +79,7 @@ public static class GccToolQuoteGuard
 
         if (quotes.Count == 0)
         {
-            return spans.Count == 0
-                ? ["The page carries no block quotation, and nothing retrieved from the partner's "
-                    + "pages is shaped like one -- no complete sentence outside boilerplate."]
-                : [$"The page carries no block quotation. {spans.Count} quotable partner span(s) were supplied and none was used."];
+            return [];
         }
 
         var violations = new List<string>();
