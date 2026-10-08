@@ -104,6 +104,22 @@ public class GccNicheFramingEvidenceTests
     }
 
     [Fact]
+    public void Rows_without_pain_point_paragraphs_give_the_writer_the_rows_problems()
+    {
+        // The form derives painPoints from the rows; a brief carrying only rows reads the same.
+        const string brief = """
+            { "nicheFraming": { "coreProblem": "A problem.", "evidence": [
+                { "problem": "Approval is informal.", "solution": "Routing with an audit trail.", "terms": ["approval workflow"] },
+                { "problem": "Payments are executed ad hoc.", "solution": "Scheduled payment runs.", "terms": [] } ] } }
+            """;
+
+        var category = GccNicheFramingReader.ForCategory(brief);
+
+        Assert.NotNull(category);
+        Assert.Equal(["Approval is informal.", "Payments are executed ad hoc."], category!.PainPoints);
+    }
+
+    [Fact]
     public void Rows_alone_are_framing_and_a_row_without_a_solution_asks_its_problem()
     {
         const string brief = """

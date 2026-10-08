@@ -459,6 +459,14 @@ public static class GccNicheFramingReader
         var pains = ReadParagraphs(obj, "painPoints");
         var evidence = ReadEvidence(obj);
 
+        // Since 2026-10-08 the form enters each failure once, as a row, and derives painPoints from
+        // the rows' Problem column on every change. A brief written by hand or by an older client
+        // may carry rows and no paragraphs; the rows' problems are the failures then.
+        if (pains.Count == 0 && evidence.Count > 0)
+        {
+            pains = [.. evidence.Select(r => r.Problem).Where(p => p.Length > 0)];
+        }
+
         if (core.Length == 0 && automation.Length == 0 && pains.Count == 0 && evidence.Count == 0) return null;
         return new GccNicheFraming(core, pains, automation) { Evidence = evidence };
     }
