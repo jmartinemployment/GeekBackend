@@ -45,6 +45,10 @@ public class GccGenerateServicePillarFaqTests
 
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
         public List<string> SystemPromptsSeen { get; } = [];
+        /// <summary>The questions each FAQ call was handed, in the order the calls were made.</summary>
+        public List<IReadOnlyList<string>> FaqCallQuestions { get; } = [];
+        /// <summary>When true, every FAQ call answers with an h2 that has no children.</summary>
+        public bool AnswerFaqWithNoChildren { get; init; }
 
         /// <summary>The literal that opens BuildArticleFaqSectionPrompt, and nothing else. The
         /// metadata prompt names "People Also Ask" too, when it tells the model to end the outline
@@ -60,15 +64,49 @@ public class GccGenerateServicePillarFaqTests
             // The body is the only call asking for a sections array; the FAQ asks for one section,
             // and the remaining three are told apart by their own prompt text. The lede is the
             // fallback because its contract is the one thing named in no other prompt here.
-            var content = request.JsonSchemaName == "sections"
-                ? bodyCalls < 1 ? SectionsArrayJson : ScriptedBody.PlannedBatch(bodyCalls)
-                : system.Contains(FaqPromptMarker, StringComparison.Ordinal) ? SectionJson
-                : system.Contains("image-generation prompts", StringComparison.Ordinal) ? ImagePromptsJson
-                : system.Contains("sectionOutline", StringComparison.Ordinal) ? ArticleMetadataJson
-                : LedeAndIntroJson;
-            if (request.JsonSchemaName == "sections") bodyCalls++;
+            string content;
+            if (request.JsonSchemaName == "sections")
+            {
+                content = bodyCalls < 1 ? SectionsArrayJson : ScriptedBody.PlannedBatch(bodyCalls);
+                bodyCalls++;
+            }
+            else if (system.Contains(FaqPromptMarker, StringComparison.Ordinal))
+            {
+                var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
+                var questions = QuestionsIn(user);
+                FaqCallQuestions.Add(questions);
+                content = AnswerFaqWithNoChildren ? SectionJson : FaqAnswer(questions);
+            }
+            else if (system.Contains("image-generation prompts", StringComparison.Ordinal))
+            {
+                content = ImagePromptsJson;
+            }
+            else if (system.Contains("sectionOutline", StringComparison.Ordinal))
+            {
+                content = ArticleMetadataJson;
+            }
+            else
+            {
+                content = LedeAndIntroJson;
+            }
 
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
+        }
+
+        /// <summary>The "  - Q1: question" lines BuildArticleFaqSectionPrompt writes, as questions.</summary>
+        private static IReadOnlyList<string> QuestionsIn(string user) => user
+            .Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith("- Q", StringComparison.Ordinal))
+            .Select(l => l[(l.IndexOf(':') + 1)..].Trim())
+            .ToList();
+
+        /// <summary>The shape the FAQ prompt asks for: an h2 with one h3 child per question.</summary>
+        private static string FaqAnswer(IReadOnlyList<string> questions)
+        {
+            var children = string.Join(",", questions.Select(q =>
+                $$"""{"tag":"h3","heading":"{{q}}","paragraphs":[{"type":"text","runs":[{"text":"Answer."}]}],"href":null,"children":[]}"""));
+            return $$"""{"tag":"h2","heading":"People Also Ask","paragraphs":[],"href":null,"children":[{{children}}]}""";
         }
     }
 
@@ -149,8 +187,46 @@ public class GccGenerateServicePillarFaqTests
 
         var json = await service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
-        // SectionJson's own heading is "Section" -- confirm it landed as a real section in the
-        // persisted document, not just that a call happened.
-        Assert.Contains("\"heading\":\"Section\"", json);
+        // The question is the h3's heading -- confirm it landed as a real section in the persisted
+        // document, not just that a call happened.
+        Assert.Contains("\"heading\":\"What is AI implementation?\"", json);
+    }
+
+    /// <summary>
+    /// 2026-10-08: a brief with 37 People Also Ask questions went to one FAQ call with a 3,072-token
+    /// budget, OpenAI stopped at the limit, and the whole pillar was refused for its appendix. The
+    /// questions are now written in calls of eight and joined into one section, in the brief's order.
+    /// </summary>
+    [Fact]
+    public async Task ManyPaaQuestionsAreWrittenInCallsOfEightAndJoinedInOrder()
+    {
+        var provider = new RecordingProvider();
+        var service = Build(provider);
+        var questions = Enumerable.Range(1, 20).Select(i => $"Question number {i}?").ToList();
+        var brief = System.Text.Json.JsonSerializer.Serialize(new { paaQuestions = questions });
+
+        var json = await service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Equal([8, 8, 4], provider.FaqCallQuestions.Select(q => q.Count).ToArray());
+        Assert.Equal(questions, provider.FaqCallQuestions.SelectMany(q => q).ToList());
+        // One People Also Ask section carrying every answer, in order: the position of each heading
+        // in the saved document rises with its number.
+        var positions = questions.Select(q => json.IndexOf($"\"heading\":\"{q}\"", StringComparison.Ordinal)).ToList();
+        Assert.All(positions, p => Assert.True(p >= 0));
+        Assert.Equal(positions.OrderBy(p => p).ToList(), positions);
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(json, "\"heading\":\"People Also Ask\"").Count);
+    }
+
+    [Fact]
+    public async Task AFaqCallThatAnswersNothingRefusesThePillarNamingTheCall()
+    {
+        var provider = new RecordingProvider { AnswerFaqWithNoChildren = true };
+        var service = Build(provider);
+        var brief = """{"paaQuestions":["What is AI implementation?","How much does it cost?"]}""";
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None));
+
+        Assert.Contains("People Also Ask call 1 answered none of its 2 questions", ex.Message);
     }
 }

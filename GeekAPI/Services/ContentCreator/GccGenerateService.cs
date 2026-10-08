@@ -2559,10 +2559,7 @@ public class GccGenerateService
         var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions;
         if (paaQuestions is { Count: > 0 })
         {
-            var faqResult = await llm.CompleteAsync(
-                _prompts.BuildArticleFaqSectionPrompt(context, metadata, paaQuestions, isRegeneration: false),
-                ct);
-            pillarFaq = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", "pillar FAQ section");
+            pillarFaq = await WritePillarFaqAsync(llm, context, metadata, paaQuestions, ct);
         }
 
         // The lede IS the first H2, and the introduction is the lede continuing under its heading.
@@ -3109,6 +3106,56 @@ public class GccGenerateService
     /// </para>
     /// </summary>
     private const int SectionsPerBatch = 2;
+
+    /// <summary>
+    /// How many People Also Ask questions one FAQ call answers. The FAQ prompt's output budget is
+    /// 3,072 tokens (<c>BuildArticleFaqSectionPrompt</c>); an h3 child with a two-to-four-sentence
+    /// answer is 120-200 tokens of section JSON, so eight questions use about half of it. On
+    /// 2026-10-08 a brief with 37 questions went to one call, the reply stopped at the limit, and
+    /// the whole pillar was refused for an appendix.
+    /// </summary>
+    private const int PaaQuestionsPerFaqCall = 8;
+
+    /// <summary>
+    /// The People Also Ask section, written in calls of <see cref="PaaQuestionsPerFaqCall"/>
+    /// questions and joined into one h2: every call returns the section with one h3 child per
+    /// question, and the children are concatenated in the brief's order under the first call's
+    /// heading. A call that answers none of its questions refuses the pillar naming the call -- a
+    /// missing answer is a refusal, not a shorter FAQ.
+    /// </summary>
+    private async Task<Section> WritePillarFaqAsync(
+        IContentGenerationProvider llm,
+        ProjectGenerationContext context,
+        ArticleMetadataDraft metadata,
+        IReadOnlyList<string> paaQuestions,
+        CancellationToken ct)
+    {
+        Section? head = null;
+        var children = new List<Section>();
+        for (var start = 0; start < paaQuestions.Count; start += PaaQuestionsPerFaqCall)
+        {
+            var batch = paaQuestions.Skip(start).Take(PaaQuestionsPerFaqCall).ToList();
+            var call = start / PaaQuestionsPerFaqCall + 1;
+            var result = await llm.CompleteAsync(
+                _prompts.BuildArticleFaqSectionPrompt(context, metadata, batch, isRegeneration: false),
+                ct);
+            var section = LlmResponseJsonParser.ParseSection(
+                result.Content, "h2", $"pillar FAQ section, questions {start + 1}-{start + batch.Count}");
+            if (section.Children.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Refused: the pillar's People Also Ask call {call} answered none of its {batch.Count} questions.");
+            }
+            head ??= section;
+            children.AddRange(section.Children);
+        }
+
+        if (head is null)
+        {
+            throw new InvalidOperationException("Refused: the pillar's People Also Ask has no questions to answer.");
+        }
+        return head with { Children = children };
+    }
 
     /// <summary>
     /// The body, written in batches of <see cref="SectionsPerBatch"/> and concatenated.
