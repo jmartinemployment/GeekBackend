@@ -168,6 +168,7 @@ public sealed class RagIndexStatusWebhookRequest
     /// exact text. Bound so it is not discarded on arrival; not persisted to crawl_runs.
     /// </summary>
     public int ChunksSkippedRepeat { get; set; }
+    public int ChunksSkippedStub { get; set; }
 
     public string? Error { get; set; }
     public DateTimeOffset? StartedAtUtc { get; set; }
