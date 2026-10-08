@@ -58,18 +58,28 @@ public class GccGroundingPolicyTests
     }
 
     [Fact]
-    public void NeedNamesTheRoleAndTheTopic()
+    public void ThePartnerNeedIsTheKeywordAndNothingElse()
     {
+        // From 2026-10-02 to 2026-10-08 twenty-two fixed words followed the keyword, a stand-in for
+        // the problem the operator describes in the brief's niche framing. The index's keyword half
+        // matched every one of them -- "cost", "manual", "capability" are on every ERP, pricing and
+        // integration page -- and on Melio the second slot went to an accounts-receivable article.
+        // Deleted at Jeff's instruction. Every word sent is a search term, so only the keyword is sent.
         var need = GccGroundingResolver.BuildNeed("AI implementation for SMBs", CrawlTypes.Partner);
 
-        Assert.Contains("AI implementation for SMBs", need);
+        Assert.Equal("AI implementation for SMBs", need);
+        Assert.DoesNotContain("status-quo", need, StringComparison.Ordinal);
+        Assert.DoesNotContain("measured outcomes", need, StringComparison.Ordinal);
+        Assert.DoesNotContain("--", need, StringComparison.Ordinal);
+    }
 
-        // It asked for "partner tool research", which returns a pool of feature lists and marketing
-        // copy -- material about the product. What a tool page quotes is how the product solves the
-        // problem (Jeff, 2026-10-01), so the query asks for that instead. Retrieval decides what the
-        // candidate list can contain, which is why forty candidates could be supplied and none fit.
-        Assert.Contains("manual or status-quo way", need, StringComparison.Ordinal);
-        Assert.Contains("capability that removes it", need, StringComparison.Ordinal);
+    [Fact]
+    public void TheProjectSiteNeedIsTheKeywordToo()
+    {
+        var need = GccGroundingResolver.BuildNeed(
+            "Accounts Payable: Automated Payment Execution", CrawlTypes.ProjectSite);
+
+        Assert.Equal("Automated Payment Execution", need);
     }
 
     [Fact]

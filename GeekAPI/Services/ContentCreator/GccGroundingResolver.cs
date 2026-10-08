@@ -600,23 +600,25 @@ public sealed class GccGroundingResolver(
     };
 
     /// <summary>
-    /// The retrieval query. Mirrors <c>GccV2CreateLibraryWriter.BuildNeed</c> — that path never ran,
-    /// but its intent is the specification.
-    /// </summary>
-    /// <summary>
     /// The retrieval query. What comes back is what a quotation can be chosen from, so this decides
     /// whether the right span is in the pool at all.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// It asked for "partner tool research; topic: X" — material about the product. The tool page needs
-    /// something narrower: <b>how the product solves the problem the keyword implies</b> (Jeff,
-    /// 2026-10-01). A pool retrieved on "tell me about this product" is mostly feature lists and
-    /// marketing copy, which is why forty candidates could be supplied and none of them fit.
+    /// For a partner or the project site it is the keyword from the topic (<see cref="GccTopic"/>:
+    /// "descriptor: keyword" yields the keyword; a topic with no colon is the keyword), and nothing
+    /// else. The index runs a hybrid search -- meaning and keyword halves fused -- so every word
+    /// sent is a term the keyword half matches.
     /// </para>
     /// <para>
-    /// Mirrors <c>GccAngleQuoteQuestion</c>'s <c>problem_solution</c> framing, which is the same
-    /// question the brief-time probe asks. The two should want the same material.
+    /// From 2026-10-02 to 2026-10-08 twenty-two fixed words were appended ("the cost, delay and
+    /// error rate of the manual or status-quo way, the capability that removes it, and measured
+    /// outcomes"), written for a retrieval that was then meaning-only, as a stand-in for the
+    /// problem the operator describes in the brief's niche framing -- which this method never
+    /// read. Once the keyword half ran, those words matched every ERP, pricing and integration
+    /// page: on Melio they put an accounts-receivable article in the second slot. Deleted at
+    /// Jeff's instruction (2026-10-08). The brief's own framing is still not read here; that is a
+    /// separate decision.
     /// </para>
     /// </remarks>
     internal static string BuildNeed(string topic, string crawlType)
@@ -626,21 +628,7 @@ public sealed class GccGroundingResolver(
             return $"competitor differentiation research; topic: {Bounded(topic, 200)}";
         }
 
-        // The keyword as the SUBJECT, not inside a "doing X manually" frame.
-        //
-        // Two corrections in one line. Topic is "descriptor: keyword" (GccTopic), so the whole string was
-        // wrong -- it dragged "Accounts Payable" into the query. And the keyword names the SOLUTION
-        // ("Automated Data Entry & Processing"), so a manual-pain frame wrapped around it reads
-        // "...Automated Data Entry & Processing manually": the query contradicts itself and pulls the
-        // wrong passages. 0a6ec94 shipped that; splitting the descriptor off alone did not fix it.
-        //
-        // Naming the keyword as the subject and asking for the manual pain beside it says the real thing:
-        // this is the solution area, find what the status quo costs and what removes it.
-        //
-        // The framing costs about a hundred characters, so the keyword gets a tighter cap than the
-        // competitor query's. A retrieval query that balloons stops being a query.
-        return $"{Bounded(GccTopic.KeywordOf(topic), 150)} -- the cost, delay and error rate of the "
-            + "manual or status-quo way, the capability that removes it, and measured outcomes";
+        return Bounded(GccTopic.KeywordOf(topic), 150);
     }
 
     /// <summary>

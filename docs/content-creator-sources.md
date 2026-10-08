@@ -15,7 +15,7 @@ has not been recorded it says so rather than inferring one. This file replaces t
 | **Crawl type** | `ProjectSite` | `Partner` | `Competitors` |
 | **Retrieved for** | pillar, blog, tool | pillar, blog, tool | pillar, blog, tool |
 | **Passages per search** | 8 | 32 per partner site | 8 |
-| **The search text** | the keyword, plus "the cost, delay and error rate of the manual or status-quo way, the capability that removes it, and measured outcomes" | the same | "competitor differentiation research; topic: ..." |
+| **The search text** | the keyword alone. From 2026-10-02 to 2026-10-08, 22 fixed words followed it ("the cost, delay and error rate of the manual or status-quo way, the capability that removes it, and measured outcomes"); once the index ran its keyword half they matched every ERP, pricing and integration page, and Jeff had them deleted on 2026-10-08 | the same | "competitor differentiation research; topic: ..." |
 | **Must the draft cite it?** | no | tool pages only (a tool page is refused without partner evidence) | no |
 | **Pillar call, 2026-10-07** | about 39,400 characters (14%) | 187,700 characters (69%) | 15,200 characters (6%) |
 
