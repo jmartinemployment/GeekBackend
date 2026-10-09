@@ -404,18 +404,26 @@ internal static class ResearchBriefBuilder
             "Do not produce a roll-call list, and do not write a Tools heading or catalog. " +
             "Recurring mentions are fine when they add something; first-mention-only is not enough. " +
             "A link is never a substitute for discussing the tool.");
+        // The writer names the tool's id, never its path. Until 2026-10-09 this said "set Run.href to
+        // that exact path", and a pillar came back with four paragraphs of 53-64 words each wrapped in
+        // the href of a tool page (chaserhq, invoiced, upflow, versapay) -- the address right, the link
+        // on everything. GccLinkPlacer now puts the href on the anchor words the writer names, from the
+        // T# ids printed here, which GccLinkTargets numbers from the same list in the same order.
         sb.AppendLine(
-            "Every tool below has a public path on this site, and a named tool links to it: set Run.href to that " +
-            "exact path on the first substantive body mention of each tool in each section. Later mentions of the " +
-            "same tool in that same section stay plain text — one link per tool per section, so the prose does not " +
-            "become a row of links. Headings are never linked.");
+            "Every tool below has a public path on this site, and a named tool links to it: on the first substantive " +
+            "body mention of each tool in each section, add a \"links\" entry to that paragraph -- \"target\" the " +
+            "tool's T# id exactly as printed below, \"anchor\" the tool's name as that paragraph writes it. Later " +
+            "mentions of the same tool in that same section stay plain text — one link per tool per section, so the " +
+            "prose does not become a row of links. Headings are never linked.");
         sb.AppendLine(
-            "The path is relative and starts with a slash, exactly as written below. Do not link a tool to the " +
-            "vendor's own website, to the crawl source page, or to any absolute URL, and never fabricate a path: " +
-            "an off-site href is not the link being asked for here.");
+            "You write no path and no URL: the id is the whole address. Do not link a tool to the vendor's own " +
+            "website or to the crawl source page; a URL or a path typed into any field is refused and the section " +
+            "is not written.");
         sb.AppendLine("The tools:");
-        foreach (var tool in tools)
+        for (var i = 0; i < tools.Count; i++)
         {
+            var tool = tools[i];
+            var id = GeekAPI.Services.ContentCreator.Guardrail.GccLinkTargets.ToolId(i);
             // Content Creator supplies the path its tool page is published at. Without one this is the
             // Workflow path, which has no create to build it from.
             var publicPath = string.IsNullOrWhiteSpace(tool.PublicPath)
@@ -423,11 +431,11 @@ internal static class ResearchBriefBuilder
                 : tool.PublicPath;
             if (!string.IsNullOrWhiteSpace(tool.Href))
             {
-                sb.AppendLine($"- {tool.Name} — public path: {publicPath} (crawl source, do not send the reader there: {tool.Href})");
+                sb.AppendLine($"[{id}] {tool.Name} — public path: {publicPath} (crawl source, do not send the reader there: {tool.Href})");
             }
             else
             {
-                sb.AppendLine($"- {tool.Name} — public path: {publicPath}");
+                sb.AppendLine($"[{id}] {tool.Name} — public path: {publicPath}");
             }
         }
     }

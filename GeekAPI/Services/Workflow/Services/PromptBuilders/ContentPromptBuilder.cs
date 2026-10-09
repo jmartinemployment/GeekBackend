@@ -260,29 +260,43 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// The structured-output contract every section-body call uses. No tag characters and no
     /// heading/emphasis/list punctuation in the text at all — headings are a plain string field,
-    /// links are a url field on a run, lists are their own paragraph variant, and the writer has no
-    /// emphasis to set (bold and italic are not offered; see LlmResponseJsonParser.NormalizeRun). This
-    /// is what actually eliminates truncated or malformed markup: there is no markup syntax
-    /// available for the model to get wrong.
+    /// links are a "links" entry on the paragraph naming a printed target and the words it sits on,
+    /// lists are their own paragraph variant, and the writer has no emphasis to set (bold and italic
+    /// are not offered; see LlmResponseJsonParser.NormalizeRun). This is what actually eliminates
+    /// truncated or malformed markup: there is no markup syntax available for the model to get wrong.
     /// </summary>
+    /// <remarks>
+    /// A run offered "href" until 2026-10-09. The writer put it on whole paragraphs -- ten of 38-75
+    /// words on one tool page, four of 53-64 on a pillar -- and once on a URL it remembered rather
+    /// than one it was shown, and every instruction about where a link sits went unheeded. The
+    /// address is no longer the writer's to type: it names a target id and the anchor words, and
+    /// GccLinkPlacer puts the href on exactly those words or refuses the section by name.
+    /// </remarks>
     private const string RunJsonShape =
-        "{\"text\": string (plain text only — never markup syntax of any kind), \"href\": string?}";
+        "{\"text\": string (plain text only — never markup syntax of any kind, never a URL)}";
 
-    private const string ParagraphJsonShape =
-        "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...]} " +
-        "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[" + RunJsonShape + ", ...], ...]} " +
+    private static readonly string LinksJsonShape =
+        "\"links\": [{\"target\": string (an id printed in the user message: S# a page of the evidence, " +
+        "T# a partner tool page -- never a URL or a path), \"anchor\": string (the exact words in this " +
+        "paragraph the link sits on: the name of what it leads to, " +
+        GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords +
+        " words at most, copied verbatim from a run's text)}, ...] (empty when the paragraph links nothing)";
+
+    private static readonly string ParagraphJsonShape =
+        "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...], " + LinksJsonShape + "} " +
+        "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[" + RunJsonShape + ", ...], ...], " + LinksJsonShape + "} " +
         "OR {\"type\":\"quote\",\"candidate\":integer? (the number of a listed quotable span), \"runs\":[" + RunJsonShape + ", ...],\"cite\":string? (source URL)} " +
         "(a real block quotation, for wording worth reproducing verbatim with its source — " +
         "never \"According to X, ...\" written as ordinary prose. Where quotable spans are listed, " +
         "set \"candidate\" to the span's number, leave \"runs\" empty and \"cite\" null: the words and " +
         "the source are taken from the list by that number, never from your reply)";
 
-    private const string SectionJsonContract =
+    private static readonly string SectionJsonContract =
         "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...], \"href\": null, " +
         "\"children\": [Section, ...] (nested subsections, same shape, one level deeper tag)}";
 
-    private const string SectionsArrayJsonContract =
+    private static readonly string SectionsArrayJsonContract =
         "{\"sections\": [" + SectionJsonContract + ", ...] (top-level h2 sections, in order)}";
 
     /// <summary>
@@ -314,12 +328,12 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "title, or its page title, or its host; use the partner name where the passage carries one, " +
         "because that is the spelling the rest of this prompt asks for)";
 
-    private const string SectionJsonContractWithProvenance =
+    private static readonly string SectionJsonContractWithProvenance =
         "{\"tag\": \"h2\"|\"h3\"|\"h4\"|\"h5\"|\"h6\", \"heading\": string (plain text, no markup), " +
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...], \"href\": null, " +
         "\"children\": [<same shape, one level deeper tag>, ...], " + ProvenanceFieldShape + "}";
 
-    private const string SectionsArrayJsonContractWithProvenance =
+    private static readonly string SectionsArrayJsonContractWithProvenance =
         "{\"sections\": [" + SectionJsonContractWithProvenance + ", ...] (top-level h2 sections, in order)}";
 
     /// <summary>
@@ -381,8 +395,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "analysis in your voice. Claims still come from the supplied evidence, not from what you "
         + "already believe about these products.\n"
         + "- Every declared partner tool is discussed on this basis and linked to its tool page at "
-        + "its first substantive mention. A tool named without saying what it solves has not been "
-        + "discussed.";
+        + "its first substantive mention: a \"links\" entry on that paragraph, \"target\" the tool's T# "
+        + "id as the user message prints it, \"anchor\" the tool's name as that paragraph writes it. A "
+        + "tool named without saying what it solves has not been discussed.";
 
     /// <summary>
     /// The same ban, said at the planning stage: an outline heading is what the body writer is then
@@ -717,8 +732,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "customer to fill a section.";
 
     private const string ContentOnlyInstruction =
-        "CONTENT ONLY: the text of every run is plain words. Headings, emphasis, lists and links are "
-        + "fields of the JSON and never characters in the text -- no #, no <h2>, no **, no [text](url).";
+        "CONTENT ONLY: the text of every run is plain words. Headings and lists are fields of the JSON, "
+        + "a link is a \"links\" entry, and none of them is ever characters in the text -- no #, no <h2>, "
+        + "no **, no [text](url), no URL.";
 
     /// <summary>
     /// How the prose sounds. Extended 2026-09-27 with Jeff's own brief, after a finished blog was
@@ -795,21 +811,25 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "quotation is the one exception: it is reproduced exactly as published, currency included.";
 
     /// <summary>
-    /// Where a link sits: on the few words that name what it leads to. Enforced after the draft by
+    /// Where a link sits and how it is said: on the few words that name what it leads to, as a "links"
+    /// entry naming a printed target. Placed by <c>GccLinkPlacer</c> and checked after the draft by
     /// <c>GccDraftGuard</c>'s link-text check, which reads the same limit; this tells the writer first.
     /// </summary>
     /// <remarks>
-    /// The run contract offers "href" and said nothing about how much text a linked run may hold, and
-    /// two instructions told the writer to attribute a paraphrase with the source URL "as that run's
-    /// href". A paraphrased paragraph is one run, so whole paragraphs came back as links.
+    /// Until 2026-10-09 this told the writer to keep an "href" to a short run of its own, and the
+    /// writer kept putting it on whole paragraphs regardless -- the same failure on 2026-10-05 and
+    /// twice on 2026-10-09, plus one link to a URL it was never shown. The href is no longer the
+    /// writer's to type. It names the target and the words; the code puts the link there or refuses.
     /// </remarks>
     internal static readonly string LinkTextInstruction =
-        "A LINK SITS ON A FEW WORDS: a run that carries an \"href\" holds only the name of what it links to "
-        + "-- the product, the page or the source -- and never more than "
+        "A LINK SITS ON A FEW WORDS, AND YOU NEVER WRITE ITS ADDRESS: a link is a \"links\" entry on the "
+        + "paragraph. \"target\" is an id printed in the user message -- S# for a page of the evidence, T# "
+        + "for a partner tool page -- and \"anchor\" is the exact words in that paragraph the link sits on: "
+        + "the name of what it leads to, never a sentence, "
         + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
-        + " words. The sentence around it is separate runs with no href. Never put an href on a whole "
-        + "sentence or a whole paragraph: when a paragraph draws on a page, name that page in a short run "
-        + "of its own and link only that run. A run longer than that with an href is refused.";
+        + " words at most, copied verbatim from a run's text. Write no URL and no path anywhere, in no "
+        + "field. An id that was not printed, anchor words that are not in the paragraph, or an anchor "
+        + "longer than that refuses the section, and it is not written.";
 
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
@@ -1204,7 +1224,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// Nobody picks "anecdotal" for a heading; the type shapes the prose under it.
     /// </para>
     /// </summary>
-    private const string LedeJsonContract =
+    private static readonly string LedeJsonContract =
         "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", " +
         "\"heading\": \"...\" (this page's first H2, in your own words -- see the heading rules; never a restatement of the title), " +
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...] (the opening itself, running under that heading)" +
@@ -1233,11 +1253,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// section shape, heading included, which is how a pillar could end up with the title, the
     /// lede's heading and then a third headline before any body section.
     /// </summary>
-    private const string IntroductionJsonContract =
+    private static readonly string IntroductionJsonContract =
         "{\"paragraphs\": [" + ParagraphJsonShape + ", ...] (continues the lede; no heading), " +
         "\"children\": [" + SectionJsonContract + ", ...] (optional nested h3s)}";
 
-    private const string LedeAndIntroductionJsonContract =
+    private static readonly string LedeAndIntroductionJsonContract =
         "{\"lede\": " + LedeJsonContract + ", \"introduction\": " + IntroductionJsonContract + "}";
 
     /// <summary>

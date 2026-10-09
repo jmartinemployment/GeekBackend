@@ -218,18 +218,19 @@ public static class ContentSectionJsonSchema
             {
                 ["type"] = "object",
                 ["additionalProperties"] = false,
-                ["required"] = new JsonArray { "type", "runs" },
+                ["required"] = new JsonArray { "type", "runs", "links" },
                 ["properties"] = new JsonObject
                 {
                     ["type"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray { "text" } },
                     ["runs"] = new JsonObject { ["type"] = "array", ["items"] = BuildRunSchema() },
+                    ["links"] = BuildLinksSchema(),
                 },
             },
             new JsonObject
             {
                 ["type"] = "object",
                 ["additionalProperties"] = false,
-                ["required"] = new JsonArray { "type", "ordered", "items" },
+                ["required"] = new JsonArray { "type", "ordered", "items", "links" },
                 ["properties"] = new JsonObject
                 {
                     ["type"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray { "list" } },
@@ -239,6 +240,7 @@ public static class ContentSectionJsonSchema
                         ["type"] = "array",
                         ["items"] = new JsonObject { ["type"] = "array", ["items"] = BuildRunSchema() },
                     },
+                    ["links"] = BuildLinksSchema(),
                 },
             },
             new JsonObject
@@ -277,15 +279,41 @@ public static class ContentSectionJsonSchema
         },
     };
 
+    /// <summary>
+    /// A run is its text and nothing else. It carried "href" until 2026-10-09, and the writer put it
+    /// on whole paragraphs and once on a URL it was never shown; the model now has no field to type
+    /// an address into. Where a paragraph links is <see cref="BuildLinksSchema"/>, and the href is put
+    /// on the run by <c>GccLinkPlacer</c> after the reply is read.
+    /// </summary>
     private static JsonObject BuildRunSchema() => new()
     {
         ["type"] = "object",
         ["additionalProperties"] = false,
-        ["required"] = new JsonArray { "text", "href" },
+        ["required"] = new JsonArray { "text" },
         ["properties"] = new JsonObject
         {
             ["text"] = new JsonObject { ["type"] = "string" },
-            ["href"] = new JsonObject { ["anyOf"] = new JsonArray { new JsonObject { ["type"] = "string" }, new JsonObject { ["type"] = "null" } } },
+        },
+    };
+
+    /// <summary>
+    /// Where a paragraph links: the id of a target the prompt printed and the exact words the link sits
+    /// on. Required on every text and list paragraph, as strict mode needs, and empty on one that links
+    /// nothing. Read by <c>ParagraphJsonConverter</c> into <c>LinkRef</c>.
+    /// </summary>
+    private static JsonObject BuildLinksSchema() => new()
+    {
+        ["type"] = "array",
+        ["items"] = new JsonObject
+        {
+            ["type"] = "object",
+            ["additionalProperties"] = false,
+            ["required"] = new JsonArray { "target", "anchor" },
+            ["properties"] = new JsonObject
+            {
+                ["target"] = new JsonObject { ["type"] = "string" },
+                ["anchor"] = new JsonObject { ["type"] = "string" },
+            },
         },
     };
 }

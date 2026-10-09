@@ -67,13 +67,36 @@ public sealed class ParagraphJsonConverter : JsonConverter<Paragraph>
                             ? item.EnumerateArray().Select(r => r.Deserialize<Run>(options) ?? new Run(string.Empty)).ToList()
                             : []))
                         .ToList()
-                    : []),
+                    : [],
+                ReadLinks(root)),
             _ => new TextParagraph(
                 root.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array
                     ? runs.EnumerateArray().Select(r => r.Deserialize<Run>(options) ?? new Run(string.Empty)).ToList()
-                    : []),
+                    : [],
+                ReadLinks(root)),
         };
     }
+
+    /// <summary>
+    /// The paragraph's "links": [{"target","anchor"}, ...], or null when the field is absent. Read
+    /// loosely -- a missing or non-string field is an empty string, which GccLinkPlacer refuses by
+    /// name -- so a malformed entry is reported as what it is rather than dropped on the way in.
+    /// </summary>
+    private static IReadOnlyList<LinkRef>? ReadLinks(JsonElement root)
+    {
+        if (!root.TryGetProperty("links", out var links) || links.ValueKind != JsonValueKind.Array)
+            return null;
+
+        return links.EnumerateArray()
+            .Where(link => link.ValueKind == JsonValueKind.Object)
+            .Select(link => new LinkRef(StringOf(link, "target"), StringOf(link, "anchor")))
+            .ToList();
+    }
+
+    private static string StringOf(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
 
     public override void Write(Utf8JsonWriter writer, Paragraph value, JsonSerializerOptions options)
     {
@@ -84,12 +107,14 @@ public sealed class ParagraphJsonConverter : JsonConverter<Paragraph>
                 writer.WriteString("type", "text");
                 writer.WritePropertyName("runs");
                 JsonSerializer.Serialize(writer, text.Runs, options);
+                WriteLinks(writer, text.Links);
                 break;
             case ListParagraph list:
                 writer.WriteString("type", "list");
                 writer.WriteBoolean("ordered", list.Ordered);
                 writer.WritePropertyName("items");
                 JsonSerializer.Serialize(writer, list.Items, options);
+                WriteLinks(writer, list.Links);
                 break;
             // Without this case a QuoteParagraph serialized to "{}" -- the quote, its runs and its
             // citation all silently discarded on the way to storage.
@@ -127,5 +152,24 @@ public sealed class ParagraphJsonConverter : JsonConverter<Paragraph>
             // subtype writes "{}" and the content is gone with no error. The checklist is on Paragraph.
         }
         writer.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Unplaced links round-trip; placed ones are gone (the href is on the run), so a stored page
+    /// carries none.
+    /// </summary>
+    private static void WriteLinks(Utf8JsonWriter writer, IReadOnlyList<LinkRef>? links)
+    {
+        if (links is not { Count: > 0 }) return;
+        writer.WritePropertyName("links");
+        writer.WriteStartArray();
+        foreach (var link in links)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("target", link.Target);
+            writer.WriteString("anchor", link.Anchor);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
     }
 }

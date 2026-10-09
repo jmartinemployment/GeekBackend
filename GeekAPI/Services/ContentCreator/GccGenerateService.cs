@@ -336,6 +336,8 @@ public class GccGenerateService
             // lines, which is why each is described as optional rather than promised.
             sb.AppendLine("How to read a passage. A passage may carry labelled lines above or around");
             sb.AppendLine("its text. Not every passage carries every label. The labels are:");
+            sb.AppendLine("  [S#] <title> (<url>)       the page the passages beneath it come from. S# is the id");
+            sb.AppendLine("                              a \"links\" entry names; the URL is never written by you.");
             sb.AppendLine("  Section: <title>            the heading that passage sits under on its page.");
             sb.AppendLine("  Target Entity Match: <name> the partner tool that passage's own links point at.");
             sb.AppendLine("  Context: / Specific detail: the surrounding block, then the matched sentence.");
@@ -358,23 +360,21 @@ public class GccGenerateService
             sb.AppendLine("   and from one whose Target Entity Match or Section places it with that");
             sb.AppendLine("   product. A passage labelled for one tool does not support a claim about");
             sb.AppendLine("   another, however similar the products are.");
-            // The URL goes in a field, and the rule has to say so. Until 2026-10-03 this line read
-            // "name the source and include its URL where the claim appears" and stopped there. The
-            // run contract says text is plain and never markup, and offers "href" for a link -- but
-            // nothing joined the two, so a writer obeying this rule in the only way the sentence
-            // suggests typed "[Source: <title>](<url>)" into a run's text. LlmResponseJsonParser
-            // refused it as leaked markup, which is correct, and the tool page was not written. The
-            // prompt and the validator are one rule in two places; this names the field so they
-            // agree. (Tool page 'Bill', sections 5-6, Accounts Payable create.)
-            sb.AppendLine("2. Attribute it: name the source where the claim appears, and carry its URL in a");
-            sb.AppendLine("   field, never in the text. Both are on the bracketed line above the passage --");
-            sb.AppendLine("   the page title first, then its URL in parentheses -- and every passage indented");
-            sb.AppendLine("   beneath that line belongs to it. The page title, or a short form of it, is the");
-            sb.AppendLine("   text of a run of its own -- no more than " + GccDraftGuard.MaxLinkWords + " words -- and the URL is that");
-            sb.AppendLine("   run's \"href\". The sentence it sits in is separate runs with no href: a link on a");
-            sb.AppendLine("   whole sentence or paragraph is refused. A URL typed into \"text\", or a bracketed");
-            sb.AppendLine("   link such as [title](url), is refused and the section is not written. Never");
-            sb.AppendLine("   attribute a claim to a URL you did not read it under.");
+            // The address is not the writer's to type. Until 2026-10-03 this rule said "include its URL
+            // where the claim appears" and the writer typed "[Source: <title>](<url>)" into the text;
+            // from then until 2026-10-09 it said to carry the URL as a short run's "href", and the
+            // writer put that href on whole paragraphs -- ten of 38-75 words on the Stampli page, eight
+            // on Bill's -- and once on a URL it remembered rather than one printed here (Ramp). The
+            // writer now names the page by its printed id and the words the link sits on, and
+            // GccLinkPlacer puts the href there or refuses the section by name. The id is on the
+            // bracketed line above the passages, so the two halves of this rule read one list.
+            sb.AppendLine("2. Attribute it: the paragraph that carries the claim names the page it came from in");
+            sb.AppendLine("   its \"links\" -- \"target\" is that page's S# id, printed in brackets on the line above");
+            sb.AppendLine("   its passages, and \"anchor\" is the exact words in that paragraph the link sits on:");
+            sb.AppendLine("   the product or feature the page is about, no more than " + GccDraftGuard.MaxLinkWords + " words, never a");
+            sb.AppendLine("   sentence. You write no URL anywhere: not in \"text\", not as an href, not as");
+            sb.AppendLine("   [title](url). One typed is refused and the section is not written. Never attribute");
+            sb.AppendLine("   a claim to a page whose passages do not state it.");
             sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
             sb.AppendLine("   price, integration or limitation that no passage states.");
             sb.AppendLine("4. If the evidence does not cover something, omit it. Do not fill the gap.");
@@ -388,8 +388,9 @@ public class GccGenerateService
             sb.AppendLine();
             // Every quoteable is read (per-page heading/paragraph trimming below still bounds
             // prompt size).
-            foreach (var q in research.Quoteables)
+            for (var i = 0; i < research.Quoteables.Count; i++)
             {
+                var q = research.Quoteables[i];
                 // No origin condition. There used to be one, testing RetrievalMode == "rag_chunk"
                 // and labelling everything else "operator-supplied" -- but the only producer of an
                 // operator-supplied quoteable was the Wiki/.edu/.gov upload path, removed
@@ -399,7 +400,8 @@ public class GccGenerateService
                 // the model as an operator upload -- which the lines above define as plain prose
                 // carrying none of the structure labels. Evidence was being discredited by a test
                 // for a case that no longer exists.
-                sb.AppendLine($"[{q.Title}] ({q.Url})");
+                // The id GccLinkTargets assigns the same page, by the same index: what a "links" entry names.
+                sb.AppendLine($"[{Guardrail.GccLinkTargets.EvidenceId(i)}] {q.Title} ({q.Url})");
                 foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
                     sb.AppendLine($"- H{h.Level}: {h.Text}");
                 foreach (var p in q.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
@@ -1706,7 +1708,12 @@ public class GccGenerateService
                 : [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(written, quoteCandidates)];
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (await ToolFaqAsync(shortfalls) is { } faq) sections.Add(faq);
-            return new GccDraft(new ContentDocument(toolLede with { Tag = "h2" }, sections), shortfalls);
+            // A tool page is handed no other tool page (GuardInputsFor), so its targets are the evidence alone.
+            var placed = await PlaceLinksAsync(
+                $"the tool page '{name}'",
+                new ContentDocument(toolLede with { Tag = "h2" }, sections),
+                LinkTargetsFor(create, tools: null));
+            return new GccDraft(placed, shortfalls);
         }
 
         var (document, toolWarnings) = await GuardedDraftAsync(
@@ -2658,7 +2665,11 @@ public class GccGenerateService
             // The page's own closing, before the section written outside the outline.
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (pillarFaq is not null) sections.Add(pillarFaq);
-            return new GccDraft(ContentGuardrail.Apply(new ContentDocument(lede, sections)).Document, shortfalls);
+            var placed = await PlaceLinksAsync(
+                "the pillar",
+                new ContentDocument(lede, sections),
+                LinkTargetsFor(create, pillarPromptCtx.Context.KnownCrawlTools));
+            return new GccDraft(ContentGuardrail.Apply(placed).Document, shortfalls);
         }
 
         var (document, pillarWarnings) = await GuardedDraftAsync(
@@ -2866,9 +2877,11 @@ public class GccGenerateService
                 shortfalls);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (blogFaq is not null) sections.Add(blogFaq);
-            return new GccDraft(
-                ContentGuardrail.Apply(new ContentDocument(blogLede with { Tag = "h2" }, sections)).Document,
-                shortfalls);
+            var placed = await PlaceLinksAsync(
+                "the blog",
+                new ContentDocument(blogLede with { Tag = "h2" }, sections),
+                LinkTargetsFor(create, blogPromptCtx.Context.KnownCrawlTools));
+            return new GccDraft(ContentGuardrail.Apply(placed).Document, shortfalls);
         }
 
         var (document, blogWarnings) = await GuardedDraftAsync(
@@ -3399,6 +3412,38 @@ public class GccGenerateService
         foreignAmountsNote is null ? evidence
         : string.IsNullOrWhiteSpace(evidence) ? foreignAmountsNote
         : $"{evidence}{Environment.NewLine}{foreignAmountsNote}";
+
+    /// <summary>
+    /// What a draft may link: the evidence pages its research block prints and, for a page that is
+    /// handed partner tool pages, those -- read from the same lists the prompts print, in the same
+    /// order, so an id means one page on both sides.
+    /// </summary>
+    private static Guardrail.GccLinkTargets LinkTargetsFor(GccCreateDto? create, IReadOnlyList<KnownCrawlTool>? tools)
+    {
+        var research = create is null ? null : GccResearchFetchService.Deserialize(create.ResearchJson);
+        return Guardrail.GccLinkTargets.For(research?.Quoteables, tools);
+    }
+
+    /// <summary>
+    /// The draft with every link placed where the writer said, or a refusal naming each link that could
+    /// not be -- an id the prompt never printed, anchor words not in the paragraph, an anchor too long,
+    /// an href the writer typed. Refuses the way <see cref="GuardedDraftAsync"/> does, with the
+    /// "Refused:" prefix the run reports, and records what was refused and the draft it was in.
+    /// </summary>
+    private async Task<ContentDocument> PlaceLinksAsync(string label, ContentDocument document, Guardrail.GccLinkTargets targets)
+    {
+        var placed = Guardrail.GccLinkPlacer.Place(document, targets, _company.ConsultationAnchorHref);
+        if (placed.Refusals.Count == 0) return placed.Document;
+
+        await GccRunLog.RecordIfAnyAsync("links", new
+        {
+            label,
+            refusals = placed.Refusals,
+            targets = targets.All.Select(t => new { t.Id, t.Href, t.Name }).ToList(),
+            document,
+        });
+        throw new InvalidOperationException($"Refused: {label}. " + string.Join(" ", placed.Refusals));
+    }
 
     private Guardrail.GccGuardInputs GuardInputsFor(
         GccCreateDto? create,

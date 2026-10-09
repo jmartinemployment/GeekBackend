@@ -589,14 +589,14 @@ public class GccGroundingRetrievalTests
     }
 
     /// <summary>
-    /// Rule 2 of the research block has to name the field the URL goes in. It used to say only
-    /// "include its URL where the claim appears"; the run contract says text is plain, so a writer
-    /// following the rule typed "[Source: title](url)" into a run and LlmResponseJsonParser refused
-    /// the section (tool page 'Bill', sections 5-6, 2026-10-03). The prompt and the validator are one
-    /// rule in two places, and this pins the half that drifted.
+    /// Rule 2 of the research block names each page by the id a "links" entry uses, and tells the writer
+    /// it writes no URL. It used to say "include its URL where the claim appears" (the writer typed
+    /// "[Source: title](url)" into a run, 2026-10-03), then to carry the URL as a short run's "href"
+    /// (the writer put it on whole paragraphs, 2026-10-05 and twice on 2026-10-09). The prompt, the
+    /// placer and the guard are one rule in three places, and this pins the half the writer reads.
     /// </summary>
     [Fact]
-    public void ThePartnerBlockPutsTheSourceUrlInAFieldNeverInTheText()
+    public void ThePartnerBlockNamesEachPageByIdAndTheWriterWritesNoUrl()
     {
         var research = new GccResearchDocument(
             null,
@@ -605,8 +605,10 @@ public class GccGroundingRetrievalTests
 
         var block = GccGenerateService.BuildResearchBlock(create);
 
-        Assert.Contains("run's \"href\"", block, StringComparison.Ordinal);
-        Assert.Contains("[title](url)", block, StringComparison.Ordinal);
+        Assert.Contains($"[S1] Partner pricing ({PartnerUrl})", block, StringComparison.Ordinal);
+        Assert.Contains("\"target\" is that page's S# id", block, StringComparison.Ordinal);
+        Assert.Contains("You write no URL anywhere", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("run's \"href\"", block, StringComparison.Ordinal);
         Assert.DoesNotContain("include its URL where the claim appears", block, StringComparison.Ordinal);
         // No quotation is licensed here: pillar and blog ban block quotes and run no quote guard,
         // so a Rule 2 that offered "the cite of a quote paragraph" invited an unverified one.

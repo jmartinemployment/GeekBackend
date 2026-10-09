@@ -71,14 +71,17 @@ public class ContentPromptBuilderToolLinkTests
     }
 
     [Fact]
-    public void The_path_is_relative_so_the_site_renders_a_next_link()
+    public void The_writer_names_the_tools_id_and_never_its_path()
     {
-        // An absolute href renders as a plain external anchor on the site, not a Next Link, which
-        // is exactly the mention Jeff asked not to get.
+        // The site renders a relative href as a Next Link and an absolute one as a plain external
+        // anchor, which is exactly the mention Jeff asked not to get. The writer no longer chooses
+        // either: it names the T# id, and GccLinkPlacer puts the public path on the words it names.
         var system = BlogPrompt(Context());
 
-        Assert.Contains("relative and starts with a slash", system, StringComparison.Ordinal);
+        Assert.Contains("You write no path and no URL", system, StringComparison.Ordinal);
+        Assert.Contains("\"target\" the tool's T# id", system, StringComparison.Ordinal);
         Assert.Contains("Do not link a tool to the vendor's own website", system, StringComparison.Ordinal);
+        Assert.Contains("[T1] Tipalti", system, StringComparison.Ordinal);
     }
 
     [Fact]

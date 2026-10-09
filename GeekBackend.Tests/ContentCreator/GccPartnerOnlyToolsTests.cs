@@ -70,7 +70,7 @@ public sealed class GccPartnerOnlyToolsTests
             .BuildStandaloneBlogBodyPrompt(context, new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]))
             .Messages.Select(m => m.Content));
 
-        Assert.Contains("- Ramp — public path: /tools/accounting/accounts-payable/ramp", prompt, StringComparison.Ordinal);
+        Assert.Contains("[T1] Ramp — public path: /tools/accounting/accounts-payable/ramp", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("/tools/marketing/ramp", prompt, StringComparison.Ordinal);
     }
 
@@ -99,11 +99,12 @@ public sealed class GccPartnerOnlyToolsTests
             create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
         var prompt = provider.FirstBodyPrompt;
-        Assert.Contains("- Lightyear — public path: /tools/marketing/lightyear", prompt, StringComparison.Ordinal);
-        Assert.Contains("- Ramp — public path: /tools/marketing/ramp", prompt, StringComparison.Ordinal);
+        // Numbered in the order the project declares them: the same order GccLinkTargets reads them in.
+        Assert.Contains("[T1] Lightyear — public path: /tools/marketing/lightyear", prompt, StringComparison.Ordinal);
+        Assert.Contains("[T2] Ramp — public path: /tools/marketing/ramp", prompt, StringComparison.Ordinal);
         Assert.Contains("TOOLS THIS PIECE DOES NOT NAME: Melio, Dext.", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("- Melio — public path", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("- Dext — public path", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Melio — public path", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dext — public path", prompt, StringComparison.Ordinal);
     }
 
     private static GccProjectDto Project(params string[] partnerUrls) => new(

@@ -319,11 +319,12 @@ public static partial class GccDraftGuard
     private static IEnumerable<Section> OpeningSections(Section section) =>
         new[] { section }.Concat(section.Children.SelectMany(OpeningSections));
 
-    private static int WordCount(string? text) =>
+    /// <summary>One definition, read by this guard and by <see cref="GccLinkPlacer"/>, so the two measure a link alike.</summary>
+    internal static int WordCount(string? text) =>
         (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
 
     /// <summary>The first few words of a run, enough to find it in the draft.</summary>
-    private static string Opening(string text) =>
+    internal static string Opening(string text) =>
         string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Take(8));
 
     internal static bool LinkAllowed(string href, GccGuardInputs inputs)
