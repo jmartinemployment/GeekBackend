@@ -34,7 +34,12 @@ namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 /// <param name="Heading">The exact heading to write, when one was planned for this page. Null on a
 /// coverage slot, where the writer names the section itself.</param>
 /// <param name="Covers">What this section is responsible for. Null on an assigned slot.</param>
-/// <param name="Depth">Approximate words, for proportion between sections -- never a quota.</param>
+/// <param name="Depth">A words range for this section, e.g. "600-850 words". The upper figure sizes
+/// it against its neighbours, but the lower figure is not advisory: GccGenerateService.BatchFloorWords
+/// sums every assigned slot's lower figure into the batch's word-count floor, and
+/// ContentPromptBuilder states that same sum to the writer as what is owed. A draft under it is
+/// reported as a shortfall. (This doc comment called the field "never a quota" until 2026-10-09; the
+/// two enforcement points above disagreed with it the whole time.)</param>
 /// <param name="Guidance">Section-specific instruction, already resolved against the page's subject
 /// (product name, publisher, keyword) by the type that owns the outline.</param>
 public sealed record SectionSlot(

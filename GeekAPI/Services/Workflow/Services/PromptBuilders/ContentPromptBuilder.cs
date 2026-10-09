@@ -842,11 +842,19 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "A LINK IS A RUN, AND YOU NEVER WRITE ITS ADDRESS: to link, split the words the link sits on "
         + "into their own run and set that run's \"link\" to an id printed in the user message -- S# for a "
         + "page of the evidence, T# for a partner tool page. The words before and after stay in their own "
-        + "runs with \"link\" null. A linked run is the product or feature your sentence names, never a "
-        + "sentence, "
+        + "runs with \"link\" null. A linked run is the product or feature your sentence names -- never a "
+        + "sentence, never the clause that explains what it does -- "
         + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
-        + " words at most. Write no URL and no path anywhere, in no field. An id that was not printed, "
-        + "or a linked run longer than that, refuses the section, and it is not written.";
+        + " words at most. A product name is usually well inside that on its own; a feature is the "
+        + "likelier way to go over, because explaining what a feature does naturally runs long -- link "
+        + "only its short label and put the explanation in the unlinked words around it. Worked example: "
+        + "the sentence \"Upflow's real-time dashboards that give finance teams instant visibility into "
+        + "every outstanding invoice and payment status\" links only \"real-time dashboards\" (2 words) -- "
+        + "not \"real-time dashboards that give finance teams instant visibility into every outstanding "
+        + "invoice and payment status\" (15 words, refused). Write no URL and no path anywhere, in no "
+        + "field. An id that was not printed, or a linked run longer than "
+        + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
+        + " words, refuses the section, and it is not written.";
 
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
@@ -1210,6 +1218,22 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "THE OPENING ASKS NOTHING OF THE READER: it ends on its own material. The page's one invitation to " +
         "the reader sits at its end, so this opening does not ask them to book, call, sign up or click. " +
         "The opening carries no links.";
+
+    /// <summary>
+    /// Restates <see cref="LedeAskInstruction"/>'s no-links rule a second time, as the last thing the
+    /// writer reads before "=== ASSIGNMENT ===" -- after the evidence block, any revision notes, and
+    /// (for the pillar) the research brief. The first statement sits early and is unconditional; the
+    /// evidence block that follows it is <c>GccGenerateService.BuildResearchBlock</c>'s Rule 2, which
+    /// is itself unconditional and mandatory ("the product or feature your sentence names is its own
+    /// run, and that run's \"link\" is the S# id ... One [URL] typed is refused"). Said once up front
+    /// and then contradicted by a closer, mandatory-sounding rule is exactly the ordering that let the
+    /// opening's own "no links" lose -- this line is appended only when an evidence block (and
+    /// therefore Rule 2) was actually sent, and it is the one read last.
+    /// </summary>
+    private const string LedeNoLinksReminder =
+        "BEFORE YOU WRITE: the evidence rule above says to link the claims you draw from it -- that " +
+        "rule is for the body, not for this call. This opening still carries no links at all, to " +
+        "anything, even a page named above. State a claim without a link rather than attach one here.";
 
     /// <summary>
     /// The lede carries a heading. It is this page's first H2 -- <c>PillarPrompts</c> says so
@@ -1730,6 +1754,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
             user.AppendLine(revisionBlock);
         }
 
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            user.AppendLine(LedeNoLinksReminder);
+        }
+
         user.AppendLine()
             .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Article title: {metadata.Title}")
@@ -1776,9 +1805,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("The introduction continues the same opening — it is not a second start:")
             .AppendLine("After the hook, carry straight on into scoping (who this is for, what the article walks through). Never a duplicate hook, and never a heading.")
             .AppendLine($"Pillar standard ({ContentLengthTargets.PillarRangeLabel} words): {ContentLengthTargets.PillarEditorialDefinition}")
-            .AppendLine("Include 2-3 h3 subsections nested in \"children\" with multiple text paragraphs, and at least one list paragraph where appropriate.")
-            .AppendLine("Each h3 is a keyword-level topic and MUST itself nest 1-3 h4 children covering concrete subtopics of that h3.")
-            .AppendLine("Do not leave an h3 as a leaf with only paragraphs — every h3 needs at least one substantive h4 child.")
+            // Not a fixed quota: this read "2-3 h3s, each MUST nest 1-3 h4s" until 2026-10-09, forcing
+            // this call to invent structure alongside its Lede and Introduction word counts in the same
+            // budget. BuildArticleSectionBatchPrompt's body call already states the material-driven
+            // version below; this call never had it. An h4 invented to fill a required slot has no real
+            // subtopic behind it, and is the likeliest way to write a heading GccHeadingProvenanceGuard
+            // then refuses as unlicensed.
+            .AppendLine("Nest h3 children in \"children\" where the introduction's own material genuinely has distinct parts, with multiple text paragraphs and at least one list paragraph where appropriate; nest h4 under an h3 only when that part itself divides.")
+            .AppendLine("Depth where the material has depth, not a fixed lattice on every section. Do not leave an h3 you do write as a bare label with nothing under it -- but an introduction with no h3 at all, because its own material does not divide, is not a gap.")
             .AppendLine("CRITICAL: there is no case-study data available, so there are no case studies to report. Not named ones, and not anonymous ones. " +
                 "\"A mid-sized retail company reduced invoice processing time by 75%\" and \"a tech startup saw a 90% reduction in errors\" are " +
                 "fabrications whether or not a company is named -- dropping the name does not make an invented outcome reportable, it only makes it " +
@@ -1823,8 +1857,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
         }
 
         user.AppendLine()
-            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.Opening))
-            .AppendLine()
+            .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.Opening));
+
+        if (!string.IsNullOrWhiteSpace(evidenceBlock))
+        {
+            user.AppendLine(LedeNoLinksReminder);
+        }
+
+        user.AppendLine()
             .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}. It covers: {ledeHeading}. You write its heading.")
             .AppendLine($"Article title: {metadata.Title}")
@@ -2438,6 +2478,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
         if (!string.IsNullOrWhiteSpace(evidenceBlock))
         {
             user.AppendLine(LedeEvidenceInstruction).AppendLine(evidenceBlock);
+            user.AppendLine(LedeNoLinksReminder);
         }
 
         user.AppendLine()
@@ -2964,14 +3005,20 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 context.TargetKeyword, GccV2LongFormTypes.Tool,
                 outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count),
                 SectionSlot.BatchOwnsKeywordHeading(outline, fullOutline, batchIndex)))
-            // One statement about length, and it agrees with the scorer. Quality still beats count
-            // (Jeff, 2026-09-23), which is why padding and invention stay banned -- but the answer to
-            // thin evidence is depth on what the evidence does support, not a shorter page.
-            .AppendLine($"Length: {ContentLengthTargets.ToolTargetMinWords:N0}-{ContentLengthTargets.ToolTargetMaxWords:N0} words across the sections above, {ContentLengthTargets.ToolHardMaxWords:N0} at most. " +
-                "Each section's lower figure is owed.")
+            // The batch's own floor, not the page's. This used to print ContentLengthTargets.
+            // ToolTargetMinWords-ToolTargetMaxWords -- the whole page's 3,500-5,000 words -- under
+            // "the sections above", so a 2-of-6 batch was told it owed the full page's word count
+            // for two sections: four-plus times its real share, flatly contradicting
+            // SeoBodyInstruction's own "~1,200 words" two lines above (confirmed live in Chaserhq's
+            // and Bill's tool-page batches, 2026-10-09: every batch came back 40-45% under its
+            // actual, lower floor). GccGenerateService.BatchFloorWords is the same sum
+            // BatchShortfalls uses to grade the draft afterward, so the number stated here and the
+            // number enforced later cannot drift apart again.
+            .AppendLine($"Length: at least {GccGenerateService.BatchFloorWords(outline):N0} words across the {outline.Count} " +
+                "sections above -- the sum of each section's own lower figure, which is owed.")
             .AppendLine("Depth, never padding: do not restate a point in new words, do not invent a feature, figure or integration to fill a section. " +
                 $"When the evidence for a section is thin, go further into what it does support -- the mechanism, what it changes for this reader's week, what deploying it involves with {context.PublisherName} -- rather than closing the section short.")
-            .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {outline.Count} substantial sections, not four.")
+            .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {(fullOutline ?? outline).Count} substantial sections across the page, not four.")
             .AppendLine($"This word target is for the {outline.Count} sections above only -- a separate FAQ section, when the tool has " +
                 "partner FAQ data, is generated afterward and is additional, not part of this budget.")
             .AppendLine(BatchClosingInstruction(

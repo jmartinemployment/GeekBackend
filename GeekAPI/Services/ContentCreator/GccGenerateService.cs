@@ -337,7 +337,7 @@ public class GccGenerateService
             sb.AppendLine("How to read a passage. A passage may carry labelled lines above or around");
             sb.AppendLine("its text. Not every passage carries every label. The labels are:");
             sb.AppendLine("  [S#] <title> (<url>)       the page the passages beneath it come from. S# is the id");
-            sb.AppendLine("                              a \"links\" entry names; the URL is never written by you.");
+            sb.AppendLine("                              a run's \"link\" names; the URL is never written by you.");
             sb.AppendLine("  Section: <title>            the heading that passage sits under on its page.");
             sb.AppendLine("  Target Entity Match: <name> the partner tool that passage's own links point at.");
             sb.AppendLine("  Context: / Specific detail: the surrounding block, then the matched sentence.");
@@ -374,7 +374,9 @@ public class GccGenerateService
             sb.AppendLine("2. Attribute it: in the paragraph that carries the claim, the product or feature your");
             sb.AppendLine("   sentence names is its own run, and that run's \"link\" is the S# id of the page the");
             sb.AppendLine("   claim came from, printed in brackets on the line above its passages. The linked run");
-            sb.AppendLine("   is " + GccDraftGuard.MaxLinkWords + " words at most, never a sentence; the words before and after it are their own");
+            sb.AppendLine("   is " + GccDraftGuard.MaxLinkWords + " words at most, never a sentence -- link the product's or feature's own");
+            sb.AppendLine("   short name, not the clause that explains what it does, which is the usual way this");
+            sb.AppendLine("   goes over. The words before and after it are their own");
             sb.AppendLine("   runs with \"link\" null. You write no URL anywhere: not in \"text\", not as an href,");
             sb.AppendLine("   not as [title](url). One typed is refused and the section is not written. Never");
             sb.AppendLine("   attribute a claim to a page whose passages do not state it.");
@@ -1653,10 +1655,15 @@ public class GccGenerateService
 
             if (toolFaqQuestions.Count > 0)
             {
-                var evidenceForFaq = toolOutlineCtx.EvidenceBlock ?? string.Empty;
                 for (var start = 0; start < toolFaqQuestions.Count; start += PaaQuestionsPerFaqCall)
                 {
                     var batch = toolFaqQuestions.Skip(start).Take(PaaQuestionsPerFaqCall).ToList();
+                    // Per batch, not the page-level block: "unsupported" must be measured against
+                    // everything this create retrieved for this product (partnerPages), not against
+                    // whatever the lede/body's own query needed. Reusing toolOutlineCtx.EvidenceBlock
+                    // here reported a question "left out" whenever its topic fell outside that
+                    // unrelated slice, even when partnerPages carried a paragraph that answered it.
+                    var evidenceForFaq = GccToolFaqEvidence.BuildFor(partnerPages, batch);
                     var answered = await llm.CompleteAsync(
                         _prompts.BuildToolFaqFromQuestionsPrompt(context, pillarMeta, app, batch, evidenceForFaq),
                         ct);
