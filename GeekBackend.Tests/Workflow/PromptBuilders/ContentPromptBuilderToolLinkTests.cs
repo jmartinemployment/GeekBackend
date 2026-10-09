@@ -79,7 +79,8 @@ public class ContentPromptBuilderToolLinkTests
         var system = BlogPrompt(Context());
 
         Assert.Contains("You write no path and no URL", system, StringComparison.Ordinal);
-        Assert.Contains("\"target\" the tool's T# id", system, StringComparison.Ordinal);
+        Assert.Contains("set that run's \"link\" to the tool's T# id", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"anchor\"", system, StringComparison.Ordinal);
         Assert.Contains("Do not link a tool to the vendor's own website", system, StringComparison.Ordinal);
         Assert.Contains("[T1] Tipalti", system, StringComparison.Ordinal);
     }

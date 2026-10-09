@@ -19,7 +19,36 @@ public enum LedeType
     Wordplay
 }
 
-public sealed record Run(string Text, bool Bold = false, bool Italic = false, string? Href = null);
+/// <summary>
+/// A span of a paragraph's text. <paramref name="Link"/> is how the writer says these words are a link:
+/// the id of a target printed in its prompt (<c>S3</c> a page of the evidence, <c>T2</c> a partner tool
+/// page). The writer never writes an address. <c>GccLinkPlacer</c> resolves the id to the page the
+/// writer was actually given, puts it in <paramref name="Href"/> and clears <paramref name="Link"/>, so
+/// a placed run carries the href and a stored page carries no ids.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Until 2026-10-09 the writer typed <c>href</c> directly and chose both the address and the words. It
+/// put the address on whole paragraphs (Stampli, ten of 38-75 words; Bill, eight; the pillar, four of
+/// 53-64 words) and once on a URL it remembered rather than one it was shown (Ramp).
+/// </para>
+/// <para>
+/// For one day after that the paragraph carried a separate <c>links</c> list of <c>{target, anchor}</c>,
+/// the anchor being words copied from the paragraph. The writer paraphrased its own sentence instead
+/// of copying it: "real-time dashboards" for a run that began "Real-time dashboards", "Upflow syncs with
+/// several software tools" for "Upflow natively syncs with several software tools" -- seven pages
+/// refused on one run for words that were not found. Copying a span of your own output into a second
+/// field is a recall task, and the model does it approximately. Marking the span where it is written
+/// is not: the link is the run, the way bold would be, and there is nothing to match.
+/// </para>
+/// </remarks>
+public sealed record Run(
+    string Text,
+    bool Bold = false,
+    bool Italic = false,
+    string? Href = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Link = null);
 
 /// <summary>
 /// A block within a section. The set below mirrors the crawler's typed corpus blocks
@@ -61,28 +90,9 @@ public sealed record Run(string Text, bool Bold = false, bool Italic = false, st
 [JsonConverter(typeof(ParagraphJsonConverter))]
 public abstract record Paragraph;
 
-/// <summary>
-/// Where a paragraph links, as the writer says it: the id of a target printed in its prompt
-/// (<c>S3</c> a passage, <c>T2</c> a partner tool page) and the exact words in the paragraph the
-/// link sits on. The writer never writes an address. <c>GccLinkPlacer</c> resolves the id to the
-/// page the writer was actually given and puts the href on those words; a paragraph that has been
-/// placed carries <see cref="TextParagraph.Links"/> null and the href on its runs.
-/// </summary>
-/// <remarks>
-/// Until 2026-10-09 a run carried <c>href</c> directly and the writer chose both the address and
-/// the words. It put the address on whole paragraphs (Stampli, ten of 38-75 words; Bill, eight;
-/// the pillar, four of 53-64 words linked to the project's own tool pages) and once on a URL it
-/// remembered rather than one it was shown (Ramp). Both were refused by the guard, correctly, and
-/// both were the same defect: the model had a field it could not be trusted with.
-/// </remarks>
-public sealed record LinkRef(string Target, string Anchor);
+public sealed record TextParagraph(IReadOnlyList<Run> Runs) : Paragraph;
 
-public sealed record TextParagraph(IReadOnlyList<Run> Runs, IReadOnlyList<LinkRef>? Links = null) : Paragraph;
-
-public sealed record ListParagraph(
-    bool Ordered,
-    IReadOnlyList<IReadOnlyList<Run>> Items,
-    IReadOnlyList<LinkRef>? Links = null) : Paragraph;
+public sealed record ListParagraph(bool Ordered, IReadOnlyList<IReadOnlyList<Run>> Items) : Paragraph;
 
 /// <summary>Corpus <c>quote</c>. <paramref name="Cite"/> is the source URL when the quote came from
 /// a retrieved passage — the attribution half of "cite or quote Partners/Tools".</summary>

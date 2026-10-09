@@ -274,12 +274,11 @@ public static class LlmResponseJsonParser
 
     private static Paragraph NormalizeParagraph(Paragraph paragraph) => paragraph switch
     {
-        // Links are kept as written: GccLinkPlacer reads them after parsing and refuses each by name.
-        TextParagraph text => new TextParagraph((text.Runs ?? []).Select(NormalizeRun).ToList(), text.Links),
+        // A run's link id is kept as written: GccLinkPlacer reads it after parsing and refuses each by name.
+        TextParagraph text => new TextParagraph((text.Runs ?? []).Select(NormalizeRun).ToList()),
         ListParagraph list => new ListParagraph(
             list.Ordered,
-            (list.Items ?? []).Select(item => (IReadOnlyList<Run>)(item ?? []).Select(NormalizeRun).ToList()).ToList(),
-            list.Links),
+            (list.Items ?? []).Select(item => (IReadOnlyList<Run>)(item ?? []).Select(NormalizeRun).ToList()).ToList()),
         QuoteParagraph quote => quote with { Runs = (quote.Runs ?? []).Select(NormalizeRun).ToList() },
         _ => paragraph,
     };

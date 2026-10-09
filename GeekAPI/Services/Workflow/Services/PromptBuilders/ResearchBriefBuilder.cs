@@ -407,14 +407,14 @@ internal static class ResearchBriefBuilder
         // The writer names the tool's id, never its path. Until 2026-10-09 this said "set Run.href to
         // that exact path", and a pillar came back with four paragraphs of 53-64 words each wrapped in
         // the href of a tool page (chaserhq, invoiced, upflow, versapay) -- the address right, the link
-        // on everything. GccLinkPlacer now puts the href on the anchor words the writer names, from the
-        // T# ids printed here, which GccLinkTargets numbers from the same list in the same order.
+        // on everything. GccLinkPlacer now puts the href on the run the writer marks with a T# id
+        // printed here, which GccLinkTargets numbers from the same list in the same order.
         sb.AppendLine(
             "Every tool below has a public path on this site, and a named tool links to it: on the first substantive " +
-            "body mention of each tool in each section, add a \"links\" entry to that paragraph -- \"target\" the " +
-            "tool's T# id exactly as printed below, \"anchor\" the tool's name as that paragraph writes it. Later " +
-            "mentions of the same tool in that same section stay plain text — one link per tool per section, so the " +
-            "prose does not become a row of links. Headings are never linked.");
+            "body mention of each tool in each section, put the tool's name in its own run and set that run's " +
+            "\"link\" to the tool's T# id exactly as printed below. Later mentions of the same tool in that same " +
+            "section stay plain text — one link per tool per section, so the prose does not become a row of links. " +
+            "Headings are never linked.");
         sb.AppendLine(
             "You write no path and no URL: the id is the whole address. Do not link a tool to the vendor's own " +
             "website or to the crawl source page; a URL or a path typed into any field is refused and the section " +

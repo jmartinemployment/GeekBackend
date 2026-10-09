@@ -140,7 +140,7 @@ public sealed class GccKeywordHeadingOwnerTests
         var prompt = string.Join("\n", request.Messages.Select(m => m.Content));
 
         Assert.Contains("KNOWN TOOLS", prompt, StringComparison.Ordinal);
-        Assert.Contains("add a \"links\" entry to that paragraph", prompt, StringComparison.Ordinal);
+        Assert.Contains("set that run's \"link\" to the tool's T# id", prompt, StringComparison.Ordinal);
         Assert.Contains("[T1] Ramp — public path: /tools/accounting/accounts-payable/ramp", prompt, StringComparison.Ordinal);
     }
 }

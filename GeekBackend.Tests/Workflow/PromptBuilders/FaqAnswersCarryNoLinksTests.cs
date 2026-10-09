@@ -53,7 +53,7 @@ public sealed class FaqAnswersCarryNoLinksTests
         var system = SystemOf(Build(which));
 
         Assert.Contains(ContentPromptBuilder.FaqNoLinksInstruction, system, StringComparison.Ordinal);
-        Assert.Contains("Every paragraph's \"links\" is an empty list", system, StringComparison.Ordinal);
+        Assert.Contains("Every run's \"link\" is null", system, StringComparison.Ordinal);
     }
 
     [Theory]

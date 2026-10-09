@@ -589,11 +589,13 @@ public class GccGroundingRetrievalTests
     }
 
     /// <summary>
-    /// Rule 2 of the research block names each page by the id a "links" entry uses, and tells the writer
+    /// Rule 2 of the research block names each page by the id a run's "link" uses, and tells the writer
     /// it writes no URL. It used to say "include its URL where the claim appears" (the writer typed
     /// "[Source: title](url)" into a run, 2026-10-03), then to carry the URL as a short run's "href"
-    /// (the writer put it on whole paragraphs, 2026-10-05 and twice on 2026-10-09). The prompt, the
-    /// placer and the guard are one rule in three places, and this pins the half the writer reads.
+    /// (the writer put it on whole paragraphs, 2026-10-05 and twice on 2026-10-09), then to copy the
+    /// anchor words into a "links" entry (the writer copied them inexactly; seven pages refused the
+    /// same day). The prompt, the placer and the guard are one rule in three places, and this pins
+    /// the half the writer reads.
     /// </summary>
     [Fact]
     public void ThePartnerBlockNamesEachPageByIdAndTheWriterWritesNoUrl()
@@ -606,9 +608,11 @@ public class GccGroundingRetrievalTests
         var block = GccGenerateService.BuildResearchBlock(create);
 
         Assert.Contains($"[S1] Partner pricing ({PartnerUrl})", block, StringComparison.Ordinal);
-        Assert.Contains("\"target\" is that page's S# id", block, StringComparison.Ordinal);
+        Assert.Contains("that run's \"link\" is the S# id", block, StringComparison.Ordinal);
         Assert.Contains("You write no URL anywhere", block, StringComparison.Ordinal);
         Assert.DoesNotContain("run's \"href\"", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"anchor\"", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("copied", block, StringComparison.Ordinal);
         Assert.DoesNotContain("include its URL where the claim appears", block, StringComparison.Ordinal);
         // No quotation is licensed here: pillar and blog ban block quotes and run no quote guard,
         // so a Rule 2 that offered "the cite of a quote paragraph" invited an unverified one.

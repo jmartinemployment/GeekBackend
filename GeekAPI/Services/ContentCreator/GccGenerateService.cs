@@ -364,20 +364,20 @@ public class GccGenerateService
             // where the claim appears" and the writer typed "[Source: <title>](<url>)" into the text;
             // from then until 2026-10-09 it said to carry the URL as a short run's "href", and the
             // writer put that href on whole paragraphs -- ten of 38-75 words on the Stampli page, eight
-            // on Bill's -- and once on a URL it remembered rather than one printed here (Ramp). The
-            // writer now names the page by its printed id and the words the link sits on, and
-            // GccLinkPlacer puts the href there or refuses the section by name. The id is on the
-            // bracketed line above the passages, so the two halves of this rule read one list.
-            sb.AppendLine("2. Attribute it: the paragraph that carries the claim names the page it came from in");
-            sb.AppendLine("   its \"links\" -- \"target\" is that page's S# id, printed in brackets on the line above");
-            sb.AppendLine("   its passages, and \"anchor\" is a few words copied from YOUR OWN paragraph: the");
-            sb.AppendLine("   product or feature your sentence names, spelled exactly as your sentence spells it,");
-            sb.AppendLine("   no more than " + GccDraftGuard.MaxLinkWords + " words, never a sentence. The anchor is never the page's title,");
-            sb.AppendLine("   never a heading or a line from the evidence -- if those words are not in the runs of");
-            sb.AppendLine("   the paragraph that carries the link, the link is refused. You write no URL anywhere:");
-            sb.AppendLine("   not in \"text\", not as an href, not as [title](url). One typed is refused and the");
-            sb.AppendLine("   section is not written. Never attribute a claim to a page whose passages do not");
-            sb.AppendLine("   state it.");
+            // on Bill's -- and once on a URL it remembered rather than one printed here (Ramp). For a
+            // day after that it said to copy the anchor words into a "links" entry, and the writer
+            // copied them approximately: seven pages refused for words "not in the paragraph". The
+            // writer now marks the run: the words the link sits on are their own run, and that run's
+            // "link" is the page's printed id. GccLinkPlacer puts the href there or refuses the section
+            // by name. The id is on the bracketed line above the passages, so the two halves of this
+            // rule read one list.
+            sb.AppendLine("2. Attribute it: in the paragraph that carries the claim, the product or feature your");
+            sb.AppendLine("   sentence names is its own run, and that run's \"link\" is the S# id of the page the");
+            sb.AppendLine("   claim came from, printed in brackets on the line above its passages. The linked run");
+            sb.AppendLine("   is " + GccDraftGuard.MaxLinkWords + " words at most, never a sentence; the words before and after it are their own");
+            sb.AppendLine("   runs with \"link\" null. You write no URL anywhere: not in \"text\", not as an href,");
+            sb.AppendLine("   not as [title](url). One typed is refused and the section is not written. Never");
+            sb.AppendLine("   attribute a claim to a page whose passages do not state it.");
             sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
             sb.AppendLine("   price, integration or limitation that no passage states.");
             sb.AppendLine("4. If the evidence does not cover something, omit it. Do not fill the gap.");
@@ -403,7 +403,7 @@ public class GccGenerateService
                 // the model as an operator upload -- which the lines above define as plain prose
                 // carrying none of the structure labels. Evidence was being discredited by a test
                 // for a case that no longer exists.
-                // The id GccLinkTargets assigns the same page, by the same index: what a "links" entry names.
+                // The id GccLinkTargets assigns the same page, by the same index: what a run's "link" names.
                 sb.AppendLine($"[{Guardrail.GccLinkTargets.EvidenceId(i)}] {q.Title} ({q.Url})");
                 foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
                     sb.AppendLine($"- H{h.Level}: {h.Text}");
@@ -3454,9 +3454,9 @@ public class GccGenerateService
     }
 
     /// <summary>
-    /// The draft with every link placed where the writer said, or a refusal naming each link that could
-    /// not be -- an id the prompt never printed, anchor words not in the paragraph, an anchor too long,
-    /// an href the writer typed. Refuses the way <see cref="GuardedDraftAsync"/> does, with the
+    /// The draft with every link placed on the run the writer marked, or a refusal naming each link that
+    /// could not be -- an id the prompt never printed, a linked run too long or empty, an href the writer
+    /// typed. Refuses the way <see cref="GuardedDraftAsync"/> does, with the
     /// "Refused:" prefix the run reports, and records what was refused and the draft it was in.
     /// </summary>
     private async Task<ContentDocument> PlaceLinksAsync(string label, ContentDocument document, Guardrail.GccLinkTargets targets)

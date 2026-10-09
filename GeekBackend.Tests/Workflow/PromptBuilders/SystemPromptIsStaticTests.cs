@@ -143,7 +143,7 @@ public class SystemPromptIsStaticTests
         Assert.Contains("Ban filler", system, StringComparison.Ordinal);
         Assert.Contains("delve", system, StringComparison.Ordinal);
         Assert.Contains("MONEY IS IN US DOLLARS ONLY", system, StringComparison.Ordinal);
-        Assert.Contains("A LINK SITS ON A FEW WORDS", system, StringComparison.Ordinal);
+        Assert.Contains("A LINK IS A RUN, AND YOU NEVER WRITE ITS ADDRESS", system, StringComparison.Ordinal);
         Assert.Contains("HEADINGS: write them for this page and no other", system, StringComparison.Ordinal);
         Assert.Contains("GROUNDING:", system, StringComparison.Ordinal);
         Assert.Contains("CONTENT ONLY:", system, StringComparison.Ordinal);

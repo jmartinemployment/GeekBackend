@@ -6,9 +6,10 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// The writer names a target and the words; the code puts the link there. Every way the writer used
-/// to get a link wrong -- the Stampli page's ten paragraph-long links, the pillar's four, Ramp's URL
-/// from memory (2026-10-09) -- is a refusal here by name, and nothing is repaired.
+/// The writer marks a run with a target id; the code puts the link there. Every way the writer used to
+/// get a link wrong -- the Stampli page's ten paragraph-long links, the pillar's four, Ramp's URL from
+/// memory, and the seven pages refused on 2026-10-09 for anchor words copied inexactly from their own
+/// paragraph -- is either impossible in this shape or a refusal here by name, and nothing is repaired.
 /// </summary>
 public sealed class GccLinkPlacerTests
 {
@@ -26,8 +27,9 @@ public sealed class GccLinkPlacerTests
     private static ContentDocument Doc(params Section[] sections) =>
         new(Body("Opening", new TextParagraph([new Run("An opening with no links.")])), sections);
 
-    private static TextParagraph Text(string text, params LinkRef[] links) =>
-        new([new Run(text)], links.Length == 0 ? null : links);
+    private static TextParagraph Text(params Run[] runs) => new(runs);
+
+    private static Run Linked(string text, string target) => new(text, Link: target);
 
     private static IReadOnlyList<Run> RunsOf(ContentDocument document, int section = 0, int paragraph = 0) =>
         ((TextParagraph)document.Sections[section].Paragraphs[paragraph]).Runs;
@@ -35,10 +37,10 @@ public sealed class GccLinkPlacerTests
     // ---- placing ------------------------------------------------------------------------------------
 
     [Fact]
-    public void TheLinkLandsOnTheAnchorWordsAndNothingElse()
+    public void TheLinkLandsOnTheMarkedRunAndNothingElse()
     {
         var doc = Doc(Body("How it works",
-            Text("Stampli's AP automation matches invoices to purchase orders.", new LinkRef("S1", "AP automation"))));
+            Text(new Run("Stampli's "), Linked("AP automation", "S1"), new Run(" matches invoices to purchase orders."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
@@ -51,23 +53,40 @@ public sealed class GccLinkPlacerTests
     }
 
     [Fact]
-    public void AnAnchorAtTheStartOrEndLeavesNoEmptyRun()
+    public void ThePlacedRunCarriesTheHrefAndNoIdAnyMore()
     {
-        var doc = Doc(Body("A", Text("Chaser chases.", new LinkRef("T1", "Chaser"))), Body("B", Text("Try Chaser", new LinkRef("T1", "Chaser"))));
+        var doc = Doc(Body("A", Text(Linked("Chaser", "T1"), new Run(" chases."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
         Assert.Empty(placed.Refusals);
-        Assert.Equal(["Chaser", " chases."], RunsOf(placed.Document, 0).Select(r => r.Text));
-        Assert.Equal(["Try ", "Chaser"], RunsOf(placed.Document, 1).Select(r => r.Text));
-        Assert.Equal(ToolPath, RunsOf(placed.Document, 0)[0].Href);
+        var run = RunsOf(placed.Document)[0];
+        Assert.Equal(ToolPath, run.Href);
+        Assert.Null(run.Link);
+    }
+
+    [Fact]
+    public void TheWordsAreNeverSearchedForSoTheirCaseAndWordingCannotRefuse()
+    {
+        // Versapay, 2026-10-09: anchor "real-time dashboards", run "Real-time dashboards give...". Upflow:
+        // anchor "Upflow syncs with several software tools", run "Upflow natively syncs with...". Both
+        // refused as "not in the paragraph". The run is the anchor now; there is nothing to not find.
+        var doc = Doc(Body("A",
+            Text(Linked("Real-time dashboards", "S1"), new Run(" give management the insights they need.")),
+            Text(Linked("Upflow natively syncs with several software tools", "T1"), new Run(", including Xero."))));
+
+        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
+
+        Assert.Empty(placed.Refusals);
+        Assert.Equal(PartnerUrl, RunsOf(placed.Document, 0, 0)[0].Href);
+        Assert.Equal(ToolPath, RunsOf(placed.Document, 0, 1)[0].Href);
     }
 
     [Fact]
     public void TwoLinksInOneParagraphAreBothPlaced()
     {
         var doc = Doc(Body("A",
-            Text("Chaser and AP automation together.", new LinkRef("T1", "Chaser"), new LinkRef("S1", "AP automation"))));
+            Text(Linked("Chaser", "T1"), new Run(" and "), Linked("AP automation", "S1"), new Run(" together."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
@@ -78,22 +97,10 @@ public sealed class GccLinkPlacerTests
     }
 
     [Fact]
-    public void TheFirstOccurrenceIsLinked()
-    {
-        var doc = Doc(Body("A", Text("Chaser does what Chaser does.", new LinkRef("T1", "Chaser"))));
-
-        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
-
-        Assert.Empty(placed.Refusals);
-        Assert.Equal(["Chaser", " does what Chaser does."], RunsOf(placed.Document).Select(r => r.Text));
-    }
-
-    [Fact]
-    public void AListItemTakesTheLinkInTheItemThatHasTheWords()
+    public void AListItemTakesTheLinkOnItsMarkedRun()
     {
         var list = new ListParagraph(false,
-            [[new Run("Invoices are matched.")], [new Run("Chaser sends the reminders.")]],
-            [new LinkRef("T1", "Chaser")]);
+            [[new Run("Invoices are matched.")], [Linked("Chaser", "T1"), new Run(" sends the reminders.")]]);
         var doc = Doc(Body("A", list));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
@@ -103,24 +110,15 @@ public sealed class GccLinkPlacerTests
         Assert.Equal(["Invoices are matched."], items[0].Select(r => r.Text));
         Assert.Equal(["Chaser", " sends the reminders."], items[1].Select(r => r.Text));
         Assert.Equal(ToolPath, items[1][0].Href);
-    }
-
-    [Fact]
-    public void PlacedParagraphsCarryNoLinksField()
-    {
-        var doc = Doc(Body("A", Text("Chaser chases.", new LinkRef("T1", "Chaser"))));
-
-        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
-
-        Assert.Null(((TextParagraph)placed.Document.Sections[0].Paragraphs[0]).Links);
+        Assert.Null(items[1][0].Link);
     }
 
     [Fact]
     public void ChildrenAndTheLedeArePlacedToo()
     {
-        var child = new Section("h3", "Child", [Text("Chaser here.", new LinkRef("T1", "Chaser"))], null, []);
+        var child = new Section("h3", "Child", [Text(Linked("Chaser", "T1"), new Run(" here."))], null, []);
         var doc = new ContentDocument(
-            new Section("h2", "Opening", [Text("AP automation first.", new LinkRef("S1", "AP automation"))], null, []),
+            new Section("h2", "Opening", [Text(Linked("AP automation", "S1"), new Run(" first."))], null, []),
             [new Section("h2", "Parent", [], null, [child])]);
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
@@ -133,12 +131,14 @@ public sealed class GccLinkPlacerTests
     [Fact]
     public void AParagraphWithNoLinksIsUnchanged()
     {
-        var doc = Doc(Body("A", Text("Nothing to link here.")));
+        var doc = Doc(Body("A", Text(new Run("Nothing to link here."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
         Assert.Empty(placed.Refusals);
-        Assert.Equal(["Nothing to link here."], RunsOf(placed.Document).Select(r => r.Text));
+        var run = Assert.Single(RunsOf(placed.Document));
+        Assert.Equal("Nothing to link here.", run.Text);
+        Assert.Null(run.Href);
     }
 
     // ---- refusing -----------------------------------------------------------------------------------
@@ -148,7 +148,7 @@ public sealed class GccLinkPlacerTests
     {
         // Ramp, 2026-10-09: a URL from memory. There is no field for one now, and an id that was not
         // printed is the same thing said another way.
-        var doc = Doc(Body("A", Text("Ramp saves money.", new LinkRef("S9", "Ramp"))));
+        var doc = Doc(Body("A", Text(Linked("Ramp", "S9"), new Run(" saves money."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
@@ -160,24 +160,25 @@ public sealed class GccLinkPlacerTests
     }
 
     [Fact]
-    public void AnAnchorLongerThanTheLimitIsRefused()
+    public void ALinkedRunLongerThanTheLimitIsRefused()
     {
-        // The Stampli page: a 75-word paragraph as the link. The words are the whole paragraph here.
+        // The Stampli page: a 75-word paragraph as the link.
         var sentence = string.Join(' ', Enumerable.Range(1, GccDraftGuard.MaxLinkWords + 1).Select(i => $"word{i}"));
-        var doc = Doc(Body("A", Text(sentence, new LinkRef("S1", sentence))));
+        var doc = Doc(Body("A", Text(Linked(sentence, "S1"))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
         var refusal = Assert.Single(placed.Refusals);
         Assert.Contains($"{GccDraftGuard.MaxLinkWords + 1} words", refusal, StringComparison.Ordinal);
         Assert.Contains($"{GccDraftGuard.MaxLinkWords} words at most", refusal, StringComparison.Ordinal);
+        Assert.Null(RunsOf(placed.Document)[0].Href);
     }
 
     [Fact]
-    public void AnAnchorAtTheLimitIsPlaced()
+    public void ALinkedRunAtTheLimitIsPlaced()
     {
-        var anchor = string.Join(' ', Enumerable.Range(1, GccDraftGuard.MaxLinkWords).Select(i => $"w{i}"));
-        var doc = Doc(Body("A", Text($"Before {anchor} after.", new LinkRef("S1", anchor))));
+        var words = string.Join(' ', Enumerable.Range(1, GccDraftGuard.MaxLinkWords).Select(i => $"w{i}"));
+        var doc = Doc(Body("A", Text(new Run("Before "), Linked(words, "S1"), new Run(" after."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
@@ -186,64 +187,13 @@ public sealed class GccLinkPlacerTests
     }
 
     [Fact]
-    public void AnchorWordsNotInTheParagraphAreRefused()
+    public void ALinkedRunWithNoWordsIsRefused()
     {
-        var doc = Doc(Body("A", Text("Stampli matches invoices.", new LinkRef("S1", "AP automation"))));
+        var doc = Doc(Body("A", Text(Linked("  ", "T1"), new Run("Chaser chases."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
-        var refusal = Assert.Single(placed.Refusals);
-        Assert.Contains("\"AP automation\"", refusal, StringComparison.Ordinal);
-        Assert.Contains("does not appear in the paragraph", refusal, StringComparison.Ordinal);
-        Assert.Contains("Stampli matches invoices.", refusal, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void AnAnchorThatIsThePagesTitleIsNamedAsSuch()
-    {
-        // The first run on this contract: every anchor on five tool pages was the source page's title
-        // ("Get clarity on expected payments through receivables forecasting"), not words of the
-        // paragraph. The refusal says so, rather than only that the words were not found.
-        var doc = Doc(Body("A", Text("Stampli matches invoices to purchase orders.", new LinkRef("S1", "AP Automation"))));
-
-        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
-
-        var refusal = Assert.Single(placed.Refusals);
-        Assert.Contains("It is the page's title", refusal, StringComparison.Ordinal);
-        Assert.Contains("never the title of the page it links", refusal, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void AnEmptyAnchorIsRefused()
-    {
-        var doc = Doc(Body("A", Text("Chaser chases.", new LinkRef("T1", "  "))));
-
-        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
-
-        Assert.Contains("names no anchor words", Assert.Single(placed.Refusals), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void AnAnchorAcrossTwoRunsIsRefused()
-    {
-        var doc = Doc(Body("A", new TextParagraph(
-            [new Run("Chaser "), new Run("chases.")],
-            [new LinkRef("T1", "Chaser chases")])));
-
-        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
-
-        Assert.Contains("crosses a run boundary", Assert.Single(placed.Refusals), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void OverlappingAnchorsAreRefusedNotStacked()
-    {
-        var doc = Doc(Body("A", Text("Chaser chases.", new LinkRef("T1", "Chaser"), new LinkRef("S1", "Chaser"))));
-
-        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
-
-        Assert.Contains("already linked", Assert.Single(placed.Refusals), StringComparison.Ordinal);
-        Assert.Equal(ToolPath, RunsOf(placed.Document)[0].Href);
+        Assert.Contains("no words", Assert.Single(placed.Refusals), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -260,13 +210,34 @@ public sealed class GccLinkPlacerTests
     }
 
     [Fact]
-    public void ASectionHrefTheWriterTypedIsRefused()
+    public void AnHrefAndAnIdOnTheSameRunIsRefusedOnceForTheHrefAndTheIdIsNotResolved()
     {
-        var doc = Doc(new Section("h2", "A", [Text("Text.")], "https://elsewhere.test", []));
+        var doc = Doc(Body("A", new TextParagraph([new Run("Chaser", Href: "https://chaserhq.com/", Link: "T1")])));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
         Assert.Contains("carries an href", Assert.Single(placed.Refusals), StringComparison.Ordinal);
+        Assert.Equal("https://chaserhq.com/", RunsOf(placed.Document)[0].Href);
+    }
+
+    [Fact]
+    public void ASectionHrefTheWriterTypedIsRefused()
+    {
+        var doc = Doc(new Section("h2", "A", [Text(new Run("Text."))], "https://elsewhere.test", []));
+
+        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
+
+        Assert.Contains("carries an href", Assert.Single(placed.Refusals), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ALinkInsideAQuotationIsRefused()
+    {
+        var doc = Doc(Body("A", new QuoteParagraph([Linked("Chaser", "T1"), new Run(" said so.")], "https://chaserhq.com/")));
+
+        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
+
+        Assert.Contains("quotation", Assert.Single(placed.Refusals), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -283,12 +254,23 @@ public sealed class GccLinkPlacerTests
     }
 
     [Fact]
+    public void ASecondLinkOnTheSchedulerWordsIsRefused()
+    {
+        var doc = Doc(Body("Closing", new TextParagraph([new Run("Book a call", Href: Scheduler, Link: "T1")])));
+
+        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
+
+        Assert.Contains("one link", Assert.Single(placed.Refusals), StringComparison.Ordinal);
+        Assert.Equal(Scheduler, RunsOf(placed.Document)[0].Href);
+    }
+
+    [Fact]
     public void AToolPageIsHandedNoToolTargets()
     {
         // GccGenerateService builds a tool page's targets with tools: null, so a T# on it is refused
         // the way the guard would refuse the link -- before anything is spent on the guard.
         var evidenceOnly = GccLinkTargets.For([new GccQuoteablePage(PartnerUrl, "AP Automation", [], ["Text."])], tools: null);
-        var doc = Doc(Body("A", Text("Chaser chases.", new LinkRef("T1", "Chaser"))));
+        var doc = Doc(Body("A", Text(Linked("Chaser", "T1"), new Run(" chases."))));
 
         var placed = GccLinkPlacer.Place(doc, evidenceOnly, Scheduler);
 
@@ -299,8 +281,8 @@ public sealed class GccLinkPlacerTests
     public void EveryRefusalIsReportedNotJustTheFirst()
     {
         var doc = Doc(
-            Body("A", Text("Ramp saves money.", new LinkRef("S9", "Ramp"))),
-            Body("B", Text("Stampli matches invoices.", new LinkRef("S1", "AP automation"))));
+            Body("A", Text(Linked("Ramp", "S9"), new Run(" saves money."))),
+            Body("B", Text(Linked("Stampli", "S8"), new Run(" matches invoices."))));
 
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
 
@@ -314,8 +296,8 @@ public sealed class GccLinkPlacerTests
     {
         // The point of placing: the guard's link checks hold by construction, with the guard unchanged.
         var doc = Doc(Body("How it works",
-            Text("Stampli's AP automation matches invoices.", new LinkRef("S1", "AP automation")),
-            Text("Chaser chases late payers.", new LinkRef("T1", "Chaser"))));
+            Text(new Run("Stampli's "), Linked("AP automation", "S1"), new Run(" matches invoices.")),
+            Text(Linked("Chaser", "T1"), new Run(" chases late payers."))));
         var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
         Assert.Empty(placed.Refusals);
 

@@ -14,8 +14,8 @@ namespace GeekBackend.Tests.ContentCreator;
 /// run before "BILL", the run before and the 50 words after "Ramp", and in the Blog's opening a 59-word run that
 /// took the link too, which cost the page. The contract and the provider schema no longer offer them, and a reply
 /// that carries them anyway has them dropped, by name, in the run's record. Since 2026-10-09 the run offers no
-/// <c>href</c> either: a link is a "links" entry on the paragraph naming a printed target, and GccLinkPlacer puts
-/// the href on the run. The parser still reads an href a reply carries, so the placer can refuse it by name.
+/// <c>href</c> either: a run's "link" names a printed target, and GccLinkPlacer puts the href on that run. The
+/// parser still reads an href a reply carries, so the placer can refuse it by name.
 /// </summary>
 public sealed class GccWriterFormattingTests
 {
@@ -30,7 +30,7 @@ public sealed class GccWriterFormattingTests
 
     [Theory]
     [MemberData(nameof(EveryContract))]
-    public void The_run_the_writer_is_shown_is_text_alone_and_the_paragraph_carries_the_links(string which)
+    public void The_run_the_writer_is_shown_is_text_and_a_link_id_and_nothing_else(string which)
     {
         var builder = new ContentPromptBuilder();
         var context = GccOpeningAsksNothingTests.Context();
@@ -43,7 +43,9 @@ public sealed class GccWriterFormattingTests
 
         var prompt = Prompt(request);
 
-        Assert.Contains("\"links\": [{\"target\": string", prompt, StringComparison.Ordinal);
+        Assert.Contains("\"link\": string|null", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"links\"", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"anchor\"", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"href\": string?", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"bold\"", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"italic\"", prompt, StringComparison.Ordinal);
@@ -52,7 +54,7 @@ public sealed class GccWriterFormattingTests
     [Theory]
     [InlineData("section")]
     [InlineData("sections")]
-    public void The_provider_schema_offers_a_run_its_text_alone_and_a_paragraph_its_links(string which)
+    public void The_provider_schema_offers_a_run_its_text_and_its_link_id_and_no_paragraph_a_links_list(string which)
     {
         var json = which == "section" ? ContentSectionJsonSchema.SectionSchema : ContentSectionJsonSchema.SectionsArraySchema;
         var root = JsonNode.Parse(json)!;
@@ -62,26 +64,21 @@ public sealed class GccWriterFormattingTests
         foreach (var run in runs)
         {
             var properties = ((JsonObject)run["properties"]!).Select(p => p.Key).ToList();
-            Assert.Equal(["text"], properties);
-            Assert.Equal(["text"], ((JsonArray)run["required"]!).Select(n => n!.GetValue<string>()).ToList());
+            Assert.Equal(["text", "link"], properties);
+            // Both required, as strict mode needs: the writer says "link": null for ordinary words rather
+            // than leaving the field out.
+            Assert.Equal(["text", "link"], ((JsonArray)run["required"]!).Select(n => n!.GetValue<string>()).ToList());
+            var link = (JsonArray)run["properties"]!["link"]!["anyOf"]!;
+            Assert.Equal(["string", "null"], link.Select(n => n!["type"]!.GetValue<string>()).ToList());
         }
 
-        // The text and list paragraphs both require "links", so strict mode makes the writer say -- with
-        // an empty list -- that a paragraph links nothing, rather than leaving the field out.
-        var linked = ObjectsWith(root, "links").ToList();
-        Assert.Equal(2, linked.Count);
-        foreach (var paragraph in linked)
-        {
-            Assert.Contains("links", ((JsonArray)paragraph["required"]!).Select(n => n!.GetValue<string>()));
-            var link = (JsonObject)paragraph["properties"]!["links"]!["items"]!;
-            Assert.Equal(["target", "anchor"], ((JsonObject)link["properties"]!).Select(p => p.Key).ToList());
-            Assert.False(link["additionalProperties"]!.GetValue<bool>());
-        }
+        // Nothing is copied: there is no paragraph-level list of anchors to match against the runs.
+        Assert.Empty(ObjectsWith(root, "links"));
     }
 
-    /// <summary>Every schema object that describes a run: the one whose only property is <c>text</c>.</summary>
+    /// <summary>Every schema object that describes a run: the one whose properties are <c>text</c> and <c>link</c>.</summary>
     private static IEnumerable<JsonObject> RunObjects(JsonNode node) =>
-        ObjectsWith(node, "text").Where(obj => ((JsonObject)obj["properties"]!).Count == 1);
+        ObjectsWith(node, "text").Where(obj => ((JsonObject)obj["properties"]!).ContainsKey("link"));
 
     private static IEnumerable<JsonObject> ObjectsWith(JsonNode node, string property)
     {

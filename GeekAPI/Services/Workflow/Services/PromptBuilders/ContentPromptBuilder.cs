@@ -260,32 +260,33 @@ public class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// The structured-output contract every section-body call uses. No tag characters and no
     /// heading/emphasis/list punctuation in the text at all — headings are a plain string field,
-    /// links are a "links" entry on the paragraph naming a printed target and the words it sits on,
-    /// lists are their own paragraph variant, and the writer has no emphasis to set (bold and italic
-    /// are not offered; see LlmResponseJsonParser.NormalizeRun). This is what actually eliminates
-    /// truncated or malformed markup: there is no markup syntax available for the model to get wrong.
+    /// a link is a run whose "link" names a printed target, lists are their own paragraph variant,
+    /// and the writer has no emphasis to set (bold and italic are not offered; see
+    /// LlmResponseJsonParser.NormalizeRun). This is what actually eliminates truncated or malformed
+    /// markup: there is no markup syntax available for the model to get wrong.
     /// </summary>
     /// <remarks>
     /// A run offered "href" until 2026-10-09. The writer put it on whole paragraphs -- ten of 38-75
     /// words on one tool page, four of 53-64 on a pillar -- and once on a URL it remembered rather
-    /// than one it was shown, and every instruction about where a link sits went unheeded. The
-    /// address is no longer the writer's to type: it names a target id and the anchor words, and
-    /// GccLinkPlacer puts the href on exactly those words or refuses the section by name.
+    /// than one it was shown. For a day after that the paragraph carried a "links" list whose "anchor"
+    /// was words copied from the paragraph, and the writer copied them approximately ("real-time
+    /// dashboards" for "Real-time dashboards"; "Upflow syncs with" for "Upflow natively syncs with"):
+    /// seven pages refused on one run. The link is now the run itself. The writer splits the words
+    /// out as their own run, as it already does for every run, and sets that run's "link" to the id;
+    /// there is no second copy of the words and nothing to match. GccLinkPlacer resolves the id to
+    /// the href or refuses the section by name.
     /// </remarks>
-    private const string RunJsonShape =
-        "{\"text\": string (plain text only — never markup syntax of any kind, never a URL)}";
-
-    private static readonly string LinksJsonShape =
-        "\"links\": [{\"target\": string (an id printed in the user message: S# a page of the evidence, " +
-        "T# a partner tool page -- never a URL or a path), \"anchor\": string (a few words copied verbatim " +
-        "from one of THIS paragraph's own runs -- the product or feature your sentence names, " +
+    private static readonly string RunJsonShape =
+        "{\"text\": string (plain text only — never markup syntax of any kind, never a URL), " +
+        "\"link\": string|null (null for ordinary words. When THESE words are a link, the id of the target " +
+        "printed in the user message -- S# a page of the evidence, T# a partner tool page -- never a URL or a " +
+        "path. A linked run is the product or feature your sentence names, " +
         GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords +
-        " words at most; never the target's title, never a line from the evidence)}, ...] " +
-        "(empty when the paragraph links nothing)";
+        " words at most, split into its own run with the words around it in their own runs)}";
 
     private static readonly string ParagraphJsonShape =
-        "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...], " + LinksJsonShape + "} " +
-        "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[" + RunJsonShape + ", ...], ...], " + LinksJsonShape + "} " +
+        "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...]} " +
+        "OR {\"type\":\"list\",\"ordered\":boolean,\"items\":[[" + RunJsonShape + ", ...], ...]} " +
         "OR {\"type\":\"quote\",\"candidate\":integer? (the number of a listed quotable span), \"runs\":[" + RunJsonShape + ", ...],\"cite\":string? (source URL)} " +
         "(a real block quotation, for wording worth reproducing verbatim with its source — " +
         "never \"According to X, ...\" written as ordinary prose. Where quotable spans are listed, " +
@@ -396,9 +397,9 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "analysis in your voice. Claims still come from the supplied evidence, not from what you "
         + "already believe about these products.\n"
         + "- Every declared partner tool is discussed on this basis and linked to its tool page at "
-        + "its first substantive mention: a \"links\" entry on that paragraph, \"target\" the tool's T# "
-        + "id as the user message prints it, \"anchor\" the tool's name as that paragraph writes it. A "
-        + "tool named without saying what it solves has not been discussed.";
+        + "its first substantive mention: the tool's name is its own run, and that run's \"link\" is "
+        + "the tool's T# id as the user message prints it. A tool named without saying what it solves "
+        + "has not been discussed.";
 
     /// <summary>
     /// The same ban, said at the planning stage: an outline heading is what the body writer is then
@@ -733,20 +734,20 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "customer to fill a section.";
 
     /// <summary>
-    /// An FAQ answer carries no link. The FAQ prompts share the section contract, which offers
-    /// "links" and describes its ids; the first run on that contract (2026-10-09) had every FAQ
+    /// An FAQ answer carries no link. The FAQ prompts share the section contract, which offers a run
+    /// its "link" and describes its ids; the first run on that contract (2026-10-09) had every FAQ
     /// answer of five tool pages name the target "S#" -- the placeholder from the contract, copied
     /// because the FAQ-bank prompt prints no ids and the writer was told a link needs one. The FAQ
     /// is the body's appendix, written from the same evidence the body already attributes; it
     /// links nothing, and a link it carries anyway is refused by GccLinkPlacer.
     /// </summary>
     internal const string FaqNoLinksInstruction =
-        "LINKS: an FAQ answer carries no link. Every paragraph's \"links\" is an empty list, and no run "
-        + "carries an href or a URL. A link in an FAQ answer refuses the page.";
+        "LINKS: an FAQ answer carries no link. Every run's \"link\" is null, and no run carries an href "
+        + "or a URL. A link in an FAQ answer refuses the page.";
 
     private const string ContentOnlyInstruction =
         "CONTENT ONLY: the text of every run is plain words. Headings and lists are fields of the JSON, "
-        + "a link is a \"links\" entry, and none of them is ever characters in the text -- no #, no <h2>, "
+        + "a link is a run's \"link\" id, and none of them is ever characters in the text -- no #, no <h2>, "
         + "no **, no [text](url), no URL.";
 
     /// <summary>
@@ -824,27 +825,28 @@ public class ContentPromptBuilder : IContentPromptBuilder
         "quotation is the one exception: it is reproduced exactly as published, currency included.";
 
     /// <summary>
-    /// Where a link sits and how it is said: on the few words that name what it leads to, as a "links"
-    /// entry naming a printed target. Placed by <c>GccLinkPlacer</c> and checked after the draft by
-    /// <c>GccDraftGuard</c>'s link-text check, which reads the same limit; this tells the writer first.
+    /// Where a link sits and how it is said: on the few words that name what it leads to, as a run
+    /// whose "link" is a printed target id. Placed by <c>GccLinkPlacer</c> and checked after the
+    /// draft by <c>GccDraftGuard</c>'s link-text check, which reads the same limit; this tells the
+    /// writer first.
     /// </summary>
     /// <remarks>
     /// Until 2026-10-09 this told the writer to keep an "href" to a short run of its own, and the
     /// writer kept putting it on whole paragraphs regardless -- the same failure on 2026-10-05 and
-    /// twice on 2026-10-09, plus one link to a URL it was never shown. The href is no longer the
-    /// writer's to type. It names the target and the words; the code puts the link there or refuses.
+    /// twice on 2026-10-09, plus one link to a URL it was never shown. Then for a day it told the
+    /// writer to copy the anchor words into a "links" entry, and the writer copied them approximately;
+    /// seven pages refused. The href is not the writer's to type and the words are not its to copy:
+    /// it marks the run, and the code puts the link there or refuses.
     /// </remarks>
     internal static readonly string LinkTextInstruction =
-        "A LINK SITS ON A FEW WORDS, AND YOU NEVER WRITE ITS ADDRESS: a link is a \"links\" entry on the "
-        + "paragraph. \"target\" is an id printed in the user message -- S# for a page of the evidence, T# "
-        + "for a partner tool page -- and \"anchor\" is a few words copied verbatim from one of that "
-        + "paragraph's own runs: the product or feature your sentence names, as your sentence spells it, "
-        + "never a sentence, "
+        "A LINK IS A RUN, AND YOU NEVER WRITE ITS ADDRESS: to link, split the words the link sits on "
+        + "into their own run and set that run's \"link\" to an id printed in the user message -- S# for a "
+        + "page of the evidence, T# for a partner tool page. The words before and after stay in their own "
+        + "runs with \"link\" null. A linked run is the product or feature your sentence names, never a "
+        + "sentence, "
         + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
-        + " words at most. The anchor is never the target's title and never a line from the evidence: "
-        + "if the words are not in the paragraph that carries the link, the link is refused. Write no URL "
-        + "and no path anywhere, in no field. An id that was not printed, anchor words that are not in "
-        + "the paragraph, or an anchor longer than that refuses the section, and it is not written.";
+        + " words at most. Write no URL and no path anywhere, in no field. An id that was not printed, "
+        + "or a linked run longer than that, refuses the section, and it is not written.";
 
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
