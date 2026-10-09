@@ -630,6 +630,24 @@ public class GccController : ControllerBase
         return v is null ? NotFound() : Ok(v);
     }
 
+    /// <summary>
+    /// One page as a standalone HTML file -- the pillar alone, one tool page, the blog -- from its
+    /// newest version. The project export is every page as a zip; this is the file for the page on
+    /// screen (Jeff, 2026-10-09: "Why can't I export just Pillar from this run?").
+    /// </summary>
+    [HttpGet("artifacts/{id:guid}/export/html")]
+    public async Task<IActionResult> ExportArtifactHtml(Guid id, CancellationToken ct)
+    {
+        var document = await _export.ExportArtifactAsync(id, ct);
+        if (document is null)
+            return NotFound("No page with that id, or it has no written version to export yet.");
+
+        var bytes = document.BinaryContent ?? System.Text.Encoding.UTF8.GetBytes(document.Content ?? string.Empty);
+        var fileName = Path.GetFileName(document.FileName);
+        var contentType = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? "application/json" : "text/html";
+        return File(bytes, contentType, fileName);
+    }
+
     [HttpPost("versions/{id:guid}/revise")]
     public async Task<ActionResult<GccArtifactVersionDto>> Revise(Guid id, [FromBody] ReviseRequest request, CancellationToken ct)
     {

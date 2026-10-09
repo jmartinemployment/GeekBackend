@@ -70,6 +70,25 @@ public sealed class GccArtifactExportService(
         return documents;
     }
 
+    /// <summary>
+    /// One page -- the pillar, a tool page, the blog -- as the single HTML file the project zip would
+    /// hold for it, from its newest version. Null when the artifact does not exist or has no version.
+    /// </summary>
+    /// <remarks>
+    /// Jeff, 2026-10-09: "Why can't I export just Pillar from this run?" The only export was the whole
+    /// project as a zip. The image prompts stay with the zip; this is the page.
+    /// </remarks>
+    public async Task<ExportedHtmlDocument?> ExportArtifactAsync(Guid artifactId, CancellationToken ct)
+    {
+        var artifact = await repo.GetArtifactAsync(artifactId, ct);
+        if (artifact is null) return null;
+        var create = await repo.GetCreateAsync(artifact.CreateId, ct)
+            ?? throw new InvalidOperationException($"Create {artifact.CreateId} was not found.");
+
+        var documents = await ExportArtifactsAsync(create, [artifact], ct);
+        return documents.FirstOrDefault(d => !d.FileName.StartsWith("image-prompts/", StringComparison.Ordinal));
+    }
+
     /// <summary><paramref name="fileName"/>, or it with "-2", "-3"... before the extension when taken.</summary>
     private static string Unused(string fileName, HashSet<string> taken)
     {
