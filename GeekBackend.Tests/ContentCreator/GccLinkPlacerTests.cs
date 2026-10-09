@@ -199,6 +199,21 @@ public sealed class GccLinkPlacerTests
     }
 
     [Fact]
+    public void AnAnchorThatIsThePagesTitleIsNamedAsSuch()
+    {
+        // The first run on this contract: every anchor on five tool pages was the source page's title
+        // ("Get clarity on expected payments through receivables forecasting"), not words of the
+        // paragraph. The refusal says so, rather than only that the words were not found.
+        var doc = Doc(Body("A", Text("Stampli matches invoices to purchase orders.", new LinkRef("S1", "AP Automation"))));
+
+        var placed = GccLinkPlacer.Place(doc, Targets, Scheduler);
+
+        var refusal = Assert.Single(placed.Refusals);
+        Assert.Contains("It is the page's title", refusal, StringComparison.Ordinal);
+        Assert.Contains("never the title of the page it links", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AnEmptyAnchorIsRefused()
     {
         var doc = Doc(Body("A", Text("Chaser chases.", new LinkRef("T1", "  "))));

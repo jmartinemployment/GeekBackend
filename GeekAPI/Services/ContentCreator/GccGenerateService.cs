@@ -370,11 +370,14 @@ public class GccGenerateService
             // bracketed line above the passages, so the two halves of this rule read one list.
             sb.AppendLine("2. Attribute it: the paragraph that carries the claim names the page it came from in");
             sb.AppendLine("   its \"links\" -- \"target\" is that page's S# id, printed in brackets on the line above");
-            sb.AppendLine("   its passages, and \"anchor\" is the exact words in that paragraph the link sits on:");
-            sb.AppendLine("   the product or feature the page is about, no more than " + GccDraftGuard.MaxLinkWords + " words, never a");
-            sb.AppendLine("   sentence. You write no URL anywhere: not in \"text\", not as an href, not as");
-            sb.AppendLine("   [title](url). One typed is refused and the section is not written. Never attribute");
-            sb.AppendLine("   a claim to a page whose passages do not state it.");
+            sb.AppendLine("   its passages, and \"anchor\" is a few words copied from YOUR OWN paragraph: the");
+            sb.AppendLine("   product or feature your sentence names, spelled exactly as your sentence spells it,");
+            sb.AppendLine("   no more than " + GccDraftGuard.MaxLinkWords + " words, never a sentence. The anchor is never the page's title,");
+            sb.AppendLine("   never a heading or a line from the evidence -- if those words are not in the runs of");
+            sb.AppendLine("   the paragraph that carries the link, the link is refused. You write no URL anywhere:");
+            sb.AppendLine("   not in \"text\", not as an href, not as [title](url). One typed is refused and the");
+            sb.AppendLine("   section is not written. Never attribute a claim to a page whose passages do not");
+            sb.AppendLine("   state it.");
             sb.AppendLine("3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,");
             sb.AppendLine("   price, integration or limitation that no passage states.");
             sb.AppendLine("4. If the evidence does not cover something, omit it. Do not fill the gap.");

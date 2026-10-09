@@ -198,10 +198,18 @@ public static class GccLinkPlacer
         return (null, NotInText);
     }
 
-    private static string Refusal(string heading, LinkRef link, GccLinkTarget target, string why, IReadOnlyList<Run> runs) =>
-        $"In \"{heading}\", the anchor \"{link.Anchor.Trim()}\" for {target.Id} ({target.Name}) {why}: "
-        + $"\"{GccDraftGuard.Opening(string.Concat(runs.Select(run => run.Text)))}...\". "
-        + "The anchor is the exact words in that paragraph the link sits on.";
+    private static string Refusal(string heading, LinkRef link, GccLinkTarget target, string why, IReadOnlyList<Run> runs)
+    {
+        var anchor = link.Anchor.Trim();
+        // The first run on the new contract (2026-10-09): five tool pages, every anchor the source
+        // page's title rather than words of the writer's own paragraph. Name that case for what it is.
+        var isTitle = why == NotInText && string.Equals(anchor, target.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+        return $"In \"{heading}\", the anchor \"{anchor}\" for {target.Id} ({target.Name}) {why}: "
+            + $"\"{GccDraftGuard.Opening(string.Concat(runs.Select(run => run.Text)))}...\". "
+            + (isTitle
+                ? "It is the page's title. The anchor is words copied from the paragraph itself -- the product or feature the sentence names -- never the title of the page it links."
+                : "The anchor is words copied from the paragraph itself, never the page's title or a line of the evidence.");
+    }
 
     private static void RefuseWriterHrefs(IEnumerable<Run> runs, string heading, string? own, List<string> refusals)
     {

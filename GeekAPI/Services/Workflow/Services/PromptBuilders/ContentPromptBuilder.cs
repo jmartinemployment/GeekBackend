@@ -277,10 +277,11 @@ public class ContentPromptBuilder : IContentPromptBuilder
 
     private static readonly string LinksJsonShape =
         "\"links\": [{\"target\": string (an id printed in the user message: S# a page of the evidence, " +
-        "T# a partner tool page -- never a URL or a path), \"anchor\": string (the exact words in this " +
-        "paragraph the link sits on: the name of what it leads to, " +
+        "T# a partner tool page -- never a URL or a path), \"anchor\": string (a few words copied verbatim " +
+        "from one of THIS paragraph's own runs -- the product or feature your sentence names, " +
         GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords +
-        " words at most, copied verbatim from a run's text)}, ...] (empty when the paragraph links nothing)";
+        " words at most; never the target's title, never a line from the evidence)}, ...] " +
+        "(empty when the paragraph links nothing)";
 
     private static readonly string ParagraphJsonShape =
         "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...], " + LinksJsonShape + "} " +
@@ -731,6 +732,18 @@ public class ContentPromptBuilder : IContentPromptBuilder
         + "the evidence is silent, write less. Never invent a feature, an integration, an outcome or a "
         + "customer to fill a section.";
 
+    /// <summary>
+    /// An FAQ answer carries no link. The FAQ prompts share the section contract, which offers
+    /// "links" and describes its ids; the first run on that contract (2026-10-09) had every FAQ
+    /// answer of five tool pages name the target "S#" -- the placeholder from the contract, copied
+    /// because the FAQ-bank prompt prints no ids and the writer was told a link needs one. The FAQ
+    /// is the body's appendix, written from the same evidence the body already attributes; it
+    /// links nothing, and a link it carries anyway is refused by GccLinkPlacer.
+    /// </summary>
+    internal const string FaqNoLinksInstruction =
+        "LINKS: an FAQ answer carries no link. Every paragraph's \"links\" is an empty list, and no run "
+        + "carries an href or a URL. A link in an FAQ answer refuses the page.";
+
     private const string ContentOnlyInstruction =
         "CONTENT ONLY: the text of every run is plain words. Headings and lists are fields of the JSON, "
         + "a link is a \"links\" entry, and none of them is ever characters in the text -- no #, no <h2>, "
@@ -824,12 +837,14 @@ public class ContentPromptBuilder : IContentPromptBuilder
     internal static readonly string LinkTextInstruction =
         "A LINK SITS ON A FEW WORDS, AND YOU NEVER WRITE ITS ADDRESS: a link is a \"links\" entry on the "
         + "paragraph. \"target\" is an id printed in the user message -- S# for a page of the evidence, T# "
-        + "for a partner tool page -- and \"anchor\" is the exact words in that paragraph the link sits on: "
-        + "the name of what it leads to, never a sentence, "
+        + "for a partner tool page -- and \"anchor\" is a few words copied verbatim from one of that "
+        + "paragraph's own runs: the product or feature your sentence names, as your sentence spells it, "
+        + "never a sentence, "
         + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
-        + " words at most, copied verbatim from a run's text. Write no URL and no path anywhere, in no "
-        + "field. An id that was not printed, anchor words that are not in the paragraph, or an anchor "
-        + "longer than that refuses the section, and it is not written.";
+        + " words at most. The anchor is never the target's title and never a line from the evidence: "
+        + "if the words are not in the paragraph that carries the link, the link is refused. Write no URL "
+        + "and no path anywhere, in no field. An id that was not printed, anchor words that are not in "
+        + "the paragraph, or an anchor longer than that refuses the section, and it is not written.";
 
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
@@ -2174,6 +2189,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
             .AppendLine(SectionJsonContract)
             .AppendLine($"This section's tag is \"h2\" and heading is exactly \"{heading}\". Each question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
+            .AppendLine(FaqNoLinksInstruction)
             .AppendLine("Direct, factual answers. Third person.")
             .AppendLine($"Answers must sound like {context.PublisherName} ({context.ImplementerPositioning}), not a generic textbook FAQ — reflect the same consultative brand voice as the rest of the article, not interchangeable boilerplate.")
             .ToString();
@@ -2228,7 +2244,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "knowledge, and never state a capability, price or figure the evidence does not state.")
             .AppendLine($"Answers sound like {context.PublisherName} ({context.ImplementerPositioning}): third person, direct, factual.")
             .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
+            .AppendLine(FaqNoLinksInstruction)
             .ToString();
 
         var user = new StringBuilder()
@@ -3013,7 +3029,7 @@ public class ContentPromptBuilder : IContentPromptBuilder
                 "its factual content, add a claim not in the answer given, or drop the substance to shorten it.")
             .AppendLine("Use every question provided, in the order given, none invented and none skipped.")
             .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
+            .AppendLine(FaqNoLinksInstruction)
             .ToString();
 
         var user = new StringBuilder()
