@@ -26,14 +26,15 @@ public class GccDeclaredUrlEvidenceTests
         string status = "complete",
         DateTimeOffset? contentReadyAt = null,
         int? pages = 40,
-        int? chunks = 400) =>
+        int? chunks = 400,
+        string? ragState = "complete") =>
         new(
             Id: Guid.NewGuid(), OwnerUserId: "operator", CrawlType: "partner", Status: status,
             SeedUrlsJson: "[]", SeedKey: null, HostProgressJson: null, ErrorSummary: null,
             CreatedAtUtc: DateTimeOffset.UtcNow, StartedAtUtc: DateTimeOffset.UtcNow,
             CompletedAtUtc: DateTimeOffset.UtcNow,
             ContentReadyAt: contentReadyAt ?? DateTimeOffset.UtcNow,
-            CrawlReportJson: null, RagState: "indexed",
+            CrawlReportJson: null, RagState: ragState,
             RagChunksUpserted: chunks, RagPagesEnglish: pages,
             RagIndexedAtUtc: DateTimeOffset.UtcNow);
 
@@ -68,6 +69,41 @@ public class GccDeclaredUrlEvidenceTests
             "its crawl extracted no content",
             GccDeclaredUrlEvidence.Unusable(Row(), run));
     }
+
+    [Fact]
+    public void ARunStillBeingIndexedIsNamedAsSuchNotAsEmpty()
+    {
+        // medius.com, 2026-10-09: a first index lands on the run as RagState=running with both
+        // counters at zero while the index already holds its first flushes. For the twelve minutes
+        // its 424 pages took, the counters called it "indexed 0 page(s) and 0 chunk(s)".
+        var reason = GccDeclaredUrlEvidence.Unusable(Row(), Run(ragState: "running", pages: 0, chunks: 0));
+
+        Assert.NotNull(reason);
+        Assert.Contains("still being indexed", reason!, StringComparison.Ordinal);
+        Assert.DoesNotContain("0 page(s)", reason!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AQueuedIndexIsStillBeingIndexedToo() =>
+        Assert.Contains(
+            "still being indexed",
+            GccDeclaredUrlEvidence.Unusable(Row(), Run(ragState: "pending", pages: 0, chunks: 0))!,
+            StringComparison.Ordinal);
+
+    [Fact]
+    public void AFinishedIndexThatLandedNothingIsRefusedOnTheCounters()
+    {
+        // The same zeros with the index finished are a real answer, and the counters give it.
+        var reason = GccDeclaredUrlEvidence.Unusable(Row(), Run(ragState: "complete", pages: 0, chunks: 0));
+
+        Assert.NotNull(reason);
+        Assert.Contains("0 page(s) and 0 chunk(s)", reason!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARunNeverReportedOnIsJudgedByItsCounters() =>
+        // Older runs carry no RagState at all. Nothing to wait for; the counters decide.
+        Assert.Null(GccDeclaredUrlEvidence.Unusable(Row(), Run(ragState: null)));
 
     [Fact]
     public void ABlockedCrawlIsIndexedAndStillUnusable()

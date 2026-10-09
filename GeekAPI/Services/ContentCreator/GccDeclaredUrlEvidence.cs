@@ -5,8 +5,9 @@ using GeekAPI.Services.GeekCrawler;
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// What a declared URL must be before a project may be saved: crawled, indexed, and carrying enough
-/// to write from.
+/// What a declared URL must be before Generate may write from it: crawled, indexed, and carrying
+/// enough to write from. The Profile saves a URL before any of this is true; the form shows this
+/// answer beside it as it is entered.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -98,6 +99,18 @@ public static class GccDeclaredUrlEvidence
 
         if (run.ContentReadyAt is null)
             return "its crawl extracted no content";
+
+        // Indexing in progress is not "indexed nothing". On a first index the Library's start frame
+        // lands on the run as RagState=running with both counters at zero, while the index already
+        // holds the first flushes -- so until it finishes, the counters below would call a healthy
+        // run a blocked one (medius.com, 2026-10-09: "indexed 0 page(s) and 0 chunk(s)" for the
+        // twelve minutes its 424 pages took).
+        if (run.RagState is { } ragState
+            && (ragState.Equals("pending", StringComparison.OrdinalIgnoreCase)
+                || ragState.Equals("running", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "its crawl is still being indexed; check again when it finishes";
+        }
 
         // Counted, not merely present. The whole point of this check is that a row in the index is
         // not evidence, and a threshold is what separates the two.

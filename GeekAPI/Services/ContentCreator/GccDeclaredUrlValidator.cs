@@ -7,8 +7,9 @@ namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
 /// Whether a project's declared URLs -- the site, the partners, the competitors -- can be written from,
-/// asked of the index itself. Asked when they are entered, on Profile save, which is where it does the
-/// most good; and asked once more when Generate is pressed, before anything is spent.
+/// asked of the index itself. Asked as feedback while they are entered, and asked when Generate is
+/// pressed, before anything is spent. The Profile save does not ask: nothing is written from a URL at
+/// save time, so the save keeps only the declared counts (<see cref="ForSave"/>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -45,42 +46,33 @@ public sealed class GccDeclaredUrlValidator
     }
 
     /// <summary>
-    /// The URLs a project may be saved with: a refusal, or the usable partners and competitors to
-    /// persist.
+    /// The URLs a project may be saved with: a refusal on the declared counts, or the cleaned lists to
+    /// persist. Synchronous, and the index is not asked.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The floor is measured on URLs that have evidence, not on URLs that were typed. Declaring six
-    /// partners and finding one uncrawled used to disable the whole save, because the count rule read
-    /// the declared list while a separate rule required every declared URL to be usable -- two rules
-    /// over two different sets, so an extra URL could only ever hurt. Five good partners are five good
-    /// partners whether a sixth was entered or not.
+    /// The counts are the one rule the save keeps (Jeff, 2026-09-29: five of each, one site). Whether
+    /// a URL can be written from is the index's answer, shown beside it as it is entered and asked
+    /// again by <see cref="ForGenerateAsync"/>, which refuses until every declared URL has a usable
+    /// crawl. Until 2026-10-09 the save asked too, and refused on the answer -- which made a URL
+    /// whose crawl was still being indexed, or an index that was briefly unreachable, a reason the
+    /// Profile could not be saved at all. Nothing is written from a URL at save time, so the save has
+    /// no verdict to give on it.
     /// </para>
     /// <para>
-    /// The unusable ones are excluded from what is saved rather than merely ignored. A declared partner
-    /// obliges Pillar, Blog and Tool to name it (<c>GccRequiredToolMentions</c>), so one with no
-    /// evidence behind it buys a refusal at generate time, which by then the operator can do nothing
-    /// about. Excluding it is what keeps that promise; saving it and hoping is what broke it.
-    /// </para>
-    /// <para>
-    /// The site is not one of several. There is exactly one, the project is grounded on its run, and
-    /// nothing else can stand in for it, so an unusable site URL is a refusal and never an exclusion.
+    /// Every declared URL is persisted; none is excluded. A partner the index cannot write from is
+    /// named by Generate, where the operator re-indexes it or removes it from the Profile.
     /// </para>
     /// </remarks>
-    public async Task<GccDeclaredUrlVerdict> ForSaveAsync(
+    public static GccDeclaredUrlVerdict ForSave(
         string? siteUrl,
-        Guid? projectSiteRunId,
         IReadOnlyList<string>? partnerUrls,
-        IReadOnlyList<string>? competitorUrls,
-        CancellationToken ct)
+        IReadOnlyList<string>? competitorUrls)
     {
         var site = (siteUrl ?? string.Empty).Trim();
         var partners = Clean(partnerUrls);
         var competitors = Clean(competitorUrls);
 
-        // Declared counts first, because they cost nothing and the operator can act on them without
-        // waiting for an index round trip. A list already shorter than the floor cannot reach it once
-        // the unusable are removed, so this stays a sound early answer rather than a guess.
         var shortfalls = new[]
         {
             string.IsNullOrWhiteSpace(site)
@@ -94,37 +86,7 @@ public sealed class GccDeclaredUrlValidator
         if (shortfalls.Count > 0)
             return GccDeclaredUrlVerdict.Refused(string.Join(" ", shortfalls));
 
-        if (projectSiteRunId is not { } siteRun || siteRun == Guid.Empty)
-        {
-            return GccDeclaredUrlVerdict.Refused(
-                "projectSiteRunId is required. It is the crawl this project's content is grounded "
-                + "on, and the index returns it alongside the answer about the site URL.");
-        }
-
-        var evidence = await EvidenceAsync(site, partners, competitors, ct);
-        if (evidence.Unreachable is { } unreachable)
-            return GccDeclaredUrlVerdict.Refused(unreachable + " Nothing was saved — try again.");
-
-        if (evidence.Site.TryGetValue(site, out var siteReason))
-        {
-            return GccDeclaredUrlVerdict.Refused(
-                $"The project site URL cannot be written from: {site} — {siteReason}. "
-                + "It is the crawl this project is grounded on, so nothing else can stand in for it.");
-        }
-
-        var usablePartners = partners.Where(u => !evidence.Partners.ContainsKey(u)).ToList();
-        var usableCompetitors = competitors.Where(u => !evidence.Competitors.ContainsKey(u)).ToList();
-        var floors = new[]
-        {
-            Floor("Partner URLs", partners, usablePartners,
-                GccDeclaredUrlEvidence.RequiredPartnerUrls, evidence.Partners),
-            Floor("Competitor URLs", competitors, usableCompetitors,
-                GccDeclaredUrlEvidence.RequiredCompetitorUrls, evidence.Competitors),
-        }.Where(m => m is not null).ToList();
-        if (floors.Count > 0)
-            return GccDeclaredUrlVerdict.Refused(string.Join(" ", floors));
-
-        return GccDeclaredUrlVerdict.Usable(usablePartners, usableCompetitors);
+        return GccDeclaredUrlVerdict.Declared(partners, competitors);
     }
 
     /// <summary>
@@ -154,7 +116,7 @@ public sealed class GccDeclaredUrlValidator
         return GccDeclaredUrlVerdict.Refused(
             "Nothing was started: these declared URLs cannot be written from now. "
             + string.Join("; ", named) + ". "
-            + "Re-index them, or save the Profile again so the unusable ones are dropped.");
+            + "Re-index them, or remove them from the Profile.");
     }
 
     private static IEnumerable<string> Named(IEnumerable<string> urls, IReadOnlyDictionary<string, string> reasons) =>
@@ -209,8 +171,8 @@ public sealed class GccDeclaredUrlValidator
 
     /// <summary>
     /// The one answer about each URL of one list: usable or not, and why not. The form's as-you-type
-    /// feedback, the Profile save and the check before Generate all read this, so a URL cannot be
-    /// green in one place and refused in another.
+    /// feedback and the check before Generate both read this, so a URL cannot be green in one place
+    /// and refused in another.
     /// </summary>
     /// <remarks>
     /// The list is required, because it is part of the question: Generate searches a URL's crawl as
@@ -289,27 +251,6 @@ public sealed class GccDeclaredUrlValidator
     /// <summary>Any question retrieves from a run that holds chunks; this one only asks whether it does.</summary>
     internal const string ProbeNeed = "what this company offers and the problems it solves";
 
-    /// <summary>
-    /// The shortfall once the unusable are excluded, as the message the operator gets, or null when
-    /// the floor is met.
-    /// </summary>
-    private static string? Floor(
-        string label,
-        IReadOnlyList<string> declared,
-        IReadOnlyList<string> usable,
-        int required,
-        IReadOnlyDictionary<string, string> reasons)
-    {
-        if (usable.Count >= required) return null;
-        var excluded = declared
-            .Where(reasons.ContainsKey)
-            .Select(u => $"{u} — {reasons[u]}")
-            .ToList();
-        return $"{label}: {usable.Count} of {required} have usable crawl evidence. "
-            + $"These cannot be written from: {string.Join("; ", excluded)}. "
-            + "Crawl and index them, or declare others.";
-    }
-
     private static List<string> Clean(IReadOnlyList<string>? urls) =>
         (urls ?? [])
             .Where(u => !string.IsNullOrWhiteSpace(u))
@@ -318,7 +259,10 @@ public sealed class GccDeclaredUrlValidator
             .ToList();
 }
 
-/// <summary>The answer about a project's declared URLs: a refusal, or the usable ones.</summary>
+/// <summary>
+/// The answer about a project's declared URLs: a refusal, or the lists to go on with -- the declared
+/// ones on a Profile save, the usable ones before Generate.
+/// </summary>
 /// <param name="SiteRunId">On a pass before Generate: the crawl of the project's own site that was
 /// checked. It is the crawl the run is written from.</param>
 public sealed record GccDeclaredUrlVerdict(
@@ -329,7 +273,12 @@ public sealed record GccDeclaredUrlVerdict(
 {
     public static GccDeclaredUrlVerdict Refused(string refusal) => new(refusal, [], []);
 
+    /// <summary>Before Generate: every declared URL was checked and can be written from.</summary>
     public static GccDeclaredUrlVerdict Usable(IReadOnlyList<string> partners, IReadOnlyList<string> competitors) =>
+        new(null, partners, competitors);
+
+    /// <summary>On a Profile save: the declared lists, cleaned. Nothing about the index is claimed.</summary>
+    public static GccDeclaredUrlVerdict Declared(IReadOnlyList<string> partners, IReadOnlyList<string> competitors) =>
         new(null, partners, competitors);
 }
 

@@ -181,9 +181,10 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
-        var declared = await _declaredUrls.ForSaveAsync(
-            request.SiteUrl, request.ProjectSiteRunId,
-            request.PartnerUrls, request.CompetitorUrls, ct);
+        // The declared counts only. Whether each URL can be written from is the index's answer, shown
+        // beside it on the form and asked again before Generate; a save is not written from anything.
+        var declared = GccDeclaredUrlValidator.ForSave(
+            request.SiteUrl, request.PartnerUrls, request.CompetitorUrls);
         if (declared.Refusal is { } refusal)
             return BadRequest(refusal);
 
@@ -231,9 +232,8 @@ public class GccProjectsController : ControllerBase
         if (GccUrlValidation.FirstInvalid(request.CompetitorUrls) is { } badCompetitor)
             return BadRequest($"competitorUrls contains an invalid URL: '{badCompetitor}'. Each must be an absolute http or https URL.");
 
-        var declared = await _declaredUrls.ForSaveAsync(
-            request.SiteUrl, request.ProjectSiteRunId,
-            request.PartnerUrls, request.CompetitorUrls, ct);
+        var declared = GccDeclaredUrlValidator.ForSave(
+            request.SiteUrl, request.PartnerUrls, request.CompetitorUrls);
         if (declared.Refusal is { } refusal)
             return BadRequest(refusal);
 

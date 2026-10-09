@@ -14,9 +14,9 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// The feedback shown beside each URL as it is entered (POST api/rag/hosts-indexed) is the same answer
-/// the Profile save gives. It was a second implementation that read only the crawl's own counters, so
-/// the form showed green for a competitor the index held nothing for (Jeff, 2026-10-05: "does not
-/// surface when it should because all URL's feedback is valid").
+/// the check before Generate gives. It was a second implementation that read only the crawl's own
+/// counters, so the form showed green for a competitor the index held nothing for (Jeff, 2026-10-05:
+/// "does not surface when it should because all URL's feedback is valid").
 /// </summary>
 public sealed class HostsIndexedFeedbackTests
 {
@@ -43,7 +43,7 @@ public sealed class HostsIndexedFeedbackTests
                 return search(runId);
             }),
             new HttpGeekCrawlerRepository(
-                new HttpClient(new GccProjectsControllerIndexGateTests.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
+                new HttpClient(new DeclaredUrlTestDoubles.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
                 NullLogger<HttpGeekCrawlerRepository>.Instance),
             NullLogger<GccDeclaredUrlValidator>.Instance);
         // hosts-indexed does not touch the library writer.
@@ -57,7 +57,7 @@ public sealed class HostsIndexedFeedbackTests
     [Fact]
     public async Task A_url_whose_crawl_counted_pages_the_index_does_not_hold_is_not_usable()
     {
-        var (controller, _) = Build(GccProjectsControllerIndexGateTests.HoldsNothing, Rival);
+        var (controller, _) = Build(DeclaredUrlTestDoubles.HoldsNothing, Rival);
 
         var result = await controller.HostsIndexed(
             new RagController.HostsIndexedRequest([Rival], CrawlTypes.Competitors), CancellationToken.None);
@@ -73,7 +73,7 @@ public sealed class HostsIndexedFeedbackTests
     [Fact]
     public async Task A_url_the_index_holds_pages_for_is_usable_and_is_searched_as_its_list()
     {
-        var (controller, searchedAs) = Build(GccProjectsControllerIndexGateTests.Holds, Partner);
+        var (controller, searchedAs) = Build(DeclaredUrlTestDoubles.Holds, Partner);
 
         var result = await controller.HostsIndexed(
             new RagController.HostsIndexedRequest([Partner], "Partner"), CancellationToken.None);
@@ -94,7 +94,7 @@ public sealed class HostsIndexedFeedbackTests
     [InlineData("rivals")]
     public async Task Without_a_known_list_the_check_is_refused_and_nothing_is_searched(string? crawlType)
     {
-        var (controller, searchedAs) = Build(GccProjectsControllerIndexGateTests.Holds, Rival);
+        var (controller, searchedAs) = Build(DeclaredUrlTestDoubles.Holds, Rival);
 
         var result = await controller.HostsIndexed(
             new RagController.HostsIndexedRequest([Rival], crawlType), CancellationToken.None);
@@ -132,11 +132,11 @@ public sealed class HostsIndexedFeedbackTests
             new GeekCrawlerRagHostIndex(Rival, "rival.test", true, Guid.NewGuid().ToString(), crawlType),
         };
         var rag = new GccCompetitorAnalysisResolverTests.FakeRag(
-            rows, (runId, _) => GccProjectsControllerIndexGateTests.Holds(runId));
+            rows, (runId, _) => DeclaredUrlTestDoubles.Holds(runId));
         var validator = new GccDeclaredUrlValidator(
             rag,
             new HttpGeekCrawlerRepository(
-                new HttpClient(new GccProjectsControllerIndexGateTests.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
+                new HttpClient(new DeclaredUrlTestDoubles.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
                 NullLogger<HttpGeekCrawlerRepository>.Instance),
             NullLogger<GccDeclaredUrlValidator>.Instance);
 

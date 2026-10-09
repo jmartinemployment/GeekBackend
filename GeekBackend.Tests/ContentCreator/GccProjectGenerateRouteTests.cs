@@ -314,12 +314,12 @@ public sealed class GccProjectGenerateRouteTests
             .ToList();
         var emptyRuns = rows.Where(r => emptyUrls.Contains(r.Url)).Select(r => Guid.Parse(r.RunId!)).ToHashSet();
         var crawlerRepo = new HttpGeekCrawlerRepository(
-            new HttpClient(new GccProjectsControllerIndexGateTests.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
+            new HttpClient(new DeclaredUrlTestDoubles.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
             NullLogger<HttpGeekCrawlerRepository>.Instance);
         return new GccDeclaredUrlValidator(
             new GccCompetitorAnalysisResolverTests.FakeRag(rows, (runId, _) => emptyRuns.Contains(runId)
-                ? GccProjectsControllerIndexGateTests.HoldsNothing(runId)
-                : GccProjectsControllerIndexGateTests.Holds(runId)),
+                ? DeclaredUrlTestDoubles.HoldsNothing(runId)
+                : DeclaredUrlTestDoubles.Holds(runId)),
             crawlerRepo,
             NullLogger<GccDeclaredUrlValidator>.Instance);
     }
