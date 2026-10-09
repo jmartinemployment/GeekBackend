@@ -46,22 +46,23 @@ public sealed class GccDeclaredUrlValidator
     }
 
     /// <summary>
-    /// The URLs a project may be saved with: a refusal on the declared counts, or the cleaned lists to
-    /// persist. Synchronous, and the index is not asked.
+    /// The URLs a project may be saved with: a refusal when there is no site URL, or the cleaned
+    /// partner and competitor lists to persist, however many. Synchronous, and the index is not asked.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The counts are the one rule the save keeps (Jeff, 2026-09-29: five of each, one site). Whether
-    /// a URL can be written from is the index's answer, shown beside it as it is entered and asked
-    /// again by <see cref="ForGenerateAsync"/>, which refuses until every declared URL has a usable
-    /// crawl. Until 2026-10-09 the save asked too, and refused on the answer -- which made a URL
-    /// whose crawl was still being indexed, or an index that was briefly unreachable, a reason the
-    /// Profile could not be saved at all. Nothing is written from a URL at save time, so the save has
-    /// no verdict to give on it.
+    /// The site is the one URL a project cannot be without: it is the page the content must not
+    /// duplicate and the crawl Generate grounds on. Partners and competitors are saved at any count.
+    /// The floor of five of each (2026-09-29) was lifted on 2026-10-09 -- Jeff: "Create Project being
+    /// disabled wastes my time, disable this blocking" -- and nothing else enforces it: Generate
+    /// names every declared partner, however many there are.
     /// </para>
     /// <para>
-    /// Every declared URL is persisted; none is excluded. A partner the index cannot write from is
-    /// named by Generate, where the operator re-indexes it or removes it from the Profile.
+    /// Whether a URL can be written from is the index's answer, shown beside it as it is entered and
+    /// asked again by <see cref="ForGenerateAsync"/>, which refuses until every declared URL has a
+    /// usable crawl. Until 2026-10-09 the save asked too, and refused on the answer. Nothing is written
+    /// from a URL at save time, so the save has no verdict to give on it; every declared URL is
+    /// persisted and none is excluded.
     /// </para>
     /// </remarks>
     public static GccDeclaredUrlVerdict ForSave(
@@ -70,23 +71,13 @@ public sealed class GccDeclaredUrlValidator
         IReadOnlyList<string>? competitorUrls)
     {
         var site = (siteUrl ?? string.Empty).Trim();
-        var partners = Clean(partnerUrls);
-        var competitors = Clean(competitorUrls);
-
-        var shortfalls = new[]
+        if (site.Length == 0)
         {
-            string.IsNullOrWhiteSpace(site)
-                ? $"Project site URL: 0 declared, {GccDeclaredUrlEvidence.RequiredSiteUrls} required."
-                : null,
-            GccDeclaredUrlEvidence.WrongCount(
-                "Partner URLs", partners.Count, GccDeclaredUrlEvidence.RequiredPartnerUrls),
-            GccDeclaredUrlEvidence.WrongCount(
-                "Competitor URLs", competitors.Count, GccDeclaredUrlEvidence.RequiredCompetitorUrls),
-        }.Where(m => m is not null).ToList();
-        if (shortfalls.Count > 0)
-            return GccDeclaredUrlVerdict.Refused(string.Join(" ", shortfalls));
+            return GccDeclaredUrlVerdict.Refused(
+                $"Project site URL: 0 declared, {GccDeclaredUrlEvidence.RequiredSiteUrls} required.");
+        }
 
-        return GccDeclaredUrlVerdict.Declared(partners, competitors);
+        return GccDeclaredUrlVerdict.Declared(Clean(partnerUrls), Clean(competitorUrls));
     }
 
     /// <summary>

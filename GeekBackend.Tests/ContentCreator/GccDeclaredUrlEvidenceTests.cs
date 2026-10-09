@@ -178,20 +178,4 @@ public class GccDeclaredUrlEvidenceTests
             StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(0, 5)]
-    [InlineData(4, 5)]
-    public void TheCountRuleNamesWhatIsMissing(int actual, int required) =>
-        Assert.Equal(
-            $"Partner URLs: {actual} declared, {required} required.",
-            GccDeclaredUrlEvidence.WrongCount("Partner URLs", actual, required));
-
-    [Fact]
-    public void MeetingTheCountSaysNothing() =>
-        Assert.Null(GccDeclaredUrlEvidence.WrongCount("Partner URLs", 5, 5));
-
-    [Fact]
-    public void MoreThanRequiredIsFine() =>
-        // "There must be 5" is a floor. Refusing a sixth partner would be arbitrary.
-        Assert.Null(GccDeclaredUrlEvidence.WrongCount("Partner URLs", 6, 5));
 }

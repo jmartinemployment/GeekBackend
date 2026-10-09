@@ -31,16 +31,12 @@ namespace GeekAPI.Services.ContentCreator;
 /// </remarks>
 public static class GccDeclaredUrlEvidence
 {
-    /// <summary>Exactly one project site. It is the page this content must not duplicate.</summary>
-    public const int RequiredSiteUrls = 1;
-
     /// <summary>
-    /// Partners and competitors are required in fives (Jeff, 2026-09-29). Five is what a pillar
-    /// names and what a comparison needs to be a comparison; fewer is a page about one vendor
-    /// wearing a category's title.
+    /// Exactly one project site. It is the page this content must not duplicate, and the only URL a
+    /// project cannot be saved without. Partners and competitors are saved at any count: the floor of
+    /// five of each (2026-09-29) was lifted on 2026-10-09 at Jeff's instruction.
     /// </summary>
-    public const int RequiredPartnerUrls = 5;
-    public const int RequiredCompetitorUrls = 5;
+    public const int RequiredSiteUrls = 1;
 
     /// <summary>
     /// A crawl below this produced a row and not a corpus — blocked at the first page, or a site
@@ -138,10 +134,4 @@ public static class GccDeclaredUrlEvidence
 
         return null;
     }
-
-    /// <summary>The count rule, as the message the operator gets. Null when the count is met.</summary>
-    public static string? WrongCount(string label, int actual, int required) =>
-        actual >= required
-            ? null
-            : $"{label}: {actual} declared, {required} required.";
 }

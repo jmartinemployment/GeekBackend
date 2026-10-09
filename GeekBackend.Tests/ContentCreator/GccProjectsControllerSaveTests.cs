@@ -26,8 +26,9 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </para>
 ///
 /// <para>
-/// What the save still refuses is the declared counts -- one site, five of each -- which cost no
-/// round trip. Every refusal case asserts the repository was never called.
+/// What the save still refuses is a project with no site URL, and a URL that is not a URL. The floor
+/// of five partners and five competitors was lifted the same day (Jeff: "Create Project being disabled
+/// wastes my time, disable this blocking"). Every refusal case asserts the repository was never called.
 /// </para>
 /// </summary>
 public class GccProjectsControllerSaveTests
@@ -235,44 +236,36 @@ public class GccProjectsControllerSaveTests
         Assert.DoesNotContain("PARTNER1.test", repo.LastBody!, StringComparison.Ordinal);
     }
 
-    // ---- what the save still refuses: the declared counts, and URL syntax --------------------------
+    // ---- any number of partners and competitors -----------------------------------------------------
 
     [Fact]
-    public async Task FewerThanFivePartnersIsRefused()
+    public async Task OnePartnerAndOneCompetitorAreSaved()
     {
+        // The floor of five each is gone (2026-10-09). A project is saved with what was declared.
         var (controller, repo, _) = Build(NothingIndexed);
 
-        var result = await controller.Create(CreateRequest([Partner], Competitors), CancellationToken.None);
+        var result = await controller.Create(CreateRequest([Partner], [Competitors[0]]), CancellationToken.None);
 
-        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
-        Assert.Contains("Partner URLs: 1 declared, 5 required", BodyOf(result), StringComparison.Ordinal);
-        Assert.Equal(0, repo.Calls);
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Equal(1, repo.Calls);
+        Assert.Contains(Partner, repo.LastBody!, StringComparison.Ordinal);
+        Assert.Contains(Competitors[0], repo.LastBody!, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task FewerThanFiveCompetitorsIsRefused()
+    public async Task EmptyListsAreSaved()
     {
-        var (controller, repo, _) = Build(NothingIndexed);
-
-        var result = await controller.Create(CreateRequest(Partners, [Competitors[0]]), CancellationToken.None);
-
-        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
-        Assert.Contains("Competitor URLs: 1 declared, 5 required", BodyOf(result), StringComparison.Ordinal);
-        Assert.Equal(0, repo.Calls);
-    }
-
-    [Fact]
-    public async Task EmptyListsAreRefused()
-    {
-        // A project with no partners has nothing to write a tool page from and nothing for a pillar
-        // to name.
+        // Nothing is written from a partner at save time. A project with none yet is a project the
+        // operator is still filling in; Generate is where a missing partner matters.
         var (controller, repo, _) = Build(NothingIndexed);
 
         var result = await controller.Create(CreateRequest([], []), CancellationToken.None);
 
-        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
-        Assert.Equal(0, repo.Calls);
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Equal(1, repo.Calls);
     }
+
+    // ---- what the save still refuses: no site URL, and URL syntax ----------------------------------
 
     [Fact]
     public async Task NoSiteUrlIsRefused()
@@ -284,21 +277,6 @@ public class GccProjectsControllerSaveTests
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
         Assert.Contains("Project site URL: 0 declared, 1 required", BodyOf(result), StringComparison.Ordinal);
-        Assert.Equal(0, repo.Calls);
-    }
-
-    [Fact]
-    public async Task ADuplicateInADifferentCaseCountsOnceTowardTheFive()
-    {
-        // The count is on distinct URLs, compared as the index compares hosts. Four partners and a
-        // re-spelling of one of them is four.
-        string[] partners = [.. Partners.Take(4), "https://PARTNER1.test"];
-        var (controller, repo, _) = Build(NothingIndexed);
-
-        var result = await controller.Create(CreateRequest(partners, Competitors), CancellationToken.None);
-
-        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
-        Assert.Contains("Partner URLs: 4 declared, 5 required", BodyOf(result), StringComparison.Ordinal);
         Assert.Equal(0, repo.Calls);
     }
 
@@ -357,15 +335,26 @@ public class GccProjectsControllerSaveTests
     }
 
     [Fact]
-    public async Task UpdateRefusesTheCountsToo()
+    public async Task UpdateSavesAnyNumberOfPartnersToo()
     {
         var (controller, repo, _) = Build(NothingIndexed);
 
         var result = await controller.Update(
-            Guid.NewGuid(), UpdateRequest([Partner], Competitors), CancellationToken.None);
+            Guid.NewGuid(), UpdateRequest([Partner], []), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Equal(1, repo.Calls);
+    }
+
+    [Fact]
+    public async Task UpdateWithNoSiteUrlIsRefused()
+    {
+        var (controller, repo, _) = Build(NothingIndexed);
+
+        var result = await controller.Update(
+            Guid.NewGuid(), UpdateRequest(Partners, Competitors) with { SiteUrl = null }, CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
-        Assert.Contains("Partner URLs: 1 declared, 5 required", BodyOf(result), StringComparison.Ordinal);
         Assert.Equal(0, repo.Calls);
     }
 }
