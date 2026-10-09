@@ -212,7 +212,10 @@ public sealed class GccGenerationCoordinator
         Func<string, string, Task>? onTypeWarning = null,
         // The project brief revision this run read, stamped on every version it writes (J7). Null on
         // the create-keyed path.
-        GccBriefRevisionStamp? briefRevision = null)
+        GccBriefRevisionStamp? briefRevision = null,
+        // When tool pages are requested: only these partners, by declared URL. Null is every partner.
+        // Jeff, 2026-10-09: "Seeing as a single tool can fail, need a way to select just one tool."
+        IReadOnlyList<string>? toolPartners = null)
     {
         var requested = NormalizeRequestedTypes(outputTypes);
         var refusal = ValidateRequestedTypes(requested);
@@ -281,7 +284,7 @@ public sealed class GccGenerationCoordinator
                     throw new InvalidOperationException(evidenceRefusal);
                 return await GenerateOneAsync(
                     repo, gen, create, section, provider, type, mustMentionBlock,
-                    resolved.PartnerPassages, ct, recordReadiness);
+                    resolved.PartnerPassages, ct, recordReadiness, toolPartners);
             })));
 
             return await SettleAndSaveAsync(
@@ -298,7 +301,7 @@ public sealed class GccGenerationCoordinator
             throw new InvalidOperationException(singleRefusal);
         var single = await GenerateOneAsync(
             repo, gen, create, section, provider, requested[0], mustMentionBlock,
-            resolvedSingle.PartnerPassages, ct, recordReadiness);
+            resolvedSingle.PartnerPassages, ct, recordReadiness, toolPartners);
 
         var singlePieces = await WithMissingToolPagesNamedAsync(repo, gen, create, single.Pieces, requested, ct);
         var singleCreated = await PersistAllAsync(
@@ -548,7 +551,8 @@ public sealed class GccGenerationCoordinator
         string? mustMentionBlock,
         IReadOnlyList<GccGroundedPassage> passages,
         CancellationToken ct,
-        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness = null)
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness = null,
+        IReadOnlyList<string>? toolPartners = null)
     {
         var contentType = requestedType.Trim().ToLowerInvariant();
         // Strips hyphens/spaces so "tech-article"/"techArticle" and "email-cold-outreach"/"email"
@@ -618,7 +622,8 @@ public sealed class GccGenerationCoordinator
                     create, section, provider, ct, mustMentionBlock, passages,
                     onReadiness: onReadiness is null
                         ? null
-                        : verdicts => onReadiness(contentType, verdicts));
+                        : verdicts => onReadiness(contentType, verdicts),
+                    onlyPartners: toolPartners);
 
                 var written = toolOutcomes.Where(o => o.Written).ToList();
                 var refused = toolOutcomes.Where(o => !o.Written).ToList();

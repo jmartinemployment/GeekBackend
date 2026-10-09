@@ -64,11 +64,13 @@ public sealed class GccGenerateJobRunner
         ContentGeneratorProvider provider,
         IReadOnlyList<string> outputTypes,
         string? mustMentionBlock,
-        string ownerUserId)
+        string ownerUserId,
+        // Only these partners' tool pages, by declared URL; null is every partner.
+        IReadOnlyList<string>? toolPartners = null)
     {
         var job = _jobs.Create("generate", row.CreateId, ownerUserId, row.Id, row.ProjectId);
         _ = PushJobAsync(job.Id);
-        _ = Task.Run(() => RunAsync(job.Id, view, section, provider, outputTypes, mustMentionBlock, row));
+        _ = Task.Run(() => RunAsync(job.Id, view, section, provider, outputTypes, mustMentionBlock, row, toolPartners));
         return job;
     }
 
@@ -79,7 +81,8 @@ public sealed class GccGenerateJobRunner
         ContentGeneratorProvider provider,
         IReadOnlyList<string>? outputTypes,
         string? mustMentionBlock,
-        GccGenerateJobDto? row)
+        GccGenerateJobDto? row,
+        IReadOnlyList<string>? toolPartners = null)
     {
         // A new scope, because the request's scoped services (repository, generate service,
         // coordinator) are disposed the moment the 202 is written. Opened inside the try, so a scope
@@ -106,6 +109,7 @@ public sealed class GccGenerateJobRunner
                     createId = create.Id,
                     provider = provider.ToString(),
                     requestedTypes = outputTypes ?? [],
+                    toolPartners = toolPartners ?? [],
                     briefRevisionId = row.BriefRevisionId,
                     topic = create.Topic,
                 });
@@ -124,7 +128,8 @@ public sealed class GccGenerateJobRunner
                     BestEffortAsync(jobId, "pre-flight", () => _notifier.PushPreflightAsync(jobId, contentType, partners)),
                 onTypeWarning: (contentType, warning) =>
                     BestEffortAsync(jobId, "warning", () => _notifier.PushWarningAsync(jobId, contentType, warning)),
-                briefRevision: briefRevision);
+                briefRevision: briefRevision,
+                toolPartners: toolPartners);
 
             _jobs.Complete(jobId, result);
             if (GccRunLog.Current is { } completed)

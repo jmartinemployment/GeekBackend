@@ -764,7 +764,11 @@ public class GccGenerateService
         // Invoked once, with every partner's verdict, after the pre-flight and BEFORE any drafting.
         // The operator asked to be told before creation (Jeff, 2026-10-02), which is only possible
         // between the two phases -- afterwards is a report, not a pre-flight.
-        Func<IReadOnlyList<GccPartnerToolReadiness>, Task>? onReadiness = null)
+        Func<IReadOnlyList<GccPartnerToolReadiness>, Task>? onReadiness = null,
+        // Some of the partners instead of all of them, named by their declared URLs. Jeff,
+        // 2026-10-09: "Seeing as a single tool can fail, need a way to select just one tool." Null or
+        // empty means every partner, as before.
+        IReadOnlyList<string>? onlyPartners = null)
     {
         var partnerUrls = await PartnerUrlsForAsync(create, ct);
 
@@ -788,6 +792,28 @@ public class GccGenerateService
         else
         {
             slices = GccPartnerToolSlices.Build(create, partnerUrls, passages ?? []);
+            if (onlyPartners is { Count: > 0 })
+            {
+                // Matched by host, the way the slices themselves are keyed. A URL that is not one of
+                // this project's partners is refused by name rather than written about ungrounded.
+                var unknown = onlyPartners
+                    .Where(p => !slices.Any(s => string.Equals(
+                        s.Host, GccRequiredToolMentions.HostKeyOf(p), StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                if (unknown.Count > 0)
+                {
+                    return [.. unknown.Select(p => new ToolPageOutcome(
+                        p.Trim(),
+                        null,
+                        $"Refused: '{p.Trim()}' is not one of this project's declared partners, so there "
+                        + "is no crawl to ground a tool page on."))];
+                }
+
+                var wantedHosts = onlyPartners
+                    .Select(GccRequiredToolMentions.HostKeyOf)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                slices = slices.Where(s => wantedHosts.Contains(s.Host)).ToList();
+            }
         }
 
         if (slices.Count == 0)

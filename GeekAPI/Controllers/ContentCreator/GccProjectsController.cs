@@ -374,6 +374,28 @@ public class GccProjectsController : ControllerBase
         var typeRefusal = GccGenerationCoordinator.ValidateRequestedTypes(requested);
         if (typeRefusal is not null) return BadRequest(typeRefusal);
 
+        // Some tool pages rather than all: each must be one of this project's declared partners, so a
+        // typo cannot start a run about a product the project has no crawl for.
+        var toolPartners = (request?.Tools ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (toolPartners.Count > 0)
+        {
+            if (!requested.Any(t => string.Equals(t.Trim(), "tool", StringComparison.OrdinalIgnoreCase)))
+                return BadRequest("tools names partners for tool pages, but tool pages are not among the output types.");
+            var partnerHosts = project.PartnerUrls
+                .Select(GccRequiredToolMentions.HostKeyOf)
+                .Where(h => h.Length > 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var notDeclared = toolPartners
+                .Where(t => !partnerHosts.Contains(GccRequiredToolMentions.HostKeyOf(t)))
+                .ToList();
+            if (notDeclared.Count > 0)
+                return BadRequest($"tools must name this project's declared partners; not declared: {string.Join(", ", notDeclared)}.");
+        }
+
         // The declared URLs were validated when they were entered. Asked once more here, before the
         // run starts and before anything is spent, in case the index has lost one since.
         var declared = await _declaredUrls.ForGenerateAsync(project, ct);
@@ -437,7 +459,8 @@ public class GccProjectsController : ControllerBase
             ? view
             : ProjectView(project, row.CreateId, ownerUserId, requested[0], backing: null);
         var job = _generateRunner.StartForProject(
-            row, writeUnder, section, provider, requested, mustMentionBlock, actor);
+            row, writeUnder, section, provider, requested, mustMentionBlock, actor,
+            toolPartners: toolPartners.Count > 0 ? toolPartners : null);
 
         return Accepted(new { jobId = job.Id, projectId = id, status = job.Status });
     }
@@ -788,8 +811,12 @@ public class GccProjectsController : ControllerBase
 
     /// <summary>What the browser sends to Generate. AcknowledgeStaleGrounding is accepted for the
     /// contract's shape; Generate has no staleness gate that can fire (see GccController).</summary>
+    /// <param name="Tools">When tool pages are among the output types: only these partners, each one
+    /// of the project's declared partner URLs. Omitted or empty is every partner. Jeff, 2026-10-09:
+    /// "Seeing as a single tool can fail, need a way to select just one tool."</param>
     public sealed record GenerateRequest(
         IReadOnlyList<string>? OutputTypes,
         string? Provider,
-        bool AcknowledgeStaleGrounding = false);
+        bool AcknowledgeStaleGrounding = false,
+        IReadOnlyList<string>? Tools = null);
 }
