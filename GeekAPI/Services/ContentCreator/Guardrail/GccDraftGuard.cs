@@ -299,6 +299,17 @@ public static partial class GccDraftGuard
     /// prompt", which permits one, and in the 2026-10-07 run the Blog's opening linked the publisher's home page
     /// and the Bill, Ramp and Stampli openings linked the vendors' own sites, while the Pillar's linked nothing.
     /// The prompts now say the opening carries no links; this is what makes that a check and not a request.
+    /// <para>
+    /// 2026-10-09: tried flipping this to <c>Refuses: true</c>, since a tool/citation link in the opening and a
+    /// CTA-style link (the failure mode above) were being treated alike and Jeff's preference is "without" for
+    /// both anyway. Reverted: shared test fixtures carry an opening linking <c>#consultationAppointment2xl</c>,
+    /// a same-page anchor to the page's own closing scheduler section, not an external link of any kind. This
+    /// check cannot yet tell a same-page anchor, an external vendor/tool citation link, and an actual CTA
+    /// mislink apart -- refusing all three alike broke 15 unrelated tests. Before refusing here, that
+    /// distinction has to exist first; see <c>opening-links-rule-is-preference-not-correctness</c> in project
+    /// memory for the full incident. Jeff's current workaround: read this finding's text and manually remove
+    /// the link before publishing.
+    /// </para>
     /// </remarks>
     private static void AddOpeningLinkFindings(ContentDocument document, List<GccGuardFinding> into)
     {
