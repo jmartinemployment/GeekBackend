@@ -89,7 +89,7 @@ public class ContentPromptBuilderFillerBanTests
 
         var user = UserPrompt(request);
         Assert.Contains("=== BRIEF CONTROLS", user);
-        Assert.Contains("Primary intent: commercial_investigation", user);
+        Assert.Contains("Primary intent: commercial investigation (the reader is weighing options before buying)", user);
         Assert.Contains("notes: SMBs looking to implement AI", user);
         // Run data is not in the system message: the brief is the user's, and the system is the same text every call.
         Assert.DoesNotContain("=== BRIEF CONTROLS", SystemPrompt(request));
@@ -147,6 +147,6 @@ public class ContentPromptBuilderFillerBanTests
         Assert.Contains("Comparative", system, StringComparison.Ordinal);
         Assert.Contains("the alternatives this reader is actually weighing", system, StringComparison.Ordinal);
         Assert.DoesNotContain("Angle: comparative", system, StringComparison.Ordinal);
-        Assert.Contains("Primary intent: commercial_investigation", system);
+        Assert.Contains("Primary intent: commercial investigation (the reader is weighing options before buying)", system);
     }
 }

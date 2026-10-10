@@ -149,8 +149,8 @@ public class GccOpeningAsksNothingTests
     {
         var prompt = Prompt(Build(which));
 
-        Assert.Contains("Primary intent: commercial_investigation", prompt, StringComparison.Ordinal);
-        Assert.Contains("Tone of voice: consultant_professional", prompt, StringComparison.Ordinal);
+        Assert.Contains("Primary intent: commercial investigation (the reader is weighing options before buying)", prompt, StringComparison.Ordinal);
+        Assert.Contains("Tone of voice: consultant, professional (objective authority)", prompt, StringComparison.Ordinal);
     }
 
     [Fact]

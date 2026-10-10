@@ -497,6 +497,75 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// The control: a page written twice from the same brief is asked the same things, to the character.
     /// Without this a difference between two runs could be a clock or an id, not the brief.
     /// </summary>
+    /// <summary>A brief whose every choice is a code with an underscore in it, so a code left in a prompt is findable.</summary>
+    private static readonly string BriefOfCodes = CompleteBrief
+        .Replace("\"primaryIntent\": \"informational\"", "\"primaryIntent\": \"commercial_investigation\"", StringComparison.Ordinal)
+        .Replace("\"audienceSegment\": \"affinity\"", "\"audienceSegment\": \"in_market\"", StringComparison.Ordinal);
+
+    private static readonly string[] StoredCodes =
+    [
+        "commercial_investigation", "in_market", "problem_solution", "consultant_professional", "first_hand_experience",
+    ];
+
+    /// <summary>
+    /// The form stores a choice as a code and the writer is told it in words (<c>BriefChoiceWords</c>).
+    /// Until 2026-10-10 a body call read "WHO THIS IS FOR: in_market".
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    [InlineData("email")]
+    [InlineData("social")]
+    [InlineData("image")]
+    public async Task No_call_is_shown_a_choice_as_the_code_the_form_stores(string page)
+    {
+        var calls = await RunAsync(page, BriefOfCodes);
+
+        Assert.NotEmpty(calls);
+        foreach (var (label, text) in calls.Where(c => c.Label != "the saved page"))
+        {
+            foreach (var code in StoredCodes)
+            {
+                Assert.False(text.Contains(code, StringComparison.Ordinal), $"{page}, {label}: the prompt carries the stored code \"{code}\".");
+            }
+        }
+    }
+
+    /// <summary>
+    /// One call, one copy of the brief. Until 2026-10-10 a pillar call was told it twice and a blog or
+    /// tool page call three times, each copy in its own wording, because the source context printed
+    /// what the prompt builder had already printed.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    [InlineData("email")]
+    [InlineData("social")]
+    [InlineData("image")]
+    public async Task No_call_is_told_the_brief_twice(string page)
+    {
+        var calls = await RunAsync(page, CompleteBrief);
+
+        Assert.NotEmpty(calls);
+        foreach (var (label, text) in calls.Where(c => c.Label != "the saved page"))
+        {
+            Assert.True(Count(text, "Primary intent:") <= 1, $"{page}, {label}: the intent is printed {Count(text, "Primary intent:")} times.");
+            Assert.True(Count(text, "Buying stage:") <= 1, $"{page}, {label}: the buying stage is printed {Count(text, "Buying stage:")} times.");
+            Assert.True(Count(text, "Tone of voice:") <= 1, $"{page}, {label}: the tone is printed {Count(text, "Tone of voice:")} times.");
+            var audience = Count(text, "WHO THIS IS FOR:") + Count(text, "Audience segment:") + Count(text, "Audience:");
+            Assert.True(audience <= 1, $"{page}, {label}: the audience is printed {audience} times.");
+        }
+    }
+
+    /// <summary>
+    /// Lines that begin with the label. A body prompt also names "brief:Primary intent: ..." inside its
+    /// rule on heading tags, which is not a copy of the brief.
+    /// </summary>
+    private static int Count(string text, string label) =>
+        text.Split('\n').Count(line => line.TrimStart().StartsWith(label, StringComparison.Ordinal));
+
     [Theory]
     [InlineData("pillar")]
     [InlineData("blog")]
@@ -555,8 +624,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceNotes => opening | People Also Ask | every body call | title and outline
             angle => opening | every body call | title and outline
             toneOfVoice => opening | People Also Ask | every body call | title and outline
-            eeatSignals => opening | People Also Ask | every body call
-            lengthBand => opening | People Also Ask | every body call
+            eeatSignals => opening | People Also Ask | every body call | title and outline
+            lengthBand => opening | People Also Ask | every body call | title and outline
             paaQuestions => People Also Ask | every body call | the saved page
             blogFaqQuestions => nothing
             briefVersion => nothing
@@ -590,8 +659,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceNotes => title and outline | opening | FAQ | every body call
             angle => title and outline | opening | every body call
             toneOfVoice => title and outline | opening | FAQ | every body call
-            eeatSignals => opening | FAQ | every body call
-            lengthBand => opening | FAQ | every body call
+            eeatSignals => title and outline | opening | FAQ | every body call
+            lengthBand => title and outline | opening | FAQ | every body call
             paaQuestions => every body call
             blogFaqQuestions => FAQ | the saved page
             briefVersion => nothing

@@ -1297,26 +1297,10 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// Vocabulary is CONTENT_ANGLES in brief-catalog.ts. An unrecognised value is passed through
     /// rather than dropped, so a new angle still reaches the model while it waits for a line here.
     /// </summary>
-    private static string DescribeAngle(string angle) =>
-        angle.Trim().ToLowerInvariant() switch
-        {
-            "problem_solution" =>
-                "Angle -- Problem-Solution: open on the reader's problem and what it is costing them, "
-                + "then show how this resolves it. The problem is the hook, not a preamble; earn the "
-                + "solution by making the cost concrete first.",
-            "comparative" =>
-                "Angle -- Comparative (\"versus\"): frame against the alternatives this reader is "
-                + "actually weighing. The value is in the contrast and the trade-offs, never a feature "
-                + "list that ignores what else they could do.",
-            "case_study_data" =>
-                "Angle -- Case Study / Data-Driven: lead with evidence -- a number, an outcome, a "
-                + "documented result -- and let the argument follow from it. Never invent a figure to "
-                + "carry this angle; if the evidence is not in what you were given, argue from what is.",
-            "ultimate_guide" =>
-                "Angle -- Comprehensive \"Ultimate Guide\": the promise is completeness. Breadth and "
-                + "structure carry it: cover the whole territory in an order a reader can follow.",
-            _ => $"Angle: {angle}",
-        };
+    private static string DescribeAngle(string angle) => BriefChoiceWords.Angle(angle);
+
+    /// <summary>The brief block's heading on a call that plans a page's title and outline.</summary>
+    private const string BriefForTitleAndOutline = "=== BRIEF CONTROLS (honor in the title and the outline) ===";
 
     private static string BuildLedeTypeGuidance(ProjectGenerationContext context)
     {
@@ -1444,11 +1428,11 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         if (hasBrief)
         {
             if (!string.IsNullOrWhiteSpace(context.PrimaryIntent))
-                sb.AppendLine($"Primary intent: {context.PrimaryIntent}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $" (secondary: {context.SecondaryIntent})"));
+                sb.AppendLine($"Primary intent: {BriefChoiceWords.Intent(context.PrimaryIntent)}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $"; secondary: {BriefChoiceWords.SecondaryIntent(context.SecondaryIntent)}"));
             if (!string.IsNullOrWhiteSpace(context.BuyingStage))
-                sb.AppendLine($"Buying stage: {context.BuyingStage}");
+                sb.AppendLine($"Buying stage: {BriefChoiceWords.Stage(context.BuyingStage)}");
             if (!string.IsNullOrWhiteSpace(context.AudienceSegment))
-                sb.AppendLine($"Audience: {context.AudienceSegment}" + (context.AudienceDetails is { Count: > 0 } d ? $" — details: {string.Join(", ", d)}" : "") + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — notes: {context.AudienceNotes}"));
+                sb.AppendLine($"Audience: {BriefChoiceWords.Audience(context.AudienceSegment)}" + (context.AudienceDetails is { Count: > 0 } d ? $" — details: {string.Join(", ", d)}" : "") + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — notes: {context.AudienceNotes}"));
             else if (!string.IsNullOrWhiteSpace(context.AudienceNotes))
                 sb.AppendLine($"Audience notes: {context.AudienceNotes}");
             if (context.AudienceDetails is { Count: > 0 } details && string.IsNullOrWhiteSpace(context.AudienceSegment))
@@ -1456,9 +1440,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             if (!string.IsNullOrWhiteSpace(context.ContentAngle))
                 sb.AppendLine(DescribeAngle(context.ContentAngle));
             if (!string.IsNullOrWhiteSpace(context.ToneOfVoice))
-                sb.AppendLine($"Tone of voice: {context.ToneOfVoice}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {string.Join(", ", ee)}" : ""));
+                sb.AppendLine($"Tone of voice: {BriefChoiceWords.Tone(context.ToneOfVoice)}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {BriefChoiceWords.Eeat(ee)}" : ""));
             else if (context.EeatSignals is { Count: > 0 } eeOnly)
-                sb.AppendLine($"E-E-A-T: {string.Join(", ", eeOnly)}");
+                sb.AppendLine($"E-E-A-T: {BriefChoiceWords.Eeat(eeOnly)}");
             if (!string.IsNullOrWhiteSpace(context.LengthBand))
                 sb.AppendLine($"Length band: {context.LengthBand}");
             // Only this brief's row. It used to print all four, which put "problem_solution",
@@ -1470,16 +1454,20 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             var anglePreference = LedeTypesPreferredForAngle(context.ContentAngle);
             if (anglePreference is not null)
                 sb.AppendLine($"For this brief's angle, prefer one of: {anglePreference}");
-            sb.AppendLine("Lede guidance by audience:");
-            sb.AppendLine("  affinity/in_market → more narrative/anecdotal room");
-            sb.AppendLine("  detailed_demographics/your_data → more directAddress/question");
-            sb.AppendLine("Lede guidance by intent/funnel:");
-            sb.AppendLine("  informational → summary/narrative/sceneSetting; transactional/commercial_investigation → directAddress/question/singleItem; navigational → immediateIdentification");
-            sb.AppendLine("  awareness → anecdotal/narrative/sceneSetting; consideration → question/singleItem; action → directAddress/singleItem");
+            // Only this brief's rows, as for the angle above. These were three tables keyed by every
+            // audience, intent and stage code ("affinity/in_market -> ...; detailed_demographics/your_data
+            // -> ..."), which the model had to look its own row up in, and which put the other rows'
+            // codes in front of it as bare tokens beside the ledeType ask.
+            if (LedeTypesPreferredForAudience(context.AudienceSegment) is { } forAudience)
+                sb.AppendLine($"For this audience: {forAudience}");
+            if (LedeTypesPreferredForIntent(context.PrimaryIntent) is { } forIntent)
+                sb.AppendLine($"For this intent, prefer one of: {forIntent}");
+            if (LedeTypesPreferredForStage(context.BuyingStage) is { } forStage)
+                sb.AppendLine($"For this buying stage, prefer one of: {forStage}");
             sb.AppendLine("If audience notes conflict with segment, follow notes. Tone and E-E-A-T must be honored in lede voice.");
-            // Said explicitly because the guidance above reads "<brief value> -> <ledeTypes>" and the
-            // model answered with the left side. The 12 names are the only legal answers.
-            sb.AppendLine("The angle, audience, intent and funnel-stage names above are brief values, NOT "
+            // Said explicitly because a brief value has come back as the answer before. The 12 names
+            // are the only legal answers.
+            sb.AppendLine("The angle, audience, intent and buying-stage lines above are brief values, NOT "
                 + "ledeType values. NEVER return one of them as ledeType -- the only legal ledeType values "
                 + "are the 12 listed above.");
         }
@@ -1506,16 +1494,65 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             _ => null,
         };
 
-    private static string BuildBriefBodyGuidance(ProjectGenerationContext context)
+    /// <summary>What the audience leaves room for in an opening, or null when it says nothing about it.</summary>
+    private static string? LedeTypesPreferredForAudience(string? audience) =>
+        (audience ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "affinity" or "in_market" => "more room for narrative or anecdotal",
+            "detailed_demographics" or "your_data" => "lean to directAddress or question",
+            _ => null,
+        };
+
+    /// <summary>The lede types that suit one search intent. Right-hand side only: see <see cref="LedeTypesPreferredForAngle"/>.</summary>
+    private static string? LedeTypesPreferredForIntent(string? intent) =>
+        (intent ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "informational" => "summary, narrative, sceneSetting",
+            "transactional" or "commercial_investigation" => "directAddress, question, singleItem",
+            "navigational" => "immediateIdentification",
+            _ => null,
+        };
+
+    /// <summary>The lede types that suit one buying stage. Right-hand side only.</summary>
+    private static string? LedeTypesPreferredForStage(string? stage) =>
+        (stage ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "awareness" => "anecdotal, narrative, sceneSetting",
+            "consideration" => "question, singleItem",
+            "action" => "directAddress, singleItem",
+            _ => null,
+        };
+
+    /// <summary>
+    /// The brief, once, for every call that is not an opening (an opening has its own, in
+    /// <see cref="BuildLedeTypeGuidance"/>).
+    /// </summary>
+    /// <param name="withAngle">
+    /// True where the angle shapes what is written: the body, and the title and outline. False for a
+    /// call that answers questions or summarises a finished page, where "open on the reader's problem"
+    /// is an instruction about a structure the call does not have.
+    /// </param>
+    /// <param name="heading">The block's heading, which says where the brief is to be honoured.</param>
+    /// <remarks>
+    /// This is the only place a pillar, a blog or a tool page is given the brief outside its opening.
+    /// Until 2026-10-10 the source context printed it again in one or two other wordings
+    /// (<c>GccGenerateService.BuildAudience</c>, <c>BuildBriefFieldsBlock</c>), and that second copy was
+    /// the only one carrying the angle to a body call and anything at all to the title and outline.
+    /// </remarks>
+    private static string BuildBriefBodyGuidance(
+        ProjectGenerationContext context,
+        bool withAngle = false,
+        string heading = "=== BRIEF CONTROLS (honor in body) ===")
     {
         var sb = new StringBuilder();
         var hasAny = !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
             || !string.IsNullOrWhiteSpace(context.LengthBand)
             || context.EeatSignals is { Count: > 0 }
             || !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes)
-            || context.AudienceDetails is { Count: > 0 };
+            || context.AudienceDetails is { Count: > 0 }
+            || (withAngle && !string.IsNullOrWhiteSpace(context.ContentAngle));
         if (!hasAny) return string.Empty;
-        sb.AppendLine("=== BRIEF CONTROLS (honor in body) ===");
+        sb.AppendLine(heading);
         // Who the piece is for, first, because every line under it is a decision made about this
         // reader. The audience reached the lede prompts and the tool body's own block and no other
         // body -- so a pillar and a blog were written to a reader the operator had named and the
@@ -1525,7 +1562,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             || context.AudienceDetails is { Count: > 0 })
         {
             var who = new StringBuilder("WHO THIS IS FOR: ");
-            who.Append(string.IsNullOrWhiteSpace(context.AudienceSegment) ? "see the notes below" : context.AudienceSegment);
+            who.Append(string.IsNullOrWhiteSpace(context.AudienceSegment) ? "see the notes below" : BriefChoiceWords.Audience(context.AudienceSegment));
             if (context.AudienceDetails is { Count: > 0 } aud)
                 who.Append($" — details: {string.Join(", ", aud)}");
             if (!string.IsNullOrWhiteSpace(context.AudienceNotes))
@@ -1534,13 +1571,15 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             sb.AppendLine("Write to that reader specifically: their vocabulary, their constraints, the decision they are actually making. A passage that would read the same to any reader has not used this.");
         }
         if (!string.IsNullOrWhiteSpace(context.PrimaryIntent))
-            sb.AppendLine($"Primary intent: {context.PrimaryIntent}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $" + {context.SecondaryIntent}"));
+            sb.AppendLine($"Primary intent: {BriefChoiceWords.Intent(context.PrimaryIntent)}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $" + {BriefChoiceWords.SecondaryIntent(context.SecondaryIntent)}"));
         if (!string.IsNullOrWhiteSpace(context.BuyingStage))
-            sb.AppendLine($"Buying stage: {context.BuyingStage} — align examples/CTAs to funnel (awareness=educate, consideration=compare, action=convert).");
+            sb.AppendLine($"Buying stage: {BriefChoiceWords.Stage(context.BuyingStage)} — align the examples to it.");
+        if (withAngle && !string.IsNullOrWhiteSpace(context.ContentAngle))
+            sb.AppendLine(BriefChoiceWords.Angle(context.ContentAngle));
         if (!string.IsNullOrWhiteSpace(context.ToneOfVoice))
-            sb.AppendLine($"Tone of voice: {context.ToneOfVoice} — hold this voice throughout (consultant_professional=objective authority, informational_instructional=clear stepwise, commercial_balanced=balanced benefits/tradeoffs).");
+            sb.AppendLine($"Tone of voice: {BriefChoiceWords.Tone(context.ToneOfVoice)} — hold this voice throughout.");
         if (context.EeatSignals is { Count: > 0 } ee2)
-            sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", ee2)}.");
+            sb.AppendLine($"E-E-A-T signals to demonstrate: {BriefChoiceWords.Eeat(ee2)}.");
         if (!string.IsNullOrWhiteSpace(context.LengthBand))
             sb.AppendLine($"Length band: {context.LengthBand} — respect target length.");
         return sb.ToString();
@@ -2117,6 +2156,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine()
+            .Append(BuildBriefBodyGuidance(context, withAngle: true, heading: BriefForTitleAndOutline))
             .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.BlogSection,
                 $"Plan a standalone deep-dive blog ({ContentLengthTargets.BlogRangeLabel} words) with a distinct title, angle, and {ContentLengthTargets.BlogSectionCountMin}-{ContentLengthTargets.BlogSectionCountTarget} H2 section headings."))
             .AppendLine($"Editorial standard: {ContentLengthTargets.BlogEditorialDefinition}")
@@ -2232,7 +2272,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(ToolsAsSolutionInstruction)
             .AppendLine();
 
-        user.AppendLine(BuildBriefBodyGuidance(context));
+        user.AppendLine(BuildBriefBodyGuidance(context, withAngle: true));
         user.AppendLine(BuildPublisherSiteBlock(context));
         user.AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.BlogSection,
             "Write the blog body sections from this research. Ground claims in the brief; do not invent statistics."));
@@ -2603,7 +2643,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         user.AppendLine();
 
         // The operator's controls over how the evidence is written up, and what the publisher says of itself.
-        user.AppendLine(BuildBriefBodyGuidance(context));
+        user.AppendLine(BuildBriefBodyGuidance(context, withAngle: true));
         user.AppendLine(BuildPublisherSiteBlock(context));
 
         user.AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ToolBody, $"Write the tool overview page for {app.Name}."))

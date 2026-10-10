@@ -122,6 +122,11 @@ public partial class ContentPromptBuilder
             "End sectionOutline with exactly one FAQ section titled \"People Also Ask\" — PAA questions are answered there in the body step, not as main H2s. " +
             "Return title, metaDescription, keywords, and sectionOutline only (body is written separately).");
 
+        // The brief, once. It used to reach this call only as the copy the source context printed.
+        var briefForOutline = BuildBriefBodyGuidance(context, withAngle: true, heading: BriefForTitleAndOutline);
+        if (briefForOutline.Length > 0)
+            user += Environment.NewLine + briefForOutline.TrimEnd();
+
         if (previousViolations is { Count: > 0 })
         {
             // The plan is regenerated, never repaired, so a retry has to actually change the
@@ -302,7 +307,7 @@ public partial class ContentPromptBuilder
             .AppendLine();
 
         // Who it is for and what the publisher already says about itself.
-        user.AppendLine(BuildBriefBodyGuidance(context));
+        user.AppendLine(BuildBriefBodyGuidance(context, withAngle: true));
         user.AppendLine(BuildPublisherSiteBlock(context));
         user.AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.ArticleSection));
         user.AppendLine();

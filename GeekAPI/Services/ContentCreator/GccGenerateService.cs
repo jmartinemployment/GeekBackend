@@ -239,7 +239,7 @@ public partial class GccGenerateService
         sb.AppendLine("=== BRIEF ===");
         if (!string.IsNullOrWhiteSpace(brief.Segment))
         {
-            var line = $"Audience segment: {brief.Segment}";
+            var line = $"Audience segment: {BriefChoiceWords.Audience(brief.Segment)}";
             if (brief.Details is { Count: > 0 })
                 line += $" ({string.Join(", ", brief.Details)})";
             sb.AppendLine(line);
@@ -247,20 +247,20 @@ public partial class GccGenerateService
         if (!string.IsNullOrWhiteSpace(brief.Notes))
             sb.AppendLine($"Audience notes: {brief.Notes} — if this conflicts with the segment above, follow the notes.");
         if (!string.IsNullOrWhiteSpace(brief.Angle))
-            sb.AppendLine($"Angle: {brief.Angle}");
+            sb.AppendLine(BriefChoiceWords.Angle(brief.Angle));
         if (!string.IsNullOrWhiteSpace(brief.PrimaryIntent))
         {
-            var line = $"Primary intent: {brief.PrimaryIntent}";
+            var line = $"Primary intent: {BriefChoiceWords.Intent(brief.PrimaryIntent)}";
             if (!string.IsNullOrWhiteSpace(brief.SecondaryIntent))
-                line += $" + {brief.SecondaryIntent}";
+                line += $" + {BriefChoiceWords.SecondaryIntent(brief.SecondaryIntent)}";
             sb.AppendLine(line);
         }
         if (!string.IsNullOrWhiteSpace(brief.BuyingStage))
-            sb.AppendLine($"Buying stage: {brief.BuyingStage} — align examples/CTAs to funnel (awareness=educate, consideration=compare, action=convert).");
+            sb.AppendLine($"Buying stage: {BriefChoiceWords.Stage(brief.BuyingStage)} — align the examples to it.");
         if (!string.IsNullOrWhiteSpace(brief.ToneOfVoice))
-            sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
+            sb.AppendLine($"Tone of voice: {BriefChoiceWords.Tone(brief.ToneOfVoice)} — hold this voice throughout.");
         if (brief.EeatSignals is { Count: > 0 })
-            sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", brief.EeatSignals)}.");
+            sb.AppendLine($"E-E-A-T signals to demonstrate: {BriefChoiceWords.Eeat(brief.EeatSignals)}.");
         if (!string.IsNullOrWhiteSpace(brief.LengthBand))
             sb.AppendLine($"Length band: {brief.LengthBand} — respect target length.");
         return sb.ToString();
@@ -276,15 +276,6 @@ public partial class GccGenerateService
         var keyword = GccTopic.KeywordOf(topic).Trim();
         return keyword.Length == 0 ? productName : $"{productName}: {keyword}";
     }
-
-    /// <summary>
-    /// The brief's fields alone, with none of the retrieved research. For a caller that hands the research
-    /// to the writer itself, once: <see cref="BuildBriefAndResearchBlock"/> as a tool page's source context
-    /// was printed three times per call (the publisher block, "Tool summary:" and the evidence block), 54%
-    /// of a tool call, and no check reads the two extra copies.
-    /// </summary>
-    public static string BuildBriefOnlyBlock(GccCreateDto create) =>
-        BuildBriefFieldsBlock(ExtractBriefFields(create.BriefJson)).TrimEnd();
 
     public static string BuildBriefAndResearchBlock(GccCreateDto create)
     {
@@ -936,15 +927,17 @@ public partial class GccGenerateService
         if (string.Equals(create.StartingContentType, "aiTool", StringComparison.OrdinalIgnoreCase)
             || string.Equals(create.StartingContentType, "tool", StringComparison.OrdinalIgnoreCase))
         {
-            // The brief, not the research: GenerateToolPageAsync hands the research to the tool prompts once,
-            // as their evidence block (BuildBriefOnlyBlock).
-            var toolSourceBrief = BuildBriefOnlyBlock(create);
+            // Neither the research nor the brief. GenerateToolPageAsync hands the research to the tool
+            // prompts once, as their evidence block, and those prompts print the brief once themselves
+            // (BuildLedeTypeGuidance on the opening, BuildBriefBodyGuidance on every other call). Until
+            // 2026-10-10 the brief was here as well, twice more, in two other wordings.
+            var toolSource = BuildAudience(create, section, withBrief: false);
             if (!string.IsNullOrWhiteSpace(mustMentionBlock))
-                toolSourceBrief = $"{toolSourceBrief}\n\n{mustMentionBlock}";
+                toolSource = $"{mustMentionBlock}\n\n{toolSource}";
             var tool = await GenerateToolPageAsync(
                 toolName: string.IsNullOrWhiteSpace(toolName) ? create.Topic : toolName.Trim(),
                 brief: create.Notes,
-                sourceContext: $"{toolSourceBrief}\n\n{BuildAudience(create, section)}",
+                sourceContext: toolSource,
                 department: string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department,
                 relatedArticleUrl: null,
                 provider: provider,
@@ -970,7 +963,14 @@ public partial class GccGenerateService
         // Content Creator long-form: CWV2 standalone blog body + persisted brief/research.
         var llm = GetLlm(provider);
         var consultantAppendix = BuildConsultantAppendix(create);
-        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
+        // The research and what the operator asked to be named, without the brief: the blog's prompt
+        // builders print it once themselves. Until 2026-10-10 it was here twice more.
+        var longFormSource = BuildResearchBlock(create);
+        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+            longFormSource = longFormSource.Length == 0 ? mustMentionBlock : $"{longFormSource}\n\n{mustMentionBlock}";
+        var sourceContext = longFormSource.Length == 0
+            ? BuildAudience(create, section, withBrief: false)
+            : $"{longFormSource}\n\n{BuildAudience(create, section, withBrief: false)}";
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
         var brief = ExtractBriefFields(create.BriefJson);
@@ -2212,35 +2212,52 @@ public partial class GccGenerateService
     public static GcwPolishAnalyzer.PolishReport AnalyzePolish(string bodyJson) =>
         GcwPolishAnalyzer.Analyze(bodyJson, Array.Empty<string>());
 
-    private static string BuildAudience(GccCreateDto create, SiteSectionContextDto? section)
+    /// <param name="withBrief">
+    /// False for a pillar, a blog and a tool page. Their prompt builders print the brief themselves,
+    /// once (<c>BuildLedeTypeGuidance</c> on an opening, <c>BuildBriefBodyGuidance</c> everywhere
+    /// else), and until 2026-10-10 this printed it again beside them in other words: twice in a pillar
+    /// prompt, three times in a blog's and a tool page's. True for an email and a social post, which
+    /// have no other channel to it.
+    /// </param>
+    private static string BuildAudience(GccCreateDto create, SiteSectionContextDto? section, bool withBrief = true)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"Starting content type: {create.StartingContentType}");
         sb.AppendLine($"Topic / keyword: {create.Topic}");
+        if (withBrief) AppendBriefChoices(sb, create);
+        if (!string.IsNullOrWhiteSpace(create.Notes))
+            sb.AppendLine($"Operator notes: {create.Notes}");
+        AppendSiteSection(sb, section);
+        return sb.ToString();
+    }
 
-        // The brief. This method is named BuildAudience and contained no audience: it is the only
-        // channel Email and Social have to the brief, and it carried none of it -- no Angle for
-        // SEO, no audience segment, no intent, no tone. Long-form types receive these through
-        // ProjectGenerationContext as well; short form had nothing at all. Jeff, 2026-09-23, on the
-        // angle governing structure: "But this pertains to all Content types, including short form."
+    /// <summary>
+    /// The brief's choices, for a piece no prompt builder prints them for. This is the only channel an
+    /// email and a social post have to the brief (Jeff, 2026-09-23, on the angle governing structure:
+    /// "But this pertains to all Content types, including short form").
+    /// </summary>
+    private static void AppendBriefChoices(StringBuilder sb, GccCreateDto create)
+    {
         var brief = ExtractBriefFields(create.BriefJson);
         if (!string.IsNullOrWhiteSpace(brief.Angle))
-            sb.AppendLine($"Angle for SEO: {brief.Angle} — this frames the piece; open and structure it accordingly.");
+            sb.AppendLine($"{BriefChoiceWords.Angle(brief.Angle)} This frames the piece; open and structure it accordingly.");
         if (!string.IsNullOrWhiteSpace(brief.PrimaryIntent))
-            sb.AppendLine($"Primary intent: {brief.PrimaryIntent}"
-                + (string.IsNullOrWhiteSpace(brief.SecondaryIntent) ? "" : $" (secondary: {brief.SecondaryIntent})"));
+            sb.AppendLine($"Primary intent: {BriefChoiceWords.Intent(brief.PrimaryIntent)}"
+                + (string.IsNullOrWhiteSpace(brief.SecondaryIntent) ? "" : $"; secondary: {BriefChoiceWords.SecondaryIntent(brief.SecondaryIntent)}"));
         if (!string.IsNullOrWhiteSpace(brief.BuyingStage))
-            sb.AppendLine($"Buying stage: {brief.BuyingStage}");
+            sb.AppendLine($"Buying stage: {BriefChoiceWords.Stage(brief.BuyingStage)}");
         if (!string.IsNullOrWhiteSpace(brief.Segment))
-            sb.AppendLine($"Audience: {brief.Segment}"
+            sb.AppendLine($"Audience: {BriefChoiceWords.Audience(brief.Segment)}"
                 + (brief.Details is { Count: > 0 } d ? $" — {string.Join(", ", d)}" : "")
                 + (string.IsNullOrWhiteSpace(brief.Notes) ? "" : $" — {brief.Notes}"));
         else if (!string.IsNullOrWhiteSpace(brief.Notes))
             sb.AppendLine($"Audience notes: {brief.Notes}");
         if (!string.IsNullOrWhiteSpace(brief.ToneOfVoice))
-            sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
-        if (!string.IsNullOrWhiteSpace(create.Notes))
-            sb.AppendLine($"Operator notes: {create.Notes}");
+            sb.AppendLine($"Tone of voice: {BriefChoiceWords.Tone(brief.ToneOfVoice)} — hold this voice throughout.");
+    }
+
+    private static void AppendSiteSection(StringBuilder sb, SiteSectionContextDto? section)
+    {
         if (section is not null)
         {
             sb.AppendLine("SITE SECTION CONTEXT (required — do not generate keyword-only):");
@@ -2259,7 +2276,6 @@ public partial class GccGenerateService
                     sb.AppendLine($"  Excerpt: {p.Excerpt}");
             }
         }
-        return sb.ToString();
     }
 
     private static List<string> BuildEvidence(SiteSectionContextDto? section)
@@ -2407,7 +2423,8 @@ public partial class GccGenerateService
         ContentGeneratorProvider provider)
     {
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
+        // Without the brief: the pillar's prompt builders print it once themselves.
+        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section, withBrief: false)}";
         var consultantAppendix = BuildConsultantAppendix(create);
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";

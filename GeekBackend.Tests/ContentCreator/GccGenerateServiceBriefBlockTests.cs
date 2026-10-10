@@ -32,9 +32,9 @@ public class GccGenerateServiceBriefBlockTests
         Assert.Contains("Audience segment: SMB operators (budget-conscious, time-poor)", block);
         Assert.Contains("Audience notes: SMBs looking to implement AI", block);
         Assert.Contains("Angle: practical-first", block);
-        Assert.Contains("Primary intent: commercial_investigation + informational", block);
+        Assert.Contains("Primary intent: commercial investigation (the reader is weighing options before buying) + informational", block);
         Assert.Contains("Buying stage: consideration", block);
-        Assert.Contains("Tone of voice: consultant_professional", block);
+        Assert.Contains("Tone of voice: consultant, professional (objective authority)", block);
         Assert.Contains("E-E-A-T signals to demonstrate: experience, expertise.", block);
         Assert.Contains("Length band: long", block);
     }
@@ -76,7 +76,7 @@ public class GccGenerateServiceBriefBlockTests
         Assert.DoesNotContain(rawBriefJson, block);
         Assert.DoesNotContain("{\"audienceSegment\"", block);
         // But the information itself must still reach the model, as labeled prose.
-        Assert.Contains("Primary intent: commercial_investigation", block);
+        Assert.Contains("Primary intent: commercial investigation (the reader is weighing options before buying)", block);
         Assert.Contains("Buying stage: consideration", block);
     }
 }

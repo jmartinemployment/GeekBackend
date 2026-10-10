@@ -114,9 +114,9 @@ public class ContentPromptBuilderBriefReachTests
         Assert.Contains("=== BRIEF CONTROLS (honor in body) ===", prompt, StringComparison.Ordinal);
         Assert.Contains("WHO THIS IS FOR: SMB finance leads", prompt, StringComparison.Ordinal);
         Assert.Contains("notes: weighing a first automation purchase", prompt, StringComparison.Ordinal);
-        Assert.Contains("Primary intent: commercial_investigation", prompt, StringComparison.Ordinal);
+        Assert.Contains("Primary intent: commercial investigation (the reader is weighing options before buying)", prompt, StringComparison.Ordinal);
         Assert.Contains("Buying stage: consideration", prompt, StringComparison.Ordinal);
-        Assert.Contains("Tone of voice: consultant_professional", prompt, StringComparison.Ordinal);
+        Assert.Contains("Tone of voice: consultant, professional (objective authority)", prompt, StringComparison.Ordinal);
         Assert.Contains("E-E-A-T signals to demonstrate: experience, expertise", prompt, StringComparison.Ordinal);
         Assert.Contains("Length band: long", prompt, StringComparison.Ordinal);
     }
