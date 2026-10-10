@@ -1061,6 +1061,16 @@ public partial class GccGenerateService
     /// flattened prose, so each pass is a rewrite from a summary. That is a larger change and is
     /// not fixed here.</item>
     /// </list>
+    ///
+    /// <para>
+    /// <b>It writes in the same two-section calls the page was written in</b> (2026-10-10). It asked
+    /// one call for the whole body, and a body call writes about 650 words whatever it is asked
+    /// (<see cref="MeasuredWordsPerBodyCall"/>): a 2,300-word page came back at a quarter of itself
+    /// and was refused by the check below, every time, and a 3,500-word page would be refused more
+    /// surely still. Each call is shown the whole page as it stands, so it can see what comes before
+    /// and after, is assigned two of its sections and returns those two. A revision of one section
+    /// is one call, and every other section is the stored one, untouched.
+    /// </para>
     /// </summary>
     public async Task<string> ReviseAsync(
         string currentJson,
@@ -1072,12 +1082,9 @@ public partial class GccGenerateService
         string? contentType = null)
     {
         var fb = feedback.Trim();
-        if (string.Equals(scope, "section", StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(sectionPath))
-                throw new InvalidOperationException("sectionPath is required when scope is section.");
-            fb = $"Revise ONLY the section at path “{sectionPath}”. Leave all other sections unchanged.\n\n{fb}";
-        }
+        var oneSection = string.Equals(scope, "section", StringComparison.OrdinalIgnoreCase);
+        if (oneSection && string.IsNullOrWhiteSpace(sectionPath))
+            throw new InvalidOperationException("sectionPath is required when scope is section.");
 
         // The stored body is an envelope for every long-form type -- { title, metaDescription,
         // summary, body, jsonLdSchema } -- and deserializing that straight into a ContentDocument
@@ -1099,9 +1106,29 @@ public partial class GccGenerateService
         // the model was handed the previous draft labelled as background from the publisher's
         // website, with nothing saying it was the thing being revised. It rewrote, correctly, from
         // what it had been told it was looking at. The draft now arrives as the draft.
+        // Which sections this revision rewrites, as the calls that will write them: the whole body two
+        // sections to a call, or the one section the operator named, alone.
+        IReadOnlyList<IReadOnlyList<int>> calls = oneSection
+            ? [[SectionHolding(document, sectionPath!)]]
+            : [.. Enumerable.Range(0, document.Sections.Count)
+                .Chunk(SectionsPerBatch)
+                .Select(chunk => (IReadOnlyList<int>)chunk)];
+        if (calls.Count == 0)
+        {
+            throw new InvalidOperationException("Refused: this draft has no body sections, so there is nothing to revise.");
+        }
+
+        foreach (var index in calls.SelectMany(call => call))
+        {
+            if (!string.IsNullOrWhiteSpace(document.Sections[index].Heading)) continue;
+            throw new InvalidOperationException(
+                $"Refused: section {index + 1} of this page has no heading, so it cannot be assigned to a "
+                + "revision call by name. Nothing was revised.");
+        }
+
         var llm = GetLlm(provider);
         var context = BuildMinimalContext(document.Lede.Heading, notes: null, ToLlm(provider));
-        fb = $"{CurrentDraftBlock(document)}{Environment.NewLine}{Environment.NewLine}{fb}";
+        var pageAsItStands = CurrentDraftBlock(document);
         var metadata = new ArticleMetadataDraft(
             Title: document.Lede.Heading,
             MetaDescription: Truncate(document.Lede.Heading, 160),
@@ -1132,20 +1159,46 @@ public partial class GccGenerateService
             Lede: document.Lede,
             App: productName is null ? null : new SoftwareApplicationDescriptor(productName, null),
             ToolSlug: productName is null ? null : Slugify(productName));
-        var request = typeSet is not null
-            ? typeSet.Body(promptCtx with { RevisionNotes = fb })
-            : _prompts.BuildStandaloneBlogBodyPrompt(
-                context,
-                new BlogMetadataDraft(metadata.Title, metadata.MetaDescription, metadata.Keywords, metadata.SectionOutline),
-                revisionNotes: fb,
-                lede: document.Lede);
+        var blogMetadata = new BlogMetadataDraft(
+            metadata.Title, metadata.MetaDescription, metadata.Keywords, metadata.SectionOutline);
+        var revisedSections = document.Sections.ToList();
+        for (var call = 0; call < calls.Count; call++)
+        {
+            var indices = calls[call];
+            var mine = indices.Select(i => document.Sections[i]).ToList();
+            var slots = mine.Select(section => SectionSlot.Assigned(section.Heading.Trim())).ToList();
+            var notes = string.Join(
+                Environment.NewLine + Environment.NewLine,
+                pageAsItStands,
+                YourSectionsBlock(mine, oneSection ? sectionPath!.Trim() : null),
+                fb);
+            var callCtx = promptCtx with { RevisionNotes = notes, SectionBatch = slots, SectionBatchIndex = call };
+            var request = typeSet is not null
+                ? typeSet.Body(callCtx)
+                : _prompts.BuildStandaloneBlogBodyPrompt(
+                    context, blogMetadata, revisionNotes: notes, lede: document.Lede, sectionBatch: slots, batchIndex: call);
 
-        var bodyResult = await llm.CompleteAsync(request, ct);
-        var sections = LlmResponseJsonParser.ParseSections(bodyResult.Content, "revised body");
-        if (sections.Count == 0)
-            throw new InvalidOperationException("CWV2 revise returned no sections.");
-        // Every returned section is body. The lede is the one the piece was written with.
-        var revised = new ContentDocument(document.Lede, [.. sections]);
+            var named = string.Join(", ", mine.Select(section => $"\"{section.Heading.Trim()}\""));
+            var bodyResult = await llm.CompleteAsync(request, ct);
+            var returned = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"revised sections {named}");
+            // Exactly what was assigned comes back. One section missing is a section of the page gone; one
+            // extra is text nobody assigned, placed where another section belongs.
+            if (returned.Count != mine.Count)
+            {
+                throw new InvalidOperationException(
+                    $"Refused: the revision of {named} came back as {returned.Count} section(s) where "
+                    + $"{mine.Count} were sent. The current version is unchanged.");
+            }
+
+            for (var k = 0; k < indices.Count; k++)
+            {
+                revisedSections[indices[k]] = returned[k];
+            }
+        }
+
+        // Every revised section is body, in the place its original held. The lede is the one the piece was
+        // written with, and a section no call was assigned is the stored one.
+        var revised = new ContentDocument(document.Lede, revisedSections);
 
         // A revision that comes back a quarter shorter has not revised the draft, it has replaced
         // it with a summary -- which is what three presses of "Fix these and revise" did, each one
@@ -1184,9 +1237,10 @@ public partial class GccGenerateService
         var sb = new StringBuilder()
             .AppendLine("=== THE DRAFT YOU ARE REVISING ===")
             .AppendLine(
-                "This is the current piece, in full. Return it revised -- not rewritten. Every "
-                + "section below comes back, in this order, with its substance intact, unless the "
-                + "feedback asks for that section to change. Keep the examples, the figures, the "
+                "This is the current piece, in full, so you can see what comes before and after the "
+                + "sections you are revising. Do not return it. Return only the sections listed under "
+                + "YOUR SECTIONS, revised -- not rewritten: each comes back with its substance intact, "
+                + "unless the feedback asks for it to change. Keep the examples, the figures, the "
                 + "named products and the length. A revision that returns less than it was given "
                 + "has lost the reader something nobody asked to remove.")
             .AppendLine();
@@ -1198,6 +1252,60 @@ public partial class GccGenerateService
 
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// The sections one revision call is assigned, by heading, in the order they come back. For a revision
+    /// of one section it also says which part of that section the operator named, when it is a subsection.
+    /// </summary>
+    private static string YourSectionsBlock(IReadOnlyList<Section> mine, string? named)
+    {
+        var sb = new StringBuilder()
+            .AppendLine("=== YOUR SECTIONS (return exactly these, in this order, and nothing else) ===");
+        foreach (var section in mine)
+        {
+            sb.AppendLine($"[H2] {section.Heading.Trim()}");
+        }
+
+        if (named is not null
+            && !string.Equals(mine[0].Heading.Trim(), named, StringComparison.OrdinalIgnoreCase))
+        {
+            sb.AppendLine(
+                $"Revise ONLY the part headed \"{named}\" within it. Return the whole section, with "
+                + "everything else in it exactly as it stands.");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// The top-level section that carries the heading the operator named, at any depth: the section itself
+    /// or one of its subsections. Compared without regard to case or surrounding space, and by nothing looser.
+    /// </summary>
+    /// <remarks>
+    /// The name is typed by the operator. It used to be passed to the writer inside "Revise ONLY the section
+    /// at path ..." with the whole body, and whether anything matched was the model's guess. A name that is
+    /// no heading on the page is refused, naming the headings there are.
+    /// </remarks>
+    private static int SectionHolding(ContentDocument document, string sectionPath)
+    {
+        var wanted = sectionPath.Trim();
+        for (var i = 0; i < document.Sections.Count; i++)
+        {
+            if (CarriesHeading(document.Sections[i], wanted)) return i;
+        }
+
+        var headings = string.Join("; ", document.Sections
+            .Select(section => section.Heading?.Trim())
+            .Where(heading => !string.IsNullOrWhiteSpace(heading))
+            .Select(heading => $"\"{heading}\""));
+        throw new InvalidOperationException(
+            $"Refused: no section of this page is headed \"{wanted}\", so nothing was revised. "
+            + $"Its sections are: {headings}. Enter one of them as it is written.");
+    }
+
+    private static bool CarriesHeading(Section section, string wanted) =>
+        string.Equals(section.Heading?.Trim(), wanted, StringComparison.OrdinalIgnoreCase)
+        || section.Children.Any(child => CarriesHeading(child, wanted));
 
     private static void AppendDraftSection(StringBuilder sb, Section section, int depth)
     {

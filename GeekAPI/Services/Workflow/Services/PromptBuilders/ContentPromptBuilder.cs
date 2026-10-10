@@ -2708,10 +2708,14 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             // actual, lower floor). GccGenerateService.BatchFloorWords is the same sum
             // BatchShortfalls uses to grade the draft afterward, so the number stated here and the
             // number enforced later cannot drift apart again.
-            .AppendLine($"Length: at least {GccGenerateService.BatchFloorWords(outline):N0} words across the {outline.Count} " +
-                (outline.Any(slot => slot.OwedWords is not null)
-                    ? "sections above -- this call's share of the page's floor. The range beside each section is what to aim for."
-                    : "sections above -- the sum of each section's own lower figure, which is owed."))
+            // Said only when the sections carry a floor. A revision assigns sections by their headings, with
+            // no size of their own, and "at least 0 words" would be the one number in the prompt that is wrong.
+            .AppendLine(GccGenerateService.BatchFloorWords(outline) is var owedHere and > 0
+                ? $"Length: at least {owedHere:N0} words across the {outline.Count} " +
+                    (outline.Any(slot => slot.OwedWords is not null)
+                        ? "sections above -- this call's share of the page's floor. The range beside each section is what to aim for."
+                        : "sections above -- the sum of each section's own lower figure, which is owed.")
+                : string.Empty)
             .AppendLine("Depth, never padding: do not restate a point in new words, do not invent a feature, figure or integration to fill a section. " +
                 $"When the evidence for a section is thin, go further into what it does support -- the mechanism, what it changes for this reader's week, what deploying it involves with {context.PublisherName} -- rather than closing the section short.")
             .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {(fullOutline ?? outline).Count} substantial sections across the page, not four.")
