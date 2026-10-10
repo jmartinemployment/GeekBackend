@@ -13,9 +13,9 @@ namespace GeekBackend.Tests.ContentCreator;
 /// asks for them, and in the 2026-10-07 run the writer copied a linked name's bold onto the runs around it: the
 /// run before "BILL", the run before and the 50 words after "Ramp", and in the Blog's opening a 59-word run that
 /// took the link too, which cost the page. The contract and the provider schema no longer offer them, and a reply
-/// that carries them anyway has them dropped, by name, in the run's record. Since 2026-10-09 the run offers no
-/// <c>href</c> either: a run's "link" names a printed target, and GccLinkPlacer puts the href on that run. The
-/// parser still reads an href a reply carries, so the placer can refuse it by name.
+/// that carries them anyway has them dropped, by name, in the run's record. Since 2026-10-10 the run offers no
+/// link of any kind either (Jeff: "Force the model to output plain text only"): a run is its text, a partner
+/// tool's page is put on its name by GccToolLinker, and an href a reply carries anyway is dropped with the bold.
 /// </summary>
 public sealed class GccWriterFormattingTests
 {
@@ -30,7 +30,7 @@ public sealed class GccWriterFormattingTests
 
     [Theory]
     [MemberData(nameof(EveryContract))]
-    public void The_run_the_writer_is_shown_is_text_and_a_link_id_and_nothing_else(string which)
+    public void The_run_the_writer_is_shown_is_text_and_nothing_else(string which)
     {
         var builder = new ContentPromptBuilder();
         var context = GccOpeningAsksNothingTests.Context();
@@ -43,8 +43,11 @@ public sealed class GccWriterFormattingTests
 
         var prompt = Prompt(request);
 
-        Assert.Contains("\"link\": string|null", prompt, StringComparison.Ordinal);
+        Assert.Contains("{\"text\": string (plain text only", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"link\"", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"links\"", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("S#", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("T#", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"anchor\"", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"href\": string?", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"bold\"", prompt, StringComparison.Ordinal);
@@ -54,7 +57,7 @@ public sealed class GccWriterFormattingTests
     [Theory]
     [InlineData("section")]
     [InlineData("sections")]
-    public void The_provider_schema_offers_a_run_its_text_and_its_link_id_and_no_paragraph_a_links_list(string which)
+    public void The_provider_schema_offers_a_run_its_text_and_nothing_else(string which)
     {
         var json = which == "section" ? ContentSectionJsonSchema.SectionSchema : ContentSectionJsonSchema.SectionsArraySchema;
         var root = JsonNode.Parse(json)!;
@@ -64,21 +67,19 @@ public sealed class GccWriterFormattingTests
         foreach (var run in runs)
         {
             var properties = ((JsonObject)run["properties"]!).Select(p => p.Key).ToList();
-            Assert.Equal(["text", "link"], properties);
-            // Both required, as strict mode needs: the writer says "link": null for ordinary words rather
-            // than leaving the field out.
-            Assert.Equal(["text", "link"], ((JsonArray)run["required"]!).Select(n => n!.GetValue<string>()).ToList());
-            var link = (JsonArray)run["properties"]!["link"]!["anyOf"]!;
-            Assert.Equal(["string", "null"], link.Select(n => n!["type"]!.GetValue<string>()).ToList());
+            Assert.Equal(["text"], properties);
+            Assert.Equal(["text"], ((JsonArray)run["required"]!).Select(n => n!.GetValue<string>()).ToList());
+            // Strict mode: a field the schema does not list cannot be returned at all.
+            Assert.False(run["additionalProperties"]!.GetValue<bool>());
         }
 
-        // Nothing is copied: there is no paragraph-level list of anchors to match against the runs.
+        // No field anywhere in the reply lets the writer say "these words are a link".
+        Assert.Empty(ObjectsWith(root, "link"));
         Assert.Empty(ObjectsWith(root, "links"));
     }
 
-    /// <summary>Every schema object that describes a run: the one whose properties are <c>text</c> and <c>link</c>.</summary>
-    private static IEnumerable<JsonObject> RunObjects(JsonNode node) =>
-        ObjectsWith(node, "text").Where(obj => ((JsonObject)obj["properties"]!).ContainsKey("link"));
+    /// <summary>Every schema object that describes a run: the one that has a <c>text</c> property.</summary>
+    private static IEnumerable<JsonObject> RunObjects(JsonNode node) => ObjectsWith(node, "text");
 
     private static IEnumerable<JsonObject> ObjectsWith(JsonNode node, string property)
     {
@@ -128,11 +129,11 @@ public sealed class GccWriterFormattingTests
     {
         var runs = AllRuns(section).ToList();
         Assert.NotEmpty(runs);
-        Assert.All(runs, r => { Assert.False(r.Bold); Assert.False(r.Italic); });
+        Assert.All(runs, r => { Assert.False(r.Bold); Assert.False(r.Italic); Assert.Null(r.Href); });
     }
 
     [Fact]
-    public void A_section_reply_keeps_its_words_and_its_links_and_loses_only_the_formatting()
+    public void A_section_reply_keeps_its_words_and_loses_the_formatting_and_the_href_the_writer_typed()
     {
         using var scope = JsonRepairTrace.Begin();
 
@@ -141,8 +142,7 @@ public sealed class GccWriterFormattingTests
         AssertNoFormatting(section);
         var runs = ((TextParagraph)section.Paragraphs[0]).Runs;
         Assert.Equal(["Tools like ", "Ramp", " cut the time."], runs.Select(r => r.Text));
-        Assert.Equal("https://geek.test/tools/ramp", runs[1].Href);
-        Assert.Null(runs[0].Href);
+        Assert.All(runs, r => Assert.Null(r.Href));
         var note = Assert.Single(scope.Drain());
         Assert.Equal("tool page 'Ramp' section", note.Label);
         Assert.Equal(["drop-writer-formatting"], note.Repairs);
@@ -161,7 +161,7 @@ public sealed class GccWriterFormattingTests
     }
 
     [Fact]
-    public void A_lede_reply_loses_the_bold_that_leaked_onto_its_neighbours_and_keeps_the_link_where_it_was_written()
+    public void A_lede_reply_loses_the_bold_that_leaked_onto_its_neighbours_and_the_link_with_it()
     {
         // The Ramp opening of 2026-10-07: the run before the name and the 50 words after it came back bold.
         using var scope = JsonRepairTrace.Begin();
@@ -174,9 +174,10 @@ public sealed class GccWriterFormattingTests
     }
 
     [Fact]
-    public void The_blogs_opening_loses_its_bold_but_its_59_word_link_is_still_there_to_be_refused_by_the_link_check()
+    public void The_blogs_opening_keeps_its_words_and_loses_the_59_word_link_that_cost_the_page()
     {
-        // Bold is not what cost the page: the link was. Dropping formatting does not hide it.
+        // Bold is not what cost the page on 2026-10-07: the link was. It is not the writer's to write, so it
+        // is dropped where it is read and the words stay.
         const string reply =
             """{"ledeType":"directAddress","heading":"H","paragraphs":[{"type":"text","runs":[{"text":"For small businesses looking to implement artificial intelligence, automated approval workflows are a game-changer, as outlined on ","href":"https://geekatyourspot.com/","bold":true},{"text":"Geek @ Your Spot's","href":"https://geekatyourspot.com/","bold":true},{"text":" site."}]}]}""";
 
@@ -184,8 +185,9 @@ public sealed class GccWriterFormattingTests
 
         AssertNoFormatting(lede);
         var runs = ((TextParagraph)lede.Paragraphs[0]).Runs;
-        Assert.Equal("https://geekatyourspot.com/", runs[0].Href);
-        Assert.Equal("https://geekatyourspot.com/", runs[1].Href);
+        Assert.Equal("Geek @ Your Spot's", runs[1].Text);
+        Assert.EndsWith("as outlined on ", runs[0].Text, StringComparison.Ordinal);
+        Assert.All(runs, r => Assert.Null(r.Href));
     }
 
     [Fact]
@@ -208,10 +210,40 @@ public sealed class GccWriterFormattingTests
         using var scope = JsonRepairTrace.Begin();
 
         LlmResponseJsonParser.ParseLede(
-            """{"ledeType":"anecdotal","heading":"H","paragraphs":[{"type":"text","runs":[{"text":"plain"},{"text":"linked","href":"https://x.test/"}]}]}""",
+            """{"ledeType":"anecdotal","heading":"H","paragraphs":[{"type":"text","runs":[{"text":"plain"},{"text":" and more"}]}]}""",
             "lede");
 
         Assert.Empty(scope.Drain());
+    }
+
+    [Fact]
+    public void An_href_the_writer_typed_is_dropped_and_named_in_the_runs_record()
+    {
+        using var scope = JsonRepairTrace.Begin();
+
+        var (lede, _) = LlmResponseJsonParser.ParseLede(
+            """{"ledeType":"anecdotal","heading":"H","paragraphs":[{"type":"text","runs":[{"text":"plain "},{"text":"linked","href":"https://x.test/"}]}]}""",
+            "lede");
+
+        var runs = ((TextParagraph)lede.Paragraphs[0]).Runs;
+        Assert.Equal(["plain ", "linked"], runs.Select(r => r.Text));
+        Assert.All(runs, r => Assert.Null(r.Href));
+        Assert.Equal(["drop-writer-formatting"], Assert.Single(scope.Drain()).Repairs);
+    }
+
+    [Fact]
+    public void An_href_the_writer_put_on_a_section_is_dropped_and_named_too()
+    {
+        // The contract states a section's href as null. A heading is linked only by code.
+        using var scope = JsonRepairTrace.Begin();
+
+        var section = LlmResponseJsonParser.ParseSection(
+            """{"tag":"h2","heading":"H","href":"https://x.test/","paragraphs":[{"type":"text","runs":[{"text":"plain"}]}],"children":[{"tag":"h3","heading":"C","href":"https://y.test/","paragraphs":[],"children":[]}]}""",
+            "h2", "pillar section");
+
+        Assert.Null(section.Href);
+        Assert.Null(Assert.Single(section.Children).Href);
+        Assert.Equal(["drop-writer-formatting"], Assert.Single(scope.Drain()).Repairs);
     }
 
     [Fact]

@@ -20,7 +20,7 @@ public sealed class LedeStrayQuoteTests
         """;
 
     [Fact]
-    public void The_stampli_lede_that_cost_a_page_parses_with_every_paragraph_and_its_link()
+    public void The_stampli_lede_that_cost_a_page_parses_with_every_paragraph_and_every_word()
     {
         var (lede, ledeType) = LlmResponseJsonParser.ParseLede(StampliLede, "tool page 'Stampli' lede");
 
@@ -29,7 +29,8 @@ public sealed class LedeStrayQuoteTests
         var last = Assert.IsType<TextParagraph>(lede.Paragraphs[2]);
         Assert.Equal(3, last.Runs.Count);
         Assert.Equal("Stampli", last.Runs[1].Text);
-        Assert.Equal("https://www.stampli.com/blog/invoice-processing/automated-invoice-approval-workflow/", last.Runs[1].Href);
+        // The href the writer typed is not its to write (Jeff, 2026-10-10): the words stay, the address goes.
+        Assert.All(last.Runs, run => Assert.Null(run.Href));
         Assert.StartsWith(". This shift", last.Runs[2].Text, StringComparison.Ordinal);
     }
 

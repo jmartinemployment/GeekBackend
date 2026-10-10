@@ -246,8 +246,7 @@ public static class ContentSectionJsonSchema
                 ["type"] = "object",
                 ["additionalProperties"] = false,
                 // Every property listed, as strict mode requires. "cite" is the source URL and is a
-                // nullable string rather than an omitted one for the same reason -- expressed the way
-                // Run.href already is in this file.
+                // nullable string rather than an omitted one for the same reason.
                 ["required"] = new JsonArray { "type", "runs", "cite", "candidate" },
                 ["properties"] = new JsonObject
                 {
@@ -278,30 +277,18 @@ public static class ContentSectionJsonSchema
     };
 
     /// <summary>
-    /// A run is its text and, when these words are a link, the id of the target they lead to. It
-    /// carried "href" until 2026-10-09, and the writer put it on whole paragraphs and once on a URL it
-    /// was never shown; the model has no field to type an address into. For a day after that the
-    /// paragraph carried a "links" list whose "anchor" was words copied from the paragraph, and the
-    /// writer copied them approximately -- seven pages refused for anchors "not in the paragraph" on
-    /// one run. The link is now the run itself: nothing is copied, so nothing can fail to match.
-    /// <c>GccLinkPlacer</c> resolves the id to the href after the reply is read.
+    /// A run is its text and nothing else. The writer decides no link (Jeff, 2026-10-10): every shape
+    /// that let it -- an href, an anchor list, a target id -- failed on a real run. <c>GccToolLinker</c>
+    /// puts each partner tool's page on the first mention of its name after the reply is read.
     /// </summary>
     private static JsonObject BuildRunSchema() => new()
     {
         ["type"] = "object",
         ["additionalProperties"] = false,
-        ["required"] = new JsonArray { "text", "link" },
+        ["required"] = new JsonArray { "text" },
         ["properties"] = new JsonObject
         {
             ["text"] = new JsonObject { ["type"] = "string" },
-            ["link"] = new JsonObject
-            {
-                ["anyOf"] = new JsonArray
-                {
-                    new JsonObject { ["type"] = "string" },
-                    new JsonObject { ["type"] = "null" },
-                },
-            },
         },
     };
 }

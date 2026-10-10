@@ -1,4 +1,6 @@
 using GeekAPI.Services.ContentCreator;
+using GeekAPI.Services.ContentCreator.Guardrail;
+using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -14,7 +16,8 @@ using Xunit;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// A pillar or blog names and links the project's declared partners, and no other tool.
+/// A pillar or blog names the project's declared partners and no other tool, and each partner's name
+/// is linked to the path its own tool page is published under.
 /// </summary>
 /// <remarks>
 /// Jeff, 2026-10-05, on the Accounts Payable pillar: "links or anchor tags to Partners not listed" --
@@ -54,7 +57,7 @@ public sealed class GccPartnerOnlyToolsTests
     }
 
     [Fact]
-    public void The_writer_is_given_the_path_it_was_handed_not_one_assembled_from_the_name()
+    public void A_tools_name_is_linked_to_the_path_it_was_handed_and_the_writer_is_shown_no_path()
     {
         var context = new ProjectGenerationContext(
             ProjectName: "Acme", ProjectUrl: "https://acme.test", TargetKeyword: "accounts payable automation",
@@ -70,8 +73,21 @@ public sealed class GccPartnerOnlyToolsTests
             .BuildStandaloneBlogBodyPrompt(context, new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]))
             .Messages.Select(m => m.Content));
 
-        Assert.Contains("[T1] Ramp — public path: /tools/accounting/accounts-payable/ramp", prompt, StringComparison.Ordinal);
+        // The writer is shown the name. The path is not its to write: neither the real one nor one
+        // assembled from the department and the name.
+        Assert.Contains("\n- Ramp", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("/tools/accounting/accounts-payable/ramp", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("/tools/marketing/ramp", prompt, StringComparison.Ordinal);
+
+        // The code links the name to the path the tool was handed with.
+        var body = new Section(
+            "h2", "Where the hours go",
+            [new TextParagraph([new Run("Ramp codes the spend on capture.")])], null, []);
+        var linked = GccToolLinker.Link([body], context.KnownCrawlTools!);
+
+        var link = Assert.Single(linked.Links);
+        Assert.Equal("/tools/accounting/accounts-payable/ramp", link.Href);
+        Assert.Equal("Ramp", link.Words);
     }
 
     [Fact]
@@ -85,11 +101,11 @@ public sealed class GccPartnerOnlyToolsTests
 
     /// <summary>
     /// The real pillar path. The site links Melio, Dext and Lightyear under the keyword; the project's
-    /// partners are Lightyear and Ramp. The writer is handed Lightyear and Ramp to name and link, and
-    /// Melio and Dext as names to leave out.
+    /// partners are Lightyear and Ramp. The writer is handed Lightyear and Ramp to name, and Melio and
+    /// Dext as names to leave out.
     /// </summary>
     [Fact]
-    public async Task A_pillar_is_handed_the_projects_partners_to_link_and_the_sites_other_tools_to_leave_out()
+    public async Task A_pillar_is_handed_the_projects_partners_to_name_and_the_sites_other_tools_to_leave_out()
     {
         var project = Project("https://lightyear.cloud", "https://ramp.com");
         var create = Create(project.Id, GccKnownToolsResolverTests.RunId);
@@ -99,12 +115,92 @@ public sealed class GccPartnerOnlyToolsTests
             create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
         var prompt = provider.FirstBodyPrompt;
-        // Numbered in the order the project declares them: the same order GccLinkTargets reads them in.
-        Assert.Contains("[T1] Lightyear — public path: /tools/marketing/lightyear", prompt, StringComparison.Ordinal);
-        Assert.Contains("[T2] Ramp — public path: /tools/marketing/ramp", prompt, StringComparison.Ordinal);
+        // The tools block lists the partners by name, in the order the project declares them, and no
+        // other tool. No path is printed: GccToolLinker holds it.
+        var tools = GeekBackend.Tests.Workflow.PromptBuilders.KnownToolsBlockTests.BlockOf(prompt)
+            .Where(line => line.StartsWith("- ", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(["- Lightyear", "- Ramp"], tools);
         Assert.Contains("TOOLS THIS PIECE DOES NOT NAME: Melio, Dext.", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Melio — public path", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Dext — public path", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("public path", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("/tools/marketing/lightyear", prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The whole write step, end to end: the writer's reply is plain text that names the partners, and
+    /// the saved page carries each partner's name linked once to its own tool page -- placed by code,
+    /// recorded on the run, and passed by the same guard that checks every link on the page.
+    /// </summary>
+    [Fact]
+    public async Task A_pillar_whose_writer_only_names_the_partners_is_saved_with_each_name_linked_to_its_tool_page()
+    {
+        var project = Project("https://lightyear.cloud", "https://ramp.com");
+        var create = Create(project.Id, GccKnownToolsResolverTests.RunId);
+        var provider = new CapturingProvider(call => call == 0
+            ? """
+              {"sections":[{"tag":"h2","heading":"Where the hours go","paragraphs":[{"type":"text","runs":[{"text":"Ramp codes the spend on capture, and Lightyear routes each invoice for approval. Ramp then syncs it to the ledger."}]}],"href":null,"children":[],"provenance":"plan"}]}
+              """
+            : ScriptedBody.PlannedBatch(call));
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
+
+        var envelope = await Build(provider, project).GeneratePillarBodyAsync(
+            create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        // Every linked run on the saved page that leads to a tool page: the name, and nothing around it.
+        using var saved = System.Text.Json.JsonDocument.Parse(envelope);
+        var linked = LinkedRuns(saved.RootElement.GetProperty("body"))
+            .Where(run => run.Href.StartsWith("/tools/", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(
+            [("Ramp", "/tools/marketing/ramp"), ("Lightyear", "/tools/marketing/lightyear")],
+            linked);
+
+        // What was linked is on the run's record, with nothing left unlinked.
+        var links = Assert.Single(written, w => w.Kind == "links");
+        using var record = System.Text.Json.JsonDocument.Parse(links.PayloadJson);
+        Assert.Equal(
+            ["Lightyear", "Ramp"],
+            record.RootElement.GetProperty("links").EnumerateArray().Select(l => l.GetProperty("tool").GetString()).Order());
+        Assert.Equal(0, record.RootElement.GetProperty("notLinked").GetArrayLength());
+
+        // The guard read those links and refused nothing: the page was written, and neither link check fired.
+        var verdict = Assert.Single(written, w => w.Kind == "verdict");
+        using var judged = System.Text.Json.JsonDocument.Parse(verdict.PayloadJson);
+        var checks = judged.RootElement.GetProperty("findings").EnumerateArray()
+            .Select(f => f.GetProperty("check").GetString())
+            .ToList();
+        Assert.DoesNotContain("links", checks);
+        Assert.DoesNotContain("link-text", checks);
+        Assert.DoesNotContain("partner-mentions", checks);
+    }
+
+    private static IEnumerable<(string Text, string Href)> LinkedRuns(System.Text.Json.JsonElement node)
+    {
+        switch (node.ValueKind)
+        {
+            case System.Text.Json.JsonValueKind.Object:
+                if (node.TryGetProperty("text", out var text) && text.ValueKind == System.Text.Json.JsonValueKind.String
+                    && node.TryGetProperty("href", out var href) && href.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    yield return (text.GetString()!, href.GetString()!);
+                }
+
+                foreach (var property in node.EnumerateObject())
+                {
+                    foreach (var hit in LinkedRuns(property.Value)) yield return hit;
+                }
+
+                break;
+
+            case System.Text.Json.JsonValueKind.Array:
+                foreach (var item in node.EnumerateArray())
+                {
+                    foreach (var hit in LinkedRuns(item)) yield return hit;
+                }
+
+                break;
+        }
     }
 
     private static GccProjectDto Project(params string[] partnerUrls) => new(
@@ -119,7 +215,7 @@ public sealed class GccPartnerOnlyToolsTests
     private const string MetadataJson =
         """{"title":"A Title","summary":"A standfirst.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
 
-    private sealed class CapturingProvider : IContentGenerationProvider
+    private sealed class CapturingProvider(Func<int, string>? body = null) : IContentGenerationProvider
     {
         private int bodyCalls;
 
@@ -132,7 +228,7 @@ public sealed class GccPartnerOnlyToolsTests
             Requests.Add(request);
             var asked = string.Join("\n", request.Messages.Select(m => m.Content));
             var content = request.JsonSchemaName == "sections"
-                ? ScriptedBody.PlannedBatch(bodyCalls++)
+                ? (body ?? ScriptedBody.PlannedBatch)(bodyCalls++)
                 : asked.Contains("ledeType", StringComparison.OrdinalIgnoreCase) ? LedeJson
                 : asked.Contains("image-generation prompts", StringComparison.OrdinalIgnoreCase)
                     ? ScriptedBody.ImagePrompts()

@@ -255,17 +255,25 @@ public static class GccRequiredToolMentions
     /// The 16:52 run of 2026-10-06 wrote "ApprovalMax" against a partner list that spells it
     /// "Approvalmax". One matcher for naming a tool, so every check reads a name the same way.
     /// </remarks>
-    internal static bool NamesAsWord(string text, string name)
+    internal static bool NamesAsWord(string text, string name) => FindAsWord(text, name) is not null;
+
+    /// <summary>
+    /// Where <paramref name="text"/> first names <paramref name="name"/> as a whole word, under the rule
+    /// <see cref="NamesAsWord"/> states, or null. The one matcher: <c>GccToolLinker</c> links the span
+    /// this finds, so a name the checks count as named is the name the linker links.
+    /// </summary>
+    internal static (int Index, int Length)? FindAsWord(string text, string name)
     {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(name)) return null;
         var pattern = $@"(?<![A-Za-z0-9]){System.Text.RegularExpressions.Regex.Escape(name)}(?![A-Za-z0-9])";
-        var capitalised = name.Length > 0 && char.IsUpper(name[0]);
+        var capitalised = char.IsUpper(name[0]);
         foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
                      text, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
-            if (!capitalised || char.IsUpper(match.Value[0])) return true;
+            if (!capitalised || char.IsUpper(match.Value[0])) return (match.Index, match.Length);
         }
 
-        return false;
+        return null;
     }
 
     private static bool Covers(string a, string b)

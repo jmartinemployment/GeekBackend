@@ -179,14 +179,13 @@ public partial class GccGenerateService
                 "Pillar body",
                 ct,
                 shortfalls);
-            // The page's own closing, before the section written outside the outline.
+            // Partner tool pages on the body alone, then the page's own closing, then the section
+            // written outside the outline: neither of the last two can carry a tool link.
+            sections = await LinkToolsAsync("the pillar", sections, pillarPromptCtx.Context.KnownCrawlTools ?? []);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (pillarFaq is not null) sections.Add(pillarFaq);
-            var placed = await PlaceLinksAsync(
-                "the pillar",
-                new ContentDocument(lede, sections),
-                LinkTargetsFor(create, pillarPromptCtx.Context.KnownCrawlTools));
-            return new GccDraft(ContentGuardrail.Apply(placed).Document, shortfalls);
+            var whole = new ContentDocument(lede, sections);
+            return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls);
         }
 
         var (document, pillarWarnings) = await GuardedDraftAsync(

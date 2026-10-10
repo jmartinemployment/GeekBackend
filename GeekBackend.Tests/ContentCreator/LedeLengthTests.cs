@@ -90,13 +90,13 @@ public class LedeLengthTests
     [MemberData(nameof(EveryLedePrompt))]
     public void EveryLedePromptStatesTheRulesItsTextIsCheckedAgainst(string which)
     {
-        // The opening is checked for money and for link text like the rest of the page, and it is
-        // written once: the retry rewrites the body, not the opening. So a rule the opening was never
-        // told is a refusal no retry can fix.
+        // The opening is checked for money like the rest of the page, and it is written once. So a rule
+        // the opening was never told is a refusal nothing can fix. Links are not among them: the writer
+        // cannot write one (Jeff, 2026-10-10), so there is no link rule to tell it.
         var prompt = Prompt(Build(which));
 
         Assert.Contains(ContentPromptBuilder.CurrencyInstruction, prompt, StringComparison.Ordinal);
-        Assert.Contains(ContentPromptBuilder.LinkTextInstruction, prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"link\"", prompt, StringComparison.Ordinal);
     }
 
     [Theory]

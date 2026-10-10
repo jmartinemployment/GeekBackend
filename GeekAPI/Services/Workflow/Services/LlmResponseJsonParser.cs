@@ -265,16 +265,21 @@ public static class LlmResponseJsonParser
     /// field null, which would otherwise NRE the first time anything iterates the tree. Normalize
     /// once at the parse boundary so every downstream consumer can trust the non-null invariant.
     /// </summary>
+    /// <remarks>
+    /// A section's href is not the writer's to set: the contract states it as null, and a heading is
+    /// linked only by code after the reply is read. One a reply carries anyway is dropped here, with
+    /// the run-level formatting and under the same repair name.
+    /// </remarks>
     private static Section Normalize(Section section) => section with
     {
         Heading = section.Heading ?? string.Empty,
+        Href = null,
         Paragraphs = (section.Paragraphs ?? []).Select(NormalizeParagraph).ToList(),
         Children = (section.Children ?? []).Select(Normalize).ToList(),
     };
 
     private static Paragraph NormalizeParagraph(Paragraph paragraph) => paragraph switch
     {
-        // A run's link id is kept as written: GccLinkPlacer reads it after parsing and refuses each by name.
         TextParagraph text => new TextParagraph((text.Runs ?? []).Select(NormalizeRun).ToList()),
         ListParagraph list => new ListParagraph(
             list.Ordered,
@@ -284,13 +289,19 @@ public static class LlmResponseJsonParser
     };
 
     /// <summary>
-    /// A run is its text and where it links. Bold and italic are not the writer's to set: nothing in any prompt
+    /// A run is its text. Bold and italic are not the writer's to set: nothing in any prompt
     /// asks for them, and the writer copied a linked name's bold onto the runs around it (Bill's and Ramp's
     /// openings, and the Blog's, whose copy took the link too and cost the page, 2026-10-07). The contract no
     /// longer offers them; one a reply carries anyway is dropped here and recorded as
     /// <see cref="DropWriterFormattingRepair"/>.
     /// </summary>
-    private static Run NormalizeRun(Run run) => run with { Text = run.Text ?? string.Empty, Bold = false, Italic = false };
+    /// <remarks>
+    /// An href is not the writer's to set either (Jeff, 2026-10-10): the contract offers a run its text
+    /// and nothing else, and a link is put on a partner tool's name by <c>GccToolLinker</c> after this.
+    /// One a reply carries anyway is dropped here with the bold and italic, under the same repair name.
+    /// </remarks>
+    private static Run NormalizeRun(Run run) =>
+        run with { Text = run.Text ?? string.Empty, Bold = false, Italic = false, Href = null };
 
     private const string DropWriterFormattingRepair = "drop-writer-formatting";
 
@@ -298,10 +309,13 @@ public static class LlmResponseJsonParser
         formattingDropped ? [.. repairs, DropWriterFormattingRepair] : repairs;
 
     private static bool HasWriterFormatting(Section section) =>
-        HasWriterFormatting(section.Paragraphs) || (section.Children ?? []).Any(HasWriterFormatting);
+        !string.IsNullOrWhiteSpace(section.Href)
+        || HasWriterFormatting(section.Paragraphs)
+        || (section.Children ?? []).Any(HasWriterFormatting);
 
     private static bool HasWriterFormatting(IEnumerable<Paragraph>? paragraphs) =>
-        (paragraphs ?? []).Any(paragraph => RunsOf(paragraph).Any(run => run.Bold || run.Italic));
+        (paragraphs ?? []).Any(paragraph => RunsOf(paragraph).Any(
+            run => run.Bold || run.Italic || !string.IsNullOrWhiteSpace(run.Href)));
 
     private static IEnumerable<Run> RunsOf(Paragraph paragraph) => paragraph switch
     {
@@ -342,7 +356,7 @@ public static class LlmResponseJsonParser
     {
         // There used to be an early return here for any text containing a literal
         // `<a href="/tools/` -- "permitted ... per prompt". No live prompt asks for a literal anchor
-        // (a tool link is a run's href), and the exemption did not merely admit that one tag: it
+        // (a tool link is put on the tool's name by code), and the exemption did not merely admit that one tag: it
         // skipped every check below for the whole run, so a run carrying the anchor could also carry
         // "[Source: x](url)" and "**bold**" and ship them all as literal text. The renderer encodes
         // run text, so the "permitted" anchor would have been published as escaped markup anyway.
@@ -360,7 +374,7 @@ public static class LlmResponseJsonParser
         {
             throw UnusableReply(
                 $"Model typed stray formatting symbols into a plain-text field for {label}: \"{text}\". " +
-                "Plain text only — use the bold/italic/href fields instead.");
+                "A run is plain text only.");
         }
     }
 

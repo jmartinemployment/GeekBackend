@@ -264,29 +264,14 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// The structured-output contract every section-body call uses. No tag characters and no
     /// heading/emphasis/list punctuation in the text at all — headings are a plain string field,
-    /// a link is a run whose "link" names a printed target, lists are their own paragraph variant,
-    /// and the writer has no emphasis to set (bold and italic are not offered; see
-    /// LlmResponseJsonParser.NormalizeRun). This is what actually eliminates truncated or malformed
-    /// markup: there is no markup syntax available for the model to get wrong.
+    /// lists are their own paragraph variant, and the writer has no emphasis and no link to set
+    /// (bold and italic are not offered; see LlmResponseJsonParser.NormalizeRun; a partner tool's
+    /// page is put on its name by GccToolLinker after the reply is read, Jeff 2026-10-10). This is
+    /// what actually eliminates truncated or malformed markup: there is no markup syntax available
+    /// for the model to get wrong.
     /// </summary>
-    /// <remarks>
-    /// A run offered "href" until 2026-10-09. The writer put it on whole paragraphs -- ten of 38-75
-    /// words on one tool page, four of 53-64 on a pillar -- and once on a URL it remembered rather
-    /// than one it was shown. For a day after that the paragraph carried a "links" list whose "anchor"
-    /// was words copied from the paragraph, and the writer copied them approximately ("real-time
-    /// dashboards" for "Real-time dashboards"; "Upflow syncs with" for "Upflow natively syncs with"):
-    /// seven pages refused on one run. The link is now the run itself. The writer splits the words
-    /// out as their own run, as it already does for every run, and sets that run's "link" to the id;
-    /// there is no second copy of the words and nothing to match. GccLinkPlacer resolves the id to
-    /// the href or refuses the section by name.
-    /// </remarks>
-    private static readonly string RunJsonShape =
-        "{\"text\": string (plain text only — never markup syntax of any kind, never a URL), " +
-        "\"link\": string|null (null for ordinary words. When THESE words are a link, the id of the target " +
-        "printed in the user message -- S# a page of the evidence, T# a partner tool page -- never a URL or a " +
-        "path. A linked run is the product or feature your sentence names, " +
-        GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords +
-        " words at most, split into its own run with the words around it in their own runs)}";
+    private const string RunJsonShape =
+        "{\"text\": string (plain text only — never markup syntax of any kind, never a URL)}";
 
     private static readonly string ParagraphJsonShape =
         "{\"type\":\"text\",\"runs\":[" + RunJsonShape + ", ...]} " +
@@ -400,10 +385,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         + "- Do not quote. No blockquotes, no pull-quotes, no verbatim testimonial lines; this is "
         + "analysis in your voice. Claims still come from the supplied evidence, not from what you "
         + "already believe about these products.\n"
-        + "- Every declared partner tool is discussed on this basis and linked to its tool page at "
-        + "its first substantive mention: the tool's name is its own run, and that run's \"link\" is "
-        + "the tool's T# id as the user message prints it. A tool named without saying what it solves "
-        + "has not been discussed.";
+        + "- Every declared partner tool is discussed on this basis. A tool named without saying what "
+        + "it solves has not been discussed.";
 
     /// <summary>
     /// The same ban, said at the planning stage: an outline heading is what the body writer is then
@@ -438,8 +421,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     private const string NoToolsSectionInstruction =
         "NO TOOLS SECTION: do not write a section that lists tools, whatever it is called -- not "
         + "\"Top Tools for ...\", not \"Choosing the Right Tools\", not a heading per product with a "
-        + "product name in it. Name the tools in running prose where each one earns the mention, and "
-        + "link the first substantive mention. A section whose job is to enumerate products is the "
+        + "product name in it. Name the tools in running prose where each one earns the mention. A "
+        + "section whose job is to enumerate products is the "
         + "one shape this page must not have, and it is not licensed by a heading of that shape "
         + "existing on the site.";
 
@@ -719,7 +702,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
             .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
             .AppendLine(GroundingInstruction)
             .AppendLine(ContentOnlyInstruction)
             .AppendLine("OUTPUT: respond with ONLY the JSON this contract describes -- no code fences, no commentary. Where the user message assigns sections, return one entry per assigned section, in the order given.")
@@ -737,22 +719,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         + "the evidence is silent, write less. Never invent a feature, an integration, an outcome or a "
         + "customer to fill a section.";
 
-    /// <summary>
-    /// An FAQ answer carries no link. The FAQ prompts share the section contract, which offers a run
-    /// its "link" and describes its ids; the first run on that contract (2026-10-09) had every FAQ
-    /// answer of five tool pages name the target "S#" -- the placeholder from the contract, copied
-    /// because the FAQ-bank prompt prints no ids and the writer was told a link needs one. The FAQ
-    /// is the body's appendix, written from the same evidence the body already attributes; it
-    /// links nothing, and a link it carries anyway is refused by GccLinkPlacer.
-    /// </summary>
-    internal const string FaqNoLinksInstruction =
-        "LINKS: an FAQ answer carries no link. Every run's \"link\" is null, and no run carries an href "
-        + "or a URL. A link in an FAQ answer refuses the page.";
-
     private const string ContentOnlyInstruction =
         "CONTENT ONLY: the text of every run is plain words. Headings and lists are fields of the JSON, "
-        + "a link is a run's \"link\" id, and none of them is ever characters in the text -- no #, no <h2>, "
-        + "no **, no [text](url), no URL.";
+        + "and neither is ever characters in the text -- no #, no <h2>, no **, no [text](url), no URL.";
 
     /// <summary>
     /// How the prose sounds. Extended 2026-09-27 with Jeff's own brief, after a finished blog was
@@ -827,38 +796,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         "and so on), do not state that amount at all -- never convert it, and never keep the number and " +
         "drop the currency. Say the vendor publishes its pricing and leave the figure out. A block " +
         "quotation is the one exception: it is reproduced exactly as published, currency included.";
-
-    /// <summary>
-    /// Where a link sits and how it is said: on the few words that name what it leads to, as a run
-    /// whose "link" is a printed target id. Placed by <c>GccLinkPlacer</c> and checked after the
-    /// draft by <c>GccDraftGuard</c>'s link-text check, which reads the same limit; this tells the
-    /// writer first.
-    /// </summary>
-    /// <remarks>
-    /// Until 2026-10-09 this told the writer to keep an "href" to a short run of its own, and the
-    /// writer kept putting it on whole paragraphs regardless -- the same failure on 2026-10-05 and
-    /// twice on 2026-10-09, plus one link to a URL it was never shown. Then for a day it told the
-    /// writer to copy the anchor words into a "links" entry, and the writer copied them approximately;
-    /// seven pages refused. The href is not the writer's to type and the words are not its to copy:
-    /// it marks the run, and the code puts the link there or refuses.
-    /// </remarks>
-    internal static readonly string LinkTextInstruction =
-        "A LINK IS A RUN, AND YOU NEVER WRITE ITS ADDRESS: to link, split the words the link sits on "
-        + "into their own run and set that run's \"link\" to an id printed in the user message -- S# for a "
-        + "page of the evidence, T# for a partner tool page. The words before and after stay in their own "
-        + "runs with \"link\" null. A linked run is the product or feature your sentence names -- never a "
-        + "sentence, never the clause that explains what it does -- "
-        + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
-        + " words at most. A product name is usually well inside that on its own; a feature is the "
-        + "likelier way to go over, because explaining what a feature does naturally runs long -- link "
-        + "only its short label and put the explanation in the unlinked words around it. Worked example: "
-        + "the sentence \"Upflow's real-time dashboards that give finance teams instant visibility into "
-        + "every outstanding invoice and payment status\" links only \"real-time dashboards\" (2 words) -- "
-        + "not \"real-time dashboards that give finance teams instant visibility into every outstanding "
-        + "invoice and payment status\" (15 words, refused). Write no URL and no path anywhere, in no "
-        + "field. An id that was not printed, or a linked run longer than "
-        + GeekAPI.Services.ContentCreator.Guardrail.GccDraftGuard.MaxLinkWords
-        + " words, refuses the section, and it is not written.";
 
     private const string HeadingCraftInstruction =
         "HEADINGS: write them for this page and no other. The test is concrete -- if a heading " +
@@ -1220,24 +1157,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </summary>
     private const string LedeAskInstruction =
         "THE OPENING ASKS NOTHING OF THE READER: it ends on its own material. The page's one invitation to " +
-        "the reader sits at its end, so this opening does not ask them to book, call, sign up or click. " +
-        "The opening carries no links.";
-
-    /// <summary>
-    /// Restates <see cref="LedeAskInstruction"/>'s no-links rule a second time, as the last thing the
-    /// writer reads before "=== ASSIGNMENT ===" -- after the evidence block, any revision notes, and
-    /// (for the pillar) the research brief. The first statement sits early and is unconditional; the
-    /// evidence block that follows it is <c>GccGenerateService.BuildResearchBlock</c>'s Rule 2, which
-    /// is itself unconditional and mandatory ("the product or feature your sentence names is its own
-    /// run, and that run's \"link\" is the S# id ... One [URL] typed is refused"). Said once up front
-    /// and then contradicted by a closer, mandatory-sounding rule is exactly the ordering that let the
-    /// opening's own "no links" lose -- this line is appended only when an evidence block (and
-    /// therefore Rule 2) was actually sent, and it is the one read last.
-    /// </summary>
-    private const string LedeNoLinksReminder =
-        "BEFORE YOU WRITE: the evidence rule above says to link the claims you draw from it -- that " +
-        "rule is for the body, not for this call. This opening still carries no links at all, to " +
-        "anything, even a page named above. State a claim without a link rather than attach one here.";
+        "the reader sits at its end, so this opening does not ask them to book, call, sign up or click.";
 
     /// <summary>
     /// The lede carries a heading. It is this page's first H2 -- <c>PillarPrompts</c> says so
@@ -1687,11 +1607,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             user.AppendLine(revisionBlock);
         }
 
-        if (!string.IsNullOrWhiteSpace(evidenceBlock))
-        {
-            user.AppendLine(LedeNoLinksReminder);
-        }
-
         user.AppendLine()
             .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Article title: {metadata.Title}")
@@ -1796,7 +1711,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("\"in a representative scenario\". Never phrase it as something that already happened to a real client. ")
             .AppendLine("Do not reuse a stock \"40% reduction\" (or similar) percentage across sections — vary outcomes and make them operationally specific.")
             .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for this section. Do not write other sections.")
             .AppendLine("With the exception of the Lede, article headings are never questions.")
             .AppendLine("Tools listed in the research brief must be woven into sentences where they are relevant to this section — never as a Tools heading or catalog.")
@@ -1910,7 +1824,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
             .AppendLine(SectionJsonContract)
             .AppendLine($"This section's tag is \"h2\" and heading is exactly \"{heading}\". Each question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
-            .AppendLine(FaqNoLinksInstruction)
             .AppendLine("Direct, factual answers. Third person.")
             .AppendLine($"Answers must sound like {context.PublisherName} ({context.ImplementerPositioning}), not a generic textbook FAQ — reflect the same consultative brand voice as the rest of the article, not interchangeable boilerplate.")
             .ToString();
@@ -1965,7 +1878,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                 "knowledge, and never state a capability, price or figure the evidence does not state.")
             .AppendLine($"Answers sound like {context.PublisherName} ({context.ImplementerPositioning}): third person, direct, factual.")
             .AppendLine(CurrencyInstruction)
-            .AppendLine(FaqNoLinksInstruction)
             .ToString();
 
         var user = new StringBuilder()
@@ -2031,7 +1943,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(LedeAskInstruction)
             .AppendLine(HumanRegisterInstruction)
             .AppendLine(CurrencyInstruction)
-            .AppendLine(LinkTextInstruction)
             .AppendLine(BuildPublisherSiteBlock(context))
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary:")
             .AppendLine(LedeHeadingInstruction)
@@ -2157,7 +2068,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         if (!string.IsNullOrWhiteSpace(evidenceBlock))
         {
             user.AppendLine(LedeEvidenceInstruction).AppendLine(evidenceBlock);
-            user.AppendLine(LedeNoLinksReminder);
         }
 
         user.AppendLine()
@@ -2757,7 +2667,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                 "its factual content, add a claim not in the answer given, or drop the substance to shorten it.")
             .AppendLine("Use every question provided, in the order given, none invented and none skipped.")
             .AppendLine(CurrencyInstruction)
-            .AppendLine(FaqNoLinksInstruction)
             .ToString();
 
         var user = new StringBuilder()

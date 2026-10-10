@@ -381,9 +381,9 @@ internal static class ResearchBriefBuilder
     /// </para>
     ///
     /// <para>
-    /// Linking was optional here and the drafts took the option: tools were named and none of them
-    /// went anywhere. It is now the first substantive mention in each section, capped there so prose
-    /// does not turn into a row of links.
+    /// The writer links nothing (Jeff, 2026-10-10): this block prints the names only, and
+    /// <c>GccToolLinker</c> puts each tool's public path on the first mention of its name after the
+    /// reply is read.
     /// </para>
     /// </summary>
     private static void AppendKnownToolsBrief(StringBuilder sb, ProjectGenerationContext context)
@@ -394,49 +394,20 @@ internal static class ResearchBriefBuilder
             return;
         }
 
-        var dept = string.IsNullOrWhiteSpace(context.Department) ? "marketing" : context.Department.Trim();
-
         sb.AppendLine();
         sb.AppendLine("=== KNOWN TOOLS (grounding — weave into this content) ===");
         sb.AppendLine(
             "Name these tools in running paragraphs wherever each is relevant to THIS section or page. " +
             "Discuss them substantively — what they do for this use case, not a one-word mention. " +
             "Do not produce a roll-call list, and do not write a Tools heading or catalog. " +
-            "Recurring mentions are fine when they add something; first-mention-only is not enough. " +
-            "A link is never a substitute for discussing the tool.");
-        // The writer names the tool's id, never its path. Until 2026-10-09 this said "set Run.href to
-        // that exact path", and a pillar came back with four paragraphs of 53-64 words each wrapped in
-        // the href of a tool page (chaserhq, invoiced, upflow, versapay) -- the address right, the link
-        // on everything. GccLinkPlacer now puts the href on the run the writer marks with a T# id
-        // printed here, which GccLinkTargets numbers from the same list in the same order.
-        sb.AppendLine(
-            "Every tool below has a public path on this site, and a named tool links to it: on the first substantive " +
-            "body mention of each tool in each section, put the tool's name in its own run and set that run's " +
-            "\"link\" to the tool's T# id exactly as printed below. Later mentions of the same tool in that same " +
-            "section stay plain text — one link per tool per section, so the prose does not become a row of links. " +
-            "Headings are never linked.");
-        sb.AppendLine(
-            "You write no path and no URL: the id is the whole address. Do not link a tool to the vendor's own " +
-            "website or to the crawl source page; a URL or a path typed into any field is refused and the section " +
-            "is not written.");
+            "Recurring mentions are fine when they add something; first-mention-only is not enough.");
+        // The writer names the tool and nothing else. Its page on this site is linked by GccToolLinker on
+        // the first mention of the name, after the reply is read (Jeff, 2026-10-10): no id, no path and no
+        // URL is printed, because the writer has nothing to do with one.
         sb.AppendLine("The tools:");
-        for (var i = 0; i < tools.Count; i++)
+        foreach (var tool in tools)
         {
-            var tool = tools[i];
-            var id = GeekAPI.Services.ContentCreator.Guardrail.GccLinkTargets.ToolId(i);
-            // Content Creator supplies the path its tool page is published at. Without one this is the
-            // Workflow path, which has no create to build it from.
-            var publicPath = string.IsNullOrWhiteSpace(tool.PublicPath)
-                ? $"/tools/{dept}/{SlugHelper.Slugify(tool.Name)}"
-                : tool.PublicPath;
-            if (!string.IsNullOrWhiteSpace(tool.Href))
-            {
-                sb.AppendLine($"[{id}] {tool.Name} — public path: {publicPath} (crawl source, do not send the reader there: {tool.Href})");
-            }
-            else
-            {
-                sb.AppendLine($"[{id}] {tool.Name} — public path: {publicPath}");
-            }
+            sb.AppendLine($"- {tool.Name}");
         }
     }
 

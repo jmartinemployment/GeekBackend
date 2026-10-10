@@ -78,21 +78,33 @@ public class GccOpeningAsksNothingTests
 
     [Theory]
     [MemberData(nameof(EveryLedePrompt))]
-    public void Every_opening_is_told_it_asks_nothing_of_the_reader_and_carries_no_links(string which)
+    public void Every_opening_is_told_it_asks_nothing_of_the_reader(string which)
     {
         var prompt = Prompt(Build(which));
 
         Assert.Contains(Ask, prompt, StringComparison.Ordinal);
-        Assert.Contains("The opening carries no links.", prompt, StringComparison.Ordinal);
+        Assert.Contains("does not ask them to book, call, sign up or click", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("A link in the opening goes only to", prompt, StringComparison.Ordinal);
     }
 
-    private const string EvidenceWithMandatoryLinkRule =
+    [Theory]
+    [MemberData(nameof(EveryLedePrompt))]
+    public void No_opening_is_told_anything_about_links_because_its_reply_cannot_carry_one(string which)
+    {
+        // "The opening carries no links" was said once, then a second time after the evidence block,
+        // because the block's own rule told the writer to link every claim and won (100% of pages,
+        // run against ac124a3, 2026-10-09). The writer links nothing now (Jeff, 2026-10-10): the reply
+        // has no field for a link, and GccToolLinker is handed the body, never the opening.
+        var prompt = Prompt(Build(which));
+
+        Assert.DoesNotContain("The opening carries no links", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"link\"", prompt, StringComparison.Ordinal);
+    }
+
+    private const string Evidence =
         "=== QUOTEABLE RESEARCH (partner/tool evidence) ===\n" +
-        "[S1] Partner Widget (https://partner.test/widget)\n" +
-        "  - Widget cuts invoice processing time in half.\n" +
-        "Rule: the product or feature your sentence names is its own run, and that run's \"link\" is " +
-        "the S# id. One URL typed is refused and the section is not written.";
+        "Partner Widget (https://partner.test/widget)\n" +
+        "  - Widget cuts invoice processing time in half.";
 
     public static TheoryData<string> EveryLiveLedePrompt => new() { "article", "pillar", "standaloneBlog" };
 
@@ -101,52 +113,34 @@ public class GccOpeningAsksNothingTests
         var b = new ContentPromptBuilder();
         return which switch
         {
-            "article" => b.BuildArticleLedePrompt(Context(), Article, evidenceBlock: EvidenceWithMandatoryLinkRule),
+            "article" => b.BuildArticleLedePrompt(Context(), Article, evidenceBlock: Evidence),
             "pillar" => b.BuildPillarLedePrompt(
                 Context(), Article, "the opening", 0, 6,
                 [SectionSlot.Cover("the opening"), SectionSlot.Cover("what it costs")], isRegeneration: false,
-                evidenceBlock: EvidenceWithMandatoryLinkRule),
-            "standaloneBlog" => b.BuildStandaloneBlogLedePrompt(Context(), Blog, EvidenceWithMandatoryLinkRule),
+                evidenceBlock: Evidence),
+            "standaloneBlog" => b.BuildStandaloneBlogLedePrompt(Context(), Blog, Evidence),
             _ => throw new ArgumentOutOfRangeException(nameof(which), which, "unknown lede prompt"),
         };
     }
 
     /// <summary>
-    /// Regression for the 100%-of-pages opening-link finding (run against ac124a3, 2026-10-09): the
-    /// evidence block's own Rule 2 (<c>GccGenerateService.BuildResearchBlock</c>) tells the writer,
-    /// unconditionally, to link every claim it draws from the evidence. Stated once, early, "the
-    /// opening carries no links" lost to that closer, mandatory-sounding rule. The fix restates the
-    /// no-links rule a second time, after the evidence block, as the last thing read before
-    /// "=== ASSIGNMENT ===" -- this pins both that it is present and that it is last.
+    /// The evidence still reaches the opening, ahead of its assignment, and nothing about links is
+    /// restated after it. The reminder that used to sit there answered a rule the evidence block no
+    /// longer carries.
     /// </summary>
     [Theory]
     [MemberData(nameof(EveryLiveLedePrompt))]
-    public void The_no_links_rule_is_restated_after_the_evidence_blocks_mandatory_link_rule(string which)
+    public void The_evidence_reaches_the_opening_before_its_assignment_with_no_link_reminder_after_it(string which)
     {
         var prompt = Prompt(BuildWithEvidence(which));
 
-        const string Reminder = "This opening still carries no links at all";
-        Assert.Contains(Reminder, prompt, StringComparison.Ordinal);
-
-        var reminderIndex = prompt.IndexOf(Reminder, StringComparison.Ordinal);
-        var evidenceIndex = prompt.IndexOf(EvidenceWithMandatoryLinkRule, StringComparison.Ordinal);
+        var evidenceIndex = prompt.IndexOf(Evidence, StringComparison.Ordinal);
         var assignmentIndex = prompt.IndexOf("=== ASSIGNMENT ===", StringComparison.Ordinal);
 
         Assert.True(evidenceIndex >= 0, "the evidence block itself must reach the prompt");
-        Assert.True(assignmentIndex >= 0, "the assignment header must reach the prompt");
-        Assert.True(reminderIndex > evidenceIndex, "the reminder must come after the evidence block");
-        Assert.True(reminderIndex < assignmentIndex, "the reminder must be the last thing before the assignment");
-    }
-
-    [Theory]
-    [MemberData(nameof(EveryLiveLedePrompt))]
-    public void The_no_links_reminder_is_absent_when_no_evidence_was_retrieved(string which)
-    {
-        // No evidence block means Rule 2 never reached this prompt either -- nothing to restate, and
-        // the reminder's own text ("the evidence rule above") would be false if printed here anyway.
-        var prompt = Prompt(Build(which));
-
+        Assert.True(assignmentIndex > evidenceIndex, "the assignment comes after the evidence");
         Assert.DoesNotContain("This opening still carries no links at all", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("BEFORE YOU WRITE", prompt, StringComparison.Ordinal);
     }
 
     [Theory]

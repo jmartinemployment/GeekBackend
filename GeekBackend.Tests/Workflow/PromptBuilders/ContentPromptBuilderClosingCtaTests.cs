@@ -129,19 +129,19 @@ public class ContentPromptBuilderClosingCtaTests
 
     [Theory]
     [MemberData(nameof(AllFourBodyPrompts))]
-    public void Every_body_prompt_tells_the_writer_a_link_sits_on_a_few_words(string which)
+    public void No_body_prompt_tells_the_writer_how_to_mark_a_link(string which)
     {
         // The Stampli tool page of 2026-10-05 came back with whole paragraphs as links, and again on
-        // 2026-10-09 after the instruction was sharpened. The writer now names a target id and the
-        // anchor words and never an address; the limit is the guard's own number, so the writer is
-        // never told one thing and refused for another.
+        // 2026-10-09 after the instruction was sharpened, and seven pages were refused the same day for
+        // anchor words copied inexactly. The writer is no longer asked (Jeff, 2026-10-10): a run is its
+        // text, and GccToolLinker puts a partner tool's page on its name.
         var system = Render(which, Context());
 
-        Assert.Contains(ContentPromptBuilder.LinkTextInstruction, system, StringComparison.Ordinal);
-        Assert.Contains(
-            $"{GccDraftGuard.MaxLinkWords} words at most", ContentPromptBuilder.LinkTextInstruction, StringComparison.Ordinal);
-        Assert.Contains("YOU NEVER WRITE ITS ADDRESS", system, StringComparison.Ordinal);
-        Assert.Contains("Write no URL and no path anywhere", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("A LINK IS A RUN", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"link\"", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("S#", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("T#", system, StringComparison.Ordinal);
+        Assert.Contains("{\"text\": string (plain text only", system, StringComparison.Ordinal);
     }
 
     [Theory]

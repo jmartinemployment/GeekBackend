@@ -257,8 +257,9 @@ public static partial class GccDraftGuard
     /// a source -- and the longest of those is a page title; a sentence is not a name.
     /// </summary>
     /// <remarks>
-    /// One number, read by this check and by the instruction that tells the writer
-    /// (<c>ContentPromptBuilder.LinkTextInstruction</c>), so the two cannot name different limits.
+    /// The writer is told nothing about links and cannot write one (Jeff, 2026-10-10); the links on a
+    /// page are the closing's and <c>GccToolLinker</c>'s, each on a name. This check holds code to the
+    /// limit, not the model.
     /// </remarks>
     public const int MaxLinkWords = 12;
 
@@ -330,7 +331,7 @@ public static partial class GccDraftGuard
     private static IEnumerable<Section> OpeningSections(Section section) =>
         new[] { section }.Concat(section.Children.SelectMany(OpeningSections));
 
-    /// <summary>One definition, read by this guard and by <see cref="GccLinkPlacer"/>, so the two measure a link alike.</summary>
+    /// <summary>How many words a run is. One definition for the link-text check.</summary>
     internal static int WordCount(string? text) =>
         (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
 

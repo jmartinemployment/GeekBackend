@@ -119,8 +119,8 @@ public sealed class GccKeywordHeadingOwnerTests
     [Fact]
     public void No_blog_or_pillar_slot_tells_the_writer_to_link_a_tool()
     {
-        // The pillar's tools are linked by the tools block every long-form body prompt shares, which gives each
-        // tool's path. The blog's own "Link the first substantive mention" was a second instruction beside it.
+        // A tool's page is put on its name by code (GccToolLinker); no slot, and no prompt, tells the writer
+        // to link one. The blog's own "Link the first substantive mention" was the last slot that did.
         var blog = new BlogPrompts(new ContentPromptBuilder());
 
         var slots = blog.OutlineFor(Ctx()).Concat(PillarPrompts.Outline(null));
@@ -129,7 +129,7 @@ public sealed class GccKeywordHeadingOwnerTests
     }
 
     [Fact]
-    public void The_blogs_body_prompt_still_carries_the_tools_block_that_gives_each_tool_its_path()
+    public void The_blogs_body_prompt_still_carries_the_tools_block_that_names_each_tool()
     {
         var blog = new BlogPrompts(new ContentPromptBuilder());
         var outline = blog.OutlineFor(Ctx());
@@ -140,7 +140,8 @@ public sealed class GccKeywordHeadingOwnerTests
         var prompt = string.Join("\n", request.Messages.Select(m => m.Content));
 
         Assert.Contains("KNOWN TOOLS", prompt, StringComparison.Ordinal);
-        Assert.Contains("set that run's \"link\" to the tool's T# id", prompt, StringComparison.Ordinal);
-        Assert.Contains("[T1] Ramp — public path: /tools/accounting/accounts-payable/ramp", prompt, StringComparison.Ordinal);
+        Assert.Contains("\n- Ramp", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("/tools/accounting/accounts-payable/ramp", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("T# id", prompt, StringComparison.Ordinal);
     }
 }

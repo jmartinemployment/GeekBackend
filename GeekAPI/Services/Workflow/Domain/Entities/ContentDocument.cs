@@ -20,35 +20,17 @@ public enum LedeType
 }
 
 /// <summary>
-/// A span of a paragraph's text. <paramref name="Link"/> is how the writer says these words are a link:
-/// the id of a target printed in its prompt (<c>S3</c> a page of the evidence, <c>T2</c> a partner tool
-/// page). The writer never writes an address. <c>GccLinkPlacer</c> resolves the id to the page the
-/// writer was actually given, puts it in <paramref name="Href"/> and clears <paramref name="Link"/>, so
-/// a placed run carries the href and a stored page carries no ids.
+/// A span of a paragraph's text. <paramref name="Href"/> is set by code and never by the writer: the
+/// page's own closing link (<c>GccClosing</c>) and a partner tool's page on the first mention of its
+/// name (<c>GccToolLinker</c>). The writer's reply offers a run no link at all (Jeff, 2026-10-10):
+/// every shape that let it decide -- an href it typed, an anchor list it copied, a target id it
+/// marked -- failed on a real run, and each failure cost a page.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Until 2026-10-09 the writer typed <c>href</c> directly and chose both the address and the words. It
-/// put the address on whole paragraphs (Stampli, ten of 38-75 words; Bill, eight; the pillar, four of
-/// 53-64 words) and once on a URL it remembered rather than one it was shown (Ramp).
-/// </para>
-/// <para>
-/// For one day after that the paragraph carried a separate <c>links</c> list of <c>{target, anchor}</c>,
-/// the anchor being words copied from the paragraph. The writer paraphrased its own sentence instead
-/// of copying it: "real-time dashboards" for a run that began "Real-time dashboards", "Upflow syncs with
-/// several software tools" for "Upflow natively syncs with several software tools" -- seven pages
-/// refused on one run for words that were not found. Copying a span of your own output into a second
-/// field is a recall task, and the model does it approximately. Marking the span where it is written
-/// is not: the link is the run, the way bold would be, and there is nothing to match.
-/// </para>
-/// </remarks>
 public sealed record Run(
     string Text,
     bool Bold = false,
     bool Italic = false,
-    string? Href = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? Link = null);
+    string? Href = null);
 
 /// <summary>
 /// A block within a section. The set below mirrors the crawler's typed corpus blocks

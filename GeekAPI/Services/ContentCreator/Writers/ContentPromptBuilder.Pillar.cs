@@ -227,11 +227,6 @@ public partial class ContentPromptBuilder
         user.AppendLine()
             .AppendLine(ResearchBriefBuilder.Build(context, ResearchBriefPhase.Opening));
 
-        if (!string.IsNullOrWhiteSpace(evidenceBlock))
-        {
-            user.AppendLine(LedeNoLinksReminder);
-        }
-
         user.AppendLine()
             .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}. It covers: {ledeHeading}. You write its heading.")
