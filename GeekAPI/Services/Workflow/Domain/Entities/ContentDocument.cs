@@ -48,11 +48,6 @@ public sealed record Run(
 /// projection. Do not write a second one.</item>
 /// <item><c>ContentCreator/Guardrail/ContentGuardrail.CleanParagraph</c> — an unhandled type
 /// bypasses cliché/filler cleaning entirely.</item>
-/// <item>Dormant v2 sites, listed so they are not forgotten if that path is revived:
-/// <c>ContentCreatorV2/Validate/GccV2AnalyzerDocument</c>,
-/// <c>ContentCreatorV2/Validate/GccV2OverlapGate</c>,
-/// <c>ContentCreatorV2/Publish/GccV2JsonLdBuilder</c>,
-/// <c>ContentCreatorV2/Carousel/GccV2LinkedInCarouselDocumentConverter</c>.</item>
 /// </list>
 ///
 /// <para><b>The converter is declared here, not registered per call site.</b> This type is abstract,

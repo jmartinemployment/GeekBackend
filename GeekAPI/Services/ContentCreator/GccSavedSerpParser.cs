@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using GeekApplication.Models.ContentCreator;
 using HtmlAgilityPack;
-using RelatedPageDto = GeekAPI.Services.ContentCreatorV2.RelatedPageDto;
 
 namespace GeekAPI.Services.ContentCreator;
 

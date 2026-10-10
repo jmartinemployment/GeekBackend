@@ -16,7 +16,7 @@ using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using Microsoft.Extensions.Options;
 
-using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreator;
 
 using GeekAPI.HttpClients;
 

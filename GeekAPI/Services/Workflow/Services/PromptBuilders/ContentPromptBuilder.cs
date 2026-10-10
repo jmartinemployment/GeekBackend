@@ -7,7 +7,7 @@ using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekApplication.Models.ContentCreator;
 
-using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.ContentCreator.ContentTypes;
 
 using GeekAPI.Services.ContentCreator;
 
@@ -438,7 +438,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </para>
     ///
     /// <para>
-    /// The numbers come from <see cref="GccV2LongFormTypes.GetSeoLengthRules"/> -- the scorer's own
+    /// The numbers come from <see cref="GccLongFormTypes.GetSeoLengthRules"/> -- the scorer's own
     /// source -- so the floor the writer is given and the floor it is judged against cannot drift.
     /// They were separate constants in separate files: the blog prompt asked for 2,000 while the
     /// score required 1,800, and the tool prompt asked for 3,000 against a floor of 1,500.
@@ -474,7 +474,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </remarks>
     internal static int SeoKeywordMentionsFor(string contentType, int sectionsInThisCall, int sectionsInThePage)
     {
-        var (minWords, _, _) = GccV2LongFormTypes.GetSeoLengthRules(contentType);
+        var (minWords, _, _) = GccLongFormTypes.GetSeoLengthRules(contentType);
         var mentions = Math.Max(4, (int)Math.Round(minWords * 0.006));
         if (sectionsInThisCall >= sectionsInThePage) return mentions;
 
@@ -489,7 +489,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         int sectionsInThePage,
         bool ownsTheKeywordHeading)
     {
-        var (minWords, minSections, _) = GccV2LongFormTypes.GetSeoLengthRules(contentType);
+        var (minWords, minSections, _) = GccLongFormTypes.GetSeoLengthRules(contentType);
         var mentions = SeoKeywordMentionsFor(contentType, sectionsInThePage, sectionsInThePage);
         var perSection = minWords / Math.Max(minSections + 2, 1);
 
@@ -2184,7 +2184,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                   + "whole post's, across every call; yours is the per-section range."
                 : string.Empty)
             .AppendLine(SeoBodyInstruction(
-                context.TargetKeyword, GccV2LongFormTypes.Blog,
+                context.TargetKeyword, GccLongFormTypes.Blog,
                 blogBatch.Count, blogOutline.Count,
                 SectionSlot.BatchOwnsKeywordHeading(blogBatch, blogOutline, batchIndex)))
             .AppendLine($"Target keyword: {context.TargetKeyword}")
@@ -2471,7 +2471,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("=== THIS PAGE ===")
             .AppendLine($"Editorial standard: {ContentLengthTargets.ToolEditorialDefinition}")
             .AppendLine("A tool overview page published with schema.org SoftwareApplication metadata — expert technical tone, not breaking news.")
-            // What this page IS. Kept deliberately consistent with GccV2PartnerExtractionService's
+            // What this page IS. Kept deliberately consistent with GccPartnerExtractionService's
             // wording, since both run over the same material.
             .AppendLine($"WHAT THIS PAGE IS: {app.Name} is a PARTNER — a third-party SaaS product that " +
                 $"{context.PublisherName} promotes and implements for clients. This page exists to show a reader " +
@@ -2591,7 +2591,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                   + RenderOutline(fullOutline)
                 : string.Empty)
             .AppendLine(SeoBodyInstruction(
-                context.TargetKeyword, GccV2LongFormTypes.Tool,
+                context.TargetKeyword, GccLongFormTypes.Tool,
                 outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count),
                 SectionSlot.BatchOwnsKeywordHeading(outline, fullOutline, batchIndex)))
             // The batch's own floor, not the page's. This used to print ContentLengthTargets.

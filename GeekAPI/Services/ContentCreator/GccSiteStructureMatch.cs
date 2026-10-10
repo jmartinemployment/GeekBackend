@@ -6,9 +6,8 @@ namespace GeekAPI.Services.ContentCreator;
 /// <summary>
 /// Sections of a crawled site whose heading matches a target keyword.
 ///
-/// v1's own matcher, over <see cref="SiteStructure"/> — the tree GeekCrawlerSiteStructure builds
-/// from the crawler's typed blocks. v1 previously reached into ContentCreatorV2 for this; it no
-/// longer does.
+/// Matches over <see cref="SiteStructure"/> — the tree GeekCrawlerSiteStructure builds from the
+/// crawler's typed blocks.
 ///
 /// Matching is deliberately strict: exact slug or text, or a prefix match when both sides carry at
 /// least two tokens. Never plain containment — that is how a heading called "Marketing" swallows

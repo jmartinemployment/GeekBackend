@@ -1,18 +1,18 @@
-using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreator.Partner;
 using GeekApplication.Models.ContentCreator;
 
-namespace GeekBackend.Tests.ContentCreatorV2;
+namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Shape guarantees for partner extraction after the regex extractor was replaced with
 /// schema-constrained extraction.
 /// </summary>
-public sealed class GccV2PartnerExtractionServiceTests
+public sealed class GccPartnerExtractionServiceTests
 {
     [Fact]
     public void EmptyDocument_is_empty_and_versioned()
     {
-        var doc = GccV2PartnerExtractionService.EmptyDocument();
+        var doc = GccPartnerExtractionService.EmptyDocument();
 
         Assert.Equal(GccPartnerExtractionDocument.CurrentExtractorVersion, doc.ExtractorVersion);
         Assert.Empty(doc.Citables);
@@ -93,6 +93,6 @@ public sealed class GccV2PartnerExtractionServiceTests
     [InlineData("", "anything", false)]
     public void IsGrounded_requires_the_claim_to_appear_in_source(string claim, string source, bool expected)
     {
-        Assert.Equal(expected, GccV2PartnerExtractionService.IsGrounded(claim, source));
+        Assert.Equal(expected, GccPartnerExtractionService.IsGrounded(claim, source));
     }
 }

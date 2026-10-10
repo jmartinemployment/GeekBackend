@@ -30,7 +30,7 @@ namespace GeekAPI.Services.ContentCreator;
 /// <c>plans/tool-page-per-partner.md</c>. Guessing a run id in the ambiguous case would silently
 /// answer a question from the wrong partner's crawl, which is worse than today's gap. So instead:
 /// search the full, untruncated pool this create already fetched for this product
-/// (<c>partnerPages</c>, the same pool <c>GccV2PartnerExtractionService.ExtractFromPagesAsync</c>
+/// (<c>partnerPages</c>, the same pool <c>GccPartnerExtractionService.ExtractFromPagesAsync</c>
 /// reads for this product's capability/FAQ-bank extraction) rather than the page-level block's
 /// truncated slice of it. "Unsupported" is still measured honestly -- a question with no matching
 /// paragraph here gets no evidence block and is still left out and reported by name -- but it is

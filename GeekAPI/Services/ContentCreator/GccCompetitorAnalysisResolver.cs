@@ -1,5 +1,5 @@
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreatorV2.Hierarchy;
+using GeekAPI.Services.ContentCreator.Hierarchy;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Services.JsonLd;
 using GeekApplication.Models.GeekCrawler;

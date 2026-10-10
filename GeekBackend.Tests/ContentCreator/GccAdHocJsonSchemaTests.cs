@@ -1,9 +1,9 @@
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreator.Generation;
 
-namespace GeekBackend.Tests.ContentCreatorV2;
+namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// JsonSchemaExporter marks the supplied options read-only, and reflection-based type resolution is
@@ -11,7 +11,7 @@ namespace GeekBackend.Tests.ContentCreatorV2;
 /// "must specify a TypeInfoResolver setting before being marked as read-only" on the first real
 /// export - which in production surfaced as a 500 on POST /creates/{id}/generate, not at startup.
 /// </summary>
-public sealed class GccV2AdHocJsonSchemaTests
+public sealed class GccAdHocJsonSchemaTests
 {
     private sealed record Payload(string Name, int Count, List<string>? Tags, string? Note);
 
@@ -24,7 +24,7 @@ public sealed class GccV2AdHocJsonSchemaTests
         };
 
         var error = Assert.Throws<InvalidOperationException>(
-            () => GccV2AdHocJsonSchema.For<Payload>(unresolved));
+            () => GccAdHocJsonSchema.For<Payload>(unresolved));
         Assert.Contains("TypeInfoResolver", error.Message, StringComparison.Ordinal);
     }
 
@@ -37,7 +37,7 @@ public sealed class GccV2AdHocJsonSchemaTests
             TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
         };
 
-        var schema = GccV2AdHocJsonSchema.For<Payload>(resolved);
+        var schema = GccAdHocJsonSchema.For<Payload>(resolved);
 
         using var document = JsonDocument.Parse(schema);
         var properties = document.RootElement.GetProperty("properties");
@@ -54,7 +54,7 @@ public sealed class GccV2AdHocJsonSchemaTests
     /// Checked with a plain character test rather than a pattern match.
     /// </summary>
     [Theory]
-    [InlineData(GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService.ProviderSchemaName)]
+    [InlineData(GeekAPI.Services.ContentCreator.Partner.GccPartnerExtractionService.ProviderSchemaName)]
     public void Provider_schema_names_use_only_characters_openai_accepts(string schemaName)
     {
         Assert.False(string.IsNullOrWhiteSpace(schemaName));

@@ -14,7 +14,6 @@ using GeekAPI.Services.ContentCreator;
 // RelatedPageDto / SiteSectionContextDto / ContentGapDto only. v1 no longer calls any V2 service —
 // these are shared data shapes that happen to sit in a V2 file. Moving them to a neutral namespace
 // would touch V2, which is deliberately left alone.
-using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.GeekCrawler;
 using GeekApplication.Models.GeekCrawler;
 using GeekApplication.Interfaces.ContentWriterV3;
@@ -536,9 +535,8 @@ public class GccController : ControllerBase
     /// the image prompts in their own parallel tree rather than mixed into the prose.
     /// </summary>
     /// <remarks>
-    /// The two export services that already existed both read stores this path never writes -- v1's
-    /// reads GeneratedContent rows on a Workflow project, GccV2's reads GccV2 jobs -- so exporting
-    /// a create through either returned an empty archive.
+    /// The export service that already existed reads GeneratedContent rows on a Workflow project, a
+    /// store this path never writes, so exporting a create through it returned an empty archive.
     /// </remarks>
     [HttpGet("creates/{id:guid}/export/html")]
     public async Task<IActionResult> ExportCreateHtml(Guid id, CancellationToken ct)
@@ -703,7 +701,7 @@ public class GccController : ControllerBase
         if (version is null) return NotFound();
 
         // The artifact's own type, not the caller's word for it and not a default. Length and section
-        // thresholds are per type (GccV2LongFormTypes.GetSeoLengthRules), and this route used to omit
+        // thresholds are per type (GccLongFormTypes.GetSeoLengthRules), and this route used to omit
         // it -- so a 3,000-word pillar and a 3,000-word tool page were both graded against the blog's
         // 1,800 and reported as passing on length.
         var artifact = await _repo.GetArtifactAsync(version.ArtifactId, ct);

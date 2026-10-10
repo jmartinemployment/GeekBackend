@@ -1,9 +1,9 @@
-using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreator;
 using GeekApplication.Models.ContentCreator;
 
-namespace GeekBackend.Tests;
+namespace GeekBackend.Tests.ContentCreator;
 
-public class GccV2SiteSectionTests
+public class GccSiteSectionTests
 {
     [Fact]
     public void ParseSiteSection_round_trips_related_pages()
@@ -25,7 +25,7 @@ public class GccV2SiteSectionTests
             }
             """;
 
-        var section = GccV2SiteSection.ParseSiteSection(json);
+        var section = GccSiteSection.ParseSiteSection(json);
         Assert.NotNull(section);
         Assert.Equal("AI consulting", section!.GapTopic);
         Assert.Single(section.RelatedPages);
@@ -36,7 +36,7 @@ public class GccV2SiteSectionTests
     public void ValidateSiteSectionGate_requires_profile_id()
     {
         var ex = Assert.Throws<InvalidOperationException>(() =>
-            GccV2SiteSection.ValidateSiteSectionGate(null, null));
+            GccSiteSection.ValidateSiteSectionGate(null, null));
         Assert.Contains("project site crawl required", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -51,7 +51,7 @@ public class GccV2SiteSectionTests
             ["Neighbor"]);
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
-            GccV2SiteSection.ValidateSiteSectionGate(Guid.NewGuid(), section));
+            GccSiteSection.ValidateSiteSectionGate(Guid.NewGuid(), section));
         Assert.Contains("relatedPages", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -63,7 +63,7 @@ public class GccV2SiteSectionTests
             [new RelatedPageDto("https://example.com/s", "Services", [new HeadingDto(1, "Services")], "")],
             []);
 
-        Assert.Null(GccV2SiteSection.TryBuildSectionContext(Guid.NewGuid(), payload, "AI"));
+        Assert.Null(GccSiteSection.TryBuildSectionContext(Guid.NewGuid(), payload, "AI"));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class GccV2SiteSectionTests
             [new RelatedPageDto("https://example.com/s", "Services", [new HeadingDto(1, "Services")], "")],
             ["About"]);
 
-        var section = GccV2SiteSection.TryBuildSectionContext(id, payload, "AI consulting");
+        var section = GccSiteSection.TryBuildSectionContext(id, payload, "AI consulting");
         Assert.NotNull(section);
         Assert.Equal(id, section!.ProjectSiteCrawlRunId);
         Assert.Single(section.RelatedPages);

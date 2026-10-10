@@ -2,11 +2,11 @@ using GeekAPI.Services.Workflow.Domain.Enums;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreator.Generation;
 using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Models.ContentCreator;
 
-namespace GeekAPI.Services.ContentCreatorV2.Partner;
+namespace GeekAPI.Services.ContentCreator.Partner;
 
 /// <summary>
 /// Partner extraction — a third-party product the firm implements for its clients.
@@ -17,18 +17,18 @@ namespace GeekAPI.Services.ContentCreatorV2.Partner;
 /// 220 characters matching a hint pattern. Those win themes are the persuasive backbone of every
 /// recommendation (plans/rag-foundation-rewrite.md W2).
 ///
-/// Extraction is schema-constrained via <see cref="IGccV2SchemaConstrainedGenerator"/> and every asset
-/// carries the exact source quote, so <c>GccV2PartnerExtractionVerify</c> can check it against source
-/// page text and stamp offsets, digest and rights. This is GeekAPI-side generation over page text that
-/// RAG retrieved — RAG itself still only retrieves and verifies.
+/// Extraction is schema-constrained via <see cref="IGccSchemaConstrainedGenerator"/> and every asset
+/// carries the source quote the model returned for it. Nothing on this path checks that quote against
+/// the page text: the class that did was never called from here and is deleted. This is GeekAPI-side
+/// generation over page text that RAG retrieved — RAG itself still only retrieves and verifies.
 ///
 /// Fail-closed and silent: a page that yields nothing usable contributes nothing. No fallback path,
 /// no fabricated fields.
 /// </summary>
-public sealed class GccV2PartnerExtractionService(
-    IGccV2SchemaConstrainedGenerator generator,
+public sealed class GccPartnerExtractionService(
+    IGccSchemaConstrainedGenerator generator,
     IContentProviderFactory providers,
-    ILogger<GccV2PartnerExtractionService> logger)
+    ILogger<GccPartnerExtractionService> logger)
 {
     /// <summary>Sent as response_format.json_schema.name. OpenAI rejects anything outside
     /// [a-zA-Z0-9_-] with a 400, so this must not pick up the dotted ".v4" version style.</summary>
@@ -137,7 +137,7 @@ public sealed class GccV2PartnerExtractionService(
         var demoBeats = new List<GccPartnerDemoBeatAsset>();
         var compliance = new List<GccPartnerComplianceSnippetAsset>();
 
-        var schema = GccV2AdHocJsonSchema.For<PartnerPageExtraction>(JsonOpts);
+        var schema = GccAdHocJsonSchema.For<PartnerPageExtraction>(JsonOpts);
 
         var failedPages = 0;
         string? firstFailure = null;
@@ -402,7 +402,7 @@ public sealed class GccV2PartnerExtractionService(
         try
         {
             var completion = await generator.CompleteAsync<PartnerPageExtraction>(
-                new GccV2SchemaConstrainedRequest(
+                new GccSchemaConstrainedRequest(
                     SystemPrompt: SystemPrompt,
                     UserPrompt: userPrompt,
                     JsonSchema: schema,

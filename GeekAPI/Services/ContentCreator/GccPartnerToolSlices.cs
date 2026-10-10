@@ -41,7 +41,7 @@ public sealed record GccPartnerToolSlice(
 /// <c>create.Topic</c> as the product name and handed extraction the whole pool, so it searched every
 /// partner's pages for a product named after the keyword. Two live runs, two different partner sets:
 /// 1 of 22 payload categories populated, against partners carrying 84–226 quotable spans each.
-/// <c>GccV2PartnerExtractionService</c>'s <c>toolNames</c> is prompt-only — it filters nothing — so the
+/// <c>GccPartnerExtractionService</c>'s <c>toolNames</c> is prompt-only — it filters nothing — so the
 /// page slice is what actually scopes extraction.
 /// </para>
 /// <para>

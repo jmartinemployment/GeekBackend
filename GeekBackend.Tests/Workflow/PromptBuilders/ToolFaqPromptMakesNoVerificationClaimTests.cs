@@ -15,7 +15,7 @@ namespace GeekBackend.Tests.Workflow.PromptBuilders;
 /// <remarks>
 /// The prompt said "Every answer below is already verified against the partner's own site", labelled
 /// each one "Verified answer" and headed the block "VERIFIED PARTNER FAQ". The answers are
-/// model-extracted: GccV2PartnerExtractionService builds each GccPartnerFaqAsset straight from the
+/// model-extracted: GccPartnerExtractionService builds each GccPartnerFaqAsset straight from the
 /// extraction's output, and the only verifier, VerifyAgainstLibraryAsync, is called from the dormant
 /// v2 resolver and not from the generate path. A promise the code does not keep is removed the day it
 /// is found; the word comes back when the verification does.

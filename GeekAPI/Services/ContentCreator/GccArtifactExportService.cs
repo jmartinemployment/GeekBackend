@@ -13,10 +13,10 @@ namespace GeekAPI.Services.ContentCreator;
 /// Exports a create's generated artifacts as standalone files, foldered by content type, with the
 /// image prompts lifted out into their own parallel tree.
 ///
-/// Two export services already existed and neither could see this output: the v1 one reads
-/// GeneratedContent rows on a Workflow project, and GccV2HtmlExportService reads GccV2 jobs. Create
-/// writes GccArtifact + GccArtifactVersion, so exporting a create through either produced an empty
-/// archive. The folder scheme here is v1's, which had it right -- content separated by type, and
+/// An export service already existed and could not see this output: it reads GeneratedContent rows
+/// on a Workflow project. Create writes GccArtifact + GccArtifactVersion, so exporting a create
+/// through it produced an empty archive. The folder scheme here is that one's, which had it right
+/// -- content separated by type, and
 /// image prompts never mixed in with the prose they belong to (Jeff, 2026-09-23: "Mixed together
 /// would be difficult for me to process").
 /// </summary>

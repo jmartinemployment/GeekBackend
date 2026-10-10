@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using GeekAPI.HttpClients;
 using GeekApplication.Models.ContentCreator;
 
-namespace GeekAPI.Services.ContentCreatorV2;
+namespace GeekAPI.Services.ContentCreator;
 
 public sealed record RelatedPageDto(string Url, string Title, HeadingDto[] Headings, string Excerpt);
 
@@ -33,7 +33,7 @@ public sealed record SiteAnalysisStoredPayload(
 /// <summary>
 /// Site section DTOs and gates for v2 project-site crawl orchestration.
 /// </summary>
-public static class GccV2SiteSection
+public static class GccSiteSection
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -127,10 +127,10 @@ public static class GccV2SiteSection
             covers.Add($"{page.Url}: {string.Join(" · ", bits.Where(b => !string.IsNullOrWhiteSpace(b)).Distinct())}");
         }
 
-        // competitorOpens is deliberately empty HERE: competitor research has not run at crawl time.
-        // GccV2InformationGain.Enrich fills it once competitor extraction exists. The summary must not
-        // claim "no gaps found" when the truth is "not computed yet" — those are different states, and
-        // it must not instruct an operator to upload a SERP that this path cannot accept.
+        // competitorOpens is deliberately empty: competitor research has not run at crawl time. The
+        // summary must not claim "no gaps found" when the truth is "not computed yet" — those are
+        // different states, and it must not instruct an operator to upload a SERP that this path
+        // cannot accept.
         var summary = covers.Count == 0
             ? $"No related site pages resolved for “{gapTopic}” — Information Gain needs section context."
             : $"This site covers {covers.Count} related page(s) near “{gapTopic}”. "

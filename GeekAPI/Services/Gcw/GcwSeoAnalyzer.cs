@@ -30,7 +30,7 @@ public static class GcwSeoAnalyzer
     /// </summary>
     /// <remarks>
     /// <paramref name="contentType"/> has no default on purpose. A two-argument overload used to pass
-    /// null, and null reaches <c>GccV2LongFormTypes.Normalize</c>, which returns <c>blog</c> — so a
+    /// null, and null reaches <c>GccLongFormTypes.Normalize</c>, which returns <c>blog</c> — so a
     /// pillar and a tool page, both with a 3,000-word floor, were silently graded against the blog's
     /// 1,800 and reported as passing. The caller always knows the type: a Create artifact carries
     /// <c>Type</c>, a Gcw asset carries <c>Type</c>. Requiring it is what stops the next caller

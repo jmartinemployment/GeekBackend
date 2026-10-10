@@ -77,9 +77,9 @@ public class Project
     /// resolve a section and cannot generate.
     ///
     /// Replaces SiteAnalysisProfileId and SiteAnalysisId, which held the same value under two names
-    /// on one entity: the create path wrote one, GccV2V1ProjectBridge wrote the other, and only the
-    /// first was ever read. A project made through the bridge therefore looked like it had no crawl
-    /// evidence. Site Analyzer, which both names referred to, is retired.
+    /// on one entity: the create path wrote one, a second path wrote the other, and only the first
+    /// was ever read, so a project made through the second looked like it had no crawl evidence. Site
+    /// Analyzer, which both names referred to, is retired.
     /// </summary>
     public Guid? ProjectSiteRunId { get; set; }
 

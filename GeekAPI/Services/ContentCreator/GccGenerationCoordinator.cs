@@ -1,7 +1,7 @@
 using System.Text.Json;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
-using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreator;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services;

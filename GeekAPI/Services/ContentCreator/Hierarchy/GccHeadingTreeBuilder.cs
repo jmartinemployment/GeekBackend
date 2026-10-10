@@ -1,15 +1,15 @@
 using HtmlAgilityPack;
 
-namespace GeekAPI.Services.ContentCreatorV2.Hierarchy;
+namespace GeekAPI.Services.ContentCreator.Hierarchy;
 
 /// <summary>
 /// DOM → nested heading tree from a <b>mobile</b> viewport snapshot.
 /// Skips nodes marked <c>data-gcc-hidden</c> (CSS-hidden at capture time) so responsive twins
 /// that are not shown on mobile are not walked. There is no desktop crawl.
 /// </summary>
-public static class GccV2HeadingTreeBuilder
+public static class GccHeadingTreeBuilder
 {
-    public static IReadOnlyList<GccV2HeadingNode> Build(string html)
+    public static IReadOnlyList<GccHeadingNode> Build(string html)
     {
         var doc = new HtmlDocument();
         doc.LoadHtml(html ?? string.Empty);
@@ -41,7 +41,7 @@ public static class GccV2HeadingTreeBuilder
             if (!int.TryParse(tagName[1].ToString(), out var level) || level is < 1 or > 6)
                 return;
 
-            var text = GccV2TextExtractor.Extract(node);
+            var text = GccTextExtractor.Extract(node);
             var newNode = new MutableNode { Level = level, HeadingText = text };
 
             while (stack.Count > 0 && stack[^1].Level >= level)
@@ -120,11 +120,11 @@ public static class GccV2HeadingTreeBuilder
             return;
 
         var href = node.GetAttributeValue("href", "").Trim();
-        var text = GccV2TextExtractor.Extract(node);
+        var text = GccTextExtractor.Extract(node);
         if (string.IsNullOrEmpty(href) || string.IsNullOrEmpty(text))
             return;
 
-        stack[^1].Links.Add(new GccV2HeadingLink(
+        stack[^1].Links.Add(new GccHeadingLink(
             text,
             href,
             (node.GetAttributeValue("rel", "") ?? "").Trim()));
@@ -144,26 +144,26 @@ public static class GccV2HeadingTreeBuilder
         return false;
     }
 
-    private static (string cleanText, List<GccV2HeadingLink> links) CleanAndExtractLinks(HtmlNode node)
+    private static (string cleanText, List<GccHeadingLink> links) CleanAndExtractLinks(HtmlNode node)
     {
-        var links = new List<GccV2HeadingLink>();
+        var links = new List<GccHeadingLink>();
         var anchors = node.SelectNodes(".//a[@href]");
         if (anchors != null)
         {
             foreach (var anchor in anchors)
             {
                 var href = anchor.GetAttributeValue("href", "").Trim();
-                var text = GccV2TextExtractor.Extract(anchor);
+                var text = GccTextExtractor.Extract(anchor);
                 if (string.IsNullOrEmpty(href) || string.IsNullOrEmpty(text))
                     continue;
-                links.Add(new GccV2HeadingLink(
+                links.Add(new GccHeadingLink(
                     text,
                     href,
                     (anchor.GetAttributeValue("rel", "") ?? "").Trim()));
             }
         }
 
-        var cleanText = GccV2TextExtractor.Extract(node);
+        var cleanText = GccTextExtractor.Extract(node);
         return (cleanText, links);
     }
 
@@ -182,10 +182,10 @@ public static class GccV2HeadingTreeBuilder
         public required int Level { get; init; }
         public required string HeadingText { get; init; }
         public List<string> Paragraphs { get; } = [];
-        public List<GccV2HeadingLink> Links { get; } = [];
+        public List<GccHeadingLink> Links { get; } = [];
         public List<MutableNode> Children { get; } = [];
 
-        public GccV2HeadingNode Seal() => new(
+        public GccHeadingNode Seal() => new(
             Level,
             HeadingText,
             Paragraphs,

@@ -1,13 +1,13 @@
-using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreator.Partner;
 
-namespace GeekBackend.Tests.ContentCreatorV2;
+namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Partner perks are negotiated with the vendor and published nowhere on their site, so they can
 /// never be crawled or quote-verified. They must travel as operator-asserted input and must never be
 /// mixed into the library-grounded partner payloads.
 /// </summary>
-public sealed class GccV2PartnerPerkTests
+public sealed class GccPartnerPerkTests
 {
     [Fact]
     public void Perk_is_not_part_of_the_library_grounded_partner_extraction_document()
@@ -33,7 +33,7 @@ public sealed class GccV2PartnerPerkTests
 /// counted by the tool page gate while no prompt read it, so it could help pass a gate without
 /// grounding a sentence. Matched by substring so a renamed copy of either fails here too.
 /// </remarks>
-public sealed class GccV2PartnerExtractionDroppedCategoriesTests
+public sealed class GccPartnerExtractionDroppedCategoriesTests
 {
     [Theory]
     [InlineData("Disclosure")]
@@ -56,7 +56,7 @@ public sealed class GccV2PartnerExtractionDroppedCategoriesTests
     [Fact]
     public void The_extraction_prompt_asks_for_neither_category()
     {
-        var schema = GeekAPI.Services.ContentCreatorV2.Generation.GccV2AdHocJsonSchema
+        var schema = GeekAPI.Services.ContentCreator.Generation.GccAdHocJsonSchema
             .For<PartnerPageExtraction>(new System.Text.Json.JsonSerializerOptions(
                 System.Text.Json.JsonSerializerDefaults.Web)
             {

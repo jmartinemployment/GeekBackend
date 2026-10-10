@@ -5,7 +5,7 @@ using GeekRepository.Data.Entities.GeekCrawler;
 using GeekRepository.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace GeekBackend.Tests.ContentCreatorV2;
+namespace GeekBackend.Tests.GeekCrawler;
 
 /// <summary>
 /// Atomic publish: a crawl is binary. A run in flight is invisible; the previously published run

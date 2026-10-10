@@ -1,11 +1,11 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreatorV2.Hierarchy;
+using GeekAPI.Services.ContentCreator.Hierarchy;
 using Microsoft.Extensions.Logging;
 
-namespace GeekBackend.Tests;
+namespace GeekBackend.Tests.ContentCreator;
 
-public class GccV2HierarchyTests
+public class GccHeadingTreeBuilderTests
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -32,7 +32,7 @@ public class GccV2HierarchyTests
             </body></html>
             """;
 
-        var roots = GccV2HeadingTreeBuilder.Build(html);
+        var roots = GccHeadingTreeBuilder.Build(html);
         Assert.Single(roots);
         Assert.Equal(2, roots[0].Level);
         Assert.Equal("Artificial Intelligence Use Cases", roots[0].HeadingText);
@@ -69,7 +69,7 @@ public class GccV2HierarchyTests
             </body></html>
             """;
 
-        var roots = GccV2HeadingTreeBuilder.Build(html);
+        var roots = GccHeadingTreeBuilder.Build(html);
         Assert.Single(roots);
         Assert.Equal("Mobile Use Cases", roots[0].HeadingText);
         Assert.DoesNotContain(roots, r => r.HeadingText.Contains("Desktop", StringComparison.Ordinal));
@@ -91,7 +91,7 @@ public class GccV2HierarchyTests
             </body></html>
             """;
 
-        var roots = GccV2HeadingTreeBuilder.Build(html);
+        var roots = GccHeadingTreeBuilder.Build(html);
         Assert.Single(roots);
         Assert.Equal("Mobile Use Cases", roots[0].HeadingText);
         Assert.DoesNotContain(roots, r => r.HeadingText.Contains("Desktop", StringComparison.Ordinal));
@@ -100,7 +100,7 @@ public class GccV2HierarchyTests
             Flatten(roots),
             n => n.Links.Any(l => l.Href.Contains("desktop-only", StringComparison.Ordinal)));
     }
-    private static IEnumerable<GccV2HeadingNode> Flatten(IEnumerable<GccV2HeadingNode> nodes)
+    private static IEnumerable<GccHeadingNode> Flatten(IEnumerable<GccHeadingNode> nodes)
     {
         foreach (var n in nodes)
         {

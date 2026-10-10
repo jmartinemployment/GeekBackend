@@ -1,10 +1,10 @@
-using GeekAPI.Services.ContentCreatorV2.Partner;
-using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreator.Partner;
+using GeekAPI.Services.ContentCreator.Generation;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace GeekBackend.Tests.ContentCreatorV2;
+namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Partner extraction requires a content provider. Tests that are not exercising extraction itself
@@ -20,11 +20,11 @@ internal sealed class NoProviderFactory : IContentProviderFactory
         throw new InvalidOperationException("No content provider configured in tests.");
 }
 
-internal static class CompetitorExtractionTestDoubles
+internal static class PartnerExtractionTestDoubles
 {
     /// <summary>A partner extraction service that yields an empty document without calling any model.</summary>
-    public static GccV2PartnerExtractionService InertPartner() =>
-        new(new GccV2SchemaConstrainedGenerator(),
+    public static GccPartnerExtractionService InertPartner() =>
+        new(new GccSchemaConstrainedGenerator(),
             new NoProviderFactory(),
-            NullLogger<GccV2PartnerExtractionService>.Instance);
+            NullLogger<GccPartnerExtractionService>.Instance);
 }

@@ -160,9 +160,9 @@ builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
 // marked running was running in a process that no longer exists, and is failed as such.
 builder.Services.AddHostedService<GeekAPI.Services.ContentCreator.GccInterruptedJobsOnStartup>();
 // A partner's pages read into a structured record for its tool page, under a provider-enforced schema.
-builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Generation.IGccV2SchemaConstrainedGenerator,
-    GeekAPI.Services.ContentCreatorV2.Generation.GccV2SchemaConstrainedGenerator>();
-builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.Generation.IGccSchemaConstrainedGenerator,
+    GeekAPI.Services.ContentCreator.Generation.GccSchemaConstrainedGenerator>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.Partner.GccPartnerExtractionService>();
 // Every hub pushes over SignalR and addresses a user by the token's sub.
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubUserIdProvider>();

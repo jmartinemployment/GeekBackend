@@ -14,10 +14,6 @@ public class ApiKeyMiddleware
         "/api/case-studies",
         "/api/departments",
         "/api/use-cases",
-        // OAuth provider redirects (ownership enforced via signed state, not API key).
-        "/api/geek-content-creator-v2/gsc/oauth/callback",
-        "/api/geek-content-creator-v2/drive/oauth/callback",
-        "/api/geek-content-creator-v2/sharepoint/oauth/callback",
     };
 
     private readonly RequestDelegate _next;
@@ -39,7 +35,7 @@ public class ApiKeyMiddleware
             return;
         }
 
-        // SignalR hubs (e.g. /hubs/gcc-v2-realtime) authenticate via JWT bearer + [Authorize] on
+        // SignalR hubs (e.g. /hubs/workflow-realtime) authenticate via JWT bearer + [Authorize] on
         // the hub itself — the WebSocket handshake can't carry X-API-Key/Authorization headers,
         // so this middleware steps aside for /hubs/* and lets the auth pipeline handle it.
         if (normalizedPath.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase))

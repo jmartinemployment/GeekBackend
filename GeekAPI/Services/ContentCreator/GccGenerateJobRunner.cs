@@ -1,7 +1,7 @@
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using GeekAPI.HttpClients;
-using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreator;
 
 namespace GeekAPI.Services.ContentCreator;
 

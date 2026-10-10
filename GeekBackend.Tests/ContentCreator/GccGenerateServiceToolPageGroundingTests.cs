@@ -15,7 +15,7 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Partner grounding for the live "aiTool" content type, 2026-09-22. GenerateToolPageAsync never
-/// consumed GccV2PartnerExtractionService's real payloads even though the "AI Tools" manual-entry
+/// consumed GccPartnerExtractionService's real payloads even though the "AI Tools" manual-entry
 /// panel was deleted on the belief it already did (commit 7dcaea6). Per Jeff's explicit instruction
 /// ("Partner crawl data required when content type Tool/Partner selected"), a create that reaches
 /// this method must either ground in real partner extraction or refuse -- no silent ungrounded
@@ -142,7 +142,7 @@ public class GccGenerateServiceToolPageGroundingTests
 
     private static GccGenerateService Build(
         IContentGenerationProvider provider,
-        GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction,
+        GeekAPI.Services.ContentCreator.Partner.GccPartnerExtractionService partnerExtraction,
         // The project the create belongs to, when a test needs its partner URLs (the per-tool
         // framing and FAQ questions key off the partner host).
         GccProjectDto? project = null) => new(
@@ -252,11 +252,11 @@ public class GccGenerateServiceToolPageGroundingTests
         var provider = new ScriptedProvider();
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
-            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+            Integrations = [new GeekAPI.Services.ContentCreator.Partner.PartnerIntegrationItem(
                 "Slack", "Notifications", "API", "Slack integration")],
         };
         var service = Build(
@@ -338,7 +338,7 @@ public class GccGenerateServiceToolPageGroundingTests
         var provider = new ScriptedProvider();
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Icp = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIcpItem(
+            Icp = [new GeekAPI.Services.ContentCreator.Partner.PartnerIcpItem(
                 ["SMB"], null, "11-50", ["Software"], ["IT Director"], "SMB software companies")],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
@@ -369,11 +369,11 @@ public class GccGenerateServiceToolPageGroundingTests
         var provider = new ScriptedProvider();
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
-            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+            Integrations = [new GeekAPI.Services.ContentCreator.Partner.PartnerIntegrationItem(
                 "Slack", "Notifications", "API", "Slack integration")],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
@@ -408,14 +408,14 @@ public class GccGenerateServiceToolPageGroundingTests
                 StringComparison.Ordinal));
     }
 
-    private static GeekAPI.Services.ContentCreatorV2.Partner.PartnerPageExtraction GroundableExtraction() =>
+    private static GeekAPI.Services.ContentCreator.Partner.PartnerPageExtraction GroundableExtraction() =>
         GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
-            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+            Integrations = [new GeekAPI.Services.ContentCreator.Partner.PartnerIntegrationItem(
                 "Slack", "Notifications", "API", "Slack integration")],
         };
 
@@ -483,11 +483,11 @@ public class GccGenerateServiceToolPageGroundingTests
         // GccHeadingProvenanceGuard.
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
-            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+            Integrations = [new GeekAPI.Services.ContentCreator.Partner.PartnerIntegrationItem(
                 "Slack", "Notifications", "API", "Slack integration")],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
@@ -521,11 +521,11 @@ public class GccGenerateServiceToolPageGroundingTests
         var provider = new ScriptedProvider(includeFaq: true);
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
-            Faqs = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFaqItem(
+            Faqs = [new GeekAPI.Services.ContentCreator.Partner.PartnerFaqItem(
                 "Is Partner Widget secure?", "Yes, SOC 2 Type II certified.", "SOC 2 Type II certified")],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
@@ -575,11 +575,11 @@ public class GccGenerateServiceToolPageGroundingTests
         var provider = new ScriptedProvider(includeFaq: true);
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
-            Faqs = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFaqItem(
+            Faqs = [new GeekAPI.Services.ContentCreator.Partner.PartnerFaqItem(
                 "Is Partner Widget secure?", "Yes, SOC 2 Type II certified.", "SOC 2 Type II certified")],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
@@ -638,14 +638,14 @@ public class GccGenerateServiceToolPageGroundingTests
         // GccHeadingProvenanceGuard.
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
             // PartnerFaqItem is the raw per-page shape ExtractFromPagesAsync aggregates into the
             // final GccPartnerFaqAsset (page.Url + built provenance) -- no quote-in-text gate at
             // this stage, just non-empty Question/Answer.
-            Faqs = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFaqItem(
+            Faqs = [new GeekAPI.Services.ContentCreator.Partner.PartnerFaqItem(
                 "Is Partner Widget secure?", "Yes, SOC 2 Type II certified.", "SOC 2 Type II certified")],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
@@ -679,11 +679,11 @@ public class GccGenerateServiceToolPageGroundingTests
         var provider = new ScriptedProvider(operatorFaqJson: answeredOnlyTheFirst);
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
-            Citables = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerCitableItem(
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
                 "Partner Widget reduces setup time by half.", "reduces setup time by half")],
-            FeatureInventory = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerFeatureItem(
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
                 "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
-            Integrations = [new GeekAPI.Services.ContentCreatorV2.Partner.PartnerIntegrationItem(
+            Integrations = [new GeekAPI.Services.ContentCreator.Partner.PartnerIntegrationItem(
                 "QuickBooks Online", "accounting", null, null)],
         };
         var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);

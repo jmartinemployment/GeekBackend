@@ -1,5 +1,5 @@
 using GeekAPI.Services.ContentCreator;
-using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreator.Partner;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;

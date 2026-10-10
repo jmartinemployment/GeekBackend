@@ -1,4 +1,4 @@
-using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.ContentCreator.ContentTypes;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
@@ -144,8 +144,8 @@ public class OutlinePromptRulesTests
         // Jeff, 2026-09-28: "Tool is the most important Content Type and at very least should equal
         // a Pillar on every measure", which is the same instruction recorded on 2026-09-22.
         Assert.Equal(
-            GccV2LongFormTypes.GetSeoLengthRules(GccV2LongFormTypes.Pillar),
-            GccV2LongFormTypes.GetSeoLengthRules(GccV2LongFormTypes.Tool));
+            GccLongFormTypes.GetSeoLengthRules(GccLongFormTypes.Pillar),
+            GccLongFormTypes.GetSeoLengthRules(GccLongFormTypes.Tool));
 
         Assert.Equal(ContentLengthTargets.PillarMinWords, ContentLengthTargets.ToolMinWords);
         Assert.Equal(ContentLengthTargets.PillarTargetMaxWords, ContentLengthTargets.ToolTargetMaxWords);
@@ -158,10 +158,10 @@ public class OutlinePromptRulesTests
     public void The_body_is_given_the_floor_the_scorer_actually_uses(string which, int minWords, int minSections)
     {
         // The whole point of the rewrite. ContentLengthTargets drove the prompt and
-        // GccV2LongFormTypes.GetSeoLengthRules drove the score, and they disagreed -- the blog
+        // GccLongFormTypes.GetSeoLengthRules drove the score, and they disagreed -- the blog
         // prompt asked for 2,000 against a scored floor of 1,800, the tool prompt for 3,000 against
         // 1,500. One source now, the scorer's own.
-        var expected = GccV2LongFormTypes.GetSeoLengthRules(which);
+        var expected = GccLongFormTypes.GetSeoLengthRules(which);
         Assert.Equal((minWords, minSections, true), expected);
 
         var rendered = Body(which);

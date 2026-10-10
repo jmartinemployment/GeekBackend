@@ -2,35 +2,19 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using GeekAPI.Services.Workflow.Providers;
 
-namespace GeekAPI.Services.ContentCreatorV2.Generation;
+namespace GeekAPI.Services.ContentCreator.Generation;
 
 /// <summary>
-/// PLACEHOLDER SEAM — Workstream 1 (parallel effort, see plans/master-plan.md) is adding a public
-/// JSON-schema-constrained completion method to <c>GccV2CreateLibraryWriter</c>
-/// (<c>GeekAPI/Services/Rag/GccV2CreateLibraryWriter.cs</c>), reusing the
-/// <c>ContentSectionJsonSchema</c>/<c>JsonSchemaExporter</c> pattern already proven there. As of
-/// this reroute, that method had not landed yet (no new commits on <c>GccV2CreateLibraryWriter.cs</c> or
-/// <c>GccV2GenerationContracts.cs</c> in the main tree).
-///
-/// This interface is the seam every Workstream 2 call site should depend on instead of calling
-/// <see cref="IContentGenerationProvider.CompleteAsync"/> directly with a hand-built free-text
-/// prompt + best-effort JSON parsing via <c>LlmResponseJsonParser</c>. It is NOT a no-op stub: it
-/// already uses the <c>JsonSchemaName</c>/<c>JsonSchema</c> fields that exist today on
-/// <see cref="ChatCompletionRequest"/> (see <c>GeekAPI/Services/Workflow/Providers/ProviderModels.cs</c>),
-/// so schema hints reach the provider now, and it enforces strict deserialization against the
-/// requested schema shape.
-///
-/// TODO(workstream-1-handoff): once <c>GccV2CreateLibraryWriter</c> exposes its real schema-constrained
-/// method, delete <see cref="GccV2SchemaConstrainedGenerator"/>'s body and either (a) make it a thin
-/// delegator to that method, or (b) repoint the DI registration in
-/// <c>GeekAPI/Services/ContentCreatorV2/ServiceRegistration.cs</c> at a new implementation backed by
-/// it directly. The call sites (constructor-injected <see cref="IGccV2SchemaConstrainedGenerator"/>)
-/// should not need to change shape — only this implementation and its registration.
+/// A completion held to a JSON schema. Call sites depend on this instead of calling
+/// <see cref="IContentGenerationProvider.CompleteAsync"/> with a hand-built prompt and parsing the
+/// reply best-effort: the schema's name and body go to the provider on
+/// <see cref="ChatCompletionRequest"/>, and the reply is deserialized strictly against the requested
+/// shape.
 /// </summary>
-public interface IGccV2SchemaConstrainedGenerator
+public interface IGccSchemaConstrainedGenerator
 {
-    Task<GccV2SchemaConstrainedCompletion<T>> CompleteAsync<T>(
-        GccV2SchemaConstrainedRequest request,
+    Task<GccSchemaConstrainedCompletion<T>> CompleteAsync<T>(
+        GccSchemaConstrainedRequest request,
         IContentGenerationProvider provider,
         JsonSerializerOptions? deserializeOptions,
         CancellationToken ct) where T : notnull;
@@ -40,12 +24,12 @@ public interface IGccV2SchemaConstrainedGenerator
 /// <param name="UserPrompt">User-role prompt/context.</param>
 /// <param name="JsonSchema">
 /// Strict JSON schema string the response must conform to — build with
-/// <see cref="GccV2AdHocJsonSchema.For{T}"/> for plain DTOs, or reuse
+/// <see cref="GccAdHocJsonSchema.For{T}"/> for plain DTOs, or reuse
 /// <c>ContentSectionJsonSchema.SectionSchema</c>/<c>SectionsArraySchema</c> for
 /// <see cref="Workflow.Domain.Entities.Section"/>-shaped results.
 /// </param>
 /// <param name="SchemaName">Short, stable name surfaced in provider requests/logs/errors.</param>
-public sealed record GccV2SchemaConstrainedRequest(
+public sealed record GccSchemaConstrainedRequest(
     string SystemPrompt,
     string UserPrompt,
     string JsonSchema,
@@ -57,13 +41,13 @@ public sealed record GccV2SchemaConstrainedRequest(
     /// a crawled page, which is the volume worth moving to a cheaper model.</summary>
     LlmTaskClass TaskClass = LlmTaskClass.Extraction);
 
-public sealed record GccV2SchemaConstrainedCompletion<T>(
+public sealed record GccSchemaConstrainedCompletion<T>(
     T Value,
     string ModelUsed,
     int? PromptTokens,
     int? CompletionTokens) where T : notnull;
 
-public sealed class GccV2SchemaConstrainedGenerator : IGccV2SchemaConstrainedGenerator
+public sealed class GccSchemaConstrainedGenerator : IGccSchemaConstrainedGenerator
 {
     private static readonly JsonSerializerOptions DefaultOptions =
         new(JsonSerializerDefaults.Web)
@@ -75,8 +59,8 @@ public sealed class GccV2SchemaConstrainedGenerator : IGccV2SchemaConstrainedGen
             TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
         };
 
-    public async Task<GccV2SchemaConstrainedCompletion<T>> CompleteAsync<T>(
-        GccV2SchemaConstrainedRequest request,
+    public async Task<GccSchemaConstrainedCompletion<T>> CompleteAsync<T>(
+        GccSchemaConstrainedRequest request,
         IContentGenerationProvider provider,
         JsonSerializerOptions? deserializeOptions,
         CancellationToken ct) where T : notnull
@@ -116,7 +100,7 @@ public sealed class GccV2SchemaConstrainedGenerator : IGccV2SchemaConstrainedGen
                 + "even though a JsonSchema was supplied on the request.", ex);
         }
 
-        return new GccV2SchemaConstrainedCompletion<T>(
+        return new GccSchemaConstrainedCompletion<T>(
             value,
             string.IsNullOrWhiteSpace(result.ModelUsed) ? request.Model ?? "" : result.ModelUsed,
             result.PromptTokens,

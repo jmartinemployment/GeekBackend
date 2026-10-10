@@ -16,7 +16,7 @@ namespace GeekAPI.Middleware;
 /// The cause was found on 2026-09-30 from Railway's logs, not from the response: at 16:10:56 UTC on
 /// 09-28 every GeekRepository call was failing with
 /// <c>SocketException (104) Connection reset by peer</c> after ~2.5ms. It hit pages/batch, the RAG
-/// index-status webhook and the GccV2 task worker within three seconds of each other -- the store
+/// index-status webhook and a background job worker within three seconds of each other -- the store
 /// was gone, not the request bad. The specific path that threw, an ownership lookup outside its
 /// try, was fixed the same evening in f024fe0 (22:29 UTC, six hours after avalara). This exists
 /// because the next unhandled exception will be a different one, and a blank 500 will be just as

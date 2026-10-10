@@ -1,7 +1,7 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
-using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreator.Generation;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
@@ -264,17 +264,17 @@ public class GccAngleQuoteProbeTests
     }
 
     private sealed class FakeGenerator(GccAngleQuoteSelection? selection, Exception? throws)
-        : IGccV2SchemaConstrainedGenerator
+        : IGccSchemaConstrainedGenerator
     {
-        public Task<GccV2SchemaConstrainedCompletion<T>> CompleteAsync<T>(
-            GccV2SchemaConstrainedRequest request,
+        public Task<GccSchemaConstrainedCompletion<T>> CompleteAsync<T>(
+            GccSchemaConstrainedRequest request,
             IContentGenerationProvider provider,
             JsonSerializerOptions? deserializeOptions,
             CancellationToken ct) where T : notnull
         {
             if (throws is not null) throw throws;
             return Task.FromResult(
-                new GccV2SchemaConstrainedCompletion<T>((T)(object)selection!, "fake", null, null));
+                new GccSchemaConstrainedCompletion<T>((T)(object)selection!, "fake", null, null));
         }
     }
 

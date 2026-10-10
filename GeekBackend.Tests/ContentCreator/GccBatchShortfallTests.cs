@@ -128,7 +128,7 @@ public sealed class GccBatchShortfallTests
     {
         // Three batches of two sections on a six-section page: each owes a third of the page's count,
         // and the page's count sits between the scorer's 0.4% and 2.5% of its word floor.
-        var (minWords, _, _) = GeekAPI.Services.ContentCreatorV2.ContentTypes.GccV2LongFormTypes.GetSeoLengthRules(type);
+        var (minWords, _, _) = GeekAPI.Services.ContentCreator.ContentTypes.GccLongFormTypes.GetSeoLengthRules(type);
         var perBatch = ContentPromptBuilder.SeoKeywordMentionsFor(type, 2, 6);
         var wholePage = ContentPromptBuilder.SeoKeywordMentionsFor(type, 6, 6);
 

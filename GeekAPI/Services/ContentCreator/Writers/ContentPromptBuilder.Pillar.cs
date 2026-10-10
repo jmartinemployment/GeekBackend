@@ -7,7 +7,7 @@ using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekApplication.Models.ContentCreator;
 
-using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.ContentCreator.ContentTypes;
 
 using GeekAPI.Services.ContentCreator;
 
@@ -25,15 +25,13 @@ namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 // existing test that references ContentPromptBuilder see no difference at all.
 //
 // IMPORTANT cross-pipeline finding (2026-10-09, not in the plan's section 4/5 evidence, which
-// predates it by 11 commits on this file): several of these methods are reached by two more
-// callers than plans/single-source-of-responsibility.md accounts for --
+// predates it by 11 commits on this file): several of these methods are reached by one more
+// caller than plans/single-source-of-responsibility.md accounts for --
 //   - BuildPillarLedePrompt: also called by ContentGenerationOrchestrator.cs:1458 (the
 //     Workflow product's own, separate pillar pipeline).
 //   - BuildArticleSectionBatchPrompt: also called by ContentGenerationOrchestrator.cs:1504.
 //   - BuildArticleFaqSectionPrompt: also called by ContentGenerationOrchestrator.cs:1597.
-//   - BuildArticleMetadataPrompt: also called by ContentGenerationOrchestrator.cs:1333 AND
-//     by GccV2WriteService.GeneratePillarMetadataAsync (ContentCreatorV2) -- a THIRD live
-//     pillar-generation pipeline the plan does not mention at all.
+//   - BuildArticleMetadataPrompt: also called by ContentGenerationOrchestrator.cs:1333.
 //   - BuildIntroductionSectionGuidance, BuildBenefitsSectionGuidance,
 //     BuildBestPracticesSectionGuidance, BuildFutureTrendsSectionGuidance,
 //     BuildConcretenessRevisionAmplifier and NotesAskForConcreteness: each also called from
@@ -41,10 +39,10 @@ namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 //     only by ContentGenerationOrchestrator.cs:1567 -- i.e. these are shared between Pillar
 //     real path and a method that is otherwise Workflow-only.
 // None of this makes the move unsafe tonight -- a partial-class split changes where source
-// text lives, never which type it compiles into, so ContentGenerationOrchestrator and
-// GccV2WriteService keep resolving these calls exactly as before. It matters for later: this
-// file cannot be cut over to a standalone Pillar Write class, and the old GccGenerateService
-// pillar path cannot be deleted, without first accounting for these other two pipelines --
+// text lives, never which type it compiles into, so ContentGenerationOrchestrator keeps
+// resolving these calls exactly as before. It matters for later: this file cannot be cut over
+// to a standalone Pillar Write class, and the old GccGenerateService pillar path cannot be
+// deleted, without first accounting for that other pipeline --
 // see the plan's 2026-10-09 progress note under section 6 step 2.
 //
 // BuildArticleLedePrompt, BuildArticleMetaRevisionPrompt, BuildArticleSectionPrompt
@@ -356,7 +354,7 @@ public partial class ContentPromptBuilder
             .AppendLine("=== ASSIGNMENT ===")
             .AppendLine($"Write {slots.Count} sections of this pillar in one response.")
             .AppendLine(SeoBodyInstruction(
-                context.TargetKeyword, GccV2LongFormTypes.Pillar,
+                context.TargetKeyword, GccLongFormTypes.Pillar,
                 // The lede wrote fullOutline[0], so the body's own sections are what remains.
                 slots.Count, Math.Max(slots.Count, fullOutline.Count - 1),
                 SectionSlot.BatchOwnsKeywordHeading(slots, fullOutline, batchIndex)))

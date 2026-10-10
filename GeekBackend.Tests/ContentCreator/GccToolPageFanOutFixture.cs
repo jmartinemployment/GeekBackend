@@ -1,6 +1,6 @@
 using GeekAPI.Services.ContentCreator;
-using GeekAPI.Services.ContentCreatorV2.Generation;
-using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreator.Generation;
+using GeekAPI.Services.ContentCreator.Partner;
 using GeekAPI.Services.Workflow.Services;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
@@ -165,12 +165,12 @@ internal sealed record GccToolPageFanOutFixture(
                 projects,
                 new GccCompetitorAnalysisResolverTests.FakePages(),
                 new GccCompetitorAnalysisResolverTests.FakeRag()),
-            new GccV2PartnerExtractionService(
+            new GccPartnerExtractionService(
                 extractionFails
                     ? new FailingSchemaConstrainedGenerator(calls)
                     : new CountingSchemaConstrainedGenerator(extraction, calls),
                 new FakeProviderFactory(provider),
-                NullLogger<GccV2PartnerExtractionService>.Instance),
+                NullLogger<GccPartnerExtractionService>.Instance),
             projects,
             new GccPublisherProfileResolver(
                 projects,
@@ -285,29 +285,29 @@ internal sealed record GccToolPageFanOutFixture(
 
     /// <summary>
     /// <see cref="GccPartnerExtractionFakes.ScriptedSchemaConstrainedGenerator"/> with a call count —
-    /// one call per page, per <c>GccV2PartnerExtractionService.ExtractOnePageAsync</c>.
+    /// one call per page, per <c>GccPartnerExtractionService.ExtractOnePageAsync</c>.
     /// </summary>
     private sealed class CountingSchemaConstrainedGenerator(PartnerPageExtraction result, CallCounter calls)
-        : IGccV2SchemaConstrainedGenerator
+        : IGccSchemaConstrainedGenerator
     {
-        public Task<GccV2SchemaConstrainedCompletion<T>> CompleteAsync<T>(
-            GccV2SchemaConstrainedRequest request, IContentGenerationProvider provider,
+        public Task<GccSchemaConstrainedCompletion<T>> CompleteAsync<T>(
+            GccSchemaConstrainedRequest request, IContentGenerationProvider provider,
             System.Text.Json.JsonSerializerOptions? deserializeOptions, CancellationToken ct)
             where T : notnull
         {
             if (typeof(T) != typeof(PartnerPageExtraction))
                 throw new NotSupportedException($"Fake only supports PartnerPageExtraction, got {typeof(T)}.");
             calls.CountExtraction();
-            var completion = new GccV2SchemaConstrainedCompletion<PartnerPageExtraction>(
+            var completion = new GccSchemaConstrainedCompletion<PartnerPageExtraction>(
                 result, "test-model", null, null);
-            return Task.FromResult((GccV2SchemaConstrainedCompletion<T>)(object)completion);
+            return Task.FromResult((GccSchemaConstrainedCompletion<T>)(object)completion);
         }
     }
 
-    private sealed class FailingSchemaConstrainedGenerator(CallCounter calls) : IGccV2SchemaConstrainedGenerator
+    private sealed class FailingSchemaConstrainedGenerator(CallCounter calls) : IGccSchemaConstrainedGenerator
     {
-        public Task<GccV2SchemaConstrainedCompletion<T>> CompleteAsync<T>(
-            GccV2SchemaConstrainedRequest request, IContentGenerationProvider provider,
+        public Task<GccSchemaConstrainedCompletion<T>> CompleteAsync<T>(
+            GccSchemaConstrainedRequest request, IContentGenerationProvider provider,
             System.Text.Json.JsonSerializerOptions? deserializeOptions, CancellationToken ct)
             where T : notnull
         {

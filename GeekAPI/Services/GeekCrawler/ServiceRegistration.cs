@@ -70,7 +70,7 @@ public static class GeekCrawlerServiceRegistration
 
         // Singleton so the cache spans requests -- a per-request instance would cache nothing and
         // leave the ownership lookup firing on every batch, which is the failure this removes.
-        // AddMemoryCache is idempotent; it is also registered by the ContentCreatorV2 module.
+        // AddMemoryCache is idempotent; Program.cs registers it too.
         services.AddMemoryCache();
         services.AddSingleton<GeekCrawlerRunOwnerCache>();
         services.AddScoped<GeekCrawlerPageBatchWriter>();

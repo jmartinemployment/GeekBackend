@@ -2,14 +2,14 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
 
-namespace GeekAPI.Services.ContentCreatorV2.Generation;
+namespace GeekAPI.Services.ContentCreator.Generation;
 
 /// <summary>
 /// Builds a strict (OpenAI/Groq structured-output compatible) JSON schema for a plain DTO type
 /// via .NET's <see cref="JsonSchemaExporter"/> — the exact pattern used by
 /// <see cref="GeekAPI.Services.Workflow.Services.ContentSectionJsonSchema"/>, generalized for the
 /// metadata/extraction/transform DTOs rerouted onto the schema-constrained generation mechanism
-/// (see <see cref="IGccV2SchemaConstrainedGenerator"/>). Every object node gets
+/// (see <see cref="IGccSchemaConstrainedGenerator"/>). Every object node gets
 /// <c>additionalProperties: false</c> plus a full <c>required</c> list, and <c>oneOf</c> is swapped
 /// for <c>anyOf</c> (Groq structured outputs reject <c>oneOf</c>/<c>const</c>) — same requirements
 /// as <c>ContentSectionJsonSchema</c>.
@@ -20,7 +20,7 @@ namespace GeekAPI.Services.ContentCreatorV2.Generation;
 /// root-self-reference rewrite that <see cref="Section.Children"/>'s recursion needs, neither of
 /// which this generalized helper attempts to infer.
 /// </summary>
-public static class GccV2AdHocJsonSchema
+public static class GccAdHocJsonSchema
 {
     private static readonly JsonSchemaExporterOptions ExporterOptions = new()
     {

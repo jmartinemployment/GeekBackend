@@ -16,15 +16,11 @@ using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Models.ContentCreator;
 using Microsoft.Extensions.Options;
 
-using GeekAPI.Services.ContentCreatorV2;
+using GeekAPI.Services.ContentCreator;
 
 using GeekAPI.HttpClients;
 namespace GeekAPI.Services.ContentCreator;
 
-using RelatedPageDto = GeekAPI.Services.ContentCreatorV2.RelatedPageDto;
-using SiteSectionContextDto = GeekAPI.Services.ContentCreatorV2.SiteSectionContextDto;
-using ContentGapDto = GeekAPI.Services.ContentCreatorV2.ContentGapDto;
-using SiteAnalysisStoredPayload = GeekAPI.Services.ContentCreatorV2.SiteAnalysisStoredPayload;
 
 public sealed record SiteAnalysisDto(Guid Id, string Domain, string Status);
 
@@ -63,7 +59,7 @@ public partial class GccGenerateService
     private readonly ILogger<GccGenerateService> _logger;
     private readonly IGccPartnerExtractionBank _extractionBank;
     private readonly GccCompetitorAnalysisResolver _competitorAnalysis;
-    private readonly GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService _partnerExtraction;
+    private readonly GeekAPI.Services.ContentCreator.Partner.GccPartnerExtractionService _partnerExtraction;
     private readonly IGccProjectReader _projects;
     private readonly GccPublisherProfileResolver _publisherProfile;
     private readonly GccKnownToolsResolver _knownTools;
@@ -90,7 +86,7 @@ public partial class GccGenerateService
         IOptions<CompanyProfileOptions> company,
         ILogger<GccGenerateService> logger,
         GccCompetitorAnalysisResolver competitorAnalysis,
-        GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService partnerExtraction,
+        GeekAPI.Services.ContentCreator.Partner.GccPartnerExtractionService partnerExtraction,
         IGccProjectReader projects,
         GccPublisherProfileResolver publisherProfile,
         GccKnownToolsResolver knownTools,
@@ -113,7 +109,7 @@ public partial class GccGenerateService
     }
 
     public static SiteSectionContextDto? ParseSiteSection(string? json) =>
-        GccV2SiteSection.ParseSiteSection(json);
+        GccSiteSection.ParseSiteSection(json);
 
     /// <summary>
     /// Required gate: every Generate must have a crawl id (site_analysis_profiles.Id).
@@ -123,7 +119,7 @@ public partial class GccGenerateService
     /// per-H2 image prompts must include siteSection+tree with at least one top-level section.
     /// </summary>
     public static void ValidateSiteSectionGate(Guid? projectSiteRunId, SiteSectionContextDto? section) =>
-        GccV2SiteSection.ValidateSiteSectionGate(projectSiteRunId, section);
+        GccSiteSection.ValidateSiteSectionGate(projectSiteRunId, section);
 
     /// <summary>
     /// Per-H2 image-prompt gate: requires a primary long-form with at least one top-level section.
@@ -1787,11 +1783,11 @@ public partial class GccGenerateService
         string jsonLd;
         if (groundedExtraction is not null)
         {
-            var partnerNode = GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerSoftwareApplicationJsonLd
+            var partnerNode = GeekAPI.Services.ContentCreator.Partner.GccPartnerSoftwareApplicationJsonLd
                 .TryBuild(groundedExtraction, partnerPages);
             if (partnerNode is not null)
             {
-                GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerSoftwareApplicationJsonLd
+                GeekAPI.Services.ContentCreator.Partner.GccPartnerSoftwareApplicationJsonLd
                     .EnsureShipReadyOrThrow(partnerNode, groundedExtraction);
                 jsonLd = JsonSerializer.Serialize(partnerNode, PartnerExtractionJsonOpts);
             }
@@ -2354,7 +2350,7 @@ public partial class GccGenerateService
         Guid analysisId,
         SiteAnalysisStoredPayload payload,
         string gapTopic) =>
-        GccV2SiteSection.TryBuildSectionContext(analysisId, payload, gapTopic);
+        GccSiteSection.TryBuildSectionContext(analysisId, payload, gapTopic);
 
     public static GcwSeoAnalyzer.SeoReport AnalyzeSeo(string bodyJson, string keyword, string? contentType) =>
         GcwSeoAnalyzer.Analyze(bodyJson, keyword, contentType);
@@ -2877,10 +2873,6 @@ public partial class GccGenerateService
     /// to a rival that is exactly wrong: a page about our partner that links a competitor and cites
     /// them by name has advertised for them. So this block is read-only evidence — know what they
     /// claim, write something they have not, and never quote, cite or link them.
-    /// </para>
-    /// <para>
-    /// Wording follows <c>GccV2ContextAdapter</c>'s competitor branch, which had the fullest
-    /// version of these rules already written and never reached the live path.
     /// </para>
     /// <para>
     /// Distinct from <see cref="BuildCompetitorHeadingBlock"/>, which carries heading *structure*

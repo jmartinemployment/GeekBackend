@@ -1,7 +1,7 @@
-namespace GeekAPI.Services.ContentCreatorV2.ContentTypes;
+namespace GeekAPI.Services.ContentCreator.ContentTypes;
 
 /// <summary>Export-only PDF content types (not long-form web pages).</summary>
-public static class GccV2ChannelTypes
+public static class GccChannelTypes
 {
     /// <summary>Legacy persisted identifier for the PDF option. The UI label is PDF.</summary>
     public const string LinkedInDocument = "linkedin-document";

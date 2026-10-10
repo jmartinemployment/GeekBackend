@@ -1,7 +1,7 @@
 using System.Text.Json;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator.Guardrail;
-using GeekAPI.Services.ContentCreatorV2.Hierarchy;
+using GeekAPI.Services.ContentCreator.Hierarchy;
 
 namespace GeekAPI.Services.ContentCreator;
 
@@ -118,7 +118,7 @@ public sealed class GccPublisherProfileResolver(
         }
         else if (!string.IsNullOrWhiteSpace(home.ContentHtml))
         {
-            foreach (var node in GccV2HeadingTreeBuilder.Build(home.ContentHtml!))
+            foreach (var node in GccHeadingTreeBuilder.Build(home.ContentHtml!))
             {
                 CollectHeadings(node, headings);
             }
@@ -133,7 +133,7 @@ public sealed class GccPublisherProfileResolver(
     private static bool IsRosterLabel(string text) =>
         text.Length <= MaxRosterLabelChars && GccToolsSectionGuard.EnumeratesTools(text);
 
-    private static void CollectHeadings(GccV2HeadingNode node, List<string> into)
+    private static void CollectHeadings(GccHeadingNode node, List<string> into)
     {
         if (into.Count >= MaxHeadings) return;
         // A roster's heading takes its subtree with it: the headings under it are the tools.

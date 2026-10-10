@@ -1,7 +1,7 @@
-using GeekAPI.Services.ContentCreatorV2.Partner;
+using GeekAPI.Services.ContentCreator.Partner;
 using GeekApplication.Models.ContentCreator;
 
-namespace GeekBackend.Tests.ContentCreatorV2;
+namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Partner SoftwareApplication JSON-LD ships on live tool pages, so its fail-closed gate must stay
@@ -9,7 +9,7 @@ namespace GeekBackend.Tests.ContentCreatorV2;
 /// Coverage was lost when the competitor JSON-LD builder was deleted (4e123bd) and is restored here
 /// against the partner builder, which is still live via GccV2ToolPageSchemaBuilder.
 /// </summary>
-public sealed class GccV2PartnerJsonLdShipReadyTests
+public sealed class GccPartnerJsonLdShipReadyTests
 {
     private static GccPartnerExtractionProvenance Prov() =>
         new("https://partner.example", GccPartnerExtractionDocument.CrawlTypePartner,
@@ -17,7 +17,7 @@ public sealed class GccV2PartnerJsonLdShipReadyTests
             TemporalAnchorUtc: null);
 
     private static GccPartnerExtractionDocument WithPricing(decimal? listPrice) =>
-        GccV2PartnerExtractionService.EmptyDocument() with
+        GccPartnerExtractionService.EmptyDocument() with
         {
             PricingCatalog =
             [
@@ -39,7 +39,7 @@ public sealed class GccV2PartnerJsonLdShipReadyTests
         };
 
         var error = Assert.Throws<InvalidOperationException>(() =>
-            GccV2PartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(null)));
+            GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(null)));
         Assert.Contains("list_price", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -52,7 +52,7 @@ public sealed class GccV2PartnerJsonLdShipReadyTests
             ["offers"] = new Dictionary<string, object?> { ["@type"] = "Offer", ["price"] = "49.00" },
         };
 
-        GccV2PartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(49.00m));
+        GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(49.00m));
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public sealed class GccV2PartnerJsonLdShipReadyTests
         };
 
         Assert.Throws<InvalidOperationException>(() =>
-            GccV2PartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(49.00m)));
+            GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(49.00m)));
     }
 
     [Fact]
@@ -73,6 +73,6 @@ public sealed class GccV2PartnerJsonLdShipReadyTests
     {
         var node = new Dictionary<string, object?> { ["@type"] = "SoftwareApplication" };
 
-        GccV2PartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(null));
+        GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(null));
     }
 }

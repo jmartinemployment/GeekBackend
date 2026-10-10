@@ -15,7 +15,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </para>
 /// <para>
 /// <b>The type.</b> <c>Analyze</c> had a two-argument overload that passed null, and null reaches
-/// <c>GccV2LongFormTypes.Normalize</c>, which returns <c>blog</c>. So pillar and tool — 3,000-word
+/// <c>GccLongFormTypes.Normalize</c>, which returns <c>blog</c>. So pillar and tool — 3,000-word
 /// floors — were graded against 1,800. The overload is gone; the type is required.
 /// </para>
 /// <para>

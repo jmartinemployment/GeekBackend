@@ -36,8 +36,7 @@ public class ContentProviderFactory : IContentProviderFactory
     /// Stops every LLM call on this path when LlmProviders:Enabled is false.
     ///
     /// Placed on the factory because it is the one choke point both Get and GetDefault pass through —
-    /// gating individual call sites leaves whichever one is added next un-gated, which is how
-    /// GccV2JobWorker's kill switch nearly stopped covering PLAN.
+    /// gating individual call sites leaves whichever one is added next un-gated.
     /// </summary>
     private void RefuseIfDisabled()
     {

@@ -2,12 +2,12 @@ using System.Net;
 using System.Text;
 using HtmlAgilityPack;
 
-namespace GeekAPI.Services.ContentCreatorV2.Hierarchy;
+namespace GeekAPI.Services.ContentCreator.Hierarchy;
 
 /// <summary>
 /// Plain visible text from a DOM node. No data-gsv / twin filtering — mobile HTML is already one viewport.
 /// </summary>
-internal static class GccV2TextExtractor
+internal static class GccTextExtractor
 {
     private static readonly HashSet<string> SkipTags = new(StringComparer.OrdinalIgnoreCase)
     {

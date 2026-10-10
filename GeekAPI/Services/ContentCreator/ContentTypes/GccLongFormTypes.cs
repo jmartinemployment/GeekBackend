@@ -1,7 +1,7 @@
-namespace GeekAPI.Services.ContentCreatorV2.ContentTypes;
+namespace GeekAPI.Services.ContentCreator.ContentTypes;
 
-/// <summary>Canonical long-form content types for gcc-v2 PLAN / WRITE / VALIDATE / export.</summary>
-public static class GccV2LongFormTypes
+/// <summary>Canonical long-form content types, and the length and section rules each is scored against.</summary>
+public static class GccLongFormTypes
 {
     public const string Pillar = "pillar";
     public const string Blog = "blog";

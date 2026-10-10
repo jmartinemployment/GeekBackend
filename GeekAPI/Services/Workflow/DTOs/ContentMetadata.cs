@@ -35,8 +35,7 @@ public record ContentMetadata(
     /// </summary>
     /// <remarks>
     /// Empty means the site declares none. Emit nothing in that case — an empty <c>areaServed</c>
-    /// asserts "serves nowhere", which is worse than silence and is the mistake
-    /// <c>GccV2BrandKitBuilder</c> already hardcodes.
+    /// asserts "serves nowhere", which is worse than silence.
     /// </remarks>
     IReadOnlyList<string>? AreaServed = null,
     /// <summary>

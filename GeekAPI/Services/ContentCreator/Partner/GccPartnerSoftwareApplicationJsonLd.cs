@@ -2,13 +2,13 @@ using System.Globalization;
 using System.Text.Json;
 using GeekApplication.Models.ContentCreator;
 
-namespace GeekAPI.Services.ContentCreatorV2.Partner;
+namespace GeekAPI.Services.ContentCreator.Partner;
 
 /// <summary>
 /// Builds partner <c>SoftwareApplication</c> JSON-LD from extraction payloads (partner-extraction §9).
 /// Fail closed on price / review claims without re-verifiable library-backed fields — never invent.
 /// </summary>
-public static class GccV2PartnerSoftwareApplicationJsonLd
+public static class GccPartnerSoftwareApplicationJsonLd
 {
     public const string ReviewAuthorName = "Master RAG Pipeline Audit";
 

@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using GeekAPI.Services.ContentCreatorV2.Generation;
+using GeekAPI.Services.ContentCreator.Generation;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
@@ -56,7 +56,7 @@ namespace GeekAPI.Services.ContentCreator;
 public sealed class GccAngleQuoteProbe(
     IGeekCrawlerRagClient rag,
     GccTypedPassageReader typedPassages,
-    IGccV2SchemaConstrainedGenerator generator,
+    IGccSchemaConstrainedGenerator generator,
     IContentProviderFactory providers,
     ILogger<GccAngleQuoteProbe> logger)
 {
@@ -189,10 +189,10 @@ public sealed class GccAngleQuoteProbe(
         try
         {
             var completion = await generator.CompleteAsync<GccAngleQuoteSelection>(
-                    new GccV2SchemaConstrainedRequest(
+                    new GccSchemaConstrainedRequest(
                         SystemPrompt: SystemPrompt,
                         UserPrompt: BuildUserPrompt(spec, candidates),
-                        JsonSchema: GccV2AdHocJsonSchema.For<GccAngleQuoteSelection>(JsonOpts),
+                        JsonSchema: GccAdHocJsonSchema.For<GccAngleQuoteSelection>(JsonOpts),
                         SchemaName: SchemaName,
                         Temperature: 0.1),
                     provider,

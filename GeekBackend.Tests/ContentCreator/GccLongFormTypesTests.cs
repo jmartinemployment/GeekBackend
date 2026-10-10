@@ -1,10 +1,10 @@
-using GeekAPI.Services.ContentCreatorV2.ContentTypes;
+using GeekAPI.Services.ContentCreator.ContentTypes;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using Xunit;
 
-namespace GeekBackend.Tests.ContentCreatorV2.LongForm;
+namespace GeekBackend.Tests.ContentCreator;
 
-public sealed class GccV2LongFormTypesTests
+public sealed class GccLongFormTypesTests
 {
     [Theory]
     [InlineData("comparison", true, true, "comparison")]
@@ -23,8 +23,8 @@ public sealed class GccV2LongFormTypesTests
         bool expectsFaq,
         string exportFolder)
     {
-        Assert.Equal(isLongForm, GccV2LongFormTypes.IsLongForm(contentType));
-        Assert.Equal(expectsFaq, GccV2LongFormTypes.ExpectsFaqSection(contentType));
-        Assert.Equal(exportFolder, GccV2LongFormTypes.ExportFolder(contentType));
+        Assert.Equal(isLongForm, GccLongFormTypes.IsLongForm(contentType));
+        Assert.Equal(expectsFaq, GccLongFormTypes.ExpectsFaqSection(contentType));
+        Assert.Equal(exportFolder, GccLongFormTypes.ExportFolder(contentType));
     }
 }
