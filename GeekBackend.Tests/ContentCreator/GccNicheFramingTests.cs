@@ -309,6 +309,35 @@ public class GccNicheFramingTests
     }
 
     [Fact]
+    public void A_hook_is_given_the_problem_and_neither_the_failures_nor_the_answer()
+    {
+        // A blog's and a tool page's hook is a call of its own, a few sentences long. It is told the
+        // problem the operator named so it opens on that one; a hook told to cover every failure is no
+        // longer a hook, and those stay on the body section that carries them.
+        var framing = GccNicheFramingReader.ForCategory(CategoryOnlyBrief)!;
+
+        var hook = framing.HookGuidance()!;
+
+        Assert.Contains("Revenue is booked", hook, StringComparison.Ordinal);
+        Assert.Contains("not retrieved evidence", hook, StringComparison.Ordinal);
+        Assert.Contains("never verbatim", hook, StringComparison.Ordinal);
+        Assert.DoesNotContain("Nobody owns collections.", hook, StringComparison.Ordinal);
+        Assert.DoesNotContain("Invoice-to-cash on a schedule", hook, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_framing_with_no_problem_stated_gives_a_hook_nothing()
+    {
+        var framing = GccNicheFramingReader.ForCategory(
+            """
+            {"nicheFraming":{"painPoints":"Nobody owns collections.","automationToPitch":"Invoice-to-cash on a schedule."}}
+            """)!;
+
+        Assert.Null(framing.HookGuidance());
+        Assert.NotNull(framing.ToGuidance());
+    }
+
+    [Fact]
     public void A_failure_is_a_paragraph_not_a_line()
     {
         // Jeff, 2026-10-03: "the data I am inputting is a paragraph" -- and it is. The research states

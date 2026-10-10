@@ -170,7 +170,8 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
 
     /// <summary>LedeJsonContract -- read with ParseLede, not ParseSections.</summary>
     public ChatCompletionRequest Lede(ContentTypePromptContext ctx) =>
-        prompts.BuildStandaloneBlogLedePrompt(ctx.Context, Meta(ctx), ctx.EvidenceBlock);
+        prompts.BuildStandaloneBlogLedePrompt(
+            ctx.Context, Meta(ctx), ctx.EvidenceBlock, operatorsProblem: ctx.NicheFraming?.HookGuidance());
 
     private static BlogMetadataDraft Meta(ContentTypePromptContext ctx) =>
         ctx.BlogMetadata

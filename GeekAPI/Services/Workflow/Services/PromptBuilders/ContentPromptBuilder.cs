@@ -30,12 +30,17 @@ public interface IContentPromptBuilder
         ProjectGenerationContext context,
         IReadOnlyList<string>? previousViolations = null);
 
+    /// <param name="operatorsProblem">
+    /// The operator's statement of the problem the page is about, worded for a hook, where the brief
+    /// carries one. Null prints nothing.
+    /// </param>
     ChatCompletionRequest BuildArticleLedePrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
         string? revisionNotes = null,
         string? existingLedeHeading = null,
-        string? evidenceBlock = null);
+        string? evidenceBlock = null,
+        string? operatorsProblem = null);
 
     /// <summary>Produces the pillar's opening Lede H2 — the hook (12-type, audience×angle→heading/topic, tone) plus its real h3/h4 scoping.
     /// Replaces the tightly-coupled lede+Introduction pair; the lede IS the first H2.</summary>
@@ -131,8 +136,10 @@ public interface IContentPromptBuilder
     /// </summary>
     ChatCompletionRequest BuildStandaloneBlogMetadataPrompt(ProjectGenerationContext context);
 
+    /// <param name="operatorsProblem">As for <see cref="BuildArticleLedePrompt"/>.</param>
     ChatCompletionRequest BuildStandaloneBlogLedePrompt(
-        ProjectGenerationContext context, BlogMetadataDraft metadata, string? evidenceBlock = null);
+        ProjectGenerationContext context, BlogMetadataDraft metadata, string? evidenceBlock = null,
+        string? operatorsProblem = null);
 
     /// <param name="sectionBatch">The sections this call owns, when the body is written in
     /// batches. Null writes the whole planned outline in one response, which is what a blog short
@@ -1693,7 +1700,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         ArticleMetadataDraft metadata,
         string? revisionNotes = null,
         string? existingLedeHeading = null,
-        string? evidenceBlock = null)
+        string? evidenceBlock = null,
+        string? operatorsProblem = null)
     {
         var system = SystemPrompt(LedeJsonContract);
 
@@ -1731,7 +1739,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         }
 
         user.AppendLine()
-            .AppendLine("=== ASSIGNMENT ===")
+            .AppendLine("=== ASSIGNMENT ===");
+        AppendOperatorsProblem(user, operatorsProblem);
+        user
             .AppendLine($"Article title: {metadata.Title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Meta description: {metadata.MetaDescription}")
@@ -1741,6 +1751,16 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.65,
             MaxOutputTokens: 2048);
+    }
+
+    /// <summary>
+    /// The operator's statement of the problem, at the head of a hook's assignment. The pillar's opening
+    /// prints its slot's guidance in the same place.
+    /// </summary>
+    private static void AppendOperatorsProblem(StringBuilder user, string? operatorsProblem)
+    {
+        if (!string.IsNullOrWhiteSpace(operatorsProblem))
+            user.AppendLine(operatorsProblem.Trim());
     }
 
 
@@ -2171,7 +2191,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     }
 
     public ChatCompletionRequest BuildStandaloneBlogLedePrompt(
-        ProjectGenerationContext context, BlogMetadataDraft metadata, string? evidenceBlock = null)
+        ProjectGenerationContext context, BlogMetadataDraft metadata, string? evidenceBlock = null,
+        string? operatorsProblem = null)
     {
         var system = SystemPrompt(LedeJsonContract);
 
@@ -2198,7 +2219,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         }
 
         user.AppendLine()
-            .AppendLine("=== ASSIGNMENT ===")
+            .AppendLine("=== ASSIGNMENT ===");
+        AppendOperatorsProblem(user, operatorsProblem);
+        user
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine(AnswerInTheContract);

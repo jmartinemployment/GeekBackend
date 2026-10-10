@@ -596,7 +596,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// <para>
     /// Closed the same day, each a changed line below: the pillar's opening now carries the operator's
     /// whole framing, the tool page's two FAQ calls and its summaries call carry the reader and the
-    /// voice, and the email and the social post carry the framing.
+    /// voice, and the email and the social post carry the framing. And the blog's and the tool page's
+    /// opening carry the operator's problem: their framing was on the first body section alone.
     /// </para>
     /// </remarks>
     [Theory]
@@ -667,7 +668,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.taxonomyPath, first level => the saved page
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => the saved page
-            nicheFraming.coreProblem => body call
+            nicheFraming.coreProblem => opening | body call
             nicheFraming.painPoints => body call
             nicheFraming.automationToPitch => body call | body call #2
             nicheFraming.evidence.problem => nothing
@@ -708,7 +709,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
-            perTool.coreProblem => body call
+            perTool.coreProblem => opening | body call
             perTool.painPoints => body call
             perTool.automationToPitch => body call
             perTool.evidence.problem => nothing
@@ -723,7 +724,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => summaries | the saved page
-            nicheFraming.coreProblem => body call
+            nicheFraming.coreProblem => opening | body call
             nicheFraming.painPoints => body call
             nicheFraming.automationToPitch => body call
             nicheFraming.evidence.problem => nothing

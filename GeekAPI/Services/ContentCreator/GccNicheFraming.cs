@@ -80,6 +80,32 @@ public sealed record GccNicheFraming(
         Render("Where it goes wrong. This piece is short: build it on the one of these that serves its " +
             "single idea, in your own words and never verbatim, and leave the rest out:");
 
+    /// <summary>
+    /// The problem alone, for the call that writes a page's hook. Null when the operator stated none.
+    /// </summary>
+    /// <remarks>
+    /// A blog and a tool page are opened by a call of their own, a few sentences long, written before
+    /// the body. The framing sits on the first body section, so until 2026-10-10 that call was told
+    /// nothing of the problem the operator named and could open on another, which the section after it
+    /// then had to turn away from. The failures and the answer stay where they are: a hook told to
+    /// cover them is no longer a hook. The pillar's opening is an introduction as well as a hook, and
+    /// carries the whole framing (<see cref="ToGuidance"/>).
+    /// </remarks>
+    public string? HookGuidance()
+    {
+        if (string.IsNullOrWhiteSpace(CoreProblem)) return null;
+
+        var sb = new StringBuilder();
+        sb.Append("THE OPERATOR'S OWN STATEMENT OF THE PROBLEM THIS PAGE IS ABOUT -- the hook is about this ");
+        sb.Append("problem and no other, in your own words and never verbatim. It is the publisher's ");
+        sb.Append("position, not retrieved evidence: do not attribute it to a source, and do not present it ");
+        sb.Append("as something a vendor said. Where it goes wrong and what answers it belong to the ");
+        sb.Append("sections that follow; the hook does not list them.");
+        sb.AppendLine();
+        sb.Append("The problem: ").Append(CoreProblem.Trim());
+        return sb.ToString();
+    }
+
     private string? Render(string failuresInstruction)
     {
         if (!HasAny) return null;

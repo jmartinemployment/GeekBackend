@@ -160,7 +160,9 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
         ctx.Metadata ?? throw new InvalidOperationException("A tool page needs ArticleMetadataDraft.");
 
     public ChatCompletionRequest Lede(ContentTypePromptContext ctx) =>
-        prompts.BuildArticleLedePrompt(ctx.Context, Meta(ctx), evidenceBlock: ctx.EvidenceBlock);
+        prompts.BuildArticleLedePrompt(
+            ctx.Context, Meta(ctx), evidenceBlock: ctx.EvidenceBlock,
+            operatorsProblem: ctx.NicheFraming?.HookGuidance());
 
     public ChatCompletionRequest Body(ContentTypePromptContext ctx) =>
         prompts.BuildToolBodyPrompt(
