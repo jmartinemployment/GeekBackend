@@ -366,6 +366,8 @@ public sealed class GccGroundingResolver(
         // The value is where the page sits in its list, so that a later question landing on it can
         // add its passages: see WithLaterPassages.
         var seenByCrawlType = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        // Pages a search returned that are not evidence (GccEvidencePages), by address, with why.
+        var leftOut = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var partnersWithoutPassages = new List<string>();
         // Partner run -> the declared hosts it was indexed for, so a run that returns nothing can be
         // refused under the partner's name rather than a run id the operator never sees.
@@ -558,25 +560,40 @@ public sealed class GccGroundingResolver(
                             ?? $"The evidence library query failed for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}.");
                     }
 
+                    // A legal document or an unfinished template is not what a partner says its
+                    // product does, whichever question brought it back. Left out here, once, so no
+                    // writer, no FAQ answer and no quotation is built on one.
+                    var pages = new List<GccQuoteablePage>(result.Pages.Count);
+                    foreach (var page in result.Pages)
+                    {
+                        if (GccEvidencePages.WhyNotEvidence(page) is { } why)
+                        {
+                            leftOut.TryAdd(page.Url, why);
+                            continue;
+                        }
+
+                        pages.Add(page);
+                    }
+
                     // An FAQ question's passages are filed under the question and go no further: not
                     // into the pool every writer reads, not into the quotable blocks, and not into the
                     // count that decides whether this partner returned evidence. A search that found
                     // nothing is still an entry, because that is what the tool page reports.
                     if (question.FaqHost is { } faqHost)
                     {
-                        faqEvidence!.Add(new GccFaqEvidence(faqHost, question.Need, result.Pages, result.Retrieval));
+                        faqEvidence!.Add(new GccFaqEvidence(faqHost, question.Need, pages, result.Retrieval));
                         continue;
                     }
 
-                    pagesReturned += result.Pages.Count;
-                    if (!string.IsNullOrWhiteSpace(result.Warning) && result.Pages.Count > 0)
+                    pagesReturned += pages.Count;
+                    if (!string.IsNullOrWhiteSpace(result.Warning) && pages.Count > 0)
                     {
                         var line = $"{CrawlTypeLabel(crawlType)} {namesByRun[runId]}: {result.Warning}";
                         if (!warnings.Contains(line, StringComparer.Ordinal)) warnings.Add(line);
                     }
 
                     var fresh = new List<GccQuoteablePage>();
-                    foreach (var page in result.Pages)
+                    foreach (var page in pages)
                     {
                         if (seenUrls.TryGetValue(page.Url, out var held))
                         {
@@ -659,6 +676,15 @@ public sealed class GccGroundingResolver(
             + "{PassageCount} typed partner passages, {WarningCount} warnings.",
             create.Id, contentType, retrieved.Count, competitors.Count, sitePages.Count, positions.Count,
             passages.Count, warnings.Count);
+
+        // On the run's record, not in the operator's list: nothing here is for the operator to fix on
+        // the page, and a run that is diagnosed later has to be able to see what was held back.
+        if (leftOut.Count > 0)
+        {
+            await GccRunLog.RecordIfAnyAsync(
+                "left-out",
+                new { pages = leftOut.Select(entry => new { url = entry.Key, why = entry.Value }).ToList() });
+        }
 
         return new GccGroundingOutcome(
             retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages, positions, faqEvidence);

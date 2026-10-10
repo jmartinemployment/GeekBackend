@@ -81,7 +81,7 @@ public static partial class GccQuoteCandidates
         foreach (var passage in passages)
         {
             if (string.IsNullOrWhiteSpace(passage.Url)) continue;
-            if (IsBoilerplatePath(passage.Url)) continue;
+            if (GccEvidencePages.IsNotQuotable(passage.Url)) continue;
 
             if (!byUrl.TryGetValue(passage.Url, out var at))
             {
@@ -224,22 +224,6 @@ public static partial class GccQuoteCandidates
         var t = s.TrimStart('"', '“', '‘', '\'', ' ');
         return t.Length == 0 ? s : t;
     }
-
-    private static bool IsBoilerplatePath(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var parsed) && BoilerplatePath().IsMatch(parsed.AbsolutePath);
-
-    /// <remarks>
-    /// Two shapes, and the split is deliberate. Bare words are anchored to the start of a path
-    /// segment, because "/legal-automation-software/" is a real product page for a legal-tech
-    /// partner and swallowing it would discard that partner's best evidence. Compound tokens are
-    /// specific enough to match anywhere in a segment, which is what "/california-notice-at-collection/"
-    /// needs — it was missed entirely while every token was anchored.
-    /// </remarks>
-    [GeneratedRegex(@"(/(privacy|legal|terms|cookies?|gdpr|security|compliance|dpa|licen[cs]es?|"
-        + @"careers|msa|sla|accessibility)(/|$|[-.])"
-        + @"|notice-at-collection|data-process(or|ing)|sub-?processor)",
-        RegexOptions.IgnoreCase)]
-    private static partial Regex BoilerplatePath();
 }
 
 /// <summary>One span a quotation may be chosen from, and the page it was cut out of.</summary>

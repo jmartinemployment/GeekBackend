@@ -260,8 +260,8 @@ public class GccGroundingEvidenceQuestionsTests
         }
         """;
 
-    /// <summary>Every question lands on the same page, each finding its own passage and one they all share.</summary>
-    private sealed class OnePageRag : IGeekCrawlerRagClient
+    /// <summary>Answers every search with the pages it is told to, given which search it is (1, 2, 3...).</summary>
+    private sealed class AnswersWith(Func<int, IReadOnlyList<GccQuoteablePage>> pages) : IGeekCrawlerRagClient
     {
         private readonly RecordingRag inner = new();
         private int asked;
@@ -274,13 +274,7 @@ public class GccGroundingEvidenceQuestionsTests
             return Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
             {
                 RunId = query.RunId,
-                Pages =
-                [
-                    new GccQuoteablePage(
-                        "https://tipalti.com/product-updates/", "Product updates", [],
-                        ["On every answer.", "Found by question " + asked + "."],
-                        Scores: [new GccPassageScore(0.5), new GccPassageScore(asked)]),
-                ],
+                Pages = pages(asked),
             });
         }
 
@@ -329,7 +323,16 @@ public class GccGroundingEvidenceQuestionsTests
     {
         var project = Project("https://tipalti.com/");
 
-        var outcome = await Build(project, new OnePageRag(), new OneBlockPages())
+        // Every question lands on the same page, each finding its own passage and one they all share.
+        var rag = new AnswersWith(asked =>
+        [
+            new GccQuoteablePage(
+                "https://tipalti.com/product-updates/", "Product updates", [],
+                ["On every answer.", "Found by question " + asked + "."],
+                Scores: [new GccPassageScore(0.5), new GccPassageScore(asked)]),
+        ]);
+
+        var outcome = await Build(project, rag, new OneBlockPages())
             .ResolveAsync(Create(project.Id, Brief), "tool");
 
         var page = Assert.Single(outcome.Pages, p => p.Url == "https://tipalti.com/product-updates/");
@@ -360,6 +363,75 @@ public class GccGroundingEvidenceQuestionsTests
 
         Assert.Equal(["One.", "Two."], merged.Paragraphs);
         Assert.Null(merged.Scores);
+    }
+
+    /// <summary>What BILL's crawl returned on 2026-10-10: its terms of service, a template stub, and a real page.</summary>
+    private static IReadOnlyList<GccQuoteablePage> WithALegalPageAndAStub(int asked) =>
+    [
+        new GccQuoteablePage("https://tipalti.com/legal/terms-of-service", "Terms", [], ["6.1 What is Forecasting Plus."]),
+        new GccQuoteablePage(
+            "https://tipalti.com/listicle", "Listicle Component", [],
+            ["Best for industry-specific solutionsThis is some text inside of a div block.FeaturesPros & cons"]),
+        new GccQuoteablePage("https://tipalti.com/product/" + asked, "Product", [], ["What the product does."]),
+    ];
+
+    [Fact]
+    public async Task A_legal_document_and_an_unfinished_template_are_not_evidence_for_any_writer_or_any_faq_answer()
+    {
+        var project = Project("https://tipalti.com/");
+        var brief = Brief.Replace(
+            "\"tipalti.com\": {",
+            "\"tipalti.com\": { \"faqQuestions\": \"Does Tipalti sync with QuickBooks Online?\",",
+            StringComparison.Ordinal);
+
+        var outcome = await Build(project, new AnswersWith(WithALegalPageAndAStub), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, brief), "tool");
+
+        Assert.False(outcome.Refused);
+        Assert.NotEmpty(outcome.Pages);
+        Assert.All(outcome.Pages, p => Assert.Contains("/product/", p.Url, StringComparison.Ordinal));
+        Assert.All(outcome.PartnerPassages, p => Assert.Contains("/product/", p.Url, StringComparison.Ordinal));
+
+        var faq = Assert.Single(outcome.FaqEvidence!);
+        Assert.All(faq.Pages, p => Assert.Contains("/product/", p.Url, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task What_was_left_out_is_on_the_runs_record_once_a_page_with_why()
+    {
+        var project = Project("https://tipalti.com/");
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
+
+        var outcome = await Build(project, new AnswersWith(WithALegalPageAndAStub), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, Brief), "tool");
+
+        // Not in the operator's list: there is nothing on the page for the operator to fix.
+        Assert.DoesNotContain(outcome.Warnings, w => w.Contains("legal", StringComparison.OrdinalIgnoreCase));
+
+        var record = Assert.Single(written, e => e.Kind == "left-out");
+        using var doc = JsonDocument.Parse(record.PayloadJson);
+        var pages = doc.RootElement.GetProperty("pages").EnumerateArray()
+            .Select(p => (Url: p.GetProperty("url").GetString(), Why: p.GetProperty("why").GetString()))
+            .ToList();
+        Assert.Equal(
+            [
+                ("https://tipalti.com/legal/terms-of-service", "a legal document"),
+                ("https://tipalti.com/listicle", "a template page still carrying placeholder text"),
+            ],
+            pages);
+    }
+
+    [Fact]
+    public async Task A_run_that_left_nothing_out_records_nothing_about_it()
+    {
+        var project = Project("https://tipalti.com/");
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
+
+        await Build(project, new RecordingRag(), new OneBlockPages()).ResolveAsync(Create(project.Id, Brief), "tool");
+
+        Assert.DoesNotContain(written, e => e.Kind == "left-out");
     }
 
     private static IReadOnlyList<GeekCrawlerRagQuery> FaqQueries(RecordingRag rag) =>
