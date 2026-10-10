@@ -68,6 +68,8 @@ public sealed class GccBatchShortfallTests
 
         Assert.StartsWith(Label + " is ", shortfall.Report, StringComparison.Ordinal);
         Assert.EndsWith("words against a 1,100-word floor", shortfall.Report, StringComparison.Ordinal);
+        // The page's to answer for: listed only when the finished page is under its own floor.
+        Assert.True(shortfall.IsLength);
     }
 
     [Fact]
@@ -132,6 +134,7 @@ public sealed class GccBatchShortfallTests
         var shortfall = Assert.Single(Owed(sections));
 
         Assert.Equal(Label + " has no heading containing \"Automated Approval Workflows\"", shortfall.Report);
+        Assert.False(shortfall.IsLength);
         // A later batch does not carry that heading and is not asked for it.
         Assert.Empty(Owed(sections, heading: false));
     }

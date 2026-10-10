@@ -129,8 +129,8 @@ public partial class GccGenerateService
         // again at generation time" (the questions are already operator-curated, by SerpIngestPanel's
         // own selection UI, before they ever reach BriefJson); just stop discarding them.
         Section? pillarFaq = null;
-        // The questions that came back with no answer under them: reported with the draft, beside the
-        // word floor's shortfalls, never a refusal.
+        // The questions that came back with no answer under them: reported with the draft, never a
+        // refusal.
         var pillarFaqGaps = new List<string>();
         var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions;
         if (paaQuestions is { Count: > 0 })
@@ -160,6 +160,7 @@ public partial class GccGenerateService
         var pillarGuardInputs = GuardInputsFor(
             create,
             context,
+            ContentTypes.GccLongFormTypes.Pillar,
             evidence,
             requiredTools,
             pillarEvidence,
@@ -171,6 +172,7 @@ public partial class GccGenerateService
         async Task<GccDraft> WritePillarDraftAsync()
         {
             var shortfalls = new List<string>();
+            var callsUnderFloor = new List<string>();
             var sections = await GenerateSectionsInBatchesAsync(
                 llm,
                 pillarType,
@@ -182,7 +184,8 @@ public partial class GccGenerateService
                 [.. pillarOutline.Skip(1)],
                 "Pillar body",
                 ct,
-                shortfalls);
+                shortfalls,
+                callsUnderFloor);
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written
             // outside the outline: neither of the last two can carry a tool link, and neither is remapped.
@@ -194,7 +197,7 @@ public partial class GccGenerateService
             if (pillarFaq is not null) sections.Add(pillarFaq);
             shortfalls.AddRange(pillarFaqGaps);
             var whole = new ContentDocument(pillarOpening, sections);
-            return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls);
+            return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls, callsUnderFloor);
         }
 
         var (document, pillarWarnings) = await GuardedDraftAsync(

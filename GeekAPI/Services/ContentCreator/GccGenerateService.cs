@@ -1551,6 +1551,7 @@ public partial class GccGenerateService
         var toolGuardInputs = GuardInputsFor(
             create,
             context,
+            ContentTypes.GccLongFormTypes.Tool,
             provenance: null,
             requiredTools: [name],
             evidenceText: string.Join(
@@ -1565,6 +1566,7 @@ public partial class GccGenerateService
         async Task<GccDraft> WriteToolDraftAsync()
         {
             var shortfalls = new List<string>();
+            var callsUnderFloor = new List<string>();
             var written = await GenerateSectionsInBatchesAsync(
                 llm,
                 toolType,
@@ -1581,7 +1583,8 @@ public partial class GccGenerateService
                 toolType.OutlineFor(toolOutlineCtx),
                 $"Tool page '{name}'",
                 ct,
-                shortfalls);
+                shortfalls,
+                callsUnderFloor);
 
             // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a
             // live run lost AvidXchange's page to a shortened span with an ellipsis added. Snapping
@@ -1600,7 +1603,7 @@ public partial class GccGenerateService
             sections = await LinkToolsAsync($"the tool page '{name}'", sections, []);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (await ToolFaqAsync(shortfalls) is { } faq) sections.Add(faq);
-            return new GccDraft(new ContentDocument(toolOpening, sections), shortfalls);
+            return new GccDraft(new ContentDocument(toolOpening, sections), shortfalls, callsUnderFloor);
         }
 
         var (document, toolWarnings) = await GuardedDraftAsync(
@@ -2529,6 +2532,7 @@ public partial class GccGenerateService
         var blogGuardInputs = GuardInputsFor(
             create,
             context,
+            ContentTypes.GccLongFormTypes.Blog,
             evidence,
             blogRequiredTools,
             blogEvidence,
@@ -2539,6 +2543,7 @@ public partial class GccGenerateService
         async Task<GccDraft> WriteBlogDraftAsync()
         {
             var shortfalls = new List<string>();
+            var callsUnderFloor = new List<string>();
             var sections = await GenerateSectionsInBatchesAsync(
                 llm,
                 blogType,
@@ -2550,7 +2555,8 @@ public partial class GccGenerateService
                 blogOutline,
                 "Blog body",
                 ct,
-                shortfalls);
+                shortfalls,
+                callsUnderFloor);
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
             var (blogOpening, blogBody) = await RemapKeywordAsync(
@@ -2561,7 +2567,7 @@ public partial class GccGenerateService
             if (blogFaq is not null) sections.Add(blogFaq);
             shortfalls.AddRange(blogFaqGaps);
             var whole = new ContentDocument(blogOpening, sections);
-            return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls);
+            return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls, callsUnderFloor);
         }
 
         var (document, blogWarnings) = await GuardedDraftAsync(
@@ -3018,8 +3024,15 @@ public partial class GccGenerateService
     /// missing whole sections of its own plan and call it finished.
     /// </para>
     /// </summary>
-    /// <summary>One written draft, and any batch that came back short of its floor.</summary>
-    internal sealed record GccDraft(ContentDocument Document, IReadOnlyList<string> Shortfalls);
+    /// <summary>
+    /// One written draft, what it is short of, and the calls that came back under their own word floor.
+    /// </summary>
+    /// <param name="Shortfalls">Reported with the draft whatever else is true of it.</param>
+    /// <param name="CallsUnderFloor">Reported only when the finished page is under its floor
+    /// (<see cref="Guardrail.GccDraftGuard.PageLengthCheck"/>): a call's floor is its share of the
+    /// page's, and a page that reached its floor has no call to answer for.</param>
+    internal sealed record GccDraft(
+        ContentDocument Document, IReadOnlyList<string> Shortfalls, IReadOnlyList<string> CallsUnderFloor);
 
     /// <summary>
     /// Write a draft, guard it once, and refuse or ship with its gaps reported.
@@ -3033,8 +3046,13 @@ public partial class GccGenerateService
     /// </para>
     /// <para>
     /// Refusals throw with the "Refused:" prefix GenerateAsync answers as a 400. Gaps -- a partner
-    /// never named, a closing never linked, a batch short of its floor -- are the draft's warnings:
+    /// never named, a closing never linked, a page short of its floor -- are the draft's warnings:
     /// saved, recorded with the version and pushed to the workspace by name.
+    /// </para>
+    /// <para>
+    /// A call under its own word floor is a warning only when the page is under its floor, and is then
+    /// listed straight after the page's line. Every call's words are on the run's record either way
+    /// (the <c>batch</c> event, and <c>callsUnderFloor</c> on the verdict).
     /// </para>
     /// </remarks>
     private async Task<(ContentDocument Document, List<string> Warnings)> GuardedDraftAsync(
@@ -3060,6 +3078,7 @@ public partial class GccGenerateService
             keywordDensity = counted?.DensityPercent,
             findings = verdict.Findings.Select(f => new { f.Check, f.Detail, f.Refuses }).ToList(),
             shortfalls = draft.Shortfalls,
+            callsUnderFloor = draft.CallsUnderFloor,
             document = draft.Document,
         });
 
@@ -3069,10 +3088,14 @@ public partial class GccGenerateService
                 $"Refused: {label}. " + string.Join(" ", verdict.Refusals.Select(f => f.Detail)));
         }
 
-        var warnings = verdict.Gaps
-            .Select(g => g.Detail)
-            .Concat(draft.Shortfalls)
-            .ToList();
+        var warnings = new List<string>();
+        foreach (var gap in verdict.Gaps)
+        {
+            warnings.Add(gap.Detail);
+            if (gap.Check == Guardrail.GccDraftGuard.PageLengthCheck) warnings.AddRange(draft.CallsUnderFloor);
+        }
+
+        warnings.AddRange(draft.Shortfalls);
         foreach (var warning in warnings)
         {
             _logger.LogWarning("{Label} ships with: {Warning}", label, warning);
@@ -3218,6 +3241,7 @@ public partial class GccGenerateService
     private Guardrail.GccGuardInputs GuardInputsFor(
         GccCreateDto? create,
         ProjectGenerationContext context,
+        string contentType,
         GccHeadingProvenanceEvidence? provenance,
         IReadOnlyList<string> requiredTools,
         string? evidenceText,
@@ -3270,7 +3294,16 @@ public partial class GccGenerateService
                 .ToHashSet(StringComparer.OrdinalIgnoreCase),
             UnlistedTools: partnerTools?.Unlisted ?? [],
             // The keyword the page is scored on: the one its prompts name and the SEO report counts.
-            Keyword: context.TargetKeyword);
+            Keyword: context.TargetKeyword,
+            // The floor the page is scored on: the SEO report's own, for this type.
+            PageFloorWords: PageFloorFor(contentType));
+    }
+
+    /// <summary>The words the SEO report holds a page of this type to, or null for a type it holds to none.</summary>
+    private static int? PageFloorFor(string contentType)
+    {
+        var (floor, _, applies) = ContentTypes.GccLongFormTypes.GetSeoLengthRules(contentType);
+        return applies && floor > 0 ? floor : null;
     }
 
     /// <summary>
@@ -3318,7 +3351,8 @@ public partial class GccGenerateService
         IReadOnlyList<SectionSlot> outline,
         string label,
         CancellationToken ct,
-        List<string>? shortfalls = null)
+        List<string>? shortfalls = null,
+        List<string>? callsUnderFloor = null)
     {
         var written = new List<Section>();
         // The keyword the page is scored against: the one its prompts name and the SEO report counts.
@@ -3356,6 +3390,10 @@ public partial class GccGenerateService
             // Nothing is written again (Jeff, 2026-10-06: no retries). What the batch is short of is
             // reported with the draft rather than refused: the page is saved and says what it is short of.
             //
+            // Its words are reported only if the page turns out short (GuardedDraftAsync): a call's floor
+            // is its share of the page's, and the run of 2026-10-10 listed 17 calls under theirs on seven
+            // pages that were all over their own.
+            //
             // The batch that carries the page's keyword heading: the same rule every body prompt hands
             // SeoBodyInstruction, from the one definition (SectionSlot.BatchOwnsKeywordHeading).
             var owesKeywordHeading = SectionSlot.BatchOwnsKeywordHeading(batch, outline, i / SectionsPerBatch);
@@ -3374,6 +3412,14 @@ public partial class GccGenerateService
             });
             foreach (var shortfall in owed)
             {
+                if (shortfall.IsLength)
+                {
+                    // Held for the page's own verdict: listed beside the page's length line, or not at all.
+                    _logger.LogInformation("{Shortfall}.", shortfall.Report);
+                    callsUnderFloor?.Add($"{shortfall.Report}.");
+                    continue;
+                }
+
                 // Reported, not only logged: the shortfall travels with the draft into its
                 // warnings, so the operator sees it beside the version rather than in a log.
                 _logger.LogWarning("{Shortfall}.", shortfall.Report);
@@ -3471,7 +3517,9 @@ public partial class GccGenerateService
 
     /// <summary>One thing a batch owes its page that an attempt at it did not deliver.</summary>
     /// <param name="Report">What the operator is told, as the start of a sentence.</param>
-    internal sealed record BatchShortfall(string Report);
+    /// <param name="IsLength">True for words under the call's floor, which is the page's to answer
+    /// for: it is reported only when the finished page is under its own floor.</param>
+    internal sealed record BatchShortfall(string Report, bool IsLength);
 
     /// <summary>
     /// What an attempt at a batch is short of: words against the floor its slots declare, and the
@@ -3499,7 +3547,7 @@ public partial class GccGenerateService
         var words = ContentDocumentText.CountWords(sections);
         if (floor > 0 && words < floor)
         {
-            found.Add(new BatchShortfall($"{batchLabel} is {words:N0} words against a {floor:N0}-word floor"));
+            found.Add(new BatchShortfall($"{batchLabel} is {words:N0} words against a {floor:N0}-word floor", IsLength: true));
         }
 
         if (!owesKeywordHeading || string.IsNullOrWhiteSpace(keyword)) return found;
@@ -3507,7 +3555,7 @@ public partial class GccGenerateService
         var phrase = keyword.Trim();
         if (!ReadAsScorer(sections).Headings.Any(h => Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(h, phrase) > 0))
         {
-            found.Add(new BatchShortfall($"{batchLabel} has no heading containing \"{phrase}\""));
+            found.Add(new BatchShortfall($"{batchLabel} has no heading containing \"{phrase}\"", IsLength: false));
         }
 
         return found;

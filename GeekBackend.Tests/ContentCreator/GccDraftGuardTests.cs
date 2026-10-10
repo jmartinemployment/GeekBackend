@@ -24,7 +24,8 @@ public class GccDraftGuardTests
         IReadOnlyList<string>? requiredTools = null,
         IReadOnlyList<GccQuoteCandidate>? candidates = null,
         int appended = 0,
-        IReadOnlyList<string>? unlistedTools = null) =>
+        IReadOnlyList<string>? unlistedTools = null,
+        int? pageFloorWords = null) =>
         new(
             NoEvidence,
             requiredTools ?? [],
@@ -36,7 +37,8 @@ public class GccDraftGuardTests
             appended,
             ToolBasePath: "/tools",
             ToolPaths: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { RampToolPage },
-            UnlistedTools: unlistedTools);
+            UnlistedTools: unlistedTools,
+            PageFloorWords: pageFloorWords);
 
     private static Section Body(string heading, params Paragraph[] paragraphs) =>
         new("h2", heading, paragraphs, null, [], Provenance: "plan");
@@ -56,6 +58,53 @@ public class GccDraftGuardTests
         var verdict = GccDraftGuard.Pillar(Doc(Body("Where the hours go", Text("Invoices are keyed twice."))), Inputs());
 
         Assert.True(verdict.Clean, string.Join(" ", verdict.Findings.Select(f => f.Detail)));
+    }
+
+    private static string Words(int count) => string.Join(' ', Enumerable.Repeat("word", count));
+
+    [Fact]
+    public void A_page_under_its_floor_ships_and_says_how_many_words_it_has_and_how_many_its_score_needs()
+    {
+        var doc = Doc(Body("Where the hours go", Text(Words(2400))));
+
+        foreach (var (verdict, named) in new[]
+                 {
+                     (GccDraftGuard.Pillar(doc, Inputs(pageFloorWords: 3000)), "pillar"),
+                     (GccDraftGuard.Blog(doc, Inputs(pageFloorWords: 3000)), "blog"),
+                     (GccDraftGuard.Tool(doc, Inputs(pageFloorWords: 3000)), "tool page"),
+                 })
+        {
+            var finding = Assert.Single(verdict.Findings, f => f.Check == GccDraftGuard.PageLengthCheck);
+            Assert.False(finding.Refuses);
+            Assert.StartsWith($"The {named} is 2,4", finding.Detail, StringComparison.Ordinal);
+            Assert.EndsWith("words. Its SEO score needs 3,000.", finding.Detail, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void The_pages_words_are_the_ones_its_score_counts()
+    {
+        // The same reader and tokenizer as the report's "Draft length" check: a page the report passes
+        // is not listed here, and one it fails is, at the same count.
+        var doc = Doc(Body("Where the hours go", Text(Words(2400))));
+        var json = System.Text.Json.JsonSerializer.Serialize(doc, GccDocumentJson.Options);
+        var counted = GeekAPI.Services.Gcw.GcwSeoAnalyzer.CountWords(json);
+        var report = GeekAPI.Services.Gcw.GcwSeoAnalyzer.Analyze(json, "anything", "pillar");
+
+        Assert.Equal(report.WordCount, counted);
+        Assert.DoesNotContain(GccDraftGuard.PageLengthCheck, Failed(GccDraftGuard.Pillar(doc, Inputs(pageFloorWords: counted))));
+        var finding = Assert.Single(
+            GccDraftGuard.Pillar(doc, Inputs(pageFloorWords: counted + 1)).Findings, f => f.Check == GccDraftGuard.PageLengthCheck);
+        Assert.StartsWith($"The pillar is {counted:N0} words.", finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_caller_that_names_no_floor_gets_no_length_line()
+    {
+        var doc = Doc(Body("Where the hours go", Text("Invoices are keyed twice.")));
+
+        Assert.DoesNotContain(GccDraftGuard.PageLengthCheck, Failed(GccDraftGuard.Pillar(doc, Inputs())));
+        Assert.DoesNotContain(GccDraftGuard.PageLengthCheck, Failed(GccDraftGuard.Tool(doc, Inputs())));
     }
 
     /// <summary>One paragraph of the Stampli tool page of 2026-10-05, which came back as a single link.</summary>

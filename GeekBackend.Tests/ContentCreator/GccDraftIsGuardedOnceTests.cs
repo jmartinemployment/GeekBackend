@@ -40,7 +40,8 @@ public class GccDraftIsGuardedOnceTests
     /// refusal, so the draft ships with it reported. <paramref name="heading"/> replaces the section
     /// headings, to put a refusing fault in the draft.
     /// </summary>
-    private sealed class ScriptedProvider(string? heading = null, bool keyword = false) : IContentGenerationProvider
+    private sealed class ScriptedProvider(
+        string? heading = null, bool keyword = false, Func<int, int>? wordsForCall = null) : IContentGenerationProvider
     {
         private int _bodyCalls;
 
@@ -93,8 +94,12 @@ public class GccDraftIsGuardedOnceTests
             var title = heading ?? (keyword
                 ? $"What AI implementation changes in part {letter}"
                 : $"Planned section {letter}");
+            // What a body call writes when the test sizes it: that many words and nothing else.
+            var text = wordsForCall is null
+                ? "Body."
+                : string.Join(' ', Enumerable.Repeat("word", wordsForCall(call)));
             return $$"""
-                {"sections":[{"tag":"h2","heading":"{{title}}","paragraphs":[{"type":"text","runs":[{"text":"Body."}]},{"type":"text","runs":[{"text":"Book a free consultation."}]}],"href":null,"children":[],"provenance":"plan"}]}
+                {"sections":[{"tag":"h2","heading":"{{title}}","paragraphs":[{"type":"text","runs":[{"text":"{{text}}"}]},{"type":"text","runs":[{"text":"Book a free consultation."}]}],"href":null,"children":[],"provenance":"plan"}]}
                 """;
         }
     }
@@ -248,6 +253,40 @@ public class GccDraftIsGuardedOnceTests
         Assert.DoesNotContain(warnings, w => w.Contains("retry", StringComparison.OrdinalIgnoreCase));
         // One call for each pair of body sections, and no second call for any of them.
         Assert.Equal(GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts.BodySectionCount / GeekAPI.Services.ContentCreator.GccGenerateService.SectionsPerBatch, provider.BodyCalls);
+    }
+
+    [Fact]
+    public async Task A_page_under_its_floor_says_so_once_and_lists_its_short_calls_straight_after()
+    {
+        var provider = new ScriptedProvider();
+
+        var (_, warnings) = await Pillar(provider);
+
+        var page = Assert.Single(warnings, w => w.StartsWith("The pillar is ", StringComparison.Ordinal));
+        Assert.EndsWith("words. Its SEO score needs 3,000.", page, StringComparison.Ordinal);
+        // Every call wrote a few words against its 600, and each is named, in order, after the page's line.
+        var at = warnings.ToList().IndexOf(page);
+        var calls = warnings.Skip(at + 1).Take(5).ToList();
+        Assert.Equal(5, calls.Count);
+        Assert.All(calls, w => Assert.EndsWith("words against a 600-word floor.", w, StringComparison.Ordinal));
+        Assert.StartsWith("Pillar body sections 1-2 is ", calls[0], StringComparison.Ordinal);
+        Assert.StartsWith("Pillar body sections 9-10 is ", calls[4], StringComparison.Ordinal);
+        Assert.Equal(5, warnings.Count(w => w.Contains("word floor", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task A_call_under_its_floor_is_not_listed_when_the_page_has_reached_its_own()
+    {
+        // The run of 2026-10-10: seven pages, every one over its floor, and 17 of the 29 gap lines were
+        // calls under 600 words. The pillar's calls wrote 512, 660, 581, 689 and 662.
+        int[] words = [512, 660, 581, 689, 662];
+        var provider = new ScriptedProvider(wordsForCall: call => words[call]);
+
+        var (_, warnings) = await Pillar(provider);
+
+        Assert.Equal(5, provider.BodyCalls);
+        Assert.DoesNotContain(warnings, w => w.Contains("word floor", StringComparison.Ordinal));
+        Assert.DoesNotContain(warnings, w => w.StartsWith("The pillar is ", StringComparison.Ordinal));
     }
 
     [Fact]

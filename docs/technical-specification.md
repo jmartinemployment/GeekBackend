@@ -138,7 +138,9 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
 
 **Checks (`GccDraftGuard`).** Refuse: names-product, quotation and one-quotation (tool), no-quotation (pillar, blog),
 tools-section, heading-provenance, unlisted-tools, links, link-text (a link may sit on 12 words at most), numbers, currency,
-questions-quiz. Report only: partner-mentions, closing-link, and the per-batch word-floor and keyword-count shortfalls.
+questions-quiz. Report only: partner-mentions, closing-link, opening-links, blockquote-missing (tool), keyword-density
+(the page's keyword share outside the score's band) and page-length (the page under its type's word floor, with the calls
+under their own floor listed after it; a page at its floor lists no call), and the per-batch keyword-heading shortfall.
 
 **Realtime.** SignalR hub `/hubs/workflow-realtime` (also `/hubs/gcc-v2-realtime` and `/hubs/geek-crawler-realtime`); a
 client calls `JoinGccGenerate(jobId)` and receives `GccGenerateEvent`, `GccGenerateTypeEvent`, `GccGeneratePreflightEvent`.

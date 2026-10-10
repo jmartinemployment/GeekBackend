@@ -65,7 +65,10 @@ public sealed record GccGuardInputs(
     // names one is refused.
     IReadOnlyList<string>? UnlistedTools = null,
     // The keyword the page is scored on. Null is the legacy path with no keyword, and no keyword check.
-    string? Keyword = null);
+    string? Keyword = null,
+    // The words the page's SEO score holds its type to (GccLongFormTypes.GetSeoLengthRules). Null is a
+    // caller that names no type, and no length check.
+    int? PageFloorWords = null);
 
 /// <summary>
 /// The guard for each long-form type: one function that runs every check on the draft, once.
@@ -85,6 +88,9 @@ public sealed record GccGuardInputs(
 /// </remarks>
 public static partial class GccDraftGuard
 {
+    /// <summary>The check a page under its type's word floor fails. Read by the writer to decide whether its calls' own shortfalls are listed.</summary>
+    public const string PageLengthCheck = "page-length";
+
     public static GccGuardVerdict Pillar(ContentDocument document, GccGuardInputs inputs) =>
         LongForm(document, inputs, "pillar");
 
@@ -148,6 +154,7 @@ public static partial class GccDraftGuard
         AddOpeningLinkFindings(document, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
+        AddLengthFinding(document, inputs, findings, "tool page");
         AddKeywordFindings(document, inputs, findings, "tool page");
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
@@ -229,9 +236,34 @@ public static partial class GccDraftGuard
                 Refuses: false));
         }
 
+        AddLengthFinding(document, inputs, findings, type);
         AddKeywordFindings(document, inputs, findings, type);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
+    }
+
+    /// <summary>
+    /// The page's length, judged once and by the page's own score: the finished page's words, counted
+    /// as the SEO report counts them (<see cref="GcwSeoAnalyzer.CountWords"/>), against the floor the
+    /// report holds its type to. Under it the page ships and says so. A reported gap, never a refusal.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-10 length was reported a call at a time and never for the page. The run of that
+    /// day wrote seven pages of 2,633 to 4,436 words, every one over its floor, and listed 17 calls
+    /// "under a 600-word floor" among its 29 gaps: a page's five calls owe 600 each so that they add
+    /// up to 3,000, and a page whose calls wrote 512, 660, 581, 689 and 662 has met it. A call's own
+    /// shortfall is now listed only beside this line, where it says which call left the page short.
+    /// </remarks>
+    private static void AddLengthFinding(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into, string type)
+    {
+        if (inputs.PageFloorWords is not { } floor || floor <= 0) return;
+        var words = GcwSeoAnalyzer.CountWords(JsonSerializer.Serialize(document, GccDocumentJson.Options));
+        if (words >= floor) return;
+
+        into.Add(new GccGuardFinding(
+            PageLengthCheck,
+            $"The {type} is {words:N0} words. Its SEO score needs {floor:N0}.",
+            Refuses: false));
     }
 
     /// <summary>

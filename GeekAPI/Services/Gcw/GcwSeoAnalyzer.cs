@@ -40,6 +40,14 @@ public static class GcwSeoAnalyzer
     public static KeywordCount CountKeyword(string bodyDocumentJson, string keyword) =>
         CountKeywordIn(GcwBodyDocument.Read(bodyDocumentJson).PlainText, (keyword ?? "").Trim());
 
+    /// <summary>
+    /// A stored body's words as the report counts them: the same reader and tokenizer as
+    /// <see cref="Analyze"/>'s "Draft length" check, so the page guard and the score cannot disagree
+    /// about whether a page has reached its floor.
+    /// </summary>
+    public static int CountWords(string bodyDocumentJson) =>
+        Tokenize(GcwBodyDocument.Read(bodyDocumentJson).PlainText).Count;
+
     private static KeywordCount CountKeywordIn(string plainText, string keyword)
     {
         var words = Tokenize(plainText).Count;
