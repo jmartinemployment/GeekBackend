@@ -260,6 +260,108 @@ public class GccGroundingEvidenceQuestionsTests
         }
         """;
 
+    /// <summary>Every question lands on the same page, each finding its own passage and one they all share.</summary>
+    private sealed class OnePageRag : IGeekCrawlerRagClient
+    {
+        private readonly RecordingRag inner = new();
+        private int asked;
+
+        public bool IsEnabled => true;
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(GeekCrawlerRagQuery query, CancellationToken ct = default)
+        {
+            asked++;
+            return Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
+            {
+                RunId = query.RunId,
+                Pages =
+                [
+                    new GccQuoteablePage(
+                        "https://tipalti.com/product-updates/", "Product updates", [],
+                        ["On every answer.", "Found by question " + asked + "."],
+                        Scores: [new GccPassageScore(0.5), new GccPassageScore(asked)]),
+                ],
+            });
+        }
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
+            inner.EnqueueIndexAsync(runId, ct);
+
+        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default) =>
+            inner.GetIndexStatusAsync(runId, ct);
+
+        public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
+            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default) =>
+            inner.HostsIndexedAsync(urls, crawlType, ct);
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
+            bool? preferParent = null, bool? preferChild = null,
+            IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
+            CancellationToken ct = default) =>
+            inner.QueryAsync(need, runId, crawlType, host, topK, preferParent, preferChild, entityNames, retrievalMode, anchorToolLookup, ct);
+
+        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+            IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>
+            inner.IndexTemplatesAsync(templates, ct);
+
+        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+            string need, int topK = 5, string? channel = null,
+            IReadOnlyList<string>? entityTags = null, CancellationToken ct = default) =>
+            inner.QueryTemplatesAsync(need, topK, channel, entityTags, ct);
+
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
+            string pageId, CancellationToken ct = default, string? runId = null) =>
+            inner.GetPageTextAsync(pageId, ct, runId);
+
+        public Task<JsonElement?> RunDiagnosticAsync(
+            string endpoint, object? payload = null, CancellationToken ct = default) =>
+            inner.RunDiagnosticAsync(endpoint, payload, ct);
+    }
+
+    /// <summary>
+    /// The brief asks this partner three questions. Until 2026-10-10 a page the first had returned was
+    /// dropped whole from the second's and the third's answers, with the passages they had found on it.
+    /// </summary>
+    [Fact]
+    public async Task A_later_question_adds_its_passages_to_a_page_an_earlier_question_returned()
+    {
+        var project = Project("https://tipalti.com/");
+
+        var outcome = await Build(project, new OnePageRag(), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, Brief), "tool");
+
+        var page = Assert.Single(outcome.Pages, p => p.Url == "https://tipalti.com/product-updates/");
+        Assert.Equal(
+            ["On every answer.", "Found by question 1.", "Found by question 2.", "Found by question 3."],
+            page.Paragraphs);
+
+        // The scores stay in step with the passages they score.
+        Assert.Equal([0.5, 1, 2, 3], page.Scores!.Select(s => s.Score));
+    }
+
+    [Fact]
+    public void A_page_with_nothing_new_on_it_is_left_as_it_was()
+    {
+        var held = new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["One.", "Two."]);
+        var later = new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["Two.", "One."]);
+
+        Assert.Same(held, GccGroundingResolver.WithLaterPassages(held, later));
+    }
+
+    [Fact]
+    public void Passages_are_added_without_scores_when_either_answer_carries_none()
+    {
+        var held = new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["One."], Scores: [new GccPassageScore(0.4)]);
+        var later = new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["Two."]);
+
+        var merged = GccGroundingResolver.WithLaterPassages(held, later);
+
+        Assert.Equal(["One.", "Two."], merged.Paragraphs);
+        Assert.Null(merged.Scores);
+    }
+
     private static IReadOnlyList<GeekCrawlerRagQuery> FaqQueries(RecordingRag rag) =>
         [.. PartnerQueries(rag).Where(q => q.TopK == GccGroundingResolver.FaqTopK)];
 

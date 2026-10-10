@@ -362,7 +362,10 @@ public sealed class GccGroundingResolver(
         // operator made twice, and silently assigning it to whichever was walked first is how the
         // role became order-dependent. Each list means something different -- cite / differentiate
         // from / do not repeat -- so a page is in a list because of where it came from.
-        var seenByCrawlType = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        //
+        // The value is where the page sits in its list, so that a later question landing on it can
+        // add its passages: see WithLaterPassages.
+        var seenByCrawlType = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         var partnersWithoutPassages = new List<string>();
         // Partner run -> the declared hosts it was indexed for, so a run that returns nothing can be
         // refused under the partner's name rather than a run id the operator never sees.
@@ -504,7 +507,7 @@ public sealed class GccGroundingResolver(
 
                 if (!seenByCrawlType.TryGetValue(crawlType, out var seenUrls))
                 {
-                    seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    seenUrls = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                     seenByCrawlType[crawlType] = seenUrls;
                 }
 
@@ -575,7 +578,13 @@ public sealed class GccGroundingResolver(
                     var fresh = new List<GccQuoteablePage>();
                     foreach (var page in result.Pages)
                     {
-                        if (!seenUrls.Add(page.Url)) continue;
+                        if (seenUrls.TryGetValue(page.Url, out var held))
+                        {
+                            into[held] = WithLaterPassages(into[held], page);
+                            continue;
+                        }
+
+                        seenUrls[page.Url] = into.Count;
                         into.Add(page);
                         fresh.Add(page);
                     }
@@ -702,6 +711,44 @@ public sealed class GccGroundingResolver(
     /// its passages are filed under. Null for every search that feeds the shared pool.
     /// </param>
     internal sealed record PartnerQuestion(string Need, string? Keyword, int TopK, string? FaqHost = null);
+
+    /// <summary>
+    /// A page an earlier question returned, with the passages a later question found on it added.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A page is listed once however many questions land on it, and until 2026-10-10 that was done by
+    /// dropping the later answer whole. That was written when a run was asked one question. A partner
+    /// run is asked its core problem and then one question per evidence row (2026-10-08), and a long
+    /// page answers several of them from different sections: the second question's passages were
+    /// searched for, returned, and thrown away because the first had already named the page.
+    /// </para>
+    /// <para>
+    /// A passage the page already carries is not added twice, and the scores stay in step with the
+    /// passages. The typed read of a partner page is by address and takes the whole page, so it is
+    /// made once, when the page is first seen, and needs nothing from here.
+    /// </para>
+    /// </remarks>
+    internal static GccQuoteablePage WithLaterPassages(GccQuoteablePage held, GccQuoteablePage later)
+    {
+        var scored = held.Scores is not null && held.Scores.Count == held.Paragraphs.Count
+            && later.Scores is not null && later.Scores.Count == later.Paragraphs.Count;
+
+        var have = new HashSet<string>(held.Paragraphs, StringComparer.Ordinal);
+        var paragraphs = new List<string>(held.Paragraphs);
+        var scores = scored ? new List<GccPassageScore>(held.Scores!) : null;
+        for (var i = 0; i < later.Paragraphs.Count; i++)
+        {
+            if (paragraphs.Count >= GccPartnerResearchCaps.MaxParagraphsPerPage) break;
+            if (!have.Add(later.Paragraphs[i])) continue;
+            paragraphs.Add(later.Paragraphs[i]);
+            scores?.Add(later.Scores![i]);
+        }
+
+        return paragraphs.Count == held.Paragraphs.Count
+            ? held
+            : held with { Paragraphs = paragraphs, Scores = scores };
+    }
 
     /// <summary>
     /// The operator's FAQ questions for one partner host, each as a search of that partner's crawl:
