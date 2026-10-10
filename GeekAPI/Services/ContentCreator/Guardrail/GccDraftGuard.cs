@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using GeekAPI.Services.Gcw;
 using GeekAPI.Services.Workflow.Domain.Entities;
 
 namespace GeekAPI.Services.ContentCreator.Guardrail;
@@ -61,7 +63,9 @@ public sealed record GccGuardInputs(
     IReadOnlySet<string>? ToolPaths = null,
     // Tools the publisher's site lists that are not this project's partners. A pillar or blog that
     // names one is refused.
-    IReadOnlyList<string>? UnlistedTools = null);
+    IReadOnlyList<string>? UnlistedTools = null,
+    // The keyword the page is scored on. Null is the legacy path with no keyword, and no keyword check.
+    string? Keyword = null);
 
 /// <summary>
 /// The guard for each long-form type: one function that runs every check on the draft, once.
@@ -144,6 +148,7 @@ public static partial class GccDraftGuard
         AddOpeningLinkFindings(document, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
+        AddKeywordFindings(document, inputs, findings, "tool page");
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
     }
@@ -224,9 +229,63 @@ public static partial class GccDraftGuard
                 Refuses: false));
         }
 
+        AddKeywordFindings(document, inputs, findings, type);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
     }
+
+    /// <summary>
+    /// The page's keyword, judged once and by the page's own score: the exact phrase as a share of the
+    /// page's words, inside the band the SEO report passes (<see cref="GcwSeoAnalyzer"/>, the same
+    /// reader, tokenizer and match). Outside it the page ships and says so, naming the sections that
+    /// never use the phrase. A reported gap, never a refusal: the writer was asked for no count (Jeff,
+    /// 2026-10-10), and what could go back without breaking the grammar, <see cref="GccKeywordRemap"/>
+    /// has put back.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-10 the count was checked a call at a time against the call's share of a count
+    /// sized to the page's floor. Nine of the eighteen warnings on 2026-10-07 landed on pages the
+    /// score passed. The score's mark is a share of the words the page ends up with, closing and
+    /// questions included, and cannot be divided among calls in advance the way a word floor can.
+    /// </remarks>
+    private static void AddKeywordFindings(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into, string type)
+    {
+        if (string.IsNullOrWhiteSpace(inputs.Keyword)) return;
+        var phrase = inputs.Keyword.Trim();
+        var counted = GcwSeoAnalyzer.CountKeyword(JsonSerializer.Serialize(document, GccDocumentJson.Options), phrase);
+        if (counted.Words == 0) return;
+
+        var used = $"The {type} uses \"{phrase}\" {counted.Uses} time{(counted.Uses == 1 ? string.Empty : "s")} in "
+            + $"{counted.Words:N0} words ({counted.DensityPercent:0.00}%).";
+        if (counted.DensityPercent < GcwSeoAnalyzer.MinKeywordDensityPercent)
+        {
+            // Each section counted as the score counts it, headings and subsections included.
+            var never = new List<Section> { document.Lede }
+                .Concat(document.Sections)
+                .Where(s => !string.IsNullOrWhiteSpace(s.Heading) && UsesIn(s, phrase) == 0)
+                .Select(s => $"\"{s.Heading}\"")
+                .ToList();
+            into.Add(new GccGuardFinding(
+                "keyword-density",
+                $"{used} Its SEO score needs {GcwSeoAnalyzer.MinKeywordDensityPercent:0.0}%."
+                + (never.Count == 0 ? string.Empty : $" Sections that never use it: {string.Join(", ", never)}."),
+                Refuses: false));
+        }
+        else if (counted.DensityPercent > GcwSeoAnalyzer.MaxKeywordDensityPercent)
+        {
+            into.Add(new GccGuardFinding(
+                "keyword-density",
+                $"{used} Its SEO score allows {GcwSeoAnalyzer.MaxKeywordDensityPercent:0.0}%; it reads stuffed.",
+                Refuses: false));
+        }
+    }
+
+    private static int UsesIn(Section section, string phrase) =>
+        GcwSeoAnalyzer.CountKeyword(
+            JsonSerializer.Serialize(
+                new ContentDocument(new Section("h2", string.Empty, [], null, []), [section]),
+                GccDocumentJson.Options),
+            phrase).Uses;
 
     /// <summary>
     /// Every run and section href must lead somewhere the writer was given: the scheduler, the

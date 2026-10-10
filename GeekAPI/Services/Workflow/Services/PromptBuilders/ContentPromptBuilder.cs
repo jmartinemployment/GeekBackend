@@ -462,28 +462,18 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// The scorer wants at least one and the outline rules cap it at two, so exactly one call is
     /// asked for it -- told to every batch, a six-section page comes back with three.</param>
     /// <summary>
-    /// How many times a call writing <paramref name="sectionsInThisCall"/> of a page's
-    /// <paramref name="sectionsInThePage"/> sections owes the keyword: its share of the page's count.
+    /// What the body is scored on, as told to the writer: the length, the sections, the keyword's
+    /// heading, direct answers and lists. Not a keyword count.
     /// </summary>
     /// <remarks>
-    /// One definition, read by <see cref="SeoBodyInstruction"/>, which tells the writer the number,
-    /// and by the check that counts what came back
-    /// (<c>GccGenerateService.GenerateSectionsInBatchesAsync</c>) -- so a batch is never told one
-    /// figure and measured against another. The page's count is 0.6% of its word floor: mid-band in
-    /// the scorer's 0.4-2.5%, so a page that lands near it passes without reading as stuffed, and the
-    /// lede and the appended questions section, which this does not count, cannot dilute it below the
-    /// floor.
+    /// A count was stated here until 2026-10-10 -- "at least 18 times across the finished page, so at
+    /// least 6 in your sections" -- and the writer never wrote it: a median of two a call on
+    /// 2026-10-07, with the phrase shortened to "approval workflows" fifty-five times. Jeff: "Do not
+    /// rely on the LLM to count its own keyword usage ... Let the LLM write naturally." The writer is
+    /// told the keyword and where its heading goes; the exact phrase is put back where the writer
+    /// shortened it (<c>GccKeywordRemap</c>), and the finished page is judged by its own score, once
+    /// (<c>GccDraftGuard</c>).
     /// </remarks>
-    internal static int SeoKeywordMentionsFor(string contentType, int sectionsInThisCall, int sectionsInThePage)
-    {
-        var (minWords, _, _) = GccLongFormTypes.GetSeoLengthRules(contentType);
-        var mentions = Math.Max(4, (int)Math.Round(minWords * 0.006));
-        if (sectionsInThisCall >= sectionsInThePage) return mentions;
-
-        var share = Math.Max(1d, sectionsInThisCall) / Math.Max(1, sectionsInThePage);
-        return Math.Max(1, (int)Math.Round(mentions * share));
-    }
-
     private static string SeoBodyInstruction(
         string keyword,
         string contentType,
@@ -492,12 +482,10 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         bool ownsTheKeywordHeading)
     {
         var (minWords, minSections, _) = GccLongFormTypes.GetSeoLengthRules(contentType);
-        var mentions = SeoKeywordMentionsFor(contentType, sectionsInThePage, sectionsInThePage);
         var perSection = minWords / Math.Max(minSections + 2, 1);
 
         var writesWholePage = sectionsInThisCall >= sectionsInThePage;
         var wordsHere = perSection * Math.Max(1, sectionsInThisCall);
-        var mentionsHere = SeoKeywordMentionsFor(contentType, sectionsInThisCall, sectionsInThePage);
 
         return new StringBuilder()
             .AppendLine("=== WHAT THIS PAGE IS SCORED ON ===")
@@ -517,24 +505,6 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                   + "has more to say. Each one covers something the others do not."
                 : $"SECTIONS: exactly the {sectionsInThisCall} top-level sections you were assigned, "
                   + "each covering something the others -- yours and the other calls' -- do not.")
-            // The exact phrase, and said so. This read "and its natural variants", and the scorer
-            // counts the phrase and nothing else: a tool page for "Automated Approval Workflows" came
-            // back writing "approval workflows" and "automated workflows" throughout, with the phrase
-            // itself four times in 2,024 words -- 0.2% against a 0.4% floor -- and a heading reading
-            // "Manual Approval Workflows" where the keyword was owed (2026-10-05). The writer was
-            // invited to use variants and then scored as if it had not used the keyword.
-            .AppendLine(writesWholePage
-                ? $"KEYWORD FREQUENCY: the exact phrase \"{keyword}\" appears at least {mentions} times "
-                  + "across the piece -- roughly once every 200 words. It is counted as that phrase, "
-                  + "word for word: a shortened or reworded form of it is fine prose and is not "
-                  + "counted. Never twice in a paragraph. One mention in a long piece fails this as "
-                  + "surely as forty do."
-                : $"KEYWORD FREQUENCY: the exact phrase \"{keyword}\" appears at least {mentions} times "
-                  + $"across the finished page, so at least {mentionsHere} in your sections -- roughly "
-                  + "once every 200 words. It is counted as that phrase, word for word: a shortened or "
-                  + "reworded form of it is fine prose and is not counted. Never twice in a paragraph. "
-                  + "Your sections are counted when they come back, and a batch under its share is "
-                  + "reported with the draft.")
             .AppendLine(ownsTheKeywordHeading
                 ? $"HEADINGS: at least one H2 contains the exact phrase \"{keyword}\" -- that phrase, "
                   + "word for word, not a variant of it. Headings answer the question a "

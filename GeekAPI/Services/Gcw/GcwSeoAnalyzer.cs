@@ -25,6 +25,29 @@ public static class GcwSeoAnalyzer
         IReadOnlyList<SeoCheck> Checks,
         string ApplyFeedback);
 
+    /// <summary>The band the keyword's share of the page's words passes in. Read by the page guard; never copied.</summary>
+    public const double MinKeywordDensityPercent = 0.4;
+
+    public const double MaxKeywordDensityPercent = 2.5;
+
+    /// <summary>The exact phrase counted over a stored body: how many times, in how many words, and the share.</summary>
+    public sealed record KeywordCount(int Uses, int Words, double DensityPercent);
+
+    /// <summary>
+    /// The one count the report, the page guard and the run record all read: the same reader, the same
+    /// tokenizer and the same phrase match as <see cref="Analyze"/>.
+    /// </summary>
+    public static KeywordCount CountKeyword(string bodyDocumentJson, string keyword) =>
+        CountKeywordIn(GcwBodyDocument.Read(bodyDocumentJson).PlainText, (keyword ?? "").Trim());
+
+    private static KeywordCount CountKeywordIn(string plainText, string keyword)
+    {
+        var words = Tokenize(plainText).Count;
+        var uses = string.IsNullOrWhiteSpace(keyword) ? 0 : CountPhraseOccurrences(plainText, keyword);
+        var density = words == 0 ? 0 : 100.0 * uses / words;
+        return new KeywordCount(uses, words, density);
+    }
+
     /// <summary>
     /// Scores a draft against its target keyword and <b>its own content type's</b> thresholds.
     /// </summary>
@@ -40,11 +63,9 @@ public static class GcwSeoAnalyzer
     {
         var keyword = (targetKeyword ?? "").Trim();
         var text = ExtractPlainText(bodyDocumentJson, out var lede, out var headings, out var sectionCount);
-        var words = Tokenize(text);
-        var wordCount = words.Count;
-        var density = wordCount == 0 || string.IsNullOrWhiteSpace(keyword)
-            ? 0
-            : 100.0 * CountPhraseOccurrences(text, keyword) / wordCount;
+        var counted = CountKeywordIn(text, keyword);
+        var wordCount = counted.Words;
+        var density = counted.DensityPercent;
 
         var checks = new List<SeoCheck>();
 
@@ -75,15 +96,15 @@ public static class GcwSeoAnalyzer
                 inHeading ? "At least one section heading includes the keyword." : "No section heading includes the keyword.",
                 inHeading ? null : $"Use “{keyword}” in at least one H2-style section heading."));
 
-            var densityOk = density >= 0.4 && density <= 2.5;
+            var densityOk = density >= MinKeywordDensityPercent && density <= MaxKeywordDensityPercent;
             checks.Add(new SeoCheck(
                 "keyword-density",
                 "Keyword density",
                 densityOk,
-                $"Density ≈ {density:0.00}% (target roughly 0.4–2.5%).",
+                $"Density ≈ {density:0.00}% (target roughly {MinKeywordDensityPercent:0.0}–{MaxKeywordDensityPercent:0.0}%).",
                 densityOk
                     ? null
-                    : density < 0.4
+                    : density < MinKeywordDensityPercent
                         ? $"Increase natural mentions of “{keyword}”."
                         : $"Reduce repetition of “{keyword}”; it reads stuffed."));
         }

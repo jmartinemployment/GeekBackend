@@ -6,14 +6,22 @@ using Xunit;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// What a batch of a page owes when it comes back: its words, its share of the keyword, and the
-/// keyword's heading when it is the batch that carries it.
+/// What a batch of a page owes when it comes back: its words, and the keyword's heading when it is
+/// the batch that carries it. Not a keyword count.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Jeff, 2026-10-05, reading a tool page's SEO report -- score 40, "No section heading includes the
 /// keyword", density 0.20%, 2,024 words against 3,000: "these SEO hints should already be applied to
 /// all content types". The writer had been told all three and was held only to length, and only on
 /// the types whose sections declare one.
+/// </para>
+/// <para>
+/// The count was then owed a call at a time, and warned on 18 of 21 calls on 2026-10-07, nine of them
+/// on pages the score passed. Jeff, 2026-10-10: "Do not rely on the LLM to count its own keyword
+/// usage." A batch's uses are counted for the run's record and owed to nothing; the page is judged
+/// once, by its score, in <c>GccDraftGuard</c>.
+/// </para>
 /// </remarks>
 public sealed class GccBatchShortfallTests
 {
@@ -32,11 +40,11 @@ public sealed class GccBatchShortfallTests
         new("h2", heading, [.. paragraphs.Select(p => (Paragraph)new TextParagraph([new Run(p)]))], null, []);
 
     private static IReadOnlyList<GccGenerateService.BatchShortfall> Owed(
-        IReadOnlyList<Section> sections, string? keyword = Keyword, int mentions = 3, bool heading = true) =>
-        GccGenerateService.BatchShortfalls(sections, TwoSlots, Label, keyword, mentions, heading);
+        IReadOnlyList<Section> sections, string? keyword = Keyword, bool heading = true) =>
+        GccGenerateService.BatchShortfalls(sections, TwoSlots, Label, keyword, heading);
 
     [Fact]
-    public void A_batch_that_delivers_its_words_its_keyword_share_and_its_heading_owes_nothing()
+    public void A_batch_that_delivers_its_words_and_its_heading_owes_nothing()
     {
         Section[] sections =
         [
@@ -63,10 +71,26 @@ public sealed class GccBatchShortfallTests
     }
 
     [Fact]
-    public void The_keyword_is_counted_as_the_exact_phrase_and_a_variant_is_not_counted()
+    public void No_count_of_the_keyword_is_owed_by_a_batch()
     {
         // What the Stampli page of 2026-10-05 did: "approval workflows" and "automated workflows"
-        // throughout, the phrase itself rarely. The scorer counts the phrase; so does this.
+        // throughout, the phrase itself rarely. A batch that has its words and its heading is not warned
+        // for it; the page is, once, by its score.
+        Section[] sections =
+        [
+            H2(
+                "What Automated Approval Workflows replace",
+                Words(650),
+                "Approval workflows route each invoice. Automated workflows cut the wait. Automation helps approvals."),
+            H2("How it is set up", Words(520), "The approvers are configured once."),
+        ];
+
+        Assert.Empty(Owed(sections));
+    }
+
+    [Fact]
+    public void A_batchs_uses_of_the_keyword_are_counted_as_the_exact_phrase_for_the_run_log()
+    {
         Section[] sections =
         [
             H2(
@@ -76,11 +100,10 @@ public sealed class GccBatchShortfallTests
             H2("How it is set up", Words(520), "automated  approval\nworkflows are configured once."),
         ];
 
-        var shortfall = Assert.Single(Owed(sections, mentions: 6));
-
-        // The heading and the one mention in the prose, whatever their case or spacing: two.
-        Assert.Equal(
-            Label + " uses \"Automated Approval Workflows\" 2 time(s) against the 6 it owes", shortfall.Report);
+        // The heading and the one mention in the prose, whatever their case or spacing: two. A
+        // shortened form is not one.
+        Assert.Equal(2, GccGenerateService.KeywordUses(sections, Keyword));
+        Assert.Equal(0, GccGenerateService.KeywordUses(sections, "  "));
     }
 
     [Fact]
@@ -92,7 +115,8 @@ public sealed class GccBatchShortfallTests
             H2("How it is set up", Words(520), "Automated Data Entry & Processing starts with capture."),
         ];
 
-        Assert.Empty(Owed(sections, keyword: "Automated Data Entry & Processing", mentions: 3));
+        Assert.Empty(Owed(sections, keyword: "Automated Data Entry & Processing"));
+        Assert.Equal(3, GccGenerateService.KeywordUses(sections, "Automated Data Entry & Processing"));
     }
 
     [Fact]
@@ -117,22 +141,8 @@ public sealed class GccBatchShortfallTests
     {
         Section[] sections = [H2("One", Words(300)), H2("Two", Words(300))];
 
-        var shortfall = Assert.Single(Owed(sections, keyword: "  ", mentions: 0));
-    }
+        var shortfall = Assert.Single(Owed(sections, keyword: "  "));
 
-    [Theory]
-    [InlineData("pillar")]
-    [InlineData("blog")]
-    [InlineData("tool")]
-    public void A_batchs_share_of_the_keyword_adds_up_to_a_page_inside_the_scorers_band(string type)
-    {
-        // Three batches of two sections on a six-section page: each owes a third of the page's count,
-        // and the page's count sits between the scorer's 0.4% and 2.5% of its word floor.
-        var (minWords, _, _) = GeekAPI.Services.ContentCreator.ContentTypes.GccLongFormTypes.GetSeoLengthRules(type);
-        var perBatch = ContentPromptBuilder.SeoKeywordMentionsFor(type, 2, 6);
-        var wholePage = ContentPromptBuilder.SeoKeywordMentionsFor(type, 6, 6);
-
-        Assert.InRange(perBatch * 3, wholePage - 1, wholePage + 1);
-        Assert.InRange(100.0 * wholePage / minWords, 0.4, 2.5);
+        Assert.StartsWith(Label + " is ", shortfall.Report, StringComparison.Ordinal);
     }
 }

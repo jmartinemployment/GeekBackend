@@ -203,28 +203,20 @@ public class ContentPromptBuilderSectionBatchTests
 
     [Theory]
     [MemberData(nameof(EveryBatchedType))]
-    public void A_batch_is_given_its_own_share_of_the_keyword_count(string type)
+    public void No_batch_is_given_a_keyword_count_to_hit(string type)
     {
-        // Same arithmetic on density: the page's whole count written into each of three batches is
-        // three times the mentions in the same number of words.
+        // Jeff, 2026-10-10: "Do not rely on the LLM to count its own keyword usage ... Let the LLM write
+        // naturally." Told "at least 6 in your sections" the writer wrote a median of two and shortened
+        // the phrase fifty-five times. It is told the keyword and where its heading goes; the exact
+        // phrase is put back by GccKeywordRemap where the writer shortened it, and the page is judged
+        // once, by its score.
         var prompt = FirstBatch(type);
 
-        Assert.Contains("times across the finished page, so at least", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void A_batch_is_told_the_keyword_count_it_is_then_held_to()
-    {
-        // The number in the prompt and the number the returned batch is counted against are one
-        // function's answer. Two figures is a batch told six and retried for having seven owed.
-        var total = ToolPrompts.Outline(Context(), "Partner Widget").Count;
-        var owed = ContentPromptBuilder.SeoKeywordMentionsFor("tool", 2, total);
-
-        var prompt = ToolBatch(batchIndex: 0, skip: 0, take: 2);
-
-        Assert.Contains($"so at least {owed} in your sections", prompt, StringComparison.Ordinal);
-        Assert.Contains("It is counted as that phrase, word for word", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("KEYWORD FREQUENCY", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("once every 200 words", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("in your sections", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("natural variants", prompt, StringComparison.Ordinal);
+        Assert.Contains("Target keyword", prompt, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -39,15 +39,8 @@ public partial class GccGenerateService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    /// <summary>CWV2 ContentDocument wire format (Paragraph discriminator uses "type").</summary>
-    private static readonly JsonSerializerOptions CwDocumentJson = CreateCwDocumentJson();
-
-    private static JsonSerializerOptions CreateCwDocumentJson()
-    {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-        options.Converters.Add(new ParagraphJsonConverter());
-        return options;
-    }
+    /// <summary>The document wire format (Paragraph discriminator uses "type"): one definition, <see cref="GccDocumentJson"/>.</summary>
+    private static readonly JsonSerializerOptions CwDocumentJson = GccDocumentJson.Options;
 
     private readonly IContentPromptBuilder _prompts;
     private readonly GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry _types;
@@ -1835,18 +1828,24 @@ public partial class GccGenerateService
             List<Section> sections = create is null
                 ? written
                 : [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(written, quoteCandidates)];
+            // The keyword's shortenings put back on the opening and the body as written, before anything
+            // code builds joins them.
+            var (toolOpening, toolBody) = await RemapKeywordAsync(
+                $"the tool page '{name}'", toolLede with { Tag = "h2" }, sections, toolOutlineCtx.Context.TargetKeyword);
+            sections = toolBody;
             // A tool page links no other tool page (GuardInputsFor hands it none), so nothing is linked here.
             sections = await LinkToolsAsync($"the tool page '{name}'", sections, []);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (await ToolFaqAsync(shortfalls) is { } faq) sections.Add(faq);
-            return new GccDraft(new ContentDocument(toolLede with { Tag = "h2" }, sections), shortfalls);
+            return new GccDraft(new ContentDocument(toolOpening, sections), shortfalls);
         }
 
         var (document, toolWarnings) = await GuardedDraftAsync(
             $"the tool page '{name}'",
             WriteToolDraftAsync,
             doc => Guardrail.GccDraftGuard.Tool(
-                doc, toolGuardInputs with { AppendedSections = toolFaqSection is null ? 0 : 1 }));
+                doc, toolGuardInputs with { AppendedSections = toolFaqSection is null ? 0 : 1 }),
+            toolOutlineCtx.Context.TargetKeyword);
 
         // Per-H2 image prompts. Tool pages are long-form (a ten-section outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type. `section` is
@@ -2807,15 +2806,21 @@ public partial class GccGenerateService
                 "Blog body",
                 ct,
                 shortfalls);
+            // The keyword's shortenings put back on the opening and the body as written, then the links,
+            // the closing and the FAQ, none of which is remapped.
+            var (blogOpening, blogBody) = await RemapKeywordAsync(
+                "the blog", blogLede with { Tag = "h2" }, sections, blogPromptCtx.Context.TargetKeyword);
+            sections = blogBody;
             sections = await LinkToolsAsync("the blog", sections, blogPromptCtx.Context.KnownCrawlTools ?? []);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (blogFaq is not null) sections.Add(blogFaq);
-            var whole = new ContentDocument(blogLede with { Tag = "h2" }, sections);
+            var whole = new ContentDocument(blogOpening, sections);
             return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls);
         }
 
         var (document, blogWarnings) = await GuardedDraftAsync(
-            "the blog", WriteBlogDraftAsync, doc => Guardrail.GccDraftGuard.Blog(doc, blogGuardInputs));
+            "the blog", WriteBlogDraftAsync, doc => Guardrail.GccDraftGuard.Blog(doc, blogGuardInputs),
+            blogPromptCtx.Context.TargetKeyword);
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this
@@ -3232,10 +3237,15 @@ public partial class GccGenerateService
     private async Task<(ContentDocument Document, List<string> Warnings)> GuardedDraftAsync(
         string label,
         Func<Task<GccDraft>> write,
-        Func<ContentDocument, Guardrail.GccGuardVerdict> guard)
+        Func<ContentDocument, Guardrail.GccGuardVerdict> guard,
+        string? keyword = null)
     {
         var draft = await write();
         var verdict = guard(draft.Document);
+        // The page's keyword count as its score will count it, on every page, passed or not.
+        var counted = string.IsNullOrWhiteSpace(keyword)
+            ? null
+            : Gcw.GcwSeoAnalyzer.CountKeyword(JsonSerializer.Serialize(draft.Document, CwDocumentJson), keyword);
         // The verdict and the draft it judged, on the run's record -- a refused draft is otherwise text
         // nobody can read afterwards.
         await GccRunLog.RecordIfAnyAsync("verdict", new
@@ -3243,6 +3253,8 @@ public partial class GccGenerateService
             label,
             clean = verdict.Clean,
             words = ContentDocumentText.CountWords(draft.Document),
+            keywordUses = counted?.Uses,
+            keywordDensity = counted?.DensityPercent,
             findings = verdict.Findings.Select(f => new { f.Check, f.Detail, f.Refuses }).ToList(),
             shortfalls = draft.Shortfalls,
             document = draft.Document,
@@ -3370,6 +3382,32 @@ public partial class GccGenerateService
         return linked.Sections;
     }
 
+    /// <summary>
+    /// The opening and the body with the keyword's shortenings put back where the grammar allows it
+    /// (<see cref="Guardrail.GccKeywordRemap"/>), and every edit on the run's record.
+    /// </summary>
+    /// <remarks>
+    /// Before the linker, the closing and the FAQ: the text it reads is the writer's, whole paragraphs
+    /// in plain runs, and what code builds afterwards is never remapped. Nothing here refuses; a page
+    /// still under its score's floor afterwards is reported by the page guard, with the sections that
+    /// never use the phrase.
+    /// </remarks>
+    private static async Task<(Section Lede, List<Section> Sections)> RemapKeywordAsync(
+        string label, Section lede, IReadOnlyList<Section> sections, string? keyword)
+    {
+        var remapped = Guardrail.GccKeywordRemap.Apply(new ContentDocument(lede, sections), keyword);
+        await GccRunLog.RecordIfAnyAsync("keyword", new
+        {
+            label,
+            keyword,
+            target = remapped.Target,
+            before = remapped.Before,
+            after = remapped.After,
+            edits = remapped.Edits.Select(e => new { e.Heading, e.From, e.To }).ToList(),
+        });
+        return (remapped.Document.Lede, [.. remapped.Document.Sections]);
+    }
+
     private Guardrail.GccGuardInputs GuardInputsFor(
         GccCreateDto? create,
         ProjectGenerationContext context,
@@ -3423,7 +3461,9 @@ public partial class GccGenerateService
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(path => path!)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase),
-            UnlistedTools: partnerTools?.Unlisted ?? []);
+            UnlistedTools: partnerTools?.Unlisted ?? [],
+            // The keyword the page is scored on: the one its prompts name and the SEO report counts.
+            Keyword: context.TargetKeyword);
     }
 
     /// <summary>
@@ -3490,26 +3530,29 @@ public partial class GccGenerateService
             };
             var sections = await WriteBatchAsync(llm, type, batchCtx, batchLabel, outline.Count, ct);
 
-            // What the batch owes of its page, measured the moment it comes back: its words, its share
-            // of the keyword, and -- for the batch that carries it -- the keyword's heading.
+            // What the batch owes of its page, measured the moment it comes back: its words, and -- for
+            // the batch that carries it -- the keyword's heading.
             //
             // Length came first: the tool outline sizes every section ("600-850 words"), and a batch
             // under the sum of its lower figures has not written its share -- 2,108 words against
-            // 3,000, 2026-10-03. The keyword's count and heading join it because the writer was told
-            // both and held to neither: every draft of 2026-10-05 scored 40 on the page's own SEO
-            // report, failing "keyword in a heading" and "keyword density", and the only place that
-            // said so was a report the operator opened afterwards (Jeff: "these SEO hints should
-            // already be applied to all content types").
+            // 3,000, 2026-10-03. The keyword's heading joins it because the writer was told it and held
+            // to nothing: every draft of 2026-10-05 scored 40 on the page's own SEO report, failing
+            // "keyword in a heading" and "keyword density", and the only place that said so was a
+            // report the operator opened afterwards (Jeff: "these SEO hints should already be applied
+            // to all content types").
+            //
+            // The keyword's count is not a batch's to owe (Jeff, 2026-10-10: "Do not rely on the LLM to
+            // count its own keyword usage"). The writer writes; GccKeywordRemap puts the exact phrase
+            // back where the writer shortened it; the finished page is judged by its own score, once.
+            // What a batch used is on the record here, so the writer's own rate is readable call by call.
             //
             // Nothing is written again (Jeff, 2026-10-06: no retries). What the batch is short of is
             // reported with the draft rather than refused: the page is saved and says what it is short of.
-            var keywordMentionsOwed = string.IsNullOrWhiteSpace(keyword)
-                ? 0
-                : ContentPromptBuilder.SeoKeywordMentionsFor(type.Key, batch.Count, outline.Count);
+            //
             // The batch that carries the page's keyword heading: the same rule every body prompt hands
             // SeoBodyInstruction, from the one definition (SectionSlot.BatchOwnsKeywordHeading).
             var owesKeywordHeading = SectionSlot.BatchOwnsKeywordHeading(batch, outline, i / SectionsPerBatch);
-            var owed = BatchShortfalls(sections, batch, batchLabel, keyword, keywordMentionsOwed, owesKeywordHeading);
+            var owed = BatchShortfalls(sections, batch, batchLabel, keyword, owesKeywordHeading);
             await GccRunLog.RecordIfAnyAsync("batch", new
             {
                 batch = batchLabel,
@@ -3518,6 +3561,7 @@ public partial class GccGenerateService
                 of = (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
                 floor = BatchFloorWords(batch),
                 words = ContentDocumentText.CountWords(sections),
+                keywordUses = KeywordUses(sections, keyword),
                 headings = sections.Select(x => x.Heading).ToList(),
                 shortfalls = owed.Select(o => o.Report).ToList(),
             });
@@ -3623,12 +3667,14 @@ public partial class GccGenerateService
     internal sealed record BatchShortfall(string Report);
 
     /// <summary>
-    /// What an attempt at a batch is short of: words against the floor its slots declare, the keyword
-    /// against the batch's share of the page's count, and the keyword's heading when this batch
-    /// carries it.
+    /// What an attempt at a batch is short of: words against the floor its slots declare, and the
+    /// keyword's heading when this batch carries it. Not the keyword's count: the writer is asked for
+    /// none (Jeff, 2026-10-10), <see cref="Guardrail.GccKeywordRemap"/> puts the exact phrase back
+    /// where the writer shortened it, and the finished page is judged by its score, once, in
+    /// <see cref="Guardrail.GccDraftGuard"/>.
     /// </summary>
     /// <remarks>
-    /// Counted by the scorer's own reader and phrase counter (<see cref="Gcw.GcwBodyDocument"/>,
+    /// Read by the scorer's own reader and phrase counter (<see cref="Gcw.GcwBodyDocument"/>,
     /// <see cref="Gcw.GcwSeoAnalyzer"/>), over the batch's sections as a document: the same text,
     /// the same headings and the same match the SEO report will use on the finished page. A second
     /// way of counting here is how a batch would pass this and the page still fail that.
@@ -3638,7 +3684,6 @@ public partial class GccGenerateService
         IReadOnlyList<SectionSlot> batch,
         string batchLabel,
         string? keyword,
-        int keywordMentionsOwed,
         bool owesKeywordHeading)
     {
         var found = new List<BatchShortfall>();
@@ -3650,27 +3695,30 @@ public partial class GccGenerateService
             found.Add(new BatchShortfall($"{batchLabel} is {words:N0} words against a {floor:N0}-word floor"));
         }
 
-        if (string.IsNullOrWhiteSpace(keyword)) return found;
+        if (!owesKeywordHeading || string.IsNullOrWhiteSpace(keyword)) return found;
 
         var phrase = keyword.Trim();
-        var read = Gcw.GcwBodyDocument.Read(JsonSerializer.Serialize(
-            new ContentDocument(new Section("h2", string.Empty, [], null, []), sections), CwDocumentJson));
-
-        var mentions = Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(read.PlainText, phrase);
-        if (mentions < keywordMentionsOwed)
-        {
-            found.Add(new BatchShortfall(
-                $"{batchLabel} uses \"{phrase}\" {mentions} time(s) against the {keywordMentionsOwed} it owes"));
-        }
-
-        if (owesKeywordHeading
-            && !read.Headings.Any(h => Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(h, phrase) > 0))
+        if (!ReadAsScorer(sections).Headings.Any(h => Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(h, phrase) > 0))
         {
             found.Add(new BatchShortfall($"{batchLabel} has no heading containing \"{phrase}\""));
         }
 
         return found;
     }
+
+    /// <summary>
+    /// How many times a batch uses the exact phrase, as the scorer counts it. For the run's record,
+    /// where the writer's own rate is read call by call; nothing is owed.
+    /// </summary>
+    internal static int KeywordUses(IReadOnlyList<Section> sections, string? keyword) =>
+        string.IsNullOrWhiteSpace(keyword)
+            ? 0
+            : Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(ReadAsScorer(sections).PlainText, keyword.Trim());
+
+    /// <summary>The sections as the scorer reads them: the same text, headings and match the SEO report uses.</summary>
+    private static Gcw.GcwBodyDocument.Text ReadAsScorer(IReadOnlyList<Section> sections) =>
+        Gcw.GcwBodyDocument.Read(JsonSerializer.Serialize(
+            new ContentDocument(new Section("h2", string.Empty, [], null, []), sections), CwDocumentJson));
 
     /// <summary>
     /// Stage 2: the concrete evidence set this specific generation call had available -- the same

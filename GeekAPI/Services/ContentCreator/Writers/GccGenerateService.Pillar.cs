@@ -179,17 +179,22 @@ public partial class GccGenerateService
                 "Pillar body",
                 ct,
                 shortfalls);
-            // Partner tool pages on the body alone, then the page's own closing, then the section
-            // written outside the outline: neither of the last two can carry a tool link.
+            // The keyword's shortenings put back on the opening and the body as written, then partner
+            // tool pages on the body alone, then the page's own closing, then the section written
+            // outside the outline: neither of the last two can carry a tool link, and neither is remapped.
+            var (pillarOpening, pillarBody) = await RemapKeywordAsync(
+                "the pillar", lede, sections, pillarPromptCtx.Context.TargetKeyword);
+            sections = pillarBody;
             sections = await LinkToolsAsync("the pillar", sections, pillarPromptCtx.Context.KnownCrawlTools ?? []);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (pillarFaq is not null) sections.Add(pillarFaq);
-            var whole = new ContentDocument(lede, sections);
+            var whole = new ContentDocument(pillarOpening, sections);
             return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls);
         }
 
         var (document, pillarWarnings) = await GuardedDraftAsync(
-            "the pillar", WritePillarDraftAsync, doc => Guardrail.GccDraftGuard.Pillar(doc, pillarGuardInputs));
+            "the pillar", WritePillarDraftAsync, doc => Guardrail.GccDraftGuard.Pillar(doc, pillarGuardInputs),
+            pillarPromptCtx.Context.TargetKeyword);
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.

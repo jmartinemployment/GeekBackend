@@ -172,15 +172,19 @@ public class OutlinePromptRulesTests
     [Theory]
     [InlineData("pillar")]
     [InlineData("blog")]
-    public void The_body_is_given_a_frequency_to_aim_at(string which)
+    public void The_body_is_not_given_a_keyword_count(string which)
     {
-        // "Not repeated to hit a count" was the whole guidance and the model obeyed it exactly: one
-        // mention in 1,132 words, 0.09% against a 0.4% floor.
+        // "Not repeated to hit a count" got one mention in 1,132 words (0.09%); "at least 18 times,
+        // roughly once every 200 words" got a median of two a call and the phrase shortened fifty-five
+        // times (2026-10-07). Neither count is stated now (Jeff, 2026-10-10: "Let the LLM write
+        // naturally"). The keyword's heading is still the writer's; the exact phrase is put back by
+        // GccKeywordRemap, and the page is judged by its score.
         var rendered = Body(which);
 
-        Assert.Contains("KEYWORD FREQUENCY", rendered, StringComparison.Ordinal);
-        Assert.Contains("roughly once every 200 words", rendered, StringComparison.Ordinal);
-        Assert.Contains("One mention in a long piece fails this", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("KEYWORD FREQUENCY", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("once every 200 words", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("One mention in a long piece fails this", rendered, StringComparison.Ordinal);
+        Assert.Contains("HEADINGS:", rendered, StringComparison.Ordinal);
     }
 
     [Theory]
