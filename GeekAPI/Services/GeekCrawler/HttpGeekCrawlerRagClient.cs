@@ -1063,6 +1063,13 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
     /// surroundings, and the writer had no way to tell a heading's subject matter from a stray
     /// paragraph. The metadata was in the payload the whole time.
     /// </para>
+    ///
+    /// <para>
+    /// A child that is its parent, word for word, is printed once and carries neither label. A section
+    /// shorter than the index's child window yields exactly that, and under both labels it was the same
+    /// text twice: 205 of the 326 passages in a pillar call on 2026-10-10, 89,000 characters of a
+    /// prompt that OpenAI then refused as over its limit.
+    /// </para>
     /// </summary>
     private static string RenderChunk(ChunkDto chunk)
     {
@@ -1079,9 +1086,12 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
         var text = Truncate(chunk.Text!, GccPartnerResearchCaps.MaxParagraphChars);
         var isChild = string.Equals(chunk.ChunkRole, "child", StringComparison.OrdinalIgnoreCase);
-        if (isChild && !string.IsNullOrWhiteSpace(chunk.ParentText))
+        var context = isChild && !string.IsNullOrWhiteSpace(chunk.ParentText)
+            ? Truncate(chunk.ParentText!.Trim(), GccPartnerResearchCaps.MaxParagraphChars)
+            : null;
+        if (context is not null && !string.Equals(context, text.Trim(), StringComparison.Ordinal))
         {
-            body.AppendLine($"Context: {Truncate(chunk.ParentText!.Trim(), GccPartnerResearchCaps.MaxParagraphChars)}");
+            body.AppendLine($"Context: {context}");
             body.AppendLine($"Specific detail: {text}");
         }
         else

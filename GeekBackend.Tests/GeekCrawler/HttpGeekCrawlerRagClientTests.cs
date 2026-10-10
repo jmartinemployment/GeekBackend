@@ -70,6 +70,61 @@ public sealed class HttpGeekCrawlerRagClientTests
     }
 
     [Fact]
+    public void A_child_that_is_its_parent_word_for_word_is_printed_once_with_neither_label()
+    {
+        // A section shorter than the index's child window gives a child identical to its parent. Under
+        // both labels it was the same text twice: 205 of 326 passages in a pillar call on 2026-10-10.
+        const string section = "Use custom rules, add manual entries, and apply overrides to model cash flow your way.";
+
+        var pages = HttpGeekCrawlerRagClient.MapChunksToQuoteable(
+        [
+            new()
+            {
+                Url = "https://partner.example/forecast",
+                FinalUrl = "https://partner.example/forecast",
+                Title = "Forecast",
+                ChunkIndex = 0,
+                ChunkRole = "child",
+                SectionTitle = "Build a forecast that reflects your business",
+                Text = section,
+                ParentText = "  " + section + "\n",
+            },
+        ]);
+
+        var paragraph = Assert.Single(Assert.Single(pages).Paragraphs);
+        Assert.DoesNotContain("Context:", paragraph, StringComparison.Ordinal);
+        Assert.DoesNotContain("Specific detail:", paragraph, StringComparison.Ordinal);
+        Assert.Contains("Section: Build a forecast that reflects your business", paragraph, StringComparison.Ordinal);
+        Assert.Equal(1, paragraph.Split(section).Length - 1);
+    }
+
+    [Fact]
+    public void A_child_that_is_part_of_its_parent_still_carries_both()
+    {
+        // The parent is the surrounding block and the child the matched sentence: both are information.
+        const string parent = "Your business isn't rigid, and neither is your forecast. Use custom rules, add manual entries, and apply overrides to model cash flow your way.";
+        const string child = "Use custom rules, add manual entries, and apply overrides to model cash flow your way.";
+
+        var pages = HttpGeekCrawlerRagClient.MapChunksToQuoteable(
+        [
+            new()
+            {
+                Url = "https://partner.example/forecast",
+                FinalUrl = "https://partner.example/forecast",
+                Title = "Forecast",
+                ChunkIndex = 0,
+                ChunkRole = "child",
+                Text = child,
+                ParentText = parent,
+            },
+        ]);
+
+        var paragraph = Assert.Single(Assert.Single(pages).Paragraphs);
+        Assert.Contains($"Context: {parent}", paragraph, StringComparison.Ordinal);
+        Assert.Contains($"Specific detail: {child}", paragraph, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MapChunksToQuoteable_empty_returnsEmpty()
     {
         Assert.Empty(HttpGeekCrawlerRagClient.MapChunksToQuoteable(null));
