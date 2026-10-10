@@ -191,6 +191,11 @@ public partial class GccGenerateService
         }
         if (missing.Count > 0)
             throw new InvalidOperationException($"brief required: missing {string.Join(", ", missing)}");
+
+        // A taxonomy path that names no department would file every page of the run under another
+        // one. Refused here, with the rest of the brief, before a job exists or a page is deleted.
+        if (GccContentPath.DepartmentRefusal(create.BriefJson) is { } notADepartment)
+            throw new InvalidOperationException(notADepartment);
     }
 
     /// <summary>

@@ -591,8 +591,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// <remarks>
     /// The record is what the code does on 2026-10-10, not what it should do. A line under "# GAP" is a
     /// field the operator enters that a call ignores; it is recorded so that closing it is a change to
-    /// this table made with the fix, and so that it cannot reopen unseen. The whole list, with the fields
-    /// kept from a call on a decision, is plans/brief-field-audit.md.
+    /// this table made with the fix, and so that it cannot reopen unseen. None is left. The whole list,
+    /// with the fields kept from a call on a decision, is plans/brief-field-audit.md.
     /// <para>
     /// Closed the same day, each a changed line below: the pillar's opening now carries the operator's
     /// whole framing, the tool page's two FAQ calls and its summaries call carry the reader and the
@@ -631,7 +631,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             blogFaqQuestions => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => the saved page
-            # GAP: only the first level of the path is read, as the department in the page's address.
+            # The first level is the department in the page's address, and one that is not a department
+            # refuses the run. The later levels are the operator's record of where the keyword sits.
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => the saved page
             nicheFraming.coreProblem => opening

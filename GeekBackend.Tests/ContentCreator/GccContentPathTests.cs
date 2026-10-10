@@ -84,6 +84,38 @@ public class GccContentPathTests
         Assert.Equal("sales", GccContentPath.DepartmentFor(create));
     }
 
+    [Theory]
+    [InlineData("Finance Ops -> Receivables", "Finance Ops")]
+    [InlineData("Human Resources -> Onboarding", "Human Resources")]
+    [InlineData("Accounts Receivable", "Accounts Receivable")]
+    public void A_first_level_that_is_not_a_department_is_a_refusal_that_names_it_and_the_five(
+        string taxonomyPath, string firstLevel)
+    {
+        // It was ignored without a word, and the run's pages were filed under the create's column,
+        // which is "marketing" on every live create.
+        var refusal = GccContentPath.DepartmentRefusal(Create("Topic: Keyword", taxonomyPath).BriefJson);
+
+        Assert.NotNull(refusal);
+        Assert.Contains($"'{firstLevel}'", refusal!, StringComparison.Ordinal);
+        Assert.Contains("Accounting, Customer Service, Human Resource, Marketing, Sales", refusal, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Accounting -> Cash Flow Forecasting -> Accounts Receivable")]
+    [InlineData("accounting")]
+    [InlineData("Customer Service > Returns")]
+    [InlineData("Human Resource › Onboarding")]
+    public void A_first_level_that_is_a_department_is_not_refused_whatever_follows_it(string taxonomyPath) =>
+        Assert.Null(GccContentPath.DepartmentRefusal(Create("Topic: Keyword", taxonomyPath).BriefJson));
+
+    [Fact]
+    public void A_brief_with_no_taxonomy_path_is_not_refused()
+    {
+        Assert.Null(GccContentPath.DepartmentRefusal(null));
+        Assert.Null(GccContentPath.DepartmentRefusal("""{"nicheFraming":{"coreProblem":"x"}}"""));
+        Assert.Null(GccContentPath.DepartmentRefusal("""{"nicheFraming":{"taxonomyPath":"  "}}"""));
+    }
+
     [Fact]
     public void No_taxonomy_path_falls_back_rather_than_refusing()
     {

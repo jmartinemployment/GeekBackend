@@ -40,10 +40,17 @@ public static class GccContentPath
     /// otherwise whatever the create carries.
     /// </summary>
     /// <remarks>
-    /// Falls back rather than refusing, because the create's own column is never empty — it defaults to
-    /// <c>"marketing"</c> — so there is always an answer and a refusal here would block a publish over a
-    /// field the operator has no UI to set. The fallback is visible in the URL, which is where a wrong
-    /// department is noticed.
+    /// <para>
+    /// A create with no taxonomy path is filed under its own column, which is never empty — it defaults
+    /// to <c>"marketing"</c> and the operator has no UI to set it — so a refusal for a missing path
+    /// would block a publish over a field nobody can fill in.
+    /// </para>
+    /// <para>
+    /// A path whose first level is not a department is a different case: the operator typed it, and can
+    /// change it. No Generate starts on one (<see cref="DepartmentRefusal"/>, read by the brief's own
+    /// gate), so the column decides here only for a page whose brief was changed after it was written.
+    /// Until 2026-10-10 nothing said so, and such a page was filed under "marketing" without a word.
+    /// </para>
     /// </remarks>
     public static string DepartmentFor(GccCreateDto? create)
     {
@@ -56,6 +63,29 @@ public static class GccContentPath
 
         var candidate = Slugify(path[0]);
         return candidate.Length > 0 && Departments.IsValid(candidate) ? candidate : fromCreate;
+    }
+
+    /// <summary>
+    /// Why a brief's taxonomy path cannot file a page, as a message, or null when it can: no path, or a
+    /// path whose first level is one of <see cref="Departments.Slugs"/>.
+    /// </summary>
+    /// <remarks>
+    /// The first level is the department directory of every address the run builds: the page's own,
+    /// and each link to a tool page. The later levels are the operator's record of where the keyword
+    /// sits and are read by nothing; the directory under the department comes from the topic
+    /// (<see cref="DescriptorFor"/>).
+    /// </remarks>
+    public static string? DepartmentRefusal(string? briefJson)
+    {
+        var path = GccNicheFramingReader.TaxonomyPath(briefJson);
+        if (path.Count == 0) return null;
+
+        var candidate = Slugify(path[0]);
+        if (candidate.Length > 0 && Departments.IsValid(candidate)) return null;
+
+        return $"brief: the taxonomy path's first level is '{path[0]}', which is not a department. "
+            + "It files the page, so it must be one of: "
+            + $"{string.Join(", ", Departments.Slugs.Select(Departments.DisplayName))}.";
     }
 
     /// <summary>

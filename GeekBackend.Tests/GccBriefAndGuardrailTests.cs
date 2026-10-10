@@ -78,6 +78,32 @@ public class GccBriefAndGuardrailTests
     }
 
     [Fact]
+    public void ValidateBriefRequired_refuses_a_taxonomy_path_that_names_no_department()
+    {
+        // The brief's one gate, read by both Generate routes and by the writer, so the run is refused
+        // before a job exists or a page is deleted.
+        const string brief = """
+        {
+          "primaryIntent": "commercial_investigation",
+          "buyingStage": "awareness",
+          "audienceSegment": "affinity",
+          "audienceNotes": "SMB owners",
+          "angle": "comparative",
+          "toneOfVoice": "commercial_balanced",
+          "eeatSignals": ["expertise", "trustworthiness"],
+          "nicheFraming": { "taxonomyPath": "Finance -> Cash Flow Forecasting" }
+        }
+        """;
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => GccGenerateService.ValidateBriefRequired(Create(brief)));
+        Assert.Contains("'Finance'", ex.Message);
+        Assert.Contains("not a department", ex.Message);
+
+        GccGenerateService.ValidateBriefRequired(Create(brief.Replace("Finance ->", "Accounting ->")));
+    }
+
+    [Fact]
     public void ConsultantAppendix_applies_for_consultant_tone_and_ultimate_guide()
     {
         Assert.NotEqual(string.Empty, GccGenerateService.BuildConsultantAppendix(
