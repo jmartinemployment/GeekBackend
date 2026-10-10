@@ -252,7 +252,8 @@ public partial class ContentPromptBuilder
         bool requireHeadingProvenance = false,
         string? evidenceBlock = null,
         Section? lede = null,
-        int batchIndex = 0)
+        int batchIndex = 0,
+        IReadOnlyList<Section>? writtenSoFar = null)
     {
         var outlineContext = RenderOutline(fullOutline);
         var namesItsOwn = slots.Any(sl => sl.WritesItsOwnHeading);
@@ -313,6 +314,12 @@ public partial class ContentPromptBuilder
         if (continuity is not null)
         {
             user.AppendLine(continuity);
+        }
+
+        var written = BuildWrittenSoFarBlock(writtenSoFar);
+        if (written is not null)
+        {
+            user.AppendLine(written);
         }
 
         // Per-heading guidance — these blocks are pure functions of context (not the loop index),

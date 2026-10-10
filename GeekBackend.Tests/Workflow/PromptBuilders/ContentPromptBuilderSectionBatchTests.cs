@@ -194,7 +194,10 @@ public class ContentPromptBuilderSectionBatchTests
         // comes in short, which is the failure batching exists to fix.
         var prompt = FirstBatch(type);
 
-        Assert.Contains("your share is about", prompt, StringComparison.Ordinal);
+        // An aim for this call, not a share worked out from the section count: with ten sections a call
+        // writing two is still asked for what a call was asked before, because asking for less gets less.
+        Assert.Contains("Aim for about", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("so your share is", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("words is the floor, not the aim", prompt, StringComparison.Ordinal);
     }
 
@@ -231,8 +234,10 @@ public class ContentPromptBuilderSectionBatchTests
         // and nothing reported, and the 2:32 PM pillar of 2026-10-05 was 2,006 words against 3,000.
         var outline = new PillarPrompts(new ContentPromptBuilder()).OutlineFor(new ContentTypePromptContext(Context()));
 
+        // What a section is asked for is unchanged. What a call is held to is its share of the page's
+        // floor: 3,000 words over five calls (MoreSectionsReachTheFloorTests has the arithmetic).
         Assert.All(outline, slot => Assert.Equal("500-700 words", slot.Depth));
-        Assert.Equal(1_000, GeekAPI.Services.ContentCreator.GccGenerateService.BatchFloorWords([.. outline.Skip(1).Take(2)]));
+        Assert.Equal(600, GeekAPI.Services.ContentCreator.GccGenerateService.BatchFloorWords([.. outline.Skip(1).Take(2)]));
     }
 
     [Theory]

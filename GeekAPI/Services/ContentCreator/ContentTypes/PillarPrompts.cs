@@ -28,33 +28,58 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     private static readonly string SectionDepth =
         $"{ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words";
 
+    /// <summary>
+    /// The opening and ten body sections. There were five body sections until 2026-10-10 (Jeff: "Add more
+    /// sections"): a body call writes about 650 words whatever it is asked
+    /// (<c>GccGenerateService.MeasuredWordsPerBodyCall</c>), so five sections were three calls and about 2,000
+    /// words against a 3,000-word floor. Ten are five calls. Each of the five obligations was split along what
+    /// it already said; none is a new topic.
+    /// </summary>
     private static readonly SectionSlot[] Sections =
     [
         SectionSlot.Cover(
             "the opening: what this reader is dealing with, told concretely, and what this page settles for them",
             SectionDepth),
         SectionSlot.Cover(
-            "what is actually going wrong in this work today and what the status quo costs -- hours, errors, delay, risk, and who absorbs them",
+            "what is actually going wrong in this work today",
+            SectionDepth),
+        SectionSlot.Cover(
+            "what the status quo costs -- hours, errors, delay, risk, and who absorbs them",
             SectionDepth),
         SectionSlot.Cover(
             "how the approach works end to end: the mechanics, in the order they happen, specific enough that a reader could describe it back",
             SectionDepth),
         SectionSlot.Cover(
-            "what separates an implementation that holds up from one that stalls -- the decisions that are made early and cannot be unmade",
+            "what separates an implementation that holds up from one that stalls",
             SectionDepth),
         SectionSlot.Cover(
-            "what rolling this out actually involves in a real environment: sequence, data, integration, the people whose work changes",
+            "the decisions that are made early and cannot be unmade",
             SectionDepth),
         SectionSlot.Cover(
-            "when this is the right call and when it is not, what the reader should do next, and what they should be able to expect",
+            "what rolling this out actually involves in a real environment: the sequence it happens in",
+            SectionDepth),
+        SectionSlot.Cover(
+            "the data and the integration a real environment has to supply",
+            SectionDepth),
+        SectionSlot.Cover(
+            "the people whose work changes, and what changes for them",
+            SectionDepth),
+        SectionSlot.Cover(
+            "when this is the right call and when it is not",
+            SectionDepth),
+        SectionSlot.Cover(
+            "what the reader should do next, and what they should be able to expect",
             SectionDepth),
     ];
+
+    /// <summary>How many of <see cref="Sections"/> the body calls write: all but the opening, which the lede call writes.</summary>
+    internal static int BodySectionCount => Sections.Length - 1;
 
     public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx) => Outline(ctx.NicheFraming);
 
     /// <summary>
-    /// The six obligations, each guided by the part of the operator's framing that answers it: the
-    /// opening by the whole framing, "what is going wrong" by the operator's failures, "how the approach
+    /// The obligations, each guided by the part of the operator's framing that answers it: the opening by the
+    /// whole framing, the two "what is going wrong" sections by the operator's failures, "how the approach
     /// works" by the operator's automation, and the later sections held to that same approach.
     /// </summary>
     /// <remarks>
@@ -63,6 +88,10 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     /// competitor coverage and every pillar argued a methodology of the model's own. Jeff, 2026-10-06:
     /// "It is again inventing its own Methodology versus using mine?" The coverage is unchanged; what
     /// each section argues from is now the operator's. A brief with no framing gets the slots as before.
+    /// <para>
+    /// Every body section owes its share of the page's floor (<see cref="SectionSlot.WithOwedWords"/>), so
+    /// what the five calls are held to adds up to the floor the page is scored against.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<SectionSlot> Outline(GccNicheFraming? niche)
     {
@@ -70,25 +99,35 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
         // whether or not the brief carries a framing (GccPublisherPositions).
         if (niche is null || !niche.HasAny)
         {
-            return
+            return WithBodyOwed(
             [
-                Sections[0], Sections[1],
-                Sections[2] with { Guidance = GccPublisherPositions.ApproachSlotGuidance },
-                Sections[3], Sections[4], Sections[5],
-            ];
+                Sections[0], Sections[1], Sections[2],
+                Sections[3] with { Guidance = GccPublisherPositions.ApproachSlotGuidance },
+                .. Sections[4..],
+            ]);
         }
 
+        var failures = niche.FailuresGuidance();
         var approach = niche.ApproachGuidance();
         var pointer = niche.ApproachPointer();
-        return
+        return WithBodyOwed(
         [
             Sections[0] with { Guidance = niche.ToGuidance() },
-            Sections[1] with { Guidance = niche.FailuresGuidance() },
-            Sections[2] with { Guidance = $"{approach}{Environment.NewLine}   {GccPublisherPositions.ApproachSlotGuidance}" },
-            Sections[3] with { Guidance = pointer },
-            Sections[4] with { Guidance = pointer },
-            Sections[5] with { Guidance = pointer },
-        ];
+            Sections[1] with { Guidance = failures },
+            Sections[2] with { Guidance = failures },
+            Sections[3] with { Guidance = $"{approach}{Environment.NewLine}   {GccPublisherPositions.ApproachSlotGuidance}" },
+            .. Sections[4..].Select(slot => slot with { Guidance = pointer }),
+        ]);
+    }
+
+    /// <summary>
+    /// The outline with the page's floor divided across its body sections. The opening is written by the lede
+    /// call and is not part of a body batch, so it carries no share.
+    /// </summary>
+    private static IReadOnlyList<SectionSlot> WithBodyOwed(IReadOnlyList<SectionSlot> outline)
+    {
+        var (pageFloor, _, _) = GccLongFormTypes.GetSeoLengthRules(GccLongFormTypes.Pillar);
+        return [outline[0], .. SectionSlot.WithOwedWords([.. outline.Skip(1)], pageFloor)];
     }
 
     /// <summary>
@@ -127,6 +166,7 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
             requireHeadingProvenance: true,
             evidenceBlock: ctx.EvidenceBlock,
             lede: ctx.Lede,
-            batchIndex: ctx.SectionBatchIndex);
+            batchIndex: ctx.SectionBatchIndex,
+            writtenSoFar: ctx.WrittenSoFar);
     }
 }

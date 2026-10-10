@@ -72,6 +72,41 @@ public sealed record SectionSlot(
             ? batch.Any(slot => slot.OwnsKeywordHeading)
             : batchIndex == 0;
 
+    /// <summary>
+    /// The words this section owes its page: what the call that writes it is checked against. Separate from
+    /// <see cref="Depth"/>, which is the size the writer is asked for.
+    /// </summary>
+    /// <remarks>
+    /// The two were one number until 2026-10-10 -- "the lower figure is owed" -- and it was a wish. A body call
+    /// stops on its own at about 650 words (21 calls of 2026-10-07, none cut off), so two sections asked for
+    /// 500-700 each came back at 640 against a 1,000-word floor on every page. Asking for less is not the fix:
+    /// the same log shows the writer giving about a third of a word less for each word less it is asked. So the
+    /// ask stays where it is and the floor becomes the section's true share of the page's floor
+    /// (<see cref="WithOwedWords"/>). Null means the slot has no such share and is held to its depth's lower
+    /// figure, as every slot was.
+    /// </remarks>
+    public int? OwedWords { get; init; }
+
+    /// <summary>
+    /// <paramref name="slots"/> with <paramref name="pageFloor"/> divided across them, so the sections together
+    /// owe exactly the page's floor. A remainder is spread a word at a time along the outline rather than left on
+    /// one section: any two calls that write the same number of sections differ by at most one word.
+    /// </summary>
+    public static IReadOnlyList<SectionSlot> WithOwedWords(IReadOnlyList<SectionSlot> slots, int pageFloor)
+    {
+        if (slots.Count == 0 || pageFloor <= 0) return slots;
+
+        var owed = new List<SectionSlot>(slots.Count);
+        for (var i = 0; i < slots.Count; i++)
+        {
+            var throughThisOne = (int)((long)(i + 1) * pageFloor / slots.Count);
+            var beforeThisOne = (int)((long)i * pageFloor / slots.Count);
+            owed.Add(slots[i] with { OwedWords = throughThisOne - beforeThisOne });
+        }
+
+        return owed;
+    }
+
     /// <summary>A heading a planning call wrote for this page. Write it as given.</summary>
     public static SectionSlot Assigned(string heading) => new(Heading: heading);
 

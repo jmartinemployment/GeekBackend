@@ -175,6 +175,48 @@ public sealed class GccPartnerOnlyToolsTests
         Assert.DoesNotContain("partner-mentions", checks);
     }
 
+    /// <summary>
+    /// The whole pillar write step with ten body sections: five body calls, each on the run's record with
+    /// its number, the total and the floor it was held to, and each after the first told what the page
+    /// already says.
+    /// </summary>
+    [Fact]
+    public async Task A_pillar_is_written_in_five_calls_each_recorded_and_each_later_one_told_what_came_before()
+    {
+        var project = Project("https://lightyear.cloud", "https://ramp.com");
+        var create = Create(project.Id, GccKnownToolsResolverTests.RunId);
+        var provider = new CapturingProvider();
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
+
+        await Build(provider, project).GeneratePillarBodyAsync(
+            create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        var batches = new List<(int Call, int Of, int Floor)>();
+        foreach (var batch in written.Where(w => w.Kind == "batch"))
+        {
+            using var payload = System.Text.Json.JsonDocument.Parse(batch.PayloadJson);
+            var root = payload.RootElement;
+            batches.Add((root.GetProperty("call").GetInt32(), root.GetProperty("of").GetInt32(), root.GetProperty("floor").GetInt32()));
+        }
+
+        Assert.Equal([(1, 5, 600), (2, 5, 600), (3, 5, 600), (4, 5, 600), (5, 5, 600)], batches);
+
+        var bodyPrompts = provider.Requests
+            .Where(r => r.JsonSchemaName == "sections")
+            .Select(r => string.Join("\n", r.Messages.Select(m => m.Content)))
+            .ToList();
+        Assert.Equal(5, bodyPrompts.Count);
+        Assert.DoesNotContain("ALREADY WRITTEN ON THIS PAGE", bodyPrompts[0], StringComparison.Ordinal);
+        Assert.All(bodyPrompts.Skip(1), prompt => Assert.Contains("ALREADY WRITTEN ON THIS PAGE", prompt, StringComparison.Ordinal));
+        // The scripted model answers each call with one section; the fifth call is shown all four before it.
+        Assert.Contains("- Planned section 1 -- Body.", bodyPrompts[1], StringComparison.Ordinal);
+        Assert.All(
+            Enumerable.Range(1, 4),
+            n => Assert.Contains($"- Planned section {n} -- Body.", bodyPrompts[4], StringComparison.Ordinal));
+        Assert.DoesNotContain("- Planned section 5", bodyPrompts[4], StringComparison.Ordinal);
+    }
+
     private static IEnumerable<(string Text, string Href)> LinkedRuns(System.Text.Json.JsonElement node)
     {
         switch (node.ValueKind)

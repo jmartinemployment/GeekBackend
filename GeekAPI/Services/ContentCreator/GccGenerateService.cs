@@ -1600,7 +1600,7 @@ public partial class GccGenerateService
         // its callers passed the competitor/own-site text -- so the QUOTEABLE RESEARCH block set on
         // toolOutlineCtx reached the lede and was overwritten before every body call. The tool body,
         // the one type that must quote a partner, was written without the retrieved passages.
-        // The tool page had no competitor evidence at all, while one of its six sections is
+        // The tool page had no competitor evidence at all, while one of its sections is
         // "how a buyer should judge this product -- fit, pricing, and the adjacent approaches they
         // are also weighing". It was writing that section with no idea what the alternatives say.
         var toolCompetitorBlock = create is null
@@ -1740,7 +1740,7 @@ public partial class GccGenerateService
             doc => Guardrail.GccDraftGuard.Tool(
                 doc, toolGuardInputs with { AppendedSections = toolFaqSection is null ? 0 : 1 }));
 
-        // Per-H2 image prompts. Tool pages are long-form (a six-heading outline, equal to Pillar,
+        // Per-H2 image prompts. Tool pages are long-form (a ten-section outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type. `section` is
         // accepted but unused inside GenerateSectionImagePromptsAsync, so null is correct here.
         document = await WithSectionImagePromptsAsync("tool", name, document, null, provider, toolWarnings, ct);
@@ -3008,7 +3008,19 @@ public partial class GccGenerateService
     /// against drafts that currently fail their own floor.
     /// </para>
     /// </summary>
-    private const int SectionsPerBatch = 2;
+    internal const int SectionsPerBatch = 2;
+
+    /// <summary>
+    /// What one body call writes, measured: the 21 body calls of the 2026-10-07 run, two sections each, none
+    /// cut off and none near its output limit, stopped on their own at 470 to 900 words, median 640.
+    /// </summary>
+    /// <remarks>
+    /// A page's length is its number of body calls times this, whatever its prompts ask for. So a page reaches
+    /// its floor by having enough sections, and no call may owe more than this: a floor above it is reported
+    /// short on every page however the call is worded (<c>NoCallOwesMoreThanACallWritesTests</c>). Re-measure
+    /// from a run's <c>batch</c> events before changing it.
+    /// </remarks>
+    internal const int MeasuredWordsPerBodyCall = 650;
 
     /// <summary>
     /// How many People Also Ask questions one FAQ call answers. The FAQ prompt's output budget is
@@ -3360,7 +3372,14 @@ public partial class GccGenerateService
         {
             var batch = outline.Skip(i).Take(SectionsPerBatch).ToList();
             var batchLabel = $"{label} sections {i + 1}-{i + batch.Count}";
-            var batchCtx = promptCtx with { SectionBatch = batch, SectionBatchIndex = i / SectionsPerBatch };
+            // What the calls before this one wrote, so this one does not make their points again. Each
+            // call sees the outline and the opening; until 2026-10-10 none saw another call's text.
+            var batchCtx = promptCtx with
+            {
+                SectionBatch = batch,
+                SectionBatchIndex = i / SectionsPerBatch,
+                WrittenSoFar = written.Count == 0 ? null : [.. written],
+            };
             var sections = await WriteBatchAsync(llm, type, batchCtx, batchLabel, outline.Count, ct);
 
             // What the batch owes of its page, measured the moment it comes back: its words, its share
@@ -3386,6 +3405,10 @@ public partial class GccGenerateService
             await GccRunLog.RecordIfAnyAsync("batch", new
             {
                 batch = batchLabel,
+                // Which call of how many, and what it was held to: a drop in yield is then readable call by call.
+                call = i / SectionsPerBatch + 1,
+                of = (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
+                floor = BatchFloorWords(batch),
                 words = ContentDocumentText.CountWords(sections),
                 headings = sections.Select(x => x.Heading).ToList(),
                 shortfalls = owed.Select(o => o.Report).ToList(),
@@ -3461,15 +3484,23 @@ public partial class GccGenerateService
     private static readonly Regex SlotDepthLowerBound = new(@"^\s*(\d[\d,]*)", RegexOptions.Compiled);
 
     /// <summary>
-    /// The words a batch owes: the sum of its slots' lower figures. Zero when any slot in the
-    /// batch carries no depth, because a floor derived from half the slots would be a guess about
-    /// the other half.
+    /// The words a batch owes: what each of its slots owes, summed. A slot owes its share of the page's
+    /// floor when it carries one (<see cref="SectionSlot.OwedWords"/>), and otherwise its depth's lower
+    /// figure. Zero when any slot in the batch carries neither, because a floor derived from half the slots
+    /// would be a guess about the other half.
     /// </summary>
     internal static int BatchFloorWords(IReadOnlyList<SectionSlot> batch)
     {
         var total = 0;
         foreach (var slot in batch)
         {
+            if (slot.OwedWords is { } owed)
+            {
+                if (owed <= 0) return 0;
+                total += owed;
+                continue;
+            }
+
             if (slot.Depth is not { Length: > 0 } depth) return 0;
             var m = SlotDepthLowerBound.Match(depth);
             if (!m.Success || !int.TryParse(m.Groups[1].Value.Replace(",", ""), out var lower) || lower <= 0) return 0;

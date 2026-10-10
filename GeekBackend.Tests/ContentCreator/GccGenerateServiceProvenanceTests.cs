@@ -140,7 +140,10 @@ public class GccGenerateServiceProvenanceTests
         Assert.Contains("unlicensed", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Made Up Subtopic", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("retry", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(3, provider.Requests.Count(r => r.JsonSchemaName == "sections"));
+        // One call for each pair of body sections, and no second call for any of them.
+        Assert.Equal(
+            GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts.BodySectionCount / GeekAPI.Services.ContentCreator.GccGenerateService.SectionsPerBatch,
+            provider.Requests.Count(r => r.JsonSchemaName == "sections"));
         Assert.DoesNotContain(
             provider.Requests.SelectMany(r => r.Messages.Select(m => m.Content)),
             c => c.Contains("HEADING PROVENANCE REJECTED", StringComparison.Ordinal));

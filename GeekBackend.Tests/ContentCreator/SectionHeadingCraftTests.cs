@@ -96,7 +96,8 @@ public class SectionHeadingCraftTests
 
         var outline = pillar.OutlineFor(new ContentTypePromptContext(Context()));
 
-        Assert.Equal(6, outline.Count);
+        // The opening and ten body sections.
+        Assert.Equal(11, outline.Count);
         Assert.All(outline, slot => Assert.True(slot.WritesItsOwnHeading));
         Assert.DoesNotContain(outline, slot => BannedHeadings.Contains(slot.Label.Trim().ToLowerInvariant()));
     }

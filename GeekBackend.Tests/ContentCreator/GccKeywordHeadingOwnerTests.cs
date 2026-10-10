@@ -108,7 +108,8 @@ public sealed class GccKeywordHeadingOwnerTests
     {
         var blog = new BlogPrompts(new ContentPromptBuilder());
         var blogGuidance = blog.OutlineFor(Ctx())[2].Guidance!;
-        var pillarGuidance = PillarPrompts.Outline(null)[2].Guidance!;
+        // The pillar's "how the approach works" slot: the opening, then the two "what is going wrong" slots, then it.
+        var pillarGuidance = PillarPrompts.Outline(null)[3].Guidance!;
 
         Assert.EndsWith(pillarGuidance, blogGuidance, StringComparison.Ordinal);
         // The obligation to name them stays (a ban alone gave a page with no tools); only the link sentence goes.

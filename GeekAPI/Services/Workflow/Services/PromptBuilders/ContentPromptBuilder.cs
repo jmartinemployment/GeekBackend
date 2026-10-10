@@ -79,7 +79,8 @@ public interface IContentPromptBuilder
         bool requireHeadingProvenance = false,
         string? evidenceBlock = null,
         Section? lede = null,
-        int batchIndex = 0);
+        int batchIndex = 0,
+        IReadOnlyList<Section>? writtenSoFar = null);
 
     ChatCompletionRequest BuildArticleSectionPrompt(
         ProjectGenerationContext context,
@@ -176,7 +177,8 @@ public interface IContentPromptBuilder
         IReadOnlyList<SectionSlot>? fullOutline = null,
         int batchIndex = 0,
         string? evidenceBlock = null,
-        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null);
+        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null,
+        IReadOnlyList<Section>? writtenSoFar = null);
 
     /// <summary>
     /// FAQ section for a tool page, additional to the body word-count target -- not a substitute
@@ -506,8 +508,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                   + "A total alone is satisfiable by one long section and several thin ones, which is "
                   + "how a piece asked for a floor came back at half of it."
                 : $"LENGTH: the finished page has a {minWords:N0}-word floor and fails outright below "
-                  + $"it. You are writing {sectionsInThisCall} of its {sectionsInThePage} sections, so "
-                  + $"your share is about {wordsHere:N0} words -- roughly {perSection:N0}+ each, three "
+                  + $"it. You are writing {sectionsInThisCall} of its {sectionsInThePage} sections. Aim "
+                  + $"for about {wordsHere:N0} words here -- roughly {perSection:N0}+ each, three "
                   + "to five substantial paragraphs per section. A short batch is not made up by "
                   + "another one; it is simply the page arriving under the floor.")
             .AppendLine(writesWholePage
@@ -831,6 +833,98 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         "subsections and some are stronger as continuous prose. A page where every section opens " +
         "on a problem statement and resolves into three subheadings is a chore to read by the " +
         "third one, however good the sentences are.";
+
+    /// <summary>
+    /// What the calls before this one wrote for the page, so this one does not make their points again: each
+    /// earlier section's heading, how it opens, and the figures it cited.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A long-form body is written two sections to a call, and every call was shown the outline and the
+    /// opening but none of another call's text. Each therefore reached for the same strongest passage, the
+    /// same figure and the same example in the evidence they all share. Calls run in order, so the earlier
+    /// sections exist by the time a later one is asked (Jeff, 2026-10-10).
+    /// </para>
+    /// <para>
+    /// It is not the earlier text. A section is one line here -- heading, first sentence, figures -- so the
+    /// fifth call of a ten-section page reads a few hundred words of this beside tens of thousands of
+    /// evidence. Plain text, built by code; no model is asked what the page says.
+    /// </para>
+    /// </remarks>
+    internal static string? BuildWrittenSoFarBlock(IReadOnlyList<Section>? writtenSoFar)
+    {
+        if (writtenSoFar is not { Count: > 0 }) return null;
+
+        var lines = new List<string>();
+        foreach (var section in writtenSoFar)
+        {
+            if (string.IsNullOrWhiteSpace(section.Heading)) continue;
+
+            var line = new StringBuilder("- ").Append(section.Heading.Trim());
+            var opening = FirstSentenceOf(section);
+            if (opening.Length > 0) line.Append(" -- ").Append(opening);
+
+            var figures = GeekAPI.Services.ContentCreator.Guardrail.GccFigureGrammar
+                .Find(ContentDocumentText.Flatten(new ContentDocument(section, [])))
+                .Select(figure => figure.Written.Trim())
+                .Where(written => written.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(MaxFiguresPerWrittenSection)
+                .ToList();
+            if (figures.Count > 0) line.Append(" Figures cited: ").Append(string.Join(", ", figures)).Append('.');
+
+            lines.Add(line.ToString());
+        }
+
+        if (lines.Count == 0) return null;
+
+        return new StringBuilder()
+            .AppendLine("=== ALREADY WRITTEN ON THIS PAGE (earlier sections -- do not make these points again) ===")
+            .AppendLine("One line for each section an earlier call wrote: its heading, how it opens, and the figures it cited.")
+            .AppendLine(string.Join(Environment.NewLine, lines))
+            .Append(
+                "Your sections cover different ground. Do not restate a point, an example or a figure from " +
+                "this list. Where one of them matters to your section, refer back to it in a clause and go on.")
+            .ToString();
+    }
+
+    /// <summary>The most figures listed for one earlier section: enough to name what it leaned on, not its every number.</summary>
+    private const int MaxFiguresPerWrittenSection = 8;
+
+    /// <summary>The longest opening sentence shown for one earlier section.</summary>
+    private const int MaxWrittenOpeningChars = 220;
+
+    /// <summary>
+    /// How a section opens: the first sentence of its first paragraph, or of its first subsection's when the
+    /// section itself begins with a subheading.
+    /// </summary>
+    private static string FirstSentenceOf(Section section)
+    {
+        var first = ContentDocumentText.ParagraphTexts(section).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text));
+        if (first is null)
+        {
+            foreach (var child in section.Children)
+            {
+                var fromChild = FirstSentenceOf(child);
+                if (fromChild.Length > 0) return fromChild;
+            }
+
+            return string.Empty;
+        }
+
+        var text = first.Trim();
+        var end = -1;
+        foreach (var stop in new[] { ". ", "? ", "! " })
+        {
+            var at = text.IndexOf(stop, StringComparison.Ordinal);
+            if (at >= 0 && (end < 0 || at < end)) end = at;
+        }
+
+        var sentence = end >= 0 ? text[..(end + 1)] : text;
+        return sentence.Length <= MaxWrittenOpeningChars
+            ? sentence
+            : sentence[..MaxWrittenOpeningChars].TrimEnd() + "...";
+    }
 
     /// <summary>
     /// What the opening already did, handed to the call that writes the body.
@@ -2442,7 +2536,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         IReadOnlyList<SectionSlot>? fullOutline = null,
         int batchIndex = 0,
         string? evidenceBlock = null,
-        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null)
+        IReadOnlyList<GccQuoteCandidate>? quoteCandidates = null,
+        IReadOnlyList<Section>? writtenSoFar = null)
     {
         // One rendering of the outline, from the one definition (ToolPrompts.Outline). It used to be
         // three hand-written prose lists inside this prompt beside a fourth copy in ToolPrompts and a
@@ -2456,7 +2551,11 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                 : $"{i + 1}. \"{slot.Heading}\"");
             if (slot.Depth is { Length: > 0 })
             {
-                sectionBlock.AppendLine($"   {slot.Depth}. The lower figure is owed; the range sizes this section against the others.");
+                // A slot that carries its share of the page's floor is asked for its range and held to that
+                // share, stated once for the call below. One that carries none is held to its lower figure.
+                sectionBlock.AppendLine(slot.OwedWords is null
+                    ? $"   {slot.Depth}. The lower figure is owed; the range sizes this section against the others."
+                    : $"   {slot.Depth}. The range sizes this section against the others.");
             }
             if (slot.Guidance is { Length: > 0 })
             {
@@ -2560,6 +2659,12 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             user.AppendLine(toolContinuity);
         }
 
+        var toolWritten = BuildWrittenSoFarBlock(writtenSoFar);
+        if (toolWritten is not null)
+        {
+            user.AppendLine(toolWritten);
+        }
+
         var revisionBlock = BuildRevisionNotesBlock(revisionNotes, toolSlug: toolSlug);
         if (revisionBlock is not null)
         {
@@ -2604,7 +2709,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             // BatchShortfalls uses to grade the draft afterward, so the number stated here and the
             // number enforced later cannot drift apart again.
             .AppendLine($"Length: at least {GccGenerateService.BatchFloorWords(outline):N0} words across the {outline.Count} " +
-                "sections above -- the sum of each section's own lower figure, which is owed.")
+                (outline.Any(slot => slot.OwedWords is not null)
+                    ? "sections above -- this call's share of the page's floor. The range beside each section is what to aim for."
+                    : "sections above -- the sum of each section's own lower figure, which is owed."))
             .AppendLine("Depth, never padding: do not restate a point in new words, do not invent a feature, figure or integration to fill a section. " +
                 $"When the evidence for a section is thin, go further into what it does support -- the mechanism, what it changes for this reader's week, what deploying it involves with {context.PublisherName} -- rather than closing the section short.")
             .AppendLine($"Equal to a Pillar page in ambition, not a thinner treatment -- {(fullOutline ?? outline).Count} substantial sections across the page, not four.")
@@ -2624,7 +2731,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.5,
             // 16384 to match BuildArticleSectionBatchPrompt (Pillar's own body-batch call) now that
-            // Tool targets the same 3,000-5,000 word range across six JSON-structured sections.
+            // Tool targets the same 3,000-5,000 word range across its JSON-structured sections.
             MaxOutputTokens: LongFormBodyMaxOutputTokens));
     }
 

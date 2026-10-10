@@ -108,4 +108,10 @@ public sealed record ContentTypePromptContext(
     /// has no brief to read it from. Null means the operator wrote none, and the opening slot then
     /// carries no guidance — exactly as it did before this existed.
     /// </summary>
-    GeekAPI.Services.ContentCreator.GccNicheFraming? NicheFraming = null);
+    GeekAPI.Services.ContentCreator.GccNicheFraming? NicheFraming = null,
+    /// <summary>
+    /// The body sections earlier calls wrote for this page, in order. A later call is shown each one's
+    /// heading, how it opens and the figures it cited, so it does not make the same points again. Null on
+    /// the first call and on any single-call body.
+    /// </summary>
+    IReadOnlyList<Section>? WrittenSoFar = null);

@@ -184,7 +184,8 @@ public class GccDraftIsGuardedOnceTests
         Assert.DoesNotContain(warnings, w => w.Contains("retry", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(Scheduler, body.GetRawText(), StringComparison.Ordinal);
         Assert.Contains("Book your free consultation", body.GetRawText(), StringComparison.Ordinal);
-        Assert.Equal(3, provider.BodyCalls);
+        // One call for each pair of body sections, and no second call for any of them.
+        Assert.Equal(GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts.BodySectionCount / GeekAPI.Services.ContentCreator.GccGenerateService.SectionsPerBatch, provider.BodyCalls);
     }
 
     private const string BriefWithQuestions = """
@@ -334,7 +335,8 @@ public class GccDraftIsGuardedOnceTests
         Assert.Contains(warnings, w => w.Contains("word floor", StringComparison.Ordinal));
         Assert.Contains(warnings, w => w.Contains("has no heading containing", StringComparison.Ordinal));
         Assert.DoesNotContain(warnings, w => w.Contains("retry", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(3, provider.BodyCalls);
+        // One call for each pair of body sections, and no second call for any of them.
+        Assert.Equal(GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts.BodySectionCount / GeekAPI.Services.ContentCreator.GccGenerateService.SectionsPerBatch, provider.BodyCalls);
     }
 
     [Fact]
@@ -348,7 +350,8 @@ public class GccDraftIsGuardedOnceTests
 
         Assert.StartsWith("Refused: the pillar", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("retry", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(3, provider.BodyCalls);
+        // One call for each pair of body sections, and no second call for any of them.
+        Assert.Equal(GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts.BodySectionCount / GeekAPI.Services.ContentCreator.GccGenerateService.SectionsPerBatch, provider.BodyCalls);
     }
 
     [Fact]

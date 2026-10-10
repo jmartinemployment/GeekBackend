@@ -51,7 +51,14 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
         var product = productName is { Length: > 0 } n ? n : "this product";
         var publisher = context.PublisherName;
         var keyword = context.TargetKeyword;
-        return
+        // Ten sections, where there were six until 2026-10-10 (Jeff: "Add more sections"). A body call writes
+        // about 650 words whatever it is asked (GccGenerateService.MeasuredWordsPerBodyCall), so six sections
+        // were three calls and about 2,000 words against a 3,000-word floor. Each added section is a part of
+        // one that was already here, with the part of its guidance that applies, word for word: how it works
+        // into mechanics and architecture, deploying into three, judging into two. None is a new topic.
+        const string notGeneric = "Not generic industry advice.";
+        var (pageFloor, _, _) = GccLongFormTypes.GetSeoLengthRules(GccLongFormTypes.Tool);
+        return SectionSlot.WithOwedWords(
         [
             Opening(context.ContentAngle, product, keyword, niche),
             SectionSlot.Cover(
@@ -59,21 +66,37 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
                 "600-850 words",
                 $"Every capability lands with its consequence -- hours returned, errors removed, a job that stops needing a person. A capability without one is a spec sheet, and they can already read {product}'s own."),
             SectionSlot.Cover(
-                $"how {product} works: its real mechanics and architecture",
-                "550-750 words",
+                $"how {product} works: its real mechanics, step by step",
+                "500-700 words",
                 $"The platform's own machinery, specific to {product} -- not a restatement of what it does, and not generic SaaS description."),
             SectionSlot.Cover(
-                $"what deploying {product} involves in a client's existing environment",
-                "650-900 words",
-                $"Not generic industry advice. Made concrete to {product}: what shortens go-live (pre-built connectors, templated setup, phased rollout); what data structure and mapping decisions matter upfront; what approval chains, routing or automation logic get configured; and {product}'s own extension mechanism if it has one (API, scripting, SDK) -- if it is config-only, say so rather than inventing one. This is where the reader's DIY question gets answered: what {publisher} does that makes it work in their environment."),
+                $"how {product} is built: its real architecture, what it connects to and what it holds",
+                "500-700 words",
+                $"The platform's own machinery, specific to {product} -- not a restatement of what it does, and not generic SaaS description."),
             SectionSlot.Cover(
-                $"how a buyer should judge {product} -- fit, pricing model, and the adjacent approaches they are also weighing",
-                "550-750 words",
+                $"what going live with {product} involves in a client's existing environment: what shortens it, and the order it happens in",
+                "500-700 words",
+                $"{notGeneric} Made concrete to {product}: what shortens go-live (pre-built connectors, templated setup, phased rollout)."),
+            SectionSlot.Cover(
+                $"the data structure and mapping decisions that matter upfront when deploying {product}",
+                "500-700 words",
+                $"{notGeneric} Made concrete to {product}: what data structure and mapping decisions matter upfront."),
+            SectionSlot.Cover(
+                $"what gets configured in {product}: approval chains, routing, automation logic, and its extension mechanism",
+                "500-700 words",
+                $"{notGeneric} Made concrete to {product}: what approval chains, routing or automation logic get configured; and {product}'s own extension mechanism if it has one (API, scripting, SDK) -- if it is config-only, say so rather than inventing one. This is where the reader's DIY question gets answered: what {publisher} does that makes it work in their environment."),
+            SectionSlot.Cover(
+                $"how a buyer should judge {product}: fit and pricing model",
+                "500-700 words",
                 "Pricing only where the persisted research carries it; otherwise discuss what to weigh rather than inventing a figure. Never state a specific price, tier or discount that is not in the research."),
+            SectionSlot.Cover(
+                $"the adjacent approaches a buyer is also weighing, and how {product} sits among them",
+                "500-700 words"),
             SectionSlot.Cover(
                 $"who {product} suits, who it does not, and what the reader should do next",
                 "450-600 words"),
-        ];
+        ],
+        pageFloor);
     }
 
     /// <summary>
@@ -148,5 +171,6 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
             fullOutline: OutlineFor(ctx),
             batchIndex: ctx.SectionBatchIndex,
             evidenceBlock: ctx.EvidenceBlock,
-            quoteCandidates: ctx.QuoteCandidates);
+            quoteCandidates: ctx.QuoteCandidates,
+            writtenSoFar: ctx.WrittenSoFar);
 }
