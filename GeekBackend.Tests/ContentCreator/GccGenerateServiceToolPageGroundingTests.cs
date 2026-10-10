@@ -734,8 +734,20 @@ public class GccGenerateServiceToolPageGroundingTests
     private static IReadOnlyList<ChatCompletionRequest> FaqRequests(ScriptedProvider provider) =>
         [.. provider.Requests.Where(r => r.Messages.Any(m => m.Content.Contains("=== PARTNER EVIDENCE", StringComparison.Ordinal)))];
 
-    private static IReadOnlyList<string> FaqWarnings(GccGenerateService.ToolPageResult result) =>
-        [.. (result.Warnings ?? []).Where(w => w.StartsWith("FAQ:", StringComparison.Ordinal))];
+    /// <summary>
+    /// The page's FAQ lines. Each carries the tool's name in front, as every line of a tool page does
+    /// (<c>GccToolPageLinesNameTheirPageTests</c>); they are returned without it.
+    /// </summary>
+    private static IReadOnlyList<string> FaqWarnings(GccGenerateService.ToolPageResult result)
+    {
+        var named = $"Tool page '{result.Name}': ";
+        return
+        [
+            .. (result.Warnings ?? [])
+                .Where(w => w.StartsWith(named + "FAQ:", StringComparison.Ordinal))
+                .Select(w => w[named.Length..]),
+        ];
+    }
 
     [Fact]
     public async Task AQuestionIsAnsweredFromWhatTheSearchForItFoundAndNotFromTheSharedPassages()

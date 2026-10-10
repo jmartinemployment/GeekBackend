@@ -399,6 +399,16 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         return [.. provider.Calls, ("the saved page", WithoutDates(saved))];
     }
 
+    /// <summary>
+    /// A whole tool page as its Generate saves it, written from the complete brief through the same path
+    /// this audit reads: for a test that reads the saved page and not the calls that made it.
+    /// </summary>
+    internal static async Task<(string ToolName, string SavedPage)> SavedToolPageAsync()
+    {
+        var calls = await WriteAsync("tool", CompleteBrief);
+        return (GccRequiredToolMentions.AnchorLookup(CompleteBrief, PartnerUrls).Values.Single(), calls[^1].Text);
+    }
+
     /// <summary>The saved page without the publish times its structured data stamps, which differ run to run.</summary>
     private static string WithoutDates(string savedJson)
     {

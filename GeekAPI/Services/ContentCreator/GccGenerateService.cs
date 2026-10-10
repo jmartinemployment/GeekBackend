@@ -1610,12 +1610,14 @@ public partial class GccGenerateService
             WriteToolDraftAsync,
             doc => Guardrail.GccDraftGuard.Tool(
                 doc, toolGuardInputs with { AppendedSections = toolFaqSection is null ? 0 : 1 }),
-            toolOutlineCtx.Context.TargetKeyword);
+            toolOutlineCtx.Context.TargetKeyword,
+            page: $"Tool page '{name}'");
 
         // Per-H2 image prompts. Tool pages are long-form (a ten-section outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type. `section` is
         // accepted but unused inside GenerateSectionImagePromptsAsync, so null is correct here.
-        document = await WithSectionImagePromptsAsync("tool", name, document, null, provider, toolWarnings, ct);
+        document = await WithSectionImagePromptsAsync(
+            "tool", name, document, null, provider, toolWarnings, ct, page: $"Tool page '{name}'");
 
         var wordCount = ContentDocumentText.CountWords(document);
 
@@ -3053,11 +3055,16 @@ public partial class GccGenerateService
     /// (the <c>batch</c> event, and <c>callsUnderFloor</c> on the verdict).
     /// </para>
     /// </remarks>
+    /// <param name="page">The page's name as its lines carry it, for a type a run writes several of:
+    /// "Tool page 'Bill'". Every warning then names it (<see cref="NamedFor"/>). Null for the pillar
+    /// and the blog, of which a run writes one each and whose lines the run's list already names by
+    /// type.</param>
     private async Task<(ContentDocument Document, List<string> Warnings)> GuardedDraftAsync(
         string label,
         Func<Task<GccDraft>> write,
         Func<ContentDocument, Guardrail.GccGuardVerdict> guard,
-        string? keyword = null)
+        string? keyword = null,
+        string? page = null)
     {
         var draft = await write();
         var verdict = guard(draft.Document);
@@ -3094,6 +3101,7 @@ public partial class GccGenerateService
         }
 
         warnings.AddRange(draft.Shortfalls);
+        if (page is not null) warnings = [.. warnings.Select(warning => NamedFor(page, warning))];
         foreach (var warning in warnings)
         {
             _logger.LogWarning("{Label} ships with: {Warning}", label, warning);
@@ -3101,6 +3109,19 @@ public partial class GccGenerateService
 
         return (draft.Document, warnings);
     }
+
+    /// <summary>
+    /// A warning with the page it is about in front, unless it already names it.
+    /// </summary>
+    /// <remarks>
+    /// A run writes one tool page per partner and lists every page's warnings together under "tool:".
+    /// A call's word line named its page ("Tool page 'Bill' sections 1-2 is ..."); the page's own
+    /// lines did not ("The tool page uses ... 15 times", "The page carries no block quotation"), so
+    /// on the run of 2026-10-10 four keyword lines and a quotation line could be matched to their
+    /// pages only by reading the run log.
+    /// </remarks>
+    internal static string NamedFor(string page, string warning) =>
+        warning.Contains(page, StringComparison.OrdinalIgnoreCase) ? warning : $"{page}: {warning}";
 
     /// <summary>
     /// What every guard on this create checks a draft against, built from what the writer was shown.
@@ -3320,7 +3341,8 @@ public partial class GccGenerateService
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         List<string> warnings,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? page = null)
     {
         try
         {
@@ -3335,9 +3357,9 @@ public partial class GccGenerateService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Image prompts failed for {ContentType} '{Title}'; the draft is saved without them.", contentType, title);
-            warnings.Add(
-                $"Image prompts were not written ({ex.Message}). The draft is saved without them; "
-                + "regenerate them before the images are made.");
+            var warning = $"Image prompts were not written ({ex.Message}). The draft is saved without them; "
+                + "regenerate them before the images are made.";
+            warnings.Add(page is null ? warning : NamedFor(page, warning));
             return document;
         }
     }
