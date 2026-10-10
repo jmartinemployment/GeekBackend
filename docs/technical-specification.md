@@ -149,8 +149,11 @@ client calls `JoinGccGenerate(jobId)` and receives `GccGenerateEvent`, `GccGener
 Push failures are logged as errors and recorded in the run log; they never fail a job.
 
 **Run log.** Table `content_creator.gcc_generate_job_events` (id, job_id, seq, at, kind up to 32, piece up to 128,
-payload_json). Kinds written: started, grounding, call (prompt, response, model, tokens, finish reason), batch, verdict,
-warning, fault (exception type, stack, inner exceptions), outcome, settled, failure, completed.
+payload_json). Kinds written: started, grounding (with each FAQ search: its passage count, how the library ordered it and
+what it scored each passage), call (prompt, response, model, tokens, finish reason), batch (a call's words, floor, headings
+and keyword uses), keyword (the page's count, before and after, each edit and each section's share, uses and places), faq
+(what became of each FAQ question, with its passages' scores), verdict, warning, fault (exception type, stack, inner
+exceptions), outcome, settled, failure, completed.
 
 **Export.** `GccArtifactExportService` renders a full HTML document per page through `SectionHtmlRenderer`, the only place
 tags are produced: `<h1>` title, hero summary, lede, sections, JSON-LD (`Article` for pillar, in a `@graph` with the FAQ

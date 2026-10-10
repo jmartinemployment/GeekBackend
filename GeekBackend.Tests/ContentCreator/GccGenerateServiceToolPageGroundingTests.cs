@@ -775,6 +775,39 @@ public class GccGenerateServiceToolPageGroundingTests
     }
 
     [Fact]
+    public async Task TheFaqRecordCarriesWhatTheSearchScoredEachPassageOfEveryQuestionSent()
+    {
+        // An unanswered question can then be told from one the search rated poorly to begin with. On the
+        // run of 2026-10-10 five of BILL's questions were shown three passages each and left out, and the
+        // record held nothing that said how good the search thought those passages were.
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        await WriteToolPageWithFaqAsync(
+            ResearchWithFaqSearches(
+                new GccFaqEvidence(
+                    FaqHost, SyncQuestion, [SyncPassage() with { Scores = [new GccPassageScore(0.031, 6.1)] }], "llamaindex-hybrid+rerank"),
+                new GccFaqEvidence(
+                    FaqHost,
+                    FlyQuestion,
+                    [FlyPassage() with { Scores = [new GccPassageScore(0.016, -4.2), new GccPassageScore(0.015, -5.0)] }],
+                    "llamaindex-hybrid+rerank")),
+            AnsweredOnlySync);
+
+        using var faq = System.Text.Json.JsonDocument.Parse(Assert.Single(written, e => e.Kind == "faq").PayloadJson);
+        var questions = faq.RootElement.GetProperty("questions").EnumerateArray().ToList();
+        var answered = Assert.Single(questions, q => q.GetProperty("outcome").GetString() == "answered");
+        Assert.Equal(6.1, Assert.Single(answered.GetProperty("scores").EnumerateArray()).GetProperty("reranked").GetDouble());
+        var left = Assert.Single(questions, q => q.GetProperty("outcome").GetString() == "not answered");
+        Assert.Equal(
+            [-4.2, -5.0],
+            left.GetProperty("scores").EnumerateArray().Select(s => s.GetProperty("reranked").GetDouble()));
+        Assert.All(
+            left.GetProperty("scores").EnumerateArray(),
+            s => Assert.Equal("https://partner.test/about", s.GetProperty("url").GetString()));
+    }
+
+    [Fact]
     public async Task AQuestionShownPassagesAndNotAnsweredIsReportedAsThat()
     {
         var (result, _) = await WriteToolPageWithFaqAsync(

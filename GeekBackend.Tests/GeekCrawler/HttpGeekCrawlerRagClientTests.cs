@@ -48,6 +48,28 @@ public sealed class HttpGeekCrawlerRagClientTests
     }
 
     [Fact]
+    public void MapChunksToQuoteable_keeps_what_the_search_scored_each_passage_in_step_with_its_text()
+    {
+        // Returned best first; a page's passages are put back in reading order, and each keeps its own
+        // score. The reranking model's score is there only when the search was reranked.
+        var chunks = new List<HttpGeekCrawlerRagClient.ChunkDto>
+        {
+            new() { Url = "https://partner.example/a", Title = "A", ChunkIndex = 4, Text = "Later on the page.", Score = 0.91, RerankScore = 7.25 },
+            new() { Url = "https://partner.example/a", Title = "A", ChunkIndex = 1, Text = "Earlier on the page.", Score = 0.42, RerankScore = -3.5 },
+            new() { Url = "https://partner.example/b", Title = "B", ChunkIndex = 0, Text = "Another page.", Score = 0.3 },
+        };
+
+        var pages = HttpGeekCrawlerRagClient.MapChunksToQuoteable(chunks);
+
+        var a = Assert.Single(pages, p => p.Url.EndsWith("/a", StringComparison.Ordinal));
+        Assert.StartsWith("Earlier on the page.", a.Paragraphs[0]);
+        Assert.Equal(a.Paragraphs.Count, a.Scores!.Count);
+        Assert.Equal([new GccPassageScore(0.42, -3.5), new GccPassageScore(0.91, 7.25)], a.Scores);
+        var b = Assert.Single(pages, p => p.Url.EndsWith("/b", StringComparison.Ordinal));
+        Assert.Equal([new GccPassageScore(0.3, null)], b.Scores);
+    }
+
+    [Fact]
     public void MapChunksToQuoteable_empty_returnsEmpty()
     {
         Assert.Empty(HttpGeekCrawlerRagClient.MapChunksToQuoteable(null));

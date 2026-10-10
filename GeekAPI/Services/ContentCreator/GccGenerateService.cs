@@ -1496,11 +1496,11 @@ public partial class GccGenerateService
                             shortfalls.Add(
                                 $"FAQ: the writer was shown {shown} passage(s) from {toolFaqHost} for \"{question}\" "
                                 + "and did not answer it; it was left out.");
-                            outcomes.Add(new { question, passages = shown, outcome = "not answered" });
+                            outcomes.Add(new { question, passages = shown, outcome = "not answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
                             continue;
                         }
 
-                        outcomes.Add(new { question, passages = shown, outcome = "answered" });
+                        outcomes.Add(new { question, passages = shown, outcome = "answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
                         if (kept.Add(answer)) children.Add(answer);
                     }
 
@@ -1516,6 +1516,8 @@ public partial class GccGenerateService
                     }
                 }
 
+                // Each question sent carries what the search scored its passages, so an unanswered
+                // question can be told from one the search rated poorly to begin with.
                 await GccRunLog.RecordIfAnyAsync("faq", new { tool = name, host = toolFaqHost, questions = outcomes });
             }
 

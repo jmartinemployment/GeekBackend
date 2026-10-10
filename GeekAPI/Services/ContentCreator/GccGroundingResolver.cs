@@ -561,7 +561,7 @@ public sealed class GccGroundingResolver(
                     // nothing is still an entry, because that is what the tool page reports.
                     if (question.FaqHost is { } faqHost)
                     {
-                        faqEvidence!.Add(new GccFaqEvidence(faqHost, question.Need, result.Pages));
+                        faqEvidence!.Add(new GccFaqEvidence(faqHost, question.Need, result.Pages, result.Retrieval));
                         continue;
                     }
 

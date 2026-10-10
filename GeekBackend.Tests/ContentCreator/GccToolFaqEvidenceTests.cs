@@ -20,6 +20,30 @@ public class GccToolFaqEvidenceTests
         new(Url: url, Title: title, Headings: [], Paragraphs: paragraphs);
 
     [Fact]
+    public void A_search_says_whether_a_reranking_model_ordered_it_in_the_librarys_own_word()
+    {
+        Assert.False(new GccFaqEvidence(Host, Question, []).Reranked);
+        Assert.False(new GccFaqEvidence(Host, Question, [], "llamaindex-hybrid").Reranked);
+        Assert.True(new GccFaqEvidence(Host, Question, [], "llamaindex-hybrid+rerank").Reranked);
+    }
+
+    [Fact]
+    public void Each_passages_score_is_listed_with_its_page_for_the_run_log()
+    {
+        var scored = Page("Product updates", "https://partner.test/updates", "Forecasts run what-if simulations.", "Custom views.") with
+        {
+            Scores = [new GccPassageScore(0.03, 6.1), new GccPassageScore(0.02, -1.4)],
+        };
+        var unscored = Page("Typed by hand", "https://partner.test/notes", "A page that came from no search.");
+
+        var json = System.Text.Json.JsonSerializer.Serialize(GccToolFaqEvidence.ScoresOf([scored, unscored]));
+
+        Assert.Equal(
+            """[{"url":"https://partner.test/updates","score":0.03,"reranked":6.1},{"url":"https://partner.test/updates","score":0.02,"reranked":-1.4}]""",
+            json);
+    }
+
+    [Fact]
     public void Research_that_carries_no_searches_has_not_searched_for_any_question()
     {
         Assert.Null(GccToolFaqEvidence.FoundFor(null, Host, Question));

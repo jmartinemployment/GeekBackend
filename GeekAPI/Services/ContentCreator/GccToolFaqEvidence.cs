@@ -53,6 +53,17 @@ internal static class GccToolFaqEvidence
         return [.. entries.SelectMany(e => e.Pages)];
     }
 
+    /// <summary>
+    /// What the search scored each passage of <paramref name="pages"/>, with the page it is from: the
+    /// library's score, and the reranking model's when the search was reranked. For the run's record.
+    /// A page that carries no scores (one that did not come from a search) adds nothing.
+    /// </summary>
+    internal static IReadOnlyList<object> ScoresOf(IReadOnlyList<GccQuoteablePage> pages) =>
+    [
+        .. pages.SelectMany(page => (page.Scores ?? [])
+            .Select(score => (object)new { url = page.Url, score = score.Score, reranked = score.Reranked })),
+    ];
+
     /// <summary>How many passages <paramref name="pages"/> carry between them: what the writer is shown.</summary>
     internal static int PassageCount(IReadOnlyList<GccQuoteablePage> pages) =>
         pages.Sum(p => p.Paragraphs.Count(paragraph => !string.IsNullOrWhiteSpace(paragraph)));

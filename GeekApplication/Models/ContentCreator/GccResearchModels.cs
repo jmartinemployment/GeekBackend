@@ -60,7 +60,23 @@ public sealed record GccResearchDocument(
 /// <param name="Host">The partner's host key (<c>bill.com</c>), the key the brief files the tool's questions under.</param>
 /// <param name="Question">The question as the operator wrote it, and as the search was asked it.</param>
 /// <param name="Pages">The passages found, by page. Empty when the search found nothing.</param>
-public sealed record GccFaqEvidence(string Host, string Question, IReadOnlyList<GccQuoteablePage> Pages);
+/// <param name="Retrieval">How the evidence library says it ordered this search's passages, in its own
+/// word: "llamaindex-hybrid" for the fused order of the meaning and keyword halves, and the same with
+/// "+rerank" when a reranking model then read each passage against the question. For the run's record;
+/// null when the library did not say.</param>
+public sealed record GccFaqEvidence(
+    string Host, string Question, IReadOnlyList<GccQuoteablePage> Pages, string? Retrieval = null)
+{
+    /// <summary>Whether a reranking model ordered this search's passages, by the library's own account.</summary>
+    public bool Reranked => Retrieval is not null && Retrieval.Contains("+rerank", StringComparison.Ordinal);
+}
+
+/// <summary>
+/// What a search scored one passage: the library's score for the hit, and the reranking model's own
+/// when the search was reranked. For the run's record, where a cut-off is read from real scores before
+/// one is set; no page is written from it and nothing is filtered on it.
+/// </summary>
+public sealed record GccPassageScore(double Score, double? Reranked = null);
 
 /// <summary>One position the publisher states on their own site: a named section and its text.</summary>
 /// <param name="Heading">The section's heading, as written on the site.</param>
@@ -126,7 +142,12 @@ public sealed record GccQuoteablePage(
     string? RetrievalMode = null,
     /// <summary>SHA-256 hex of source HTML or concatenated paragraph text used for extract.</summary>
     string? SourceDigest = null,
-    DateTimeOffset? CrawledAtUtc = null)
+    DateTimeOffset? CrawledAtUtc = null,
+    /// <summary>
+    /// What the search scored each of <see cref="Paragraphs"/>, in the same order. Null on a page that
+    /// did not come from a search, and never read by a writer: see <see cref="GccPassageScore"/>.
+    /// </summary>
+    IReadOnlyList<GccPassageScore>? Scores = null)
 {
     public const string RetrievalModeRagChunk = "rag_chunk";
     public const string RetrievalModeSeedHtml = "seed_html";

@@ -339,7 +339,7 @@ public class GccGroundingEvidenceQuestionsTests
     }
 
     /// <summary>Answers every search but the FAQ questions it is told to find nothing for, or to fail on.</summary>
-    private sealed class FaqRag(string? findsNothingFor = null, string? failsOn = null) : IGeekCrawlerRagClient
+    private sealed class FaqRag(string? findsNothingFor = null, string? failsOn = null, string? retrieval = null) : IGeekCrawlerRagClient
     {
         private readonly RecordingRag inner = new();
 
@@ -363,7 +363,19 @@ public class GccGroundingEvidenceQuestionsTests
                 });
             }
 
-            return inner.QueryAsync(query, ct);
+            return retrieval is null ? inner.QueryAsync(query, ct) : SaysHowItOrdered(query, ct);
+        }
+
+        /// <summary>The same answer, with the library's word for how it ordered the passages.</summary>
+        private async Task<GeekCrawlerRagQueryResult?> SaysHowItOrdered(GeekCrawlerRagQuery query, CancellationToken ct)
+        {
+            var answered = await inner.QueryAsync(query, ct);
+            return answered is null
+                ? null
+                : new GeekCrawlerRagQueryResult
+                {
+                    RunId = answered.RunId, Pages = answered.Pages, Warning = answered.Warning, Retrieval = retrieval,
+                };
         }
 
         public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
@@ -400,6 +412,26 @@ public class GccGroundingEvidenceQuestionsTests
         public Task<JsonElement?> RunDiagnosticAsync(
             string endpoint, object? payload = null, CancellationToken ct = default) =>
             inner.RunDiagnosticAsync(endpoint, payload, ct);
+    }
+
+    [Fact]
+    public async Task A_faq_search_is_filed_with_the_librarys_word_for_how_it_ordered_the_passages()
+    {
+        var project = Project("https://tipalti.com/");
+        var brief = Brief.Replace(
+            "\"tipalti.com\": {",
+            "\"tipalti.com\": { \"faqQuestions\": \"Does Tipalti sync with QuickBooks Online?\",",
+            StringComparison.Ordinal);
+
+        var ranked = await Build(project, new FaqRag(retrieval: "llamaindex-hybrid+rerank"), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, brief), "tool");
+        var unranked = await Build(project, new FaqRag(retrieval: "llamaindex-hybrid"), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, brief), "tool");
+
+        Assert.True(Assert.Single(ranked.FaqEvidence!).Reranked);
+        var entry = Assert.Single(unranked.FaqEvidence!);
+        Assert.Equal("llamaindex-hybrid", entry.Retrieval);
+        Assert.False(entry.Reranked);
     }
 
     [Fact]

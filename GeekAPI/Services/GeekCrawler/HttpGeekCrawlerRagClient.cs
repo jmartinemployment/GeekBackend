@@ -917,6 +917,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             // approximation of 4 characters per token, plus a flat 50 for the markup RenderChunk
             // wraps each chunk in: the section header, the entity line, the anchor line.
             var paragraphs = new List<string>();
+            // In step with paragraphs: what the search scored each one, for the run's record.
+            var scores = new List<GccPassageScore>();
             int accumulatedTokens = 0;
             foreach (var chunk in kept)
             {
@@ -953,6 +955,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 if (!string.IsNullOrWhiteSpace(rendered))
                 {
                     paragraphs.Add(rendered);
+                    scores.Add(new GccPassageScore(chunk.Score, chunk.RerankScore));
                 }
             }
 
@@ -967,7 +970,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 PageId: group.Select(c => c.PageId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id)),
                 SectionTitle: kept.Select(c => c.SectionTitle)
                     .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)),
-                RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk));
+                RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk,
+                Scores: scores));
         }
 
         return pages;
@@ -1231,6 +1235,9 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Language { get; set; }
         public string? Text { get; set; }
         public double Score { get; set; }
+
+        /// <summary>The reranking model's score for this chunk. Sent only when the search was reranked.</summary>
+        public double? RerankScore { get; set; }
         public string? PageId { get; set; }
         public string? SectionTitle { get; set; }
 

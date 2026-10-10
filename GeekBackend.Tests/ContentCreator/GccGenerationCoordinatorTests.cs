@@ -232,6 +232,40 @@ public class GccGenerationCoordinatorTests
         Assert.Equal("https://partner.test/a", Assert.Single(research.Quoteables).Url);
     }
 
+    // ---- the grounding record ---------------------------------------------------------------
+
+    [Fact]
+    public void The_grounding_record_says_how_each_faq_search_was_ordered_and_what_it_scored_each_passage()
+    {
+        // The run of 2026-10-10: a question's three passages came from a terms-of-service page, an
+        // engineering post and a page-template stub, and nothing on the record said how the search had
+        // rated them, or whether anything had ranked them at all.
+        var found = Page("https://partner.test/updates") with { Scores = [new GccPassageScore(0.031, 6.1)] };
+        var merged = GccGenerationCoordinator.MergeRetrievedEvidence(
+            Create(null),
+            new GccGroundingOutcome(
+                [], [], null, [], [], [],
+                FaqEvidence:
+                [
+                    new GccFaqEvidence("partner.test", "Does Partner Widget fly?", [found], "llamaindex-hybrid+rerank"),
+                    new GccFaqEvidence("partner.test", "Does it swim?", [], "llamaindex-hybrid"),
+                ]));
+
+        var record = System.Text.Json.JsonSerializer.SerializeToElement(GccGenerationCoordinator.GroundingCounts(merged));
+        var searches = record.GetProperty("faqSearches").EnumerateArray().ToList();
+
+        Assert.Equal(2, searches.Count);
+        Assert.Equal("llamaindex-hybrid+rerank", searches[0].GetProperty("retrieval").GetString());
+        Assert.True(searches[0].GetProperty("reranked").GetBoolean());
+        var score = Assert.Single(searches[0].GetProperty("scores").EnumerateArray());
+        Assert.Equal("https://partner.test/updates", score.GetProperty("url").GetString());
+        Assert.Equal(0.031, score.GetProperty("score").GetDouble());
+        Assert.Equal(6.1, score.GetProperty("reranked").GetDouble());
+        Assert.False(searches[1].GetProperty("reranked").GetBoolean());
+        Assert.Equal(0, searches[1].GetProperty("passages").GetInt32());
+        Assert.Empty(searches[1].GetProperty("scores").EnumerateArray());
+    }
+
     // ---- RecordGroundingWarningsAsync ---------------------------------------------------------
 
     [Fact]

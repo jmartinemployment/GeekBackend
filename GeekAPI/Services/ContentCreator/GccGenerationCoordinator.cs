@@ -942,7 +942,7 @@ public sealed class GccGenerationCoordinator
         research = GroundingCounts(resolved.Create),
     };
 
-    private static object? GroundingCounts(GccCreateDto create)
+    internal static object? GroundingCounts(GccCreateDto create)
     {
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
         if (research is null) return null;
@@ -952,10 +952,24 @@ public sealed class GccGenerationCoordinator
             competitorQuoteables = research.CompetitorQuoteables?.Count ?? 0,
             siteQuoteables = research.SiteQuoteables?.Count ?? 0,
             publisherPositions = (research.PublisherPositions ?? []).Select(p => p.Heading).ToList(),
-            // Each FAQ question a partner's crawl was searched for, and how many passages came back.
-            // Null when this run searched for none, which is not the same as an empty list.
+            // Each FAQ question a partner's crawl was searched for: how many passages came back, how
+            // the library ordered them and whether a reranking model did, and what it scored each
+            // passage, best first as returned. Null when this run searched for none, which is not the
+            // same as an empty list.
+            //
+            // The scores are what a cut-off is read from before one is set. On the run of 2026-10-10 a
+            // question's three passages came from a terms-of-service page, an engineering post and a
+            // page-template stub, and nothing on the record said how the search had rated them.
             faqSearches = research.FaqEvidence?
-                .Select(e => new { host = e.Host, question = e.Question, passages = e.Pages.Sum(p => p.Paragraphs.Count) })
+                .Select(e => new
+                {
+                    host = e.Host,
+                    question = e.Question,
+                    passages = e.Pages.Sum(p => p.Paragraphs.Count),
+                    retrieval = e.Retrieval,
+                    reranked = e.Reranked,
+                    scores = GccToolFaqEvidence.ScoresOf(e.Pages),
+                })
                 .ToList(),
         };
     }
