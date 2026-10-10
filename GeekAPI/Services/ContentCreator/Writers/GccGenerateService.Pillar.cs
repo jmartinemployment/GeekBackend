@@ -231,7 +231,7 @@ public partial class GccGenerateService
             summary = pillarMeta.Summary,
             // What the draft ships with that the operator should see: a partner it never named, a
             // closing that never linked the scheduler. Read by GccGenerationCoordinator and pushed
-            // to the workspace; ignored by GccBodyEnvelope.Read, so revise and export are unaffected.
+            // to the workspace; ignored by GccBodyEnvelope.Read, so export is unaffected.
             warnings = pillarWarnings,
             body = document,
             // No companion blog exists on this path, so there is nothing to cite as related -- an

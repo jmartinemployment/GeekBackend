@@ -32,7 +32,7 @@ public sealed class GccProjectGenerateRouteTests
 
     private const string CompleteBrief = """
         {"primaryIntent":"commercial","buyingStage":"consideration","audienceSegment":"AP managers",
-         "audienceNotes":"mid-market","angle":"problem_solution","ctaType":"demo",
+         "audienceNotes":"mid-market","angle":"problem_solution",
          "toneOfVoice":"plain","eeatSignals":["case study"],"lengthBand":"long"}
         """;
 

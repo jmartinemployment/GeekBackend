@@ -82,10 +82,6 @@ public sealed record ContentTypePromptContext(
     /// "While it starts off nice with a story, it becomes dull and a chore to read
     /// afterward").</summary>
     Section? Lede = null,
-    /// <summary>What this pass has to change. Set only when revising: a type's body prompt is the
-    /// only correct way to rewrite that type, and revise could not reach one without this -- so it
-    /// used the blog prompt for everything and rewrote pillars and tool pages to blog length.</summary>
-    string? RevisionNotes = null,
     /// <summary>
     /// The sections this call writes, when the body is being generated in batches. Null means the
     /// whole outline in one call, which is what every type did -- and a single call cannot exceed

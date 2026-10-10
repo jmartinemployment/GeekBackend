@@ -39,7 +39,7 @@ public class SystemPromptIsStaticTests
     {
         PrimaryIntent = "commercial_investigation",
         ContentAngle = "problem_solution",
-        WritingNotes = $"Write for {keyword} buyers.",
+        AudienceNotes = $"Buyers of {keyword}.",
     };
 
     private static readonly ProjectGenerationContext One =

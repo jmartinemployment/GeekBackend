@@ -58,10 +58,7 @@ public record ProjectGenerationContext(
     string? BuyingStage = null,
     string? ToneOfVoice = null,
     IReadOnlyList<string>? EeatSignals = null,
-    string? CtaType = null,
-    string? CtaLabel = null,
     string? LengthBand = null,
-    string? WritingNotes = null,
     HierarchyAssignment? HierarchyAssignment = null,
     /// <summary>Geographies the client's own crawled site declares. Empty when it declares none —
     /// schema emission must omit the property rather than emit an empty array.</summary>
@@ -73,13 +70,12 @@ public record ProjectGenerationContext(
     /// Null when the publisher has no such component, in which case the closing names no destination
     /// at all rather than inventing one.</summary>
     string? ConsultationAnchorHref = null,
-    /// <summary>What that scheduler calls itself, used as the ask when the brief names no ctaType.</summary>
+    /// <summary>What that scheduler calls itself: the ask a closing written by the model makes.</summary>
     string? ConsultationCtaLabel = null,
     /// <summary>
     /// True when the page itself adds its closing (<c>GccClosing</c>): the writer is told its last section
-    /// ends on its own material and that the page adds the booking line, and is given neither the
-    /// call-to-action setting nor the operator's questions for the appointment. False for the Workflow
-    /// product, whose writer still writes the closing.
+    /// ends on its own material and that the page adds the booking line, and is not given the operator's
+    /// questions for the appointment. False for the Workflow product, whose writer still writes the closing.
     /// </summary>
     bool PageBuildsClosing = false);
 

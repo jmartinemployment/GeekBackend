@@ -33,7 +33,6 @@ public class GccBriefAndGuardrailTests
           "audienceSegment": "affinity",
           "audienceNotes": "SMB owners",
           "angle": "comparative",
-          "ctaType": "book_now",
           "toneOfVoice": "commercial_balanced",
           "eeatSignals": ["expertise", "trustworthiness"],
           "lengthBand": "blog"
@@ -55,7 +54,6 @@ public class GccBriefAndGuardrailTests
           "audiencePrimary": "cold_prospect",
           "audienceDetail": "SMB owners",
           "angle": "case_study",
-          "ctaType": "book_demo",
           "toneOfVoice": { "formalCasual": 2 },
           "lengthBand": "blog"
         }

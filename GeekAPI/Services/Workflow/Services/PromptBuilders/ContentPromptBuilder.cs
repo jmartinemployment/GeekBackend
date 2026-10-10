@@ -980,9 +980,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </para>
     ///
     /// <para>
-    /// The brief already carries the ask -- ctaType and ctaLabel -- and the closing simply has to
-    /// make it. Where the brief names none, the piece still ends on something the reader does, not
-    /// on a suggestion that they reflect.
+    /// The ask is the publisher's scheduler, by the name it gives itself. Where the publisher has none,
+    /// the piece still ends on something the reader does, not on a suggestion that they reflect.
     /// </para>
     ///
     /// <para>
@@ -1127,8 +1126,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// What the call that ends a Content Creator page is told: the page adds the booking line itself
     /// (<c>GccClosing</c>), so the last section ends on its own material and asks for nothing. It replaced
-    /// a block of about three thousand characters of what not to write, which handed the writer the brief's
-    /// internal CTA setting and the operator's questions and was refused for what it did with both.
+    /// a block of about three thousand characters of what not to write, which handed the writer a
+    /// call-to-action code the brief then carried and the operator's questions, and was refused for what it
+    /// did with both.
     /// </summary>
     private const string PageAddsTheClosingInstruction =
         "END OF THE PAGE: the page adds its own booking line after your last section, so end that section on "
@@ -1151,12 +1151,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         var scheduler = context.ConsultationAnchorHref;
         var hasScheduler = !string.IsNullOrWhiteSpace(scheduler);
 
-        var ask = !string.IsNullOrWhiteSpace(context.CtaType)
-            ? context.CtaType
-              + (string.IsNullOrWhiteSpace(context.CtaLabel) ? string.Empty : $", worded as \"{context.CtaLabel}\"")
-            : hasScheduler && !string.IsNullOrWhiteSpace(context.ConsultationCtaLabel)
-                ? $"the reader to book time, worded as \"{context.ConsultationCtaLabel}\""
-                : "the one action this reader should take next";
+        var ask = hasScheduler && !string.IsNullOrWhiteSpace(context.ConsultationCtaLabel)
+            ? $"the reader to book time, worded as \"{context.ConsultationCtaLabel}\""
+            : "the one action this reader should take next";
 
         // With no anchor configured there is no destination to give, and a destination the writer
         // makes up is a link to a page that does not exist. The ask is then made in words only.
@@ -1215,9 +1212,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// The opening asks nothing of the reader. The page's one ask is at its end, built by code
     /// (Jeff, 2026-10-07); an opening that books, calls or links a vendor is a second ask in the wrong
-    /// place. The tool page's opening read "CTA: book_now" three times (the lede-type guidance, the
-    /// brief block and a call-to-action line), took it for a button label, and linked the vendor's
-    /// homepage -- the page was refused for a link that led nowhere the evidence went.
+    /// place. The tool page's opening was shown a call-to-action code the brief then carried, three times,
+    /// took it for a button label, and linked the vendor's homepage -- the page was refused for a link that
+    /// led nowhere the evidence went. The brief has had no call-to-action field since 2026-10-10.
     /// </summary>
     private const string LedeAskInstruction =
         "THE OPENING ASKS NOTHING OF THE READER: it ends on its own material. The page's one invitation to " +
@@ -1428,7 +1425,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             + "reader from the opening image to what this page is actually about.");
         var hasBrief = !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes) || !string.IsNullOrWhiteSpace(context.ContentAngle)
             || !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
-            || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
+            || !string.IsNullOrWhiteSpace(context.LengthBand)
             || context.EeatSignals is { Count: > 0 };
         if (hasBrief)
         {
@@ -1448,13 +1445,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                 sb.AppendLine($"Tone of voice: {context.ToneOfVoice}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {string.Join(", ", ee)}" : ""));
             else if (context.EeatSignals is { Count: > 0 } eeOnly)
                 sb.AppendLine($"E-E-A-T: {string.Join(", ", eeOnly)}");
-            // No CTA line: the opening asks nothing of the reader (LedeAskInstruction), and the brief's
-            // CtaType is an internal setting ("book_now"), not words, which the writer took for a
-            // button label.
             if (!string.IsNullOrWhiteSpace(context.LengthBand))
                 sb.AppendLine($"Length band: {context.LengthBand}");
-            if (!string.IsNullOrWhiteSpace(context.WritingNotes))
-                sb.AppendLine($"Writing notes: {context.WritingNotes}");
             // Only this brief's row. It used to print all four, which put "problem_solution",
             // "comparative", "case_study_data" and "ultimate_guide" into the prompt as bare tokens a
             // line above "Pick ONE ledeType" -- and the model returned "problem_solution" AS the
@@ -1503,11 +1495,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     private static string BuildBriefBodyGuidance(ProjectGenerationContext context)
     {
         var sb = new StringBuilder();
-        // A page that builds its own closing has no use for the brief's CTA setting, and printing it ("CTA:
-        // book_now -- weave naturally into closing") is what put the raw token in front of the writer.
-        var ctaApplies = !context.PageBuildsClosing && !string.IsNullOrWhiteSpace(context.CtaType);
         var hasAny = !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
-            || ctaApplies || !string.IsNullOrWhiteSpace(context.LengthBand) || !string.IsNullOrWhiteSpace(context.WritingNotes)
+            || !string.IsNullOrWhiteSpace(context.LengthBand)
             || context.EeatSignals is { Count: > 0 }
             || !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes)
             || context.AudienceDetails is { Count: > 0 };
@@ -1538,13 +1527,30 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             sb.AppendLine($"Tone of voice: {context.ToneOfVoice} — hold this voice throughout (consultant_professional=objective authority, informational_instructional=clear stepwise, commercial_balanced=balanced benefits/tradeoffs).");
         if (context.EeatSignals is { Count: > 0 } ee2)
             sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", ee2)}.");
-        if (ctaApplies)
-            sb.AppendLine($"CTA: {context.CtaType}" + (string.IsNullOrWhiteSpace(context.CtaLabel) ? "" : $" ({context.CtaLabel})") + " — weave naturally into closing, not forced.");
         if (!string.IsNullOrWhiteSpace(context.LengthBand))
             sb.AppendLine($"Length band: {context.LengthBand} — respect target length.");
-        if (!string.IsNullOrWhiteSpace(context.WritingNotes))
-            sb.AppendLine($"Writing notes: {context.WritingNotes}");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The brief for a call that writes from a fixed source and no body section: the tool page's two FAQ
+    /// calls and its summaries call. The same rendering the body gets, then the one thing that differs
+    /// here -- a brief line is never a reason to add to the source. Empty when the brief carries none of
+    /// these fields.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-10 these three calls were given no brief field at all, so a tool page's FAQ answers
+    /// and its summaries were written to no reader and in no chosen voice while the body above them was.
+    /// Jeff, 2026-10-10: "Incorporate and use everything from Brief."
+    /// </remarks>
+    private static string BuildBriefForSourcedCopy(ProjectGenerationContext context, string source)
+    {
+        var brief = BuildBriefBodyGuidance(context);
+        return brief.Length == 0
+            ? string.Empty
+            : brief
+                + $"The brief sets who this is written for and the voice it is written in. It is not a source: every fact comes from {source}, and nothing is added to satisfy a brief line."
+                + Environment.NewLine;
     }
 
     private static ChatCompletionRequest WithSectionSchema(ChatCompletionRequest request) =>
@@ -1949,6 +1955,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine($"Tool name: {app.Name}")
             .AppendLine($"Page topic: {pillarMetadata.Title}")
+            .Append(BuildBriefForSourcedCopy(context, "the partner evidence below"))
             .AppendLine("Questions to answer, only where the evidence answers them:")
             .AppendLine(questionBlock)
             .AppendLine()
@@ -2680,8 +2687,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             // actual, lower floor). GccGenerateService.BatchFloorWords is the same sum
             // BatchShortfalls uses to grade the draft afterward, so the number stated here and the
             // number enforced later cannot drift apart again.
-            // Said only when the sections carry a floor. A revision assigns sections by their headings, with
-            // no size of their own, and "at least 0 words" would be the one number in the prompt that is wrong.
+            // Said only when the sections carry a floor: "at least 0 words" would be the one number in
+            // the prompt that is wrong.
             .AppendLine(GccGenerateService.BatchFloorWords(outline) is var owedHere and > 0
                 ? $"Length: at least {owedHere:N0} words across the {outline.Count} " +
                     (outline.Any(slot => slot.OwedWords is not null)
@@ -2755,6 +2762,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine($"Tool name: {app.Name}")
             .AppendLine($"Pillar topic: {pillarMetadata.Title}")
+            .Append(BuildBriefForSourcedCopy(context, "the partner's answers below"))
             .AppendLine("=== PARTNER FAQ (from the partner's own pages — paraphrase, do not re-derive) ===")
             .AppendLine(faqBlock)
             .ToString();
@@ -2829,6 +2837,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Pillar topic: {pillarMetadata.Title}")
             .AppendLine($"Tool name: {app.Name}")
+            .Append(BuildBriefForSourcedCopy(context, "the tool page body below"))
             .AppendLine()
             .AppendLine("Tool page body (for context):")
             .AppendLine(TruncateExcerpt(ContentDocumentText.Flatten(body), 2000))

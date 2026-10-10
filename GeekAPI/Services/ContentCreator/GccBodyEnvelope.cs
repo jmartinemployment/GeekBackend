@@ -16,15 +16,7 @@ namespace GeekAPI.Services.ContentCreator;
 ///
 /// <para>
 /// That is a 500, not a 400, because the throw is a NullReferenceException nobody is catching. It
-/// took the export button down (fixed there in September) and then took Revise down the same way:
-/// <c>POST versions/{id}/revise</c> → 500, on every long-form draft.
-/// </para>
-///
-/// <para>
-/// Writing matters as much as reading. Revise rebuilt a bare document and stored that, so a revised
-/// blog came back without its title, meta description, summary or JSON-LD -- the envelope was not
-/// just unread, it was discarded. <see cref="Write"/> puts the new body back in the envelope it
-/// came out of.
+/// took the export button down (fixed there in September).
 /// </para>
 /// </summary>
 public static class GccBodyEnvelope
@@ -73,31 +65,6 @@ public static class GccBodyEnvelope
         {
             return new Parsed(null, null, null, null, null);
         }
-    }
-
-    /// <summary>
-    /// The new body in the envelope the old one came from. Fields the original did not carry are
-    /// left out rather than written empty -- an empty title is not the same as no title, and a
-    /// consumer cannot tell the difference once it is stored.
-    /// </summary>
-    public static string Write(Parsed original, ContentDocument document, JsonSerializerOptions options)
-    {
-        var hasEnvelope = original.Title is not null
-            || original.ProductName is not null
-            || original.MetaDescription is not null
-            || original.Summary is not null
-            || original.JsonLdSchema is not null;
-
-        if (!hasEnvelope) return JsonSerializer.Serialize(document, options);
-
-        var envelope = new Dictionary<string, object?>();
-        if (original.Title is not null) envelope["title"] = original.Title;
-        if (original.ProductName is not null) envelope["productName"] = original.ProductName;
-        if (original.MetaDescription is not null) envelope["metaDescription"] = original.MetaDescription;
-        if (original.Summary is not null) envelope["summary"] = original.Summary;
-        envelope["body"] = document;
-        if (original.JsonLdSchema is not null) envelope["jsonLdSchema"] = original.JsonLdSchema;
-        return JsonSerializer.Serialize(envelope, options);
     }
 
     /// <summary>

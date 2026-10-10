@@ -78,7 +78,7 @@ public class ContentPromptBuilderFillerBanTests
         var context = Context() with
         {
             PrimaryIntent = "commercial_investigation",
-            WritingNotes = "SMBs looking to implement AI",
+            AudienceNotes = "SMBs looking to implement AI",
         };
 
         var request = builder.BuildArticleSectionBatchPrompt(
@@ -90,7 +90,7 @@ public class ContentPromptBuilderFillerBanTests
         var user = UserPrompt(request);
         Assert.Contains("=== BRIEF CONTROLS", user);
         Assert.Contains("Primary intent: commercial_investigation", user);
-        Assert.Contains("Writing notes: SMBs looking to implement AI", user);
+        Assert.Contains("notes: SMBs looking to implement AI", user);
         // Run data is not in the system message: the brief is the user's, and the system is the same text every call.
         Assert.DoesNotContain("=== BRIEF CONTROLS", SystemPrompt(request));
     }

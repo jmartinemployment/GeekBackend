@@ -5,8 +5,8 @@ using GeekAPI.Services.Workflow.Services.PromptBuilders;
 namespace GeekBackend.Tests;
 
 /// <summary>
-/// Runtime proof + regression: pillar ArticleSection omits CrawledParagraphs; partner tools must
-/// reach WRITE via WritingNotes. Blog site-copy must not Take(5)-drop partner blocks.
+/// Runtime proof + regression: pillar ArticleSection omits CrawledParagraphs. Blog site-copy must not
+/// Take(5)-drop partner blocks.
 /// </summary>
 public class PartnerToolsPromptInjectionTests
 {
@@ -16,7 +16,7 @@ public class PartnerToolsPromptInjectionTests
     private const string PartnerExcerptsLine =
         "PARTNER PAGE EXCERPTS (fetched destination pages for weave — when discussing a tool in a paragraph:";
 
-    private static ProjectGenerationContext Ctx(List<string> crawledParagraphs, string? writingNotes = null) =>
+    private static ProjectGenerationContext Ctx(List<string> crawledParagraphs) =>
         new(
             ProjectName: "kw",
             ProjectUrl: "https://example.com",
@@ -37,8 +37,7 @@ public class PartnerToolsPromptInjectionTests
             BlogBaseUrl: "https://example.com/blog",
             ToolBaseUrl: "https://example.com/tools",
             ImplementerPositioning: "p",
-            Provider: LlmProviderType.OpenAi,
-            WritingNotes: writingNotes);
+            Provider: LlmProviderType.OpenAi);
 
     private static List<string> FluffThenPartner() =>
     [
@@ -61,29 +60,6 @@ public class PartnerToolsPromptInjectionTests
         Assert.DoesNotContain("Partner tools for this use case", brief, StringComparison.Ordinal);
         Assert.DoesNotContain("PARTNER PAGE EXCERPTS", brief, StringComparison.Ordinal);
         Assert.DoesNotContain("allowlist", brief, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void ArticleSection_system_path_keeps_partner_tools_when_in_WritingNotes()
-    {
-        var notes = PartnerToolsLine;
-        var ctx = Ctx([], notes);
-        var builder = new ContentPromptBuilder();
-        var req = builder.BuildArticleSectionPrompt(
-            ctx,
-            new ArticleMetadataDraft("T", "M", ["kw"], ["S1"]),
-            "S1",
-            0,
-            1,
-            ["S1"],
-            isRegeneration: false);
-
-        var system = string.Join("\n", req.Messages
-            .Where(m => m.Role == GeekAPI.Services.Workflow.Providers.ChatRole.System)
-            .Select(m => m.Content));
-        Assert.Contains("Partner tools for this use case", system, StringComparison.Ordinal);
-        Assert.Contains("BotPenguin", system, StringComparison.Ordinal);
-        Assert.DoesNotContain("allowlist", system, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

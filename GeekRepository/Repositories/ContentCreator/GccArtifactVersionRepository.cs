@@ -11,7 +11,7 @@ namespace GeekRepository.Repositories.ContentCreator;
 /// </summary>
 /// <remarks>
 /// Jeff, 2026-10-06: "no history is required ... the old created content should be deleted". Until then
-/// every Generate and every Revise added a version beside the last, and the page showed "v3" over a
+/// every write added a version beside the last, and the page showed "v3" over a
 /// history nobody read. Now the old text goes, with everything that hung off it: its evidence (what the
 /// writer was given to produce text that no longer exists) and its approval events (an approval of text
 /// that is gone). The page goes back to draft, because the text on it is not what was approved. The
@@ -40,7 +40,7 @@ public class GccArtifactVersionRepository : IGccArtifactVersionRepository
 
     /// <summary>
     /// Write the page's text. Whatever text the page had is deleted in the same write, and the page is a
-    /// draft again. This is Revise's path, and the one-at-a-time routes'; a Generate's pieces go through
+    /// draft again. This is the one-at-a-time routes' path; a Generate's pieces go through
     /// <see cref="GccProjectPageRepository.SaveGeneratedAsync"/>, which does the same for every piece of a
     /// run together.
     /// </summary>

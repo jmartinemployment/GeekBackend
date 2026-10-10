@@ -27,7 +27,6 @@ public sealed class NoLengthBandInTheBriefTests
           "audienceSegment": "smb",
           "audienceNotes": "Accounts payable leads at 20-200 person firms.",
           "angle": "problem_solution",
-          "ctaType": "demo",
           "toneOfVoice": "plain",
           "eeatSignals": ["practitioner experience"]
         }

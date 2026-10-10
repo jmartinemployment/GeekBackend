@@ -64,7 +64,23 @@ public sealed record GccNicheFraming(
     /// becomes a citation problem. The instruction to argue rather than cite is part of the payload,
     /// not a separate prompt line that could be added to one call site and missed on another.
     /// </remarks>
-    public string? ToGuidance()
+    public string? ToGuidance() =>
+        Render("Where it goes wrong. Cover these in your own prose, never as a list, and never verbatim:");
+
+    /// <summary>
+    /// The three parts for a short piece -- an email or a social post -- or null when there is nothing to say.
+    /// </summary>
+    /// <remarks>
+    /// The same framing the pages argue (Jeff, 2026-10-10: "They are also marketing material"), with the
+    /// one instruction a short piece cannot follow changed. A 150-word email told to cover every failure
+    /// either ignores the instruction or stops being an email, so it is told to build on one and leave
+    /// the rest. Until then the email and the social post were given none of the operator's framing.
+    /// </remarks>
+    public string? ShortFormGuidance() =>
+        Render("Where it goes wrong. This piece is short: build it on the one of these that serves its " +
+            "single idea, in your own words and never verbatim, and leave the rest out:");
+
+    private string? Render(string failuresInstruction)
     {
         if (!HasAny) return null;
 
@@ -86,8 +102,7 @@ public sealed record GccNicheFraming(
             // five consequence paragraphs, pipe-joined into a single wall of text the model has to parse
             // before it can use any of it.
             sb.AppendLine();
-            sb.Append("Where it goes wrong. Cover these in your own prose, never as a list, and never ");
-            sb.Append("verbatim:");
+            sb.Append(failuresInstruction);
             for (var i = 0; i < PainPoints.Count; i++)
             {
                 sb.AppendLine();

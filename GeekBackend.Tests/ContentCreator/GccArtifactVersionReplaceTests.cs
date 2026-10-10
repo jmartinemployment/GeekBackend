@@ -8,8 +8,8 @@ using Xunit;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// Writing a page's text one page at a time -- Revise, and the one-at-a-time routes -- replaces what
-/// the page had. One version per page; nothing older is kept (Jeff, 2026-10-06).
+/// Writing a page's text one page at a time replaces what the page had. One version per page; nothing
+/// older is kept (Jeff, 2026-10-06).
 /// </summary>
 public sealed class GccArtifactVersionReplaceTests
 {

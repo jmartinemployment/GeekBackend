@@ -213,7 +213,6 @@ internal sealed record GccToolPageFanOutFixture(
           "audienceSegment": "smb",
           "audienceNotes": "Accounts payable leads at 20-200 person firms.",
           "angle": "problem_solution",
-          "ctaType": "demo",
           "toneOfVoice": "plain",
           "eeatSignals": ["practitioner experience"],
           "lengthBand": "long"

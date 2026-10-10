@@ -104,7 +104,7 @@ public class GccHeadingProvenanceGuardTests
         Assert.Empty(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
             [Sec("X", "brief:primaryIntent")], evidence));
         Assert.Single(GccHeadingProvenanceGuard.FindUnlicensedHeadings(
-            [Sec("X", "brief:ctaType")], evidence));
+            [Sec("X", "brief:angle")], evidence));
     }
 
     [Fact]

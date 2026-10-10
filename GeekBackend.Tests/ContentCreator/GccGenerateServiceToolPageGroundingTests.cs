@@ -532,7 +532,7 @@ public class GccGenerateServiceToolPageGroundingTests
         var service = Build(provider, partner);
         var create = Create(ResearchJsonWithOnePartnerPage()) with
         {
-            BriefJson = """{"ctaType":"book_now","nicheFraming":{"diagnosisQuestions":"What business objective should this automation serve?\nHow clean is the data the approvals draw on today?"}}""",
+            BriefJson = """{"nicheFraming":{"diagnosisQuestions":"What business objective should this automation serve?\nHow clean is the data the approvals draw on today?"}}""",
         };
 
         var result = await service.GenerateToolPageAsync(
@@ -560,7 +560,7 @@ public class GccGenerateServiceToolPageGroundingTests
         Assert.Contains("END OF THE PAGE", sent, StringComparison.Ordinal);
         string[] never =
         [
-            "What business objective should this automation serve?", "How clean is the data", "book_now", "CLOSING:",
+            "What business objective should this automation serve?", "How clean is the data", "CLOSING:",
         ];
         var found = never.Where(needle => sent.Contains(needle, StringComparison.Ordinal)).ToList();
         Assert.True(found.Count == 0, "The writer was sent: " + string.Join(" | ", found));
@@ -914,7 +914,7 @@ public class GccGenerateServiceToolPageGroundingTests
     }
 
     private const string ValidBriefJson =
-        """{"primaryIntent":"commercial_investigation","buyingStage":"consideration","audienceSegment":"SMB","audienceNotes":"n/a","angle":"comparative","ctaType":"demo","toneOfVoice":"consultant_professional","eeatSignals":["experience"],"lengthBand":"standard"}""";
+        """{"primaryIntent":"commercial_investigation","buyingStage":"consideration","audienceSegment":"SMB","audienceNotes":"n/a","angle":"comparative","toneOfVoice":"consultant_professional","eeatSignals":["experience"],"lengthBand":"standard"}""";
 
     private static GccCreateDto DispatchCreate(string startingContentType) => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),

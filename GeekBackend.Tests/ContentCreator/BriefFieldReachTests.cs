@@ -50,12 +50,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
           "audienceSegment": "affinity",
           "audienceNotes": "Controllers at regional distributors who close the books by hand.",
           "angle": "problem_solution",
-          "ctaType": "contact_us",
-          "ctaLabel": "Talk to an implementer",
           "toneOfVoice": "consultant_professional",
           "eeatSignals": ["first_hand_experience", "expertise", "authoritativeness", "trustworthiness"],
           "lengthBand": "",
-          "writingNotes": "Never use the word seamless.",
           "paaQuestions": "What does month end cost a distributor?\nWho owns the close calendar?",
           "blogFaqQuestions": "How long does a close take by hand?",
           "nicheFraming": {
@@ -99,12 +96,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         new("audienceSegment", b => b["audienceSegment"] = "in_market"),
         new("audienceNotes", b => b["audienceNotes"] = "Plant managers who approve every purchase order themselves."),
         new("angle", b => b["angle"] = "comparative"),
-        new("ctaType", b => b["ctaType"] = "book_now"),
-        new("ctaLabel", b => b["ctaLabel"] = "Reserve a working session"),
         new("toneOfVoice", b => b["toneOfVoice"] = "commercial_balanced"),
         new("eeatSignals", b => b["eeatSignals"] = new JsonArray("expertise")),
         new("lengthBand", b => b["lengthBand"] = "long"),
-        new("writingNotes", b => b["writingNotes"] = "Write in the second person throughout."),
         new("paaQuestions", b => b["paaQuestions"] = "What does a late close cost a wholesaler?\nWho signs off the reconciliations?"),
         new("blogFaqQuestions", b => b["blogFaqQuestions"] = "How many people does a close take?"),
         new("briefVersion", b => b["briefVersion"] = 1),
@@ -521,8 +515,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// this table made with the fix, and so that it cannot reopen unseen. The whole list, with the fields
     /// kept from a call on a decision, is plans/brief-field-audit.md.
     /// <para>
-    /// Revise is not here because it cannot be: <c>ReviseAsync</c> takes the page, the feedback and the
-    /// page's type, and no brief.
+    /// Closed the same day, each a changed line below: the pillar's opening now carries the operator's
+    /// whole framing, the tool page's two FAQ calls and its summaries call carry the reader and the
+    /// voice, and the email and the social post carry the framing.
     /// </para>
     /// </remarks>
     [Theory]
@@ -549,13 +544,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceSegment => opening | People Also Ask | every body call | title and outline
             audienceNotes => opening | People Also Ask | every body call | title and outline
             angle => opening | every body call | title and outline
-            ctaType => nothing
-            ctaLabel => nothing
             toneOfVoice => opening | People Also Ask | every body call | title and outline
             eeatSignals => opening | People Also Ask | every body call
             lengthBand => opening | People Also Ask | every body call
-            # GAP: the writing notes do not reach the call that writes the title, the summary and the meta description.
-            writingNotes => opening | People Also Ask | every body call
             paaQuestions => People Also Ask | every body call | the saved page
             blogFaqQuestions => nothing
             briefVersion => nothing
@@ -563,10 +554,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             # GAP: only the first level of the path is read, as the department in the page's address.
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => the saved page
-            # GAP: the core problem reaches no call. PillarPrompts.Outline puts the whole framing on the opening slot, and the opening call is handed that slot's label without its guidance.
-            nicheFraming.coreProblem => nothing
-            nicheFraming.painPoints => body call
-            nicheFraming.automationToPitch => body call #2
+            nicheFraming.coreProblem => opening
+            nicheFraming.painPoints => opening | body call
+            nicheFraming.automationToPitch => opening | body call #2
             nicheFraming.evidence.problem => nothing
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
@@ -589,13 +579,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceSegment => title and outline | opening | FAQ | every body call
             audienceNotes => title and outline | opening | FAQ | every body call
             angle => title and outline | opening | every body call
-            ctaType => nothing
-            ctaLabel => nothing
             toneOfVoice => title and outline | opening | FAQ | every body call
             eeatSignals => opening | FAQ | every body call
             lengthBand => opening | FAQ | every body call
-            # GAP: the writing notes do not reach the call that writes the title, the summary and the meta description.
-            writingNotes => opening | FAQ | every body call
             paaQuestions => every body call
             blogFaqQuestions => FAQ | the saved page
             briefVersion => nothing
@@ -621,19 +607,15 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         {
             "tool", true,
             """
-            # GAP: no field above the questions reaches either FAQ call or the summaries call: they are written without the brief's audience, intent, stage, tone or writing notes.
-            primaryIntent => opening | every body call
-            secondaryIntent => opening | every body call
-            buyingStage => opening | every body call
-            audienceSegment => opening | every body call
-            audienceNotes => opening | every body call
+            primaryIntent => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            secondaryIntent => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            buyingStage => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            audienceSegment => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            audienceNotes => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
             angle => opening | every body call
-            ctaType => nothing
-            ctaLabel => nothing
-            toneOfVoice => opening | every body call
-            eeatSignals => opening | every body call
-            lengthBand => opening | every body call
-            writingNotes => opening | every body call
+            toneOfVoice => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            eeatSignals => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            lengthBand => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
             paaQuestions => nothing
             blogFaqQuestions => nothing
             briefVersion => nothing
@@ -680,23 +662,18 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceSegment => email
             audienceNotes => email
             angle => email
-            ctaType => email
-            ctaLabel => email
             toneOfVoice => email
             eeatSignals => nothing
             lengthBand => nothing
-            # GAP: the writing notes do not reach a short-form piece.
-            writingNotes => nothing
             paaQuestions => nothing
             blogFaqQuestions => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => nothing
-            # GAP: a short-form piece is given none of the operator's framing.
-            nicheFraming.coreProblem => nothing
-            nicheFraming.painPoints => nothing
-            nicheFraming.automationToPitch => nothing
+            nicheFraming.coreProblem => email
+            nicheFraming.painPoints => email
+            nicheFraming.automationToPitch => email
             nicheFraming.evidence.problem => nothing
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
@@ -719,23 +696,18 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceSegment => social post
             audienceNotes => social post
             angle => social post
-            ctaType => social post
-            ctaLabel => social post
             toneOfVoice => social post
             eeatSignals => nothing
             lengthBand => nothing
-            # GAP: the writing notes do not reach a short-form piece.
-            writingNotes => nothing
             paaQuestions => nothing
             blogFaqQuestions => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => nothing
-            # GAP: a short-form piece is given none of the operator's framing.
-            nicheFraming.coreProblem => nothing
-            nicheFraming.painPoints => nothing
-            nicheFraming.automationToPitch => nothing
+            nicheFraming.coreProblem => social post
+            nicheFraming.painPoints => social post
+            nicheFraming.automationToPitch => social post
             nicheFraming.evidence.problem => nothing
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
@@ -758,12 +730,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceSegment => image prompt
             audienceNotes => image prompt
             angle => image prompt
-            ctaType => nothing
-            ctaLabel => nothing
             toneOfVoice => image prompt
             eeatSignals => image prompt
             lengthBand => image prompt
-            writingNotes => image prompt
             paaQuestions => nothing
             blogFaqQuestions => nothing
             briefVersion => nothing
@@ -795,12 +764,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             audienceSegment => nothing
             audienceNotes => nothing
             angle => nothing
-            ctaType => nothing
-            ctaLabel => nothing
             toneOfVoice => nothing
             eeatSignals => nothing
             lengthBand => nothing
-            writingNotes => nothing
             paaQuestions => nothing
             blogFaqQuestions => nothing
             briefVersion => nothing

@@ -201,23 +201,7 @@ public class ContentPromptBuilderClosingCtaTests
     }
 
     [Fact]
-    public void The_brief_still_owns_the_ask_and_the_anchor_still_owns_the_destination()
-    {
-        // ctaType/ctaLabel are the operator's words for what is being asked for. The anchor answers
-        // a different question -- where the ask lands -- so naming one must not silence the other.
-        var system = BlogPrompt(Context() with
-        {
-            CtaType = "book_appointment",
-            CtaLabel = "Book your assessment",
-        });
-
-        Assert.Contains("asking for book_appointment", system, StringComparison.Ordinal);
-        Assert.Contains("worded as \"Book your assessment\"", system, StringComparison.Ordinal);
-        Assert.Contains($"href \"{Anchor}\"", system, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void With_no_brief_cta_the_scheduler_label_becomes_the_ask()
+    public void The_scheduler_label_is_the_ask()
     {
         // "the one action this reader should take next" is not an ask, it is a placeholder for one.
         // Where the publisher has a scheduler, the ask it is named for is the ask.
@@ -230,12 +214,12 @@ public class ContentPromptBuilderClosingCtaTests
     // ----------------------------------------------------------------------------------------------
     // A page that builds its own closing (Content Creator, Jeff 2026-10-07). The questions the operator
     // asks a new client, and the booking line they follow, are added by GccClosing; the writer ends its
-    // last section on its own material and is handed neither the CTA setting nor the questions. The
-    // tests of the page's own closing are in GccClosingLineTests.
+    // last section on its own material and is not handed the questions. The tests of the page's own
+    // closing are in GccClosingLineTests.
     // ----------------------------------------------------------------------------------------------
 
     private static ProjectGenerationContext PageBuildsItsClosing() =>
-        Context() with { PageBuildsClosing = true, CtaType = "book_now", CtaLabel = "Book a consult" };
+        Context() with { PageBuildsClosing = true };
 
     [Theory]
     [MemberData(nameof(AllFourBodyPrompts))]
@@ -249,15 +233,12 @@ public class ContentPromptBuilderClosingCtaTests
 
     [Theory]
     [MemberData(nameof(AllFourBodyPrompts))]
-    public void A_page_that_builds_its_closing_never_shows_the_writer_the_cta_setting_or_the_scheduler_anchor(string which)
+    public void A_page_that_builds_its_closing_never_shows_the_writer_the_scheduler_anchor_or_its_label(string which)
     {
         var system = Render(which, PageBuildsItsClosing());
 
-        Assert.DoesNotContain("book_now", system, StringComparison.Ordinal);
-        Assert.DoesNotContain("Book a consult", system, StringComparison.Ordinal);
-        Assert.DoesNotContain("CTA:", system, StringComparison.Ordinal);
         Assert.DoesNotContain(Anchor, system, StringComparison.Ordinal);
-        Assert.DoesNotContain("weave naturally into closing", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("Schedule a Free Consultation", system, StringComparison.Ordinal);
     }
 
     [Fact]

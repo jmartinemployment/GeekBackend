@@ -101,8 +101,8 @@ public class SeoScoreIsPerContentTypeTests
     [Fact]
     public void The_fix_hints_name_the_keyword_the_writer_was_asked_for()
     {
-        // ApplyFeedback is fed back to the revise model, so a hint naming the whole topic would ask the
-        // writer to do the thing that caused the 0.00% in the first place.
+        // ApplyFeedback is the fix the operator reads, so a hint naming the whole topic would ask for
+        // the thing that caused the 0.00% in the first place.
         var report = GcwSeoAnalyzer.Analyze(
             """{"lede":{"tag":"h2","heading":"Overview","paragraphs":[{"type":"text","runs":[{"text":"Nothing relevant here."}]}],"href":null,"children":[]},"sections":[]}""",
             Keyword,

@@ -227,7 +227,18 @@ public partial class ContentPromptBuilder
 
         user.AppendLine()
             .AppendLine("=== ASSIGNMENT ===")
-            .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}. It covers: {ledeHeading}. You write its heading.")
+            .AppendLine($"Write the pillar's Lede (first H2) {ledeIndex + 1} of {totalSections}. It covers: {ledeHeading}. You write its heading.");
+
+        // The opening slot's own guidance: on the Content Creator's pillar, the operator's whole framing
+        // (PillarPrompts.Outline). This call was handed the slot's label and not its guidance until
+        // 2026-10-10, so the operator's statement of the problem reached no pillar call at all: the body
+        // calls carry the failures and the approach, and only this slot carries the problem.
+        if (ledeIndex >= 0 && ledeIndex < fullOutline.Count && fullOutline[ledeIndex].Guidance is { Length: > 0 } openingGuidance)
+        {
+            user.AppendLine($"   {openingGuidance}");
+        }
+
+        user
             .AppendLine($"Article title: {metadata.Title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Meta description: {metadata.MetaDescription}")

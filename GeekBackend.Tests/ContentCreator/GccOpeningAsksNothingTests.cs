@@ -12,9 +12,9 @@ namespace GeekBackend.Tests.ContentCreator;
 ///
 /// <para>
 /// The Melio tool page's opening was refused because it linked the vendor's homepage. The prompt it was
-/// written from printed the brief's internal CTA setting, <c>book_now</c>, three times -- in the
-/// lede-type guidance, in the brief block and as a call-to-action line -- and nothing told the writer the
-/// opening is not where the page asks. The pillar's opening was told two opposite things at once: its own
+/// written from printed, three times, the code of a call-to-action choice the brief then carried, and
+/// nothing told the writer the opening is not where the page asks. The brief has had no such field since
+/// 2026-10-10. The pillar's opening was told two opposite things at once: its own
 /// rule is that it names no partner or tool, and its research brief said to name each tool wherever it is
 /// relevant and to link it on first mention.
 /// </para>
@@ -47,9 +47,7 @@ public class GccOpeningAsksNothingTests
         KnownCrawlTools: [new KnownCrawlTool("Ramp", null, "/tools/accounting/accounts-payable/ramp")],
         PrimaryIntent: "commercial_investigation",
         ContentAngle: "problem_solution",
-        ToneOfVoice: "consultant_professional",
-        CtaType: "book_now",
-        CtaLabel: "Book a consult");
+        ToneOfVoice: "consultant_professional");
 
     private static readonly ArticleMetadataDraft Article = new("Title", "Meta", ["ai"], ["a", "b"]);
     private static readonly BlogMetadataDraft Blog = new("Title", "Meta", ["ai"], ["a", "b"]);
@@ -141,17 +139,6 @@ public class GccOpeningAsksNothingTests
         Assert.True(assignmentIndex > evidenceIndex, "the assignment comes after the evidence");
         Assert.DoesNotContain("This opening still carries no links at all", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("BEFORE YOU WRITE", prompt, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [MemberData(nameof(EveryLedePrompt))]
-    public void No_opening_prints_the_briefs_internal_call_to_action_setting(string which)
-    {
-        var prompt = Prompt(Build(which));
-
-        Assert.DoesNotContain("book_now", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("CTA:", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Book a consult", prompt, StringComparison.Ordinal);
     }
 
     [Theory]

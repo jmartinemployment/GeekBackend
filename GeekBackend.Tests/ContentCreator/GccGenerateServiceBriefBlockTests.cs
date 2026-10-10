@@ -21,10 +21,7 @@ public class GccGenerateServiceBriefBlockTests
         BuyingStage = "consideration",
         ToneOfVoice = "consultant_professional",
         EeatSignals = ["experience", "expertise"],
-        CtaType = "book_now",
-        CtaLabel = "Book a consult",
         LengthBand = "long",
-        WritingNotes = "Avoid jargon in the first two paragraphs.",
     };
 
     [Fact]
@@ -39,12 +36,7 @@ public class GccGenerateServiceBriefBlockTests
         Assert.Contains("Buying stage: consideration", block);
         Assert.Contains("Tone of voice: consultant_professional", block);
         Assert.Contains("E-E-A-T signals to demonstrate: experience, expertise.", block);
-        // The brief's CTA setting is not printed: the page builds its own closing (GccClosing), and the
-        // setting is an internal code the writer took for a button label.
-        Assert.DoesNotContain("CTA:", block);
-        Assert.DoesNotContain("book_now", block);
         Assert.Contains("Length band: long", block);
-        Assert.Contains("Writing notes: Avoid jargon in the first two paragraphs.", block);
     }
 
     [Fact]
@@ -65,14 +57,13 @@ public class GccGenerateServiceBriefBlockTests
 
         Assert.Contains("Audience segment: SMB operators", block);
         Assert.DoesNotContain("Angle:", block);
-        Assert.DoesNotContain("CTA:", block);
-        Assert.DoesNotContain("Writing notes:", block);
+        Assert.DoesNotContain("Tone of voice:", block);
     }
 
     [Fact]
     public void BuildBriefAndResearchBlock_never_contains_the_raw_brief_json_verbatim()
     {
-        var rawBriefJson = """{"audienceSegment":"SMBs","primaryIntent":"commercial_investigation","buyingStage":"consideration","angle":"practical-first","ctaType":"book_now","toneOfVoice":"consultant_professional","eeatSignals":["experience"],"lengthBand":"long"}""";
+        var rawBriefJson = """{"audienceSegment":"SMBs","primaryIntent":"commercial_investigation","buyingStage":"consideration","angle":"practical-first","toneOfVoice":"consultant_professional","eeatSignals":["experience"],"lengthBand":"long"}""";
         var create = new GccCreateDto(
             Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
             StartingContentType: "techArticle", Topic: "AI implementation", Notes: null,

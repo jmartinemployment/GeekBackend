@@ -290,6 +290,25 @@ public class GccNicheFramingTests
     }
 
     [Fact]
+    public void A_short_piece_is_given_the_same_framing_and_told_to_build_on_one_failure()
+    {
+        // An email of 150 words told to cover every failure either ignores the instruction or stops being
+        // an email. The problem, the failures and the answer are the same ones the pages argue; only the
+        // instruction over the failures differs.
+        var framing = GccNicheFramingReader.ForCategory(CategoryOnlyBrief)!;
+
+        var shortForm = framing.ShortFormGuidance()!;
+
+        Assert.Contains("never cite it", shortForm, StringComparison.Ordinal);
+        Assert.Contains("Revenue is booked", shortForm, StringComparison.Ordinal);
+        Assert.Contains("Nobody owns collections.", shortForm, StringComparison.Ordinal);
+        Assert.Contains("Invoice-to-cash on a schedule", shortForm, StringComparison.Ordinal);
+        Assert.Contains("build it on the one of these", shortForm, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cover these", shortForm, StringComparison.Ordinal);
+        Assert.Contains("Cover these in your own prose", framing.ToGuidance()!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_failure_is_a_paragraph_not_a_line()
     {
         // Jeff, 2026-10-03: "the data I am inputting is a paragraph" -- and it is. The research states

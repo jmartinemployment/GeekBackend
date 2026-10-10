@@ -99,26 +99,6 @@ public class GccDraftIsGuardedOnceTests
         }
     }
 
-    /// <summary>Answers a revision with two sections of the same weight as the draft being revised.</summary>
-    private sealed class ReviseProvider : IContentGenerationProvider
-    {
-        public LlmProviderType ProviderType => LlmProviderType.OpenAi;
-
-        public string Sent { get; private set; } = string.Empty;
-
-        public Task<ChatCompletionResult> CompleteAsync(
-            ChatCompletionRequest request, CancellationToken cancellationToken = default)
-        {
-            Sent += string.Join("\n", request.Messages.Select(m => m.Content)) + "\n";
-            const string content = """
-                {"sections":[
-                {"tag":"h2","heading":"Where the hours go","paragraphs":[{"type":"text","runs":[{"text":"Invoices are keyed twice, revised."}]}],"href":null,"children":[]},
-                {"tag":"h2","heading":"People Also Ask","paragraphs":[{"type":"text","runs":[{"text":"It encrypts data at rest."}]}],"href":null,"children":[]}]}
-                """;
-            return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
-        }
-    }
-
     private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
     {
         public IContentGenerationProvider Get(LlmProviderType providerType) => provider;
@@ -189,7 +169,7 @@ public class GccDraftIsGuardedOnceTests
     }
 
     private const string BriefWithQuestions = """
-        {"paaQuestions":["Is it secure?"],"ctaType":"book_now","ctaLabel":"Book a consult",
+        {"paaQuestions":["Is it secure?"],
          "nicheFraming":{"diagnosisQuestions":"What business objective should this automation serve?\nHow clean is the data the approvals draw on today?"}}
         """;
 
@@ -220,7 +200,7 @@ public class GccDraftIsGuardedOnceTests
     }
 
     [Fact]
-    public async Task The_operators_questions_and_the_cta_setting_never_reach_the_writer()
+    public async Task The_operators_questions_never_reach_the_writer()
     {
         var provider = new ScriptedProvider();
 
@@ -229,82 +209,13 @@ public class GccDraftIsGuardedOnceTests
         var prompts = provider.AllPrompts;
         string[] never =
         [
-            "What business objective should this automation serve?", "How clean is the data", "book_now", "Book a consult",
+            "What business objective should this automation serve?", "How clean is the data",
             Scheduler, "CLOSING:",
         ];
         var found = never.Where(needle => prompts.Contains(needle, StringComparison.Ordinal)).ToList();
         Assert.True(found.Count == 0, "The writer was sent: " + string.Join(" | ", found)
             + " -- " + string.Join(" || ", found.Select(f => prompts[Math.Max(0, prompts.IndexOf(f, StringComparison.Ordinal) - 80)..Math.Min(prompts.Length, prompts.IndexOf(f, StringComparison.Ordinal) + 120)])));
         Assert.Contains("END OF THE PAGE", prompts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task A_revision_never_shows_the_writer_the_closing_and_the_page_keeps_it_once_where_it_was()
-    {
-        var company = new CompanyProfileOptions();
-        var closing = GccClosing.Paragraphs(company, ["What business objective should this automation serve?"]);
-        Section Text(string heading, string text) =>
-            new("h2", heading, [new TextParagraph([new Run(text)])], null, [], Provenance: "plan");
-        var stored = new ContentDocument(
-            Text("Opening", "An opening."),
-            [.. GccClosing.AppendTo([Text("Where the hours go", "Invoices are keyed twice.")], closing), Text("People Also Ask", "It encrypts data at rest.")]);
-        var storedJson = JsonSerializer.Serialize(stored, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var provider = new ReviseProvider();
-
-        var revisedJson = await Build(provider).ReviseAsync(
-            storedJson, "Say it plainer.", "document", null, ContentGeneratorProvider.OpenAi, CancellationToken.None, "pillar");
-
-        // The writer was shown the draft without the page's closing, so it could neither rewrite it nor be
-        // told to.
-        Assert.Contains("Invoices are keyed twice.", provider.Sent, StringComparison.Ordinal);
-        Assert.DoesNotContain("What business objective should this automation serve?", provider.Sent, StringComparison.Ordinal);
-        Assert.DoesNotContain("booking your free consultation", provider.Sent, StringComparison.Ordinal);
-        Assert.DoesNotContain("Answer these questions when", provider.Sent, StringComparison.Ordinal);
-
-        using var doc = JsonDocument.Parse(revisedJson);
-        var sections = doc.RootElement.GetProperty("sections").EnumerateArray().ToList();
-        Assert.Equal(2, sections.Count);
-        Assert.Equal("People Also Ask", sections[1].GetProperty("heading").GetString());
-        var first = sections[0].GetProperty("paragraphs").EnumerateArray().ToList();
-        Assert.Equal(3, first.Count);
-        Assert.Equal("list", first[^1].GetProperty("type").GetString());
-        Assert.Equal(
-            "booking your free consultation",
-            first[1].GetProperty("runs").EnumerateArray().First(r => r.TryGetProperty("href", out var h) && h.ValueKind == JsonValueKind.String)
-                .GetProperty("text").GetString());
-        Assert.Equal(1, sections.Sum(s => s.GetProperty("paragraphs").EnumerateArray().Count(p =>
-            p.GetProperty("type").GetString() == "text"
-            && p.GetProperty("runs").EnumerateArray().Any(r => r.TryGetProperty("href", out var h) && h.ValueKind == JsonValueKind.String))));
-    }
-
-    [Fact]
-    public async Task Revising_a_tool_page_reads_the_product_from_its_own_field_and_keeps_the_title_and_the_field()
-    {
-        var stored = new ContentDocument(
-            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
-            [
-                new Section("h2", "Where the hours go", [new TextParagraph([new Run("Invoices are keyed twice.")])], null, []),
-                new Section("h2", "People Also Ask", [new TextParagraph([new Run("It encrypts data at rest.")])], null, []),
-            ]);
-        var envelope = JsonSerializer.Serialize(new Dictionary<string, object?>
-        {
-            ["title"] = "Ramp: Automated Approval Workflows",
-            ["productName"] = "Ramp",
-            ["metaDescription"] = "A meta description.",
-            ["body"] = stored,
-        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var provider = new ReviseProvider();
-
-        var revised = await Build(provider).ReviseAsync(
-            envelope, "Say it plainer.", "document", null, ContentGeneratorProvider.OpenAi, CancellationToken.None, "tool");
-
-        // The product is Ramp, so the writer is told about Ramp and the page's address; it is not
-        // "Ramp: Automated Approval Workflows", whose slug is a different page.
-        Assert.Contains("Ramp", provider.Sent, StringComparison.Ordinal);
-        Assert.DoesNotContain("ramp-automated-approval-workflows", provider.Sent, StringComparison.OrdinalIgnoreCase);
-        using var doc = JsonDocument.Parse(revised);
-        Assert.Equal("Ramp: Automated Approval Workflows", doc.RootElement.GetProperty("title").GetString());
-        Assert.Equal("Ramp", doc.RootElement.GetProperty("productName").GetString());
     }
 
     [Fact]

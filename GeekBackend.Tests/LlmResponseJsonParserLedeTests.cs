@@ -37,7 +37,7 @@ public sealed class LlmResponseJsonParserLedeTests
         Assert.Equal(LedeType.Question, ledeType);
         // The lede keeps the heading the model wrote: it is this page's first H2. BuildLedeSection
         // hardcoded string.Empty here between 2026-09-23 and 2026-09-29, which discarded a heading
-        // the prompt was asking for -- and which the revise path reads as the draft's Title.
+        // the prompt was asking for.
         Assert.Equal("Is Your Team Ready for AI?", lede.Heading);
         Assert.Single(lede.Paragraphs);
         // The introduction is the lede continuing, so it carries none even though the model

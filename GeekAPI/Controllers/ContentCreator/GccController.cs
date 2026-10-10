@@ -646,54 +646,6 @@ public class GccController : ControllerBase
         return File(bytes, contentType, fileName);
     }
 
-    [HttpPost("versions/{id:guid}/revise")]
-    public async Task<ActionResult<GccArtifactVersionDto>> Revise(Guid id, [FromBody] ReviseRequest request, CancellationToken ct)
-    {
-        if (request is null || string.IsNullOrWhiteSpace(request.Feedback))
-            return BadRequest("feedback required");
-        if (!TryParseProvider(request.Provider, out var provider, out var err))
-            return BadRequest(err);
-
-        var current = await _repo.GetVersionAsync(id, ct);
-        if (current is null) return NotFound();
-
-        // Revise wrote every type with the blog prompt, so a pillar or a tool page was rewritten to
-        // blog length -- 2,000 words against their 3,500 -- and lost a third of itself on the first
-        // press. The artifact knows what it is.
-        var artifact = await _repo.GetArtifactAsync(current.ArtifactId, ct);
-
-        try
-        {
-            var revised = await _gen.ReviseAsync(
-                current.BodyDocumentJson,
-                request.Feedback,
-                request.Scope ?? "full",
-                request.SectionPath,
-                provider,
-                ct,
-                artifact?.Type);
-            // Stamped, like the generate path. Without this the "Provided by" label vanishes on the
-            // first revise and never returns -- the workspace shows the highest version number, and
-            // that was the one with no provenance. The provider is already parsed above; the stamp is
-            // the same helper GccGenerationCoordinator uses, so the two paths cannot word it
-            // differently.
-            var version = await _repo.CreateVersionAsync(
-                new CreateGccArtifactVersionCommand(
-                    current.ArtifactId, revised, GccVersionProvenance.For(provider)),
-                ct);
-            return Ok(version);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Revise failed");
-            return StatusCode(502, "LLM provider request failed");
-        }
-    }
-
     [HttpGet("versions/{id:guid}/seo")]
     public async Task<ActionResult> Seo(Guid id, [FromQuery] string keyword, CancellationToken ct)
     {
@@ -742,8 +694,11 @@ public class GccController : ControllerBase
     // Disabled 2026-09-22 (Jeff): Repurpose never called ValidateSiteSectionGate, so every type it
     // produces -- including aiTool -- generated without the Project Site crawl requirement
     // creates/{id}/generate enforces unconditionally for everything else. RepurposeInternal is kept
-    // as a real, complete implementation rather than deleted so it can be re-enabled once it carries
-    // the same gate; only the route itself is disabled.
+    // rather than deleted so it can be re-enabled once it carries the same gate; only the route itself
+    // is disabled. It no longer derives a blog or a technical article: both were written through
+    // Revise, which was removed on 2026-10-10 (Jeff), and their two request flags went with them.
+    // Kept on Jeff's word the same day, with nothing calling it: "We have many disabled Content Types
+    // that we may want to utilize repurpose."
     [HttpPost("versions/{id:guid}/repurpose")]
     public Task<ActionResult<object>> Repurpose(Guid id, [FromBody] MixRequest? request, CancellationToken ct) =>
         Task.FromResult<ActionResult<object>>(StatusCode(403,
@@ -752,7 +707,7 @@ public class GccController : ControllerBase
 
     private async Task<ActionResult<object>> RepurposeInternal(Guid id, MixRequest? request, CancellationToken ct)
     {
-        request ??= new MixRequest(false, false, 0, 0, 0, 0, 0, 0, null, null, false, null);
+        request ??= new MixRequest(0, 0, 0, 0, 0, 0, null, null, false, null);
         var version = await _repo.GetVersionAsync(id, ct);
         if (version is null) return NotFound();
         var artifact = await _repo.GetArtifactAsync(version.ArtifactId, ct);
@@ -799,38 +754,6 @@ public class GccController : ControllerBase
                 var emailVersion = await _repo.CreateVersionAsync(
                     new CreateGccArtifactVersionCommand(emailArtifact.Id, emailBody), ct);
                 created.Add(new { artifact = emailArtifact, version = emailVersion });
-            }
-
-            if (request?.Blog == true)
-            {
-                var blogJson = await _gen.ReviseAsync(
-                    version.BodyDocumentJson,
-                    "Rewrite as a standalone blog post.",
-                    "full",
-                    null,
-                    provider,
-                    ct);
-                var blogArtifact = await _repo.CreateArtifactAsync(
-                    new CreateGccArtifactCommand(createId, "blog", $"{artifact.Name} — Blog"), ct);
-                var blogVersion = await _repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(blogArtifact.Id, blogJson), ct);
-                created.Add(new { artifact = blogArtifact, version = blogVersion });
-            }
-
-            if (request?.TechArticle == true)
-            {
-                var techJson = await _gen.ReviseAsync(
-                    version.BodyDocumentJson,
-                    "Rewrite as a TechArticle with deeper technical sections.",
-                    "full",
-                    null,
-                    provider,
-                    ct);
-                var techArtifact = await _repo.CreateArtifactAsync(
-                    new CreateGccArtifactCommand(createId, "techArticle", $"{artifact.Name} — TechArticle"), ct);
-                var techVersion = await _repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(techArtifact.Id, techJson), ct);
-                created.Add(new { artifact = techArtifact, version = techVersion });
             }
 
             if (request?.ImagePrompts == true)
@@ -1233,11 +1156,8 @@ public class GccController : ControllerBase
         bool Async = false,
         IReadOnlyList<string>? OutputTypes = null,
         bool AcknowledgeStaleGrounding = false);
-    public sealed record ReviseRequest(string Feedback, string? Scope, string? SectionPath, string? Provider);
     public sealed record ApproveRequest(string? Notes);
     public sealed record MixRequest(
-        bool Blog,
-        bool TechArticle,
         int EmailCount,
         int LinkedInCount,
         int XCount,
@@ -1284,13 +1204,5 @@ public class GccController : ControllerBase
         int MetaAdsCount = 0,
         int GoogleAdsCount = 0,
         string? Provider = null);
-    public sealed record ProjectReviseRequest(
-        string? ContentType,
-        string Feedback,
-        string? Scope,
-        string? SectionPath,
-        string? ToolSlug,
-        string? Slug,
-        string? Provider);
     public sealed record ContentApprovalRequest(bool Approved = true);
 }

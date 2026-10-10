@@ -9,11 +9,10 @@ namespace GeekBackend.Tests.ContentCreator;
 /// The envelope a stored body is wrapped in.
 ///
 /// <para>
-/// Reported: POST versions/{id}/revise → 500 on a long-form draft. Deserializing the stored string
-/// straight into a ContentDocument does not fail on an envelope -- System.Text.Json does not enforce
-/// a record's non-nullable parameters, so it returns a document with a null Lede, the null check
-/// passes, and the next dereference throws. The export button went down the same way in September;
-/// Revise still had the bug.
+/// Deserializing the stored string straight into a ContentDocument does not fail on an envelope --
+/// System.Text.Json does not enforce a record's non-nullable parameters, so it returns a document with
+/// a null Lede, the null check passes, and the next dereference throws. The export button went down
+/// that way in September.
 /// </para>
 /// </summary>
 public class GccBodyEnvelopeTests
@@ -72,36 +71,5 @@ public class GccBodyEnvelopeTests
         Assert.Null(GccBodyEnvelope.Read("{ not json", Options).Document);
         Assert.Null(GccBodyEnvelope.Read(null, Options).Document);
         Assert.Null(GccBodyEnvelope.Read("   ", Options).Document);
-    }
-
-    [Fact]
-    public void Writing_puts_the_new_body_back_in_the_envelope_it_came_from()
-    {
-        // Revise stored the bare document, so a revised blog lost its title, meta description,
-        // summary and JSON-LD.
-        var parsed = GccBodyEnvelope.Read(Envelope("Before."), Options);
-        var revised = Document("After.");
-
-        var written = GccBodyEnvelope.Write(parsed, revised, Options);
-        var reread = GccBodyEnvelope.Read(written, Options);
-
-        Assert.Equal("Automated Accounts Payable", reread.Title);
-        Assert.Equal("Meta.", reread.MetaDescription);
-        Assert.Equal("Summary.", reread.Summary);
-        Assert.Equal("{\"@type\":\"BlogPosting\"}", reread.JsonLdSchema);
-        Assert.Equal("After.", ((TextParagraph)reread.Document!.Lede.Paragraphs[0]).Runs[0].Text);
-    }
-
-    [Fact]
-    public void A_body_that_had_no_envelope_is_written_back_without_one()
-    {
-        // Wrapping a bare document in an envelope of empty strings would invent a title that was
-        // never there, and nothing downstream could tell it from a real one.
-        var parsed = GccBodyEnvelope.Read(JsonSerializer.Serialize(Document("Bare."), Options), Options);
-
-        var written = GccBodyEnvelope.Write(parsed, Document("Revised."), Options);
-
-        Assert.DoesNotContain("\"title\"", written, StringComparison.Ordinal);
-        Assert.NotNull(GccBodyEnvelope.Read(written, Options).Document);
     }
 }

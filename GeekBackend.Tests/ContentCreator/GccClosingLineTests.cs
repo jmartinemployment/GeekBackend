@@ -10,7 +10,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// The line every page ends on is built by code (Jeff, 2026-10-07): "Answer these questions when booking
 /// your free consultation." with the booking words linked to the scheduler, then the questions he entered
 /// under "One question per line". The writer does not write it, so it cannot be wrong in the three ways the
-/// Bill tool page's was: the brief's internal "book_now" printed as the ask, the questions written three
+/// Bill tool page's was: the code of a call-to-action choice printed as the ask, the questions written three
 /// times (once as a self-quiz the quiz check refused), and the link's visible words being the anchor.
 /// </summary>
 public sealed class GccClosingLineTests
@@ -213,10 +213,10 @@ public sealed class GccClosingLineTests
         Assert.Equal(sections, GccClosing.AppendTo(sections, []));
     }
 
-    // ---- a revision carries it through unchanged ------------------------------------------------
+    // ---- the page without its closing, for a check that reads what the writer wrote ---------------
 
     [Fact]
-    public void A_stored_closing_is_taken_off_before_a_revision_and_put_back_where_it_was()
+    public void A_pages_closing_is_taken_off_whole_and_the_rest_is_left_as_written()
     {
         var closing = GccClosing.Paragraphs(Company(), Questions);
         var faq = Body("People Also Ask", "Is it secure? Yes.");
@@ -230,19 +230,10 @@ public sealed class GccClosingLineTests
         Assert.Equal(["A.", "B."], without.Take(2).Select(s => ((TextParagraph)s.Paragraphs[0]).Runs[0].Text));
         Assert.All(without.Take(2), s => Assert.Single(s.Paragraphs));
         Assert.Equal(faq, without[2]);
-
-        // The writer returns the same number of sections, revised.
-        var revised = new List<Section> { Body("One", "A, revised."), Body("Two", "B, revised."), faq };
-        var restored = GccClosing.Reattach(revised, at, taken);
-
-        Assert.Single(restored[0].Paragraphs);
-        Assert.Equal(1 + closing.Count, restored[1].Paragraphs.Count);
-        Assert.Equal(closing, restored[1].Paragraphs.Skip(1));
-        Assert.Equal(faq, restored[2]);
     }
 
     [Fact]
-    public void A_closing_with_no_questions_is_taken_off_and_put_back_too()
+    public void A_closing_with_no_questions_is_taken_off_too()
     {
         var closing = GccClosing.Paragraphs(Company(), []);
         var stored = GccClosing.AppendTo([Body("Only", "Text.")], closing);
@@ -252,11 +243,10 @@ public sealed class GccClosingLineTests
         Assert.Equal(0, at);
         Assert.Equal(closing, taken);
         Assert.Single(without[0].Paragraphs);
-        Assert.Equal(stored[0].Paragraphs, GccClosing.Reattach(without, at, taken)[0].Paragraphs);
     }
 
     [Fact]
-    public void A_body_with_no_closing_is_left_as_it_is_so_a_page_written_before_this_is_still_revisable()
+    public void A_body_with_no_closing_is_left_as_it_is()
     {
         var stored = new List<Section> { Body("One", "A."), Body("Two", "B.") };
 
@@ -265,17 +255,6 @@ public sealed class GccClosingLineTests
         Assert.Null(at);
         Assert.Empty(taken);
         Assert.Equal(stored, without);
-        Assert.Equal(stored, GccClosing.Reattach(without, at, taken));
-    }
-
-    [Fact]
-    public void A_revision_that_returns_fewer_sections_puts_the_closing_on_the_last_one()
-    {
-        var closing = GccClosing.Paragraphs(Company(), Questions);
-
-        var restored = GccClosing.Reattach([Body("Only", "Text.")], at: 4, closing);
-
-        Assert.Equal(1 + closing.Count, restored[0].Paragraphs.Count);
     }
 
     [Fact]

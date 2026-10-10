@@ -84,7 +84,7 @@ public class GccArtifact
 }
 
 /// <summary>
-/// A page's content. One per page, by unique index: a Generate or a Revise replaces it and deletes
+/// A page's content. One per page, by unique index: a Generate replaces it and deletes
 /// what was there, with that content's evidence and approvals (Jeff, 2026-10-06: no history).
 /// </summary>
 public class GccArtifactVersion

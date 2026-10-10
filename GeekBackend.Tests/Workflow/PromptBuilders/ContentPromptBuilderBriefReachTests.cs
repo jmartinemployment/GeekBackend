@@ -12,8 +12,8 @@ namespace GeekBackend.Tests.Workflow.PromptBuilders;
 ///
 /// <para>
 /// They did not reach the tool body. <c>BuildBriefBodyGuidance</c> is the one rendering of them —
-/// primary intent, buying stage, tone of voice, E-E-A-T signals, CTA, length band, writing notes —
-/// and eight prompts called it. <c>BuildToolBodyPrompt</c> was not one of them, so all seven were
+/// the audience, primary intent, buying stage, tone of voice, E-E-A-T signals and length band —
+/// and eight prompts called it. <c>BuildToolBodyPrompt</c> was not one of them, so all of them were
 /// collected by the UI, stored, and then simply not shown to the writer of the type Jeff calls the
 /// most important, while pillar and blog got every one.
 /// </para>
@@ -67,7 +67,6 @@ public class ContentPromptBuilderBriefReachTests
         ToneOfVoice = "consultant_professional",
         EeatSignals = ["experience", "expertise"],
         LengthBand = "long",
-        WritingNotes = "Avoid jargon in the first two paragraphs.",
     };
 
     private static string Rendered(ChatCompletionRequest request) =>
@@ -120,7 +119,6 @@ public class ContentPromptBuilderBriefReachTests
         Assert.Contains("Tone of voice: consultant_professional", prompt, StringComparison.Ordinal);
         Assert.Contains("E-E-A-T signals to demonstrate: experience, expertise", prompt, StringComparison.Ordinal);
         Assert.Contains("Length band: long", prompt, StringComparison.Ordinal);
-        Assert.Contains("Writing notes: Avoid jargon in the first two paragraphs.", prompt, StringComparison.Ordinal);
     }
 
     [Theory]

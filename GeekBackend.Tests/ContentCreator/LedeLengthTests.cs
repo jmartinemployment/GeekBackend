@@ -135,8 +135,7 @@ public class LedeLengthTests
         // -- which was the 2026-09-23 decision. Jeff: "While you are correct normally lede paragraphs
         // have no heading, in this codebase they do." The lede is the page's first H2: PillarPrompts
         // says "Its lede IS its first H2", GccGenerateService stores it as `lede with { Tag = "h2" }`,
-        // its outline slot is a SectionSlot.Cover the writer names, and the revise path reads
-        // document.Lede.Heading as the draft's Title.
+        // and its outline slot is a SectionSlot.Cover the writer names.
         //
         // The prompt had been contradicting itself for six days: this contract asked for no heading
         // while the pillar user block said "You write its heading." -- so whether a page shipped one

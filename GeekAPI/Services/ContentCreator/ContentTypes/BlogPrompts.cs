@@ -180,7 +180,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
         prompts.BuildStandaloneBlogBodyPrompt(
             ctx.Context,
             Meta(ctx),
-            revisionNotes: ctx.RevisionNotes,
+            revisionNotes: null,
             requireHeadingProvenance: true,
             evidenceBlock: ctx.EvidenceBlock,
             lede: ctx.Lede,

@@ -179,7 +179,6 @@ public partial class GccGenerateService
         if (string.IsNullOrWhiteSpace(Any(root, "audienceSegment", "audiencePrimary"))) missing.Add("audienceSegment");
         if (string.IsNullOrWhiteSpace(Any(root, "audienceNotes", "audienceDetail"))) missing.Add("audienceNotes");
         if (string.IsNullOrWhiteSpace(S(root, "angle"))) missing.Add("angle");
-        if (string.IsNullOrWhiteSpace(S(root, "ctaType"))) missing.Add("ctaType");
         // toneOfVoice/eeatSignals are new; only enforce when the brief has already
         // been migrated (legacy briefs carry a numeric toneOfVoice object, no eeatSignals).
         var isNewBrief = S(root, "toneOfVoice") is not null
@@ -262,12 +261,8 @@ public partial class GccGenerateService
             sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
         if (brief.EeatSignals is { Count: > 0 })
             sb.AppendLine($"E-E-A-T signals to demonstrate: {string.Join(", ", brief.EeatSignals)}.");
-        // No CTA line: the page's closing is built by GccClosing, and the brief's CtaType is an internal
-        // setting ("book_now") the writer took for a button label.
         if (!string.IsNullOrWhiteSpace(brief.LengthBand))
             sb.AppendLine($"Length band: {brief.LengthBand} — respect target length.");
-        if (!string.IsNullOrWhiteSpace(brief.WritingNotes))
-            sb.AppendLine($"Writing notes: {brief.WritingNotes}");
         return sb.ToString();
     }
 
@@ -397,7 +392,7 @@ public partial class GccGenerateService
         {
             // One labeled block per uploaded Keyword SERP file: title→URL + related searches only.
             // No PAA (always discarded from these uploads) and no Shape.Guidance (advisory —
-            // surfaced in the UI only; the operator adds it to writing notes themselves).
+            // surfaced in the UI only).
             foreach (var page in serpPages)
             {
                 sb.AppendLine($"=== KEYWORD SERP: {page.FileName} ===");
@@ -949,7 +944,7 @@ public partial class GccGenerateService
             var tool = await GenerateToolPageAsync(
                 toolName: string.IsNullOrWhiteSpace(toolName) ? create.Topic : toolName.Trim(),
                 brief: create.Notes,
-                sourceContext: $"{toolSourceBrief}\n\n{BuildAudience(create, section, includeCallToAction: false)}",
+                sourceContext: $"{toolSourceBrief}\n\n{BuildAudience(create, section)}",
                 department: string.IsNullOrWhiteSpace(create.Department) ? "marketing" : create.Department,
                 relatedArticleUrl: null,
                 provider: provider,
@@ -961,7 +956,7 @@ public partial class GccGenerateService
             {
                 // "Ramp: Automated Approval Workflows": a tool is written within the keyword and the
                 // problem it solves, so its title says both (Jeff, 2026-10-07). The product stays in its
-                // own field, which Revise and the export's slug read, so the URL stays /tools/.../ramp.
+                // own field, which the export's slug reads, so the URL stays /tools/.../ramp.
                 title = ToolPageTitle(tool.Name, create.Topic),
                 productName = tool.Name,
                 metaDescription = tool.Metadata.MetaDescription,
@@ -975,7 +970,7 @@ public partial class GccGenerateService
         // Content Creator long-form: CWV2 standalone blog body + persisted brief/research.
         var llm = GetLlm(provider);
         var consultantAppendix = BuildConsultantAppendix(create);
-        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section, includeCallToAction: false)}";
+        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
         var brief = ExtractBriefFields(create.BriefJson);
@@ -993,10 +988,7 @@ public partial class GccGenerateService
             brief.BuyingStage,
             brief.ToneOfVoice,
             brief.EeatSignals,
-            brief.CtaType,
-            brief.CtaLabel,
-            brief.LengthBand,
-            brief.WritingNotes);
+            brief.LengthBand);
         // The outline is planned for this post, not taken from a constant. The three headings that
         // used to sit here -- "Overview", "Key considerations", "Next steps" -- shipped on every
         // blog this path produced, and a section called "Key considerations" has nothing in
@@ -1027,299 +1019,6 @@ public partial class GccGenerateService
         var blogDocument = new ContentDocument(standaloneLede with { Tag = "h2" }, sections);
         blogDocument = ContentGuardrail.Apply(blogDocument).Document;
         return JsonSerializer.Serialize(blogDocument, CwDocumentJson);
-    }
-
-    /// <summary>
-    /// Legacy GCC artifact revise. Prefer project revise via CWV2 orchestrator.
-    /// Uses CWV2 section JSON + revision notes — not CWV3 ReviseStructuredDraftAsync.
-    /// </summary>
-    /// <summary>
-    /// A new version of a draft, revised against feedback.
-    ///
-    /// <para>
-    /// Three things were wrong here and all three shortened the piece on every press, which is what
-    /// made "Fix these and revise" reliably make a draft worse (Jeff, 2026-09-28: clicked it three
-    /// times, lost word count each time).
-    /// </para>
-    ///
-    /// <list type="number">
-    /// <item>It wrote every type with the standalone blog prompt. Blog targets 2,000-2,700 words;
-    /// pillar and tool target 3,500-5,000. A tool page revised once was handed a target a third
-    /// smaller than the draft it was revising.</item>
-    /// <item>It promoted the first returned section into the lede and dropped it from the body, so
-    /// the body lost a section per press -- the pattern every generation path stopped using on
-    /// 2026-09-23, kept here because revise has no lede call of its own. The document already has a
-    /// lede; it is now kept, and passed to the body prompt for continuity.</item>
-    /// <item>It still regenerates rather than edits -- the current draft reaches the model as
-    /// flattened prose, so each pass is a rewrite from a summary. That is a larger change and is
-    /// not fixed here.</item>
-    /// </list>
-    ///
-    /// <para>
-    /// <b>It writes in the same two-section calls the page was written in</b> (2026-10-10). It asked
-    /// one call for the whole body, and a body call writes about 650 words whatever it is asked
-    /// (<see cref="MeasuredWordsPerBodyCall"/>): a 2,300-word page came back at a quarter of itself
-    /// and was refused by the check below, every time, and a 3,500-word page would be refused more
-    /// surely still. Each call is shown the whole page as it stands, so it can see what comes before
-    /// and after, is assigned two of its sections and returns those two. A revision of one section
-    /// is one call, and every other section is the stored one, untouched.
-    /// </para>
-    /// </summary>
-    public async Task<string> ReviseAsync(
-        string currentJson,
-        string feedback,
-        string scope,
-        string? sectionPath,
-        ContentGeneratorProvider provider,
-        CancellationToken ct,
-        string? contentType = null)
-    {
-        var fb = feedback.Trim();
-        var oneSection = string.Equals(scope, "section", StringComparison.OrdinalIgnoreCase);
-        if (oneSection && string.IsNullOrWhiteSpace(sectionPath))
-            throw new InvalidOperationException("sectionPath is required when scope is section.");
-
-        // The stored body is an envelope for every long-form type -- { title, metaDescription,
-        // summary, body, jsonLdSchema } -- and deserializing that straight into a ContentDocument
-        // returns a shell with a null Lede rather than null, so the `?? throw` here never fired and
-        // the next line dereferenced it. That NullReferenceException is the 500 Revise returned on
-        // every long-form draft.
-        var envelope = GccBodyEnvelope.Read(currentJson, CwDocumentJson);
-        var stored = envelope.Document
-            ?? throw new InvalidOperationException(
-                "This draft cannot be revised: its stored body is not a content document.");
-
-        // The closing is the page's, not the writer's (GccClosing): it is taken off before the writer sees
-        // the draft, so it is neither rewritten nor shown as prose to revise, and put back unchanged after.
-        var (withoutClosing, closingAt, closing) = GccClosing.Detach(stored.Sections, _company.ConsultationAnchorHref);
-        var document = stored with { Sections = withoutClosing };
-
-        // The draft used to be flattened into `notes`, which BuildMinimalContext puts in
-        // CrawledParagraphs -- rendered by the research brief under "Representative site copy:". So
-        // the model was handed the previous draft labelled as background from the publisher's
-        // website, with nothing saying it was the thing being revised. It rewrote, correctly, from
-        // what it had been told it was looking at. The draft now arrives as the draft.
-        // Which sections this revision rewrites, as the calls that will write them: the whole body two
-        // sections to a call, or the one section the operator named, alone.
-        IReadOnlyList<IReadOnlyList<int>> calls = oneSection
-            ? [[SectionHolding(document, sectionPath!)]]
-            : [.. Enumerable.Range(0, document.Sections.Count)
-                .Chunk(SectionsPerBatch)
-                .Select(chunk => (IReadOnlyList<int>)chunk)];
-        if (calls.Count == 0)
-        {
-            throw new InvalidOperationException("Refused: this draft has no body sections, so there is nothing to revise.");
-        }
-
-        foreach (var index in calls.SelectMany(call => call))
-        {
-            if (!string.IsNullOrWhiteSpace(document.Sections[index].Heading)) continue;
-            throw new InvalidOperationException(
-                $"Refused: section {index + 1} of this page has no heading, so it cannot be assigned to a "
-                + "revision call by name. Nothing was revised.");
-        }
-
-        var llm = GetLlm(provider);
-        var context = BuildMinimalContext(document.Lede.Heading, notes: null, ToLlm(provider));
-        var pageAsItStands = CurrentDraftBlock(document);
-        var metadata = new ArticleMetadataDraft(
-            Title: document.Lede.Heading,
-            MetaDescription: Truncate(document.Lede.Heading, 160),
-            Keywords: [document.Lede.Heading],
-            SectionOutline: document.Sections.Select(s => s.Heading).Where(h => !string.IsNullOrWhiteSpace(h)).ToList());
-
-        // The type's own prompt set, so a pillar is revised as a pillar. Falls back to the blog
-        // prompt only for a type with no set registered, which is what every type used to get.
-        var typeSet = _types.Find(contentType);
-        // Both metadata shapes: Blog's prompts take BlogMetadataDraft and refuse the article shape,
-        // which is a real per-type difference rather than something to convert away. Supplying only
-        // one means revising that type throws instead of revising.
-        // The product, for a tool page. ToolPrompts.Body throws without App ("A tool page needs the
-        // product it is about"), and this built the context with neither App nor ToolSlug, so every
-        // Revise press on a tool artifact answered 400. The envelope's title is the product name --
-        // GenerateToolPageAsync writes `title = tool.Name` -- and the slug is derived the way the
-        // generate path derives it.
-        var isTool = string.Equals(typeSet?.Key, "tool", StringComparison.OrdinalIgnoreCase);
-        var productName = isTool
-            ? (envelope.ProductName is { Length: > 0 } product ? product
-                : envelope.Title is { Length: > 0 } t ? t : document.Lede.Heading)
-            : null;
-        var promptCtx = new ContentTypes.ContentTypePromptContext(
-            context,
-            Metadata: metadata,
-            BlogMetadata: new BlogMetadataDraft(
-                metadata.Title, metadata.MetaDescription, metadata.Keywords, metadata.SectionOutline),
-            Lede: document.Lede,
-            App: productName is null ? null : new SoftwareApplicationDescriptor(productName, null),
-            ToolSlug: productName is null ? null : Slugify(productName));
-        var blogMetadata = new BlogMetadataDraft(
-            metadata.Title, metadata.MetaDescription, metadata.Keywords, metadata.SectionOutline);
-        var revisedSections = document.Sections.ToList();
-        for (var call = 0; call < calls.Count; call++)
-        {
-            var indices = calls[call];
-            var mine = indices.Select(i => document.Sections[i]).ToList();
-            var slots = mine.Select(section => SectionSlot.Assigned(section.Heading.Trim())).ToList();
-            var notes = string.Join(
-                Environment.NewLine + Environment.NewLine,
-                pageAsItStands,
-                YourSectionsBlock(mine, oneSection ? sectionPath!.Trim() : null),
-                fb);
-            var callCtx = promptCtx with { RevisionNotes = notes, SectionBatch = slots, SectionBatchIndex = call };
-            var request = typeSet is not null
-                ? typeSet.Body(callCtx)
-                : _prompts.BuildStandaloneBlogBodyPrompt(
-                    context, blogMetadata, revisionNotes: notes, lede: document.Lede, sectionBatch: slots, batchIndex: call);
-
-            var named = string.Join(", ", mine.Select(section => $"\"{section.Heading.Trim()}\""));
-            var bodyResult = await llm.CompleteAsync(request, ct);
-            var returned = LlmResponseJsonParser.ParseSections(bodyResult.Content, $"revised sections {named}");
-            // Exactly what was assigned comes back. One section missing is a section of the page gone; one
-            // extra is text nobody assigned, placed where another section belongs.
-            if (returned.Count != mine.Count)
-            {
-                throw new InvalidOperationException(
-                    $"Refused: the revision of {named} came back as {returned.Count} section(s) where "
-                    + $"{mine.Count} were sent. The current version is unchanged.");
-            }
-
-            for (var k = 0; k < indices.Count; k++)
-            {
-                revisedSections[indices[k]] = returned[k];
-            }
-        }
-
-        // Every revised section is body, in the place its original held. The lede is the one the piece was
-        // written with, and a section no call was assigned is the stored one.
-        var revised = new ContentDocument(document.Lede, revisedSections);
-
-        // A revision that comes back a quarter shorter has not revised the draft, it has replaced
-        // it with a summary -- which is what three presses of "Fix these and revise" did, each one
-        // storing the loss. Refused rather than repaired: the page's text is left as it was, and a
-        // draft the model shortened cannot be lengthened back by this code without inventing the
-        // missing words.
-        var beforeWords = ContentDocumentText.CountWords(document);
-        var afterWords = ContentDocumentText.CountWords(revised);
-        if (beforeWords > 0 && afterWords < beforeWords * 0.75)
-        {
-            throw new InvalidOperationException(
-                $"Refused: the revision came back at {afterWords:N0} words from {beforeWords:N0} -- "
-                + "it rewrote the piece rather than revising it. The current version is unchanged. "
-                + "Narrow the feedback to the sections that need work and try again.");
-        }
-        revised = ContentGuardrail.Apply(revised).Document;
-        revised = revised with { Sections = GccClosing.Reattach(revised.Sections, closingAt, closing) };
-        // Back into the envelope it came from. Revise used to store the bare document, so a revised
-        // blog lost its title, meta description, summary and JSON-LD -- the envelope was not only
-        // unread, it was dropped.
-        return GccBodyEnvelope.Write(envelope, revised, CwDocumentJson);
-    }
-
-    /// <summary>
-    /// The draft being revised, as the draft being revised.
-    ///
-    /// <para>
-    /// Revise regenerates rather than edits -- the type's body prompt returns a fresh sections
-    /// array -- so the only way to keep what the feedback did not ask to change is to put it in
-    /// front of the model and say so. Headings and prose, in order, with the instruction that
-    /// everything not named by the feedback comes back as it was.
-    /// </para>
-    /// </summary>
-    private static string CurrentDraftBlock(ContentDocument document)
-    {
-        var sb = new StringBuilder()
-            .AppendLine("=== THE DRAFT YOU ARE REVISING ===")
-            .AppendLine(
-                "This is the current piece, in full, so you can see what comes before and after the "
-                + "sections you are revising. Do not return it. Return only the sections listed under "
-                + "YOUR SECTIONS, revised -- not rewritten: each comes back with its substance intact, "
-                + "unless the feedback asks for it to change. Keep the examples, the figures, the "
-                + "named products and the length. A revision that returns less than it was given "
-                + "has lost the reader something nobody asked to remove.")
-            .AppendLine();
-
-        foreach (var section in document.Sections)
-        {
-            AppendDraftSection(sb, section, depth: 0);
-        }
-
-        return sb.ToString().TrimEnd();
-    }
-
-    /// <summary>
-    /// The sections one revision call is assigned, by heading, in the order they come back. For a revision
-    /// of one section it also says which part of that section the operator named, when it is a subsection.
-    /// </summary>
-    private static string YourSectionsBlock(IReadOnlyList<Section> mine, string? named)
-    {
-        var sb = new StringBuilder()
-            .AppendLine("=== YOUR SECTIONS (return exactly these, in this order, and nothing else) ===");
-        foreach (var section in mine)
-        {
-            sb.AppendLine($"[H2] {section.Heading.Trim()}");
-        }
-
-        if (named is not null
-            && !string.Equals(mine[0].Heading.Trim(), named, StringComparison.OrdinalIgnoreCase))
-        {
-            sb.AppendLine(
-                $"Revise ONLY the part headed \"{named}\" within it. Return the whole section, with "
-                + "everything else in it exactly as it stands.");
-        }
-
-        return sb.ToString().TrimEnd();
-    }
-
-    /// <summary>
-    /// The top-level section that carries the heading the operator named, at any depth: the section itself
-    /// or one of its subsections. Compared without regard to case or surrounding space, and by nothing looser.
-    /// </summary>
-    /// <remarks>
-    /// The name is typed by the operator. It used to be passed to the writer inside "Revise ONLY the section
-    /// at path ..." with the whole body, and whether anything matched was the model's guess. A name that is
-    /// no heading on the page is refused, naming the headings there are.
-    /// </remarks>
-    private static int SectionHolding(ContentDocument document, string sectionPath)
-    {
-        var wanted = sectionPath.Trim();
-        for (var i = 0; i < document.Sections.Count; i++)
-        {
-            if (CarriesHeading(document.Sections[i], wanted)) return i;
-        }
-
-        var headings = string.Join("; ", document.Sections
-            .Select(section => section.Heading?.Trim())
-            .Where(heading => !string.IsNullOrWhiteSpace(heading))
-            .Select(heading => $"\"{heading}\""));
-        throw new InvalidOperationException(
-            $"Refused: no section of this page is headed \"{wanted}\", so nothing was revised. "
-            + $"Its sections are: {headings}. Enter one of them as it is written.");
-    }
-
-    private static bool CarriesHeading(Section section, string wanted) =>
-        string.Equals(section.Heading?.Trim(), wanted, StringComparison.OrdinalIgnoreCase)
-        || section.Children.Any(child => CarriesHeading(child, wanted));
-
-    private static void AppendDraftSection(StringBuilder sb, Section section, int depth)
-    {
-        var indent = new string(' ', depth * 2);
-        // Not "## heading": Markdown is banned end to end here, and a prompt that shows the model
-        // Markdown is a prompt that gets Markdown back.
-        if (!string.IsNullOrWhiteSpace(section.Heading))
-        {
-            sb.AppendLine($"{indent}[{(depth == 0 ? "H2" : "H" + (depth + 2))}] {section.Heading}");
-        }
-
-        foreach (var text in ContentDocumentText.ParagraphTexts(section))
-        {
-            if (!string.IsNullOrWhiteSpace(text)) sb.AppendLine($"{indent}{text}");
-        }
-
-        sb.AppendLine();
-        foreach (var child in section.Children)
-        {
-            AppendDraftSection(sb, child, depth + 1);
-        }
     }
 
     public async Task<string> GenerateImagePromptJsonAsync(
@@ -1589,10 +1288,7 @@ public partial class GccGenerateService
             toolBrief.BuyingStage,
             toolBrief.ToneOfVoice,
             toolBrief.EeatSignals,
-            toolBrief.CtaType,
-            toolBrief.CtaLabel,
-            toolBrief.LengthBand,
-            toolBrief.WritingNotes);
+            toolBrief.LengthBand);
 
         // Equal to Pillar's outline in count and per-section depth (Jeff, 2026-09-22: Tool must be
         // equal in word count to Pillar if not longer). It is read from ToolPrompts rather than
@@ -2133,10 +1829,7 @@ public partial class GccGenerateService
         string? buyingStage = null,
         string? toneOfVoice = null,
         IReadOnlyList<string>? eeatSignals = null,
-        string? ctaType = null,
-        string? ctaLabel = null,
         string? lengthBand = null,
-        string? writingNotes = null,
         GccPublisherProfileResolver.PublisherProfile? publisherProfile = null,
         IReadOnlyList<KnownCrawlTool>? knownTools = null)
     {
@@ -2198,15 +1891,12 @@ public partial class GccGenerateService
             BuyingStage: buyingStage,
             ToneOfVoice: toneOfVoice,
             EeatSignals: eeatSignals,
-            CtaType: ctaType,
-            CtaLabel: ctaLabel,
             LengthBand: lengthBand,
-            WritingNotes: writingNotes,
             // Empty on every Create-path generate until 2026-09-27, which is why
             // AppendKnownToolsBrief never rendered and no draft ever linked a tool.
             KnownCrawlTools: knownTools,
             // Every Content Creator page ends on the line GccClosing builds, so the writer is not asked
-            // for a closing and is given neither the CTA setting nor the operator's questions.
+            // for a closing and is not given the operator's questions.
             PageBuildsClosing: true);
     }
 
@@ -2418,17 +2108,7 @@ public partial class GccGenerateService
                         if (!list.Contains(s)) list.Add(s);
                 if (list.Count > 0) eeatSignals = list;
             }
-            var ctaType = S("ctaType");
-            if (ctaType is not null && !new[] { "sign_up", "contact_us", "book_now", "download", "learn_more", "apply_now", "get_quote" }.Contains(ctaType))
-            {
-                var legacyCta = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                { ["start_trial"] = "sign_up", ["subscribe"] = "sign_up", ["book_demo"] = "book_now", ["read_related"] = "learn_more", ["contact_quote"] = "get_quote", ["buy"] = "get_quote" };
-                if (!legacyCta.TryGetValue(ctaType, out var mapped)) ctaType = null;
-                else ctaType = mapped;
-            }
-            var ctaLabel = S("ctaLabel");
             var lengthBand = S("lengthBand");
-            var writingNotes = S("writingNotes");
             IReadOnlyList<string>? paaQuestions = ParseQuestionList(root, "paaQuestions");
             IReadOnlyList<string>? blogFaqQuestions = ParseQuestionList(root, "blogFaqQuestions");
             var segNotes = notes;
@@ -2443,10 +2123,7 @@ public partial class GccGenerateService
                 BuyingStage = string.IsNullOrWhiteSpace(buyingStage) ? null : buyingStage,
                 ToneOfVoice = string.IsNullOrWhiteSpace(toneOfVoice) ? null : toneOfVoice,
                 EeatSignals = eeatSignals,
-                CtaType = string.IsNullOrWhiteSpace(ctaType) ? null : ctaType,
-                CtaLabel = string.IsNullOrWhiteSpace(ctaLabel) ? null : ctaLabel.Trim(),
                 LengthBand = string.IsNullOrWhiteSpace(lengthBand) ? null : lengthBand.Trim(),
-                WritingNotes = string.IsNullOrWhiteSpace(writingNotes) ? null : writingNotes.Trim(),
                 PaaQuestions = paaQuestions,
                 BlogFaqQuestions = blogFaqQuestions,
             };
@@ -2468,10 +2145,7 @@ public partial class GccGenerateService
         public string? BuyingStage { get; init; }
         public string? ToneOfVoice { get; init; }
         public IReadOnlyList<string>? EeatSignals { get; init; }
-        public string? CtaType { get; init; }
-        public string? CtaLabel { get; init; }
         public string? LengthBand { get; init; }
-        public string? WritingNotes { get; init; }
         public IReadOnlyList<string>? PaaQuestions { get; init; }
         /// <summary>The blog's FAQ questions, written by the operator (2026-10-08): answered at the end
         /// of the blog from the brief and the evidence, the way the pillar's People Also Ask is.</summary>
@@ -2532,12 +2206,7 @@ public partial class GccGenerateService
     public static GcwPolishAnalyzer.PolishReport AnalyzePolish(string bodyJson) =>
         GcwPolishAnalyzer.Analyze(bodyJson, Array.Empty<string>());
 
-    /// <param name="includeCallToAction">
-    /// Whether the brief's CTA setting is printed. A short-form piece (email, social) is written to ask for
-    /// it. A long-form page is not: it ends on the line <see cref="GccClosing"/> builds, and this setting
-    /// ("book_now") is an internal code the writer took for a button label and linked a vendor's homepage.
-    /// </param>
-    private static string BuildAudience(GccCreateDto create, SiteSectionContextDto? section, bool includeCallToAction)
+    private static string BuildAudience(GccCreateDto create, SiteSectionContextDto? section)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"Starting content type: {create.StartingContentType}");
@@ -2564,9 +2233,6 @@ public partial class GccGenerateService
             sb.AppendLine($"Audience notes: {brief.Notes}");
         if (!string.IsNullOrWhiteSpace(brief.ToneOfVoice))
             sb.AppendLine($"Tone of voice: {brief.ToneOfVoice} — hold this voice throughout.");
-        if (includeCallToAction && !string.IsNullOrWhiteSpace(brief.CtaType))
-            sb.AppendLine($"Call to action: {brief.CtaType}"
-                + (string.IsNullOrWhiteSpace(brief.CtaLabel) ? "" : $" — worded as \"{brief.CtaLabel}\""));
         if (!string.IsNullOrWhiteSpace(create.Notes))
             sb.AppendLine($"Operator notes: {create.Notes}");
         if (section is not null)
@@ -2601,6 +2267,14 @@ public partial class GccGenerateService
         return list;
     }
 
+    /// <summary>
+    /// The operator's framing of the problem for the email and the social post, or null when the brief
+    /// carries none. The pillar, the blog and the tool page argue it; these two were given none of it
+    /// until 2026-10-10.
+    /// </summary>
+    private static string? ShortFormFraming(GccCreateDto create) =>
+        GccNicheFramingReader.ForCategory(create.BriefJson)?.ShortFormGuidance();
+
     // Copied from content-writer-v2 with Site Analyzer grounding integrated
     public async Task<string> GenerateEmailAsync(
         GccCreateDto create,
@@ -2611,7 +2285,7 @@ public partial class GccGenerateService
     {
         var llm = GetLlm(provider);
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var groundingBlock = BuildAudience(create, section, includeCallToAction: true);
+        var groundingBlock = BuildAudience(create, section);
 
         var system = new StringBuilder()
             .AppendLine("You write cold outreach / sales emails for an IT consulting firm that specializes in AI implementation.")
@@ -2626,6 +2300,8 @@ public partial class GccGenerateService
             .AppendLine(briefBlock)
             .AppendLine()
             .AppendLine(groundingBlock);
+        if (ShortFormFraming(create) is { } framing)
+            user.AppendLine().AppendLine(framing);
         if (!string.IsNullOrWhiteSpace(mustMentionBlock))
             user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
 
@@ -2663,7 +2339,7 @@ public partial class GccGenerateService
     {
         var llm = GetLlm(provider);
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var groundingBlock = BuildAudience(create, section, includeCallToAction: true);
+        var groundingBlock = BuildAudience(create, section);
 
         var (styleGuidance, lengthGuidance, maxTokens) = platform switch
         {
@@ -2691,6 +2367,8 @@ public partial class GccGenerateService
             .AppendLine(briefBlock)
             .AppendLine()
             .AppendLine(groundingBlock);
+        if (ShortFormFraming(create) is { } framing)
+            user.AppendLine().AppendLine(framing);
         if (!string.IsNullOrWhiteSpace(mustMentionBlock))
             user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
 
@@ -2723,7 +2401,7 @@ public partial class GccGenerateService
         ContentGeneratorProvider provider)
     {
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
-        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section, includeCallToAction: false)}";
+        var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section)}";
         var consultantAppendix = BuildConsultantAppendix(create);
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
@@ -2745,10 +2423,7 @@ public partial class GccGenerateService
             brief.BuyingStage,
             brief.ToneOfVoice,
             brief.EeatSignals,
-            brief.CtaType,
-            brief.CtaLabel,
             brief.LengthBand,
-            brief.WritingNotes,
             publisherProfile,
             knownTools);
     }
@@ -3879,10 +3554,7 @@ public partial class GccGenerateService
         AddIfPresent("buyingStage", brief.BuyingStage);
         AddIfPresent("toneOfVoice", brief.ToneOfVoice);
         AddIfAny("eeatSignals", brief.EeatSignals);
-        AddIfPresent("ctaType", brief.CtaType);
-        AddIfPresent("ctaLabel", brief.CtaLabel);
         AddIfPresent("lengthBand", brief.LengthBand);
-        AddIfPresent("writingNotes", brief.WritingNotes);
 
         var paaQuestions = new HashSet<string>(
             (brief.PaaQuestions ?? []).Select(q => q.Trim()), StringComparer.OrdinalIgnoreCase);

@@ -1222,10 +1222,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
             BuyingStage: brief.BuyingStage,
             ToneOfVoice: brief.ToneOfVoice,
             EeatSignals: brief.EeatSignals,
-            CtaType: brief.CtaType,
-            CtaLabel: brief.CtaLabel,
             LengthBand: brief.LengthBand,
-            WritingNotes: brief.WritingNotes,
             HierarchyAssignment: project.HierarchyAssignment,
             SiteAreaServed: siteAreaServed,
             SitePublisherType: sitePublisherType);
@@ -1306,8 +1303,7 @@ public class ContentGenerationOrchestrator : IContentGenerationOrchestrator
         && context.MatchedUseCase is null
         && string.IsNullOrWhiteSpace(context.AudienceSegment)
         && string.IsNullOrWhiteSpace(context.ContentAngle)
-        && string.IsNullOrWhiteSpace(context.PrimaryIntent)
-        && string.IsNullOrWhiteSpace(context.WritingNotes);
+        && string.IsNullOrWhiteSpace(context.PrimaryIntent);
 
     private static string BuildNoResearchWarning(string targetKeyword) =>
         $"Generated from the keyword \"{targetKeyword}\" alone — no crawled site content, uploaded keyword sources, matched Home-page Use Case, or Content Brief were available.";
@@ -1878,7 +1874,7 @@ public class CompanyProfileOptions
 
     /// <summary>
     /// What that scheduler is called, taken from its own heading rather than left to the model to
-    /// invent. Used as the ask only when the brief names no ctaType of its own.
+    /// invent. The ask a closing written by the model makes.
     /// </summary>
     public string ConsultationCtaLabel { get; set; } = "Schedule a Free Consultation";
 

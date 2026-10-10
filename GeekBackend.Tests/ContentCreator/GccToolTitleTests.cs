@@ -15,8 +15,8 @@ namespace GeekBackend.Tests.ContentCreator;
 /// <summary>
 /// A tool page's title is "{Tool name}: {keyword}" -- "Ramp: Automated Approval Workflows" (Jeff, 2026-10-07:
 /// a tool is written within the keyword and the problem it solves, and otherwise he would edit every title by
-/// hand). The product stays in its own field, because the page's URL and Revise both need the product, not
-/// the title: the URL stays /tools/.../ramp.
+/// hand). The product stays in its own field, because the page's URL needs the product, not the title: the
+/// URL stays /tools/.../ramp.
 /// </summary>
 public sealed class GccToolTitleTests
 {
@@ -38,30 +38,21 @@ public sealed class GccToolTitleTests
     // ---- the envelope ---------------------------------------------------------------------------
 
     [Fact]
-    public void The_product_name_is_read_and_written_back_with_the_page()
+    public void The_product_name_is_read_with_the_page()
     {
         var parsed = GccBodyEnvelope.Read(Envelope("Ramp: Automated Approval Workflows", "Ramp"), Web);
 
         Assert.Equal("Ramp: Automated Approval Workflows", parsed.Title);
         Assert.Equal("Ramp", parsed.ProductName);
-
-        var written = GccBodyEnvelope.Write(parsed, parsed.Document!, Web);
-        using var doc = JsonDocument.Parse(written);
-        Assert.Equal("Ramp: Automated Approval Workflows", doc.RootElement.GetProperty("title").GetString());
-        Assert.Equal("Ramp", doc.RootElement.GetProperty("productName").GetString());
     }
 
     [Fact]
-    public void A_page_written_before_the_field_has_no_product_name_and_is_not_given_one()
+    public void A_page_written_before_the_field_has_no_product_name()
     {
         var parsed = GccBodyEnvelope.Read(Envelope("Ramp", productName: null), Web);
 
         Assert.Equal("Ramp", parsed.Title);
         Assert.Null(parsed.ProductName);
-
-        var written = GccBodyEnvelope.Write(parsed, parsed.Document!, Web);
-        using var doc = JsonDocument.Parse(written);
-        Assert.False(doc.RootElement.TryGetProperty("productName", out _));
     }
 
     // ---- the export -----------------------------------------------------------------------------

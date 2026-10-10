@@ -13,7 +13,7 @@ namespace GeekAPI.Services.ContentCreator;
 /// these questions when booking your free consultation", then the questions from the brief's "One question
 /// per line", linked to <c>#consultationAppointment2xl</c>). The wording is fixed, so there was nothing for
 /// the writer to decide, and it kept deciding it wrongly: on the Bill tool page it was told to end by
-/// "asking for book_now" (the brief form's internal code, printed), wrote the questions three times (once as
+/// "asking for book_now" (the code of a call-to-action choice the brief carried until 2026-10-10, printed), wrote the questions three times (once as
 /// a self-quiz the quiz check refused), and linked the words "#consultationAppointment2xl" instead of
 /// words. The questions no longer reach the model at all, so they cannot be turned into a quiz.
 /// </para>
@@ -90,10 +90,10 @@ internal static class GccClosing
     }
 
     /// <summary>
-    /// Takes the closing off a stored body so a revision can be written without it: the paragraphs from the
-    /// last one that links <paramref name="anchorHref"/> to the end of the section they end, where that is
-    /// the line and at most one list after it. The closing is the page's, not the writer's, so a revision
-    /// must neither show it to the writer to be rewritten nor lose it.
+    /// A page's sections without its closing: the paragraphs from the last one that links
+    /// <paramref name="anchorHref"/> to the end of the section they end, where that is the line and at most
+    /// one list after it. The closing is the page's and the operator's words, not the writer's, so a check
+    /// of what the writer wrote reads the page without it.
     /// </summary>
     /// <returns>
     /// The sections without it, where it was (the index of the top-level section that ended with it) and what
@@ -149,19 +149,4 @@ internal static class GccClosing
     private static bool LinksAnchor(Run run, string anchor) =>
         !string.IsNullOrWhiteSpace(run.Href)
         && string.Equals(run.Href.Trim(), anchor, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Puts a detached closing back at the end of the section at <paramref name="at"/> (the last section
-    /// when the revision returned fewer than it had).
-    /// </summary>
-    internal static List<Section> Reattach(
-        IReadOnlyList<Section> sections, int? at, IReadOnlyList<Paragraph> closing)
-    {
-        var result = new List<Section>(sections);
-        if (at is null || closing.Count == 0 || result.Count == 0) return result;
-
-        var index = Math.Min(at.Value, result.Count - 1);
-        result[index] = WithClosingAtEnd(result[index], closing);
-        return result;
-    }
 }

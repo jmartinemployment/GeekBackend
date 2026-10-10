@@ -8,11 +8,9 @@ namespace GeekAPI.Services.ContentCreator;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Shared because there are two paths that create a version — the generate path through
-/// <c>GccGenerationCoordinator.PersistOneAsync</c>, and revise through <c>GccController</c> — and the
-/// second one shipped without the stamp. The label it feeds exists to tell two drafts apart, so a
-/// revise that drops it removes the feature for the rest of that create's life: the workspace shows
-/// the highest version number, and that is the one with no provenance.
+/// In one place because a second path that created a version once shipped without the stamp, and the
+/// label it feeds exists to tell two drafts apart. That path was removed on 2026-10-10; the generate
+/// path (<c>GccGenerationCoordinator</c>) is the one caller.
 /// </para>
 /// <para>
 /// In the version's <c>MetadataJson</c> rather than a column: <c>gcc_artifacts</c> lives in
