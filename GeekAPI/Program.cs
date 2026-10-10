@@ -8,7 +8,6 @@ using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
-using GeekAPI.Services.ContentWriterV3;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Hosting;
 using GeekAPI.Services.Workflow.Infrastructure;
@@ -269,16 +268,6 @@ builder.Services.AddHttpClient<GeekAPI.Services.Gcw.HttpImageGeneratorClient>(cl
     // /api/generate spends money with paid providers, so it authenticates every caller. The
     // handler attaches a client-credentials token, keeping HttpImageGeneratorClient unaware of it.
     .AddHttpMessageHandler<GeekAPI.Services.Auth.GeekOAuthTokenHandler>();
-
-// Content Writer V3: Services
-// Provider-selectable generation: keyed registrations resolved via IContentGeneratorFactory.
-// OpenAi reuses Workflow's already-bound LlmProvidersOptions (registered by AddWorkflow below).
-builder.Services.AddKeyedScoped<IContentGenerator, ClaudeContentGenerator>(ContentGeneratorProvider.Anthropic);
-builder.Services.AddKeyedScoped<IContentGenerator, OpenAiContentGenerator>(ContentGeneratorProvider.OpenAi);
-builder.Services.AddScoped<IContentGeneratorFactory, ContentGeneratorFactory>();
-builder.Services.AddScoped<IAnalyticsAdapter, GoogleAnalyticsAdapter>();
-builder.Services.AddScoped<IPublishAdapter, WordPressPublishAdapter>();
-builder.Services.AddScoped<INotificationService, NotificationService>();
 
 builder.Services.AddScoped<DepartmentContentService>();
 
