@@ -81,11 +81,4 @@ public class GccV2SiteSectionTests
         Assert.Single(section.RelatedPages);
         Assert.NotNull(section.InformationGain);
     }
-
-    [Theory]
-    [InlineData("https://example.com/tools/foo", true)]
-    [InlineData("/tools/foo", true)]
-    [InlineData("https://example.com/blog/post", false)]
-    public void HrefLooksLikeOnSiteToolPage_detects_tools_path(string href, bool expected) =>
-        Assert.Equal(expected, GccV2SiteSection.HrefLooksLikeOnSiteToolPage(href));
 }

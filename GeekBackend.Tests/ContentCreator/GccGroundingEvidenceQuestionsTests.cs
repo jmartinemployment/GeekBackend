@@ -137,9 +137,6 @@ public class GccGroundingEvidenceQuestionsTests
         public Task<JsonElement?> RunDiagnosticAsync(
             string endpoint, object? payload = null, CancellationToken ct = default) =>
             Task.FromResult<JsonElement?>(null);
-
-        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
-            Task.FromResult(new GeekCrawlerRagCapabilities());
     }
 
     private sealed class NoPages : IGccCrawlPageReader

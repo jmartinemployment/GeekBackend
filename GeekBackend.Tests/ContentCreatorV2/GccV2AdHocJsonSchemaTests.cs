@@ -55,7 +55,6 @@ public sealed class GccV2AdHocJsonSchemaTests
     /// </summary>
     [Theory]
     [InlineData(GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService.ProviderSchemaName)]
-    [InlineData(GeekAPI.Services.ContentCreatorV2.Competitor.GccV2CompetitorExtractionService.ProviderSchemaName)]
     public void Provider_schema_names_use_only_characters_openai_accepts(string schemaName)
     {
         Assert.False(string.IsNullOrWhiteSpace(schemaName));

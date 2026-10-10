@@ -3,9 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using GeekApplication.Models.ContentCreator;
-using GeekAPI.Services.ContentCreatorV2.Generation;
 using GeekAPI.Services.Rag;
-using GeekAPI.Services.ContentCreatorV2.Write;
 
 namespace GeekAPI.Services.GeekCrawler;
 
@@ -128,22 +126,6 @@ public interface IGeekCrawlerRagClient
         JsonElement input,
         CancellationToken ct = default) =>
         Task.FromResult<JsonElement?>(null);
-
-    Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default);
-}
-
-public sealed class GeekCrawlerRagCapabilities
-{
-    public IReadOnlyList<string> ExecutionVersions { get; init; } = [];
-    public IReadOnlyList<string> SkillEnvelopeVersions { get; init; } = [];
-    public IReadOnlyList<string> GenerationStages { get; init; } = [];
-    /// <summary>Stages advertised by upstream capabilities (informational for Create library).</summary>
-    public IReadOnlyList<string> AgentGenerationStages { get; init; } = [];
-    public IReadOnlyList<string> SpecialistExecutors { get; init; } = [];
-    public string SpecialistExecutorVersion { get; init; } = "";
-    public bool ToolsAllowed { get; init; }
-    public IReadOnlyList<string> AgentTraceVersions { get; init; } = [];
-    public IReadOnlyList<string> AgentToolVersions { get; init; } = [];
 }
 
 public sealed class GeekCrawlerRagPageText
@@ -283,8 +265,8 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
-        options.Converters.Add(new GccV2PythonDateTimeOffsetConverter());
-        options.Converters.Add(new GccV2PythonDoubleConverter());
+        options.Converters.Add(new PythonDateTimeOffsetConverter());
+        options.Converters.Add(new PythonDoubleConverter());
         return options;
     }
 
@@ -846,68 +828,6 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         }
     }
 
-    public async Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default)
-    {
-        if (!_enabled)
-        {
-            throw new CapabilitiesUnavailableException(
-                "Geek-Crawler-Rag is disabled (GEEK_CRAWLER_RAG_URL unset). Configure RAG and retry.");
-        }
-
-        try
-        {
-            using var response = await _http.GetAsync("v1/capabilities", ct).ConfigureAwait(false);
-            var status = (int)response.StatusCode;
-            if (status >= 500 || status == 408 || status == 429)
-            {
-                _logger.LogWarning(
-                    "Geek-Crawler-Rag capabilities transport failure HTTP {Status}", status);
-                throw new CapabilitiesTransportError(
-                    $"RAG capabilities unavailable (HTTP {status}). Retry the job.");
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "Geek-Crawler-Rag capabilities unavailable HTTP {Status}", status);
-                throw new CapabilitiesUnavailableException(
-                    $"RAG capabilities endpoint returned HTTP {status}. Fix RAG config / re-deploy.");
-            }
-
-            var dto = await response.Content.ReadFromJsonAsync<CapabilitiesDto>(JsonOpts, ct)
-                .ConfigureAwait(false);
-            if (dto is null)
-            {
-                throw new CapabilitiesUnavailableException(
-                    "RAG capabilities response body was empty or malformed.");
-            }
-
-            return new GeekCrawlerRagCapabilities
-            {
-                ExecutionVersions = dto.ExecutionVersions ?? [],
-                SkillEnvelopeVersions = dto.SkillEnvelopeVersions ?? [],
-                GenerationStages = dto.GenerationStages ?? [],
-                AgentGenerationStages = dto.AgentGenerationStages
-                    ?? (dto.GenerationStages ?? [])
-                        .Where(s => !string.Equals(s, "complete", StringComparison.Ordinal))
-                        .ToList(),
-                SpecialistExecutors = dto.SpecialistExecutors ?? [],
-                SpecialistExecutorVersion = dto.SpecialistExecutorVersion ?? "",
-                ToolsAllowed = dto.ToolsAllowed,
-                AgentTraceVersions = dto.AgentTraceVersions ?? [],
-                AgentToolVersions = dto.AgentToolVersions ?? [],
-            };
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException
-                                   and not CapabilitiesTransportError
-                                   and not CapabilitiesUnavailableException)
-        {
-            _logger.LogWarning(ex, "Geek-Crawler-Rag capabilities request threw");
-            throw new CapabilitiesTransportError(
-                "RAG capabilities request failed (network/timeout). Retry the job.", ex);
-        }
-    }
-
     internal static IReadOnlyList<GeekCrawlerRagThemeDto> MapThemes(IReadOnlyList<ThemeDto>? themes)
     {
         if (themes is null || themes.Count == 0)
@@ -1386,18 +1306,5 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public string? Title { get; set; }
         public string? Text { get; set; }
         public string? Excerpt { get; set; }
-    }
-
-    private sealed class CapabilitiesDto
-    {
-        public List<string>? ExecutionVersions { get; set; }
-        public List<string>? SkillEnvelopeVersions { get; set; }
-        public List<string>? GenerationStages { get; set; }
-        public List<string>? AgentGenerationStages { get; set; }
-        public List<string>? SpecialistExecutors { get; set; }
-        public string? SpecialistExecutorVersion { get; set; }
-        public bool ToolsAllowed { get; set; }
-        public List<string>? AgentTraceVersions { get; set; }
-        public List<string>? AgentToolVersions { get; set; }
     }
 }

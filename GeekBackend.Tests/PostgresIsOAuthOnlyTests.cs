@@ -106,8 +106,7 @@ public class PostgresIsOAuthOnlyTests
         AssertAbsent("gcc_v2_project_site_crawl", "Project-site crawls belong in the shared "
             + "geek_crawler Mongo store like every other crawl type.", "*.cs", "*.sql");
 
-        AssertAbsent("GccV2PostgresProjectSitePageSource", "The retired read path. Mongo is the only "
-            + "source; GccV2MongoProjectSitePageSource returns a strict superset of the same DTO.",
+        AssertAbsent("PostgresProjectSitePageSource", "The retired read path. Mongo is the only source.",
             "*.cs");
     }
 

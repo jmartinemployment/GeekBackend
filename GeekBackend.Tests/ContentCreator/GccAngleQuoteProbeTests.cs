@@ -394,8 +394,5 @@ public class GccAngleQuoteProbeTests
         public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
             string pageId, CancellationToken ct = default, string? runId = null) =>
             Task.FromResult<GeekCrawlerRagPageText?>(null);
-
-        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
-            Task.FromResult(new GeekCrawlerRagCapabilities());
     }
 }

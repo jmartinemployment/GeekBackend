@@ -13,25 +13,6 @@ public class GccV2HierarchyTests
         PropertyNameCaseInsensitive = true,
     };
 
-    [Theory]
-    [InlineData("geekatyourspot.com", "https://geekatyourspot.com/")]
-    [InlineData("https://geekatyourspot.com/pricing", "https://geekatyourspot.com/")]
-    [InlineData("http://example.com/a/b?x=1", "http://example.com/")]
-    public void HomepageUrl_Normalizes_To_Origin(string input, string expected)
-    {
-        Assert.True(GccV2HomepageUrl.TryNormalize(input, out var homepage));
-        Assert.Equal(expected, homepage);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("not a url")]
-    [InlineData("ftp://example.com")]
-    public void HomepageUrl_Rejects_Invalid(string input)
-    {
-        Assert.False(GccV2HomepageUrl.TryNormalize(input, out _));
-    }
-
     [Fact]
     public void HeadingTreeBuilder_Builds_Nested_Structure_With_Links()
     {

@@ -71,8 +71,6 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
                 ["GEEK_BACKEND_API_KEY"] = "integration-test-backend-key",
                 ["GEEK_CRAWLER_WORKER_COUNT"] = "0",
                 ["CORS_ORIGINS"] = "https://www.geekatyourspot.com",
-                ["GccV2Skills:AdminUserIds"] = OwnerUserId.ToString("D"),
-                ["GccV2Agents:SnapshotSigningKey"] = "integration-agent-signing-key-000001",
                 ["LlmProviders:OpenAi:ApiKey"] = "integration-test-openai-key",
             });
         });

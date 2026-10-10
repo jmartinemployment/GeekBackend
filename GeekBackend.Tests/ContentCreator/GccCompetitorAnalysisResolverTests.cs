@@ -108,8 +108,6 @@ public class GccCompetitorAnalysisResolverTests
         public Task<System.Text.Json.JsonElement?> RunDiagnosticAsync(
             string endpoint, object? payload = null, CancellationToken ct = default) =>
             Task.FromResult<System.Text.Json.JsonElement?>(null);
-        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
-            Task.FromResult(new GeekCrawlerRagCapabilities());
     }
 
     internal static GccCompetitorAnalysisResolver Build(

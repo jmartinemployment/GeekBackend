@@ -1,4 +1,3 @@
-using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Services;
 
@@ -120,13 +119,10 @@ public sealed class LlmResponseJsonParserLedeTests
             }
             """;
 
-        var (lede, _, intro) = LlmResponseJsonParser.ParseLedeAndIntroduction(json, "pillar lede");
-        var merged = GccV2WriteOutlineRules.MergeLedeAndIntroduction(lede, intro);
+        var (_, _, intro) = LlmResponseJsonParser.ParseLedeAndIntroduction(json, "pillar lede");
 
         Assert.Empty(intro.Paragraphs);
-        Assert.Single(intro.Children);
-        Assert.Single(merged.Children);
-        Assert.Equal("Who this is for", merged.Children[0].Heading);
+        Assert.Equal("Who this is for", Assert.Single(intro.Children).Heading);
     }
 
     [Fact]

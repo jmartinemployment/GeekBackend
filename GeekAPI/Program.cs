@@ -1,17 +1,13 @@
-using GeekAPI.Services.ContentCreatorV2.Write;
 using System.Text.Json.Serialization;
 using DotNetEnv;
 using GeekAPI.Auth;
 using GeekAPI.Controllers;
-using GeekAPI.Controllers.ContentCreatorV2.Auth;
-using GeekAPI.Controllers.ContentCreatorV2.Hubs;
 using GeekAPI.Controllers.GeekCrawler.Hubs;
 using GeekAPI.Controllers.Workflow.Hubs;
 using GeekAPI.Extensions;
 using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
-using GeekAPI.Services.ContentCreatorV2;
 using GeekAPI.Services.ContentWriterV3;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Hosting;
@@ -164,9 +160,16 @@ builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccJobStore>();
 // Project Generate runs are rows in GeekRepository (gcc_generate_jobs). On startup, every run still
 // marked running was running in a process that no longer exists, and is failed as such.
 builder.Services.AddHostedService<GeekAPI.Services.ContentCreator.GccInterruptedJobsOnStartup>();
-builder.Services.AddContentCreatorV2(builder.Configuration);
+// A partner's pages read into a structured record for its tool page, under a provider-enforced schema.
+builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Generation.IGccV2SchemaConstrainedGenerator,
+    GeekAPI.Services.ContentCreatorV2.Generation.GccV2SchemaConstrainedGenerator>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Partner.GccV2PartnerExtractionService>();
+// Every hub pushes over SignalR and addresses a user by the token's sub.
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubUserIdProvider>();
+builder.Services.AddMemoryCache();
 builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
-builder.Services.AddScoped<GeekAPI.Services.ContentCreatorV2.Write.GccV2CreateLibraryWriter>();
+builder.Services.AddScoped<GeekAPI.Services.Rag.RagLibrary>();
 
 // GeekOAuth-issued JWT bearer. Originally added only so the v2 realtime hub could require
 // [Authorize] (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade) — routes
@@ -218,7 +221,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             NameClaimType = "sub",
             ClockSkew = TimeSpan.FromMinutes(1),
         };
-        GccV2JwtHubQueryToken.AcceptAccessTokenFromQuery(options);
+        JwtHubQueryToken.AcceptAccessTokenFromQuery(options);
     });
 
 builder.Services.AddAuthorizationBuilder()
@@ -238,21 +241,6 @@ builder.Services.AddAuthorizationBuilder()
                 && claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
                     .Contains(GeekAPI.Auth.ContentCreatorAuthConstants.ManageScope, StringComparer.Ordinal)));
     });
-
-builder.Services.AddHttpClient("GccV2GoogleApis", client =>
-{
-    client.Timeout = TimeSpan.FromMinutes(2);
-});
-builder.Services.AddHttpClient("GccV2MicrosoftGraph", client =>
-{
-    client.Timeout = TimeSpan.FromMinutes(2);
-});
-builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscSearchAnalyticsClient>();
-builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Gsc.GccV2GscOAuthStateStore>();
-builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Drive.GccV2DriveFilesClient>();
-builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.Drive.GccV2DriveOAuthStateStore>();
-builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.SharePoint.GccV2SharePointGraphClient>();
-builder.Services.AddSingleton<GeekAPI.Services.ContentCreatorV2.SharePoint.GccV2SharePointOAuthStateStore>();
 
 var geekCrawlerRagUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');
 var geekCrawlerRagApiKey = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_API_KEY") ?? "").Trim();
@@ -372,7 +360,6 @@ app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
 
-app.MapHub<GccV2RealtimeHub>("/hubs/gcc-v2-realtime");
 app.MapHub<GeekCrawlerRealtimeHub>("/hubs/geek-crawler-realtime");
 app.MapHub<WorkflowRealtimeHub>("/hubs/workflow-realtime");
 

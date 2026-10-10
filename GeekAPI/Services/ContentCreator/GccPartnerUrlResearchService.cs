@@ -19,16 +19,13 @@ public sealed class GccPartnerUrlResearchService
     };
 
     private readonly IGccPoliteCrawler _crawler;
-    private readonly HttpGccV2Repository _repo;
     private readonly ILogger<GccPartnerUrlResearchService> _logger;
 
     public GccPartnerUrlResearchService(
         IGccPoliteCrawler crawler,
-        HttpGccV2Repository repo,
         ILogger<GccPartnerUrlResearchService> logger)
     {
         _crawler = crawler;
-        _repo = repo;
         _logger = logger;
     }
 

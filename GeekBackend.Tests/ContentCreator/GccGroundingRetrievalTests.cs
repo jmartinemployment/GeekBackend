@@ -124,8 +124,6 @@ public class GccGroundingRetrievalTests
         public Task<System.Text.Json.JsonElement?> RunDiagnosticAsync(
             string endpoint, object? payload = null, CancellationToken ct = default) =>
             Task.FromResult<System.Text.Json.JsonElement?>(null);
-        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
-            Task.FromResult(new GeekCrawlerRagCapabilities());
     }
 
     private sealed class NoPages : IGccCrawlPageReader
@@ -258,9 +256,6 @@ public class GccGroundingRetrievalTests
         public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
             string pageId, CancellationToken ct = default, string? runId = null) =>
             Task.FromResult<GeekCrawlerRagPageText?>(null);
-
-        public Task<GeekCrawlerRagCapabilities> GetCapabilitiesAsync(CancellationToken ct = default) =>
-            Task.FromResult(new GeekCrawlerRagCapabilities());
     }
 
     [Fact]

@@ -1,4 +1,3 @@
-using GeekAPI.Services.ContentCreatorV2.Write;
 using GeekAPI.Auth;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Rag;
@@ -10,31 +9,31 @@ using Microsoft.AspNetCore.Mvc;
 namespace GeekAPI.Controllers.Rag;
 
 /// <summary>
-/// RAG evidence library for Content Creator v2: status, entity catalog, template index.
-/// Drafting uses <see cref="GccV2CreateLibraryWriter"/> with <c>CreateLibraryDraft</c> (query + pages only).
+/// RAG evidence library for the Content Creator: status, entity catalog, which hosts are indexed, and
+/// the ad template index. RAG is retrieval and verification only; nothing here drafts.
 /// </summary>
 [ApiController]
 [Route("api/rag")]
 public sealed class RagController : ControllerBase
 {
     private readonly ICurrentUserContext _user;
-    private readonly GccV2CreateLibraryWriter _generate;
+    private readonly RagLibrary _library;
     private readonly GccDeclaredUrlValidator _declaredUrls;
 
     public RagController(
         ICurrentUserContext user,
-        GccV2CreateLibraryWriter generate,
+        RagLibrary library,
         GccDeclaredUrlValidator declaredUrls)
     {
         _user = user;
-        _generate = generate;
+        _library = library;
         _declaredUrls = declaredUrls;
     }
 
     [HttpGet("health")]
     public ActionResult<object> Health()
     {
-        var status = _generate.GetStatus();
+        var status = _library.GetStatus();
         return Ok(new
         {
             ok = true,
@@ -46,10 +45,10 @@ public sealed class RagController : ControllerBase
 
     /// <summary>Library availability + intent/entity catalogs for the phi UI.</summary>
     [HttpGet("status")]
-    public ActionResult<CreateLibraryStatusDto> Status()
+    public ActionResult<RagLibraryStatusDto> Status()
     {
         if (!_user.IsAuthenticated) return Unauthorized();
-        return Ok(_generate.GetStatus());
+        return Ok(_library.GetStatus());
     }
 
     [HttpGet("entities")]
@@ -135,7 +134,7 @@ public sealed class RagController : ControllerBase
         if (templates is null || templates.Count == 0)
             return BadRequest(new { error = "templates required" });
 
-        var result = await _generate.IndexAdTemplatesAsync(templates, ct).ConfigureAwait(false);
+        var result = await _library.IndexAdTemplatesAsync(templates, ct).ConfigureAwait(false);
         return Ok(result);
     }
 }
