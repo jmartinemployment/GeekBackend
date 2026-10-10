@@ -364,7 +364,7 @@ public static class GccNicheFramingReader
     /// <summary>
     /// The taxonomy path the operator researched, e.g.
     /// <c>["Accounting","Cash Flow Forecasting","Accounts Receivable"]</c>. Accepts a string split on
-    /// <c>&gt;</c>, <c>-&gt;</c> or <c>›</c>, or an array.
+    /// <c>&gt;</c>, <c>-&gt;</c>, <c>›</c> or <c>→</c>, or an array.
     /// </summary>
     /// <remarks>
     /// Its first level is a department: <c>Accounting</c> is a member of <c>Departments.Slugs</c>, which
@@ -382,7 +382,7 @@ public static class GccNicheFramingReader
         if (prop.ValueKind == JsonValueKind.String)
         {
             var raw = prop.GetString() ?? string.Empty;
-            foreach (var piece in raw.Replace("->", ">").Replace('›', '>').Split('>'))
+            foreach (var piece in raw.Replace("->", ">").Replace('›', '>').Replace('→', '>').Split('>'))
             {
                 var trimmed = piece.Trim();
                 if (trimmed.Length > 0) parts.Add(trimmed);

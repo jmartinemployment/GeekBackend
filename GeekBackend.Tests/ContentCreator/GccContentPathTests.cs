@@ -105,6 +105,9 @@ public class GccContentPathTests
     [InlineData("accounting")]
     [InlineData("Customer Service > Returns")]
     [InlineData("Human Resource › Onboarding")]
+    // The arrow a path pasted from a research document carries. It was not a separator, so the whole
+    // path was one level, which is not a department.
+    [InlineData("Accounting → Cash Flow Forecasting → Accounts Receivable")]
     public void A_first_level_that_is_a_department_is_not_refused_whatever_follows_it(string taxonomyPath) =>
         Assert.Null(GccContentPath.DepartmentRefusal(Create("Topic: Keyword", taxonomyPath).BriefJson));
 
