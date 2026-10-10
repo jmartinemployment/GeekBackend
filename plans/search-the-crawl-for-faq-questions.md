@@ -165,10 +165,10 @@ and can be struck.
 - No second model call, and no answering from general knowledge.
 - No prompt for the opening or the body. No change to the passages any other writer sees.
 - The Workflow product's FAQ and its cap of 12.
-- **Found and left for Jeff's word:** `GccGroundingResolver.cs:542` discards a later search's passages
-  when an earlier search already returned something from the same URL. That thins the evidence for
-  every writer. Fixing it changes what the pillar, blog and tool body are given, which is the passage
-  work held since 2026-10-07.
+- **Found here, fixed 2026-10-10 on Jeff's word ("address outstanding items"):** `GccGroundingResolver`
+  discarded a later search's passages when an earlier search had already returned something from the
+  same URL, which thinned the evidence for every writer. A later question now adds its passages to the
+  page (`WithLaterPassages`).
 
 ## Cost
 
