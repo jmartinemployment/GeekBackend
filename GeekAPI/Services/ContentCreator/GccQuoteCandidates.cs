@@ -33,7 +33,7 @@ public static partial class GccQuoteCandidates
     private const int MinChars = 50;
     private const int MaxChars = 300;
 
-    /// <summary>Per page, so one partner's long page cannot crowd out the other seven.</summary>
+    /// <summary>The most one page gives, however few pages there are: a list of forty from one page is that page, not a choice.</summary>
     private const int MaxPerPage = 12;
 
     /// <summary>Across all pages, which is what lands in the prompt.</summary>
@@ -57,10 +57,25 @@ public static partial class GccQuoteCandidates
     /// it as a quotation because the page marked it as one, which is a stronger signal than any
     /// shape test here, and splitting it would cut a quotation in half.
     /// </para>
+    /// <para>
+    /// <b>Every page returned gives before any page gives again.</b> The list is filled a span at a
+    /// time across the pages, in the order they came back: each page's first, then each page's
+    /// second, until there are <see cref="MaxCandidates"/>. A page with nothing more to give is
+    /// passed over and its place goes to the others. Until 2026-10-10 the list took each page's
+    /// first twelve in turn and stopped at forty, a limit written when about eight pages came back.
+    /// Up to thirty-two do now, so four pages filled it: BILL's forty that day were twelve from a
+    /// page-template stub, twelve from a payables case study, twelve from a payables post and four
+    /// from its payables product page, and its accounts receivable page, sixth in the order, gave
+    /// none. The page shipped with no block quotation. The spans are still cut by this code, still
+    /// forty at most, still chosen by number; they are listed a page at a time, in page order.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<GccQuoteCandidate> From(IReadOnlyList<GccGroundedPassage> passages)
     {
-        var candidates = new List<GccQuoteCandidate>();
+        // What each page offers, in the order the pages came back, each page's own spans in the
+        // order it has them. A span two pages carry is the first page's.
+        var pages = new List<(string Url, string Title, List<string> Spans)>();
+        var byUrl = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var passage in passages)
@@ -68,9 +83,18 @@ public static partial class GccQuoteCandidates
             if (string.IsNullOrWhiteSpace(passage.Url)) continue;
             if (IsBoilerplatePath(passage.Url)) continue;
 
-            var fromThisPage = 0;
+            if (!byUrl.TryGetValue(passage.Url, out var at))
+            {
+                at = pages.Count;
+                byUrl[passage.Url] = at;
+                pages.Add((passage.Url, passage.Title, []));
+            }
+
+            var spans = pages[at].Spans;
             foreach (var paragraph in passage.Content)
             {
+                if (spans.Count >= MaxPerPage) break;
+
                 // A typed quotation is held to length only. The page marked it as a quotation, which
                 // outranks any shape test here -- rejecting it for not ending in a full stop is the
                 // over-filtering that hides the span that fits.
@@ -81,21 +105,39 @@ public static partial class GccQuoteCandidates
                     if (declared ? !IsQuotableLength(span) : !IsQuotable(span)) continue;
                     if (!seen.Add(span)) continue;
 
-                    candidates.Add(new GccQuoteCandidate(
-                        candidates.Count + 1, span, passage.Url, passage.Title));
-
-                    if (++fromThisPage >= MaxPerPage) break;
+                    spans.Add(span);
+                    if (spans.Count >= MaxPerPage) break;
                 }
-
-                if (fromThisPage >= MaxPerPage) break;
             }
-
-            if (candidates.Count >= MaxCandidates) break;
         }
 
-        return candidates.Count <= MaxCandidates
-            ? candidates
-            : candidates.Take(MaxCandidates).ToList();
+        // How many each page gives: one from every page that has one, then a second, and so on.
+        var taken = new int[pages.Count];
+        var left = MaxCandidates;
+        for (var round = 0; left > 0 && round < MaxPerPage; round++)
+        {
+            var gave = false;
+            for (var i = 0; i < pages.Count && left > 0; i++)
+            {
+                if (pages[i].Spans.Count <= round) continue;
+                taken[i]++;
+                left--;
+                gave = true;
+            }
+
+            if (!gave) break;
+        }
+
+        var candidates = new List<GccQuoteCandidate>(MaxCandidates - left);
+        for (var i = 0; i < pages.Count; i++)
+        {
+            foreach (var span in pages[i].Spans.Take(taken[i]))
+            {
+                candidates.Add(new GccQuoteCandidate(candidates.Count + 1, span, pages[i].Url, pages[i].Title));
+            }
+        }
+
+        return candidates;
     }
 
     /// <summary>

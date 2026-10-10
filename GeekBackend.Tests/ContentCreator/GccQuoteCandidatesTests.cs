@@ -231,6 +231,95 @@ public class GccQuoteCandidatesTests
             [Passage("", "Stampli plays an important part of our daily AP process.")]));
     }
 
+    private static string[] Sentences(string about, int count) =>
+        [.. Enumerable.Range(1, count).Select(i => $"Sentence {i} about {about} runs long enough to be quoted whole.")];
+
+    [Fact]
+    public void Every_page_returned_gives_a_sentence_before_any_page_gives_a_second()
+    {
+        // Thirty-two pages come back for a partner (GccTypedPassageReader.MaxSeedsPerRead). The first
+        // four used to fill the list with twelve each.
+        var passages = Enumerable.Range(1, 32)
+            .Select(i => Passage($"https://bill.test/page-{i}/", Sentences($"page {i}", 12)))
+            .ToArray();
+
+        var candidates = GccQuoteCandidates.From(passages);
+
+        Assert.Equal(GccQuoteCandidates.MaxCandidates, candidates.Count);
+        var perPage = candidates.GroupBy(c => c.PageUrl).ToDictionary(g => g.Key, g => g.Count());
+        Assert.Equal(32, perPage.Count);
+        // Forty over thirty-two: one each, and the first eight a second.
+        Assert.All(Enumerable.Range(1, 8), i => Assert.Equal(2, perPage[$"https://bill.test/page-{i}/"]));
+        Assert.All(Enumerable.Range(9, 24), i => Assert.Equal(1, perPage[$"https://bill.test/page-{i}/"]));
+    }
+
+    [Fact]
+    public void The_page_the_run_of_2026_10_10_left_out_is_on_the_list()
+    {
+        // BILL's forty were twelve, twelve, twelve and four from its first four pages; its accounts
+        // receivable page came back sixth and gave none.
+        var passages = new[]
+        {
+            Passage("https://www.bill.com/listicle", Sentences("a template stub", 12)),
+            Passage("https://www.bill.com/case-study/arvo", Sentences("a payables case study", 12)),
+            Passage("https://www.bill.com/blog/best-b2b-payment-automation", Sentences("a payables post", 12)),
+            Passage("https://www.bill.com/product/accounts-payable", Sentences("accounts payable", 12)),
+            Passage("https://www.bill.com/product/invoicing", Sentences("invoicing", 12)),
+            Passage("https://www.bill.com/product/accounts-receivable", Sentences("accounts receivable", 12)),
+        };
+
+        var candidates = GccQuoteCandidates.From(passages);
+
+        Assert.Equal(GccQuoteCandidates.MaxCandidates, candidates.Count);
+        var receivable = candidates.Where(c => c.PageUrl.EndsWith("/accounts-receivable", StringComparison.Ordinal)).ToList();
+        // Forty over six: six each, and the first four a seventh.
+        Assert.Equal(6, receivable.Count);
+        Assert.Equal("Sentence 1 about accounts receivable runs long enough to be quoted whole.", receivable[0].Text);
+        Assert.Equal(7, candidates.Count(c => c.PageUrl.EndsWith("/listicle", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void A_share_a_page_cannot_fill_passes_to_the_pages_that_can()
+    {
+        var passages = new[]
+        {
+            Passage("https://stampli.com/one/", Sentences("the one-sentence page", 1)),
+            Passage("https://stampli.com/long/", Sentences("the long page", 30)),
+            Passage("https://stampli.com/none/", "Too short."),
+            Passage("https://stampli.com/other/", Sentences("the other long page", 30)),
+        };
+
+        var candidates = GccQuoteCandidates.From(passages);
+
+        // The one-sentence page gives its one; the two long pages give twelve each, which is the most
+        // one page gives; nothing is invented to reach forty.
+        Assert.Equal(25, candidates.Count);
+        Assert.Single(candidates, c => c.PageUrl == "https://stampli.com/one/");
+        Assert.Equal(12, candidates.Count(c => c.PageUrl == "https://stampli.com/long/"));
+        Assert.Equal(12, candidates.Count(c => c.PageUrl == "https://stampli.com/other/"));
+        Assert.DoesNotContain(candidates, c => c.PageUrl == "https://stampli.com/none/");
+    }
+
+    [Fact]
+    public void The_list_reads_a_page_at_a_time_in_the_order_the_pages_came_back_and_each_pages_own_order()
+    {
+        var passages = new[]
+        {
+            Passage("https://stampli.com/a/", Sentences("page a", 3)),
+            Passage("https://stampli.com/b/", Sentences("page b", 3)),
+        };
+
+        var candidates = GccQuoteCandidates.From(passages);
+
+        Assert.Equal(Enumerable.Range(1, 6), candidates.Select(c => c.Id));
+        Assert.Equal(
+            ["a", "a", "a", "b", "b", "b"],
+            candidates.Select(c => c.PageUrl.TrimEnd('/')[^1..]));
+        Assert.Equal(
+            [1, 2, 3, 1, 2, 3],
+            candidates.Select(c => int.Parse(c.Text.Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
     [Fact]
     public void The_candidate_list_is_capped()
     {
