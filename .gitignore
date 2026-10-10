@@ -109,3 +109,6 @@ graphify-out/
 agent-transcripts/
 **/agent-transcripts/
 *.agent.md
+
+# A raw run log, 23 MB, kept on disk for reference. Not for a public repository.
+plans/10-07-26-Logging
