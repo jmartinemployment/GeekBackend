@@ -7,7 +7,7 @@ namespace GeekAPI.Services.ContentCreator.Guardrail;
 
 /// <summary>
 /// Turns the writer's own shortenings of the keyword back into the exact phrase, where the grammar
-/// allows it, until each section carries its share of the page's count.
+/// allows it, until the page carries its count, spread over its sections.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,10 +40,21 @@ namespace GeekAPI.Services.ContentCreator.Guardrail;
 /// <b>How many.</b> The page's count is <see cref="TargetFor"/>: the same 0.6% the prompt used to
 /// state, taken of the words the page has rather than of its floor. It is spread across the opening
 /// and the body sections, each section's share counted the way the scorer counts
-/// (<see cref="GcwSeoAnalyzer.CountPhraseOccurrences"/>, headings included), and only a section
-/// under its share is touched. Within a section the edits are spread over the paragraphs that offer
-/// one, never two in a paragraph and never in a paragraph that already carries the phrase. A
+/// (<see cref="GcwSeoAnalyzer.CountPhraseOccurrences"/>, headings included). A section under its
+/// share takes what it can of it. Within a section the edits are spread over the paragraphs that
+/// offer one, never two in a paragraph and never in a paragraph that already carries the phrase. A
 /// section with more exact uses than its share keeps them: nothing is ever removed.
+/// </para>
+/// <para>
+/// <b>A share a section cannot take goes to the sections that can.</b> A section may have no
+/// paragraph that offers an edit: every shortening in it follows an adjective, or it has none. Until
+/// 2026-10-10 its share was lost, and the page stopped short of its own count while other sections
+/// had paragraphs to spare. The run of that day shows it: four tool pages brought to 16 of 20, 13 of
+/// 19, 14 of 19 and 15 of 21, each two uses under the score's floor, each with six to sixteen
+/// paragraphs still saying "accounts receivable" without "automated". What the page is still short
+/// of once every section has taken its own is now handed out one use at a time, to the section with
+/// the fewest uses that still has a paragraph to offer, the earlier one when two are level. The
+/// limits are the same: one edit a paragraph, and never past the page's count.
 /// </para>
 /// <para>
 /// <b>What is never touched.</b> Headings: the keyword's heading is the writer's own job, held by the
@@ -65,8 +76,24 @@ public static class GccKeywordRemap
     /// <summary>One edit made: the heading it sits under, the words as the writer had them, and the words now.</summary>
     public sealed record Edit(string Heading, string From, string To);
 
-    /// <summary>The document with its edits made, the count it was brought toward, and the counts before and after.</summary>
-    public sealed record Remapped(ContentDocument Document, int Target, int Before, int After, IReadOnlyList<Edit> Edits);
+    /// <summary>
+    /// One section's part in the count, the opening first: its share of the page's count, the exact
+    /// uses it had, the paragraphs that offered an edit, and the edits made in it. A section with no
+    /// place offers none, and what it could not take shows as edits above another section's share.
+    /// </summary>
+    public sealed record SectionUse(string Heading, int Share, int Before, int Places, int Edits);
+
+    /// <summary>
+    /// The document with its edits made, the count it was brought toward, the counts before and after,
+    /// and each section's part in them.
+    /// </summary>
+    public sealed record Remapped(
+        ContentDocument Document,
+        int Target,
+        int Before,
+        int After,
+        IReadOnlyList<Edit> Edits,
+        IReadOnlyList<SectionUse> Sections);
 
     /// <summary>
     /// Words that can stand immediately before the phrase without describing it, so the keyword's first
@@ -124,44 +151,64 @@ public static class GccKeywordRemap
         var variations = VariationsOf(phrase);
         if (phrase.Length == 0 || variations.Count == 0)
         {
-            return new Remapped(document, phrase.Length == 0 ? 0 : target, before, before, []);
+            return new Remapped(document, phrase.Length == 0 ? 0 : target, before, before, [], []);
         }
 
         var all = new List<Section>(document.Sections.Count + 1) { document.Lede };
         all.AddRange(document.Sections);
         var shares = Shares(target, all.Count);
 
-        var edits = new List<Edit>();
-        var result = new List<Section>(all.Count);
+        // What each section has, how many of its paragraphs offer an edit, and what it takes of its
+        // own share.
+        var have = new int[all.Count];
+        var places = new int[all.Count];
+        var taken = new int[all.Count];
         for (var i = 0; i < all.Count; i++)
         {
-            var section = all[i];
-            var need = shares[i] - CountIn(section, phrase);
-            if (need <= 0)
-            {
-                result.Add(section);
-                continue;
-            }
-
-            // Every paragraph that offers an edit, in reading order; then the ones taken, spread over them.
+            have[i] = CountIn(all[i], phrase);
             var offered = 0;
-            Walk(section, phrase, variations, chosen: null, ref offered, edits: null);
-            var taken = Math.Min(need, offered);
-            if (taken == 0)
+            Walk(all[i], phrase, variations, chosen: null, ref offered, edits: null);
+            places[i] = offered;
+            taken[i] = Math.Min(Math.Max(0, shares[i] - have[i]), offered);
+        }
+
+        // What the page is still short of is what some section could not take of its share. It goes,
+        // a use at a time, to the section with the fewest uses that still has a place.
+        for (var left = target - before - taken.Sum(); left > 0; left--)
+        {
+            var next = -1;
+            for (var i = 0; i < all.Count; i++)
             {
-                result.Add(section);
+                if (taken[i] >= places[i]) continue;
+                if (next < 0 || have[i] + taken[i] < have[next] + taken[next]) next = i;
+            }
+
+            if (next < 0) break;
+            taken[next]++;
+        }
+
+        var edits = new List<Edit>();
+        var result = new List<Section>(all.Count);
+        var uses = new List<SectionUse>(all.Count);
+        for (var i = 0; i < all.Count; i++)
+        {
+            uses.Add(new SectionUse(all[i].Heading, shares[i], have[i], places[i], taken[i]));
+            if (taken[i] == 0)
+            {
+                result.Add(all[i]);
                 continue;
             }
 
+            // The paragraphs taken, spread over the ones that offer an edit, in reading order.
             var chosen = new HashSet<int>();
-            for (var j = 0; j < taken; j++) chosen.Add((int)((long)j * offered / taken));
+            for (var j = 0; j < taken[i]; j++) chosen.Add((int)((long)j * places[i] / taken[i]));
             var ordinal = 0;
-            result.Add(Walk(section, phrase, variations, chosen, ref ordinal, edits));
+            result.Add(Walk(all[i], phrase, variations, chosen, ref ordinal, edits));
         }
 
         var remapped = new ContentDocument(result[0], result.Skip(1).ToList());
         var after = CountIn(remapped.Lede, phrase) + remapped.Sections.Sum(s => CountIn(s, phrase));
-        return new Remapped(remapped, target, before, after, edits);
+        return new Remapped(remapped, target, before, after, edits, uses);
     }
 
     /// <summary>

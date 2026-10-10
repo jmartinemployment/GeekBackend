@@ -6,7 +6,7 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// The writer's shortenings of the keyword are turned back into the exact phrase, where the grammar
-/// allows it, until each section carries its share of the page's count.
+/// allows it, until the page carries its count, spread over its sections.
 /// </summary>
 /// <remarks>
 /// Jeff, 2026-10-10: "Do not rely on the LLM to count its own keyword usage to hit a target of 6 or 7
@@ -31,6 +31,14 @@ public sealed class GccKeywordRemapTests
 
     /// <summary>A thousand words of opening carrying the phrase once: the page's count is then six, three to each of two sections.</summary>
     private static Section LongLede() => Lede("Automated Approval Workflows are the subject. " + Words(1000));
+
+    /// <summary>
+    /// An opening of <paramref name="words"/> words that already carries <paramref name="uses"/> exact
+    /// uses, one to a paragraph: an opening at its share, with nothing left over for another section.
+    /// </summary>
+    private static Section LedeAtItsShare(int uses, int words) => H2(
+        "The opening",
+        [.. Enumerable.Range(0, uses).Select(_ => (Paragraph)Text("Automated Approval Workflows are the subject.")), Text(Words(words))]);
 
     private static string TextOf(Paragraph paragraph) => paragraph switch
     {
@@ -147,10 +155,11 @@ public sealed class GccKeywordRemapTests
     [Fact]
     public void The_edits_are_spread_over_the_paragraphs_that_offer_one()
     {
-        // Six to the page, three to each of two sections; the section has four paragraphs offering an
-        // edit and needs three, so the first, second and third of the four are taken -- not whichever
-        // come first for a section needing two of four: that is the first and the third.
-        var document = new ContentDocument(LongLede(),
+        // Six to the page, three to each of two sections, and the opening has its three; the section
+        // has four paragraphs offering an edit and needs three, so the first, second and third of the
+        // four are taken -- not whichever come first for a section needing two of four: that is the
+        // first and the third.
+        var document = new ContentDocument(LedeAtItsShare(uses: 3, words: 1000),
         [
             H2("Where the hours go",
                 Text("The approval workflows route."),
@@ -169,14 +178,151 @@ public sealed class GccKeywordRemapTests
         Assert.Equal("The approval workflows close.", paragraphs[3]);
 
         // Two needed of four offered: the first and the third.
-        var two = new ContentDocument(
-            Lede("Automated Approval Workflows are the subject. " + Words(500)),
-            [document.Sections[0]]);
+        var two = new ContentDocument(LedeAtItsShare(uses: 2, words: 500), [document.Sections[0]]);
         var spread = GccKeywordRemap.Apply(two, Keyword).Document.Sections[0].Paragraphs.Select(TextOf).ToList();
         Assert.Equal("The automated approval workflows route.", spread[0]);
         Assert.Equal("The approval workflows log.", spread[1]);
         Assert.Equal("The automated approval workflows escalate.", spread[2]);
         Assert.Equal("The approval workflows close.", spread[3]);
+    }
+
+    [Fact]
+    public void A_share_a_section_cannot_take_goes_to_a_section_that_still_has_a_place()
+    {
+        // The run of 2026-10-10: four tool pages stopped at 16 of 20, 13 of 19, 14 of 19 and 15 of 21,
+        // two uses under the score's floor, with paragraphs to spare in other sections. Six to this
+        // page, two to each of three sections. The opening has one use and no place; the first
+        // section has no use and no place, every shortening in it following an adjective. Their three
+        // go to the second section, which has six places.
+        var document = new ContentDocument(LongLede(),
+        [
+            H2("Where the hours go",
+                Text("Manual approval workflows cost hours every week."),
+                Text("Multi-level approval workflows need a map.")),
+            H2("How the routing works",
+                Text("The approval workflows route."),
+                Text("The approval workflows log."),
+                Text("The approval workflows escalate."),
+                Text("The approval workflows close."),
+                Text("The approval workflows report."),
+                Text("The approval workflows archive.")),
+        ]);
+
+        var remapped = GccKeywordRemap.Apply(document, Keyword);
+
+        Assert.Equal(6, remapped.Target);
+        Assert.Equal(1, remapped.Before);
+        Assert.Equal(6, remapped.After);
+        Assert.Equal(5, remapped.Edits.Count);
+        Assert.All(remapped.Edits, e => Assert.Equal("How the routing works", e.Heading));
+        // The first section is as the writer wrote it: "manual automated approval workflows" is wrong.
+        Assert.Equal(document.Sections[0].Paragraphs.Select(TextOf), remapped.Document.Sections[0].Paragraphs.Select(TextOf));
+        // One edit a paragraph, and one of the six paragraphs left alone: the page's count is six.
+        var second = remapped.Document.Sections[1].Paragraphs.Select(TextOf).ToList();
+        Assert.Equal(5, second.Count(p => p.StartsWith("The automated approval workflows ", StringComparison.Ordinal)));
+        Assert.Single(second, p => p.StartsWith("The approval workflows ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_section_that_has_its_share_takes_what_another_could_not()
+    {
+        // What the 2026-10-10 log showed: paragraphs saying "accounts receivable" without "automated"
+        // in sections that had already met their share, and so were left alone. The first section
+        // has its two and two places besides; the second has none of either.
+        var document = new ContentDocument(LedeAtItsShare(uses: 2, words: 1000),
+        [
+            H2("How the routing works",
+                Text("Automated approval workflows route each invoice."),
+                Text("Automated approval workflows are logged."),
+                Text("The approval workflows escalate."),
+                Text("The approval workflows close.")),
+            H2("Where the hours go",
+                Text("Manual approval workflows cost hours every week.")),
+        ]);
+
+        var remapped = GccKeywordRemap.Apply(document, Keyword);
+
+        Assert.Equal(6, remapped.Target);
+        Assert.Equal(4, remapped.Before);
+        Assert.Equal(6, remapped.After);
+        Assert.Equal(2, remapped.Edits.Count);
+        Assert.All(remapped.Edits, e => Assert.Equal("How the routing works", e.Heading));
+    }
+
+    [Fact]
+    public void What_is_left_over_goes_to_the_section_with_the_fewest_uses_and_never_past_the_pages_count()
+    {
+        // Six to the page, two to each of three. The opening has one and no place, so one is left
+        // over. Both sections take their own two and have places besides; they are level at two, so
+        // the earlier takes the one left over, and the page stops at its count with places unused.
+        var document = new ContentDocument(LongLede(),
+        [
+            H2("How the routing works",
+                Text("The approval workflows route."),
+                Text("The approval workflows log."),
+                Text("The approval workflows escalate."),
+                Text("The approval workflows close.")),
+            H2("What it costs",
+                Text("The approval workflows report."),
+                Text("The approval workflows archive."),
+                Text("The approval workflows renew."),
+                Text("The approval workflows expire.")),
+        ]);
+
+        var remapped = GccKeywordRemap.Apply(document, Keyword);
+
+        Assert.Equal(6, remapped.Target);
+        Assert.Equal(6, remapped.After);
+        Assert.Equal(3, remapped.Edits.Count(e => e.Heading == "How the routing works"));
+        Assert.Equal(2, remapped.Edits.Count(e => e.Heading == "What it costs"));
+
+        // A section that already has more than the other is passed over for the one with fewer.
+        var uneven = new ContentDocument(LongLede(),
+        [
+            H2("How the routing works",
+                Text("Automated approval workflows route each invoice."),
+                Text("Automated approval workflows are logged."),
+                Text("Automated approval workflows escalate."),
+                Text("The approval workflows close.")),
+            H2("What it costs",
+                Text("The approval workflows report."),
+                Text("The approval workflows archive."),
+                Text("The approval workflows renew."),
+                Text("The approval workflows expire.")),
+        ]);
+
+        var passedOver = GccKeywordRemap.Apply(uneven, Keyword);
+
+        Assert.Equal(6, passedOver.After);
+        Assert.All(passedOver.Edits, e => Assert.Equal("What it costs", e.Heading));
+        Assert.Equal(2, passedOver.Edits.Count);
+    }
+
+    [Fact]
+    public void Each_sections_share_uses_places_and_edits_are_reported_the_opening_first()
+    {
+        var document = new ContentDocument(LongLede(),
+        [
+            H2("Where the hours go",
+                Text("Manual approval workflows cost hours every week.")),
+            H2("How the routing works",
+                Text("The approval workflows route."),
+                Text("The approval workflows log."),
+                Text("The approval workflows escalate.")),
+        ]);
+
+        var remapped = GccKeywordRemap.Apply(document, Keyword);
+
+        Assert.Equal(
+            [
+                new GccKeywordRemap.SectionUse("The opening", Share: 2, Before: 1, Places: 0, Edits: 0),
+                new GccKeywordRemap.SectionUse("Where the hours go", Share: 2, Before: 0, Places: 0, Edits: 0),
+                new GccKeywordRemap.SectionUse("How the routing works", Share: 2, Before: 0, Places: 3, Edits: 3),
+            ],
+            remapped.Sections);
+        // Three places on the whole page: the page stops at four of six, and the record says why.
+        Assert.Equal(4, remapped.After);
+        Assert.Equal(remapped.Sections.Sum(u => u.Places), remapped.Edits.Count);
     }
 
     [Fact]

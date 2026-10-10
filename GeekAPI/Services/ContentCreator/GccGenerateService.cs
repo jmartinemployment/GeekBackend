@@ -3193,7 +3193,8 @@ public partial class GccGenerateService
     /// Before the linker, the closing and the FAQ: the text it reads is the writer's, whole paragraphs
     /// in plain runs, and what code builds afterwards is never remapped. Nothing here refuses; a page
     /// still under its score's floor afterwards is reported by the page guard, with the sections that
-    /// never use the phrase.
+    /// never use the phrase. The record carries each section's share, uses, places and edits, so a
+    /// page that stopped short of its target shows where it ran out of places.
     /// </remarks>
     private static async Task<(Section Lede, List<Section> Sections)> RemapKeywordAsync(
         string label, Section lede, IReadOnlyList<Section> sections, string? keyword)
@@ -3207,6 +3208,9 @@ public partial class GccGenerateService
             before = remapped.Before,
             after = remapped.After,
             edits = remapped.Edits.Select(e => new { e.Heading, e.From, e.To }).ToList(),
+            // The opening first. A section with no place is one whose share went to the others; a
+            // page still short of its target after this has no place left anywhere.
+            sections = remapped.Sections.Select(u => new { u.Heading, u.Share, u.Before, u.Places, u.Edits }).ToList(),
         });
         return (remapped.Document.Lede, [.. remapped.Document.Sections]);
     }
