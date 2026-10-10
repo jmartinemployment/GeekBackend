@@ -254,15 +254,20 @@ public sealed class GccGenerationCoordinator
 
         if (requested.Count > 1)
         {
-            // Every selected type is generated independently -- no "primary," nothing derived by
-            // rewriting or repurposing another type's finished text. 2026-09-22 (Jeff, after this
-            // came up twice: "Multi generate methods should not exist... you have created
-            // spaghetti") -- the prior design picked one type as real and faked the rest from it
-            // (rewrite-derivation for a second long-form type, a repurpose-pack for email/social/
-            // ads, sourceContext contamination for Tool), which is the same defect class as
-            // "Repurpose" itself (disabled entirely for it, GeekBackend 08187d9). Each call below
-            // gets its own real generator, exactly as if it were the only thing selected -- literally
-            // the same method single-select calls once.
+            // Every selected type is generated independently here: no "primary", and no type's page
+            // made by rewriting another's inside this one Generate. 2026-09-22 (Jeff, after this came
+            // up twice: "Multi generate methods should not exist... you have created spaghetti") --
+            // the prior design picked one type as real and faked the rest from it in the same run
+            // (rewrite-derivation for a second long-form type, a repurpose-pack for email/social/ads,
+            // sourceContext contamination for Tool). Each call below gets its own real generator,
+            // exactly as if it were the only thing selected -- literally the same method single-select
+            // calls once.
+            //
+            // That ruling is about this tangle, not about writing a short piece from a finished page.
+            // Repurpose is kept for that (Jeff, 2026-10-10: Email, Social, Ads, Comparison,
+            // Alternatives, perhaps Listicle, once the platform is stable). Its route answers 403
+            // today for a different reason: it never checked that the project's site was crawled
+            // (GeekBackend 08187d9).
             //
             // Parallel, not sequential: every call is genuinely independent (no shared mutable state,
             // nothing waits on another type's output), so awaiting them one at a time only summed
