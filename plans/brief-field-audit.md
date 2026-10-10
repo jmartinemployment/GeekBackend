@@ -1,13 +1,14 @@
 # Audit: is every Brief field used?
 
-Written 2026-10-10. **Status: run the same day; Jeff's answers acted on the same day, below. The
-result as it was found follows; the plan it followed is under "The plan as written".** One step is
-not done: the comparison with a real run, which needs a Run log.
+Written 2026-10-10. **Status: run the same day; all nine gaps are closed, the last four later the
+same day on Jeff's word ("address outstanding items"). The result as it was found follows; the plan
+it followed is under "The plan as written".** One step is not done: the comparison with a real run,
+which needs a Run log.
 
 ## What was done with the result (2026-10-10)
 
-Jeff's answers to the nine gaps, and what was done. Nothing here has been seen in a real run, and
-nothing is committed or pushed.
+Jeff's answers to the nine gaps, and what was done. Gaps 1 to 5 were pushed on 2026-10-10 and went
+through the 12:14 UTC run of that day. Gaps 6 to 9 are committed and have not been seen in a real run.
 
 | Gap | His answer | Done |
 |---|---|---|
@@ -16,12 +17,18 @@ nothing is committed or pushed.
 | 3. The tool page's FAQ and summaries get no brief | Agreed, before the re-run | Both FAQ calls and the summaries call print the reader and the voice, with a line saying the brief is not a source |
 | 4. Writing notes missing from seven places | "Remove/comment out Writing Notes functionality" | The field is deleted from the form and from GeekAPI |
 | 5. Email and social get none of the framing | "Yes ... They are also marketing material" | Both are given the framing in a short piece's wording: build on one failure, leave the rest |
-| 6. Choices arrive as stored codes | "Does it really matter? ... If you can't confirm this than items are addressed after a creation re-run" | Not confirmed, not changed. After the re-run |
-| 7, 8, 9 | After the re-run | Not changed |
+| 6. Choices arrive as stored codes | "Does it really matter? ... If you can't confirm this than items are addressed after a creation re-run"; then, after that run, "address outstanding items" | One class, `BriefChoiceWords`, puts each choice into words ("in-market (actively researching and comparing options to buy now)"), and every prompt that prints the brief reads it. The opening's three tables keyed by every code are replaced by this brief's own row. Whether the codes cost anything was never confirmed; a code is now never what a writer is shown |
+| 7. The hook is written without the operator's problem | After the re-run; then "address outstanding items" | The blog's and the tool page's opening call is given the problem the operator named (`GccNicheFraming.HookGuidance`), and not the failures or the answer, which stay on the first body section. A tool with its own problem gives its own |
+| 8. Taxonomy path | After the re-run; then "address outstanding items" | A first level that is not a department refuses the run at the brief's gate, before a job exists or a page is deleted, naming what was typed and the five departments. The form says so as the path is typed and lists it with what Generate is missing. A path typed with an arrow character is split like one typed with `->`. The later levels are the operator's record and are read by nothing, which is what the field's own help says: the directory under the department comes from the topic |
+| 9. The brief printed two or three times | After the re-run; then "address outstanding items" | Each pillar, blog and tool page call prints the brief once. The source context no longer repeats it, and the title-and-outline calls, which had it only through that copy, print it themselves |
 | The call to action type and label | "Remove/comment out CTA fields. They may have a purpose after the backfill" | Deleted from the form and from GeekAPI, which no longer requires `ctaType`. Values saved before stay in `gcc_project_revisions` |
 
 `BriefFieldReachTests` is re-recorded: the three removed fields are out of it, and the lines for
-gaps 2, 3 and 5 changed with the code. One `# GAP` line is left, gap 8.
+gaps 2, 3, 5 and 7 changed with the code. No `# GAP` line is left. Two tests were added with gaps 6
+and 9: no call is shown a choice as the code the form stores, and no call is told the brief twice.
+
+None of the five projects that carry a taxonomy path is refused by gap 8's check: each starts with
+"Accounting" (read from the projects on 2026-10-10).
 
 A brief saved from the form after this no longer carries `ctaType`, `ctaLabel` or `writingNotes`.
 

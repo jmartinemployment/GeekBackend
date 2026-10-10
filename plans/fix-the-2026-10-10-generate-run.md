@@ -271,22 +271,37 @@ The trial's script and data are not in the repository.
 - No prompt gains a count or a length. No FAQ or quotation rule is loosened. No second model call
   after a failed check.
 - No re-chunking, no re-index, no new tags, no fusion weights, no Qdrant upgrade, no Cohere.
-- **Four questions no code can answer.** Three of Bill's (historical averages instead of the AI
+- **Three questions no code can answer,** all Bill's (historical averages instead of the AI
   models; how far out the forecast runs; whether the dashboard splits payment types): nothing in
-  bill.com's 599 crawled pages says. One of Chaserhq's (editing the forecast by hand): the page
-  found does not say; Chaser's crawl has two more forecast pages the search did not return. A
-  question the partner's pages do not answer is listed on every run until it is taken out of the
-  brief or a page that answers it is crawled. BILL's forecasting detail is most likely on its help
-  centre, which is not in the crawl. Jeff's call which.
-- **Junk in bill.com's crawl,** seen and left: the `/listicle` template stub, nine legal pages and an
-  engineering post are all in the evidence. Change 6 stops one page taking 12 quotation slots.
-  Nothing pushes the rest down: the models tried rank them as high as the search does. Removing
-  them from the crawl is separate work.
+  bill.com's 599 crawled pages says. A question the partner's pages do not answer is listed on
+  every run until it is taken out of the brief or a page that answers it is crawled. BILL's
+  forecasting detail is most likely on its help centre, which is not in the crawl and is another
+  host, so its pages would not be searched for bill.com's questions. Jeff's call.
+- **Chaserhq's one question is answered in its crawl, and the search missed it** (read 2026-10-10,
+  correcting "the page found does not say"). The question is "Can the automated forecast be
+  manually modified for unexpected adjustments?". `/cash-flow-forecast`, crawled, says "Use custom
+  rules, add manual entries, and apply overrides to model cash flow your way" and "blend automated
+  ledger feeds, real-time receivables data, and manual entries". The search returned one section
+  each of `/features/revenue-forecast`, `/integrations/quickbooks-online` and `/integrations/xero`.
+  The question shares one word with the answer ("forecast"), and the pages returned repeat
+  "manual" and "adjust". Where the answering section ranks was not measured: no route of GeekAPI's
+  runs a search without a model call. Worded as the page words it, the question should find it:
+  "Can I add manual entries or apply overrides to Chaser's cash flow forecast?". Not verified.
+- **Junk in bill.com's crawl.** Fixed for the legal pages and the `/listicle` template stub: a
+  legal document or a page still carrying a page-builder's placeholder text is not evidence for
+  any writer or any FAQ answer, and what was left out is on the run log (`left-out`, `bacf85f`).
+  BILL's engineering post stays: it is a real page of BILL's that a search matched, and there is
+  no rule that tells an off-topic page from an on-topic one. Change 6 stops any one page taking
+  more than its share of the quotation list.
 - **Bill's other two questions** ("test the impact of hiring or major purchases", "custom
   visualizations for non-standard expense tracking"). The crawl's one paragraph on forecasting says
-  "what if" simulations and customised views and dashboards, and the writer, shown it, did not
-  answer either question from it. They are listed until they are reworded to what BILL's page says,
-  taken out, or a page that answers them is crawled. Jeff's call.
+  it lets you "run 'what if' simulations" and "customize views and dashboards", and the writer,
+  shown it, did not answer either question from it: the page says nothing of hiring, purchases or
+  expense tracking. Worded as the page words them: "Can I run 'what if' simulations on my cash flow
+  forecast?" and "Can I customize the forecasting views and dashboards?". Jeff's call.
+- **A later question's passages are no longer discarded** when an earlier question returned
+  something from the same page (`3dc6eb8`). Found while reading this run; it changes what every
+  writer is given, and is not yet seen in a real run.
 
 ## Order
 
@@ -302,6 +317,18 @@ Changes 7 and 8 are not in the order any more.
 Bill's five questions and Chaserhq's one, and nothing else if each page has two more places for the
 phrase. Six lines instead of 29. No code in this plan removes those six: they go when the questions
 are reworded or leave the brief, or when a page that answers them is crawled.
+
+With the three rewordings under "Not changed" saved and Bill's other three questions taken out, the
+list should be empty. That rests on the reworded questions finding the paragraphs they are worded
+from, which is not verified.
+
+**Also changed since, and so also new to the next run** (2026-10-10, after "address outstanding
+items"): a later question keeps its passages on a page an earlier question returned; a legal
+document or an unfinished template is not evidence (a question shown one is shown fewer passages,
+and a `left-out` event lists them); each call prints the brief once, in words; a blog's and a tool
+page's hook is told the operator's problem. None changes a check, so none should add a line. A
+question whose only passages were legal pages or template stubs would now read "a search found
+nothing"; none of the six was in that state on the 12:14 run.
 
 ## Verification
 

@@ -136,6 +136,13 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
    with gaps reported. No retries.
 5. The runner records `completed` or `failure`, writes the job row, and pushes over SignalR.
 
+**The brief, as a writer is given it.** Each pillar, blog and tool page call prints the brief once. A choice the form stores
+as a code (`in_market`, `commercial_investigation`) is put into words by `BriefChoiceWords`, the one place every prompt reads.
+The pillar's opening carries the operator's whole framing; a blog's and a tool page's opening carries the problem alone
+(`GccNicheFraming.HookGuidance`). The brief's gate (`GccGenerateService.ValidateBriefRequired`, read by both Generate routes)
+refuses a missing required field and a taxonomy path whose first level is not one of `Departments.Slugs`: that level is the
+department directory of every address the run builds. `BriefFieldReachTests` records which field reaches which call.
+
 **Checks (`GccDraftGuard`).** Refuse: names-product, quotation and one-quotation (tool), no-quotation (pillar, blog),
 tools-section, heading-provenance, unlisted-tools, links, link-text (a link may sit on 12 words at most), numbers, currency,
 questions-quiz. Report only: partner-mentions, closing-link, opening-links, blockquote-missing (tool), keyword-density
