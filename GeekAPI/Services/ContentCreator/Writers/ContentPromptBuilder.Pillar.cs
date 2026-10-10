@@ -375,7 +375,8 @@ public partial class ContentPromptBuilder
                 context.TargetKeyword, GccLongFormTypes.Pillar,
                 // The lede wrote fullOutline[0], so the body's own sections are what remains.
                 slots.Count, Math.Max(slots.Count, fullOutline.Count - 1),
-                SectionSlot.BatchOwnsKeywordHeading(slots, fullOutline, batchIndex)))
+                SectionSlot.BatchOwnsKeywordHeading(slots, fullOutline, batchIndex),
+                SectionSlot.KeywordHeadingOwnerIn(slots)?.Label))
             .AppendLine($"Target {ContentLengthTargets.PillarSectionMinWords}-{ContentLengthTargets.PillarSectionTargetMaxWords} words for EACH section.")
             .AppendLine(namesItsOwn
                 ? "Write these sections, in this order. Each numbered entry says what the section must cover; you write its heading:"

@@ -156,6 +156,7 @@ public static partial class GccDraftGuard
         AddCurrencyFindings(document, inputs, findings);
         AddLengthFinding(document, inputs, findings, "tool page");
         AddKeywordFindings(document, inputs, findings, "tool page");
+        AddKeywordHeadingFindings(document, inputs, findings, "tool page");
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
     }
@@ -238,6 +239,7 @@ public static partial class GccDraftGuard
 
         AddLengthFinding(document, inputs, findings, type);
         AddKeywordFindings(document, inputs, findings, type);
+        AddKeywordHeadingFindings(document, inputs, findings, type);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
     }
@@ -310,6 +312,61 @@ public static partial class GccDraftGuard
                 $"{used} Its SEO score allows {GcwSeoAnalyzer.MaxKeywordDensityPercent:0.0}%; it reads stuffed.",
                 Refuses: false));
         }
+    }
+
+    /// <summary>The words that say a piece of work is done by hand, which a keyword beginning "Automated" cannot follow.</summary>
+    private static readonly string[] ByHandWords = ["manual", "manually"];
+
+    /// <summary>
+    /// The keyword's heading, judged once and by the page's own score: whether any heading on the
+    /// finished page carries the exact phrase (<see cref="GcwSeoAnalyzer.KeywordInAHeading"/>, the
+    /// report's "Keyword in a heading" check). And whether any heading puts the phrase after "manual",
+    /// which no score reads and a reader does. Both are reported gaps, never refusals.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Until 2026-10-10 the heading was held to the first call. The pillar of that day's run was
+    /// reported -- "sections 1-2 has no heading containing ..." -- with eight headings on the page
+    /// carrying the phrase: its first call is two sections about the work done by hand, and the
+    /// writer was right to write none there.
+    /// </para>
+    /// <para>
+    /// The same run's five tool pages each have "The Challenges of Manual Automated Accounts
+    /// Receivable" or "The Cost of Manual Automated Accounts Receivable", and nothing reported it:
+    /// the call was asked for a heading with the phrase, its first section was the problem by hand,
+    /// and the heading passed the check it was held to. The prompt now names the section that takes
+    /// the phrase (<c>SectionSlot.OwnsKeywordHeading</c>); this is what says so if a heading reads
+    /// that way anyway. Only for a keyword that begins "Automat...": a keyword of another shape has
+    /// no word that "manual" contradicts.
+    /// </para>
+    /// </remarks>
+    private static void AddKeywordHeadingFindings(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into, string type)
+    {
+        if (string.IsNullOrWhiteSpace(inputs.Keyword)) return;
+        var phrase = inputs.Keyword.Trim();
+
+        if (!GcwSeoAnalyzer.KeywordInAHeading(JsonSerializer.Serialize(document, GccDocumentJson.Options), phrase))
+        {
+            into.Add(new GccGuardFinding(
+                "keyword-heading",
+                $"The {type} has no heading containing \"{phrase}\". Its SEO score needs one.",
+                Refuses: false));
+        }
+
+        if (!phrase.StartsWith("automat", StringComparison.OrdinalIgnoreCase)) return;
+        var byHand = AllSections(document)
+            .Select(section => section.Heading)
+            .Where(heading => !string.IsNullOrWhiteSpace(heading)
+                && ByHandWords.Any(word => GcwSeoAnalyzer.CountPhraseOccurrences(heading, $"{word} {phrase}") > 0))
+            .Select(heading => $"\"{heading}\"")
+            .ToList();
+        if (byHand.Count == 0) return;
+
+        into.Add(new GccGuardFinding(
+            "keyword-heading-by-hand",
+            $"The {type} puts \"{phrase}\" straight after \"manual\" in a heading: {string.Join(", ", byHand)}. "
+            + "A section about doing the work by hand does not take the keyword in its heading.",
+            Refuses: false));
     }
 
     private static int UsesIn(Section section, string phrase) =>

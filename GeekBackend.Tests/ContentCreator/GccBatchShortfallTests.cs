@@ -6,8 +6,8 @@ using Xunit;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// What a batch of a page owes when it comes back: its words, and the keyword's heading when it is
-/// the batch that carries it. Not a keyword count.
+/// What a batch of a page owes when it comes back: its words. Not a keyword count, and not the
+/// keyword's heading.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,6 +21,12 @@ namespace GeekBackend.Tests.ContentCreator;
 /// on pages the score passed. Jeff, 2026-10-10: "Do not rely on the LLM to count its own keyword
 /// usage." A batch's uses are counted for the run's record and owed to nothing; the page is judged
 /// once, by its score, in <c>GccDraftGuard</c>.
+/// </para>
+/// <para>
+/// The heading was owed by the first call until 2026-10-10. That day's pillar was reported for a first
+/// call with no keyword heading while eight of its later headings carried the phrase, and every tool
+/// page's first call met the check with "... Manual Automated Accounts Receivable". Whether the page
+/// has a keyword heading is judged on the finished page (<c>GccDraftGuardTests</c>).
 /// </para>
 /// </remarks>
 public sealed class GccBatchShortfallTests
@@ -39,12 +45,11 @@ public sealed class GccBatchShortfallTests
     private static Section H2(string heading, params string[] paragraphs) =>
         new("h2", heading, [.. paragraphs.Select(p => (Paragraph)new TextParagraph([new Run(p)]))], null, []);
 
-    private static IReadOnlyList<GccGenerateService.BatchShortfall> Owed(
-        IReadOnlyList<Section> sections, string? keyword = Keyword, bool heading = true) =>
-        GccGenerateService.BatchShortfalls(sections, TwoSlots, Label, keyword, heading);
+    private static string? UnderFloor(IReadOnlyList<Section> sections) =>
+        GccGenerateService.BatchUnderFloor(sections, TwoSlots, Label);
 
     [Fact]
-    public void A_batch_that_delivers_its_words_and_its_heading_owes_nothing()
+    public void A_batch_that_delivers_its_words_owes_nothing()
     {
         Section[] sections =
         [
@@ -52,7 +57,7 @@ public sealed class GccBatchShortfallTests
             H2("How the routing is set up", Words(500), "With automated approval workflows the approver is named up front."),
         ];
 
-        Assert.Empty(Owed(sections));
+        Assert.Null(UnderFloor(sections));
     }
 
     [Fact]
@@ -64,20 +69,20 @@ public sealed class GccBatchShortfallTests
             H2("How it is set up", "Automated Approval Workflows again."),
         ];
 
-        var shortfall = Assert.Single(Owed(sections));
+        var shortfall = UnderFloor(sections);
 
-        Assert.StartsWith(Label + " is ", shortfall.Report, StringComparison.Ordinal);
-        Assert.EndsWith("words against a 1,100-word floor", shortfall.Report, StringComparison.Ordinal);
-        // The page's to answer for: listed only when the finished page is under its own floor.
-        Assert.True(shortfall.IsLength);
+        // Listed only when the finished page is under its own floor (GccDraftIsGuardedOnceTests).
+        Assert.NotNull(shortfall);
+        Assert.StartsWith(Label + " is ", shortfall, StringComparison.Ordinal);
+        Assert.EndsWith("words against a 1,100-word floor", shortfall, StringComparison.Ordinal);
     }
 
     [Fact]
     public void No_count_of_the_keyword_is_owed_by_a_batch()
     {
         // What the Stampli page of 2026-10-05 did: "approval workflows" and "automated workflows"
-        // throughout, the phrase itself rarely. A batch that has its words and its heading is not warned
-        // for it; the page is, once, by its score.
+        // throughout, the phrase itself rarely. A batch that has its words is not warned for it; the
+        // page is, once, by its score.
         Section[] sections =
         [
             H2(
@@ -87,7 +92,7 @@ public sealed class GccBatchShortfallTests
             H2("How it is set up", Words(520), "The approvers are configured once."),
         ];
 
-        Assert.Empty(Owed(sections));
+        Assert.Null(UnderFloor(sections));
     }
 
     [Fact]
@@ -117,35 +122,29 @@ public sealed class GccBatchShortfallTests
             H2("How it is set up", Words(520), "Automated Data Entry & Processing starts with capture."),
         ];
 
-        Assert.Empty(Owed(sections, keyword: "Automated Data Entry & Processing"));
         Assert.Equal(3, GccGenerateService.KeywordUses(sections, "Automated Data Entry & Processing"));
     }
 
     [Fact]
-    public void The_batch_that_carries_the_keywords_heading_is_told_when_no_heading_has_it()
+    public void No_heading_is_owed_by_a_batch()
     {
-        // The two headings the Stampli page actually wrote. Each is one word away from the keyword.
+        // The two headings the Stampli page actually wrote. Each is one word away from the keyword, and
+        // the call has its words: nothing is said of the call. The page says it, once, if no heading on
+        // it carries the phrase.
         Section[] sections =
         [
             H2("The Challenges of Manual Approval Workflows", Words(650), "Automated Approval Workflows. Automated Approval Workflows."),
             H2("How Stampli Transforms Approval Workflows", Words(520), "Automated Approval Workflows."),
         ];
 
-        var shortfall = Assert.Single(Owed(sections));
-
-        Assert.Equal(Label + " has no heading containing \"Automated Approval Workflows\"", shortfall.Report);
-        Assert.False(shortfall.IsLength);
-        // A later batch does not carry that heading and is not asked for it.
-        Assert.Empty(Owed(sections, heading: false));
+        Assert.Null(UnderFloor(sections));
     }
 
     [Fact]
-    public void A_page_with_no_keyword_owes_its_words_and_nothing_else()
+    public void Slots_that_declare_no_floor_owe_no_words()
     {
-        Section[] sections = [H2("One", Words(300)), H2("Two", Words(300))];
+        Section[] sections = [H2("One", Words(30)), H2("Two", Words(30))];
 
-        var shortfall = Assert.Single(Owed(sections, keyword: "  "));
-
-        Assert.StartsWith(Label + " is ", shortfall.Report, StringComparison.Ordinal);
+        Assert.Null(GccGenerateService.BatchUnderFloor(sections, [SectionSlot.Cover("one"), SectionSlot.Cover("two")], Label));
     }
 }

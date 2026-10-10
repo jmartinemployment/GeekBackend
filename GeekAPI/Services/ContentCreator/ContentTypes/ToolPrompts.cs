@@ -61,10 +61,14 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
         return SectionSlot.WithOwedWords(
         [
             Opening(context.ContentAngle, product, keyword, niche),
+            // The page's keyword heading belongs here: this is the first section about the work once the product
+            // does it. The one before it opens on the problem as the reader has it today, by hand, and a
+            // heading there cannot carry "Automated ..." without contradicting what the section covers.
             SectionSlot.Cover(
                 $"what {product} actually does, stated as what it removes from the reader's week rather than as a feature list",
                 "600-850 words",
-                $"Every capability lands with its consequence -- hours returned, errors removed, a job that stops needing a person. A capability without one is a spec sheet, and they can already read {product}'s own."),
+                $"Every capability lands with its consequence -- hours returned, errors removed, a job that stops needing a person. A capability without one is a spec sheet, and they can already read {product}'s own.")
+                with { OwnsKeywordHeading = true },
             SectionSlot.Cover(
                 $"how {product} works: its real mechanics, step by step",
                 "500-700 words",

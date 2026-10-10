@@ -238,8 +238,10 @@ public class ContentPromptBuilderSectionBatchTests
     {
         // The scorer wants at least one H2 carrying the keyword and the outline rules cap it at
         // two, so asking every batch for one puts it in half the headings on a six-section page.
+        // An outline that names the section says "Its H2 contains the exact phrase"; one that names
+        // none says "at least one H2 contains the exact phrase" (GccKeywordHeadingOwnerTests).
         Assert.Contains(
-            $"at least one H2 contains the exact phrase \"{Context().TargetKeyword}\"",
+            $"H2 contains the exact phrase \"{Context().TargetKeyword}\"",
             FirstBatch(type),
             StringComparison.Ordinal);
         Assert.Contains(

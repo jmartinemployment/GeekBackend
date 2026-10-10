@@ -41,7 +41,10 @@ public class GccDraftIsGuardedOnceTests
     /// headings, to put a refusing fault in the draft.
     /// </summary>
     private sealed class ScriptedProvider(
-        string? heading = null, bool keyword = false, Func<int, int>? wordsForCall = null) : IContentGenerationProvider
+        string? heading = null,
+        bool keyword = false,
+        Func<int, int>? wordsForCall = null,
+        Func<int, string>? headingForCall = null) : IContentGenerationProvider
     {
         private int _bodyCalls;
 
@@ -91,7 +94,7 @@ public class GccDraftIsGuardedOnceTests
         private string Batch(int call)
         {
             var letter = (char)('A' + (call % 26));
-            var title = heading ?? (keyword
+            var title = headingForCall?.Invoke(call) ?? heading ?? (keyword
                 ? $"What AI implementation changes in part {letter}"
                 : $"Planned section {letter}");
             // What a body call writes when the test sizes it: that many words and nothing else.
@@ -253,6 +256,32 @@ public class GccDraftIsGuardedOnceTests
         Assert.DoesNotContain(warnings, w => w.Contains("retry", StringComparison.OrdinalIgnoreCase));
         // One call for each pair of body sections, and no second call for any of them.
         Assert.Equal(GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts.BodySectionCount / GeekAPI.Services.ContentCreator.GccGenerateService.SectionsPerBatch, provider.BodyCalls);
+    }
+
+    [Fact]
+    public async Task A_page_with_no_keyword_heading_says_so_once_for_the_page_and_names_no_call()
+    {
+        var provider = new ScriptedProvider();
+
+        var (_, warnings) = await Pillar(provider);
+
+        var line = Assert.Single(warnings, w => w.Contains("has no heading containing", StringComparison.Ordinal));
+        Assert.Equal("The pillar has no heading containing \"AI implementation\". Its SEO score needs one.", line);
+    }
+
+    [Fact]
+    public async Task A_first_call_with_no_keyword_heading_is_not_reported_when_a_later_heading_carries_it()
+    {
+        // The pillar of 2026-10-10: its first call is two sections on the work done by hand, and eight
+        // of its later headings carried the phrase. It was reported for the first call.
+        var provider = new ScriptedProvider(headingForCall: call => call == 0
+            ? "Where the hours go today"
+            : $"How AI implementation works in step {call}");
+
+        var (body, warnings) = await Pillar(provider);
+
+        Assert.Contains("Where the hours go today", body.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(warnings, w => w.Contains("has no heading containing", StringComparison.Ordinal));
     }
 
     [Fact]

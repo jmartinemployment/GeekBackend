@@ -48,6 +48,17 @@ public static class GcwSeoAnalyzer
     public static int CountWords(string bodyDocumentJson) =>
         Tokenize(GcwBodyDocument.Read(bodyDocumentJson).PlainText).Count;
 
+    /// <summary>
+    /// Whether any heading of a stored body carries the exact phrase: the report's "Keyword in a
+    /// heading" check, by the same reader and the same match. The opening's heading counts, as it
+    /// does there.
+    /// </summary>
+    public static bool KeywordInAHeading(string bodyDocumentJson, string keyword) =>
+        HeadingsCarry(GcwBodyDocument.Read(bodyDocumentJson).Headings, (keyword ?? "").Trim());
+
+    private static bool HeadingsCarry(IEnumerable<string> headings, string keyword) =>
+        headings.Any(h => ContainsPhrase(h, keyword));
+
     private static KeywordCount CountKeywordIn(string plainText, string keyword)
     {
         var words = Tokenize(plainText).Count;
@@ -96,7 +107,7 @@ public static class GcwSeoAnalyzer
                 inLede ? "Lede includes the target keyword." : "Lede does not include the target keyword.",
                 inLede ? null : $"Include “{keyword}” naturally in the opening lede."));
 
-            var inHeading = headings.Any(h => ContainsPhrase(h, keyword));
+            var inHeading = HeadingsCarry(headings, keyword);
             checks.Add(new SeoCheck(
                 "keyword-in-heading",
                 "Keyword in a heading",

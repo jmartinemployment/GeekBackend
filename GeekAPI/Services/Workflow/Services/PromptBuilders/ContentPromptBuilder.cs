@@ -461,6 +461,11 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <param name="ownsTheKeywordHeading">Whether this call carries the page's keyword-bearing H2.
     /// The scorer wants at least one and the outline rules cap it at two, so exactly one call is
     /// asked for it -- told to every batch, a six-section page comes back with three.</param>
+    /// <param name="keywordHeadingSection">What the section that carries that heading covers, when the
+    /// outline names one (<see cref="SectionSlot.KeywordHeadingOwnerIn"/>). The call is then told which
+    /// of its sections takes the phrase. Told only "at least one H2", a call whose first section is
+    /// the work done by hand put it there: "The Challenges of Manual Automated Accounts Receivable",
+    /// on every tool page of 2026-10-10.</param>
     /// <summary>
     /// What the body is scored on, as told to the writer: the length, the sections, the keyword's
     /// heading, direct answers and lists. Not a keyword count.
@@ -479,7 +484,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         string contentType,
         int sectionsInThisCall,
         int sectionsInThePage,
-        bool ownsTheKeywordHeading)
+        bool ownsTheKeywordHeading,
+        string? keywordHeadingSection = null)
     {
         var (minWords, minSections, _) = GccLongFormTypes.GetSeoLengthRules(contentType);
         var perSection = minWords / Math.Max(minSections + 2, 1);
@@ -505,7 +511,15 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                   + "has more to say. Each one covers something the others do not."
                 : $"SECTIONS: exactly the {sectionsInThisCall} top-level sections you were assigned, "
                   + "each covering something the others -- yours and the other calls' -- do not.")
-            .AppendLine(ownsTheKeywordHeading
+            .AppendLine(ownsTheKeywordHeading && !string.IsNullOrWhiteSpace(keywordHeadingSection)
+                ? $"HEADINGS: the page's keyword-bearing H2 is one of yours: the section that covers "
+                  + $"\"{keywordHeadingSection}\". Its H2 contains the exact phrase \"{keyword}\" -- that "
+                  + "phrase, word for word, not a variant of it. None of your other headings needs "
+                  + $"\"{keyword}\" in it -- put it in one only where it is the natural phrasing anyway. "
+                  + "Headings answer the question a reader arrived with -- \"What it costs to keep doing "
+                  + "this by hand\" rather than \"Overview\" -- because a heading that names its question "
+                  + "is the one a search engine and an answer engine can both use."
+                : ownsTheKeywordHeading
                 ? $"HEADINGS: at least one H2 contains the exact phrase \"{keyword}\" -- that phrase, "
                   + "word for word, not a variant of it. Headings answer the question a "
                   + "reader arrived with -- \"What it costs to keep doing this by hand\" rather than "
@@ -2259,7 +2273,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccLongFormTypes.Blog,
                 blogBatch.Count, blogOutline.Count,
-                SectionSlot.BatchOwnsKeywordHeading(blogBatch, blogOutline, batchIndex)))
+                SectionSlot.BatchOwnsKeywordHeading(blogBatch, blogOutline, batchIndex),
+                SectionSlot.KeywordHeadingOwnerIn(blogBatch)?.Label))
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine($"Blog title: {metadata.Title}")
             .AppendLine($"Blog meta description: {metadata.MetaDescription}")
@@ -2677,7 +2692,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(SeoBodyInstruction(
                 context.TargetKeyword, GccLongFormTypes.Tool,
                 outline.Count, Math.Max(outline.Count, fullOutline?.Count ?? outline.Count),
-                SectionSlot.BatchOwnsKeywordHeading(outline, fullOutline, batchIndex)))
+                SectionSlot.BatchOwnsKeywordHeading(outline, fullOutline, batchIndex),
+                SectionSlot.KeywordHeadingOwnerIn(outline)?.Label))
             // The batch's own floor, not the page's. This used to print ContentLengthTargets.
             // ToolTargetMinWords-ToolTargetMaxWords -- the whole page's 3,500-5,000 words -- under
             // "the sections above", so a 2-of-6 batch was told it owed the full page's word count

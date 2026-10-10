@@ -1583,7 +1583,6 @@ public partial class GccGenerateService
                 toolType.OutlineFor(toolOutlineCtx),
                 $"Tool page '{name}'",
                 ct,
-                shortfalls,
                 callsUnderFloor);
 
             // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a
@@ -2555,7 +2554,6 @@ public partial class GccGenerateService
                 blogOutline,
                 "Blog body",
                 ct,
-                shortfalls,
                 callsUnderFloor);
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
@@ -3351,7 +3349,6 @@ public partial class GccGenerateService
         IReadOnlyList<SectionSlot> outline,
         string label,
         CancellationToken ct,
-        List<string>? shortfalls = null,
         List<string>? callsUnderFloor = null)
     {
         var written = new List<Section>();
@@ -3371,33 +3368,26 @@ public partial class GccGenerateService
             };
             var sections = await WriteBatchAsync(llm, type, batchCtx, batchLabel, outline.Count, ct);
 
-            // What the batch owes of its page, measured the moment it comes back: its words, and -- for
-            // the batch that carries it -- the keyword's heading.
+            // What the batch owes of its page, measured the moment it comes back: its words.
             //
-            // Length came first: the tool outline sizes every section ("600-850 words"), and a batch
-            // under the sum of its lower figures has not written its share -- 2,108 words against
-            // 3,000, 2026-10-03. The keyword's heading joins it because the writer was told it and held
-            // to nothing: every draft of 2026-10-05 scored 40 on the page's own SEO report, failing
-            // "keyword in a heading" and "keyword density", and the only place that said so was a
-            // report the operator opened afterwards (Jeff: "these SEO hints should already be applied
-            // to all content types").
+            // The tool outline sizes every section ("600-850 words"), and a batch under its floor has
+            // not written its share -- 2,108 words against 3,000, 2026-10-03. Nothing is written again
+            // (Jeff, 2026-10-06: no retries). The shortfall is reported only if the page turns out short
+            // (GuardedDraftAsync): a call's floor is its share of the page's, and the run of 2026-10-10
+            // listed 17 calls under theirs on seven pages that were all over their own.
             //
-            // The keyword's count is not a batch's to owe (Jeff, 2026-10-10: "Do not rely on the LLM to
-            // count its own keyword usage"). The writer writes; GccKeywordRemap puts the exact phrase
-            // back where the writer shortened it; the finished page is judged by its own score, once.
-            // What a batch used is on the record here, so the writer's own rate is readable call by call.
+            // Neither the keyword's count nor its heading is a batch's to owe. The count: Jeff,
+            // 2026-10-10, "Do not rely on the LLM to count its own keyword usage" -- the writer writes,
+            // GccKeywordRemap puts the exact phrase back where the writer shortened it, and the page is
+            // judged by its own score, once. The heading: one call is asked for it, on the section its
+            // outline names (SectionSlot.BatchOwnsKeywordHeading, the rule every body prompt hands
+            // SeoBodyInstruction), and whether the page has one is judged on the finished page by
+            // GccDraftGuard. Held to the call, the pillar of 2026-10-10 was reported for a first call
+            // with no keyword heading while eight of its later headings carried the phrase.
             //
-            // Nothing is written again (Jeff, 2026-10-06: no retries). What the batch is short of is
-            // reported with the draft rather than refused: the page is saved and says what it is short of.
-            //
-            // Its words are reported only if the page turns out short (GuardedDraftAsync): a call's floor
-            // is its share of the page's, and the run of 2026-10-10 listed 17 calls under theirs on seven
-            // pages that were all over their own.
-            //
-            // The batch that carries the page's keyword heading: the same rule every body prompt hands
-            // SeoBodyInstruction, from the one definition (SectionSlot.BatchOwnsKeywordHeading).
-            var owesKeywordHeading = SectionSlot.BatchOwnsKeywordHeading(batch, outline, i / SectionsPerBatch);
-            var owed = BatchShortfalls(sections, batch, batchLabel, keyword, owesKeywordHeading);
+            // What the call used and wrote is on the record here, so the writer's own rate, and whether
+            // the call that was asked for the heading wrote it, are readable call by call.
+            var underFloor = BatchUnderFloor(sections, batch, batchLabel);
             await GccRunLog.RecordIfAnyAsync("batch", new
             {
                 batch = batchLabel,
@@ -3407,23 +3397,15 @@ public partial class GccGenerateService
                 floor = BatchFloorWords(batch),
                 words = ContentDocumentText.CountWords(sections),
                 keywordUses = KeywordUses(sections, keyword),
+                askedForKeywordHeading = SectionSlot.BatchOwnsKeywordHeading(batch, outline, i / SectionsPerBatch),
                 headings = sections.Select(x => x.Heading).ToList(),
-                shortfalls = owed.Select(o => o.Report).ToList(),
+                shortfalls = underFloor is null ? new List<string>() : [underFloor],
             });
-            foreach (var shortfall in owed)
+            if (underFloor is not null)
             {
-                if (shortfall.IsLength)
-                {
-                    // Held for the page's own verdict: listed beside the page's length line, or not at all.
-                    _logger.LogInformation("{Shortfall}.", shortfall.Report);
-                    callsUnderFloor?.Add($"{shortfall.Report}.");
-                    continue;
-                }
-
-                // Reported, not only logged: the shortfall travels with the draft into its
-                // warnings, so the operator sees it beside the version rather than in a log.
-                _logger.LogWarning("{Shortfall}.", shortfall.Report);
-                shortfalls?.Add($"{shortfall.Report}.");
+                // Held for the page's own verdict: listed beside the page's length line, or not at all.
+                _logger.LogInformation("{Shortfall}.", underFloor);
+                callsUnderFloor?.Add($"{underFloor}.");
             }
 
             written.AddRange(sections);
@@ -3515,50 +3497,23 @@ public partial class GccGenerateService
         return total;
     }
 
-    /// <summary>One thing a batch owes its page that an attempt at it did not deliver.</summary>
-    /// <param name="Report">What the operator is told, as the start of a sentence.</param>
-    /// <param name="IsLength">True for words under the call's floor, which is the page's to answer
-    /// for: it is reported only when the finished page is under its own floor.</param>
-    internal sealed record BatchShortfall(string Report, bool IsLength);
-
     /// <summary>
-    /// What an attempt at a batch is short of: words against the floor its slots declare, and the
-    /// keyword's heading when this batch carries it. Not the keyword's count: the writer is asked for
-    /// none (Jeff, 2026-10-10), <see cref="Guardrail.GccKeywordRemap"/> puts the exact phrase back
-    /// where the writer shortened it, and the finished page is judged by its score, once, in
-    /// <see cref="Guardrail.GccDraftGuard"/>.
+    /// What a call is short of the word floor its slots declare, as the start of a sentence the
+    /// operator reads; null when it reached its floor or its slots carry none.
     /// </summary>
     /// <remarks>
-    /// Read by the scorer's own reader and phrase counter (<see cref="Gcw.GcwBodyDocument"/>,
-    /// <see cref="Gcw.GcwSeoAnalyzer"/>), over the batch's sections as a document: the same text,
-    /// the same headings and the same match the SEO report will use on the finished page. A second
-    /// way of counting here is how a batch would pass this and the page still fail that.
+    /// The page's to answer for: listed only when the finished page is under its own floor
+    /// (<see cref="GuardedDraftAsync"/>). The keyword's count and its heading are not a call's to owe
+    /// either; both are judged once, on the finished page, in <see cref="Guardrail.GccDraftGuard"/>.
     /// </remarks>
-    internal static IReadOnlyList<BatchShortfall> BatchShortfalls(
-        IReadOnlyList<Section> sections,
-        IReadOnlyList<SectionSlot> batch,
-        string batchLabel,
-        string? keyword,
-        bool owesKeywordHeading)
+    internal static string? BatchUnderFloor(
+        IReadOnlyList<Section> sections, IReadOnlyList<SectionSlot> batch, string batchLabel)
     {
-        var found = new List<BatchShortfall>();
-
         var floor = BatchFloorWords(batch);
         var words = ContentDocumentText.CountWords(sections);
-        if (floor > 0 && words < floor)
-        {
-            found.Add(new BatchShortfall($"{batchLabel} is {words:N0} words against a {floor:N0}-word floor", IsLength: true));
-        }
-
-        if (!owesKeywordHeading || string.IsNullOrWhiteSpace(keyword)) return found;
-
-        var phrase = keyword.Trim();
-        if (!ReadAsScorer(sections).Headings.Any(h => Gcw.GcwSeoAnalyzer.CountPhraseOccurrences(h, phrase) > 0))
-        {
-            found.Add(new BatchShortfall($"{batchLabel} has no heading containing \"{phrase}\"", IsLength: false));
-        }
-
-        return found;
+        return floor > 0 && words < floor
+            ? $"{batchLabel} is {words:N0} words against a {floor:N0}-word floor"
+            : null;
     }
 
     /// <summary>

@@ -184,7 +184,6 @@ public partial class GccGenerateService
                 [.. pillarOutline.Skip(1)],
                 "Pillar body",
                 ct,
-                shortfalls,
                 callsUnderFloor);
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written

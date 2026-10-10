@@ -55,7 +55,22 @@ public sealed record SectionSlot(
     /// without contradicting what the section covers (the Blog of 2026-10-07 wrote "Manual Approval Workflows"
     /// and was reported as having no keyword heading). Read through <see cref="BatchOwnsKeywordHeading"/>.
     /// </summary>
+    /// <remarks>
+    /// The Pillar and the Tool page name theirs since 2026-10-10. Until then both left it to the first call,
+    /// and when each became ten sections the first call's first section was the work done by hand: every tool
+    /// page of that day's run has a heading reading "Manual Automated Accounts Receivable", and the pillar,
+    /// whose first call is two by-hand sections, rightly wrote no keyword heading there and was reported for it
+    /// while eight of its later headings carried the phrase.
+    /// </remarks>
     public bool OwnsKeywordHeading { get; init; }
+
+    /// <summary>
+    /// The section in <paramref name="batch"/> that carries the page's keyword heading, or null when the
+    /// outline names none or another call holds it. What the body prompt names to the writer, so the phrase
+    /// goes on that section's heading and not on whichever comes first.
+    /// </summary>
+    public static SectionSlot? KeywordHeadingOwnerIn(IReadOnlyList<SectionSlot> batch) =>
+        batch.FirstOrDefault(slot => slot.OwnsKeywordHeading);
 
     /// <summary>
     /// Whether a call writing <paramref name="batch"/> is the one asked for the page's keyword heading, and the one
@@ -63,8 +78,10 @@ public sealed record SectionSlot(
     /// for something it is not measured on or measured on something it was not asked for.
     /// </summary>
     /// <remarks>
-    /// An outline that names an owner is held to it. One that names none keeps the rule every type had until
-    /// 2026-10-07: the first batch owns it.
+    /// An outline that names an owner asks the call that holds it. One that names none keeps the rule every
+    /// type had until 2026-10-07: the first batch is asked. Every Content Creator type names one; an outline a
+    /// planning call wrote names none. Whether the page has such a heading is judged once, on the finished
+    /// page, by <c>GccDraftGuard</c>; no call is reported for it.
     /// </remarks>
     public static bool BatchOwnsKeywordHeading(
         IReadOnlyList<SectionSlot> batch, IReadOnlyList<SectionSlot>? fullOutline, int batchIndex) =>

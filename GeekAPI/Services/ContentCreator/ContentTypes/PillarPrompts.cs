@@ -46,9 +46,11 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
         SectionSlot.Cover(
             "what the status quo costs -- hours, errors, delay, risk, and who absorbs them",
             SectionDepth),
+        // The page's keyword heading belongs here: this is the section about the work once it is automated, so
+        // the exact phrase reads true in its heading. The two before it are about the work as it is done today.
         SectionSlot.Cover(
             "how the approach works end to end: the mechanics, in the order they happen, specific enough that a reader could describe it back",
-            SectionDepth),
+            SectionDepth) with { OwnsKeywordHeading = true },
         SectionSlot.Cover(
             "what separates an implementation that holds up from one that stalls",
             SectionDepth),

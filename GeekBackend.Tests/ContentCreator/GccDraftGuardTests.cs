@@ -25,7 +25,8 @@ public class GccDraftGuardTests
         IReadOnlyList<GccQuoteCandidate>? candidates = null,
         int appended = 0,
         IReadOnlyList<string>? unlistedTools = null,
-        int? pageFloorWords = null) =>
+        int? pageFloorWords = null,
+        string? keyword = null) =>
         new(
             NoEvidence,
             requiredTools ?? [],
@@ -38,6 +39,7 @@ public class GccDraftGuardTests
             ToolBasePath: "/tools",
             ToolPaths: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { RampToolPage },
             UnlistedTools: unlistedTools,
+            Keyword: keyword,
             PageFloorWords: pageFloorWords);
 
     private static Section Body(string heading, params Paragraph[] paragraphs) =>
@@ -105,6 +107,91 @@ public class GccDraftGuardTests
 
         Assert.DoesNotContain(GccDraftGuard.PageLengthCheck, Failed(GccDraftGuard.Pillar(doc, Inputs())));
         Assert.DoesNotContain(GccDraftGuard.PageLengthCheck, Failed(GccDraftGuard.Tool(doc, Inputs())));
+    }
+
+    private const string Receivable = "Automated Accounts Receivable";
+
+    private static IEnumerable<GccGuardVerdict> EveryType(ContentDocument doc, GccGuardInputs inputs) =>
+        [GccDraftGuard.Pillar(doc, inputs), GccDraftGuard.Blog(doc, inputs), GccDraftGuard.Tool(doc, inputs)];
+
+    [Fact]
+    public void A_page_with_no_heading_carrying_the_keyword_says_so_once_and_ships()
+    {
+        var doc = Doc(
+            Body("Where the hours go", Text("Invoices are chased by hand.")),
+            Body("How accounts receivable gets automated", Text("Reminders go out on a schedule.")));
+
+        foreach (var verdict in EveryType(doc, Inputs(keyword: Receivable)))
+        {
+            var finding = Assert.Single(verdict.Findings, f => f.Check == "keyword-heading");
+            Assert.False(finding.Refuses);
+            Assert.EndsWith(
+                "has no heading containing \"Automated Accounts Receivable\". Its SEO score needs one.",
+                finding.Detail,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void A_keyword_heading_anywhere_on_the_page_is_enough_whichever_call_wrote_it()
+    {
+        // The pillar of 2026-10-10: its first call is two sections about the work done by hand, the
+        // writer rightly put no "Automated ..." heading on them, and the page was reported for it with
+        // eight later headings carrying the phrase.
+        var doc = Doc(
+            Body("What is going wrong in collections today", Text("Invoices are chased by hand.")),
+            Body("What late payment costs the business", Text("Cash arrives weeks late.")),
+            Body("How automated accounts receivable works end to end", Text("Reminders go out on a schedule.")));
+
+        foreach (var verdict in EveryType(doc, Inputs(keyword: Receivable)))
+        {
+            Assert.DoesNotContain("keyword-heading", Failed(verdict));
+            Assert.DoesNotContain("keyword-heading-by-hand", Failed(verdict));
+        }
+
+        // The page's score agrees: it is the score's own check that is read.
+        var report = GeekAPI.Services.Gcw.GcwSeoAnalyzer.Analyze(
+            System.Text.Json.JsonSerializer.Serialize(doc, GccDocumentJson.Options), Receivable, "pillar");
+        Assert.True(report.Checks.Single(c => c.Id == "keyword-in-heading").Passed);
+    }
+
+    [Fact]
+    public void A_heading_that_puts_the_keyword_after_manual_is_named_and_the_page_ships()
+    {
+        // Every tool page of 2026-10-10. The score passes the heading, since the phrase is in it, and a
+        // reader does not.
+        var doc = Doc(
+            Body("The Challenges of Manual Automated Accounts Receivable", Text("Invoices are chased by hand.")),
+            Body("How Upflow Runs Automated Accounts Receivable", Text("Reminders go out on a schedule.")));
+
+        foreach (var verdict in EveryType(doc, Inputs(keyword: Receivable)))
+        {
+            var finding = Assert.Single(verdict.Findings, f => f.Check == "keyword-heading-by-hand");
+            Assert.False(finding.Refuses);
+            Assert.Contains("\"The Challenges of Manual Automated Accounts Receivable\"", finding.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("How Upflow Runs", finding.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("keyword-heading", verdict.Findings.Where(f => f != finding).Select(f => f.Check));
+        }
+    }
+
+    [Fact]
+    public void Manual_elsewhere_in_a_heading_or_before_a_keyword_of_another_shape_is_not_named()
+    {
+        var apart = Doc(Body("How Manual Chasing Gives Way to Automated Accounts Receivable", Text("Reminders go out.")));
+        Assert.DoesNotContain("keyword-heading-by-hand", Failed(GccDraftGuard.Tool(apart, Inputs(keyword: Receivable))));
+
+        // "Manual" contradicts a keyword that begins "Automated". It contradicts nothing in this one.
+        var otherShape = Doc(Body("Manual Invoice Capture and What Replaces It", Text("Capture is keyed twice.")));
+        Assert.DoesNotContain("keyword-heading-by-hand", Failed(GccDraftGuard.Tool(otherShape, Inputs(keyword: "Invoice Capture"))));
+    }
+
+    [Fact]
+    public void A_page_with_no_keyword_is_held_to_no_heading_check()
+    {
+        var doc = Doc(Body("The Challenges of Manual Automated Accounts Receivable", Text("Invoices are chased by hand.")));
+
+        Assert.DoesNotContain("keyword-heading", Failed(GccDraftGuard.Pillar(doc, Inputs())));
+        Assert.DoesNotContain("keyword-heading-by-hand", Failed(GccDraftGuard.Pillar(doc, Inputs())));
     }
 
     /// <summary>One paragraph of the Stampli tool page of 2026-10-05, which came back as a single link.</summary>
