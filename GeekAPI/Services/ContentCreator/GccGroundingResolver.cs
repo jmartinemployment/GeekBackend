@@ -69,7 +69,14 @@ public sealed record GccGroundingOutcome(
     /// (<see cref="GccPublisherPositionsReader"/>). Empty when the site crawl was not resolved or the
     /// page has no sections -- and then a warning says so.
     /// </summary>
-    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null)
+    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null,
+    /// <summary>
+    /// What a search of each partner's crawl found for each of the operator's FAQ questions for that
+    /// tool: one entry per question searched, with no pages when the search found nothing. Kept apart
+    /// from <see cref="Pages"/>, so the other writers are given what they were given before. Null when
+    /// this generate writes no tool page, which is when no question was searched for.
+    /// </summary>
+    IReadOnlyList<GccFaqEvidence>? FaqEvidence = null)
 {
     public bool Refused => !string.IsNullOrWhiteSpace(Refusal);
 
@@ -208,6 +215,12 @@ public sealed class GccGroundingResolver(
     /// </summary>
     private const int EvidenceTopK = 8;
 
+    /// <summary>
+    /// Passages per FAQ question. An answer is two to four sentences, and a call of eight questions
+    /// then carries at most the twenty-four passages an FAQ call was shown before each question had
+    /// a search of its own.
+    /// </summary>
+    internal const int FaqTopK = 3;
 
     /// <summary>
     /// The evidence <paramref name="contentType"/> must be able to cite, or empty when it declares
@@ -356,6 +369,10 @@ public sealed class GccGroundingResolver(
         var partnerHostsByRun = new Dictionary<Guid, List<string>>();
         // Partner run -> the host key (bill.com) the brief's per-tool framing is filed under.
         var partnerHostKeyByRun = new Dictionary<Guid, string>();
+        // The operator's FAQ questions are a tool page's alone, so they are searched for only when one
+        // will be written. Null otherwise: "not searched" must stay distinguishable from "found nothing".
+        List<GccFaqEvidence>? faqEvidence =
+            contentTypes.Any(t => string.Equals(Canonical(t), "tool", StringComparison.OrdinalIgnoreCase)) ? [] : null;
 
         foreach (var crawlType in crawlTypes)
         {
@@ -500,6 +517,15 @@ public sealed class GccGroundingResolver(
                     ? PartnerQuestions(create, partnerHostKeyByRun.GetValueOrDefault(runId))
                     : [new PartnerQuestion(BuildNeed(create.Topic, crawlType), null, TopK)];
 
+                // The tool page's FAQ, asked of the partner's own crawl after the questions above. Until
+                // 2026-10-10 these were never asked: the page answered them from whatever the searches
+                // above had brought back, and reported a question none of them was about as one "no
+                // page answers".
+                if (isPartner && faqEvidence is not null)
+                {
+                    questions = [.. questions, .. FaqQuestions(create, partnerHostKeyByRun.GetValueOrDefault(runId))];
+                }
+
                 var pagesReturned = 0;
                 foreach (var question in questions)
                 {
@@ -527,6 +553,16 @@ public sealed class GccGroundingResolver(
                         return GccGroundingOutcome.Refuse(
                             result.Error ?? result.Warning
                             ?? $"The evidence library query failed for {CrawlTypeLabel(crawlType).ToLowerInvariant()} {namesByRun[runId]}.");
+                    }
+
+                    // An FAQ question's passages are filed under the question and go no further: not
+                    // into the pool every writer reads, not into the quotable blocks, and not into the
+                    // count that decides whether this partner returned evidence. A search that found
+                    // nothing is still an entry, because that is what the tool page reports.
+                    if (question.FaqHost is { } faqHost)
+                    {
+                        faqEvidence!.Add(new GccFaqEvidence(faqHost, question.Need, result.Pages));
+                        continue;
                     }
 
                     pagesReturned += result.Pages.Count;
@@ -616,7 +652,7 @@ public sealed class GccGroundingResolver(
             passages.Count, warnings.Count);
 
         return new GccGroundingOutcome(
-            retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages, positions);
+            retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages, positions, faqEvidence);
     }
 
     /// <summary>How a crawl type reads in a message to the operator.</summary>
@@ -661,7 +697,27 @@ public sealed class GccGroundingResolver(
     }
 
     /// <summary>One search of a partner run: the meaning half's text, the keyword half's, and how many passages.</summary>
-    internal sealed record PartnerQuestion(string Need, string? Keyword, int TopK);
+    /// <param name="FaqHost">
+    /// Set when the search is one of the operator's FAQ questions for this host's tool page: the host
+    /// its passages are filed under. Null for every search that feeds the shared pool.
+    /// </param>
+    internal sealed record PartnerQuestion(string Need, string? Keyword, int TopK, string? FaqHost = null);
+
+    /// <summary>
+    /// The operator's FAQ questions for one partner host, each as a search of that partner's crawl:
+    /// the question as written, no keyword half, <see cref="FaqTopK"/> passages. Read through
+    /// <see cref="GccNicheFramingReader.FaqQuestionsForHost"/>, the reader the tool page asks for the
+    /// same questions, so what the page must answer is what the crawl was searched for.
+    /// </summary>
+    internal static IReadOnlyList<PartnerQuestion> FaqQuestions(GccCreateDto create, string? hostKey)
+    {
+        if (string.IsNullOrWhiteSpace(hostKey)) return [];
+        return
+        [
+            .. GccNicheFramingReader.FaqQuestionsForHost(create.BriefJson, hostKey)
+                .Select(q => new PartnerQuestion(q, null, FaqTopK, FaqHost: hostKey)),
+        ];
+    }
 
     /// <summary>
     /// What a partner run is asked, from the brief's niche framing for that host: the core problem

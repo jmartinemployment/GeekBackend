@@ -27,7 +27,16 @@ public sealed record GccPartnerToolSlice(
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
         var narrowed = research is null
             ? new GccResearchDocument(null, Pages)
-            : research with { Quoteables = [.. Pages] };
+            : research with
+            {
+                Quoteables = [.. Pages],
+                // The FAQ searches narrow the same way: this partner's questions, searched in this
+                // partner's crawl. Null stays null -- research that was never searched is not research
+                // that found nothing.
+                FaqEvidence = research.FaqEvidence is null
+                    ? null
+                    : [.. research.FaqEvidence.Where(e => string.Equals(e.Host, Host, StringComparison.OrdinalIgnoreCase))],
+            };
         return create with { ResearchJson = GccResearchFetchService.Serialize(narrowed) };
     }
 }

@@ -41,7 +41,26 @@ public sealed record GccResearchDocument(
     /// argues these as the publisher's own (Jeff, 2026-10-06: "writer needs to use my The Methodology
     /// instead of inventing its own").
     /// </summary>
-    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null);
+    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null,
+    /// <summary>
+    /// What a search of each partner's crawl found for each of the operator's FAQ questions for that
+    /// tool, one entry per question searched. Kept apart from <see cref="Quoteables"/>: these passages
+    /// answer a question, the shared list is what every page is written from, and joining them would
+    /// change what the pillar, the blog and the tool body are given.
+    ///
+    /// <para>
+    /// An entry with no pages is a search that found nothing. A question with no entry was never
+    /// searched for, and null is research that did not go through the search at all -- the tool page
+    /// reports those two differently, so neither is ever written as an empty entry.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<GccFaqEvidence>? FaqEvidence = null);
+
+/// <summary>What one search of one partner's crawl found for one of the operator's FAQ questions.</summary>
+/// <param name="Host">The partner's host key (<c>bill.com</c>), the key the brief files the tool's questions under.</param>
+/// <param name="Question">The question as the operator wrote it, and as the search was asked it.</param>
+/// <param name="Pages">The passages found, by page. Empty when the search found nothing.</param>
+public sealed record GccFaqEvidence(string Host, string Question, IReadOnlyList<GccQuoteablePage> Pages);
 
 /// <summary>One position the publisher states on their own site: a named section and its text.</summary>
 /// <param name="Heading">The section's heading, as written on the site.</param>

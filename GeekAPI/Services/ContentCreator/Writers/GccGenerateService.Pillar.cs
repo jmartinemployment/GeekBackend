@@ -129,6 +129,9 @@ public partial class GccGenerateService
         // again at generation time" (the questions are already operator-curated, by SerpIngestPanel's
         // own selection UI, before they ever reach BriefJson); just stop discarding them.
         Section? pillarFaq = null;
+        // The questions that came back with no answer under them: reported with the draft, beside the
+        // word floor's shortfalls, never a refusal.
+        var pillarFaqGaps = new List<string>();
         var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions;
         if (paaQuestions is { Count: > 0 })
         {
@@ -137,6 +140,7 @@ public partial class GccGenerateService
                 batch => _prompts.BuildArticleFaqSectionPrompt(context, metadata, batch, isRegeneration: false),
                 paaQuestions,
                 "the pillar's People Also Ask",
+                pillarFaqGaps,
                 ct);
         }
 
@@ -188,6 +192,7 @@ public partial class GccGenerateService
             sections = await LinkToolsAsync("the pillar", sections, pillarPromptCtx.Context.KnownCrawlTools ?? []);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (pillarFaq is not null) sections.Add(pillarFaq);
+            shortfalls.AddRange(pillarFaqGaps);
             var whole = new ContentDocument(pillarOpening, sections);
             return new GccDraft(ContentGuardrail.Apply(whole).Document, shortfalls);
         }

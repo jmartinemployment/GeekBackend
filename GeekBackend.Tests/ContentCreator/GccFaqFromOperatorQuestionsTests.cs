@@ -4,6 +4,7 @@ using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
 using GeekAPI.Services.Workflow.Services.SchemaBuilders;
+using GeekApplication.Models.ContentCreator;
 using Xunit;
 
 namespace GeekBackend.Tests.ContentCreator;
@@ -120,5 +121,37 @@ public class GccFaqFromOperatorQuestionsTests
 
         var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("(nothing was retrieved -- answer no question)", user, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 2026-10-10: each question's passages come from a search for that question and are listed under
+    /// its label. The prompt says what the label means, with the label the block actually uses
+    /// (<c>GccToolFaqEvidence.Render</c>), so the two cannot name it differently.
+    /// </summary>
+    [Fact]
+    public void The_tool_faq_prompt_says_the_evidence_is_listed_under_the_question_it_was_found_for()
+    {
+        var evidence = GccToolFaqEvidence.Render(
+        [
+            ("Does it sync with QuickBooks Online?",
+            [
+                new GccQuoteablePage(
+                    "https://partner.test/widget", "Partner Widget", [],
+                    ["Partner Widget syncs every payment to QuickBooks Online."]),
+            ]),
+        ]);
+
+        var request = Builder.BuildToolFaqFromQuestionsPrompt(
+            Context(),
+            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
+            new SoftwareApplicationDescriptor("Partner Widget", null, "https://partner.test/widget"),
+            ["Does it sync with QuickBooks Online?"],
+            evidence);
+
+        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.Contains("\"Found for Q1:\" heads what a search of Partner Widget's pages found for Q1", system, StringComparison.Ordinal);
+        Assert.Contains("- Q1: Does it sync with QuickBooks Online?", user, StringComparison.Ordinal);
+        Assert.Contains("Found for Q1:", user, StringComparison.Ordinal);
     }
 }

@@ -239,9 +239,24 @@ public static class GccNicheFramingReader
     public static IReadOnlyList<string> ToolFaqQuestions(
         string? briefJson,
         IReadOnlyList<string>? partnerUrls,
-        string? productName)
+        string? productName) =>
+        FaqQuestionsForHost(briefJson, HostForProduct(briefJson, partnerUrls, productName));
+
+    /// <summary>
+    /// The operator's FAQ questions for one partner host (the <c>perTool</c> key, e.g.
+    /// <c>bill.com</c>), each once, in the order written.
+    /// </summary>
+    /// <remarks>
+    /// The one reader of a tool's questions. The search of the partner's crawl
+    /// (<c>GccGroundingResolver</c>) and the tool page's FAQ (<see cref="ToolFaqQuestions"/>) both come
+    /// through here, so a question the page is asked to answer is a question the crawl was searched
+    /// for. Until 2026-10-10 only the page read them, after every search was over, and a question
+    /// none of the other searches was about was reported as "no page answers it" when nothing had
+    /// looked.
+    /// </remarks>
+    public static IReadOnlyList<string> FaqQuestionsForHost(string? briefJson, string? host)
     {
-        var host = HostForProduct(briefJson, partnerUrls, productName);
+        host = (host ?? string.Empty).Trim();
         if (host.Length == 0) return [];
         var root = ReadRoot(briefJson);
         if (root is null) return [];
@@ -259,7 +274,8 @@ public static class GccNicheFramingReader
                 continue;
             }
             if (entry.Value.ValueKind != JsonValueKind.Object) return [];
-            return ReadQuestionLines(entry.Value, "faqQuestions");
+            // Each once: a question is what its search is filed under, so a repeated line is one question.
+            return [.. ReadQuestionLines(entry.Value, "faqQuestions").Distinct(StringComparer.Ordinal)];
         }
         return [];
     }
@@ -431,7 +447,7 @@ public static class GccNicheFramingReader
     /// The host whose override applies to <paramref name="productName"/>, or empty when the name
     /// matches no declared partner.
     /// </summary>
-    private static string HostForProduct(
+    internal static string HostForProduct(
         string? briefJson,
         IReadOnlyList<string>? partnerUrls,
         string? productName)

@@ -128,6 +128,44 @@ public class GccPartnerToolSlicesTests
     }
 
     [Fact]
+    public void Narrow_keeps_only_the_faq_searches_made_in_this_partners_crawl()
+    {
+        var create = Create(Page("https://dext.com/a", "Dext A"), Page("https://bill.com/c", "Bill C"));
+        var research = GccResearchFetchService.Deserialize(create.ResearchJson)!;
+        create = create with
+        {
+            ResearchJson = GccResearchFetchService.Serialize(research with
+            {
+                FaqEvidence =
+                [
+                    new GccFaqEvidence("dext.com", "Does Dext read receipts?", [Page("https://dext.com/receipts", "Dext reads receipts.")]),
+                    new GccFaqEvidence("bill.com", "Does Bill pay vendors abroad?", [Page("https://bill.com/intl", "Bill pays abroad.")]),
+                    // A search that found nothing is still this partner's search.
+                    new GccFaqEvidence("dext.com", "Does Dext fly?", []),
+                ],
+            }),
+        };
+        var dext = Assert.Single(GccPartnerToolSlices.Build(create, PartnerUrls, []), s => s.Host == "dext.com");
+
+        var narrowed = GccResearchFetchService.Deserialize(dext.Narrow(create).ResearchJson)!;
+
+        Assert.Equal(["Does Dext read receipts?", "Does Dext fly?"], narrowed.FaqEvidence!.Select(e => e.Question));
+        Assert.All(narrowed.FaqEvidence!, e => Assert.Equal("dext.com", e.Host));
+    }
+
+    [Fact]
+    public void Narrow_leaves_research_that_was_never_searched_as_never_searched()
+    {
+        var create = Create(Page("https://dext.com/a", "Dext A"));
+        var dext = Assert.Single(GccPartnerToolSlices.Build(create, PartnerUrls, []), s => s.Host == "dext.com");
+
+        var narrowed = GccResearchFetchService.Deserialize(dext.Narrow(create).ResearchJson)!;
+
+        // Null, not empty: an empty list would read as "searched, and this partner had no questions".
+        Assert.Null(narrowed.FaqEvidence);
+    }
+
+    [Fact]
     public void ForProduct_returns_that_partners_slice_and_nothing_else()
     {
         var create = Create(Page("https://dext.com/a", "Dext A"), Page("https://bill.com/c", "Bill C"));

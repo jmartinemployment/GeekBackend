@@ -40,10 +40,13 @@ public sealed class GccGenerationCoordinator
     /// itself in a test — a duplicated merge is two implementations of one rule.</remarks>
     internal static GccCreateDto MergeRetrievedEvidence(GccCreateDto create, GccGroundingOutcome grounding)
     {
+        // FaqEvidence counts when it is a list at all, even an empty one or one whose searches all found
+        // nothing: that is "searched", and dropping it here would turn it into "not searched".
         if (grounding.Pages.Count == 0
             && grounding.CompetitorPages.Count == 0
             && grounding.SitePages.Count == 0
-            && grounding.PublisherPositions is not { Count: > 0 })
+            && grounding.PublisherPositions is not { Count: > 0 }
+            && grounding.FaqEvidence is null)
         {
             return create;
         }
@@ -60,15 +63,21 @@ public sealed class GccGenerationCoordinator
         // nothing an operator uploads stands in for what their own site says.
         var positions = grounding.PublisherPositions is { Count: > 0 } read ? read : existing?.PublisherPositions;
 
+        // Set, not merged, and not kept from before: what each FAQ question's search found is this run's
+        // answer or nothing. Null when this run searched for none.
+        var faqEvidence = grounding.FaqEvidence;
+
         var merged = existing is null
             ? new GccResearchDocument(
-                null, quoteables, CompetitorQuoteables: competitors, SiteQuoteables: site, PublisherPositions: positions)
+                null, quoteables, CompetitorQuoteables: competitors, SiteQuoteables: site, PublisherPositions: positions,
+                FaqEvidence: faqEvidence)
             : existing with
             {
                 Quoteables = quoteables,
                 CompetitorQuoteables = competitors,
                 SiteQuoteables = site,
                 PublisherPositions = positions,
+                FaqEvidence = faqEvidence,
             };
 
         return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };
@@ -943,6 +952,11 @@ public sealed class GccGenerationCoordinator
             competitorQuoteables = research.CompetitorQuoteables?.Count ?? 0,
             siteQuoteables = research.SiteQuoteables?.Count ?? 0,
             publisherPositions = (research.PublisherPositions ?? []).Select(p => p.Heading).ToList(),
+            // Each FAQ question a partner's crawl was searched for, and how many passages came back.
+            // Null when this run searched for none, which is not the same as an empty list.
+            faqSearches = research.FaqEvidence?
+                .Select(e => new { host = e.Host, question = e.Question, passages = e.Pages.Sum(p => p.Paragraphs.Count) })
+                .ToList(),
         };
     }
 

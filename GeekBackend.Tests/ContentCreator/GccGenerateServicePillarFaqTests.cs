@@ -49,6 +49,10 @@ public class GccGenerateServicePillarFaqTests
         public List<IReadOnlyList<string>> FaqCallQuestions { get; } = [];
         /// <summary>When true, every FAQ call answers with an h2 that has no children.</summary>
         public bool AnswerFaqWithNoChildren { get; init; }
+        /// <summary>A question the FAQ call returns no child for.</summary>
+        public string? LeaveOut { get; init; }
+        /// <summary>A question the FAQ call answers under other words: the question, and the heading used instead.</summary>
+        public (string Question, string Heading)? Reword { get; init; }
 
         /// <summary>The literal that opens BuildArticleFaqSectionPrompt, and nothing else. The
         /// metadata prompt names "People Also Ask" too, when it tells the model to end the outline
@@ -75,7 +79,14 @@ public class GccGenerateServicePillarFaqTests
                 var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
                 var questions = QuestionsIn(user);
                 FaqCallQuestions.Add(questions);
-                content = AnswerFaqWithNoChildren ? SectionJson : FaqAnswer(questions);
+                content = AnswerFaqWithNoChildren
+                    ? SectionJson
+                    : FaqAnswer(
+                    [
+                        .. questions
+                            .Where(q => q != LeaveOut)
+                            .Select(q => Reword is { } r && r.Question == q ? r.Heading : q),
+                    ]);
             }
             else if (system.Contains("image-generation prompts", StringComparison.Ordinal))
             {
@@ -228,5 +239,105 @@ public class GccGenerateServicePillarFaqTests
             service.GeneratePillarBodyAsync(Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None));
 
         Assert.Contains("People Also Ask call 1 answered none of its 2 questions", ex.Message);
+    }
+
+    private static IReadOnlyList<string> WarningsIn(string json) =>
+    [
+        .. System.Text.Json.JsonDocument.Parse(json).RootElement.GetProperty("warnings")
+            .EnumerateArray().Select(w => w.GetString() ?? string.Empty),
+    ];
+
+    /// <summary>
+    /// 2026-10-10: a call that answered seven of its eight questions shipped the seven with no word
+    /// that one was missing. The summary on <c>WriteFaqInBatchesAsync</c> called a missing answer a
+    /// refusal and the code refused only a call that answered nothing. The page still ships; the
+    /// question is named.
+    /// </summary>
+    [Fact]
+    public async Task AFaqCallThatAnswersSevenOfEightShipsTheSevenAndNamesTheEighth()
+    {
+        var questions = Enumerable.Range(1, 8).Select(i => $"Question number {i}?").ToList();
+        var provider = new RecordingProvider { LeaveOut = "Question number 5?" };
+        var brief = System.Text.Json.JsonSerializer.Serialize(new { paaQuestions = questions });
+
+        var json = await Build(provider).GeneratePillarBodyAsync(
+            Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        foreach (var answered in questions.Where(q => q != "Question number 5?"))
+        {
+            Assert.Contains($"\"heading\":\"{answered}\"", json, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("\"heading\":\"Question number 5?\"", json, StringComparison.Ordinal);
+        var named = Assert.Single(WarningsIn(json), w => w.Contains("Question number 5?", StringComparison.Ordinal));
+        Assert.Equal("the pillar's People Also Ask: no answer came back under \"Question number 5?\".", named);
+        Assert.DoesNotContain(WarningsIn(json), w => w.Contains("Question number 4?", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AnAnswerUnderOtherWordsStaysOnThePageAndBothHalvesAreNamed()
+    {
+        var provider = new RecordingProvider
+        {
+            Reword = ("How much does it cost?", "Pricing for a typical engagement"),
+        };
+        var brief = """{"paaQuestions":["What is AI implementation?","How much does it cost?"]}""";
+
+        var json = await Build(provider).GeneratePillarBodyAsync(
+            Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        // What ships is what shipped before: every child the call returned.
+        Assert.Contains("\"heading\":\"Pricing for a typical engagement\"", json, StringComparison.Ordinal);
+        var warnings = WarningsIn(json);
+        Assert.Contains("the pillar's People Also Ask: no answer came back under \"How much does it cost?\".", warnings);
+        Assert.Contains(
+            "the pillar's People Also Ask: the writer answered under \"Pricing for a typical engagement\", "
+            + "which is not a question it was sent.",
+            warnings);
+    }
+
+    [Fact]
+    public async Task AFaqThatAnswersEveryQuestionReportsNothing()
+    {
+        var provider = new RecordingProvider();
+        var brief = """{"paaQuestions":["What is AI implementation?","How much does it cost?"]}""";
+
+        var json = await Build(provider).GeneratePillarBodyAsync(
+            Create(brief), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.DoesNotContain(WarningsIn(json), w => w.Contains("People Also Ask", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("How much does it cost?", "How much does it cost?")]
+    // A heading the writer tightened, or wrapped the question in: one wording inside the other.
+    [InlineData("How much does it cost", "How much does it cost?")]
+    [InlineData("Pricing: how much does it cost?", "How much does it cost?")]
+    // Pasted questions carry these; each is one space between two words.
+    [InlineData("How much does it cost?", "How  much does it cost?")]
+    [InlineData("How much does it cost?", "How\tmuch does it cost?")]
+    [InlineData("How much does it cost?", "How much does it cost?")]
+    [InlineData("How much does it cost?", "  How much does it cost?  ")]
+    public void A_heading_answers_a_question_whatever_the_spacing_between_its_words(string heading, string question)
+    {
+        Assert.True(GccGenerateService.AnswersQuestion(heading, question));
+    }
+
+    [Theory]
+    [InlineData("What does it cost each month?", "How much does it cost?")]
+    [InlineData("", "How much does it cost?")]
+    [InlineData("How much does it cost?", "  \t")]
+    public void A_heading_in_other_words_or_an_empty_one_answers_nothing(string heading, string question)
+    {
+        Assert.False(GccGenerateService.AnswersQuestion(heading, question));
+    }
+
+    [Fact]
+    public void A_question_is_normalized_to_its_words_with_one_space_between_them()
+    {
+        Assert.Equal(
+            "how do past due invoices move the forecast",
+            GccGenerateService.NormalizeQuestion("  How do past due\tinvoices   move -- the forecast?  "));
+        // A hyphen joins, as it always has: the same on both sides of the comparison.
+        Assert.Equal("pastdue", GccGenerateService.NormalizeQuestion("Past-due"));
     }
 }

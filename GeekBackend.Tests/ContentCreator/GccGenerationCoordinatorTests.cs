@@ -177,6 +177,61 @@ public class GccGenerationCoordinatorTests
         Assert.Same(create.Topic, merged.Topic);
     }
 
+    [Fact]
+    public void Faq_searches_that_all_found_nothing_are_still_carried_as_searched()
+    {
+        // Every other list is empty, which used to be the whole early-return test. Returning the create
+        // untouched here would turn "searched, found nothing" into "never searched", and the tool page
+        // reports those differently.
+        var outcome = new GccGroundingOutcome(
+            [], [], null, [], [], [],
+            FaqEvidence: [new GccFaqEvidence("partner.test", "Does Partner Widget fly?", [])]);
+
+        var merged = GccGenerationCoordinator.MergeRetrievedEvidence(Create(null), outcome);
+
+        var entry = Assert.Single(GccResearchFetchService.Deserialize(merged.ResearchJson)!.FaqEvidence!);
+        Assert.Equal("partner.test", entry.Host);
+        Assert.Equal("Does Partner Widget fly?", entry.Question);
+        Assert.Empty(entry.Pages);
+    }
+
+    [Fact]
+    public void Faq_searches_are_this_runs_and_never_kept_from_before()
+    {
+        var existing = GccResearchFetchService.Serialize(new GccResearchDocument(
+            null, [Page("https://partner.test/a")],
+            FaqEvidence: [new GccFaqEvidence("partner.test", "An earlier run's question?", [Page("https://partner.test/old")])]));
+
+        // A run that searched: its entries replace what was there.
+        var searched = GccGenerationCoordinator.MergeRetrievedEvidence(
+            Create(existing),
+            new GccGroundingOutcome(
+                [Page("https://partner.test/b")], [], null, [], [], [],
+                FaqEvidence: [new GccFaqEvidence("partner.test", "This run's question?", [])]));
+        Assert.Equal(
+            ["This run's question?"],
+            GccResearchFetchService.Deserialize(searched.ResearchJson)!.FaqEvidence!.Select(e => e.Question));
+
+        // A run that searched for none (no tool page): nothing is carried as if it had.
+        var notSearched = GccGenerationCoordinator.MergeRetrievedEvidence(
+            Create(existing),
+            new GccGroundingOutcome([Page("https://partner.test/b")], [], null, [], [], []));
+        Assert.Null(GccResearchFetchService.Deserialize(notSearched.ResearchJson)!.FaqEvidence);
+    }
+
+    [Fact]
+    public void Faq_passages_do_not_join_the_passages_every_writer_reads()
+    {
+        var merged = GccGenerationCoordinator.MergeRetrievedEvidence(
+            Create(null),
+            new GccGroundingOutcome(
+                [Page("https://partner.test/a")], [], null, [], [], [],
+                FaqEvidence: [new GccFaqEvidence("partner.test", "A question?", [Page("https://partner.test/faq-only")])]));
+
+        var research = GccResearchFetchService.Deserialize(merged.ResearchJson)!;
+        Assert.Equal("https://partner.test/a", Assert.Single(research.Quoteables).Url);
+    }
+
     // ---- RecordGroundingWarningsAsync ---------------------------------------------------------
 
     [Fact]

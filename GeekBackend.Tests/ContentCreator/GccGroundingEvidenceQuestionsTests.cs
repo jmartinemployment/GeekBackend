@@ -150,9 +150,49 @@ public class GccGroundingEvidenceQuestionsTests
             Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
     }
 
-    private static GccGroundingResolver Build(GccProjectDto project, IGeekCrawlerRagClient rag) =>
-        new(new FakeProjects(project), rag, new GccTypedPassageReader(new NoPages()),
-            new GccPublisherPositionsReader(new NoPages(), NullLogger<GccPublisherPositionsReader>.Instance),
+    /// <summary>
+    /// One paragraph block per requested page. A tool must be able to quote a partner before it may be
+    /// written, so a test that reads the outcome, and not only what was asked, needs the partner's
+    /// pages to read back; with <see cref="NoPages"/> every tool outcome here is that refusal.
+    /// </summary>
+    private sealed class OneBlockPages : IGccCrawlPageReader
+    {
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+            Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([.. seedUrls.Select(url => Crawled(runId, url))]);
+
+        private static GeekCrawlerPageDto Crawled(Guid runId, string url) => new(
+            Id: Guid.NewGuid(),
+            RunId: runId,
+            Origin: url,
+            Url: url,
+            FinalUrl: url,
+            StatusCode: 200,
+            RobotsAllowed: true,
+            Html: null,
+            FailureReason: null,
+            CrawledAtUtc: DateTimeOffset.UtcNow,
+            Title: "Page",
+            Excerpt: null,
+            ContentHtml: null,
+            Blocks: JsonSerializer.SerializeToElement(new[]
+            {
+                new Dictionary<string, string>
+                {
+                    ["kind"] = "paragraph",
+                    ["text"] = "Global payments reconcile against the ledger each night.",
+                },
+            }));
+
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
+            Guid runId, int limit = 100, int offset = 0, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
+    }
+
+    private static GccGroundingResolver Build(
+        GccProjectDto project, IGeekCrawlerRagClient rag, IGccCrawlPageReader? pages = null) =>
+        new(new FakeProjects(project), rag, new GccTypedPassageReader(pages ?? new NoPages()),
+            new GccPublisherPositionsReader(pages ?? new NoPages(), NullLogger<GccPublisherPositionsReader>.Instance),
             NullLogger<GccGroundingResolver>.Instance);
 
     private static IReadOnlyList<GeekCrawlerRagQuery> PartnerQueries(RecordingRag rag) =>
@@ -195,6 +235,201 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Equal("Automated Payment Execution", only.Need);
         Assert.Null(only.Keyword);
         Assert.Equal(32, only.TopK);
+    }
+
+    // The tool page's FAQ (2026-10-10). Until then the operator's questions for a tool were read once,
+    // by the page, after every search was over: they were answered from whatever the searches above
+    // had brought back, and a question none of those was about was reported as one "no page of the
+    // partner's answers" when nothing had looked.
+
+    private const string QuickBooks = "Does Tipalti sync with QuickBooks Online?";
+    private const string RiskSegments = "How do customer risk segments influence the cash forecast?";
+
+    private const string BriefWithFaq = """
+        {
+          "angle": "problem_solution",
+          "nicheFraming": {
+            "coreProblem": "The uncontrolled handoff between an approved invoice and the moment cash leaves the bank.",
+            "perTool": {
+              "tipalti.com": {
+                "faqQuestions": "Does Tipalti sync with QuickBooks Online?\n\nHow do customer risk segments influence the cash forecast?\nDoes Tipalti sync with QuickBooks Online?"
+              },
+              "bill.com": { "faqQuestions": "Does Bill pay international vendors?" }
+            }
+          }
+        }
+        """;
+
+    private static IReadOnlyList<GeekCrawlerRagQuery> FaqQueries(RecordingRag rag) =>
+        [.. PartnerQueries(rag).Where(q => q.TopK == GccGroundingResolver.FaqTopK)];
+
+    [Fact]
+    public async Task Every_faq_question_the_tool_page_will_be_asked_is_searched_for_in_its_partners_crawl()
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new RecordingRag();
+        var create = Create(project.Id, BriefWithFaq);
+
+        var outcome = await Build(project, rag, new OneBlockPages()).ResolveAsync(create, "tool");
+
+        // The page and the search read one list, so the assertion is on the page's own reader.
+        var asked = GccNicheFramingReader.ToolFaqQuestions(
+            BriefWithFaq, project.PartnerUrls,
+            GccRequiredToolMentions.AnchorLookup(BriefWithFaq, project.PartnerUrls).Values.Single());
+        Assert.Equal([QuickBooks, RiskSegments], asked);
+
+        var searches = FaqQueries(rag);
+        Assert.Equal(asked, searches.Select(q => q.Need));
+        Assert.All(searches, q =>
+        {
+            Assert.Equal(TipaltiRun, q.RunId);
+            Assert.Null(q.Keyword);
+        });
+
+        // Filed by host and question, one entry a search, and no other partner's questions among them.
+        Assert.NotNull(outcome.FaqEvidence);
+        Assert.Equal(asked, outcome.FaqEvidence.Select(e => e.Question));
+        Assert.All(outcome.FaqEvidence, e => Assert.Equal("tipalti.com", e.Host));
+        Assert.DoesNotContain(rag.Asked, q => q.Need.Contains("international vendors", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task What_a_faq_search_finds_stays_out_of_the_passages_every_writer_reads()
+    {
+        var project = Project("https://tipalti.com/");
+
+        var without = await Build(project, new RecordingRag(), new OneBlockPages()).ResolveAsync(Create(project.Id, Brief), "tool");
+        var withFaq = new RecordingRag();
+        var brief = Brief.Replace(
+            "\"tipalti.com\": {",
+            "\"tipalti.com\": { \"faqQuestions\": \"Does Tipalti sync with QuickBooks Online?\",",
+            StringComparison.Ordinal);
+        var outcome = await Build(project, withFaq, new OneBlockPages()).ResolveAsync(Create(project.Id, brief), "tool");
+
+        Assert.Single(FaqQueries(withFaq));
+        Assert.Equal(without.Pages.Select(p => p.Url), outcome.Pages.Select(p => p.Url));
+        var entry = Assert.Single(outcome.FaqEvidence!);
+        Assert.DoesNotContain(outcome.Pages, p => entry.Pages.Any(f => f.Url == p.Url));
+    }
+
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public async Task A_run_that_writes_no_tool_page_searches_for_no_faq_question(string contentType)
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new RecordingRag();
+
+        var outcome = await Build(project, rag).ResolveAsync(Create(project.Id, BriefWithFaq), contentType);
+
+        Assert.DoesNotContain(rag.Asked, q => q.Need == QuickBooks || q.Need == RiskSegments);
+        // Null, not empty: nothing was searched for, which is not the same as finding nothing.
+        Assert.Null(outcome.FaqEvidence);
+    }
+
+    [Fact]
+    public async Task A_tool_run_whose_brief_has_no_faq_questions_searched_and_has_none()
+    {
+        var project = Project("https://tipalti.com/");
+
+        var outcome = await Build(project, new RecordingRag(), new OneBlockPages()).ResolveAsync(Create(project.Id, Brief), "tool");
+
+        Assert.NotNull(outcome.FaqEvidence);
+        Assert.Empty(outcome.FaqEvidence);
+    }
+
+    /// <summary>Answers every search but the FAQ questions it is told to find nothing for, or to fail on.</summary>
+    private sealed class FaqRag(string? findsNothingFor = null, string? failsOn = null) : IGeekCrawlerRagClient
+    {
+        private readonly RecordingRag inner = new();
+
+        public bool IsEnabled => true;
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(GeekCrawlerRagQuery query, CancellationToken ct = default)
+        {
+            if (query.Need == failsOn)
+            {
+                return Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
+                {
+                    RunId = query.RunId, Pages = [], Failed = true, Error = "The index timed out.",
+                });
+            }
+
+            if (query.Need == findsNothingFor)
+            {
+                return Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
+                {
+                    RunId = query.RunId, Pages = [], Warning = "No chunks for runId=" + query.RunId,
+                });
+            }
+
+            return inner.QueryAsync(query, ct);
+        }
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
+            inner.EnqueueIndexAsync(runId, ct);
+
+        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default) =>
+            inner.GetIndexStatusAsync(runId, ct);
+
+        public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
+            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default) =>
+            inner.HostsIndexedAsync(urls, crawlType, ct);
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
+            bool? preferParent = null, bool? preferChild = null,
+            IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
+            CancellationToken ct = default) =>
+            inner.QueryAsync(need, runId, crawlType, host, topK, preferParent, preferChild, entityNames, retrievalMode, anchorToolLookup, ct);
+
+        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+            IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>
+            inner.IndexTemplatesAsync(templates, ct);
+
+        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+            string need, int topK = 5, string? channel = null,
+            IReadOnlyList<string>? entityTags = null, CancellationToken ct = default) =>
+            inner.QueryTemplatesAsync(need, topK, channel, entityTags, ct);
+
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
+            string pageId, CancellationToken ct = default, string? runId = null) =>
+            inner.GetPageTextAsync(pageId, ct, runId);
+
+        public Task<JsonElement?> RunDiagnosticAsync(
+            string endpoint, object? payload = null, CancellationToken ct = default) =>
+            inner.RunDiagnosticAsync(endpoint, payload, ct);
+    }
+
+    [Fact]
+    public async Task A_faq_search_that_finds_nothing_is_an_entry_with_no_passages_and_refuses_nothing()
+    {
+        var project = Project("https://tipalti.com/");
+
+        var outcome = await Build(project, new FaqRag(findsNothingFor: RiskSegments), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, BriefWithFaq), "tool");
+
+        Assert.False(outcome.Refused);
+        var entries = outcome.FaqEvidence!;
+        Assert.NotEmpty(Assert.Single(entries, e => e.Question == QuickBooks).Pages);
+        Assert.Empty(Assert.Single(entries, e => e.Question == RiskSegments).Pages);
+        // The partner returned evidence for the page's other searches, so it is not one without passages,
+        // and the index's own "no chunks" line for the question is not raised as a warning about the partner.
+        Assert.Empty(outcome.PartnersWithoutPassages ?? []);
+        Assert.DoesNotContain(outcome.Warnings, w => w.Contains("No chunks", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_faq_search_that_fails_refuses_the_run_as_any_failed_search_does()
+    {
+        var project = Project("https://tipalti.com/");
+
+        var outcome = await Build(project, new FaqRag(failsOn: RiskSegments), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, BriefWithFaq), "tool");
+
+        Assert.True(outcome.Refused);
+        Assert.Equal("The index timed out.", outcome.Refusal);
     }
 
     [Fact]

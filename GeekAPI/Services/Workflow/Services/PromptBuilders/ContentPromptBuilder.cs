@@ -1940,6 +1940,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Answer ONLY from the PARTNER EVIDENCE in the user message -- {app.Name}'s own pages. If no passage " +
                 "answers a question, LEAVE THAT QUESTION OUT: no child for it and no placeholder. Never answer from general " +
                 "knowledge, and never state a capability, price or figure the evidence does not state.")
+            .AppendLine($"The evidence is grouped by question: \"Found for Q1:\" heads what a search of {app.Name}'s pages " +
+                "found for Q1, and so on for each question.")
             .AppendLine($"Answers sound like {context.PublisherName} ({context.ImplementerPositioning}): third person, direct, factual.")
             .AppendLine(CurrencyInstruction)
             .ToString();
