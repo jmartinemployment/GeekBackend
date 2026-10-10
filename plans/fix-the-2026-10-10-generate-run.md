@@ -1,8 +1,9 @@
 # The 29 gaps of the 2026-10-10 run, and the outside review
 
-Written 2026-10-10. **Status: approved by Jeff on 2026-10-10. Changes 1 to 6 are built and their
-tests pass (1,805 unit, 44 integration); nothing is committed or pushed. Change 7 is not built: its
-model trial failed, see "The model trial". Change 8 goes with it.** The findings are read from the
+Written 2026-10-10. **Status: approved by Jeff on 2026-10-10. Changes 1 to 6 are on `main`, one
+commit each (`3c135dc` to `d06b18e`), pushed 2026-10-10 on his word; their tests pass (1,805 unit,
+44 integration). Not yet seen in a real run. Change 7 is not built: its model trial failed, see "The
+model trial". Change 8 goes with it.** The findings are read from the
 run's own log (132 events, read through the app) and from the code. Where something is a reading and
 not a reading of the log, it says so.
 
@@ -289,9 +290,10 @@ The trial's script and data are not in the repository.
 
 ## Order
 
-1. Changes 1 to 6: built, tests pass. One commit each on `main`, on Jeff's word. A push restarts the
-   backend, so not while a Generate is running.
-2. A real run.
+1. Changes 1 to 6: done, one commit each on `main`, pushed 2026-10-10.
+2. A real run. No re-index is needed for it: the five partner crawls were crawled and indexed on
+   2026-10-09, after the Library's indexing change of 2026-10-08 (`b14c200`, stub chunks not
+   indexed), and nothing since has touched the index.
 
 Changes 7 and 8 are not in the order any more.
 
