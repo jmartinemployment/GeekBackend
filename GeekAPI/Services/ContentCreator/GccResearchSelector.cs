@@ -25,12 +25,13 @@ public sealed record GccResearchPassage(
     double Score);
 
 /// <summary>A passage a request would carry, and why.</summary>
-/// <param name="Why">One of the selector's four reasons: the whole research fits, the passage is
-/// labelled for the request's sections, it is general, or it makes up its partner's share.</param>
+/// <param name="Why">One of the selector's four reasons: the whole research is carried, the passage is
+/// labelled for the request's sections, it is general, or it is another of its partner's passages
+/// taken while there was room.</param>
 public sealed record GccChosenPassage(GccResearchPassage Passage, string Why);
 
 /// <summary>What one request would carry of a page's partner research.</summary>
-/// <param name="Whole">True when all of the research fits under the limit and is carried as it is today.</param>
+/// <param name="Whole">True when the research is small enough to be carried whole, as it is today.</param>
 /// <param name="Labels">The labels of the sections the request writes.</param>
 /// <param name="Chosen">What it would carry, partner by partner, best first within each.</param>
 /// <param name="LeftOut">What it would not.</param>
@@ -54,21 +55,41 @@ public sealed record GccResearchSelection(
 /// <para>
 /// <b>The rules, in the order they apply.</b>
 /// <list type="number">
-/// <item>Research that fits under <see cref="MaxCharsInAll"/> is carried whole. A small project is
-/// not changed.</item>
+/// <item>Research of <see cref="WholeUpToChars"/> or less is carried whole. A project that fits is not
+/// changed.</item>
 /// <item>Every partner has the same limit, <see cref="MaxCharsPerPartner"/> or its equal part of
 /// <see cref="MaxCharsInAll"/> when there are many partners, so no partner is crowded out: the page
 /// names every one and needs something to say about each.</item>
-/// <item>Within a partner, passages labelled for the request's sections come first, the strongest
-/// first, then general ones. A passage an earlier request of the same page carried counts half as
-/// much each time, so the page as a whole sees more of the research.</item>
-/// <item>A partner with too little of either is made up to a quarter of its limit from its other
-/// passages, the search's best first.</item>
+/// <item>A partner is carried up to that limit. Passages labelled for the request's sections come
+/// first, the strongest first, then general ones, then the partner's other passages. A passage an
+/// earlier request of the same page carried counts half as much each time, and of the partner's
+/// other passages the ones carried least come first, so the page as a whole sees more of the
+/// research.</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>Why a partner is filled to its limit, and why research is whole up to
+/// <see cref="WholeUpToChars"/>.</b> Both are from the 14:20 UTC run of 2026-10-11, the first with
+/// this watching (project "Automated Spreadsheet Data", 213 passages, 250,717 characters).
+/// <list type="bullet">
+/// <item>No passage was general: every one was found by the brief's problem or by one of its rows, and
+/// each gives a label. And the research held almost nothing for some sections: 8 passages of 213 for
+/// getting it running, 7 for results and proof. The first version left a passage labelled only for
+/// other sections out, so the request that writes two sections on getting it running would have
+/// carried 54,630 characters, a fifth of the research, most of it make-weight. Labels now decide the
+/// order a partner's passages are taken in, never whether a section is shown enough.</item>
+/// <item>The same run measured what repeating the research is worth. A pillar's five body requests
+/// each sent about 68,300 tokens, and on the second to the fifth 66,432 of them were billed at half
+/// price as text OpenAI had just been sent. A request that carries a choice of its own carries
+/// different text from the one before it and loses that. Chosen down to three quarters, as a ceiling
+/// of 240,000 would have made it, that project's pillar would have cost about 30% more to send less.
+/// It was also nowhere near the model's limit: 76,520 of 128,000 with the reply's reservation. At
+/// the ceiling a request is about 97,000 of 128,000.</item>
 /// </list>
 /// </para>
 /// <para>
 /// <b>Plain code.</b> No network and no model, and the same passages in the same order give the same
-/// choice. Since stage 2 it runs on every pillar and blog and chooses nothing a writer is sent:
+/// choice. It runs on every pillar and blog and chooses nothing a writer is sent:
 /// <see cref="GccResearchWatch"/> writes what it would have chosen to the run's record.
 /// </para>
 /// </remarks>
@@ -77,16 +98,19 @@ public static class GccResearchSelector
     /// <summary>The most of one partner's research a request carries, in characters as printed.</summary>
     public const int MaxCharsPerPartner = 40_000;
 
-    /// <summary>The most partner research a request carries in all, in characters as printed.</summary>
+    /// <summary>The most partner research a request carries in all when it is chosen, in characters as printed.</summary>
     public const int MaxCharsInAll = 240_000;
 
-    /// <summary>A partner is made up to this part of its limit whatever its passages are labelled.</summary>
-    public const int GuaranteedPartOfLimit = 4;
+    /// <summary>
+    /// Research of this size or less is carried whole, in characters as printed. Above it a request is
+    /// too near the model's limit to leave alone; under it, choosing sends less and costs more.
+    /// </summary>
+    public const int WholeUpToChars = 350_000;
 
     public const string WhyWhole = "whole";
     public const string WhyLabelled = "labelled";
     public const string WhyGeneral = "general";
-    public const string WhyShare = "share";
+    public const string WhyOther = "other";
 
     /// <summary>
     /// The passages a writer is sent today, each with its labels: every page's first
@@ -156,7 +180,7 @@ public static class GccResearchSelector
         IReadOnlyList<string> labels,
         IReadOnlyDictionary<(string Url, int Position), int> shownBefore)
     {
-        if (CharsOf(passages) <= MaxCharsInAll)
+        if (CharsOf(passages) <= WholeUpToChars)
         {
             return new GccResearchSelection(
                 Whole: true, labels, [.. passages.Select(passage => new GccChosenPassage(passage, WhyWhole))], []);
@@ -168,9 +192,8 @@ public static class GccResearchSelector
             if (!hosts.Contains(passage.Host, StringComparer.Ordinal)) hosts.Add(passage.Host);
         }
 
-        // Over the limit there is at least one passage, so at least one host.
+        // Over the ceiling there is at least one passage, so at least one host.
         var limit = Math.Min(MaxCharsPerPartner, MaxCharsInAll / hosts.Count);
-        var guaranteed = limit / GuaranteedPartOfLimit;
 
         var chosen = new List<GccChosenPassage>();
         var leftOut = new List<GccResearchPassage>();
@@ -208,17 +231,16 @@ public static class GccResearchSelector
                 Take(passage, passage.Labels.Count == 0 ? WhyGeneral : WhyLabelled);
             }
 
-            // The partner's share: the page names every partner, so each request has something of each.
-            if (used < guaranteed)
+            // Then the partner's other passages, while there is room: the ones earlier requests
+            // carried least first, then the search's best. A section the research holds little for is
+            // still shown as much of each partner as any other.
+            foreach (var passage in mine
+                .Where(passage => !taken.Contains(passage))
+                .OrderBy(passage => shownBefore.GetValueOrDefault((passage.Url, passage.Position)))
+                .ThenByDescending(passage => passage.Score)
+                .ThenByDescending(passage => passage.FoundBySearches))
             {
-                foreach (var passage in mine
-                    .Where(passage => !taken.Contains(passage))
-                    .OrderByDescending(passage => passage.Score)
-                    .ThenByDescending(passage => passage.FoundBySearches))
-                {
-                    if (used >= guaranteed) break;
-                    Take(passage, WhyShare);
-                }
+                Take(passage, WhyOther);
             }
 
             leftOut.AddRange(mine.Where(passage => !taken.Contains(passage)));
@@ -259,7 +281,7 @@ public static class GccResearchSelector
 /// <summary>
 /// What each body request of one pillar or one blog would carry if its research were chosen for it,
 /// worked out as the page is written and put on the run's record. The writer is sent everything, as
-/// before (plans/research-classification.md, stage 2: "watch" mode).
+/// before (plans/research-classification.md, "watch" mode).
 /// </summary>
 /// <remarks>
 /// One per page being written, because what a request would carry depends on what the requests before
@@ -336,6 +358,7 @@ public sealed class GccResearchWatch
             {
                 perPartner = GccResearchSelector.MaxCharsPerPartner,
                 inAll = GccResearchSelector.MaxCharsInAll,
+                wholeUpTo = GccResearchSelector.WholeUpToChars,
             },
             sent = Size(_passages),
             wouldCarry = Size(carried),
@@ -347,7 +370,7 @@ public sealed class GccResearchWatch
                     wouldCarry = Size([.. carried.Where(passage => passage.Host == host)]),
                     labelled = CountWhy(selection, host, GccResearchSelector.WhyLabelled),
                     general = CountWhy(selection, host, GccResearchSelector.WhyGeneral),
-                    share = CountWhy(selection, host, GccResearchSelector.WhyShare),
+                    other = CountWhy(selection, host, GccResearchSelector.WhyOther),
                     leftOut = selection.LeftOut.Count(passage => passage.Host == host),
                 })
                 .ToList(),

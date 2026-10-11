@@ -26,8 +26,20 @@ namespace GeekAPI.Services.ContentCreator;
 /// research and misread the next: the tool page's outline did exactly that until 2026-10-11.
 /// </para>
 /// <para>
+/// <b>A word and its other forms are one word.</b> "client" and "clients", "team" and "finance team",
+/// "setup" and "set up" are each a family here, and a family counts once however many of its forms a
+/// passage holds. They were counted separately until the 14:20 UTC run of 2026-10-11, the first real
+/// one: a passage that said "clients" and "each client" was given people and roles from one word.
+/// </para>
+/// <para>
+/// <b>A word that is the subject's own is not in a list.</b> The same run's research was about cash
+/// flow forecasting, where a "plan" is a financial plan and a "timeline" is a forecast's: 17 passages
+/// were labelled fit and price by "plan" and "plans" alone. Both are gone, with "results", "review",
+/// "faster" and "increased", which labelled seven passages as proof and none of them was.
+/// </para>
+/// <para>
 /// <b>Crude, and known to be.</b> Word matching failed twice on 2026-10-10 at a harder job, finding
-/// the one passage that answers a question. This asks less of it, and stage 2 of the plan only
+/// the one passage that answers a question. This asks less of it, and the plan's "watch" mode only
 /// records what it would choose. The lists are adjusted from real runs before anything is chosen
 /// by them.
 /// </para>
@@ -37,62 +49,134 @@ public static class GccPassageClassifier
     /// <summary>The strength a label needs before a passage is given it.</summary>
     public const int Threshold = 2;
 
-    /// <summary>The most a passage's own words add to one label, however many of them match.</summary>
+    /// <summary>The most a passage's own words add to one label, however many of its words match.</summary>
     public const int MaxFromWords = 3;
 
     /// <summary>
-    /// The words for each label, as they read once a text is lower case with everything that is not
-    /// a letter or a digit turned into a space: "go-live" is "go live", "real-time" is "real time".
+    /// The words for each label, a family to a line: a word with its other forms and spellings. Each
+    /// as it reads once a text is lower case with everything that is not a letter or a digit turned
+    /// into a space: "go-live" is "go live", "real-time" is "real time".
     /// </summary>
-    internal static readonly IReadOnlyDictionary<string, string[]> Words = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    internal static readonly IReadOnlyDictionary<string, string[][]> Words = new Dictionary<string, string[][]>(StringComparer.Ordinal)
     {
         [GccResearchLabel.Problem] =
         [
-            "manual", "manually", "by hand", "error", "errors", "error prone", "mistake", "mistakes",
-            "time consuming", "tedious", "wasted", "waste", "late", "delay", "delays", "delayed", "risk", "risks",
-            "costly", "bottleneck", "bottlenecks", "struggle", "struggling", "problem", "problems",
-            "challenge", "challenges", "pain", "frustrating", "inefficient", "guesswork", "out of date", "outdated",
+            ["manual", "manually", "by hand"],
+            ["error", "errors", "error prone"],
+            ["mistake", "mistakes"],
+            ["time consuming"],
+            ["tedious"],
+            ["waste", "wasted"],
+            ["late"],
+            ["delay", "delays", "delayed"],
+            ["risk", "risks"],
+            ["costly"],
+            ["bottleneck", "bottlenecks"],
+            ["struggle", "struggling"],
+            ["problem", "problems"],
+            ["challenge", "challenges"],
+            ["pain"],
+            ["frustrating"],
+            ["inefficient"],
+            ["guesswork"],
+            ["out of date", "outdated"],
         ],
         [GccResearchLabel.HowItWorks] =
         [
-            "how it works", "automatically", "automates", "automate", "automated", "automation",
-            "workflow", "workflows", "feature", "features", "dashboard", "dashboards", "real time",
-            "generates", "updates", "tracks", "step by step", "in one place", "built in",
+            ["how it works"],
+            ["automatically", "automates", "automate", "automated", "automation"],
+            ["workflow", "workflows"],
+            ["feature", "features"],
+            ["dashboard", "dashboards"],
+            ["real time"],
+            ["generates"],
+            ["updates"],
+            ["tracks"],
+            ["step by step"],
+            ["in one place"],
+            ["built in"],
         ],
         [GccResearchLabel.GettingItRunning] =
         [
-            "setup", "set up", "onboarding", "onboard", "implementation", "implement", "implementing",
-            "getting started", "get started", "go live", "rollout", "roll out", "migration", "migrate",
-            "configure", "configuration", "training", "deploy", "deployment", "install", "in minutes",
-            "up and running", "kickoff", "timeline",
+            ["setup", "set up"],
+            ["onboarding", "onboard"],
+            ["implementation", "implement", "implementing"],
+            ["getting started", "get started"],
+            ["go live"],
+            ["rollout", "roll out"],
+            ["migration", "migrate"],
+            ["configure", "configuration"],
+            ["training"],
+            ["deploy", "deployment"],
+            ["install"],
+            ["in minutes"],
+            ["up and running"],
+            ["kickoff"],
         ],
         [GccResearchLabel.DataAndIntegrations] =
         [
-            "integration", "integrations", "integrates", "integrate", "integrated", "connect", "connects",
-            "connected", "connector", "connectors", "api", "sync", "syncs", "synced", "import", "imports",
-            "export", "exports", "csv", "data source", "data sources", "erp", "accounting software",
-            "bank feed", "bank feeds", "webhook", "webhooks", "single sign on", "sso",
+            ["integration", "integrations", "integrates", "integrate", "integrated"],
+            ["connect", "connects", "connected", "connector", "connectors"],
+            ["api"],
+            ["sync", "syncs", "synced"],
+            ["import", "imports"],
+            ["export", "exports"],
+            ["csv"],
+            ["data source", "data sources"],
+            ["erp"],
+            ["accounting software"],
+            ["bank feed", "bank feeds"],
+            ["webhook", "webhooks"],
+            ["single sign on", "sso"],
         ],
         [GccResearchLabel.PeopleAndRoles] =
         [
-            "team", "teams", "role", "roles", "cfo", "controller", "controllers", "accountant", "accountants",
-            "bookkeeper", "bookkeepers", "finance team", "owner", "owners", "manager", "managers", "staff",
-            "collaborate", "collaboration", "permission", "permissions", "stakeholder", "stakeholders",
-            "advisor", "advisors", "client", "clients", "employee", "employees",
+            ["team", "teams", "finance team"],
+            ["role", "roles"],
+            ["cfo"],
+            ["controller", "controllers"],
+            ["accountant", "accountants"],
+            ["bookkeeper", "bookkeepers"],
+            ["owner", "owners"],
+            ["manager", "managers"],
+            ["staff"],
+            ["collaborate", "collaboration"],
+            ["permission", "permissions"],
+            ["stakeholder", "stakeholders"],
+            ["advisor", "advisors"],
+            ["client", "clients"],
+            ["employee", "employees"],
         ],
         [GccResearchLabel.ResultsAndProof] =
         [
-            "case study", "case studies", "customer story", "customer stories", "success story", "results",
-            "saved", "saves", "reduced", "reduces", "increased", "faster", "roi", "return on investment",
-            "percent", "testimonial", "testimonials", "review", "reviews", "rated", "award", "awards",
-            "customers say", "hours a week", "hours per week",
+            ["case study", "case studies"],
+            ["customer story", "customer stories", "success story"],
+            ["saved", "saves"],
+            ["reduced", "reduces"],
+            ["roi", "return on investment"],
+            ["percent"],
+            ["testimonial", "testimonials"],
+            ["rated"],
+            ["award", "awards"],
+            ["customers say"],
+            ["hours a week", "hours per week"],
         ],
         [GccResearchLabel.FitPriceAndLimits] =
         [
-            "pricing", "price", "prices", "priced", "plan", "plans", "per month", "per user", "per year",
-            "free trial", "tier", "tiers", "enterprise", "limit", "limits", "limited", "best for", "ideal for",
-            "not suitable", "alternative", "alternatives", "compare", "comparison", "versus", "vs",
-            "cancel", "contract", "billed", "subscription",
+            ["pricing", "price", "prices", "priced"],
+            ["per month", "per user", "per year"],
+            ["free trial"],
+            ["tier", "tiers"],
+            ["enterprise"],
+            ["limit", "limits", "limited"],
+            ["best for", "ideal for"],
+            ["not suitable"],
+            ["alternative", "alternatives"],
+            ["compare", "comparison", "versus", "vs"],
+            ["cancel"],
+            ["contract"],
+            ["billed"],
+            ["subscription"],
         ],
     };
 
@@ -193,16 +277,19 @@ public static class GccPassageClassifier
         }
     }
 
-    /// <summary>Adds <paramref name="each"/> to a label for every one of its words the text holds, up to <paramref name="most"/>.</summary>
+    /// <summary>
+    /// Adds <paramref name="each"/> to a label for every one of its words the text holds, up to
+    /// <paramref name="most"/>. A word is counted once, in whichever of its forms it is found.
+    /// </summary>
     private static void AddFromWords(Dictionary<string, int> strength, string normalized, int each, int most)
     {
-        foreach (var (label, words) in Words)
+        foreach (var (label, families) in Words)
         {
             var found = 0;
-            foreach (var word in words)
+            foreach (var family in families)
             {
                 if (found >= most) break;
-                if (normalized.Contains($" {word} ", StringComparison.Ordinal)) found += each;
+                if (family.Any(form => normalized.Contains($" {form} ", StringComparison.Ordinal))) found += each;
             }
 
             if (found > 0) Add(strength, label, Math.Min(found, most));

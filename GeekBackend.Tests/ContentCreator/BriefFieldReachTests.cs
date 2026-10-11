@@ -591,15 +591,15 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// every request is still sent all of the research (plans/research-classification.md, stage 2).
     /// </summary>
     /// <remarks>
-    /// The page is given more partner research than the selector's limit, so there is something to choose
-    /// between: a record that only ever said "whole" would show nothing was watched.
+    /// The page is given more partner research than the selector carries whole, so there is something to
+    /// choose between: a record that only ever said "whole" would show nothing was watched.
     /// </remarks>
     [Theory]
     [InlineData("pillar", 5)]
     [InlineData("blog", 3)]
     public async Task What_each_request_would_carry_is_recorded_and_every_request_is_still_sent_everything(string page, int bodyRequests)
     {
-        var filler = new string('x', 1_900);
+        var filler = new string('x', 2_900);
         var passages = Enumerable.Range(0, 130).Select(i => $"Passage {i:000} of the partner's research. {filler}").ToList();
         var research = GccResearchFetchService.Serialize(
             GccResearchFetchService.Deserialize(PageFaqResearch.For(CompleteBrief))! with
@@ -639,7 +639,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             Assert.False(record.GetProperty("whole").GetBoolean());
             Assert.Equal(bodyRequests, record.GetProperty("of").GetInt32());
             Assert.Equal(130, record.GetProperty("sent").GetProperty("passages").GetInt32());
-            Assert.InRange(record.GetProperty("sent").GetProperty("chars").GetInt32(), GccResearchSelector.MaxCharsInAll + 1, int.MaxValue);
+            Assert.InRange(record.GetProperty("sent").GetProperty("chars").GetInt32(), GccResearchSelector.WholeUpToChars + 1, int.MaxValue);
             Assert.InRange(record.GetProperty("wouldCarry").GetProperty("chars").GetInt32(), 1, GccResearchSelector.MaxCharsPerPartner);
             Assert.NotEmpty(record.GetProperty("leftOut").EnumerateArray());
         }

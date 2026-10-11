@@ -195,10 +195,19 @@ either and no passage is chosen by them yet: this is the record stage 2 will cho
 "watch" mode). Each pillar and blog section names one of seven labels for the part of the research it is written from
 (`SectionSlot.ResearchLabel`; `GccResearchLabel`). Code gives each passage its labels from the kind of page, the searches
 that found it and its own words (`GccPassageClassifier`), and works out what a request writing two sections would carry
-(`GccResearchSelector`): research under 240,000 characters whole; otherwise up to 40,000 for each partner, passages
-labelled for the request's sections first, then general ones, a passage an earlier request carried counted at half, and
-every partner made up to a quarter of its limit. The run log gets `evidence-labels` once a page and `evidence` once a
-body request (`GccResearchWatch`). No prompt is built from it: stages 4 and 5 of the plan do that, on Jeff's word.
+(`GccResearchSelector`): research of 350,000 characters or less whole; otherwise each partner up to 40,000, its passages
+labelled for the request's sections first, then general ones, then its others, a passage an earlier request carried
+counted at half. The run log gets `evidence-labels` once a page and `evidence` once a body request (`GccResearchWatch`).
+No prompt is built from it: stages 4 and 5 of the plan do that, on Jeff's word.
+
+**Changed from the first real run** (14:20 UTC, 2026-10-11, the plan's stage 3; still nothing a writer is sent). That
+project's research was 250,717 characters in 213 passages, none without a label and only 8 for "getting it running",
+so a request for those sections would have carried a fifth of the research; and its pillar's body requests were billed
+at half price for 66,432 of about 68,300 tokens from the second on, which a request with its own choice of research
+loses. So a partner is now carried up to its limit whatever its passages are labelled, and research is whole up to
+350,000 characters (about 97,000 of 128,000 a request) where it was 240,000. In the classifier a word and its other
+forms count once ("client" and "clients" gave a label between them), and "plan", "timeline", "results", "review",
+"faster" and "increased" are out of the lists: the first two are a forecasting tool's own words.
 
 **The 13:14 UTC run of 2026-10-11** (project "Cash Flow Forecasting: Automated Spreadsheet Data", five partners, 30 body
 searches and 123 question searches) is the first run since 2026-10-10 to write a pillar and a blog. All seven pages were

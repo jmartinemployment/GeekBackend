@@ -1,9 +1,10 @@
 # Research classification: plan
 
 Written 2026-10-11. **Status: approved by Jeff on 2026-10-11 ("execute"). Stages 1 and 2 are built.
-Stage 3 waits for a real run. Stages 4 and 5, which change what a writer is sent, are not built
-and wait for Jeff's word.** What was built, and how it differs from what is written below, is under
-"Progress" at the end.
+Stage 3 is part done: the first real run was read on 2026-10-11 and the rules were changed from it;
+a run of a project large enough to be chosen from is still needed. Stages 4 and 5, which change what
+a writer is sent, are not built and wait for Jeff's word.** What was built, and how it differs from
+what is written below, is under "Progress" at the end.
 
 ## What it is
 
@@ -69,14 +70,18 @@ run. If the word matching proves too crude in stage 2 below, this is the thing t
 
 ## What each request then carries
 
-- The passages labelled for its sections, best matches first.
-- **Every partner, always.** Each partner keeps a guaranteed share, because the page has to name
-  every partner and needs something to say about each.
+Changed on 2026-10-11 from the first real run; what it was and why it changed is under "Progress",
+stage 3.
+
+- **Every partner, always, up to the same limit:** 40,000 characters for each partner, and 240,000 in
+  all. The page has to name every partner and needs something to say about each.
+- **Within a partner, the passages labelled for the request's sections come first,** best matches
+  first, then passages with no label, then the partner's other passages until its limit is reached.
+  Labels decide the order, not whether a section is shown enough.
 - A passage an earlier request of the same page already carried counts for less, so the page as a
   whole sees more of the research.
-- Up to a limit of 40,000 characters for each partner, and 240,000 in all.
-- **When all the research fits under the limit, it is sent whole,** as today. A small project is
-  not changed and keeps its half-price discount.
+- **Research of 350,000 characters or less is sent whole,** as today. A project that fits is not
+  changed and keeps its half-price discount.
 
 The checks on a finished page (figures, money, links) go on reading all of the research. A page is
 never refused because a request was shown less.
@@ -198,44 +203,91 @@ Every pillar and blog body request still carries all of the research.
     label.
   The word lists name no subject (no "invoice", no "approval"), and a test fails if one does. The line
   of link text printed under a passage is not read: it is often the site's menu.
-- **What a request would carry** (`GccResearchSelector`), in this order: research under 240,000
-  characters is carried whole; otherwise each partner has the same limit, 40,000 or its equal part of
-  240,000; within a partner, passages labelled for the request's sections first, strongest first,
-  then general ones; a passage an earlier request of the same page carried counts half each time; a
-  partner left with less than a quarter of its limit is made up to that from its other passages, the
-  search's best first.
-- **Decided while building, not in the plan above:**
-  - a partner's guaranteed share is a quarter of its limit. The plan said "a guaranteed share" and
-    named no figure;
-  - a passage labelled only for other sections is left out unless it is needed for that share. The
-    plan's table assumed about 195,000 characters a request; with this rule a request carries less
-    than its limit when a partner has few passages for its sections. The run log will say how much;
-  - partners are told apart by host, the way a tool page's research already is
-    (`GccRequiredToolMentions.HostKeyOf`). A partner's page on another host of its own (a help or a
-    documentation subdomain) counts as a separate partner. If a real run shows one, that is fixed
-    before stage 4.
+- **What a request would carry** (`GccResearchSelector`), as "What each request then carries" above
+  says. As first built it was different in two ways, both changed in stage 3: research was whole only
+  under 240,000 characters, and a passage labelled only for other sections was left out unless its
+  partner had less than a quarter of its limit.
+- **Decided while building, not in the plan above:** partners are told apart by host, the way a tool
+  page's research already is (`GccRequiredToolMentions.HostKeyOf`). A partner's page on another host
+  of its own (a help or a documentation subdomain) counts as a separate partner. The first real run
+  had none: five partners, five hosts. If a run shows one, that is fixed before stage 4.
 - **On the run log, for every pillar and blog:**
   - `evidence-labels`, once: how many passages carry each label, in all and partner by partner. This
     is what shows whether a label has anything to choose from.
   - `evidence`, once for each body request: the sections' labels, what was sent, what would be
-    carried, the same partner by partner (labelled, general, share, left out), and each passage chosen
+    carried, the same partner by partner (labelled, general, other, left out), and each passage chosen
     and left out with its labels. When the research fits whole it says `whole` and lists nothing.
 - **Checked by test:** the same passages give the same choice; every partner is kept and none passes
-  its limit; the limit in all is never passed; research that fits is carried whole; a passage is
-  counted at what the research block prints for it; and, through the real pillar and blog writers
-  with more research than the limit, every body request is still sent every passage and is told no
-  label.
+  its limit; the limit in all is never passed; research that fits is carried whole; a partner with
+  nothing for a request is carried up to its limit all the same; a passage is counted at what the
+  research block prints for it; and, through the real pillar and blog writers with more research
+  than is carried whole, every body request is still sent every passage and is told no label.
 
-**Stage 3 needs one or two real runs.** What to read from them:
+**Stage 3, read the real runs: the first was read on 2026-10-11, and the rules changed from it.**
+Still "watch" mode: nothing a writer is sent changed.
 
-1. `grounding`: `poolSearches` and `pageKinds`. Do the brief's rows each bring back passages, and what
-   kinds of page are they on?
-2. `evidence-labels`: is any label nearly empty? An empty one means the research holds little for
-   those sections, and the answer is to search for them, which is a separate plan.
-3. `evidence`: on a project over 240,000 characters, how much would each request carry, does every
-   partner have enough, and are the passages chosen for a section the right ones? A project under
-   that size says `whole` on every request and shows nothing to adjust: the accounts receivable
-   project is the one that is over.
+The run: 14:20 UTC, project "Cash Flow Forecasting: Automated Spreadsheet Data", job `101c3590`. Seven
+pages written, none refused.
+
+What its log showed:
+
+| | |
+|---|---|
+| Searches | 30: the brief's problem once for each of five partners, and its 25 rows. Every one brought back passages (40 and 197) |
+| Pages, by the kind the index marked | 127: 68 with no kind, 23 blog, 21 product, 8 comparison, 6 pricing, 1 about |
+| Research in a pillar or blog request | 213 passages, 250,717 characters |
+| A pillar body request | 68,328 tokens, 76,520 of 128,000 with its reply's reservation |
+| Passages by label | the problem 67, how it works 186, getting it running 8, data and integrations 47, people and roles 48, results and proof 7, fit, price and limits 47, no label 0 |
+
+What each request would have carried under the rules as first built:
+
+| Request | Sections | Characters, of 250,717 |
+|---|---|---|
+| Pillar 1 of 5, blog 1 of 3 | the problem | 102,089 |
+| Pillar 2 of 5, blog 2 of 3 | how it works, getting it running | 182,742 |
+| Pillar 3 of 5 | getting it running, twice | 54,630 |
+| Pillar 4 of 5 | data and integrations, people and roles | 132,693 |
+| Pillar 5 of 5 | fit, price and limits, twice | 91,059 |
+| Blog 3 of 3 | results and proof, fit, price and limits | 100,550 |
+
+Four things were wrong, and each is changed:
+
+1. **A section the research holds little for would have been shown a fifth of it.** No passage was
+   without a label: every one was found by the brief's problem or by one of its rows, and each of
+   those gives a label. So "then general ones" never applied, and the pillar's third request was 8
+   passages about getting it running and 33 make-weight ones. **Changed:** a partner is carried up
+   to its limit in every request, its passages for the request's sections first, then its others.
+   This is the 195,000 characters the table at the top of this plan assumed.
+2. **On this project, choosing would have cost more to send less.** The log measured the half-price
+   discount for the first time on a pillar: of about 68,300 tokens in each body request, 66,432
+   were billed at half price on the second to the fifth. A request with its own choice of research
+   loses that. Chosen down to three quarters, as the 240,000 line would have made it, the pillar
+   would have cost about 30% more. And it was nowhere near the model's limit. **Changed:** research
+   of 350,000 characters or less is carried whole. At that size a request is about 97,000 of
+   128,000. Just above it, with five partners, a request carries 200,000: about 5% more to send for
+   a pillar, about 5% less for a blog, and two thirds the size.
+3. **One word was counted as two.** "client" and "clients", "team" and "finance team", "plan" and
+   "plans" each counted twice, so one common word gave a label. **Changed:** a word and its other
+   forms are one word, and a test fails if a phrase in one line holds a word from another.
+4. **Some words are the subject's own.** In cash flow forecasting a plan is a financial plan and a
+   timeline is a forecast's: 17 passages were labelled "fit, price and limits" by "plan" alone.
+   Seven passages were labelled "results and proof" by "results", "review", "faster" and
+   "increased"; five were read and none was a customer's result. **Changed:** those words are out
+   of the lists.
+
+**What the run showed that this plan cannot fix.** The research holds almost nothing for some
+sections. Of the eight passages labelled "getting it running", seven were read and about half are
+really about setting a product up; of the seven labelled "results and proof", the five read were
+not a customer's result. The pillar's three sections on getting it running and the blog's section
+on results are written with next to no evidence of their own today, with or without classification. The plan
+foresaw it ("What can go wrong", third point). The answer is to search for those sections, which
+is a separate plan and is not started.
+
+**What is still needed.** This project is under the ceiling, so its next runs will say `whole` on
+every request and show nothing to judge. The choice is only exercised by a project over 350,000
+characters. The accounts receivable project is the one known: about 488,000, whose pillar and blog
+requests are about 117,000 of 128,000 and have not run since they went over on 2026-10-10. Its
+`evidence` events are what say whether the passages chosen for each section are the right ones.
 
 **Not built:** stages 4 and 5. Nothing reads a selection into a prompt. The four sentences listed under
 "For the code" that assume the whole research is present are unchanged, and are reworded in stage 4.

@@ -10,9 +10,9 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Which passages of research a request of a pillar or a blog would carry
-/// (plans/research-classification.md, stage 2). Every request carries all of the research today; this
-/// works out what each would carry if its research were chosen for its sections, and records it. No
-/// writer is sent less: that is stages 4 and 5, on Jeff's word.
+/// (plans/research-classification.md, "watch" mode). Every request carries all of the research today;
+/// this works out what each would carry if its research were chosen for its sections, and records it.
+/// No writer is sent less: that is switched on for the blog, then the pillar, each on Jeff's word.
 /// </summary>
 public class GccResearchSelectionTests
 {
@@ -71,6 +71,34 @@ public class GccResearchSelectionTests
     }
 
     [Fact]
+    public void A_word_and_its_other_forms_are_one_word()
+    {
+        // The 14:20 UTC run of 2026-10-11: "clients" and "each client" gave people and roles from one
+        // word, and "finance team" was counted as "team" and again as itself.
+        Assert.Empty(Labels(Page("https://partner.test/a", "Each client sees what the other clients see.")));
+        Assert.Empty(Labels(Page("https://partner.test/a", "The finance team is one of several teams.")));
+        Assert.Empty(Labels(Page("https://partner.test/a", "Setup is quick: set up once and you are done.")));
+        Assert.Empty(Labels(Page("https://partner.test/a", "Integrations integrate with every integration.")));
+        // Two different words still give the label.
+        Assert.Equal(
+            [GccResearchLabel.PeopleAndRoles],
+            Labels(Page("https://partner.test/a", "Each client and its accountant see the same numbers.")));
+    }
+
+    [Fact]
+    public void A_word_the_subject_uses_for_its_own_things_gives_no_label()
+    {
+        // The same run's research was about cash flow forecasting, where a plan is a financial plan and
+        // a timeline is a forecast's. 17 passages were labelled fit and price by "plan" and "plans".
+        Assert.DoesNotContain(
+            GccResearchLabel.FitPriceAndLimits,
+            Labels(Page("https://partner.test/a", "Build a plan, compare it with last year's plans.") with { Category = "blog" }));
+        Assert.Empty(Labels(Page("https://partner.test/a", "Implementing a rolling forecast gives a thirteen-week timeline.")));
+        // And everyday words that were read as proof: seven passages, none of them a customer's result.
+        Assert.Empty(Labels(Page("https://partner.test/a", "Users review the results faster, with increased confidence.")));
+    }
+
+    [Fact]
     public void A_product_page_leans_a_passage_toward_how_it_works_without_settling_it()
     {
         var product = Page("https://partner.test/product", "Nothing here names anything.") with { Category = "product" };
@@ -92,8 +120,8 @@ public class GccResearchSelectionTests
     [Fact]
     public void A_word_is_matched_whole_and_through_punctuation_and_case()
     {
-        // "planning" is not "plan", "apiary" is not "api".
-        Assert.Empty(Labels(Page("https://partner.test/a", "Planning an apiary takes a season of comparisons.")));
+        // "pricey" is not "price", "apiary" is not "api", "comparisons" is not "comparison".
+        Assert.Empty(Labels(Page("https://partner.test/a", "A pricey apiary takes a season of comparisons.")));
         Assert.Equal(
             [GccResearchLabel.GettingItRunning],
             Labels(Page("https://partner.test/a", "Go-Live in days: ONBOARDING is guided.")));
@@ -114,7 +142,7 @@ public class GccResearchSelectionTests
     public void A_passage_may_carry_more_than_one_label_each_with_its_strength()
     {
         var page = GccGroundingResolver.FoundBy(
-            Page("https://partner.test/pricing", "Plans start per month, and setup with onboarding is included.") with { Category = "pricing" },
+            Page("https://partner.test/pricing", "Priced per month, and setup with onboarding is included.") with { Category = "pricing" },
             TheProblem);
 
         var labels = GccPassageClassifier.LabelsOf(page, 0);
@@ -145,16 +173,46 @@ public class GccResearchSelectionTests
         [
             "invoice", "invoices", "payable", "payables", "receivable", "receivables", "approval", "approvals",
             "spreadsheet", "spreadsheets", "cash flow", "forecast", "forecasting", "payment", "payments", "payroll",
+            // A forecasting tool's own: a financial plan, a forecast's timeline (the 14:20 UTC run of 2026-10-11).
+            "plan", "plans", "timeline",
         ];
 
         Assert.Equal(GccResearchLabel.All.Order(), GccPassageClassifier.Words.Keys.Order());
-        foreach (var (label, words) in GccPassageClassifier.Words)
+        foreach (var (label, families) in GccPassageClassifier.Words)
         {
+            var words = families.SelectMany(family => family).ToList();
             Assert.All(words, word => Assert.DoesNotContain(word, subjects));
             // Each as it reads once a text is normalised, or it can never be found.
             Assert.All(words, word => Assert.Equal($" {word} ", GccPassageClassifier.Normalize(word)));
-            Assert.Equal(words.Length, words.Distinct(StringComparer.Ordinal).Count());
+            Assert.Equal(words.Count, words.Distinct(StringComparer.Ordinal).Count());
+            Assert.All(families, family => Assert.NotEmpty(family));
             Assert.NotEmpty(label);
+        }
+    }
+
+    [Fact]
+    public void No_word_of_a_label_is_counted_as_two()
+    {
+        // A phrase that holds another family's word would give the label on its own: "finance team" was
+        // "team" and "finance team", two of people and roles' words, until they were made one family.
+        foreach (var (label, families) in GccPassageClassifier.Words)
+        {
+            for (var i = 0; i < families.Length; i++)
+            {
+                foreach (var form in families[i])
+                {
+                    var reads = GccPassageClassifier.Normalize(form);
+                    for (var j = 0; j < families.Length; j++)
+                    {
+                        if (j == i) continue;
+                        Assert.All(
+                            families[j],
+                            other => Assert.False(
+                                reads.Contains($" {other} ", StringComparison.Ordinal),
+                                $"{label}: \"{form}\" holds \"{other}\", a word of another family."));
+                    }
+                }
+            }
         }
     }
 
@@ -253,14 +311,17 @@ public class GccResearchSelectionTests
     }
 
     [Fact]
-    public void Research_that_fits_under_the_limit_is_carried_whole()
+    public void Research_that_fits_under_the_ceiling_is_carried_whole()
     {
+        // 300,300 characters: more than a chosen request would carry, and still left alone. The 14:20 UTC
+        // run of 2026-10-11 was 250,717, and choosing from it would have cost more to send less.
         var passages = new List<GccResearchPassage>
         {
-            Passage("a.test", 1, 0, 60_000, GccResearchLabel.Problem),
-            Passage("a.test", 2, 0, 60_000, GccResearchLabel.FitPriceAndLimits),
-            Passage("b.test", 1, 0, 60_000, null),
+            Passage("a.test", 1, 0, 100_000, GccResearchLabel.Problem),
+            Passage("a.test", 2, 0, 100_000, GccResearchLabel.FitPriceAndLimits),
+            Passage("b.test", 1, 0, 100_000, null),
         };
+        Assert.InRange(GccResearchSelector.CharsOf(passages), GccResearchSelector.MaxCharsInAll + 1, GccResearchSelector.WholeUpToChars);
 
         var selection = GccResearchSelector.Select(passages, [GccResearchLabel.HowItWorks], NothingShown);
 
@@ -268,6 +329,11 @@ public class GccResearchSelectionTests
         Assert.Equal(passages, selection.Chosen.Select(chosen => chosen.Passage));
         Assert.All(selection.Chosen, chosen => Assert.Equal(GccResearchSelector.WhyWhole, chosen.Why));
         Assert.Empty(selection.LeftOut);
+
+        // One character over the ceiling and it is chosen from.
+        var over = new List<GccResearchPassage>(passages) { Passage("b.test", 2, 0, 49_601, null) };
+        Assert.Equal(GccResearchSelector.WholeUpToChars + 1, GccResearchSelector.CharsOf(over));
+        Assert.False(GccResearchSelector.Select(over, [GccResearchLabel.HowItWorks], NothingShown).Whole);
     }
 
     [Fact]
@@ -284,7 +350,7 @@ public class GccResearchSelectionTests
             var mine = carried.Where(passage => passage.Host == host).ToList();
             Assert.NotEmpty(mine);
             Assert.InRange(GccResearchSelector.CharsOf(mine), 1, GccResearchSelector.MaxCharsPerPartner);
-            // Every one is labelled for the request: a partner with enough of those is given nothing else.
+            // Every one is labelled for the request: a partner with enough of those has no room for others.
             Assert.All(mine, passage => Assert.True(passage.Labels.ContainsKey(GccResearchLabel.Problem)));
             // 4,900 and its page's 100 lines, eight times, is the limit exactly.
             Assert.Equal(8, mine.Count);
@@ -309,9 +375,11 @@ public class GccResearchSelectionTests
     }
 
     [Fact]
-    public void A_partner_with_nothing_for_the_request_is_still_given_its_share()
+    public void A_partner_with_nothing_for_the_request_is_carried_up_to_its_limit_all_the_same()
     {
-        // One partner's research is all about price; the request writes the problem.
+        // One partner's research is all about price; the request writes the problem. On the 14:20 UTC run
+        // of 2026-10-11 the research held 8 passages of 213 for getting it running, and the request that
+        // writes those sections would have been shown a fifth of what the others were.
         var passages = new List<GccResearchPassage>(FivePartnersOverTheLimit().Where(passage => passage.Host != "e.test"));
         for (var i = 0; i < 30; i++)
         {
@@ -320,36 +388,67 @@ public class GccResearchSelectionTests
 
         var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
 
-        var share = selection.Chosen.Where(chosen => chosen.Passage.Host == "e.test").ToList();
-        Assert.All(share, chosen => Assert.Equal(GccResearchSelector.WhyShare, chosen.Why));
-        // Made up to a quarter of its limit and no further: two passages reach 10,000.
-        Assert.Equal(2, share.Count);
-        Assert.Equal([0, 1], share.Select(chosen => int.Parse(new Uri(chosen.Passage.Url).AbsolutePath.Trim('/'))));
+        var others = selection.Chosen.Where(chosen => chosen.Passage.Host == "e.test").ToList();
+        Assert.All(others, chosen => Assert.Equal(GccResearchSelector.WhyOther, chosen.Why));
+        // As much as any partner: eight passages reach the limit, the search's best first.
+        Assert.Equal(GccResearchSelector.MaxCharsPerPartner, GccResearchSelector.CharsOf(others.Select(chosen => chosen.Passage)));
+        Assert.Equal(
+            Enumerable.Range(0, 8),
+            others.Select(chosen => int.Parse(new Uri(chosen.Passage.Url).AbsolutePath.Trim('/'))));
     }
 
     [Fact]
-    public void General_passages_follow_the_labelled_ones_and_other_sections_passages_are_left_out()
+    public void Of_a_partners_other_passages_the_ones_carried_least_come_first()
     {
-        var passages = new List<GccResearchPassage>(FivePartnersOverTheLimit().Where(passage => passage.Host != "a.test"))
+        var passages = new List<GccResearchPassage>(FivePartnersOverTheLimit().Where(passage => passage.Host != "e.test"));
+        for (var i = 0; i < 30; i++)
         {
-            Passage("a.test", 1, 0, 9_900, GccResearchLabel.FitPriceAndLimits, score: 0.99),
-            Passage("a.test", 2, 0, 9_900, null, score: 0.10),
-            Passage("a.test", 3, 0, 9_900, GccResearchLabel.Problem, score: 0.20),
-            Passage("a.test", 4, 0, 9_900, GccResearchLabel.Problem, score: 0.30, strength: 4),
-        };
+            passages.Add(Passage("e.test", i, 0, 4_900, GccResearchLabel.FitPriceAndLimits, score: 1.0 - i / 100.0));
+        }
 
-        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var first = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var shown = first.Chosen.ToDictionary(chosen => (chosen.Passage.Url, chosen.Passage.Position), _ => 1);
+        var second = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], shown);
 
-        var mine = selection.Chosen.Where(chosen => chosen.Passage.Host == "a.test").ToList();
-        // The stronger label first, then the other labelled passage, then the general one. The passage
-        // about price is for another request, however well the search scored it.
+        // The next request for the same sections is given the eight after the first eight.
+        Assert.Equal(
+            Enumerable.Range(8, 8),
+            second.Chosen
+                .Where(chosen => chosen.Passage.Host == "e.test")
+                .Select(chosen => int.Parse(new Uri(chosen.Passage.Url).AbsolutePath.Trim('/'))));
+    }
+
+    [Fact]
+    public void The_requests_own_passages_come_first_then_general_ones_then_the_partners_others()
+    {
+        IReadOnlyList<GccChosenPassage> OfA(int chars)
+        {
+            var passages = new List<GccResearchPassage>(FivePartnersOverTheLimit().Where(passage => passage.Host != "a.test"))
+            {
+                Passage("a.test", 1, 0, chars, GccResearchLabel.FitPriceAndLimits, score: 0.99),
+                Passage("a.test", 2, 0, chars, null, score: 0.10),
+                Passage("a.test", 3, 0, chars, GccResearchLabel.Problem, score: 0.20),
+                Passage("a.test", 4, 0, chars, GccResearchLabel.Problem, score: 0.30, strength: 4),
+            };
+
+            return [.. GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown).Chosen
+                .Where(chosen => chosen.Passage.Host == "a.test")];
+        }
+
+        // All four fit the partner's limit: the stronger label, the other labelled passage, the general
+        // one, and last the passage about price, however well the search scored it.
+        var all = OfA(9_900);
+        Assert.Equal(
+            ["https://a.test/4", "https://a.test/3", "https://a.test/2", "https://a.test/1"],
+            all.Select(chosen => chosen.Passage.Url));
+        Assert.Equal(
+            [GccResearchSelector.WhyLabelled, GccResearchSelector.WhyLabelled, GccResearchSelector.WhyGeneral, GccResearchSelector.WhyOther],
+            all.Select(chosen => chosen.Why));
+
+        // Room for three: the passage for another request's sections is the one left out.
         Assert.Equal(
             ["https://a.test/4", "https://a.test/3", "https://a.test/2"],
-            mine.Select(chosen => chosen.Passage.Url));
-        Assert.Equal(
-            [GccResearchSelector.WhyLabelled, GccResearchSelector.WhyLabelled, GccResearchSelector.WhyGeneral],
-            mine.Select(chosen => chosen.Why));
-        Assert.Contains(selection.LeftOut, passage => passage.Url == "https://a.test/1");
+            OfA(13_000).Select(chosen => chosen.Passage.Url));
     }
 
     [Fact]
@@ -484,10 +583,10 @@ public class GccResearchSelectionTests
 
     // ---- the record of what a request would carry ---------------------------------------------------
 
-    /// <summary>Two partners with more than the limit in all between them, on pages the classifier labels.</summary>
+    /// <summary>Two partners with more than the ceiling between them, on pages the classifier labels.</summary>
     private static IReadOnlyList<GccQuoteablePage> TwoPartnersOverTheLimit()
     {
-        var filler = new string('x', 1_900);
+        var filler = new string('x', 2_900);
         var pages = new List<GccQuoteablePage>();
         foreach (var host in new[] { "a.test", "b.test" })
         {
@@ -530,11 +629,12 @@ public class GccResearchSelectionTests
         Assert.Equal([GccResearchLabel.Problem], record.GetProperty("labels").EnumerateArray().Select(l => l.GetString()));
         Assert.Equal(40_000, record.GetProperty("limits").GetProperty("perPartner").GetInt32());
         Assert.Equal(240_000, record.GetProperty("limits").GetProperty("inAll").GetInt32());
+        Assert.Equal(350_000, record.GetProperty("limits").GetProperty("wholeUpTo").GetInt32());
 
         var sent = record.GetProperty("sent");
         var wouldCarry = record.GetProperty("wouldCarry");
         Assert.Equal(140, sent.GetProperty("passages").GetInt32());
-        Assert.InRange(sent.GetProperty("chars").GetInt32(), 240_001, int.MaxValue);
+        Assert.InRange(sent.GetProperty("chars").GetInt32(), 350_001, int.MaxValue);
         Assert.InRange(wouldCarry.GetProperty("chars").GetInt32(), 1, 80_000);
 
         var partners = record.GetProperty("partners").EnumerateArray().ToList();
@@ -544,10 +644,10 @@ public class GccResearchSelectionTests
             Assert.Equal(70, partner.GetProperty("sent").GetProperty("passages").GetInt32());
             Assert.InRange(partner.GetProperty("wouldCarry").GetProperty("chars").GetInt32(), 1, 40_000);
             var carried = partner.GetProperty("wouldCarry").GetProperty("passages").GetInt32();
-            // The problem's passages fill it: nothing general, and no share to make up.
+            // The problem's passages fill it: nothing general, and no room for the partner's others.
             Assert.Equal(carried, partner.GetProperty("labelled").GetInt32());
             Assert.Equal(0, partner.GetProperty("general").GetInt32());
-            Assert.Equal(0, partner.GetProperty("share").GetInt32());
+            Assert.Equal(0, partner.GetProperty("other").GetInt32());
             Assert.Equal(70 - carried, partner.GetProperty("leftOut").GetInt32());
         }
 
