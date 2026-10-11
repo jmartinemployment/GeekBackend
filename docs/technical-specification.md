@@ -142,6 +142,12 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
      or more than two sections, reserves 16,384 (`ContentPromptBuilder.BodyMaxOutputTokens`).
    - **No code knows the model's limit.** OpenAI's is 128,000 tokens, prompt and reservation together; a call over it is
      refused with 400 and its page is not written. On 2026-10-10 a pillar body call was 125,253 prompt tokens.
+   - **Every question section is answered from searched passages.** A tool page's FAQ questions are each searched for in
+     that partner's crawl; the pillar's People Also Ask and the blog's FAQ questions are each searched for in every
+     partner's crawl (`GccGroundingResolver.PageFaqSearches`), three passages a search. Only a question with passages is
+     sent to the model, the writer is told to answer from them alone, and a question left out is reported with why. No
+     code checks an answer's sentences against its passages. A pillar or blog question call carries at most 200,000
+     characters of passages (`GccPageFaqEvidence.MaxEvidenceCharsPerCall`), the one call whose size code bounds.
 5. The runner records `completed` or `failure`, writes the job row, and pushes over SignalR.
 
 **The brief, as a writer is given it.** Each pillar, blog and tool page call prints the brief once. A choice the form stores
