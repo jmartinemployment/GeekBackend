@@ -134,6 +134,14 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
 4. `GccGenerateService` (3,798 lines) writes: lede, batched body (two sections per call), FAQ, closing (`GccClosing`, built by
    code), image prompts, metadata and JSON-LD; every draft is checked once by `GccDraftGuard` and either refused or shipped
    with gaps reported. No retries.
+   - **Every body call carries the page's whole evidence**, so the evidence decides a call's size. A passage the Library
+     returns as a child is printed as its parent (`Context:`) and itself (`Specific detail:`); when the two are the same
+     text it is printed once, with neither label (`HttpGeekCrawlerRagClient.RenderChunk`).
+   - **A call reserves room for its reply, and the reservation counts against the model's limit whether or not it is used.**
+     A call that writes a part of the page, two sections at most, reserves 8,192 tokens; a call that writes a whole outline,
+     or more than two sections, reserves 16,384 (`ContentPromptBuilder.BodyMaxOutputTokens`).
+   - **No code knows the model's limit.** OpenAI's is 128,000 tokens, prompt and reservation together; a call over it is
+     refused with 400 and its page is not written. On 2026-10-10 a pillar body call was 125,253 prompt tokens.
 5. The runner records `completed` or `failure`, writes the job row, and pushes over SignalR.
 
 **The brief, as a writer is given it.** Each pillar, blog and tool page call prints the brief once. A choice the form stores

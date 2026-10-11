@@ -301,7 +301,8 @@ The trial's script and data are not in the repository.
   forecast?" and "Can I customize the forecasting views and dashboards?". Jeff's call.
 - **A later question's passages are no longer discarded** when an earlier question returned
   something from the same page (`3dc6eb8`). Found while reading this run; it changes what every
-  writer is given, and is not yet seen in a real run.
+  writer is given. **Seen in the 18:26 run, where it put the pillar and the blog over OpenAI's
+  limit:** see "The run that followed".
 
 ## Order
 
@@ -329,6 +330,25 @@ and a `left-out` event lists them); each call prints the brief once, in words; a
 page's hook is told the operator's problem. None changes a check, so none should add a line. A
 question whose only passages were legal pages or template stubs would now read "a search found
 nothing"; none of the six was in that state on the 12:14 run.
+
+## The run that followed, 18:26 UTC
+
+Read from its log (job `5ef1165c`), with the six FAQ edits saved to the brief beforehand.
+
+- **Pillar and blog were not written.** OpenAI refused each one's first body call as over its
+  128,000-token limit. The cause is the last item under "Not changed": keeping a later question's
+  passages (`3dc6eb8`) grew the partner evidence in every pillar and blog call from 385,864 to
+  577,347 characters. The findings, Jeff's decision to keep the passages and make room, and the two
+  changes that do it are in `plans/pillar-and-blog-over-the-context-limit.md`.
+- **Five tool pages written, seven lines** against 29. Where each line comes from, and what the next
+  run should list, are in that plan.
+- **What this plan predicted and got wrong.** "Worded as the page words it, the question should find
+  it" for Chaserhq: it did not. The reworded question was shown `/integrations/sage200`,
+  `/chaser-api` and `/integrations/sap`. Bill's two rewordings and three removals held: all five of
+  its questions were answered.
+- **What held.** No heading put "Manual" in front of the keyword. No line for a single call's length.
+  Upflow, Versapay and Bill passed the keyword at 0.41%, 0.40% and 0.43%. The `left-out` event
+  recorded BILL's legal pages and `/listicle`.
 
 ## Verification
 
