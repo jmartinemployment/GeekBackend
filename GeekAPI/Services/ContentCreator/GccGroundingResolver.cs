@@ -216,9 +216,11 @@ public sealed class GccGroundingResolver(
     private const int EvidenceTopK = 8;
 
     /// <summary>
-    /// Passages per FAQ question. An answer is two to four sentences, and a call of eight questions
-    /// then carries at most the twenty-four passages an FAQ call was shown before each question had
-    /// a search of its own.
+    /// Passages per FAQ question, from each crawl searched for it. An answer is two to four
+    /// sentences, and a tool page's call of eight questions then carries at most the twenty-four
+    /// passages an FAQ call was shown before each question had a search of its own. A pillar's or a
+    /// blog's question is searched for in every partner's crawl, so it brings this many from each;
+    /// <see cref="GccPageFaqEvidence.MaxEvidenceCharsPerCall"/> is what bounds those calls.
     /// </summary>
     internal const int FaqTopK = 3;
 
@@ -374,10 +376,13 @@ public sealed class GccGroundingResolver(
         var partnerHostsByRun = new Dictionary<Guid, List<string>>();
         // Partner run -> the host key (bill.com) the brief's per-tool framing is filed under.
         var partnerHostKeyByRun = new Dictionary<Guid, string>();
-        // The operator's FAQ questions are a tool page's alone, so they are searched for only when one
-        // will be written. Null otherwise: "not searched" must stay distinguishable from "found nothing".
-        List<GccFaqEvidence>? faqEvidence =
-            contentTypes.Any(t => string.Equals(Canonical(t), "tool", StringComparison.OrdinalIgnoreCase)) ? [] : null;
+        // A tool's FAQ questions are its tool page's alone, so they are searched for only when one will
+        // be written. The pillar's People Also Ask and the blog's FAQ are searched for in every
+        // partner's crawl, when the run writes that page. Null when the run asks no such question:
+        // "not searched" must stay distinguishable from "found nothing".
+        var writesToolPage = contentTypes.Any(t => string.Equals(Canonical(t), "tool", StringComparison.OrdinalIgnoreCase));
+        var pageFaqQuestions = PageFaqQuestions(create, contentTypes);
+        List<GccFaqEvidence>? faqEvidence = writesToolPage || pageFaqQuestions.Count > 0 ? [] : null;
 
         foreach (var crawlType in crawlTypes)
         {
@@ -526,9 +531,15 @@ public sealed class GccGroundingResolver(
                 // 2026-10-10 these were never asked: the page answered them from whatever the searches
                 // above had brought back, and reported a question none of them was about as one "no
                 // page answers".
+                //
+                // Then the pillar's and the blog's questions, asked of this partner's crawl like every
+                // other partner's. Until 2026-10-11 those were asked of no crawl and answered from the
+                // writer's general knowledge.
                 if (isPartner && faqEvidence is not null)
                 {
-                    questions = [.. questions, .. FaqQuestions(create, partnerHostKeyByRun.GetValueOrDefault(runId))];
+                    var hostKey = partnerHostKeyByRun.GetValueOrDefault(runId);
+                    IReadOnlyList<PartnerQuestion> toolFaq = writesToolPage ? FaqQuestions(create, hostKey) : [];
+                    questions = [.. questions, .. toolFaq, .. PageFaqSearches(pageFaqQuestions, toolFaq, hostKey)];
                 }
 
                 var pagesReturned = 0;
@@ -789,6 +800,48 @@ public sealed class GccGroundingResolver(
         [
             .. GccNicheFramingReader.FaqQuestionsForHost(create.BriefJson, hostKey)
                 .Select(q => new PartnerQuestion(q, null, FaqTopK, FaqHost: hostKey)),
+        ];
+    }
+
+    /// <summary>
+    /// The pillar's People Also Ask and the blog's FAQ questions, for the pages this run writes: each
+    /// question once, in the order the brief lists them, the pillar's first. Read through
+    /// <see cref="GccGenerateService.ExtractBriefFields"/>, the reader each page asks for the same
+    /// questions, so what a page must answer is what the crawls were searched for.
+    /// </summary>
+    internal static IReadOnlyList<string> PageFaqQuestions(GccCreateDto create, IReadOnlyList<string> contentTypes)
+    {
+        var brief = GccGenerateService.ExtractBriefFields(create.BriefJson);
+        var questions = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (type, asked) in new[] { ("pillar", brief.PaaQuestions), ("blog", brief.BlogFaqQuestions) })
+        {
+            if (!contentTypes.Any(t => string.Equals(Canonical(t), type, StringComparison.OrdinalIgnoreCase))) continue;
+            foreach (var question in asked ?? [])
+            {
+                if (seen.Add(question)) questions.Add(question);
+            }
+        }
+
+        return questions;
+    }
+
+    /// <summary>
+    /// The pillar's and the blog's questions as searches of one partner's crawl: the question as
+    /// written, no keyword half, <see cref="FaqTopK"/> passages, filed under that partner. A question
+    /// the partner's own tool page already asks (<paramref name="alreadyAsked"/>) is not searched for
+    /// twice: one search answers both pages.
+    /// </summary>
+    internal static IReadOnlyList<PartnerQuestion> PageFaqSearches(
+        IReadOnlyList<string> pageFaqQuestions, IReadOnlyList<PartnerQuestion> alreadyAsked, string? hostKey)
+    {
+        if (string.IsNullOrWhiteSpace(hostKey)) return [];
+        var asked = new HashSet<string>(alreadyAsked.Select(q => q.Need), StringComparer.Ordinal);
+        return
+        [
+            .. pageFaqQuestions
+                .Where(question => !asked.Contains(question))
+                .Select(question => new PartnerQuestion(question, null, FaqTopK, FaqHost: hostKey)),
         ];
     }
 

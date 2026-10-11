@@ -116,7 +116,8 @@ public class GccDraftIsGuardedOnceTests
     private static GccCreateDto Create(string? briefJson = null) => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
         StartingContentType: "pillar", Topic: "AI implementation", Notes: null,
-        ProjectSiteRunId: null, SiteSectionJson: null, BriefJson: briefJson, ResearchJson: null,
+        // The pillar's People Also Ask is written only for a question a search found passages for.
+        ProjectSiteRunId: null, SiteSectionJson: null, BriefJson: briefJson, ResearchJson: PageFaqResearch.For(briefJson),
         Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow);
 
     private static GccGenerateService Build(IContentGenerationProvider provider) => new(

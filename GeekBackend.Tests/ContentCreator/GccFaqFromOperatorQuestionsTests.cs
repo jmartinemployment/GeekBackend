@@ -87,6 +87,65 @@ public class GccFaqFromOperatorQuestionsTests
         Assert.Contains("heading is exactly \"People Also Ask\"", system, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// 2026-10-11: the pillar's and the blog's questions are answered from what a search of each
+    /// partner's crawl found for them. Until then the call carried the questions and no evidence, and
+    /// the writer answered from its own general knowledge.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public void A_pillars_or_a_blogs_faq_prompt_given_evidence_answers_only_from_it(string page)
+    {
+        string[] questions = ["How long does a rollout take?", "What does it cost to run?"];
+        const string evidence = "Found for Q1:\n[Rollout] (https://partner.test/rollout)\n  - A rollout takes six weeks.";
+        var request = page == "pillar"
+            ? Builder.BuildArticleFaqSectionPrompt(
+                Context(), new ArticleMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions,
+                isRegeneration: false, evidenceBlock: evidence)
+            : Builder.BuildBlogFaqSectionPrompt(
+                Context(), new BlogMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions, evidence);
+
+        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.Contains("Answer ONLY from the PARTNER EVIDENCE in the user message", system, StringComparison.Ordinal);
+        Assert.Contains("LEAVE THAT QUESTION OUT: no child for it and no placeholder", system, StringComparison.Ordinal);
+        Assert.Contains("Never answer from general knowledge", system, StringComparison.Ordinal);
+        Assert.Contains("\"Found for Q1:\" heads what a search of the partners' pages found for Q1", system, StringComparison.Ordinal);
+        Assert.Contains("Each answered question is a child Section", system, StringComparison.Ordinal);
+        // The same money rule every other call that is shown evidence carries.
+        Assert.Contains("US dollars", system, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("Questions to answer, only where the evidence answers them:", user, StringComparison.Ordinal);
+        Assert.Contains("=== PARTNER EVIDENCE (the partner tools' own pages; the only source for these answers) ===", user, StringComparison.Ordinal);
+        Assert.Contains("A rollout takes six weeks.", user, StringComparison.Ordinal);
+        Assert.True(
+            user.IndexOf("- Q2: What does it cost to run?", StringComparison.Ordinal)
+                < user.IndexOf("=== PARTNER EVIDENCE", StringComparison.Ordinal),
+            "the questions are listed before the evidence found for them");
+    }
+
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public void A_faq_prompt_given_no_evidence_is_written_as_it_always_was(string page)
+    {
+        // The Workflow product's writer: it has no search of a partner's crawl to pass.
+        string[] questions = ["How long does a rollout take?"];
+        var request = page == "pillar"
+            ? Builder.BuildArticleFaqSectionPrompt(
+                Context(), new ArticleMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions, isRegeneration: false)
+            : Builder.BuildBlogFaqSectionPrompt(
+                Context(), new BlogMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions);
+
+        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.DoesNotContain("PARTNER EVIDENCE", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("PARTNER EVIDENCE", user, StringComparison.Ordinal);
+        Assert.Contains("Each question is a child Section", system, StringComparison.Ordinal);
+        Assert.Contains("Questions to answer:", user, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_tool_faq_prompt_answers_only_from_the_partners_evidence_and_leaves_the_rest_out()
     {

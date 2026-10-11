@@ -409,10 +409,12 @@ public partial class ContentPromptBuilder
         ArticleMetadataDraft metadata,
         IReadOnlyList<string> faqQuestions,
         bool isRegeneration,
-        string? revisionNotes = null) =>
+        string? revisionNotes = null,
+        string? evidenceBlock = null) =>
         FaqSectionPrompt(
             context, metadata.Title, faqQuestions,
-            pageKind: "TechnicalArticle pillar", heading: "People Also Ask", isRegeneration, revisionNotes);
+            pageKind: "TechnicalArticle pillar", heading: "People Also Ask", isRegeneration, revisionNotes,
+            evidenceBlock);
 
     private static string BuildIntroductionSectionGuidance(ProjectGenerationContext context)
     {

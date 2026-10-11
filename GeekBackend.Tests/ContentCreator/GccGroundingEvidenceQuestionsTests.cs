@@ -651,4 +651,114 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Null(site.Keyword);
         Assert.Equal(SiteRun, site.RunId);
     }
+
+    // ---- the pillar's People Also Ask and the blog's FAQ (2026-10-11) ---------------------------------
+    //
+    // Until then these questions were searched for in no crawl: each page's call was given the
+    // questions and no evidence, and the writer answered from its own general knowledge.
+
+    private const string WhatIsIt = "What is automated payment execution?";
+    private const string HowLong = "How long does a payment run take by hand?";
+
+    private static string WithPageQuestions(string brief, string pillarQuestions = WhatIsIt, string blogQuestions = HowLong) =>
+        brief.Replace(
+            "\"angle\": \"problem_solution\",",
+            $"\"angle\": \"problem_solution\", \"paaQuestions\": \"{pillarQuestions}\", \"blogFaqQuestions\": \"{blogQuestions}\",",
+            StringComparison.Ordinal);
+
+    [Fact]
+    public async Task A_pillars_questions_are_searched_for_in_a_partners_crawl_and_filed_under_that_partner()
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new RecordingRag();
+
+        var outcome = await Build(project, rag, new OneBlockPages())
+            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), "pillar");
+
+        // The question as written, no keyword half, the partner's own run: a tool page's FAQ search.
+        var search = Assert.Single(FaqQueries(rag));
+        Assert.Equal(WhatIsIt, search.Need);
+        Assert.Null(search.Keyword);
+        Assert.Equal(TipaltiRun, search.RunId);
+
+        var entry = Assert.Single(outcome.FaqEvidence!);
+        Assert.Equal("tipalti.com", entry.Host);
+        Assert.Equal(WhatIsIt, entry.Question);
+        // What it found answers a question and joins nothing every writer reads.
+        Assert.DoesNotContain(outcome.Pages, p => entry.Pages.Any(f => f.Url == p.Url));
+        // The blog's question belongs to a page this run does not write.
+        Assert.DoesNotContain(rag.Asked, q => q.Need == HowLong);
+    }
+
+    [Fact]
+    public async Task A_run_that_writes_a_pillar_and_a_blog_searches_for_each_pages_questions()
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new RecordingRag();
+
+        var outcome = await Build(project, rag, new OneBlockPages())
+            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), ["pillar", "blog"]);
+
+        Assert.Equal([WhatIsIt, HowLong], FaqQueries(rag).Select(q => q.Need));
+        Assert.Equal([WhatIsIt, HowLong], outcome.FaqEvidence!.Select(e => e.Question));
+    }
+
+    [Fact]
+    public async Task A_question_two_pages_ask_is_searched_for_once()
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new RecordingRag();
+        // The pillar and the blog ask one question between them, and it is also this tool's own.
+        var brief = WithPageQuestions(BriefWithFaq, pillarQuestions: QuickBooks, blogQuestions: QuickBooks);
+
+        var outcome = await Build(project, rag, new OneBlockPages())
+            .ResolveAsync(Create(project.Id, brief), ["tool", "pillar", "blog"]);
+
+        Assert.Single(FaqQueries(rag), q => q.Need == QuickBooks);
+        Assert.Single(outcome.FaqEvidence!, e => e.Question == QuickBooks);
+        // The tool's other question is still its own.
+        Assert.Single(FaqQueries(rag), q => q.Need == RiskSegments);
+    }
+
+    [Fact]
+    public async Task A_run_that_writes_only_tool_pages_searches_for_no_pillar_or_blog_question()
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new RecordingRag();
+
+        var outcome = await Build(project, rag, new OneBlockPages())
+            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), "tool");
+
+        Assert.DoesNotContain(rag.Asked, q => q.Need == WhatIsIt || q.Need == HowLong);
+        Assert.Empty(outcome.FaqEvidence!);
+    }
+
+    [Fact]
+    public async Task A_page_question_whose_search_finds_nothing_is_an_entry_with_no_passages()
+    {
+        var project = Project("https://tipalti.com/");
+
+        var outcome = await Build(project, new FaqRag(findsNothingFor: WhatIsIt), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), "pillar");
+
+        Assert.False(outcome.Refused);
+        var entry = Assert.Single(outcome.FaqEvidence!);
+        Assert.Equal(WhatIsIt, entry.Question);
+        Assert.Empty(entry.Pages);
+    }
+
+    [Fact]
+    public void The_pages_questions_are_read_for_the_pages_the_run_writes_each_once_in_the_briefs_order()
+    {
+        var create = Create(Guid.NewGuid(), """{"paaQuestions":"A?\nB?","blogFaqQuestions":"B?\nC?"}""");
+
+        Assert.Equal(["A?", "B?", "C?"], GccGroundingResolver.PageFaqQuestions(create, ["pillar", "blog", "tool"]));
+        Assert.Equal(["A?", "B?"], GccGroundingResolver.PageFaqQuestions(create, ["pillar"]));
+        Assert.Equal(["B?", "C?"], GccGroundingResolver.PageFaqQuestions(create, ["blog"]));
+        Assert.Empty(GccGroundingResolver.PageFaqQuestions(create, ["tool"]));
+        // What the pillar is asked is what the search reads: one reader.
+        Assert.Equal(
+            GccGenerateService.ExtractBriefFields(create.BriefJson).PaaQuestions,
+            GccGroundingResolver.PageFaqQuestions(create, ["pillar"]));
+    }
 }

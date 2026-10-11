@@ -43,10 +43,12 @@ public sealed record GccResearchDocument(
     /// </summary>
     IReadOnlyList<GccPublisherPosition>? PublisherPositions = null,
     /// <summary>
-    /// What a search of each partner's crawl found for each of the operator's FAQ questions for that
-    /// tool, one entry per question searched. Kept apart from <see cref="Quoteables"/>: these passages
-    /// answer a question, the shared list is what every page is written from, and joining them would
-    /// change what the pillar, the blog and the tool body are given.
+    /// What a search of a partner's crawl found for one of the operator's questions, one entry per
+    /// search: that partner's tool page's FAQ questions, and the pillar's People Also Ask and the
+    /// blog's FAQ, which are searched for in every partner's crawl. Kept apart from
+    /// <see cref="Quoteables"/>: these passages answer a question, the shared list is what every page
+    /// is written from, and joining them would change what the pillar, the blog and the tool body are
+    /// given.
     ///
     /// <para>
     /// An entry with no pages is a search that found nothing. A question with no entry was never
@@ -56,8 +58,9 @@ public sealed record GccResearchDocument(
     /// </summary>
     IReadOnlyList<GccFaqEvidence>? FaqEvidence = null);
 
-/// <summary>What one search of one partner's crawl found for one of the operator's FAQ questions.</summary>
-/// <param name="Host">The partner's host key (<c>bill.com</c>), the key the brief files the tool's questions under.</param>
+/// <summary>What one search of one partner's crawl found for one of the operator's questions: a tool
+/// page's FAQ question, a pillar's People Also Ask question or a blog's FAQ question.</summary>
+/// <param name="Host">The partner whose crawl was searched, as its host key (<c>bill.com</c>), the key the brief files the tool's questions under.</param>
 /// <param name="Question">The question as the operator wrote it, and as the search was asked it.</param>
 /// <param name="Pages">The passages found, by page. Empty when the search found nothing.</param>
 /// <param name="Retrieval">How the evidence library says it ordered this search's passages, in its own

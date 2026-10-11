@@ -352,12 +352,15 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         switch (page)
         {
             case "pillar":
+                // The research the search step leaves: each of the brief's questions for these two pages,
+                // searched for and found. A question with no passages is not sent, so without it neither
+                // page would make its FAQ call and no field could be seen to reach it.
                 saved = await plain.GeneratePillarBodyAsync(
-                    Create("pillar", "AI implementation", briefJson, null, null), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                    Create("pillar", "AI implementation", briefJson, PageFaqResearch.For(briefJson), null), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "blog":
                 saved = await plain.GenerateBlogBodyAsync(
-                    Create("blog", "AI implementation", briefJson, null, null), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                    Create("blog", "AI implementation", briefJson, PageFaqResearch.For(briefJson), null), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "email":
                 saved = await plain.GenerateEmailAsync(

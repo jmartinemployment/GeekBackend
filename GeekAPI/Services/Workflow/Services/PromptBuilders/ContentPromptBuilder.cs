@@ -97,19 +97,24 @@ public interface IContentPromptBuilder
         bool isRegeneration,
         string? revisionNotes = null);
 
+    /// <param name="evidenceBlock">What a search of each partner's crawl found for each question,
+    /// grouped by question. Given, the answers come from it alone and a question no passage answers
+    /// is left out; null, the section is written without evidence (the Workflow product's writer).</param>
     ChatCompletionRequest BuildArticleFaqSectionPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
         IReadOnlyList<string> faqQuestions,
         bool isRegeneration,
-        string? revisionNotes = null);
+        string? revisionNotes = null,
+        string? evidenceBlock = null);
 
     /// <summary>The blog's FAQ from the brief's own questions -- the pillar's People Also Ask shape,
     /// headed "Frequently Asked Questions" on a BlogPosting.</summary>
     ChatCompletionRequest BuildBlogFaqSectionPrompt(
         ProjectGenerationContext context,
         BlogMetadataDraft metadata,
-        IReadOnlyList<string> faqQuestions);
+        IReadOnlyList<string> faqQuestions,
+        string? evidenceBlock = null);
 
     /// <summary>The tool page's FAQ from the operator's questions, answered only from the partner's
     /// retrieved pages in <paramref name="evidenceBlock"/>; a question no passage answers is left out
@@ -1965,10 +1970,12 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     public ChatCompletionRequest BuildBlogFaqSectionPrompt(
         ProjectGenerationContext context,
         BlogMetadataDraft metadata,
-        IReadOnlyList<string> faqQuestions) =>
+        IReadOnlyList<string> faqQuestions,
+        string? evidenceBlock = null) =>
         FaqSectionPrompt(
             context, metadata.Title, faqQuestions,
-            pageKind: "BlogPosting blog", heading: "Frequently Asked Questions", isRegeneration: false, revisionNotes: null);
+            pageKind: "BlogPosting blog", heading: "Frequently Asked Questions", isRegeneration: false, revisionNotes: null,
+            evidenceBlock);
 
     /// <summary>
     /// One FAQ section from the operator's own questions, for the pillar (People Also Ask) and the
@@ -1976,6 +1983,20 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// Called once per batch of questions (<c>GccGenerateService.WriteFaqInBatchesAsync</c>), so a
     /// long list never meets the 3,072-token budget in one reply.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// With <paramref name="evidenceBlock"/>, the answers come from it and from nowhere else: what a
+    /// search of each partner's crawl found for each question, grouped by question. A question no
+    /// passage answers is left out and the caller reports it, the rule the tool page's FAQ has had
+    /// since 2026-10-10 (<see cref="BuildToolFaqFromQuestionsPrompt"/>). Until 2026-10-11 the Content
+    /// Creator's pillar and blog passed none: the call was given the questions, the title and the
+    /// keyword, and the writer answered from its own general knowledge.
+    /// </para>
+    /// <para>
+    /// Without it (null), the section is written as it always was. The Workflow product's writer
+    /// passes none: it has no search of a partner's crawl to pass.
+    /// </para>
+    /// </remarks>
     private ChatCompletionRequest FaqSectionPrompt(
         ProjectGenerationContext context,
         string title,
@@ -1983,9 +2004,11 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         string pageKind,
         string heading,
         bool isRegeneration,
-        string? revisionNotes)
+        string? revisionNotes,
+        string? evidenceBlock = null)
     {
         var paaBlock = string.Join("\n", faqQuestions.Select((q, i) => $"  - Q{i + 1}: {q}"));
+        var fromEvidence = evidenceBlock is not null;
 
         var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
@@ -1995,10 +2018,23 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Write ONLY the \"{heading}\" FAQ section of a {pageKind}.")
             .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
             .AppendLine(SectionJsonContract)
-            .AppendLine($"This section's tag is \"h2\" and heading is exactly \"{heading}\". Each question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
+            .AppendLine($"This section's tag is \"h2\" and heading is exactly \"{heading}\". Each {(fromEvidence ? "answered question" : "question")} is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
             .AppendLine("Direct, factual answers. Third person.")
             .AppendLine($"Answers must sound like {context.PublisherName} ({context.ImplementerPositioning}), not a generic textbook FAQ — reflect the same consultative brand voice as the rest of the article, not interchangeable boilerplate.")
             .ToString();
+
+        if (fromEvidence)
+        {
+            system += Environment.NewLine
+                + "Answer ONLY from the PARTNER EVIDENCE in the user message -- passages from the partner tools' own pages. "
+                + "If no passage answers a question, LEAVE THAT QUESTION OUT: no child for it and no placeholder. Never answer "
+                + "from general knowledge, and never state a capability, price or figure the evidence does not state."
+                + Environment.NewLine
+                + "The evidence is grouped by question: \"Found for Q1:\" heads what a search of the partners' pages found "
+                + "for Q1, and so on for each question."
+                + Environment.NewLine
+                + CurrencyInstruction;
+        }
 
         if (isRegeneration)
         {
@@ -2018,12 +2054,18 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Article title: {title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine()
-            .AppendLine("Questions to answer:")
-            .AppendLine(paaBlock)
-            .ToString();
+            .AppendLine(fromEvidence ? "Questions to answer, only where the evidence answers them:" : "Questions to answer:")
+            .AppendLine(paaBlock);
+
+        if (fromEvidence)
+        {
+            user.AppendLine()
+                .AppendLine("=== PARTNER EVIDENCE (the partner tools' own pages; the only source for these answers) ===")
+                .AppendLine(evidenceBlock!.Length > 0 ? evidenceBlock : "(nothing was retrieved -- answer no question)");
+        }
 
         return WithSectionSchema(new ChatCompletionRequest(
-            Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user) },
+            Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user.ToString()) },
             Temperature: isRegeneration ? 0.7 : 0.6,
             MaxOutputTokens: 3072));
     }

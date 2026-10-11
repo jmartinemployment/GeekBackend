@@ -128,17 +128,23 @@ public partial class GccGenerateService
         // never fed to an FAQ section anywhere on this path -- until Stage 8c. Not "cluster PAA
         // again at generation time" (the questions are already operator-curated, by SerpIngestPanel's
         // own selection UI, before they ever reach BriefJson); just stop discarding them.
+        //
+        // Each question is answered from what a search of every partner's crawl found for it, and a
+        // question with no answer in those passages is left out (2026-10-11). Until then the call was
+        // given no evidence and the writer answered from its own general knowledge.
         Section? pillarFaq = null;
-        // The questions that came back with no answer under them: reported with the draft, never a
-        // refusal.
+        // The questions left out, each with why: reported with the draft, never a refusal.
         var pillarFaqGaps = new List<string>();
-        var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions;
-        if (paaQuestions is { Count: > 0 })
+        var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions ?? [];
+        var pillarFaqSearched = GccResearchFetchService.Deserialize(create.ResearchJson)?.FaqEvidence;
+        if (paaQuestions.Count > 0)
         {
             pillarFaq = await WriteFaqInBatchesAsync(
                 llm,
-                batch => _prompts.BuildArticleFaqSectionPrompt(context, metadata, batch, isRegeneration: false),
+                (batch, found) => _prompts.BuildArticleFaqSectionPrompt(
+                    context, metadata, batch, isRegeneration: false, evidenceBlock: found),
                 paaQuestions,
+                pillarFaqSearched,
                 "the pillar's People Also Ask",
                 pillarFaqGaps,
                 ct);
@@ -163,7 +169,9 @@ public partial class GccGenerateService
             ContentTypes.GccLongFormTypes.Pillar,
             evidence,
             requiredTools,
-            pillarEvidence,
+            // What each question's searches found is evidence the writer is shown, in the FAQ call and in
+            // no other. The figure and currency checks read what the writer was shown, so it is part of it.
+            string.Join(Environment.NewLine, pillarEvidence, PageFaqEvidenceText(pillarFaqSearched, paaQuestions)),
             appendedSections: pillarFaq is null ? 0 : 1,
             partnerTools: partnerTools);
 

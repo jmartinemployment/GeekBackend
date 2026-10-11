@@ -2537,18 +2537,24 @@ public partial class GccGenerateService
         var blogOutline = blogType.OutlineFor(blogPromptCtx);
 
         // The blog's FAQ, from the brief's own questions (2026-10-08: the pillar had its People Also
-        // Ask and the blog had nothing). Written before the body like the pillar's, in calls of eight,
-        // and carried onto the draft after the closing, where the guards check it like the body.
+        // Ask and the blog had nothing). Written before the body like the pillar's, in calls of eight
+        // at most, and carried onto the draft after the closing, where the guards check it like the body.
+        //
+        // Each question is answered from what a search of every partner's crawl found for it, and a
+        // question with no answer in those passages is left out (2026-10-11). Until then the call was
+        // given no evidence and the writer answered from its own general knowledge.
         Section? blogFaq = null;
-        // The questions that came back with no answer under them: reported with the draft, never a refusal.
+        // The questions left out, each with why: reported with the draft, never a refusal.
         var blogFaqGaps = new List<string>();
-        var blogFaqQuestions = ExtractBriefFields(create.BriefJson).BlogFaqQuestions;
-        if (blogFaqQuestions is { Count: > 0 })
+        var blogFaqQuestions = ExtractBriefFields(create.BriefJson).BlogFaqQuestions ?? [];
+        var blogFaqSearched = GccResearchFetchService.Deserialize(create.ResearchJson)?.FaqEvidence;
+        if (blogFaqQuestions.Count > 0)
         {
             blogFaq = await WriteFaqInBatchesAsync(
                 llm,
-                batch => _prompts.BuildBlogFaqSectionPrompt(context, metadata, batch),
+                (batch, found) => _prompts.BuildBlogFaqSectionPrompt(context, metadata, batch, found),
                 blogFaqQuestions,
+                blogFaqSearched,
                 "the blog's FAQ",
                 blogFaqGaps,
                 ct);
@@ -2560,7 +2566,9 @@ public partial class GccGenerateService
             ContentTypes.GccLongFormTypes.Blog,
             evidence,
             blogRequiredTools,
-            blogEvidence,
+            // What each question's searches found is evidence the writer is shown, in the FAQ call and in
+            // no other. The figure and currency checks read what the writer was shown, so it is part of it.
+            string.Join(Environment.NewLine, blogEvidence, PageFaqEvidenceText(blogFaqSearched, blogFaqQuestions)),
             appendedSections: blogFaq is null ? 0 : 1,
             partnerTools: partnerTools);
 
@@ -2921,72 +2929,128 @@ public partial class GccGenerateService
     private const int PaaQuestionsPerFaqCall = 8;
 
     /// <summary>
-    /// An FAQ section written from the operator's questions in calls of
-    /// <see cref="PaaQuestionsPerFaqCall"/> and joined into one h2: every call returns the section
-    /// with one h3 child per question, and the children are concatenated in the brief's order under
-    /// the first call's heading. A call that answers none of its questions refuses the piece naming
-    /// the call. The pillar's People Also Ask and the blog's FAQ both come through here;
-    /// <paramref name="prompt"/> is the one difference.
+    /// The pillar's People Also Ask or the blog's FAQ, written from the operator's questions and
+    /// answered only from what a search of each partner's crawl found for each question
+    /// (<see cref="GccPageFaqEvidence"/>). Null when no question was answered: the page then carries
+    /// no such section.
     /// </summary>
     /// <remarks>
-    /// A call that answers some of its questions ships what it answered, and each question it did not
-    /// is named in <paramref name="gaps"/>, which the caller reports with the draft. Until 2026-10-10
-    /// that case was silent: this summary said "a missing answer is a refusal, not a shorter FAQ" and
-    /// the code refused only a call that answered nothing, so seven answers of eight shipped as an FAQ
-    /// with no word that one was missing. An answer under a heading that is none of the call's
-    /// questions is named too and stays on the page, as it always has: what ships is unchanged, only
-    /// what is said about it.
+    /// <para>
+    /// The rule is the tool page's FAQ rule, question for question. Only a question with passages is
+    /// sent: one whose searches were not made, or found nothing, has nothing to be answered from, and
+    /// the model is not paid to say so. A question sent and not answered is left out. An answer under
+    /// a heading that is none of the call's questions is dropped. Each of the four is named in
+    /// <paramref name="gaps"/>, which the caller reports with the draft, and recorded on the run log.
+    /// Nothing here refuses the page.
+    /// </para>
+    /// <para>
+    /// Until 2026-10-11 these questions were searched for nowhere and the call was given no evidence:
+    /// the writer answered from its own general knowledge, a call that answered none of its questions
+    /// refused the whole page, and an answer under a heading that was no question stayed on it.
+    /// </para>
+    /// <para>
+    /// The questions go in calls of at most <see cref="PaaQuestionsPerFaqCall"/>, fewer when their
+    /// passages would take a call past <see cref="GccPageFaqEvidence.MaxEvidenceCharsPerCall"/>, and
+    /// the answers are joined in the brief's order under the first call's heading.
+    /// </para>
     /// </remarks>
-    private async Task<Section> WriteFaqInBatchesAsync(
+    /// <param name="prompt">The call for some questions and the evidence found for them.</param>
+    /// <param name="searched">The research's FAQ searches; null when it carries none.</param>
+    private async Task<Section?> WriteFaqInBatchesAsync(
         IContentGenerationProvider llm,
-        Func<IReadOnlyList<string>, ChatCompletionRequest> prompt,
+        Func<IReadOnlyList<string>, string, ChatCompletionRequest> prompt,
         IReadOnlyList<string> questions,
+        IReadOnlyList<GccFaqEvidence>? searched,
         string label,
         List<string> gaps,
         CancellationToken ct)
     {
+        // What becomes of each question, for the run's record: the same four outcomes the operator is
+        // told, readable without the prompts.
+        var outcomes = new List<object>(questions.Count);
+        var toAsk = new List<(string Question, IReadOnlyList<GccQuoteablePage> Pages)>();
+        foreach (var question in questions)
+        {
+            var found = GccPageFaqEvidence.FoundFor(searched, question);
+            if (found is null)
+            {
+                gaps.Add($"{label}: the partners' crawls were not searched for \"{question}\"; it was left out.");
+                outcomes.Add(new { question, passages = 0, outcome = "not searched" });
+                continue;
+            }
+
+            if (GccToolFaqEvidence.PassageCount(found) == 0)
+            {
+                gaps.Add($"{label}: a search of the partners' crawls found nothing for \"{question}\"; it was left out.");
+                outcomes.Add(new { question, passages = 0, outcome = "nothing found" });
+                continue;
+            }
+
+            toAsk.Add((question, found));
+        }
+
         Section? head = null;
         var children = new List<Section>();
-        for (var start = 0; start < questions.Count; start += PaaQuestionsPerFaqCall)
+        var sent = 0;
+        foreach (var batch in GccPageFaqEvidence.Calls(toAsk, PaaQuestionsPerFaqCall))
         {
-            var batch = questions.Skip(start).Take(PaaQuestionsPerFaqCall).ToList();
-            var call = start / PaaQuestionsPerFaqCall + 1;
-            var result = await llm.CompleteAsync(prompt(batch), ct);
+            var result = await llm.CompleteAsync(
+                prompt([.. batch.Select(b => b.Question)], GccToolFaqEvidence.Render(batch)), ct);
             var section = LlmResponseJsonParser.ParseSection(
-                result.Content, "h2", $"{label}, questions {start + 1}-{start + batch.Count}");
-            if (section.Children.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    $"Refused: {label} call {call} answered none of its {batch.Count} questions.");
-            }
+                result.Content, "h2", $"{label}, questions {sent + 1}-{sent + batch.Count}");
+            sent += batch.Count;
             head ??= section;
-            children.AddRange(section.Children);
 
             // Matched the way the tool page's FAQ matches (AnswersQuestion), so one definition decides
-            // whether a question was answered on every page that has an FAQ.
-            var answering = new HashSet<Section>(ReferenceEqualityComparer.Instance);
-            foreach (var question in batch)
+            // whether a question was answered on every page that has an FAQ. By reference: two answers
+            // may read alike, and each is still its own child.
+            var kept = new HashSet<Section>(ReferenceEqualityComparer.Instance);
+            foreach (var (question, pages) in batch)
             {
+                var shown = GccToolFaqEvidence.PassageCount(pages);
                 var answer = section.Children.FirstOrDefault(c => AnswersQuestion(c.Heading, question));
                 if (answer is null)
                 {
-                    gaps.Add($"{label}: no answer came back under \"{question}\".");
+                    gaps.Add(
+                        $"{label}: the writer was shown {shown} passage(s) from the partners' crawls for \"{question}\" "
+                        + "and did not answer it; it was left out.");
+                    outcomes.Add(new { question, passages = shown, outcome = "not answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
                     continue;
                 }
-                answering.Add(answer);
+
+                outcomes.Add(new { question, passages = shown, outcome = "answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
+                if (kept.Add(answer)) children.Add(answer);
             }
-            foreach (var stray in section.Children.Where(c => !answering.Contains(c)))
+
+            // An answer under a heading that is none of the call's questions was written from no
+            // question's passages that code can name. It is dropped, as the tool page drops it.
+            foreach (var stray in section.Children.Where(c => !kept.Contains(c)))
             {
-                gaps.Add($"{label}: the writer answered under \"{stray.Heading}\", which is not a question it was sent.");
+                gaps.Add(
+                    $"{label}: the writer answered under \"{stray.Heading}\", which is not a question it was sent; "
+                    + "the answer was dropped.");
+                outcomes.Add(new { question = stray.Heading, passages = 0, outcome = "answered under another heading" });
             }
         }
 
-        if (head is null)
-        {
-            throw new InvalidOperationException($"Refused: {label} has no questions to answer.");
-        }
+        await GccRunLog.RecordIfAnyAsync("faq", new { page = label, questions = outcomes });
+
+        if (head is null || children.Count == 0) return null;
         return head with { Children = children };
     }
+
+    /// <summary>
+    /// The passages the searches found for a page's FAQ questions, as text: what the FAQ call was shown
+    /// beyond the page's other evidence, for the checks that read what the writer was shown.
+    /// </summary>
+    private static string PageFaqEvidenceText(
+        IReadOnlyList<GccFaqEvidence>? searched, IReadOnlyList<string> questions) =>
+        string.Join(
+            Environment.NewLine,
+            questions
+                .Select(question => GccPageFaqEvidence.FoundFor(searched, question))
+                .SelectMany(found => found ?? [])
+                .SelectMany(page => page.Paragraphs));
 
     /// <summary>
     /// Whether an FAQ child answers one of the operator's questions: the same words ignoring case,
