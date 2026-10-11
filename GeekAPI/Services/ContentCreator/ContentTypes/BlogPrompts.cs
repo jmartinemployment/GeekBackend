@@ -103,10 +103,11 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
             SectionSlot.Cover(
                 $"what separates an implementation of {keyword} that holds up from one that stalls",
                 depth,
+                // "approval routing" stood between "mapping" and "who owns what" until 2026-10-11: one subject's
+                // decision, named to a post on any subject (see the same change in ToolPrompts).
                 With(
-                    "The decisions made early that cannot be unmade -- data, mapping, approval routing, who owns "
-                    + "what. Name the tools whose behaviour decides these, where that matters to the point being "
-                    + "made.",
+                    "The decisions made early that cannot be unmade -- data, mapping, who owns what. Name the "
+                    + "tools whose behaviour decides these, where that matters to the point being made.",
                     pointer)),
             SectionSlot.Cover(
                 $"what the evidence shows about {keyword} -- measured outcomes, and what they do not prove",

@@ -85,10 +85,14 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
                 $"the data structure and mapping decisions that matter upfront when deploying {product}",
                 "500-700 words",
                 $"{notGeneric} Made concrete to {product}: what data structure and mapping decisions matter upfront."),
+            // Names no feature. It read "approval chains, routing, automation logic", written when every project
+            // was accounts payable, and the writer was held to it: on the 13:14 UTC run of 2026-10-11 three cash
+            // flow forecasting tools were each given a section headed "Approval Chains, Routing, and Automation
+            // Logic". What a product has to configure is in its own pages, and the slot sends the writer there.
             SectionSlot.Cover(
-                $"what gets configured in {product}: approval chains, routing, automation logic, and its extension mechanism",
+                $"what gets configured in {product}: its own rules and automation logic, and its extension mechanism",
                 "500-700 words",
-                $"{notGeneric} Made concrete to {product}: what approval chains, routing or automation logic get configured; and {product}'s own extension mechanism if it has one (API, scripting, SDK) -- if it is config-only, say so rather than inventing one. This is where the reader's DIY question gets answered: what {publisher} does that makes it work in their environment."),
+                $"{notGeneric} Made concrete to {product}: which rules and automation logic get configured, named as {product}'s own pages name them and never as another kind of product's; and {product}'s own extension mechanism if it has one (API, scripting, SDK) -- if it is config-only, say so rather than inventing one. This is where the reader's DIY question gets answered: what {publisher} does that makes it work in their environment."),
             SectionSlot.Cover(
                 $"how a buyer should judge {product}: fit and pricing model",
                 "500-700 words",
